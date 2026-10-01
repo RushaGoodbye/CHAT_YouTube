@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS videos (
   channel_id TEXT,
   title TEXT NOT NULL,
   published_at TEXT,
+  scheduled_publish_at TEXT,
   privacy_status TEXT,
+  duration TEXT,
   views INTEGER DEFAULT 0,
   audit_json TEXT DEFAULT '{}',
   last_synced_at TEXT NOT NULL
@@ -35,16 +37,43 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id);
+CREATE TABLE IF NOT EXISTS metadata_history (
+  history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  tags_json TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metadata_history_video
+  ON metadata_history(video_id, created_at DESC);
 """
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def _ensure_column(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    existing = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.commit()
 
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _ensure_column(conn, "videos", "scheduled_publish_at", "TEXT")
+    _ensure_column(conn, "videos", "duration", "TEXT")
     return conn
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
@@ -61,16 +90,25 @@ def get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
 
 def upsert_video(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
     conn.execute(
-        """INSERT INTO videos(video_id,channel_id,title,published_at,privacy_status,views,audit_json,last_synced_at)
-        VALUES(?,?,?,?,?,?,?,?)
+        """INSERT INTO videos(
+            video_id,channel_id,title,published_at,scheduled_publish_at,
+            privacy_status,duration,views,audit_json,last_synced_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(video_id) DO UPDATE SET
           channel_id=excluded.channel_id,title=excluded.title,
-          published_at=excluded.published_at,privacy_status=excluded.privacy_status,
-          views=excluded.views,audit_json=excluded.audit_json,last_synced_at=excluded.last_synced_at""",
+          published_at=excluded.published_at,
+          scheduled_publish_at=excluded.scheduled_publish_at,
+          privacy_status=excluded.privacy_status,
+          duration=excluded.duration,
+          views=excluded.views,audit_json=excluded.audit_json,
+          last_synced_at=excluded.last_synced_at""",
         (
             item["video_id"], item.get("channel_id"), item.get("title", ""),
-            item.get("published_at"), item.get("privacy_status"),
-            int(item.get("views") or 0), json.dumps(item.get("audit", {}), ensure_ascii=False),
+            item.get("published_at"), item.get("scheduled_publish_at"),
+            item.get("privacy_status"), item.get("duration"),
+            int(item.get("views") or 0),
+            json.dumps(item.get("audit", {}), ensure_ascii=False),
             utc_now(),
         ),
     )
@@ -105,3 +143,41 @@ def set_comment_status(conn: sqlite3.Connection, comment_id: str, status: str) -
         (status, comment_id),
     )
     conn.commit()
+
+
+def save_metadata_snapshot(
+    conn: sqlite3.Connection,
+    video_id: str,
+    title: str,
+    description: str,
+    tags: list[str] | None,
+    reason: str,
+) -> int:
+    cursor = conn.execute(
+        """INSERT INTO metadata_history(
+            video_id,title,description,tags_json,reason,created_at
+        ) VALUES(?,?,?,?,?,?)""",
+        (
+            video_id,
+            title,
+            description,
+            json.dumps(tags or [], ensure_ascii=False),
+            reason,
+            utc_now(),
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+def latest_metadata_snapshot(
+    conn: sqlite3.Connection,
+    video_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT history_id,video_id,title,description,tags_json,reason,created_at
+           FROM metadata_history
+           WHERE video_id=?
+           ORDER BY history_id DESC
+           LIMIT 1""",
+        (video_id,),
+    ).fetchone()
