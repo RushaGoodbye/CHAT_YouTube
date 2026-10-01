@@ -11,7 +11,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+]
 KEYRING_SERVICE = "RG YouTube Control"
 
 @dataclass
@@ -24,12 +27,14 @@ class YouTubeClient:
     def __init__(self, profile: str = "default") -> None:
         self.profile = profile
         self._service = None
+        self._analytics_service = None
 
     def authorize(self, client_secret_path: str | Path) -> YouTubeProfile:
         flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), SCOPES)
         creds = flow.run_local_server(host="127.0.0.1", port=0, open_browser=True)
         keyring.set_password(KEYRING_SERVICE, self.profile, creds.to_json())
         self._service = build("youtube", "v3", credentials=creds, cache_discovery=False)
+        self._analytics_service = None
         channel = self.my_channel()
         return YouTubeProfile(
             name=self.profile,
@@ -43,6 +48,7 @@ class YouTubeClient:
         except keyring.errors.PasswordDeleteError:
             pass
         self._service = None
+        self._analytics_service = None
 
     def credentials(self) -> Credentials:
         raw = keyring.get_password(KEYRING_SERVICE, self.profile)
@@ -60,6 +66,43 @@ class YouTubeClient:
                 "youtube", "v3", credentials=self.credentials(), cache_discovery=False
             )
         return self._service
+
+    def analytics_service(self):
+        if self._analytics_service is None:
+            self._analytics_service = build(
+                "youtubeAnalytics",
+                "v2",
+                credentials=self.credentials(),
+                cache_discovery=False,
+            )
+        return self._analytics_service
+
+    def analytics_report(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+        metrics: str,
+        dimensions: str | None = None,
+        filters: str | None = None,
+        sort: str | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "ids": "channel==MINE",
+            "startDate": start_date,
+            "endDate": end_date,
+            "metrics": metrics,
+        }
+        if dimensions:
+            params["dimensions"] = dimensions
+        if filters:
+            params["filters"] = filters
+        if sort:
+            params["sort"] = sort
+        if max_results:
+            params["maxResults"] = max_results
+        return self.analytics_service().reports().query(**params).execute()
 
     def my_channel(self) -> dict[str, Any]:
         response = self.service().channels().list(

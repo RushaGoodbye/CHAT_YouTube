@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
@@ -260,6 +260,7 @@ class MainWindow(QMainWindow):
         self._build_videos_tab()
         self._build_optimization_tab()
         self._build_comments_tab()
+        self._build_analytics_tab()
         self._build_settings_tab()
 
         self.scan_timer = QTimer(self)
@@ -622,6 +623,222 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls)
         layout.addWidget(self.comment_table)
         self.tabs.addTab(page, "Комментарии")
+
+    def _build_analytics_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        controls = QHBoxLayout()
+
+        self.analytics_period_combo = QComboBox()
+        self.analytics_period_combo.addItem("28 дней", 28)
+        self.analytics_period_combo.addItem("90 дней", 90)
+        self.analytics_period_combo.addItem("180 дней", 180)
+        self.analytics_period_combo.setCurrentIndex(1)
+
+        refresh_btn = QPushButton("Обновить аналитику")
+        refresh_btn.setProperty("role", "primary")
+        refresh_btn.clicked.connect(self.load_channel_analytics)
+
+        reauth_btn = QPushButton("Переподключить YouTube")
+        reauth_btn.clicked.connect(self.connect_youtube)
+
+        controls.addWidget(QLabel("Период:"))
+        controls.addWidget(self.analytics_period_combo)
+        controls.addWidget(refresh_btn)
+        controls.addWidget(reauth_btn)
+        controls.addStretch()
+
+        hint = QLabel(
+            "Данные берутся напрямую из YouTube Analytics API. "
+            "vidIQ и его AI Credits для этой вкладки не используются."
+        )
+        hint.setWordWrap(True)
+
+        self.analytics_text = QPlainTextEdit()
+        self.analytics_text.setReadOnly(True)
+        self.analytics_text.setPlaceholderText(
+            "Нажмите «Обновить аналитику». "
+            "После установки версии с аналитикой потребуется один раз "
+            "переподключить каждый YouTube-канал, чтобы разрешить чтение Analytics."
+        )
+
+        layout.addLayout(controls)
+        layout.addWidget(hint)
+        layout.addWidget(self.analytics_text, 1)
+        self.tabs.addTab(page, "Аналитика")
+
+    @staticmethod
+    def _analytics_result_rows(report: dict) -> list[list]:
+        return list(report.get("rows") or [])
+
+    def load_channel_analytics(self) -> None:
+        days = int(self.analytics_period_combo.currentData() or 90)
+        end = datetime.now(timezone.utc).date()
+        start = end - timedelta(days=max(days - 1, 0))
+        start_s = start.isoformat()
+        end_s = end.isoformat()
+
+        try:
+            self.statusBar().showMessage("Загрузка YouTube Analytics…")
+            QApplication.processEvents()
+
+            totals = self.client.analytics_report(
+                start_date=start_s,
+                end_date=end_s,
+                metrics="views,engagedViews,estimatedMinutesWatched,subscribersGained",
+            )
+            traffic = self.client.analytics_report(
+                start_date=start_s,
+                end_date=end_s,
+                metrics="views,estimatedMinutesWatched",
+                dimensions="insightTrafficSourceType",
+                sort="-views",
+            )
+            search = self.client.analytics_report(
+                start_date=start_s,
+                end_date=end_s,
+                metrics="views,estimatedMinutesWatched",
+                dimensions="insightTrafficSourceDetail",
+                filters="insightTrafficSourceType==YT_SEARCH",
+                sort="-views",
+                max_results=25,
+            )
+            geography = self.client.analytics_report(
+                start_date=start_s,
+                end_date=end_s,
+                metrics="views,estimatedMinutesWatched",
+                dimensions="country",
+                sort="-views",
+                max_results=20,
+            )
+            top_videos = self.client.analytics_report(
+                start_date=start_s,
+                end_date=end_s,
+                metrics=(
+                    "views,engagedViews,estimatedMinutesWatched,"
+                    "averageViewDuration,subscribersGained"
+                ),
+                dimensions="video",
+                sort="-views",
+                max_results=25,
+            )
+
+            traffic_names = {
+                "ADVERTISING": "Реклама",
+                "ANNOTATION": "Аннотации / карточки",
+                "END_SCREEN": "Конечные заставки",
+                "EXT_URL": "Внешние сайты / Google",
+                "HASHTAGS": "Хештеги",
+                "LIVE_REDIRECT": "Live Redirect",
+                "NO_LINK_EMBEDDED": "Встроенные плееры",
+                "NO_LINK_OTHER": "Прямые / неизвестные",
+                "NOTIFICATION": "Уведомления",
+                "PLAYLIST": "Плейлисты",
+                "RELATED_VIDEO": "Рекомендованные видео",
+                "SHORTS": "Лента Shorts",
+                "SOUND_PAGE": "Страницы звука",
+                "SUBSCRIBER": "Главная / подписки",
+                "YT_CHANNEL": "Страницы каналов",
+                "YT_OTHER_PAGE": "Другие страницы YouTube",
+                "YT_SEARCH": "Поиск YouTube",
+                "VIDEO_REMIXES": "Ремиксы",
+            }
+
+            lines: list[str] = []
+            lines.append(
+                f"{PROFILE_LABELS[self.current_profile]} · "
+                f"{start_s} — {end_s} · {days} дней"
+            )
+            lines.append("=" * 72)
+
+            total_rows = self._analytics_result_rows(totals)
+            if total_rows:
+                row = total_rows[0]
+                views = int(row[0] or 0)
+                engaged = int(row[1] or 0)
+                minutes = float(row[2] or 0)
+                subs = int(row[3] or 0)
+                lines.append(
+                    f"Просмотры: {views:,} · Вовлечённые просмотры: {engaged:,} · "
+                    f"Часы просмотра: {minutes / 60:,.1f} · "
+                    f"Подписчики: +{subs:,}"
+                )
+                lines.append("")
+
+            lines.append("ИСТОЧНИКИ ТРАФИКА")
+            traffic_rows = self._analytics_result_rows(traffic)
+            traffic_total = sum(float(r[1] or 0) for r in traffic_rows) or 1.0
+            for row in traffic_rows[:15]:
+                source = traffic_names.get(str(row[0]), str(row[0]))
+                views = float(row[1] or 0)
+                pct = views / traffic_total * 100
+                hours = float(row[2] or 0) / 60
+                lines.append(
+                    f"• {source}: {int(views):,} просмотров "
+                    f"({pct:.1f}%), {hours:,.1f} ч"
+                )
+            lines.append("")
+
+            lines.append("ПОИСКОВЫЕ ЗАПРОСЫ YOUTUBE")
+            search_rows = self._analytics_result_rows(search)
+            if not search_rows:
+                lines.append("• Нет данных за выбранный период")
+            else:
+                for row in search_rows:
+                    term = str(row[0] or "—")
+                    views = int(row[1] or 0)
+                    hours = float(row[2] or 0) / 60
+                    lines.append(f"• {term}: {views:,} просмотров, {hours:,.1f} ч")
+            lines.append("")
+
+            lines.append("ГЕОГРАФИЯ")
+            for row in self._analytics_result_rows(geography)[:15]:
+                country = str(row[0] or "—")
+                views = int(row[1] or 0)
+                hours = float(row[2] or 0) / 60
+                lines.append(f"• {country}: {views:,} просмотров, {hours:,.1f} ч")
+            lines.append("")
+
+            title_by_id = {
+                row["video_id"]: row["title"]
+                for row in self.conn.execute(
+                    "SELECT video_id,title FROM videos WHERE profile=?",
+                    (self.current_profile,),
+                ).fetchall()
+            }
+            lines.append("ТОП ВИДЕО")
+            for row in self._analytics_result_rows(top_videos):
+                video_id = str(row[0])
+                views = int(row[1] or 0)
+                engaged = int(row[2] or 0)
+                hours = float(row[3] or 0) / 60
+                avd = int(float(row[4] or 0))
+                subs = int(row[5] or 0)
+                title = title_by_id.get(video_id, video_id)
+                lines.append(
+                    f"• {title}\n"
+                    f"  {views:,} views · {engaged:,} engaged · "
+                    f"{hours:,.1f} ч · AVD {avd // 60}:{avd % 60:02d} · +{subs} subs"
+                )
+
+            self.analytics_text.setPlainText("\n".join(lines))
+            self.statusBar().showMessage("YouTube Analytics обновлена")
+        except Exception as exc:
+            message = str(exc)
+            if (
+                "insufficientPermissions" in message
+                or "insufficient authentication scopes" in message.lower()
+                or "invalid_scope" in message.lower()
+            ):
+                QMessageBox.warning(
+                    self,
+                    APP_NAME,
+                    "Для YouTube Analytics нужна новая авторизация. "
+                    "Нажмите «Переподключить YouTube» на этой вкладке и "
+                    "разрешите доступ, затем повторите загрузку.",
+                )
+                return
+            self._error("Ошибка YouTube Analytics", exc)
 
     def _build_settings_tab(self) -> None:
         page = QWidget()
