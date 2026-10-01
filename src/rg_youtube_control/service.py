@@ -31,6 +31,7 @@ def sync_videos(
         result = audit(snippet.get("description", ""), snippet.get("tags", []))
         row = {
             "video_id": item["id"],
+            "profile": client.profile,
             "channel_id": snippet.get("channelId"),
             "title": snippet.get("title", ""),
             "published_at": snippet.get("publishedAt"),
@@ -59,6 +60,7 @@ def sync_specific_videos(
         result = audit(snippet.get("description", ""), snippet.get("tags", []))
         row = {
             "video_id": item["id"],
+            "profile": client.profile,
             "channel_id": snippet.get("channelId"),
             "title": snippet.get("title", ""),
             "published_at": snippet.get("publishedAt"),
