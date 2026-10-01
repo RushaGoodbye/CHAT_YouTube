@@ -26,6 +26,12 @@ OLD_DONATE_LINK = "https://rg-donates.pages.dev/"
 DEFAULT_SCAN_MINUTES = 10
 DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 80
 SAFE_AUTO_CATEGORIES = {"thanks", "links", "donate", "schedule"}
+DEFAULT_REPLY_TEMPLATES = {
+    "thanks": "Дякуємо за підтримку! 💙💛",
+    "links": f"Усі актуальні посилання проєкту: {PROJECT_LINKS_URL}",
+    "donate": f"Дякуємо за підтримку! Усі варіанти донейту: {DONATE_URL}",
+    "schedule": f"Актуальний розклад і всі посилання проєкту: {PROJECT_LINKS_URL}",
+}
 
 def app_data_dir() -> Path:
     fallback = Path.home() / "AppData" / "Local"
