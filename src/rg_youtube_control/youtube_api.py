@@ -1,3 +1,4 @@
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 KEYRING_SERVICE = "RG YouTube Control"
@@ -171,3 +173,66 @@ class YouTubeClient:
         return self.service().videos().update(
             part="snippet", body={"id": video_id, "snippet": snippet}
         ).execute()
+
+
+    def caption_tracks(self, video_id: str) -> list[dict[str, Any]]:
+        response = self.service().captions().list(
+            part="snippet",
+            videoId=video_id,
+        ).execute()
+        return response.get("items", [])
+
+    def download_caption_srt(self, caption_id: str) -> str:
+        request = self.service().captions().download(
+            id=caption_id,
+            tfmt="srt",
+        )
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            _status, done = downloader.next_chunk()
+        return buffer.getvalue().decode("utf-8-sig", errors="replace")
+
+    def best_caption_track(
+        self,
+        video_id: str,
+        preferred_languages: tuple[str, ...] = ("ru", "uk", "en"),
+    ) -> dict[str, Any] | None:
+        tracks = self.caption_tracks(video_id)
+        if not tracks:
+            return None
+
+        def score(item: dict[str, Any]) -> tuple[int, int, int, str]:
+            snippet = item.get("snippet", {})
+            language = str(snippet.get("language") or "").lower()
+            status = str(snippet.get("status") or "")
+            track_kind = str(snippet.get("trackKind") or "")
+            is_draft = bool(snippet.get("isDraft"))
+            lang_score = 0
+            for index, preferred in enumerate(preferred_languages):
+                if language == preferred or language.startswith(preferred + "-"):
+                    lang_score = len(preferred_languages) - index
+                    break
+            serving_score = 2 if status == "serving" else 0
+            manual_score = 1 if track_kind != "ASR" else 0
+            draft_penalty = -10 if is_draft else 0
+            return (
+                lang_score + draft_penalty,
+                serving_score,
+                manual_score,
+                str(snippet.get("lastUpdated") or ""),
+            )
+
+        return max(tracks, key=score)
+
+    def download_best_caption_srt(
+        self,
+        video_id: str,
+        preferred_languages: tuple[str, ...] = ("ru", "uk", "en"),
+    ) -> tuple[dict[str, Any], str]:
+        track = self.best_caption_track(video_id, preferred_languages)
+        if track is None:
+            raise RuntimeError("Для этого видео не найдено доступных субтитров.")
+        text = self.download_caption_srt(track["id"])
+        return track, text
