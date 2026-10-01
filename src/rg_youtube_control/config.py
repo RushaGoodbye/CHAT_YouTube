@@ -26,6 +26,19 @@ OLD_DONATE_LINK = "https://rg-donates.pages.dev/"
 DEFAULT_NAS_TRANSCRIPTS_PATH = r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS"
 DEFAULT_NAS_PACKAGES_PATH = r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\PACKAGES"
 
+
+def normalize_nas_unc_path(value: str | None, default: str) -> str:
+    text = (value or "").strip().replace("/", "\\")
+    if not text:
+        text = default
+    if text.startswith("\\\\"):
+        return text
+    if text.startswith("\\"):
+        return "\\" + text
+    if ":" not in text and "\\" in text:
+        return "\\\\" + text.lstrip("\\")
+    return text
+
 DEFAULT_SCAN_MINUTES = 10
 DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 20
 DEFAULT_MAX_AUTO_REPLIES_PER_SCAN = 3
