@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -41,8 +42,16 @@ from .config import (
     PROFILE_TARGETS,
     app_data_dir,
 )
-from .db import connect, get_setting, set_comment_status, set_setting
+from .db import (
+    connect,
+    get_setting,
+    latest_metadata_snapshot,
+    save_metadata_snapshot,
+    set_comment_status,
+    set_setting,
+)
 from .metadata_audit import normalize_links
+from .optimization import priority_label, safe_description_fix
 from .service import (
     manual_reply,
     scan_comments,
@@ -110,6 +119,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
         self._build_videos_tab()
+        self._build_optimization_tab()
         self._build_comments_tab()
         self._build_settings_tab()
 
@@ -119,6 +129,7 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("SYSTEM READY")
         self.reload_videos()
+        self.reload_optimization_queue()
         self.reload_comments()
         QTimer.singleShot(3000, self.check_for_updates_silent)
 
@@ -146,6 +157,57 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls)
         layout.addWidget(self.video_table)
         self.tabs.addTab(page, "Видео")
+
+    def _build_optimization_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        controls = QHBoxLayout()
+
+        sync_all_btn = QPushButton("Синхронизировать весь архив")
+        sync_all_btn.clicked.connect(self.sync_full_archive)
+        refresh_btn = QPushButton("Обновить очередь")
+        refresh_btn.clicked.connect(self.reload_optimization_queue)
+        preview_btn = QPushButton("Предпросмотр безопасных правок")
+        preview_btn.clicked.connect(self.preview_safe_optimization)
+        apply_btn = QPushButton("Применить к выбранным")
+        apply_btn.clicked.connect(self.apply_safe_optimization)
+        rollback_btn = QPushButton("Откатить последнее")
+        rollback_btn.clicked.connect(self.rollback_selected_metadata)
+
+        controls.addWidget(sync_all_btn)
+        controls.addWidget(refresh_btn)
+        controls.addWidget(preview_btn)
+        controls.addWidget(apply_btn)
+        controls.addWidget(rollback_btn)
+        controls.addStretch()
+
+        self.optimization_table = QTableWidget(0, 8)
+        self.optimization_table.setHorizontalHeaderLabels(
+            [
+                "Приоритет",
+                "Публикация",
+                "Статус",
+                "Видео",
+                "Название",
+                "Просмотры",
+                "Audit",
+                "Проблемы",
+            ]
+        )
+        self.optimization_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.optimization_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.optimization_table.horizontalHeader().setStretchLastSection(True)
+        self.optimization_table.doubleClicked.connect(
+            lambda _index: self.preview_safe_optimization()
+        )
+
+        layout.addLayout(controls)
+        layout.addWidget(self.optimization_table)
+        self.tabs.addTab(page, "Оптимизация")
 
     def _build_comments_tab(self) -> None:
         page = QWidget()
@@ -343,6 +405,7 @@ class MainWindow(QMainWindow):
         else:
             self.channel_label.setText("YouTube: не подключен")
         self.reload_videos()
+        self.reload_optimization_queue()
         self.reload_comments()
 
     def choose_oauth_file(self) -> None:
@@ -389,6 +452,7 @@ class MainWindow(QMainWindow):
         try:
             rows = sync_videos(self.client, self.conn, limit=50)
             self.reload_videos()
+            self.reload_optimization_queue()
             self.statusBar().showMessage(f"Видео синхронизированы: {len(rows)}")
         except Exception as exc:
             self._error("Ошибка синхронизации", exc)
@@ -413,6 +477,14 @@ class MainWindow(QMainWindow):
             if not title:
                 QMessageBox.warning(self, APP_NAME, "Название не может быть пустым.")
                 return
+            save_metadata_snapshot(
+                self.conn,
+                video_id,
+                snippet.get("title", ""),
+                snippet.get("description", ""),
+                snippet.get("tags", []) or [],
+                "before_manual_edit",
+            )
             self.client.update_video(
                 video_id, title=title, description=description, tags=tags
             )
@@ -420,6 +492,278 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Метаданные видео обновлены")
         except Exception as exc:
             self._error("Ошибка обновления видео", exc)
+
+    def sync_full_archive(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Полная синхронизация архива",
+            "Синхронизировать весь архив канала? Это только чтение метаданных "
+            "и не изменит видео.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.statusBar().showMessage("Синхронизирую весь архив...")
+            QApplication.processEvents()
+            rows = sync_videos(self.client, self.conn, limit=1000)
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.statusBar().showMessage(
+                f"Архив синхронизирован: {len(rows)} видео"
+            )
+        except Exception as exc:
+            self._error("Ошибка полной синхронизации", exc)
+
+    def _selected_optimization_video_ids(self) -> list[str]:
+        if not hasattr(self, "optimization_table"):
+            return []
+        rows = self.optimization_table.selectionModel().selectedRows(3)
+        result: list[str] = []
+        for index in rows:
+            value = index.data(Qt.ItemDataRole.UserRole) or index.data(
+                Qt.ItemDataRole.DisplayRole
+            )
+            if value:
+                result.append(str(value))
+        return result
+
+    def reload_optimization_queue(self) -> None:
+        if not hasattr(self, "optimization_table"):
+            return
+        import json
+
+        target_id = PROFILE_TARGETS[self.current_profile]
+        rows = self.conn.execute(
+            """SELECT video_id,title,published_at,scheduled_publish_at,
+                      privacy_status,views,audit_json
+               FROM videos
+               WHERE channel_id=?""",
+            (target_id,),
+        ).fetchall()
+
+        prepared = []
+        for row in rows:
+            audit_data = json.loads(row["audit_json"] or "{}")
+            score = int(audit_data.get("score") or 0)
+            issues = list(audit_data.get("issues", []))
+            priority_value, priority_text = priority_label(
+                score,
+                row["privacy_status"],
+                row["scheduled_publish_at"],
+                issues,
+            )
+            publish_text = (
+                row["scheduled_publish_at"]
+                or row["published_at"]
+                or ""
+            )
+            prepared.append(
+                (
+                    priority_value,
+                    publish_text,
+                    priority_text,
+                    row,
+                    score,
+                    issues,
+                )
+            )
+
+        prepared.sort(
+            key=lambda item: (
+                -item[0],
+                item[1] or "9999",
+                -(int(item[3]["views"] or 0)),
+            )
+        )
+
+        self.optimization_table.setRowCount(len(prepared))
+        for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
+            prepared
+        ):
+            values = [
+                priority_text,
+                publish_text,
+                row["privacy_status"] or "",
+                row["video_id"],
+                row["title"],
+                str(row["views"] or 0),
+                str(score),
+                ", ".join(issues),
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if column == 3:
+                    item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
+                self.optimization_table.setItem(index, column, item)
+
+    def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
+        item = self.client.video_details([video_id])[0]
+        snippet = item.get("snippet", {})
+        return (
+            snippet.get("title", ""),
+            snippet.get("description", ""),
+            snippet.get("tags", []) or [],
+        )
+
+    def preview_safe_optimization(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if not video_ids:
+            QMessageBox.information(
+                self, APP_NAME, "Выберите одно видео в очереди оптимизации."
+            )
+            return
+        video_id = video_ids[0]
+        try:
+            title, description, _tags = self._current_video_metadata(video_id)
+            fix = safe_description_fix(description)
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Предпросмотр · {title}")
+            dialog.resize(1050, 720)
+            layout = QVBoxLayout(dialog)
+            changes = ", ".join(fix.changes) if fix.changes else "изменений нет"
+            layout.addWidget(QLabel(f"Безопасные изменения: {changes}"))
+
+            columns = QHBoxLayout()
+            before = QPlainTextEdit(fix.before)
+            before.setReadOnly(True)
+            after = QPlainTextEdit(fix.after)
+            after.setReadOnly(True)
+            left = QVBoxLayout()
+            left.addWidget(QLabel("ДО"))
+            left.addWidget(before)
+            right = QVBoxLayout()
+            right.addWidget(QLabel("ПОСЛЕ"))
+            right.addWidget(after)
+            columns.addLayout(left)
+            columns.addLayout(right)
+            layout.addLayout(columns)
+
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            buttons.rejected.connect(dialog.reject)
+            buttons.accepted.connect(dialog.accept)
+            buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
+                dialog.accept
+            )
+            layout.addWidget(buttons)
+            dialog.exec()
+        except Exception as exc:
+            self._error("Ошибка предпросмотра", exc)
+
+    def apply_safe_optimization(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if not video_ids:
+            QMessageBox.information(
+                self, APP_NAME, "Выберите видео для безопасной оптимизации."
+            )
+            return
+        if len(video_ids) > 20:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "За один пакет можно обработать не более 20 видео.",
+            )
+            return
+
+        estimated = len(video_ids) * 50
+        answer = QMessageBox.question(
+            self,
+            "Применить безопасные правки",
+            f"Выбрано видео: {len(video_ids)}.\n"
+            f"Максимальный расход на videos.update: ≈{estimated} units.\n\n"
+            "Будут изменены только старые/отсутствующие ссылки в описании. "
+            "Название, теги и остальной текст останутся без изменений. Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        changed = 0
+        skipped = 0
+        try:
+            for video_id in video_ids:
+                title, description, tags = self._current_video_metadata(video_id)
+                fix = safe_description_fix(description)
+                if not fix.changes or fix.after == description:
+                    skipped += 1
+                    continue
+                save_metadata_snapshot(
+                    self.conn,
+                    video_id,
+                    title,
+                    description,
+                    tags,
+                    "before_safe_optimization",
+                )
+                self.client.update_video(video_id, description=fix.after)
+                changed += 1
+
+            if changed:
+                sync_videos(self.client, self.conn, limit=1000)
+            self.reload_videos()
+            self.reload_optimization_queue()
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Готово. Изменено: {changed}. Без изменений: {skipped}.",
+            )
+        except Exception as exc:
+            self._error("Ошибка безопасной оптимизации", exc)
+
+    def rollback_selected_metadata(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self, APP_NAME, "Для отката выберите ровно одно видео."
+            )
+            return
+        video_id = video_ids[0]
+        snapshot = latest_metadata_snapshot(self.conn, video_id)
+        if snapshot is None:
+            QMessageBox.information(
+                self, APP_NAME, "Для этого видео ещё нет сохранённой версии."
+            )
+            return
+
+        import json
+        answer = QMessageBox.question(
+            self,
+            "Откат метаданных",
+            f"Вернуть метаданные из сохранения {snapshot['created_at']}?\n"
+            f"Причина сохранения: {snapshot['reason']}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            current_title, current_description, current_tags = (
+                self._current_video_metadata(video_id)
+            )
+            save_metadata_snapshot(
+                self.conn,
+                video_id,
+                current_title,
+                current_description,
+                current_tags,
+                "before_rollback",
+            )
+            self.client.update_video(
+                video_id,
+                title=snapshot["title"],
+                description=snapshot["description"],
+                tags=json.loads(snapshot["tags_json"] or "[]"),
+            )
+            sync_videos(self.client, self.conn, limit=1000)
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.statusBar().showMessage("Метаданные видео восстановлены")
+        except Exception as exc:
+            self._error("Ошибка отката метаданных", exc)
 
     def scan_comment_queue(self, silent: bool = False) -> None:
         if silent and not self.background_box.isChecked():
