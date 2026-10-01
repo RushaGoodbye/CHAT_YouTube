@@ -304,7 +304,8 @@ class MainWindow(QMainWindow):
         video_ids = [
             row["video_id"]
             for row in self.conn.execute(
-                "SELECT video_id FROM videos WHERE channel_id=? "
+                "SELECT video_id FROM videos "
+                "WHERE channel_id=? AND privacy_status='public' "
                 "ORDER BY published_at DESC LIMIT 20",
                 (target_id,),
             ).fetchall()
@@ -323,9 +324,8 @@ class MainWindow(QMainWindow):
             )
             self.reload_comments()
             self.statusBar().showMessage(
-                "Комментарии: {seen}, очередь: {queued}, автоответы: {auto_replied}".format(
-                    **stats
-                )
+                "Комментарии: {seen}, очередь: {queued}, автоответы: {auto_replied}, "
+                "пропущено без комментариев: {skipped_disabled}".format(**stats)
             )
         except Exception as exc:
             if silent:
