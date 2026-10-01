@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -14,6 +15,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -22,6 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QTableWidget,
@@ -38,6 +42,8 @@ from .config import (
     DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     DEFAULT_REPLY_TEMPLATES,
     DEFAULT_SCAN_MINUTES,
+    DEFAULT_NAS_PACKAGES_PATH,
+    DEFAULT_NAS_TRANSCRIPTS_PATH,
     PROFILE_LABELS,
     PROFILE_TARGETS,
     app_data_dir,
@@ -69,6 +75,7 @@ from .service import (
     today_reply_count,
 )
 from .youtube_api import YouTubeClient
+from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .updater import UpdateInfo, check_for_update, download_update
 
 class MetadataDialog(QDialog):
@@ -196,6 +203,33 @@ class ContentOptimizationDialog(QDialog):
         )
 
 
+class MetricCard(QFrame):
+    def __init__(self, title: str, value: str = "—", parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("MetricCard")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(92)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(3)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("MetricTitle")
+        self.value_label = QLabel(value)
+        self.value_label.setObjectName("MetricValue")
+        self.note_label = QLabel("")
+        self.note_label.setProperty("muted", True)
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.note_label)
+
+    def set_value(self, value: str, note: str = "") -> None:
+        self.value_label.setText(value)
+        self.note_label.setText(note)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -205,23 +239,225 @@ class MainWindow(QMainWindow):
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
         self.current_profile = get_setting(self.conn, "current_profile", "main")
         self.client = YouTubeClient(profile=self.current_profile)
+        self.setStyleSheet(APP_STYLESHEET)
+        self.resize(1500, 920)
+        self.setMinimumSize(1180, 760)
+
+        root = QWidget()
+        self.setCentralWidget(root)
+        shell = QVBoxLayout(root)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+
+        self._build_top_bar(shell)
+        self._build_metrics(shell)
 
         self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
+        shell.addWidget(self.tabs, 1)
         self._build_videos_tab()
         self._build_optimization_tab()
         self._build_comments_tab()
         self._build_settings_tab()
 
         self.scan_timer = QTimer(self)
-        self.scan_timer.timeout.connect(lambda: self.scan_comment_queue(silent=True))
+        self.scan_timer.timeout.connect(self.background_scan_all_channels)
         self.scan_timer.start(DEFAULT_SCAN_MINUTES * 60 * 1000)
 
         self.statusBar().showMessage("SYSTEM READY")
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
+        self.update_dashboard()
+        self._refresh_channel_header()
         QTimer.singleShot(3000, self.check_for_updates_silent)
+
+    def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
+        bar = QFrame()
+        bar.setObjectName("TopBar")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(18, 12, 18, 12)
+        layout.setSpacing(12)
+
+        badge = QLabel("RG")
+        badge.setObjectName("AppBadge")
+        title_box = QVBoxLayout()
+        title_box.setSpacing(0)
+        title = QLabel("YouTube Control")
+        title.setObjectName("AppTitle")
+        subtitle = QLabel("Видео · оптимизация · комментарии")
+        subtitle.setObjectName("AppSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        self.header_profile_combo = QComboBox()
+        self.header_profile_combo.setMinimumWidth(240)
+        for profile_key, label in PROFILE_LABELS.items():
+            self.header_profile_combo.addItem(label, profile_key)
+        idx = self.header_profile_combo.findData(self.current_profile)
+        if idx >= 0:
+            self.header_profile_combo.setCurrentIndex(idx)
+        self.header_profile_combo.currentIndexChanged.connect(
+            self.switch_profile_from_header
+        )
+
+        self.header_channel_state = QLabel()
+        self.header_channel_state.setObjectName("ChannelState")
+
+        sync_btn = QPushButton("Синхронизировать")
+        sync_btn.setProperty("role", "primary")
+        sync_btn.clicked.connect(self.sync_video_list)
+
+        layout.addWidget(badge)
+        layout.addLayout(title_box)
+        layout.addStretch()
+        layout.addWidget(QLabel("Канал:"))
+        layout.addWidget(self.header_profile_combo)
+        layout.addWidget(self.header_channel_state)
+        layout.addWidget(sync_btn)
+        parent_layout.addWidget(bar)
+
+    def _build_metrics(self, parent_layout: QVBoxLayout) -> None:
+        wrapper = QWidget()
+        grid = QGridLayout(wrapper)
+        grid.setContentsMargins(18, 12, 18, 12)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+
+        self.metric_videos = MetricCard("Видео в базе")
+        self.metric_scheduled = MetricCard("Запланировано")
+        self.metric_attention = MetricCard("Требует внимания")
+        self.metric_comments = MetricCard("Комментарии в очереди")
+
+        grid.addWidget(self.metric_videos, 0, 0)
+        grid.addWidget(self.metric_scheduled, 0, 1)
+        grid.addWidget(self.metric_attention, 0, 2)
+        grid.addWidget(self.metric_comments, 0, 3)
+        parent_layout.addWidget(wrapper)
+
+    def _configure_table(self, table: QTableWidget) -> None:
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSortingEnabled(False)
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(34)
+        table.setShowGrid(False)
+
+    def _refresh_channel_header(self) -> None:
+        title = get_setting(
+            self.conn, f"channel_title_{self.current_profile}", ""
+        )
+        channel_id = get_setting(
+            self.conn, f"channel_id_{self.current_profile}", ""
+        )
+        if title and channel_id:
+            short_id = channel_id[:8] + "…" + channel_id[-5:]
+            self.header_channel_state.setText(f"● {title} · {short_id}")
+            self.header_channel_state.setStyleSheet(
+                f"color: {SUCCESS};"
+            )
+        else:
+            self.header_channel_state.setText("○ не подключён")
+            self.header_channel_state.setStyleSheet(
+                f"color: {WARNING};"
+            )
+
+    def update_dashboard(self) -> None:
+        if not hasattr(self, "metric_videos"):
+            return
+        target_id = PROFILE_TARGETS[self.current_profile]
+        total = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM videos WHERE channel_id=?",
+            (target_id,),
+        ).fetchone()["n"]
+        scheduled = self.conn.execute(
+            """SELECT COUNT(*) AS n FROM videos
+               WHERE channel_id=? AND scheduled_publish_at IS NOT NULL""",
+            (target_id,),
+        ).fetchone()["n"]
+        rows = self.conn.execute(
+            "SELECT audit_json FROM videos WHERE channel_id=?",
+            (target_id,),
+        ).fetchall()
+        attention = 0
+        for row in rows:
+            try:
+                data = json.loads(row["audit_json"] or "{}")
+                if int(data.get("score") or 0) < 100:
+                    attention += 1
+            except Exception:
+                attention += 1
+        queued = self.conn.execute(
+            """SELECT COUNT(*) AS n
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.channel_id=? AND c.status='new'""",
+            (target_id,),
+        ).fetchone()["n"]
+
+        self.metric_videos.set_value(str(total), PROFILE_LABELS[self.current_profile])
+        self.metric_scheduled.set_value(str(scheduled), "будущие публикации")
+        self.metric_attention.set_value(str(attention), "Audit < 100")
+        self.metric_comments.set_value(str(queued), "новые / не обработаны")
+
+    def switch_profile_from_header(self, _index: int) -> None:
+        profile = self.header_profile_combo.currentData()
+        if not profile:
+            return
+        self._activate_profile(str(profile))
+
+    def _activate_profile(self, profile: str) -> None:
+        if profile not in PROFILE_TARGETS:
+            return
+        self.current_profile = profile
+        set_setting(self.conn, "current_profile", self.current_profile)
+        self.client = YouTubeClient(profile=self.current_profile)
+
+        if hasattr(self, "header_profile_combo"):
+            self.header_profile_combo.blockSignals(True)
+            idx = self.header_profile_combo.findData(profile)
+            if idx >= 0:
+                self.header_profile_combo.setCurrentIndex(idx)
+            self.header_profile_combo.blockSignals(False)
+
+        if hasattr(self, "profile_combo"):
+            self.profile_combo.blockSignals(True)
+            idx = self.profile_combo.findData(profile)
+            if idx >= 0:
+                self.profile_combo.setCurrentIndex(idx)
+            self.profile_combo.blockSignals(False)
+
+        if hasattr(self, "auto_box"):
+            default_auto = (
+                get_setting(self.conn, "auto_reply_enabled", "0")
+                if profile == "main"
+                else "0"
+            )
+            enabled = get_setting(
+                self.conn,
+                f"auto_reply_enabled_{profile}",
+                default_auto,
+            ) == "1"
+            self.auto_box.blockSignals(True)
+            self.auto_box.setChecked(enabled)
+            self.auto_box.blockSignals(False)
+
+        if hasattr(self, "channel_label"):
+            title = get_setting(self.conn, f"channel_title_{profile}", "")
+            channel_id = get_setting(self.conn, f"channel_id_{profile}", "")
+            self.channel_label.setText(
+                f"YouTube: {title} · {channel_id}"
+                if title and channel_id
+                else "YouTube: не подключен"
+            )
+
+        self.reload_videos()
+        self.reload_optimization_queue()
+        self.reload_comments()
+        self.update_dashboard()
+        self._refresh_channel_header()
+        self.statusBar().showMessage(
+            f"Активный канал: {PROFILE_LABELS[self.current_profile]}"
+        )
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
@@ -232,10 +468,13 @@ class MainWindow(QMainWindow):
         connect_btn.clicked.connect(self.connect_youtube)
         sync_btn = QPushButton("Синхронизировать видео")
         sync_btn.clicked.connect(self.sync_video_list)
+        sync_both_btn = QPushButton("Синхронизировать оба канала")
+        sync_both_btn.clicked.connect(self.sync_both_channels)
         edit_btn = QPushButton("Редактировать выбранное")
         edit_btn.clicked.connect(self.edit_selected_video)
         controls.addWidget(connect_btn)
         controls.addWidget(sync_btn)
+        controls.addWidget(sync_both_btn)
         controls.addWidget(edit_btn)
         controls.addStretch()
 
@@ -244,6 +483,7 @@ class MainWindow(QMainWindow):
             ["Видео", "Название", "Просмотры", "Audit", "Проблемы"]
         )
         self.video_table.horizontalHeader().setStretchLastSection(True)
+        self._configure_table(self.video_table)
         layout.addLayout(controls)
         layout.addWidget(self.video_table)
         self.tabs.addTab(page, "Видео")
@@ -263,7 +503,12 @@ class MainWindow(QMainWindow):
         apply_btn.clicked.connect(self.apply_safe_optimization)
         package_btn = QPushButton("Пакет контента")
         package_btn.clicked.connect(self.edit_content_package)
+        transcript_btn = QPushButton("Транскрипт → NAS")
+        transcript_btn.clicked.connect(self.export_selected_transcript_to_nas)
+        import_btn = QPushButton("Импорт пакета NAS")
+        import_btn.clicked.connect(self.import_selected_package_from_nas)
         apply_package_btn = QPushButton("Применить пакет")
+        apply_package_btn.setProperty("role", "primary")
         apply_package_btn.clicked.connect(self.apply_content_package)
         rollback_btn = QPushButton("Откатить последнее")
         rollback_btn.clicked.connect(self.rollback_selected_metadata)
@@ -273,6 +518,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(preview_btn)
         controls.addWidget(apply_btn)
         controls.addWidget(package_btn)
+        controls.addWidget(transcript_btn)
+        controls.addWidget(import_btn)
         controls.addWidget(apply_package_btn)
         controls.addWidget(rollback_btn)
         controls.addStretch()
@@ -298,6 +545,7 @@ class MainWindow(QMainWindow):
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self.optimization_table.horizontalHeader().setStretchLastSection(True)
+        self._configure_table(self.optimization_table)
         self.optimization_table.doubleClicked.connect(
             lambda _index: self.edit_content_package()
         )
@@ -355,6 +603,7 @@ class MainWindow(QMainWindow):
             ["Дата", "Видео", "Автор", "Комментарий", "Категория", "Статус", "Черновик"]
         )
         self.comment_table.horizontalHeader().setStretchLastSection(True)
+        self._configure_table(self.comment_table)
         layout.addLayout(controls)
         layout.addWidget(self.comment_table)
         self.tabs.addTab(page, "Комментарии")
@@ -392,8 +641,17 @@ class MainWindow(QMainWindow):
         self.auto_box = QCheckBox(
             "Автоответы только на безопасные служебные комментарии"
         )
+        default_auto = (
+            get_setting(self.conn, "auto_reply_enabled", "0")
+            if self.current_profile == "main"
+            else "0"
+        )
         self.auto_box.setChecked(
-            get_setting(self.conn, "auto_reply_enabled", "0") == "1"
+            get_setting(
+                self.conn,
+                f"auto_reply_enabled_{self.current_profile}",
+                default_auto,
+            ) == "1"
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
@@ -458,6 +716,38 @@ class MainWindow(QMainWindow):
             )
             self.reply_template_edits[category] = (label, edit)
 
+        self.nas_transcripts_edit = QLineEdit(
+            get_setting(
+                self.conn,
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+        )
+        self.nas_transcripts_edit.editingFinished.connect(
+            lambda: set_setting(
+                self.conn,
+                "nas_transcripts_path",
+                self.nas_transcripts_edit.text().strip()
+                or DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+        )
+
+        self.nas_packages_edit = QLineEdit(
+            get_setting(
+                self.conn,
+                "nas_packages_path",
+                DEFAULT_NAS_PACKAGES_PATH,
+            )
+        )
+        self.nas_packages_edit.editingFinished.connect(
+            lambda: set_setting(
+                self.conn,
+                "nas_packages_path",
+                self.nas_packages_edit.text().strip()
+                or DEFAULT_NAS_PACKAGES_PATH,
+            )
+        )
+
         oauth_btn = QPushButton("Выбрать OAuth client JSON")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
@@ -478,6 +768,10 @@ class MainWindow(QMainWindow):
         for label, edit in self.reply_template_edits.values():
             layout.addWidget(QLabel(label))
             layout.addWidget(edit)
+        layout.addWidget(QLabel("NAS · транскрипты"))
+        layout.addWidget(self.nas_transcripts_edit)
+        layout.addWidget(QLabel("NAS · пакеты оптимизации"))
+        layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
@@ -488,22 +782,7 @@ class MainWindow(QMainWindow):
         profile = self.profile_combo.currentData()
         if not profile:
             return
-        self.current_profile = str(profile)
-        set_setting(self.conn, "current_profile", self.current_profile)
-        self.client = YouTubeClient(profile=self.current_profile)
-        title = get_setting(
-            self.conn, f"channel_title_{self.current_profile}", ""
-        )
-        channel_id = get_setting(
-            self.conn, f"channel_id_{self.current_profile}", ""
-        )
-        if title and channel_id:
-            self.channel_label.setText(f"YouTube: {title} · {channel_id}")
-        else:
-            self.channel_label.setText("YouTube: не подключен")
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
+        self._activate_profile(str(profile))
 
     def choose_oauth_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -541,6 +820,8 @@ class MainWindow(QMainWindow):
             set_setting(
                 self.conn, f"channel_title_{self.current_profile}", profile.channel_title
             )
+            self._refresh_channel_header()
+            self.update_dashboard()
             self.statusBar().showMessage("YouTube подключен")
         except Exception as exc:
             self._error("Ошибка авторизации", exc)
@@ -550,9 +831,46 @@ class MainWindow(QMainWindow):
             rows = sync_videos(self.client, self.conn, limit=50)
             self.reload_videos()
             self.reload_optimization_queue()
+            self.update_dashboard()
             self.statusBar().showMessage(f"Видео синхронизированы: {len(rows)}")
         except Exception as exc:
             self._error("Ошибка синхронизации", exc)
+
+    def sync_both_channels(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Синхронизация двух каналов",
+            "Синхронизировать архивы РАША ГУДБАЙ и РАША ГУДБАЙ LIVE? "
+            "Это только чтение метаданных.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        results: list[str] = []
+        errors: list[str] = []
+        for profile in PROFILE_TARGETS:
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+            except Exception:
+                errors.append(f"{PROFILE_LABELS[profile]}: не подключён")
+                continue
+            try:
+                rows = sync_videos(client, self.conn, limit=1000)
+                results.append(f"{PROFILE_LABELS[profile]}: {len(rows)}")
+            except Exception as exc:
+                errors.append(f"{PROFILE_LABELS[profile]}: {exc}")
+
+        self.reload_videos()
+        self.reload_optimization_queue()
+        self.reload_comments()
+        self.update_dashboard()
+        message = "Синхронизировано:\n" + ("\n".join(results) or "—")
+        if errors:
+            message += "\n\nНе выполнено:\n" + "\n".join(errors)
+        QMessageBox.information(self, APP_NAME, message)
 
     def edit_selected_video(self) -> None:
         row = self.video_table.currentRow()
@@ -607,6 +925,7 @@ class MainWindow(QMainWindow):
             rows = sync_videos(self.client, self.conn, limit=1000)
             self.reload_videos()
             self.reload_optimization_queue()
+            self.update_dashboard()
             self.statusBar().showMessage(
                 f"Архив синхронизирован: {len(rows)} видео"
             )
@@ -701,7 +1020,31 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(value)
                 if column == 3:
                     item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
+                if column == 0:
+                    if priority_text == "ЗАПЛАНОВАНО":
+                        item.setForeground(QColor(YOUTUBE_RED))
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    elif priority_text == "ВИСОКИЙ":
+                        item.setForeground(QColor(WARNING))
+                    elif priority_text == "ГОТОВО":
+                        item.setForeground(QColor(SUCCESS))
+                elif column == 6:
+                    item.setForeground(
+                        QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
+                    )
+                elif column == 7 and draft_status:
+                    item.setForeground(
+                        QColor(
+                            SUCCESS
+                            if draft_status == "ПРИМЕНЕНО"
+                            else WARNING
+                            if draft_status == "ЧЕРНОВИК"
+                            else YOUTUBE_RED
+                        )
+                    )
+                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 self.optimization_table.setItem(index, column, item)
+        self.update_dashboard()
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         item = self.client.video_details([video_id])[0]
@@ -756,6 +1099,150 @@ class MainWindow(QMainWindow):
             dialog.exec()
         except Exception as exc:
             self._error("Ошибка предпросмотра", exc)
+
+    def export_selected_transcript_to_nas(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self, APP_NAME, "Для транскрипта выберите ровно одно видео."
+            )
+            return
+
+        video_id = video_ids[0]
+        answer = QMessageBox.question(
+            self,
+            "Получить транскрипт",
+            "Будет использован официальный YouTube Captions API. "
+            "Операция чтения caption-track расходует квоту API. Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            track, srt = self.client.download_best_caption_srt(video_id)
+            snippet = track.get("snippet", {})
+            target_dir = Path(
+                get_setting(
+                    self.conn,
+                    "nas_transcripts_path",
+                    DEFAULT_NAS_TRANSCRIPTS_PATH,
+                )
+            )
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            srt_path = target_dir / f"{video_id}.srt"
+            meta_path = target_dir / f"{video_id}.json"
+            srt_path.write_text(srt, encoding="utf-8")
+
+            row = self.conn.execute(
+                "SELECT title FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            meta = {
+                "video_id": video_id,
+                "channel_profile": self.current_profile,
+                "channel_id": PROFILE_TARGETS[self.current_profile],
+                "title": row["title"] if row else "",
+                "language": snippet.get("language"),
+                "name": snippet.get("name"),
+                "track_kind": snippet.get("trackKind"),
+                "status": snippet.get("status"),
+                "srt_path": str(srt_path),
+            }
+            meta_path.write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Транскрипт сохранён на NAS:\n{srt_path}",
+            )
+            self.statusBar().showMessage(
+                f"Транскрипт {video_id} сохранён на NAS"
+            )
+        except Exception as exc:
+            self._error("Ошибка получения транскрипта", exc)
+
+    def import_selected_package_from_nas(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self, APP_NAME, "Для импорта выберите ровно одно видео."
+            )
+            return
+
+        video_id = video_ids[0]
+        try:
+            package_dir = Path(
+                get_setting(
+                    self.conn,
+                    "nas_packages_path",
+                    DEFAULT_NAS_PACKAGES_PATH,
+                )
+            )
+            package_path = package_dir / f"{video_id}.json"
+            if not package_path.exists():
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    f"Пакет пока не найден:\n{package_path}",
+                )
+                return
+
+            payload = json.loads(package_path.read_text(encoding="utf-8"))
+            package_video_id = str(payload.get("video_id") or video_id)
+            if package_video_id != video_id:
+                raise RuntimeError(
+                    "video_id в пакете не совпадает с выбранным видео."
+                )
+
+            title = str(
+                payload.get("new_title")
+                or payload.get("title")
+                or ""
+            ).strip()
+            description = str(payload.get("description") or "").strip()
+            chapters = str(payload.get("chapters") or "").strip()
+            tags_value = payload.get("tags") or []
+            if isinstance(tags_value, str):
+                tags = [
+                    item.strip()
+                    for item in tags_value.replace("\n", ",").split(",")
+                    if item.strip()
+                ]
+            else:
+                tags = [str(item).strip() for item in tags_value if str(item).strip()]
+
+            if not title:
+                raise RuntimeError("В пакете отсутствует название.")
+            ok, message = validate_chapters(chapters)
+            if not ok:
+                raise RuntimeError(message)
+
+            status = str(payload.get("status") or "ready")
+            if status not in {"draft", "ready"}:
+                status = "ready"
+
+            save_optimization_draft(
+                self.conn,
+                video_id,
+                title,
+                description,
+                chapters,
+                tags,
+                status,
+            )
+            self.reload_optimization_queue()
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Пакет импортирован: {package_path.name}",
+            )
+        except Exception as exc:
+            self._error("Ошибка импорта пакета", exc)
 
     def edit_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
@@ -1003,6 +1490,62 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Ошибка отката метаданных", exc)
 
+    def background_scan_all_channels(self) -> None:
+        if not hasattr(self, "background_box") or not self.background_box.isChecked():
+            return
+
+        summaries: list[str] = []
+        for profile, target_id in PROFILE_TARGETS.items():
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+            except Exception:
+                continue
+
+            video_ids = [
+                row["video_id"]
+                for row in self.conn.execute(
+                    "SELECT video_id FROM videos "
+                    "WHERE channel_id=? AND privacy_status='public' "
+                    "ORDER BY published_at DESC LIMIT 20",
+                    (target_id,),
+                ).fetchall()
+            ]
+            if not video_ids:
+                continue
+
+            default_auto = (
+                get_setting(self.conn, "auto_reply_enabled", "0")
+                if profile == "main"
+                else "0"
+            )
+            auto_enabled = get_setting(
+                self.conn,
+                f"auto_reply_enabled_{profile}",
+                default_auto,
+            ) == "1"
+
+            try:
+                stats = scan_comments(
+                    client,
+                    self.conn,
+                    video_ids,
+                    auto_reply=auto_enabled,
+                    max_auto_replies=self.daily_limit_spin.value(),
+                    max_auto_replies_per_scan=self.scan_limit_spin.value(),
+                    max_auto_age_hours=self.age_limit_spin.value(),
+                )
+                summaries.append(
+                    f"{PROFILE_LABELS[profile]}: {stats['seen']} комм."
+                )
+            except Exception as exc:
+                summaries.append(f"{PROFILE_LABELS[profile]}: ошибка")
+
+        self.reload_comments()
+        self.update_dashboard()
+        if summaries:
+            self.statusBar().showMessage(" · ".join(summaries))
+
     def scan_comment_queue(self, silent: bool = False) -> None:
         if silent and not self.background_box.isChecked():
             return
@@ -1114,7 +1657,15 @@ class MainWindow(QMainWindow):
                 issues,
             ]
             for column, value in enumerate(values):
-                self.video_table.setItem(index, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if column == 3:
+                    score = int(audit_data.get("score") or 0)
+                    item.setForeground(
+                        QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
+                    )
+                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                self.video_table.setItem(index, column, item)
+        self.update_dashboard()
 
     def reload_comments(self, _index: int = -1) -> None:
         target_id = PROFILE_TARGETS[self.current_profile]
@@ -1160,8 +1711,27 @@ class MainWindow(QMainWindow):
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row["comment_id"])
                     item.setData(Qt.ItemDataRole.UserRole + 1, row["video_id"])
+                elif column == 4:
+                    category_color = {
+                        "thanks": SUCCESS,
+                        "links": "#4da3ff",
+                        "donate": WARNING,
+                        "schedule": "#b78cff",
+                        "review": MUTED,
+                    }.get(str(value), MUTED)
+                    item.setForeground(QColor(category_color))
+                elif column == 5:
+                    status_color = {
+                        "replied": SUCCESS,
+                        "new": YOUTUBE_RED,
+                        "ignored": MUTED,
+                    }.get(str(value), MUTED)
+                    item.setForeground(QColor(status_color))
+                    if str(value) in {"replied", "new"}:
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 self.comment_table.setItem(index, column, item)
 
+        self.update_dashboard()
         if hasattr(self, "auto_quota_label"):
             safe_used = today_auto_reply_count(self.conn)
             total_used = today_reply_count(self.conn)
@@ -1240,9 +1810,15 @@ class MainWindow(QMainWindow):
     def save_auto_setting(self, _state: int) -> None:
         set_setting(
             self.conn,
-            "auto_reply_enabled",
+            f"auto_reply_enabled_{self.current_profile}",
             "1" if self.auto_box.isChecked() else "0",
         )
+        if self.current_profile == "main":
+            set_setting(
+                self.conn,
+                "auto_reply_enabled",
+                "1" if self.auto_box.isChecked() else "0",
+            )
 
     def save_background_setting(self, _state: int) -> None:
         set_setting(
