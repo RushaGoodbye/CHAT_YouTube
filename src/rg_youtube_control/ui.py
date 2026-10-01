@@ -44,17 +44,26 @@ from .config import (
 )
 from .db import (
     connect,
+    get_optimization_draft,
     get_setting,
     latest_metadata_snapshot,
     save_metadata_snapshot,
+    save_optimization_draft,
     set_comment_status,
+    set_optimization_draft_status,
     set_setting,
 )
 from .metadata_audit import normalize_links
-from .optimization import priority_label, safe_description_fix
+from .optimization import (
+    compose_description,
+    priority_label,
+    safe_description_fix,
+    validate_chapters,
+)
 from .service import (
     manual_reply,
     scan_comments,
+    sync_specific_videos,
     sync_videos,
     today_auto_reply_count,
     today_reply_count,
@@ -105,6 +114,87 @@ class MetadataDialog(QDialog):
             self.description_edit.toPlainText().strip(),
             tags,
         )
+
+class ContentOptimizationDialog(QDialog):
+    def __init__(
+        self,
+        title: str,
+        description: str,
+        chapters: str,
+        tags: list[str],
+        status: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Пакет оптимизации контента")
+        self.resize(980, 760)
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.title_edit = QLineEdit(title)
+        self.description_edit = QPlainTextEdit(description)
+        self.chapters_edit = QPlainTextEdit(chapters)
+        self.chapters_edit.setPlaceholderText(
+            "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
+        )
+        self.tags_edit = QPlainTextEdit(", ".join(tags))
+        self.status_combo = QComboBox()
+        self.status_combo.addItem("Черновик", "draft")
+        self.status_combo.addItem("Готово к применению", "ready")
+        idx = self.status_combo.findData(status)
+        if idx >= 0:
+            self.status_combo.setCurrentIndex(idx)
+
+        form.addRow("Новое название:", self.title_edit)
+        form.addRow("Полное описание:", self.description_edit)
+        form.addRow("Главы:", self.chapters_edit)
+        form.addRow("Теги:", self.tags_edit)
+        form.addRow("Статус:", self.status_combo)
+        layout.addLayout(form)
+
+        validate_btn = QPushButton("Проверить главы")
+        validate_btn.clicked.connect(self.validate_chapters_now)
+        layout.addWidget(validate_btn)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._accept_checked)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def validate_chapters_now(self) -> None:
+        ok, message = validate_chapters(self.chapters_edit.toPlainText())
+        if ok:
+            QMessageBox.information(self, APP_NAME, "Главы корректны.")
+        else:
+            QMessageBox.warning(self, APP_NAME, message)
+
+    def _accept_checked(self) -> None:
+        if not self.title_edit.text().strip():
+            QMessageBox.warning(self, APP_NAME, "Название не может быть пустым.")
+            return
+        ok, message = validate_chapters(self.chapters_edit.toPlainText())
+        if not ok:
+            QMessageBox.warning(self, APP_NAME, message)
+            return
+        self.accept()
+
+    def values(self) -> tuple[str, str, str, list[str], str]:
+        tags = [
+            item.strip()
+            for item in self.tags_edit.toPlainText().replace("\n", ",").split(",")
+            if item.strip()
+        ]
+        return (
+            self.title_edit.text().strip(),
+            self.description_edit.toPlainText().strip(),
+            self.chapters_edit.toPlainText().strip(),
+            tags,
+            str(self.status_combo.currentData()),
+        )
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -169,8 +259,12 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         preview_btn = QPushButton("Предпросмотр безопасных правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
-        apply_btn = QPushButton("Применить к выбранным")
+        apply_btn = QPushButton("Применить безопасные")
         apply_btn.clicked.connect(self.apply_safe_optimization)
+        package_btn = QPushButton("Пакет контента")
+        package_btn.clicked.connect(self.edit_content_package)
+        apply_package_btn = QPushButton("Применить пакет")
+        apply_package_btn.clicked.connect(self.apply_content_package)
         rollback_btn = QPushButton("Откатить последнее")
         rollback_btn.clicked.connect(self.rollback_selected_metadata)
 
@@ -178,10 +272,12 @@ class MainWindow(QMainWindow):
         controls.addWidget(refresh_btn)
         controls.addWidget(preview_btn)
         controls.addWidget(apply_btn)
+        controls.addWidget(package_btn)
+        controls.addWidget(apply_package_btn)
         controls.addWidget(rollback_btn)
         controls.addStretch()
 
-        self.optimization_table = QTableWidget(0, 8)
+        self.optimization_table = QTableWidget(0, 9)
         self.optimization_table.setHorizontalHeaderLabels(
             [
                 "Приоритет",
@@ -191,6 +287,7 @@ class MainWindow(QMainWindow):
                 "Название",
                 "Просмотры",
                 "Audit",
+                "Пакет",
                 "Проблемы",
             ]
         )
@@ -202,7 +299,7 @@ class MainWindow(QMainWindow):
         )
         self.optimization_table.horizontalHeader().setStretchLastSection(True)
         self.optimization_table.doubleClicked.connect(
-            lambda _index: self.preview_safe_optimization()
+            lambda _index: self.edit_content_package()
         )
 
         layout.addLayout(controls)
@@ -536,10 +633,12 @@ class MainWindow(QMainWindow):
 
         target_id = PROFILE_TARGETS[self.current_profile]
         rows = self.conn.execute(
-            """SELECT video_id,title,published_at,scheduled_publish_at,
-                      privacy_status,views,audit_json
-               FROM videos
-               WHERE channel_id=?""",
+            """SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
+                      v.privacy_status,v.views,v.audit_json,
+                      d.status AS draft_status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.channel_id=?""",
             (target_id,),
         ).fetchall()
 
@@ -582,6 +681,11 @@ class MainWindow(QMainWindow):
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
+            draft_status = {
+                "draft": "ЧЕРНОВИК",
+                "ready": "ГОТОВО",
+                "applied": "ПРИМЕНЕНО",
+            }.get(row["draft_status"] or "", "")
             values = [
                 priority_text,
                 publish_text,
@@ -590,6 +694,7 @@ class MainWindow(QMainWindow):
                 row["title"],
                 str(row["views"] or 0),
                 str(score),
+                draft_status,
                 ", ".join(issues),
             ]
             for column, value in enumerate(values):
@@ -652,6 +757,137 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Ошибка предпросмотра", exc)
 
+    def edit_content_package(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self, APP_NAME, "Для пакета контента выберите ровно одно видео."
+            )
+            return
+
+        video_id = video_ids[0]
+        try:
+            current_title, current_description, current_tags = (
+                self._current_video_metadata(video_id)
+            )
+            draft = get_optimization_draft(self.conn, video_id)
+            if draft is None:
+                title = current_title
+                description = current_description
+                chapters = ""
+                tags = current_tags
+                status = "draft"
+            else:
+                import json
+                title = draft["new_title"]
+                description = draft["description"]
+                chapters = draft["chapters"]
+                tags = json.loads(draft["tags_json"] or "[]")
+                status = draft["status"]
+
+            dialog = ContentOptimizationDialog(
+                title,
+                description,
+                chapters,
+                tags,
+                status,
+                self,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            new_title, description, chapters, tags, status = dialog.values()
+            save_optimization_draft(
+                self.conn,
+                video_id,
+                new_title,
+                description,
+                chapters,
+                tags,
+                status,
+            )
+            self.reload_optimization_queue()
+            self.statusBar().showMessage("Пакет оптимизации сохранён")
+        except Exception as exc:
+            self._error("Ошибка пакета оптимизации", exc)
+
+    def apply_content_package(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self, APP_NAME, "Для применения выберите ровно одно видео."
+            )
+            return
+
+        video_id = video_ids[0]
+        draft = get_optimization_draft(self.conn, video_id)
+        if draft is None:
+            QMessageBox.information(
+                self, APP_NAME, "Для этого видео ещё нет пакета оптимизации."
+            )
+            return
+        if draft["status"] != "ready":
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Пакет должен иметь статус «Готово к применению».",
+            )
+            return
+
+        import json
+        try:
+            final_description = compose_description(
+                draft["description"],
+                draft["chapters"],
+            )
+            current_title, current_description, current_tags = (
+                self._current_video_metadata(video_id)
+            )
+            new_tags = json.loads(draft["tags_json"] or "[]")
+            new_title = draft["new_title"]
+
+            answer = QMessageBox.question(
+                self,
+                "Применить пакет оптимизации",
+                f"Видео: {video_id}\n\n"
+                f"Название:\n{current_title}\n→\n{new_title}\n\n"
+                f"Описание: {len(current_description)} → "
+                f"{len(final_description)} символов\n"
+                f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
+                "Все поля будут отправлены одним videos.update "
+                "(≈50 quota units). Продолжить?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            save_metadata_snapshot(
+                self.conn,
+                video_id,
+                current_title,
+                current_description,
+                current_tags,
+                "before_content_package",
+            )
+            self.client.update_video(
+                video_id,
+                title=new_title,
+                description=final_description,
+                tags=new_tags,
+            )
+            set_optimization_draft_status(self.conn, video_id, "applied")
+            sync_specific_videos(self.client, self.conn, [video_id])
+            self.reload_videos()
+            self.reload_optimization_queue()
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Пакет применён. Перед изменением сохранена точка отката.",
+            )
+        except Exception as exc:
+            self._error("Ошибка применения пакета", exc)
+
     def apply_safe_optimization(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if not video_ids:
@@ -683,6 +919,7 @@ class MainWindow(QMainWindow):
 
         changed = 0
         skipped = 0
+        changed_ids: list[str] = []
         try:
             for video_id in video_ids:
                 title, description, tags = self._current_video_metadata(video_id)
@@ -700,9 +937,10 @@ class MainWindow(QMainWindow):
                 )
                 self.client.update_video(video_id, description=fix.after)
                 changed += 1
+                changed_ids.append(video_id)
 
-            if changed:
-                sync_videos(self.client, self.conn, limit=1000)
+            if changed_ids:
+                sync_specific_videos(self.client, self.conn, changed_ids)
             self.reload_videos()
             self.reload_optimization_queue()
             QMessageBox.information(
@@ -758,7 +996,7 @@ class MainWindow(QMainWindow):
                 description=snapshot["description"],
                 tags=json.loads(snapshot["tags_json"] or "[]"),
             )
-            sync_videos(self.client, self.conn, limit=1000)
+            sync_specific_videos(self.client, self.conn, [video_id])
             self.reload_videos()
             self.reload_optimization_queue()
             self.statusBar().showMessage("Метаданные видео восстановлены")
