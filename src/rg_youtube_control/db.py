@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS metadata_history (
 );
 CREATE INDEX IF NOT EXISTS idx_metadata_history_video
   ON metadata_history(video_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS optimization_drafts (
+  video_id TEXT PRIMARY KEY,
+  new_title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  chapters TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'draft',
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_optimization_drafts_status
+  ON optimization_drafts(status, updated_at DESC);
 """
 
 def utc_now() -> str:
@@ -181,3 +192,58 @@ def latest_metadata_snapshot(
            LIMIT 1""",
         (video_id,),
     ).fetchone()
+
+
+def save_optimization_draft(
+    conn: sqlite3.Connection,
+    video_id: str,
+    new_title: str,
+    description: str,
+    chapters: str,
+    tags: list[str] | None,
+    status: str = "draft",
+) -> None:
+    conn.execute(
+        """INSERT INTO optimization_drafts(
+            video_id,new_title,description,chapters,tags_json,status,updated_at
+        ) VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(video_id) DO UPDATE SET
+          new_title=excluded.new_title,
+          description=excluded.description,
+          chapters=excluded.chapters,
+          tags_json=excluded.tags_json,
+          status=excluded.status,
+          updated_at=excluded.updated_at""",
+        (
+            video_id,
+            new_title,
+            description,
+            chapters,
+            json.dumps(tags or [], ensure_ascii=False),
+            status,
+            utc_now(),
+        ),
+    )
+    conn.commit()
+
+def get_optimization_draft(
+    conn: sqlite3.Connection,
+    video_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT video_id,new_title,description,chapters,tags_json,status,updated_at
+           FROM optimization_drafts
+           WHERE video_id=?""",
+        (video_id,),
+    ).fetchone()
+
+def set_optimization_draft_status(
+    conn: sqlite3.Connection,
+    video_id: str,
+    status: str,
+) -> None:
+    conn.execute(
+        "UPDATE optimization_drafts SET status=?,updated_at=? WHERE video_id=?",
+        (status, utc_now(), video_id),
+    )
+    conn.commit()
