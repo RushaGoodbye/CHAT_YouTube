@@ -1,5 +1,8 @@
 name: Windows Build
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
