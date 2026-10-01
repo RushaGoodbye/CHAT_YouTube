@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS optimization_drafts (
   description TEXT NOT NULL,
   chapters TEXT NOT NULL DEFAULT '',
   tags_json TEXT NOT NULL DEFAULT '[]',
+  title_variants_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'draft',
   updated_at TEXT NOT NULL
 );
@@ -89,6 +90,12 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "videos", "scheduled_publish_at", "TEXT")
     _ensure_column(conn, "videos", "duration", "TEXT")
     _ensure_column(conn, "videos", "profile", "TEXT")
+    _ensure_column(
+        conn,
+        "optimization_drafts",
+        "title_variants_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )
     for profile, channel_id in PROFILE_TARGETS.items():
         conn.execute(
             "UPDATE videos SET profile=? "
@@ -214,16 +221,19 @@ def save_optimization_draft(
     chapters: str,
     tags: list[str] | None,
     status: str = "draft",
+    title_variants: list[str] | None = None,
 ) -> None:
     conn.execute(
         """INSERT INTO optimization_drafts(
-            video_id,new_title,description,chapters,tags_json,status,updated_at
-        ) VALUES(?,?,?,?,?,?,?)
+            video_id,new_title,description,chapters,tags_json,title_variants_json,
+            status,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)
         ON CONFLICT(video_id) DO UPDATE SET
           new_title=excluded.new_title,
           description=excluded.description,
           chapters=excluded.chapters,
           tags_json=excluded.tags_json,
+          title_variants_json=excluded.title_variants_json,
           status=excluded.status,
           updated_at=excluded.updated_at""",
         (
@@ -232,6 +242,7 @@ def save_optimization_draft(
             description,
             chapters,
             json.dumps(tags or [], ensure_ascii=False),
+            json.dumps(title_variants or [], ensure_ascii=False),
             status,
             utc_now(),
         ),
@@ -243,7 +254,8 @@ def get_optimization_draft(
     video_id: str,
 ) -> sqlite3.Row | None:
     return conn.execute(
-        """SELECT video_id,new_title,description,chapters,tags_json,status,updated_at
+        """SELECT video_id,new_title,description,chapters,tags_json,
+                  title_variants_json,status,updated_at
            FROM optimization_drafts
            WHERE video_id=?""",
         (video_id,),

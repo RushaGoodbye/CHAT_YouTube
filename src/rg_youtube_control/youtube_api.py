@@ -1,3 +1,4 @@
+import csv
 import io
 import json
 from dataclasses import dataclass
@@ -5,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import keyring
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -28,6 +29,7 @@ class YouTubeClient:
         self.profile = profile
         self._service = None
         self._analytics_service = None
+        self._reporting_service = None
 
     def authorize(self, client_secret_path: str | Path) -> YouTubeProfile:
         flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), SCOPES)
@@ -35,6 +37,7 @@ class YouTubeClient:
         keyring.set_password(KEYRING_SERVICE, self.profile, creds.to_json())
         self._service = build("youtube", "v3", credentials=creds, cache_discovery=False)
         self._analytics_service = None
+        self._reporting_service = None
         channel = self.my_channel()
         return YouTubeProfile(
             name=self.profile,
@@ -49,6 +52,7 @@ class YouTubeClient:
             pass
         self._service = None
         self._analytics_service = None
+        self._reporting_service = None
 
     def credentials(self) -> Credentials:
         raw = keyring.get_password(KEYRING_SERVICE, self.profile)
@@ -103,6 +107,79 @@ class YouTubeClient:
         if max_results:
             params["maxResults"] = max_results
         return self.analytics_service().reports().query(**params).execute()
+
+    def reporting_service(self):
+        if self._reporting_service is None:
+            self._reporting_service = build(
+                "youtubereporting",
+                "v1",
+                credentials=self.credentials(),
+                cache_discovery=False,
+            )
+        return self._reporting_service
+
+    def reach_job(self) -> dict[str, Any] | None:
+        response = self.reporting_service().jobs().list().execute()
+        for job in response.get("jobs", []):
+            if job.get("reportTypeId") == "channel_reach_basic_a1":
+                return job
+        return None
+
+    def ensure_reach_job(self) -> tuple[dict[str, Any], bool]:
+        existing = self.reach_job()
+        if existing is not None:
+            return existing, False
+        created = self.reporting_service().jobs().create(
+            body={
+                "reportTypeId": "channel_reach_basic_a1",
+                "name": "RG YouTube Control Reach",
+            }
+        ).execute()
+        return created, True
+
+    def reach_report_rows(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+    ) -> tuple[list[dict[str, str]], dict[str, Any] | None]:
+        job = self.reach_job()
+        if job is None:
+            return [], None
+
+        rows: list[dict[str, str]] = []
+        token = None
+        service = self.reporting_service()
+        session = AuthorizedSession(self.credentials())
+        while True:
+            request = service.jobs().reports().list(
+                jobId=job["id"],
+                pageSize=1000,
+                pageToken=token,
+            )
+            response = request.execute()
+            for report in response.get("reports", []):
+                report_start = str(report.get("startTime") or "")[:10]
+                report_end = str(report.get("endTime") or "")[:10]
+                if report_start and report_start > end_date:
+                    continue
+                if report_end and report_end < start_date:
+                    continue
+                download_url = report.get("downloadUrl")
+                if not download_url:
+                    continue
+                downloaded = session.get(download_url, timeout=60)
+                downloaded.raise_for_status()
+                reader = csv.DictReader(io.StringIO(downloaded.text))
+                for row in reader:
+                    day = str(row.get("date") or "")
+                    if day and (day < start_date or day > end_date):
+                        continue
+                    rows.append({str(k): str(v) for k, v in row.items()})
+            token = response.get("nextPageToken")
+            if not token:
+                break
+        return rows, job
 
     def my_channel(self) -> dict[str, Any]:
         response = self.service().channels().list(

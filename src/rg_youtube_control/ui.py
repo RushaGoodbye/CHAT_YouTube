@@ -133,6 +133,7 @@ class ContentOptimizationDialog(QDialog):
         chapters: str,
         tags: list[str],
         status: str,
+        title_variants: list[str] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -148,6 +149,14 @@ class ContentOptimizationDialog(QDialog):
             "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
         )
         self.tags_edit = QPlainTextEdit(", ".join(tags))
+        self.title_variants_edit = QPlainTextEdit(
+            "\n".join(title_variants or [])
+        )
+        self.title_variants_edit.setPlaceholderText(
+            "Вариант A — сильный конфликт / цитата\n"
+            "Вариант B — конфликт + контекст\n"
+            "Вариант C — сильный хук | ЧАТ РУЛЕТКА"
+        )
         self.status_combo = QComboBox()
         self.status_combo.addItem("Черновик", "draft")
         self.status_combo.addItem("Готово к применению", "ready")
@@ -159,6 +168,7 @@ class ContentOptimizationDialog(QDialog):
         form.addRow("Полное описание:", self.description_edit)
         form.addRow("Главы:", self.chapters_edit)
         form.addRow("Теги:", self.tags_edit)
+        form.addRow("A/B варианты названия:", self.title_variants_edit)
         form.addRow("Статус:", self.status_combo)
         layout.addLayout(form)
 
@@ -191,18 +201,24 @@ class ContentOptimizationDialog(QDialog):
             return
         self.accept()
 
-    def values(self) -> tuple[str, str, str, list[str], str]:
+    def values(self) -> tuple[str, str, str, list[str], str, list[str]]:
         tags = [
             item.strip()
             for item in self.tags_edit.toPlainText().replace("\n", ",").split(",")
             if item.strip()
         ]
+        title_variants = [
+            item.strip()
+            for item in self.title_variants_edit.toPlainText().splitlines()
+            if item.strip()
+        ][:3]
         return (
             self.title_edit.text().strip(),
             self.description_edit.toPlainText().strip(),
             self.chapters_edit.toPlainText().strip(),
             tags,
             str(self.status_combo.currentData()),
+            title_variants,
         )
 
 
@@ -642,9 +658,13 @@ class MainWindow(QMainWindow):
         reauth_btn = QPushButton("Переподключить YouTube")
         reauth_btn.clicked.connect(self.connect_youtube)
 
+        reach_btn = QPushButton("Включить CTR / показы")
+        reach_btn.clicked.connect(self.setup_reach_reporting)
+
         controls.addWidget(QLabel("Период:"))
         controls.addWidget(self.analytics_period_combo)
         controls.addWidget(refresh_btn)
+        controls.addWidget(reach_btn)
         controls.addWidget(reauth_btn)
         controls.addStretch()
 
@@ -670,6 +690,37 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _analytics_result_rows(report: dict) -> list[list]:
         return list(report.get("rows") or [])
+
+    def setup_reach_reporting(self) -> None:
+        try:
+            job, created = self.client.ensure_reach_job()
+            if created:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Задание CTR / показов создано. YouTube Reporting API "
+                    "начнёт формировать ежедневные Reach-отчёты. Исторические "
+                    "данные примерно за 30 дней появятся не сразу, обычно в "
+                    "течение нескольких часов или до суток.",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "CTR / показы уже подключены для этого канала. "
+                    f"Job ID: {job.get('id', '—')}",
+                )
+        except Exception as exc:
+            message = str(exc)
+            if "accessNotConfigured" in message or "SERVICE_DISABLED" in message:
+                QMessageBox.warning(
+                    self,
+                    APP_NAME,
+                    "YouTube Reporting API пока не включён в Google Cloud. "
+                    "Включите его для проекта RG YouTube Control и повторите.",
+                )
+                return
+            self._error("Ошибка подключения CTR / показов", exc)
 
     def load_channel_analytics(self) -> None:
         days = int(self.analytics_period_combo.currentData() or 90)
@@ -722,6 +773,17 @@ class MainWindow(QMainWindow):
                 sort="-views",
                 max_results=25,
             )
+
+            reach_rows: list[dict[str, str]] = []
+            reach_job = None
+            reach_error = ""
+            try:
+                reach_rows, reach_job = self.client.reach_report_rows(
+                    start_date=start_s,
+                    end_date=end_s,
+                )
+            except Exception as exc:
+                reach_error = str(exc)
 
             traffic_names = {
                 "ADVERTISING": "Реклама",
@@ -799,6 +861,32 @@ class MainWindow(QMainWindow):
                 lines.append(f"• {country}: {views:,} просмотров, {hours:,.1f} ч")
             lines.append("")
 
+            reach_by_video: dict[str, dict[str, float]] = {}
+            reach_dates: list[str] = []
+            for reach_row in reach_rows:
+                video_id = str(reach_row.get("video_id") or "")
+                if not video_id:
+                    continue
+                try:
+                    impressions = float(
+                        reach_row.get("video_thumbnail_impressions") or 0
+                    )
+                    ctr_raw = float(
+                        reach_row.get("video_thumbnail_impressions_ctr") or 0
+                    )
+                except (TypeError, ValueError):
+                    continue
+                ctr_ratio = ctr_raw if ctr_raw <= 1 else ctr_raw / 100
+                bucket = reach_by_video.setdefault(
+                    video_id,
+                    {"impressions": 0.0, "clicks": 0.0},
+                )
+                bucket["impressions"] += impressions
+                bucket["clicks"] += impressions * ctr_ratio
+                day = str(reach_row.get("date") or "")
+                if day:
+                    reach_dates.append(day)
+
             title_by_id = {
                 row["video_id"]: row["title"]
                 for row in self.conn.execute(
@@ -806,6 +894,49 @@ class MainWindow(QMainWindow):
                     (self.current_profile,),
                 ).fetchall()
             }
+
+            lines.append("ПОКАЗЫ И CTR")
+            if reach_by_video:
+                if reach_dates:
+                    lines.append(
+                        f"Доступный период Reach: {min(reach_dates)} — {max(reach_dates)}"
+                    )
+                reach_ranked = sorted(
+                    reach_by_video.items(),
+                    key=lambda item: item[1]["impressions"],
+                    reverse=True,
+                )
+                for video_id, values in reach_ranked[:15]:
+                    impressions = int(values["impressions"])
+                    ctr = (
+                        values["clicks"] / values["impressions"] * 100
+                        if values["impressions"]
+                        else 0.0
+                    )
+                    title = title_by_id.get(video_id, video_id)
+                    lines.append(
+                        f"• {title}\n"
+                        f"  {impressions:,} показов · CTR {ctr:.2f}%"
+                    )
+            elif reach_job is None and not reach_error:
+                lines.append(
+                    "• CTR/показы ещё не подключены. "
+                    "Нажмите «Включить CTR / показы»."
+                )
+            elif reach_job is not None:
+                lines.append(
+                    "• Reach-задание активно, но отчёты ещё не готовы. "
+                    "YouTube формирует их отдельно."
+                )
+            elif reach_error:
+                if "accessNotConfigured" in reach_error:
+                    lines.append(
+                        "• YouTube Reporting API не включён в Google Cloud."
+                    )
+                else:
+                    lines.append("• CTR/показы временно недоступны.")
+            lines.append("")
+
             lines.append("ТОП ВИДЕО")
             for row in self._analytics_result_rows(top_videos):
                 video_id = str(row[0])
@@ -815,10 +946,21 @@ class MainWindow(QMainWindow):
                 avd = int(float(row[4] or 0))
                 subs = int(row[5] or 0)
                 title = title_by_id.get(video_id, video_id)
+                reach_text = ""
+                if video_id in reach_by_video:
+                    values = reach_by_video[video_id]
+                    impressions = int(values["impressions"])
+                    ctr = (
+                        values["clicks"] / values["impressions"] * 100
+                        if values["impressions"]
+                        else 0.0
+                    )
+                    reach_text = f" · {impressions:,} показов · CTR {ctr:.2f}%"
                 lines.append(
                     f"• {title}\n"
                     f"  {views:,} views · {engaged:,} engaged · "
-                    f"{hours:,.1f} ч · AVD {avd // 60}:{avd % 60:02d} · +{subs} subs"
+                    f"{hours:,.1f} ч · AVD {avd // 60}:{avd % 60:02d} · "
+                    f"+{subs} subs{reach_text}"
                 )
 
             self.analytics_text.setPlainText("\n".join(lines))
@@ -1657,6 +1799,19 @@ class MainWindow(QMainWindow):
             description = str(payload.get("description") or "").strip()
             chapters = str(payload.get("chapters") or "").strip()
             tags_value = payload.get("tags") or []
+            title_variants_value = payload.get("title_variants") or []
+            if isinstance(title_variants_value, str):
+                title_variants = [
+                    item.strip()
+                    for item in title_variants_value.splitlines()
+                    if item.strip()
+                ][:3]
+            else:
+                title_variants = [
+                    str(item).strip()
+                    for item in title_variants_value
+                    if str(item).strip()
+                ][:3]
             if isinstance(tags_value, str):
                 tags = [
                     item.strip()
@@ -1684,6 +1839,7 @@ class MainWindow(QMainWindow):
                 chapters,
                 tags,
                 status,
+                title_variants,
             )
             self.reload_optimization_queue()
             QMessageBox.information(
@@ -1714,12 +1870,16 @@ class MainWindow(QMainWindow):
                 chapters = ""
                 tags = current_tags
                 status = "draft"
+                title_variants = []
             else:
                 import json
                 title = draft["new_title"]
                 description = draft["description"]
                 chapters = draft["chapters"]
                 tags = json.loads(draft["tags_json"] or "[]")
+                title_variants = json.loads(
+                    draft["title_variants_json"] or "[]"
+                )
                 status = draft["status"]
 
             dialog = ContentOptimizationDialog(
@@ -1728,12 +1888,20 @@ class MainWindow(QMainWindow):
                 chapters,
                 tags,
                 status,
+                title_variants,
                 self,
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
 
-            new_title, description, chapters, tags, status = dialog.values()
+            (
+                new_title,
+                description,
+                chapters,
+                tags,
+                status,
+                title_variants,
+            ) = dialog.values()
             save_optimization_draft(
                 self.conn,
                 video_id,
@@ -1742,6 +1910,7 @@ class MainWindow(QMainWindow):
                 chapters,
                 tags,
                 status,
+                title_variants,
             )
             self.reload_optimization_queue()
             self.statusBar().showMessage("Пакет оптимизации сохранён")
