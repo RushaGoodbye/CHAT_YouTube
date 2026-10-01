@@ -42,3 +42,7 @@ https://www.googleapis.com/auth/youtube.force-ssl
 GitHub Actions собирает PyInstaller onedir и затем установщик Inno Setup.
 
 Локальный исходный код не содержит OAuth client JSON, refresh tokens или других пользовательских секретов.
+
+## v0.1.3
+
+- Improved comment queue filters, editable safe auto-reply templates, comment ignore/restore actions, and daily quota counters.
