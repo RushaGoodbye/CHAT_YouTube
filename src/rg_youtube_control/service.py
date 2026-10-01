@@ -7,8 +7,12 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .comment_rules import classify
-from .config import DEFAULT_MAX_AUTO_REPLIES_PER_DAY, SAFE_AUTO_CATEGORIES
-from .db import mark_replied, upsert_comment, upsert_video
+from .config import (
+    DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+    DEFAULT_REPLY_TEMPLATES,
+    SAFE_AUTO_CATEGORIES,
+)
+from .db import get_setting, mark_replied, upsert_comment, upsert_video
 from .metadata_audit import audit
 from .youtube_api import YouTubeClient
 
@@ -48,11 +52,20 @@ def _own_reply_exists(
             return True
     return False
 
-def _today_auto_reply_count(conn: sqlite3.Connection) -> int:
+def today_auto_reply_count(conn: sqlite3.Connection) -> int:
     prefix = datetime.now(timezone.utc).date().isoformat() + "%"
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM comments "
         "WHERE status='replied' AND replied_at LIKE ? AND category IN ('thanks','links','donate','schedule')",
+        (prefix,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+def today_reply_count(conn: sqlite3.Connection) -> int:
+    prefix = datetime.now(timezone.utc).date().isoformat() + "%"
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM comments "
+        "WHERE status='replied' AND replied_at LIKE ?",
         (prefix,),
     ).fetchone()
     return int(row["n"] if row else 0)
@@ -85,7 +98,7 @@ def scan_comments(
         "already_replied": 0,
         "skipped_disabled": 0,
     }
-    auto_count = _today_auto_reply_count(conn)
+    auto_count = today_auto_reply_count(conn)
 
     for video_id in video_ids:
         try:
@@ -105,6 +118,13 @@ def scan_comments(
 
             text = snippet.get("textOriginal") or snippet.get("textDisplay") or ""
             decision = classify(text)
+            reply_text = decision.reply
+            if decision.category in SAFE_AUTO_CATEGORIES:
+                reply_text = get_setting(
+                    conn,
+                    f"reply_template_{decision.category}",
+                    DEFAULT_REPLY_TEMPLATES[decision.category],
+                ).strip()
             has_reply = _own_reply_exists(client, thread, channel_id)
             status = "replied" if has_reply else "new"
             item = {
@@ -115,7 +135,7 @@ def scan_comments(
                 "published_at": snippet.get("publishedAt"),
                 "category": decision.category,
                 "status": status,
-                "reply_text": decision.reply,
+                "reply_text": reply_text,
                 "raw": thread,
             }
             upsert_comment(conn, item)
@@ -129,19 +149,19 @@ def scan_comments(
             current = conn.execute(
                 "SELECT status FROM comments WHERE comment_id=?", (top["id"],)
             ).fetchone()
-            if current and current["status"] == "replied":
+            if current and current["status"] in {"replied", "ignored"}:
                 continue
 
             can_auto = (
                 auto_reply
                 and decision.auto_allowed
                 and decision.category in SAFE_AUTO_CATEGORIES
-                and decision.reply
+                and reply_text
                 and auto_count < max_auto_replies
             )
             if can_auto:
-                client.reply(top["id"], decision.reply)
-                mark_replied(conn, top["id"], decision.reply)
+                client.reply(top["id"], reply_text)
+                mark_replied(conn, top["id"], reply_text)
                 auto_count += 1
                 stats["auto_replied"] += 1
             else:
