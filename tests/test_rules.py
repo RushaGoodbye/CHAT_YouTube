@@ -219,3 +219,60 @@ def test_database_migrates_video_columns_and_keeps_history(tmp_path):
     assert snapshot is not None
     assert snapshot["title"] == "Old title"
     assert json.loads(snapshot["tags_json"]) == ["tag1"]
+
+
+def test_chapter_validation_and_composition():
+    from rg_youtube_control.config import PROJECT_LINKS_URL
+    from rg_youtube_control.optimization import compose_description, validate_chapters
+
+    chapters = "00:00 Вступ\n00:15 Тема\n00:40 Фінал"
+    ok, message = validate_chapters(chapters)
+    assert ok, message
+
+    bad, _ = validate_chapters("00:00 Старт\n00:05 Надто рано\n00:20 Далі")
+    assert not bad
+
+    invalid_time, _ = validate_chapters(
+        "00:00 Старт\n00:75 Невірно\n02:00 Далі"
+    )
+    assert not invalid_time
+
+    description = (
+        "Короткий опис ролика.\n\n"
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        f"{PROJECT_LINKS_URL}"
+    )
+    composed = compose_description(description, chapters)
+    assert composed.index("00:00 Вступ") < composed.index(
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:"
+    )
+
+
+def test_optimization_draft_round_trip(tmp_path):
+    import json
+
+    from rg_youtube_control.db import (
+        connect,
+        get_optimization_draft,
+        save_optimization_draft,
+        set_optimization_draft_status,
+    )
+
+    conn = connect(tmp_path / "draft.sqlite")
+    save_optimization_draft(
+        conn,
+        "video1",
+        "Нове название",
+        "Опис",
+        "00:00 Вступ\n00:20 Далі\n00:40 Фінал",
+        ["tag1", "tag2"],
+        "draft",
+    )
+    draft = get_optimization_draft(conn, "video1")
+    assert draft is not None
+    assert draft["new_title"] == "Нове название"
+    assert json.loads(draft["tags_json"]) == ["tag1", "tag2"]
+
+    set_optimization_draft_status(conn, "video1", "ready")
+    ready = get_optimization_draft(conn, "video1")
+    assert ready["status"] == "ready"
