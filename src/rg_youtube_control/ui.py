@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
@@ -509,6 +510,8 @@ class MainWindow(QMainWindow):
         batch_transcript_btn.clicked.connect(
             self.export_scheduled_transcripts_to_nas
         )
+        nas_test_btn = QPushButton("Проверить NAS")
+        nas_test_btn.clicked.connect(self.test_nas_transcript_path)
         import_btn = QPushButton("Импорт пакета NAS")
         import_btn.clicked.connect(self.import_selected_package_from_nas)
         apply_package_btn = QPushButton("Применить пакет")
@@ -524,6 +527,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(package_btn)
         controls.addWidget(transcript_btn)
         controls.addWidget(batch_transcript_btn)
+        controls.addWidget(nas_test_btn)
         controls.addWidget(import_btn)
         controls.addWidget(apply_package_btn)
         controls.addWidget(rollback_btn)
@@ -1122,6 +1126,41 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Ошибка предпросмотра", exc)
 
+    def test_nas_transcript_path(self) -> None:
+        target_dir = Path(
+            get_setting(
+                self.conn,
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+        )
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            probe = target_dir / "_rg_youtube_control_write_test.txt"
+            payload = (
+                "RG YouTube Control NAS write test\n"
+                + datetime.now(timezone.utc).isoformat()
+                + "\n"
+            )
+            probe.write_text(payload, encoding="utf-8")
+            check = probe.read_text(encoding="utf-8")
+            if check != payload:
+                raise RuntimeError("Контрольное чтение не совпало с записью.")
+            probe.unlink(missing_ok=True)
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"NAS доступен на запись и чтение:\n{target_dir}",
+            )
+            self.statusBar().showMessage("NAS: запись и чтение OK")
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Ошибка доступа к NAS",
+                f"Путь:\n{target_dir}\n\n{exc}",
+            )
+            self.statusBar().showMessage("NAS: ошибка записи/чтения")
+
     def _export_transcript_video_to_nas(
         self,
         video_id: str,
@@ -1230,6 +1269,7 @@ class MainWindow(QMainWindow):
         saved = 0
         skipped = already
         errors: list[str] = []
+        report_items: list[dict[str, str | bool]] = []
         for index, row in enumerate(pending, start=1):
             video_id = row["video_id"]
             self.statusBar().showMessage(
@@ -1237,13 +1277,61 @@ class MainWindow(QMainWindow):
             )
             QApplication.processEvents()
             try:
-                _path, downloaded = self._export_transcript_video_to_nas(video_id)
+                path, downloaded = self._export_transcript_video_to_nas(video_id)
                 if downloaded:
                     saved += 1
                 else:
                     skipped += 1
+                report_items.append(
+                    {
+                        "video_id": video_id,
+                        "title": str(row["title"] or ""),
+                        "scheduled_publish_at": str(
+                            row["scheduled_publish_at"] or ""
+                        ),
+                        "ok": True,
+                        "downloaded": downloaded,
+                        "path": str(path),
+                        "error": "",
+                    }
+                )
             except Exception as exc:
-                errors.append(f"{video_id}: {exc}")
+                error_text = str(exc)
+                errors.append(f"{video_id}: {error_text}")
+                report_items.append(
+                    {
+                        "video_id": video_id,
+                        "title": str(row["title"] or ""),
+                        "scheduled_publish_at": str(
+                            row["scheduled_publish_at"] or ""
+                        ),
+                        "ok": False,
+                        "downloaded": False,
+                        "path": "",
+                        "error": error_text,
+                    }
+                )
+
+        report_payload = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "profile": self.current_profile,
+            "channel_id": PROFILE_TARGETS[self.current_profile],
+            "total_scheduled": len(rows),
+            "already_existing": already,
+            "downloaded": saved,
+            "failed": len(errors),
+            "items": report_items,
+        }
+        report_path = target_dir / "_last_transcript_report.json"
+        report_write_error = ""
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            report_write_error = str(exc)
 
         self.reload_optimization_queue()
         message = (
@@ -1255,6 +1343,13 @@ class MainWindow(QMainWindow):
             message += f"\n\nНе удалось получить: {len(errors)}\n{preview}"
             if len(errors) > 8:
                 message += "\n…"
+        if report_write_error:
+            message += (
+                "\n\nОтчёт на NAS записать не удалось:\n"
+                + report_write_error
+            )
+        else:
+            message += f"\n\nДиагностический отчёт:\n{report_path}"
         QMessageBox.information(self, APP_NAME, message)
         self.statusBar().showMessage("Пакет транскриптов обработан")
 
@@ -1279,47 +1374,16 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            track, srt = self.client.download_best_caption_srt(video_id)
-            snippet = track.get("snippet", {})
-            target_dir = Path(
-                get_setting(
-                    self.conn,
-                    "nas_transcripts_path",
-                    DEFAULT_NAS_TRANSCRIPTS_PATH,
-                )
-            )
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-            srt_path = target_dir / f"{video_id}.srt"
-            meta_path = target_dir / f"{video_id}.json"
-            srt_path.write_text(srt, encoding="utf-8")
-
-            row = self.conn.execute(
-                "SELECT title FROM videos WHERE video_id=?",
-                (video_id,),
-            ).fetchone()
-            meta = {
-                "video_id": video_id,
-                "channel_profile": self.current_profile,
-                "channel_id": PROFILE_TARGETS[self.current_profile],
-                "title": row["title"] if row else "",
-                "language": snippet.get("language"),
-                "name": snippet.get("name"),
-                "track_kind": snippet.get("trackKind"),
-                "status": snippet.get("status"),
-                "srt_path": str(srt_path),
-            }
-            meta_path.write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            srt_path, downloaded = self._export_transcript_video_to_nas(video_id)
+            action = "сохранён" if downloaded else "уже был на NAS"
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Транскрипт сохранён на NAS:\n{srt_path}",
+                f"Транскрипт {action}:\n{srt_path}",
             )
+            self.reload_optimization_queue()
             self.statusBar().showMessage(
-                f"Транскрипт {video_id} сохранён на NAS"
+                f"Транскрипт {video_id}: {action}"
             )
         except Exception as exc:
             self._error("Ошибка получения транскрипта", exc)
