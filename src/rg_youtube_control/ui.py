@@ -48,6 +48,7 @@ from .config import (
     PROFILE_LABELS,
     PROFILE_TARGETS,
     app_data_dir,
+    normalize_nas_unc_path,
 )
 from .db import (
     connect,
@@ -726,35 +727,39 @@ class MainWindow(QMainWindow):
             )
             self.reply_template_edits[category] = (label, edit)
 
-        self.nas_transcripts_edit = QLineEdit(
+        transcript_path = normalize_nas_unc_path(
             get_setting(
                 self.conn,
                 "nas_transcripts_path",
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
+            ),
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
+        set_setting(self.conn, "nas_transcripts_path", transcript_path)
+        self.nas_transcripts_edit = QLineEdit(transcript_path)
         self.nas_transcripts_edit.editingFinished.connect(
-            lambda: set_setting(
-                self.conn,
+            lambda: self._save_nas_path_setting(
                 "nas_transcripts_path",
-                self.nas_transcripts_edit.text().strip()
-                or DEFAULT_NAS_TRANSCRIPTS_PATH,
+                self.nas_transcripts_edit,
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
 
-        self.nas_packages_edit = QLineEdit(
+        packages_path = normalize_nas_unc_path(
             get_setting(
                 self.conn,
                 "nas_packages_path",
                 DEFAULT_NAS_PACKAGES_PATH,
-            )
+            ),
+            DEFAULT_NAS_PACKAGES_PATH,
         )
+        set_setting(self.conn, "nas_packages_path", packages_path)
+        self.nas_packages_edit = QLineEdit(packages_path)
         self.nas_packages_edit.editingFinished.connect(
-            lambda: set_setting(
-                self.conn,
+            lambda: self._save_nas_path_setting(
                 "nas_packages_path",
-                self.nas_packages_edit.text().strip()
-                or DEFAULT_NAS_PACKAGES_PATH,
+                self.nas_packages_edit,
+                DEFAULT_NAS_PACKAGES_PATH,
             )
         )
 
@@ -787,6 +792,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(update_btn)
         layout.addStretch()
         self.tabs.addTab(page, "Настройки")
+
+    def _save_nas_path_setting(
+        self,
+        key: str,
+        edit: QLineEdit,
+        default: str,
+    ) -> None:
+        normalized = normalize_nas_unc_path(edit.text(), default)
+        edit.setText(normalized)
+        set_setting(self.conn, key, normalized)
+
+    def _nas_path(self, key: str, default: str) -> Path:
+        raw = get_setting(self.conn, key, default)
+        normalized = normalize_nas_unc_path(raw, default)
+        if normalized != raw:
+            set_setting(self.conn, key, normalized)
+        return Path(normalized)
 
     def switch_profile(self, _index: int) -> None:
         profile = self.profile_combo.currentData()
@@ -1010,12 +1032,9 @@ class MainWindow(QMainWindow):
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
-            transcript_dir = Path(
-                get_setting(
-                    self.conn,
-                    "nas_transcripts_path",
-                    DEFAULT_NAS_TRANSCRIPTS_PATH,
-                )
+            transcript_dir = self._nas_path(
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
             transcript_status = (
                 "NAS"
@@ -1127,12 +1146,9 @@ class MainWindow(QMainWindow):
             self._error("Ошибка предпросмотра", exc)
 
     def test_nas_transcript_path(self) -> None:
-        target_dir = Path(
-            get_setting(
-                self.conn,
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
+        target_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -1165,12 +1181,9 @@ class MainWindow(QMainWindow):
         self,
         video_id: str,
     ) -> tuple[Path, bool]:
-        target_dir = Path(
-            get_setting(
-                self.conn,
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
+        target_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
         target_dir.mkdir(parents=True, exist_ok=True)
         srt_path = target_dir / f"{video_id}.srt"
@@ -1220,12 +1233,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        target_dir = Path(
-            get_setting(
-                self.conn,
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
+        target_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
         pending = [
             row
@@ -1398,12 +1408,9 @@ class MainWindow(QMainWindow):
 
         video_id = video_ids[0]
         try:
-            package_dir = Path(
-                get_setting(
-                    self.conn,
-                    "nas_packages_path",
-                    DEFAULT_NAS_PACKAGES_PATH,
-                )
+            package_dir = self._nas_path(
+                "nas_packages_path",
+                DEFAULT_NAS_PACKAGES_PATH,
             )
             package_path = package_dir / f"{video_id}.json"
             if not package_path.exists():
