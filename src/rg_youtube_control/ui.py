@@ -364,19 +364,19 @@ class MainWindow(QMainWindow):
     def update_dashboard(self) -> None:
         if not hasattr(self, "metric_videos"):
             return
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         total = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM videos WHERE channel_id=?",
-            (target_id,),
+            "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+            (profile,),
         ).fetchone()["n"]
         scheduled = self.conn.execute(
             """SELECT COUNT(*) AS n FROM videos
-               WHERE channel_id=? AND scheduled_publish_at IS NOT NULL""",
-            (target_id,),
+               WHERE profile=? AND scheduled_publish_at IS NOT NULL""",
+            (profile,),
         ).fetchone()["n"]
         rows = self.conn.execute(
-            "SELECT audit_json FROM videos WHERE channel_id=?",
-            (target_id,),
+            "SELECT audit_json FROM videos WHERE profile=?",
+            (profile,),
         ).fetchall()
         attention = 0
         for row in rows:
@@ -390,8 +390,8 @@ class MainWindow(QMainWindow):
             """SELECT COUNT(*) AS n
                FROM comments c
                JOIN videos v ON v.video_id=c.video_id
-               WHERE v.channel_id=? AND c.status='new'""",
-            (target_id,),
+               WHERE v.profile=? AND c.status='new'""",
+            (profile,),
         ).fetchone()["n"]
 
         self.metric_videos.set_value(str(total), PROFILE_LABELS[self.current_profile])
@@ -950,15 +950,15 @@ class MainWindow(QMainWindow):
             return
         import json
 
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         rows = self.conn.execute(
             """SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
                       v.privacy_status,v.views,v.audit_json,
                       d.status AS draft_status
                FROM videos v
                LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
-               WHERE v.channel_id=?""",
-            (target_id,),
+               WHERE v.profile=?""",
+            (profile,),
         ).fetchall()
 
         prepared = []
@@ -1506,9 +1506,9 @@ class MainWindow(QMainWindow):
                 row["video_id"]
                 for row in self.conn.execute(
                     "SELECT video_id FROM videos "
-                    "WHERE channel_id=? AND privacy_status='public' "
+                    "WHERE profile=? AND privacy_status='public' "
                     "ORDER BY published_at DESC LIMIT 20",
-                    (target_id,),
+                    (profile,),
                 ).fetchall()
             ]
             if not video_ids:
@@ -1549,14 +1549,14 @@ class MainWindow(QMainWindow):
     def scan_comment_queue(self, silent: bool = False) -> None:
         if silent and not self.background_box.isChecked():
             return
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         video_ids = [
             row["video_id"]
             for row in self.conn.execute(
                 "SELECT video_id FROM videos "
-                "WHERE channel_id=? AND privacy_status='public' "
+                "WHERE profile=? AND privacy_status='public' "
                 "ORDER BY published_at DESC LIMIT 20",
-                (target_id,),
+                (profile,),
             ).fetchall()
         ]
         if not video_ids:
@@ -1596,14 +1596,14 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         video_ids = [
             row["video_id"]
             for row in self.conn.execute(
                 "SELECT video_id FROM videos "
-                "WHERE channel_id=? AND privacy_status='public' "
+                "WHERE profile=? AND privacy_status='public' "
                 "ORDER BY published_at DESC LIMIT 20",
-                (target_id,),
+                (profile,),
             ).fetchall()
         ]
         if not video_ids:
@@ -1639,11 +1639,11 @@ class MainWindow(QMainWindow):
     def reload_videos(self) -> None:
         import json
 
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         rows = self.conn.execute(
             "SELECT video_id,title,views,audit_json FROM videos "
-            "WHERE channel_id=? ORDER BY published_at DESC LIMIT 200",
-            (target_id,),
+            "WHERE profile=? ORDER BY published_at DESC LIMIT 200",
+            (profile,),
         ).fetchall()
         self.video_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
@@ -1668,7 +1668,7 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
 
     def reload_comments(self, _index: int = -1) -> None:
-        target_id = PROFILE_TARGETS[self.current_profile]
+        profile = self.current_profile
         status_filter = (
             self.comment_status_filter.currentData()
             if hasattr(self, "comment_status_filter")
@@ -1684,8 +1684,8 @@ class MainWindow(QMainWindow):
                           c.author,c.text,c.category,c.status,c.reply_text
                    FROM comments c
                    JOIN videos v ON v.video_id=c.video_id
-                   WHERE v.channel_id=?"""
-        params: list[str] = [target_id]
+                   WHERE v.profile=?"""
+        params: list[str] = [profile]
         if status_filter:
             query += " AND c.status=?"
             params.append(str(status_filter))
