@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .config import PROFILE_TARGETS
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS settings (
@@ -12,6 +14,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 CREATE TABLE IF NOT EXISTS videos (
   video_id TEXT PRIMARY KEY,
+  profile TEXT,
   channel_id TEXT,
   title TEXT NOT NULL,
   published_at TEXT,
@@ -85,6 +88,14 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _ensure_column(conn, "videos", "scheduled_publish_at", "TEXT")
     _ensure_column(conn, "videos", "duration", "TEXT")
+    _ensure_column(conn, "videos", "profile", "TEXT")
+    for profile, channel_id in PROFILE_TARGETS.items():
+        conn.execute(
+            "UPDATE videos SET profile=? "
+            "WHERE (profile IS NULL OR profile='') AND channel_id=?",
+            (profile, channel_id),
+        )
+    conn.commit()
     return conn
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
@@ -102,11 +113,12 @@ def get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
 def upsert_video(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO videos(
-            video_id,channel_id,title,published_at,scheduled_publish_at,
+            video_id,profile,channel_id,title,published_at,scheduled_publish_at,
             privacy_status,duration,views,audit_json,last_synced_at
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(video_id) DO UPDATE SET
+          profile=excluded.profile,
           channel_id=excluded.channel_id,title=excluded.title,
           published_at=excluded.published_at,
           scheduled_publish_at=excluded.scheduled_publish_at,
@@ -115,10 +127,10 @@ def upsert_video(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
           views=excluded.views,audit_json=excluded.audit_json,
           last_synced_at=excluded.last_synced_at""",
         (
-            item["video_id"], item.get("channel_id"), item.get("title", ""),
-            item.get("published_at"), item.get("scheduled_publish_at"),
-            item.get("privacy_status"), item.get("duration"),
-            int(item.get("views") or 0),
+            item["video_id"], item.get("profile"), item.get("channel_id"),
+            item.get("title", ""), item.get("published_at"),
+            item.get("scheduled_publish_at"), item.get("privacy_status"),
+            item.get("duration"), int(item.get("views") or 0),
             json.dumps(item.get("audit", {}), ensure_ascii=False),
             utc_now(),
         ),
