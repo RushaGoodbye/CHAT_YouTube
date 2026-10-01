@@ -276,11 +276,17 @@ def test_optimization_draft_round_trip(tmp_path):
         "00:00 Вступ\n00:20 Далі\n00:40 Фінал",
         ["tag1", "tag2"],
         "draft",
+        ["Вариант A", "Вариант B", "Вариант C"],
     )
     draft = get_optimization_draft(conn, "video1")
     assert draft is not None
     assert draft["new_title"] == "Нове название"
     assert json.loads(draft["tags_json"]) == ["tag1", "tag2"]
+    assert json.loads(draft["title_variants_json"]) == [
+        "Вариант A",
+        "Вариант B",
+        "Вариант C",
+    ]
 
     set_optimization_draft_status(conn, "video1", "ready")
     ready = get_optimization_draft(conn, "video1")
