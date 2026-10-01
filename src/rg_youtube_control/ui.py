@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -31,7 +32,9 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .config import (
     APP_NAME,
+    DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+    DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     DEFAULT_REPLY_TEMPLATES,
     DEFAULT_SCAN_MINUTES,
     PROFILE_LABELS,
@@ -151,6 +154,8 @@ class MainWindow(QMainWindow):
 
         scan_btn = QPushButton("Проверить комментарии")
         scan_btn.clicked.connect(lambda: self.scan_comment_queue(silent=False))
+        test_auto_btn = QPushButton("Тест: 1 автоответ")
+        test_auto_btn.clicked.connect(self.test_one_auto_reply)
         reply_btn = QPushButton("Ответить на выбранный")
         reply_btn.clicked.connect(self.reply_selected)
         ignore_btn = QPushButton("Игнорировать")
@@ -177,6 +182,7 @@ class MainWindow(QMainWindow):
         self.auto_quota_label = QLabel()
 
         controls.addWidget(scan_btn)
+        controls.addWidget(test_auto_btn)
         controls.addWidget(reply_btn)
         controls.addWidget(ignore_btn)
         controls.addWidget(queue_btn)
@@ -232,6 +238,46 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        self.daily_limit_spin = QSpinBox()
+        self.daily_limit_spin.setRange(1, 100)
+        self.daily_limit_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    "auto_reply_daily_limit",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                )
+            )
+        )
+        self.daily_limit_spin.valueChanged.connect(self.save_auto_limits)
+
+        self.scan_limit_spin = QSpinBox()
+        self.scan_limit_spin.setRange(1, 20)
+        self.scan_limit_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    "auto_reply_scan_limit",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                )
+            )
+        )
+        self.scan_limit_spin.valueChanged.connect(self.save_auto_limits)
+
+        self.age_limit_spin = QSpinBox()
+        self.age_limit_spin.setRange(1, 720)
+        self.age_limit_spin.setSuffix(" ч")
+        self.age_limit_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    "auto_reply_max_age_hours",
+                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                )
+            )
+        )
+        self.age_limit_spin.valueChanged.connect(self.save_auto_limits)
+
         self.reply_template_edits = {}
         template_labels = {
             "thanks": "Ответ на благодарность",
@@ -264,6 +310,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
+        layout.addWidget(QLabel("Дневной лимит автоответов"))
+        layout.addWidget(self.daily_limit_spin)
+        layout.addWidget(QLabel("Лимит автоответов за один скан"))
+        layout.addWidget(self.scan_limit_spin)
+        layout.addWidget(QLabel("Автоответ только на комментарии не старше"))
+        layout.addWidget(self.age_limit_spin)
         for label, edit in self.reply_template_edits.values():
             layout.addWidget(QLabel(label))
             layout.addWidget(edit)
@@ -392,7 +444,9 @@ class MainWindow(QMainWindow):
                 self.conn,
                 video_ids,
                 auto_reply=self.auto_box.isChecked(),
-                max_auto_replies=DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+                max_auto_replies=self.daily_limit_spin.value(),
+                max_auto_replies_per_scan=self.scan_limit_spin.value(),
+                max_auto_age_hours=self.age_limit_spin.value(),
             )
             self.reload_comments()
             self.statusBar().showMessage(
@@ -404,6 +458,58 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Фоновая проверка: {exc}")
             else:
                 self._error("Ошибка комментариев", exc)
+
+    def test_one_auto_reply(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Тест автоответа",
+            "Программа отправит ровно один безопасный автоответ "
+            "на свежий комментарий. Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        target_id = PROFILE_TARGETS[self.current_profile]
+        video_ids = [
+            row["video_id"]
+            for row in self.conn.execute(
+                "SELECT video_id FROM videos "
+                "WHERE channel_id=? AND privacy_status='public' "
+                "ORDER BY published_at DESC LIMIT 20",
+                (target_id,),
+            ).fetchall()
+        ]
+        if not video_ids:
+            QMessageBox.information(self, APP_NAME, "Сначала синхронизируйте видео.")
+            return
+
+        try:
+            stats = scan_comments(
+                self.client,
+                self.conn,
+                video_ids,
+                auto_reply=True,
+                max_auto_replies=self.daily_limit_spin.value(),
+                max_auto_replies_per_scan=1,
+                max_auto_age_hours=self.age_limit_spin.value(),
+            )
+            self.reload_comments()
+            if stats["auto_replied"] == 1:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Тест успешен: отправлен 1 безопасный автоответ.",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Подходящего свежего безопасного комментария для теста не найдено.",
+                )
+        except Exception as exc:
+            self._error("Ошибка тестового автоответа", exc)
 
     def reload_videos(self) -> None:
         import json
@@ -477,9 +583,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, "auto_quota_label"):
             safe_used = today_auto_reply_count(self.conn)
             total_used = today_reply_count(self.conn)
+            daily_limit = (
+                self.daily_limit_spin.value()
+                if hasattr(self, "daily_limit_spin")
+                else DEFAULT_MAX_AUTO_REPLIES_PER_DAY
+            )
             self.auto_quota_label.setText(
-                f"Безопасный лимит: {safe_used}/{DEFAULT_MAX_AUTO_REPLIES_PER_DAY} "
-                f"· ответов сегодня: {total_used} · ≈{total_used * 50} units"
+                f"Автоответы: {safe_used}/{daily_limit} "
+                f"· отправлено через приложение сегодня: {total_used} "
+                f"· ≈{total_used * 50} units"
             )
 
     def reply_selected(self) -> None:
@@ -524,6 +636,24 @@ class MainWindow(QMainWindow):
         if category in self.reply_template_edits:
             self.reply_template_edits[category][1].setText(text)
         self.statusBar().showMessage("Шаблон автоответа сохранён")
+
+    def save_auto_limits(self, _value: int = 0) -> None:
+        set_setting(
+            self.conn,
+            "auto_reply_daily_limit",
+            str(self.daily_limit_spin.value()),
+        )
+        set_setting(
+            self.conn,
+            "auto_reply_scan_limit",
+            str(self.scan_limit_spin.value()),
+        )
+        set_setting(
+            self.conn,
+            "auto_reply_max_age_hours",
+            str(self.age_limit_spin.value()),
+        )
+        self.reload_comments()
 
     def save_auto_setting(self, _state: int) -> None:
         set_setting(
