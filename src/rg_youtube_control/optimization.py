@@ -12,6 +12,17 @@ class SafeFix:
     after: str
     changes: tuple[str, ...]
 
+SAFE_LINK_ISSUES = frozenset({
+    "old_links",
+    "missing_project_link",
+    "missing_donate_link",
+})
+
+
+def has_safe_link_issue(issues: list[str] | tuple[str, ...]) -> bool:
+    return bool(SAFE_LINK_ISSUES.intersection(issues))
+
+
 def safe_description_fix(description: str) -> SafeFix:
     before = description or ""
     after = normalize_links(before)

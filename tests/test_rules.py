@@ -154,6 +154,15 @@ def test_safe_description_fix_adds_only_missing_link():
     assert "додано посилання на донат" in fixed.changes
 
 
+def test_safe_link_issue_detection():
+    from rg_youtube_control.optimization import has_safe_link_issue
+
+    assert has_safe_link_issue(["old_links"])
+    assert has_safe_link_issue(["missing_project_link", "no_chapters"])
+    assert has_safe_link_issue(["missing_donate_link"])
+    assert not has_safe_link_issue(["thin_description", "no_tags"])
+
+
 def test_scheduled_video_has_top_optimization_priority():
     from rg_youtube_control.optimization import priority_label
 

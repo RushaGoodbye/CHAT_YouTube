@@ -64,6 +64,7 @@ from .db import (
 from .metadata_audit import normalize_links
 from .optimization import (
     compose_description,
+    has_safe_link_issue,
     priority_label,
     safe_description_fix,
     validate_chapters,
@@ -503,6 +504,8 @@ class MainWindow(QMainWindow):
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Применить безопасные")
         apply_btn.clicked.connect(self.apply_safe_optimization)
+        next_safe_btn = QPushButton("Архив: следующие 20")
+        next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
         package_btn = QPushButton("Пакет контента")
         package_btn.clicked.connect(self.edit_content_package)
         transcript_btn = QPushButton("Транскрипт → NAS")
@@ -525,6 +528,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(refresh_btn)
         controls.addWidget(preview_btn)
         controls.addWidget(apply_btn)
+        controls.addWidget(next_safe_btn)
         controls.addWidget(package_btn)
         controls.addWidget(transcript_btn)
         controls.addWidget(batch_transcript_btn)
@@ -1603,6 +1607,112 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:
             self._error("Ошибка применения пакета", exc)
+
+    def _safe_archive_candidates(
+        self,
+        limit: int = 20,
+    ) -> tuple[list[str], int]:
+        rows = self.conn.execute(
+            """
+            SELECT video_id,audit_json
+            FROM videos
+            WHERE profile=?
+              AND privacy_status='public'
+              AND scheduled_publish_at IS NULL
+            ORDER BY published_at DESC, video_id
+            """,
+            (self.current_profile,),
+        ).fetchall()
+
+        candidates: list[str] = []
+        for row in rows:
+            try:
+                issues = json.loads(row["audit_json"] or "{}").get("issues", [])
+            except Exception:
+                issues = []
+            if has_safe_link_issue(issues):
+                candidates.append(row["video_id"])
+
+        return candidates[:limit], len(candidates)
+
+    def apply_next_safe_archive_batch(self) -> None:
+        video_ids, total_candidates = self._safe_archive_candidates(limit=20)
+        if not video_ids:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "В архиве больше нет видео с безопасными правками ссылок.",
+            )
+            return
+
+        estimated = len(video_ids) * 50
+        answer = QMessageBox.question(
+            self,
+            "Архив: следующие 20",
+            f"Найдено видео с безопасными правками: {total_candidates}.\n"
+            f"Сейчас будет обработано: {len(video_ids)}.\n"
+            f"Максимальный расход videos.update: ≈{estimated} units.\n\n"
+            "Будут изменены только старые или отсутствующие ссылки "
+            "проекта и доната. Названия, теги, главы и остальной текст "
+            "останутся без изменений. Для каждой записи сохраняется "
+            "точка отката. Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        changed_ids: list[str] = []
+        skipped_ids: list[str] = []
+        error_text = ""
+        try:
+            for video_id in video_ids:
+                try:
+                    title, description, tags = self._current_video_metadata(video_id)
+                    fix = safe_description_fix(description)
+                    if not fix.changes or fix.after == description:
+                        skipped_ids.append(video_id)
+                        continue
+
+                    save_metadata_snapshot(
+                        self.conn,
+                        video_id,
+                        title,
+                        description,
+                        tags,
+                        "before_safe_archive_batch",
+                    )
+                    self.client.update_video(video_id, description=fix.after)
+                    changed_ids.append(video_id)
+                except Exception as exc:
+                    error_text = f"{video_id}: {exc}"
+                    break
+
+            refresh_ids = changed_ids + skipped_ids
+            if refresh_ids:
+                sync_specific_videos(self.client, self.conn, refresh_ids)
+            self.reload_videos()
+            self.reload_optimization_queue()
+
+            remaining = max(
+                0,
+                total_candidates - len(changed_ids) - len(skipped_ids),
+            )
+            message = (
+                f"Готово. Изменено: {len(changed_ids)}. "
+                f"Без изменений: {len(skipped_ids)}.\n"
+                f"Осталось в очереди безопасных правок: ≈{remaining}."
+            )
+            if error_text:
+                QMessageBox.warning(
+                    self,
+                    APP_NAME,
+                    message + f"\n\nОбработка остановлена на ошибке:\n{error_text}",
+                )
+            else:
+                QMessageBox.information(self, APP_NAME, message)
+        except Exception as exc:
+            self._error("Ошибка пакетной оптимизации архива", exc)
 
     def apply_safe_optimization(self) -> None:
         video_ids = self._selected_optimization_video_ids()
