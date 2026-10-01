@@ -98,3 +98,10 @@ def mark_replied(conn: sqlite3.Connection, comment_id: str, reply_text: str) -> 
         (reply_text, utc_now(), comment_id),
     )
     conn.commit()
+
+def set_comment_status(conn: sqlite3.Connection, comment_id: str, status: str) -> None:
+    conn.execute(
+        "UPDATE comments SET status=? WHERE comment_id=?",
+        (status, comment_id),
+    )
+    conn.commit()
