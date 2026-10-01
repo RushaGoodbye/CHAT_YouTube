@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from googleapiclient.errors import HttpError
 
 from .comment_rules import classify
 from .config import (
+    DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+    DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     DEFAULT_REPLY_TEMPLATES,
     SAFE_AUTO_CATEGORIES,
 )
-from .db import get_setting, mark_replied, upsert_comment, upsert_video
+from .db import get_setting, mark_replied, set_setting, upsert_comment, upsert_video
 from .metadata_audit import audit
 from .youtube_api import YouTubeClient
 
@@ -52,23 +54,22 @@ def _own_reply_exists(
             return True
     return False
 
+def _counter_key(name: str) -> str:
+    day = datetime.now(timezone.utc).date().isoformat()
+    return f"{name}_{day}"
+
 def today_auto_reply_count(conn: sqlite3.Connection) -> int:
-    prefix = datetime.now(timezone.utc).date().isoformat() + "%"
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM comments "
-        "WHERE status='replied' AND replied_at LIKE ? AND category IN ('thanks','links','donate','schedule')",
-        (prefix,),
-    ).fetchone()
-    return int(row["n"] if row else 0)
+    return int(get_setting(conn, _counter_key("auto_replies"), "0") or 0)
 
 def today_reply_count(conn: sqlite3.Connection) -> int:
-    prefix = datetime.now(timezone.utc).date().isoformat() + "%"
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM comments "
-        "WHERE status='replied' AND replied_at LIKE ?",
-        (prefix,),
-    ).fetchone()
-    return int(row["n"] if row else 0)
+    return int(get_setting(conn, _counter_key("replies"), "0") or 0)
+
+def _record_reply(conn: sqlite3.Connection, auto: bool) -> None:
+    total = today_reply_count(conn) + 1
+    set_setting(conn, _counter_key("replies"), str(total))
+    if auto:
+        auto_total = today_auto_reply_count(conn) + 1
+        set_setting(conn, _counter_key("auto_replies"), str(auto_total))
 
 def _http_error_reason(exc: HttpError) -> str:
     try:
@@ -89,6 +90,8 @@ def scan_comments(
     video_ids: list[str],
     auto_reply: bool = False,
     max_auto_replies: int = DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+    max_auto_replies_per_scan: int = DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
+    max_auto_age_hours: int = DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
 ) -> dict[str, int]:
     channel_id = client.my_channel()["id"]
     stats = {
@@ -152,16 +155,35 @@ def scan_comments(
             if current and current["status"] in {"replied", "ignored"}:
                 continue
 
+            published_at = snippet.get("publishedAt")
+            recent_for_auto = True
+            if published_at and max_auto_age_hours > 0:
+                try:
+                    published_dt = datetime.fromisoformat(
+                        str(published_at).replace("Z", "+00:00")
+                    )
+                    if published_dt.tzinfo is None:
+                        published_dt = published_dt.replace(tzinfo=timezone.utc)
+                    recent_for_auto = published_dt >= (
+                        datetime.now(timezone.utc)
+                        - timedelta(hours=max_auto_age_hours)
+                    )
+                except ValueError:
+                    recent_for_auto = False
+
             can_auto = (
                 auto_reply
                 and decision.auto_allowed
                 and decision.category in SAFE_AUTO_CATEGORIES
                 and reply_text
+                and recent_for_auto
                 and auto_count < max_auto_replies
+                and stats["auto_replied"] < max_auto_replies_per_scan
             )
             if can_auto:
                 client.reply(top["id"], reply_text)
                 mark_replied(conn, top["id"], reply_text)
+                _record_reply(conn, auto=True)
                 auto_count += 1
                 stats["auto_replied"] += 1
             else:
@@ -176,3 +198,4 @@ def manual_reply(
 ) -> None:
     client.reply(comment_id, reply_text)
     mark_replied(conn, comment_id, reply_text)
+    _record_reply(conn, auto=False)
