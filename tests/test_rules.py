@@ -31,3 +31,26 @@ def test_empty_metadata_needs_work():
     assert result.needs_update is True
     assert "thin_description" in result.issues
     assert "no_tags" in result.issues
+
+def test_comments_disabled_reason_is_detected():
+    import json
+    import httplib2
+    from googleapiclient.errors import HttpError
+    from rg_youtube_control.service import _http_error_reason
+
+    response = httplib2.Response({"status": "403"})
+    payload = {
+        "error": {
+            "code": 403,
+            "message": "The video has disabled comments.",
+            "errors": [
+                {
+                    "domain": "youtube.commentThread",
+                    "reason": "commentsDisabled",
+                    "message": "The video has disabled comments.",
+                }
+            ],
+        }
+    }
+    exc = HttpError(response, json.dumps(payload).encode("utf-8"))
+    assert _http_error_reason(exc) == "commentsDisabled"
