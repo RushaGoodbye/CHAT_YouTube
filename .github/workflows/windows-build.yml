@@ -51,7 +51,31 @@ jobs:
           New-Item -ItemType Directory -Force installer | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
 
+      - name: Create SHA-256
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem installer\*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($file.Name)" | Set-Content -Encoding ascii "$($file.FullName).sha256"
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          $tag = "v$version"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag installer\*.exe installer\*.sha256 --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag installer\*.exe installer\*.sha256 --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "RG YouTube Control $version" --notes "Windows update $version"
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: RG-YouTube-Control-Windows
-          path: installer\*.exe
+          path: |
+            installer\*.exe
+            installer\*.sha256
