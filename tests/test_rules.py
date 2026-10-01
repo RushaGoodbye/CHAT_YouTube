@@ -326,3 +326,43 @@ def test_best_caption_track_prefers_language_and_manual_track():
     best = client.best_caption_track("video1")
     assert best is not None
     assert best["id"] == "ru-manual"
+
+
+def test_video_profiles_are_isolated(tmp_path):
+    from rg_youtube_control.db import connect, upsert_video
+
+    conn = connect(tmp_path / "profiles.sqlite")
+    for index in range(9):
+        upsert_video(
+            conn,
+            {
+                "video_id": f"main-{index}",
+                "profile": "main",
+                "channel_id": "channel-main",
+                "title": f"Main {index}",
+                "audit": {"score": 100, "issues": []},
+            },
+        )
+    for index in range(8):
+        upsert_video(
+            conn,
+            {
+                "video_id": f"live-{index}",
+                "profile": "live",
+                "channel_id": "channel-live",
+                "title": f"Live {index}",
+                "audit": {"score": 15, "issues": ["old_links"]},
+            },
+        )
+
+    main_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+        ("main",),
+    ).fetchone()["n"]
+    live_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+        ("live",),
+    ).fetchone()["n"]
+
+    assert main_count == 9
+    assert live_count == 8
