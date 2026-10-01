@@ -276,3 +276,53 @@ def test_optimization_draft_round_trip(tmp_path):
     set_optimization_draft_status(conn, "video1", "ready")
     ready = get_optimization_draft(conn, "video1")
     assert ready["status"] == "ready"
+
+
+def test_two_youtube_channels_are_configured():
+    from rg_youtube_control.config import LIVE_CHANNEL_ID, MAIN_CHANNEL_ID, PROFILE_TARGETS
+
+    assert PROFILE_TARGETS["main"] == MAIN_CHANNEL_ID
+    assert PROFILE_TARGETS["live"] == LIVE_CHANNEL_ID
+    assert MAIN_CHANNEL_ID != LIVE_CHANNEL_ID
+
+
+def test_best_caption_track_prefers_language_and_manual_track():
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    client = YouTubeClient(profile="test")
+    client.caption_tracks = lambda video_id: [
+        {
+            "id": "en-manual",
+            "snippet": {
+                "language": "en",
+                "trackKind": "standard",
+                "status": "serving",
+                "isDraft": False,
+                "lastUpdated": "2026-09-01T00:00:00Z",
+            },
+        },
+        {
+            "id": "ru-asr",
+            "snippet": {
+                "language": "ru",
+                "trackKind": "ASR",
+                "status": "serving",
+                "isDraft": False,
+                "lastUpdated": "2026-09-03T00:00:00Z",
+            },
+        },
+        {
+            "id": "ru-manual",
+            "snippet": {
+                "language": "ru",
+                "trackKind": "standard",
+                "status": "serving",
+                "isDraft": False,
+                "lastUpdated": "2026-09-02T00:00:00Z",
+            },
+        },
+    ]
+
+    best = client.best_caption_track("video1")
+    assert best is not None
+    assert best["id"] == "ru-manual"
