@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -25,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .config import (
     APP_NAME,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
@@ -37,6 +41,7 @@ from .db import connect, get_setting, set_setting
 from .metadata_audit import normalize_links
 from .service import manual_reply, scan_comments, sync_videos
 from .youtube_api import YouTubeClient
+from .updater import UpdateInfo, check_for_update, download_update
 
 class MetadataDialog(QDialog):
     def __init__(self, title: str, description: str, tags: list[str], parent=None) -> None:
@@ -105,6 +110,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("SYSTEM READY")
         self.reload_videos()
         self.reload_comments()
+        QTimer.singleShot(3000, self.check_for_updates_silent)
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
@@ -193,11 +199,18 @@ class MainWindow(QMainWindow):
 
         oauth_btn = QPushButton("Выбрать OAuth client JSON")
         oauth_btn.clicked.connect(self.choose_oauth_file)
+
+        self.version_label = QLabel(f"Версия: {__version__}")
+        update_btn = QPushButton("Проверить обновления")
+        update_btn.clicked.connect(self.check_for_updates_manual)
+
         layout.addWidget(self.profile_combo)
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
         layout.addWidget(oauth_btn)
+        layout.addWidget(self.version_label)
+        layout.addWidget(update_btn)
         layout.addStretch()
         self.tabs.addTab(page, "Настройки")
 
@@ -417,6 +430,66 @@ class MainWindow(QMainWindow):
             "background_scan_enabled",
             "1" if self.background_box.isChecked() else "0",
         )
+
+    def check_for_updates_silent(self) -> None:
+        try:
+            info = check_for_update()
+        except Exception:
+            return
+        if info is not None:
+            self._offer_update(info)
+
+    def check_for_updates_manual(self) -> None:
+        self.statusBar().showMessage("Проверяю обновления...")
+        QApplication.processEvents()
+        try:
+            info = check_for_update()
+        except Exception as exc:
+            self._error("Ошибка проверки обновлений", exc)
+            return
+        if info is None:
+            self.statusBar().showMessage("Установлена актуальная версия")
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Установлена актуальная версия {__version__}.",
+            )
+            return
+        self._offer_update(info)
+
+    def _offer_update(self, info: UpdateInfo) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Доступно обновление",
+            f"Доступна версия {info.version}.\n"
+            f"Установлена версия {__version__}.\n\n"
+            "Скачать и установить обновление сейчас?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.statusBar().showMessage(
+            f"Скачиваю RG YouTube Control {info.version}..."
+        )
+        QApplication.processEvents()
+        try:
+            installer = download_update(info)
+        except Exception as exc:
+            self._error("Ошибка загрузки обновления", exc)
+            return
+
+        self.statusBar().showMessage("Запускаю установку обновления...")
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(installer)))
+        if not opened:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                f"Не удалось запустить установщик автоматически.\n"
+                f"Файл сохранён здесь:\n{installer}",
+            )
+            return
+        QTimer.singleShot(800, QApplication.quit)
 
     def _error(self, title: str, exc: Exception) -> None:
         QMessageBox.critical(self, title, str(exc))
