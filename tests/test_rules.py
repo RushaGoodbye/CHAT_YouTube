@@ -286,6 +286,26 @@ def test_two_youtube_channels_are_configured():
     assert MAIN_CHANNEL_ID != LIVE_CHANNEL_ID
 
 
+def test_nas_paths_are_normalized_to_unc():
+    from rg_youtube_control.config import (
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+        normalize_nas_unc_path,
+    )
+
+    assert normalize_nas_unc_path(
+        r"\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS",
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+    ) == DEFAULT_NAS_TRANSCRIPTS_PATH
+    assert normalize_nas_unc_path(
+        r"AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS",
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+    ) == DEFAULT_NAS_TRANSCRIPTS_PATH
+    assert normalize_nas_unc_path(
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+    ) == DEFAULT_NAS_TRANSCRIPTS_PATH
+
+
 def test_best_caption_track_prefers_language_and_manual_track():
     from rg_youtube_control.youtube_api import YouTubeClient
 
