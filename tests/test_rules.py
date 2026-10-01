@@ -401,3 +401,29 @@ def test_video_profiles_are_isolated(tmp_path):
 
     assert main_count == 9
     assert live_count == 8
+
+def test_updater_manifest_parser(monkeypatch):
+    import rg_youtube_control.updater as updater
+
+    monkeypatch.setattr(updater, "__version__", "0.2.7")
+    info = updater._from_manifest(
+        {
+            "version": "0.2.8",
+            "installer_name": "RG_YouTube_Control_Setup_0.2.8.exe",
+            "installer_url": "https://example.test/setup.exe",
+            "checksum_url": "https://example.test/setup.exe.sha256",
+            "notes": "test",
+        }
+    )
+    assert info is not None
+    assert info.version == "0.2.8"
+    assert info.installer_name.endswith(".exe")
+
+    monkeypatch.setattr(updater, "__version__", "0.2.8")
+    assert updater._from_manifest(
+        {
+            "version": "0.2.8",
+            "installer_name": "RG_YouTube_Control_Setup_0.2.8.exe",
+            "installer_url": "https://example.test/setup.exe",
+        }
+    ) is None

@@ -11,6 +11,7 @@ from pathlib import Path
 from . import __version__
 
 REPO = "RushaGoodbye/CHAT_YouTube"
+LATEST_MANIFEST_URL = f"https://github.com/{REPO}/releases/latest/download/latest.json"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 USER_AGENT = "RG-YouTube-Control-Updater"
 
@@ -41,7 +42,33 @@ def _request_json(url: str) -> dict:
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def _from_manifest(data: dict) -> UpdateInfo | None:
+    remote = str(data.get("version") or "").lstrip("vV")
+    if not remote or _version_tuple(remote) <= _version_tuple(__version__):
+        return None
+
+    installer_name = str(data.get("installer_name") or "").strip()
+    installer_url = str(data.get("installer_url") or "").strip()
+    checksum_url = str(data.get("checksum_url") or "").strip() or None
+    if not installer_name or not installer_url:
+        raise RuntimeError("В манифесте обновления нет установщика Windows.")
+
+    return UpdateInfo(
+        version=remote,
+        installer_url=installer_url,
+        installer_name=installer_name,
+        checksum_url=checksum_url,
+        notes=str(data.get("notes") or ""),
+    )
+
+
 def check_for_update() -> UpdateInfo | None:
+    try:
+        manifest = _request_json(LATEST_MANIFEST_URL)
+        return _from_manifest(manifest)
+    except Exception:
+        pass
+
     data = _request_json(LATEST_RELEASE_URL)
     remote = str(data.get("tag_name") or "").lstrip("vV")
     if not remote or _version_tuple(remote) <= _version_tuple(__version__):
