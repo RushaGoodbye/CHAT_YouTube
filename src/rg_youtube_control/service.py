@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from googleapiclient.errors import HttpError
+
 from .comment_rules import classify
 from .config import DEFAULT_MAX_AUTO_REPLIES_PER_DAY, SAFE_AUTO_CATEGORIES
 from .db import mark_replied, upsert_comment, upsert_video
@@ -55,6 +57,19 @@ def _today_auto_reply_count(conn: sqlite3.Connection) -> int:
     ).fetchone()
     return int(row["n"] if row else 0)
 
+def _http_error_reason(exc: HttpError) -> str:
+    try:
+        details = exc.error_details or []
+        if details and isinstance(details[0], dict):
+            return str(details[0].get("reason") or "")
+    except Exception:
+        pass
+    text = str(exc)
+    if "commentsDisabled" in text:
+        return "commentsDisabled"
+    return ""
+
+
 def scan_comments(
     client: YouTubeClient,
     conn: sqlite3.Connection,
@@ -63,11 +78,25 @@ def scan_comments(
     max_auto_replies: int = DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
 ) -> dict[str, int]:
     channel_id = client.my_channel()["id"]
-    stats = {"seen": 0, "queued": 0, "auto_replied": 0, "already_replied": 0}
+    stats = {
+        "seen": 0,
+        "queued": 0,
+        "auto_replied": 0,
+        "already_replied": 0,
+        "skipped_disabled": 0,
+    }
     auto_count = _today_auto_reply_count(conn)
 
     for video_id in video_ids:
-        for thread in client.comment_threads(video_id, limit=100):
+        try:
+            threads = client.comment_threads(video_id, limit=100)
+        except HttpError as exc:
+            if exc.resp.status == 403 and _http_error_reason(exc) == "commentsDisabled":
+                stats["skipped_disabled"] += 1
+                continue
+            raise
+
+        for thread in threads:
             top = thread["snippet"]["topLevelComment"]
             snippet = top["snippet"]
             author_id = snippet.get("authorChannelId", {}).get("value")
