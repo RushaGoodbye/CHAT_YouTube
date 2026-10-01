@@ -32,14 +32,21 @@ from . import __version__
 from .config import (
     APP_NAME,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+    DEFAULT_REPLY_TEMPLATES,
     DEFAULT_SCAN_MINUTES,
     PROFILE_LABELS,
     PROFILE_TARGETS,
     app_data_dir,
 )
-from .db import connect, get_setting, set_setting
+from .db import connect, get_setting, set_comment_status, set_setting
 from .metadata_audit import normalize_links
-from .service import manual_reply, scan_comments, sync_videos
+from .service import (
+    manual_reply,
+    scan_comments,
+    sync_videos,
+    today_auto_reply_count,
+    today_reply_count,
+)
 from .youtube_api import YouTubeClient
 from .updater import UpdateInfo, check_for_update, download_update
 
@@ -146,9 +153,37 @@ class MainWindow(QMainWindow):
         scan_btn.clicked.connect(lambda: self.scan_comment_queue(silent=False))
         reply_btn = QPushButton("Ответить на выбранный")
         reply_btn.clicked.connect(self.reply_selected)
+        ignore_btn = QPushButton("Игнорировать")
+        ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
+        queue_btn = QPushButton("Вернуть в очередь")
+        queue_btn.clicked.connect(lambda: self.set_selected_comment_status("new"))
+
+        self.comment_status_filter = QComboBox()
+        self.comment_status_filter.addItem("Все статусы", "")
+        self.comment_status_filter.addItem("Новые", "new")
+        self.comment_status_filter.addItem("Отвеченные", "replied")
+        self.comment_status_filter.addItem("Игнорированные", "ignored")
+        self.comment_status_filter.currentIndexChanged.connect(self.reload_comments)
+
+        self.comment_category_filter = QComboBox()
+        self.comment_category_filter.addItem("Все категории", "")
+        self.comment_category_filter.addItem("На проверке", "review")
+        self.comment_category_filter.addItem("Благодарности", "thanks")
+        self.comment_category_filter.addItem("Ссылки", "links")
+        self.comment_category_filter.addItem("Донаты", "donate")
+        self.comment_category_filter.addItem("Расписание", "schedule")
+        self.comment_category_filter.currentIndexChanged.connect(self.reload_comments)
+
+        self.auto_quota_label = QLabel()
+
         controls.addWidget(scan_btn)
         controls.addWidget(reply_btn)
+        controls.addWidget(ignore_btn)
+        controls.addWidget(queue_btn)
+        controls.addWidget(self.comment_status_filter)
+        controls.addWidget(self.comment_category_filter)
         controls.addStretch()
+        controls.addWidget(self.auto_quota_label)
 
         self.comment_table = QTableWidget(0, 7)
         self.comment_table.setHorizontalHeaderLabels(
@@ -197,6 +232,27 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        self.reply_template_edits = {}
+        template_labels = {
+            "thanks": "Ответ на благодарность",
+            "links": "Ответ со ссылками",
+            "donate": "Ответ про донат",
+            "schedule": "Ответ про расписание",
+        }
+        for category, label in template_labels.items():
+            edit = QLineEdit(
+                get_setting(
+                    self.conn,
+                    f"reply_template_{category}",
+                    DEFAULT_REPLY_TEMPLATES[category],
+                )
+            )
+            edit.setPlaceholderText(label)
+            edit.editingFinished.connect(
+                lambda c=category, e=edit: self.save_reply_template(c, e.text())
+            )
+            self.reply_template_edits[category] = (label, edit)
+
         oauth_btn = QPushButton("Выбрать OAuth client JSON")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
@@ -208,6 +264,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
+        for label, edit in self.reply_template_edits.values():
+            layout.addWidget(QLabel(label))
+            layout.addWidget(edit)
         layout.addWidget(oauth_btn)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
@@ -369,22 +428,39 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.video_table.setItem(index, column, QTableWidgetItem(value))
 
-    def reload_comments(self) -> None:
+    def reload_comments(self, _index: int = -1) -> None:
         target_id = PROFILE_TARGETS[self.current_profile]
-        rows = self.conn.execute(
-            """SELECT c.comment_id,c.published_at,c.video_id,c.author,c.text,
-                      c.category,c.status,c.reply_text
-               FROM comments c
-               JOIN videos v ON v.video_id=c.video_id
-               WHERE v.channel_id=?
-               ORDER BY c.published_at DESC LIMIT 500""",
-            (target_id,),
-        ).fetchall()
+        status_filter = (
+            self.comment_status_filter.currentData()
+            if hasattr(self, "comment_status_filter")
+            else ""
+        )
+        category_filter = (
+            self.comment_category_filter.currentData()
+            if hasattr(self, "comment_category_filter")
+            else ""
+        )
+
+        query = """SELECT c.comment_id,c.published_at,c.video_id,v.title AS video_title,
+                          c.author,c.text,c.category,c.status,c.reply_text
+                   FROM comments c
+                   JOIN videos v ON v.video_id=c.video_id
+                   WHERE v.channel_id=?"""
+        params: list[str] = [target_id]
+        if status_filter:
+            query += " AND c.status=?"
+            params.append(str(status_filter))
+        if category_filter:
+            query += " AND c.category=?"
+            params.append(str(category_filter))
+        query += " ORDER BY c.published_at DESC LIMIT 500"
+
+        rows = self.conn.execute(query, tuple(params)).fetchall()
         self.comment_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
             values = [
                 row["published_at"] or "",
-                row["video_id"],
+                row["video_title"] or row["video_id"],
                 row["author"] or "",
                 row["text"],
                 row["category"],
@@ -395,7 +471,16 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row["comment_id"])
+                    item.setData(Qt.ItemDataRole.UserRole + 1, row["video_id"])
                 self.comment_table.setItem(index, column, item)
+
+        if hasattr(self, "auto_quota_label"):
+            safe_used = today_auto_reply_count(self.conn)
+            total_used = today_reply_count(self.conn)
+            self.auto_quota_label.setText(
+                f"Безопасный лимит: {safe_used}/{DEFAULT_MAX_AUTO_REPLIES_PER_DAY} "
+                f"· ответов сегодня: {total_used} · ≈{total_used * 50} units"
+            )
 
     def reply_selected(self) -> None:
         row = self.comment_table.currentRow()
@@ -416,6 +501,29 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Ответ опубликован")
         except Exception as exc:
             self._error("Ошибка ответа", exc)
+
+    def set_selected_comment_status(self, status: str) -> None:
+        row = self.comment_table.currentRow()
+        if row < 0:
+            return
+        key_item = self.comment_table.item(row, 0)
+        comment_id = key_item.data(Qt.ItemDataRole.UserRole)
+        if not comment_id:
+            return
+        set_comment_status(self.conn, str(comment_id), status)
+        self.reload_comments()
+        labels = {
+            "ignored": "Комментарий помечен как игнорируемый",
+            "new": "Комментарий возвращён в очередь",
+        }
+        self.statusBar().showMessage(labels.get(status, "Статус обновлён"))
+
+    def save_reply_template(self, category: str, value: str) -> None:
+        text = value.strip() or DEFAULT_REPLY_TEMPLATES[category]
+        set_setting(self.conn, f"reply_template_{category}", text)
+        if category in self.reply_template_edits:
+            self.reply_template_edits[category][1].setText(text)
+        self.statusBar().showMessage("Шаблон автоответа сохранён")
 
     def save_auto_setting(self, _state: int) -> None:
         set_setting(
