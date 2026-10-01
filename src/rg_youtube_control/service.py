@@ -27,13 +27,16 @@ def sync_videos(
         snippet = item.get("snippet", {})
         status = item.get("status", {})
         stats = item.get("statistics", {})
+        content = item.get("contentDetails", {})
         result = audit(snippet.get("description", ""), snippet.get("tags", []))
         row = {
             "video_id": item["id"],
             "channel_id": snippet.get("channelId"),
             "title": snippet.get("title", ""),
             "published_at": snippet.get("publishedAt"),
+            "scheduled_publish_at": status.get("publishAt"),
             "privacy_status": status.get("privacyStatus"),
+            "duration": content.get("duration"),
             "views": int(stats.get("viewCount") or 0),
             "audit": {"score": result.score, "issues": list(result.issues)},
         }
