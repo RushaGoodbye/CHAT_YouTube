@@ -44,6 +44,34 @@ def sync_videos(
         rows.append(row)
     return rows
 
+def sync_specific_videos(
+    client: YouTubeClient,
+    conn: sqlite3.Connection,
+    video_ids: list[str],
+) -> list[dict[str, Any]]:
+    items = client.video_details(video_ids)
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        snippet = item.get("snippet", {})
+        status = item.get("status", {})
+        stats = item.get("statistics", {})
+        content = item.get("contentDetails", {})
+        result = audit(snippet.get("description", ""), snippet.get("tags", []))
+        row = {
+            "video_id": item["id"],
+            "channel_id": snippet.get("channelId"),
+            "title": snippet.get("title", ""),
+            "published_at": snippet.get("publishedAt"),
+            "scheduled_publish_at": status.get("publishAt"),
+            "privacy_status": status.get("privacyStatus"),
+            "duration": content.get("duration"),
+            "views": int(stats.get("viewCount") or 0),
+            "audit": {"score": result.score, "issues": list(result.issues)},
+        }
+        upsert_video(conn, row)
+        rows.append(row)
+    return rows
+
 def _own_reply_exists(
     client: YouTubeClient, thread: dict[str, Any], channel_id: str
 ) -> bool:
