@@ -505,6 +505,10 @@ class MainWindow(QMainWindow):
         package_btn.clicked.connect(self.edit_content_package)
         transcript_btn = QPushButton("Транскрипт → NAS")
         transcript_btn.clicked.connect(self.export_selected_transcript_to_nas)
+        batch_transcript_btn = QPushButton("Транскрипты запланированных → NAS")
+        batch_transcript_btn.clicked.connect(
+            self.export_scheduled_transcripts_to_nas
+        )
         import_btn = QPushButton("Импорт пакета NAS")
         import_btn.clicked.connect(self.import_selected_package_from_nas)
         apply_package_btn = QPushButton("Применить пакет")
@@ -519,12 +523,13 @@ class MainWindow(QMainWindow):
         controls.addWidget(apply_btn)
         controls.addWidget(package_btn)
         controls.addWidget(transcript_btn)
+        controls.addWidget(batch_transcript_btn)
         controls.addWidget(import_btn)
         controls.addWidget(apply_package_btn)
         controls.addWidget(rollback_btn)
         controls.addStretch()
 
-        self.optimization_table = QTableWidget(0, 9)
+        self.optimization_table = QTableWidget(0, 10)
         self.optimization_table.setHorizontalHeaderLabels(
             [
                 "Приоритет",
@@ -534,6 +539,7 @@ class MainWindow(QMainWindow):
                 "Название",
                 "Просмотры",
                 "Audit",
+                "Транскрипт",
                 "Пакет",
                 "Проблемы",
             ]
@@ -1000,6 +1006,18 @@ class MainWindow(QMainWindow):
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
+            transcript_dir = Path(
+                get_setting(
+                    self.conn,
+                    "nas_transcripts_path",
+                    DEFAULT_NAS_TRANSCRIPTS_PATH,
+                )
+            )
+            transcript_status = (
+                "NAS"
+                if (transcript_dir / f"{row['video_id']}.srt").exists()
+                else ""
+            )
             draft_status = {
                 "draft": "ЧЕРНОВИК",
                 "ready": "ГОТОВО",
@@ -1013,6 +1031,7 @@ class MainWindow(QMainWindow):
                 row["title"],
                 str(row["views"] or 0),
                 str(score),
+                transcript_status,
                 draft_status,
                 ", ".join(issues),
             ]
@@ -1032,7 +1051,10 @@ class MainWindow(QMainWindow):
                     item.setForeground(
                         QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
                     )
-                elif column == 7 and draft_status:
+                elif column == 7 and transcript_status:
+                    item.setForeground(QColor(SUCCESS))
+                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif column == 8 and draft_status:
                     item.setForeground(
                         QColor(
                             SUCCESS
@@ -1099,6 +1121,142 @@ class MainWindow(QMainWindow):
             dialog.exec()
         except Exception as exc:
             self._error("Ошибка предпросмотра", exc)
+
+    def _export_transcript_video_to_nas(
+        self,
+        video_id: str,
+    ) -> tuple[Path, bool]:
+        target_dir = Path(
+            get_setting(
+                self.conn,
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+        )
+        target_dir.mkdir(parents=True, exist_ok=True)
+        srt_path = target_dir / f"{video_id}.srt"
+        meta_path = target_dir / f"{video_id}.json"
+
+        if srt_path.exists() and srt_path.stat().st_size > 0:
+            return srt_path, False
+
+        track, srt = self.client.download_best_caption_srt(video_id)
+        snippet = track.get("snippet", {})
+        srt_path.write_text(srt, encoding="utf-8")
+
+        row = self.conn.execute(
+            "SELECT title FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        meta = {
+            "video_id": video_id,
+            "channel_profile": self.current_profile,
+            "channel_id": PROFILE_TARGETS[self.current_profile],
+            "title": row["title"] if row else "",
+            "language": snippet.get("language"),
+            "name": snippet.get("name"),
+            "track_kind": snippet.get("trackKind"),
+            "status": snippet.get("status"),
+            "srt_path": str(srt_path),
+        }
+        meta_path.write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return srt_path, True
+
+    def export_scheduled_transcripts_to_nas(self) -> None:
+        rows = self.conn.execute(
+            """SELECT video_id,title,scheduled_publish_at
+               FROM videos
+               WHERE profile=? AND scheduled_publish_at IS NOT NULL
+               ORDER BY scheduled_publish_at ASC""",
+            (self.current_profile,),
+        ).fetchall()
+        if not rows:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "На активном канале нет запланированных видео.",
+            )
+            return
+
+        target_dir = Path(
+            get_setting(
+                self.conn,
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+        )
+        pending = [
+            row
+            for row in rows
+            if not (target_dir / f"{row['video_id']}.srt").exists()
+        ]
+        already = len(rows) - len(pending)
+
+        if not pending:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Все {len(rows)} запланированных транскриптов уже есть на NAS.",
+            )
+            self.reload_optimization_queue()
+            return
+
+        if len(pending) > 20:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "За один пакет можно получить не более 20 транскриптов.",
+            )
+            return
+
+        estimated = len(pending) * 250
+        answer = QMessageBox.question(
+            self,
+            "Транскрипты запланированных видео",
+            f"Найдено запланированных: {len(rows)}.\n"
+            f"Уже на NAS: {already}.\n"
+            f"Нужно получить: {len(pending)}.\n"
+            f"Оценка квоты Captions API: до ≈{estimated} units.\n\n"
+            "Получить транскрипты сейчас?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        saved = 0
+        skipped = already
+        errors: list[str] = []
+        for index, row in enumerate(pending, start=1):
+            video_id = row["video_id"]
+            self.statusBar().showMessage(
+                f"Транскрипты: {index}/{len(pending)} · {video_id}"
+            )
+            QApplication.processEvents()
+            try:
+                _path, downloaded = self._export_transcript_video_to_nas(video_id)
+                if downloaded:
+                    saved += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                errors.append(f"{video_id}: {exc}")
+
+        self.reload_optimization_queue()
+        message = (
+            f"Готово. Сохранено новых транскриптов: {saved}.\n"
+            f"Уже существовало: {skipped}."
+        )
+        if errors:
+            preview = "\n".join(errors[:8])
+            message += f"\n\nНе удалось получить: {len(errors)}\n{preview}"
+            if len(errors) > 8:
+                message += "\n…"
+        QMessageBox.information(self, APP_NAME, message)
+        self.statusBar().showMessage("Пакет транскриптов обработан")
 
     def export_selected_transcript_to_nas(self) -> None:
         video_ids = self._selected_optimization_video_ids()
