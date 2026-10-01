@@ -141,3 +141,81 @@ def test_reply_counters_only_track_app_sent_replies(tmp_path):
     manual_reply(FakeClient(), conn, "c1", "Дякуємо!")
     assert today_reply_count(conn) == 1
     assert today_auto_reply_count(conn) == 0
+
+
+def test_safe_description_fix_adds_only_missing_link():
+    from rg_youtube_control.config import DONATE_URL, PROJECT_LINKS_URL
+    from rg_youtube_control.optimization import safe_description_fix
+
+    source = f"Опис відео\n\nУСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n{PROJECT_LINKS_URL}"
+    fixed = safe_description_fix(source)
+    assert fixed.after.count(PROJECT_LINKS_URL) == 1
+    assert fixed.after.count(DONATE_URL) == 1
+    assert "додано посилання на донат" in fixed.changes
+
+
+def test_scheduled_video_has_top_optimization_priority():
+    from rg_youtube_control.optimization import priority_label
+
+    scheduled = priority_label(
+        100,
+        "private",
+        "2026-10-10T14:00:00Z",
+        [],
+    )
+    old_links = priority_label(
+        15,
+        "public",
+        None,
+        ["old_links"],
+    )
+    assert scheduled[0] > old_links[0]
+    assert scheduled[1] == "ЗАПЛАНОВАНО"
+
+
+def test_database_migrates_video_columns_and_keeps_history(tmp_path):
+    import json
+    import sqlite3
+
+    from rg_youtube_control.db import (
+        connect,
+        latest_metadata_snapshot,
+        save_metadata_snapshot,
+    )
+
+    db_path = tmp_path / "legacy.sqlite"
+    raw = sqlite3.connect(db_path)
+    raw.execute(
+        """CREATE TABLE videos (
+            video_id TEXT PRIMARY KEY,
+            channel_id TEXT,
+            title TEXT NOT NULL,
+            published_at TEXT,
+            privacy_status TEXT,
+            views INTEGER DEFAULT 0,
+            audit_json TEXT DEFAULT '{}',
+            last_synced_at TEXT NOT NULL
+        )"""
+    )
+    raw.commit()
+    raw.close()
+
+    conn = connect(db_path)
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(videos)").fetchall()
+    }
+    assert "scheduled_publish_at" in columns
+    assert "duration" in columns
+
+    save_metadata_snapshot(
+        conn,
+        "video1",
+        "Old title",
+        "Old description",
+        ["tag1"],
+        "test",
+    )
+    snapshot = latest_metadata_snapshot(conn, "video1")
+    assert snapshot is not None
+    assert snapshot["title"] == "Old title"
+    assert json.loads(snapshot["tags_json"]) == ["tag1"]
