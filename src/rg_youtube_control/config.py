@@ -24,7 +24,9 @@ OLD_PROJECT_LINKS = "https://rg-links-d9e.pages.dev/"
 OLD_DONATE_LINK = "https://rg-donates.pages.dev/"
 
 DEFAULT_SCAN_MINUTES = 10
-DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 80
+DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 20
+DEFAULT_MAX_AUTO_REPLIES_PER_SCAN = 3
+DEFAULT_AUTO_REPLY_MAX_AGE_HOURS = 72
 SAFE_AUTO_CATEGORIES = {"thanks", "links", "donate", "schedule"}
 DEFAULT_REPLY_TEMPLATES = {
     "thanks": "Дякуємо за підтримку! 💙💛",
