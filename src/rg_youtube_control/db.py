@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS video_analytics_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_video_analytics_cache_profile
   ON video_analytics_cache(profile, updated_at DESC);
+CREATE TABLE IF NOT EXISTS action_log (
+  log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile TEXT,
+  category TEXT NOT NULL,
+  action TEXT NOT NULL,
+  details TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_action_log_profile_date
+  ON action_log(profile, created_at DESC);
 """
 
 def utc_now() -> str:
@@ -394,6 +404,44 @@ def set_optimization_draft_status(
         (status, utc_now(), video_id),
     )
     conn.commit()
+
+def log_action(
+    conn: sqlite3.Connection,
+    *,
+    profile: str | None,
+    category: str,
+    action: str,
+    details: str = "",
+) -> int:
+    cursor = conn.execute(
+        """INSERT INTO action_log(profile,category,action,details,created_at)
+           VALUES(?,?,?,?,?)""",
+        (profile, category, action, details, utc_now()),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def recent_action_log(
+    conn: sqlite3.Connection,
+    profile: str | None = None,
+    limit: int = 250,
+) -> list[sqlite3.Row]:
+    if profile:
+        return conn.execute(
+            """SELECT log_id,profile,category,action,details,created_at
+               FROM action_log
+               WHERE profile=?
+               ORDER BY log_id DESC LIMIT ?""",
+            (profile, int(limit)),
+        ).fetchall()
+    return conn.execute(
+        """SELECT log_id,profile,category,action,details,created_at
+           FROM action_log
+           ORDER BY log_id DESC LIMIT ?""",
+        (int(limit),),
+    ).fetchall()
+
 
 def database_integrity_cleanup(conn: sqlite3.Connection) -> dict[str, Any]:
     integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
