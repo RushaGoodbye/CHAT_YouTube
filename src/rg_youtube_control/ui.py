@@ -64,6 +64,7 @@ from .db import (
 from .metadata_audit import normalize_links
 from .optimization import (
     compose_description,
+    extract_chapters_from_description,
     has_safe_link_issue,
     priority_label,
     safe_description_fix,
@@ -192,6 +193,13 @@ class ContentOptimizationDialog(QDialog):
             scheduled_note.setWordWrap(True)
             layout.addWidget(scheduled_note)
 
+        if not (chapters or "").strip():
+            description, detected_chapters = extract_chapters_from_description(
+                description
+            )
+            if detected_chapters:
+                chapters = detected_chapters
+
         form = QFormLayout()
         self.title_edit = QLineEdit(_standard_hyphen(title))
         self.description_edit = QPlainTextEdit(_standard_hyphen(description))
@@ -213,9 +221,16 @@ class ContentOptimizationDialog(QDialog):
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
         self.status_combo.addItem("Готово до застосування", "ready")
+        self.status_combo.addItem("Застосовано", "applied")
         idx = self.status_combo.findData(status)
         if idx >= 0:
             self.status_combo.setCurrentIndex(idx)
+
+        self.title_edit.textEdited.connect(self._mark_applied_as_draft)
+        self.description_edit.textChanged.connect(self._mark_applied_as_draft)
+        self.chapters_edit.textChanged.connect(self._mark_applied_as_draft)
+        self.tags_edit.textChanged.connect(self._mark_applied_as_draft)
+        self.title_variants_edit.textChanged.connect(self._mark_applied_as_draft)
 
         form.addRow("Нова назва:", self.title_edit)
         form.addRow("Повний опис:", self.description_edit)
@@ -244,6 +259,12 @@ class ContentOptimizationDialog(QDialog):
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _mark_applied_as_draft(self, *_args) -> None:
+        if self.status_combo.currentData() == "applied":
+            draft_index = self.status_combo.findData("draft")
+            if draft_index >= 0:
+                self.status_combo.setCurrentIndex(draft_index)
 
     def validate_chapters_now(self) -> None:
         ok, message = validate_chapters(self.chapters_edit.toPlainText())
@@ -674,6 +695,10 @@ class MainWindow(QMainWindow):
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
+        audit_scheduled_btn = QPushButton("Перевірити заплановані")
+        audit_scheduled_btn.clicked.connect(
+            self.audit_scheduled_packages
+        )
         apply_scheduled_btn = QPushButton("Застосувати готові заплановані")
         apply_scheduled_btn.clicked.connect(
             self.apply_ready_scheduled_packages
@@ -684,6 +709,7 @@ class MainWindow(QMainWindow):
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
+        sync_row.addWidget(audit_scheduled_btn)
         sync_row.addWidget(apply_scheduled_btn)
         sync_row.addStretch()
 
@@ -2177,6 +2203,121 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:
             self._error("Помилка застосування пакета", exc)
+
+    def audit_scheduled_packages(self) -> None:
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.title,v.scheduled_publish_at,
+                      d.new_title,d.description,d.chapters,d.tags_json,
+                      d.title_variants_json,d.status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=?
+                 AND v.scheduled_publish_at IS NOT NULL
+               ORDER BY v.scheduled_publish_at ASC""",
+            (self.current_profile,),
+        ).fetchall()
+
+        if not rows:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "На активному каналі немає запланованих стрімів.",
+            )
+            return
+
+        missing = 0
+        applied = 0
+        ready = 0
+        draft = 0
+        errors_total = 0
+        warnings_total = 0
+        chapters_fixed = 0
+        details: list[str] = []
+
+        for row in rows:
+            video_id = str(row["video_id"])
+            scheduled_at = str(row["scheduled_publish_at"] or "")
+            if row["new_title"] is None:
+                missing += 1
+                details.append(f"{scheduled_at} · {video_id}: немає пакета")
+                continue
+
+            status = str(row["status"] or "draft")
+            if status == "applied":
+                applied += 1
+            elif status == "ready":
+                ready += 1
+            else:
+                draft += 1
+
+            description = str(row["description"] or "")
+            chapters = str(row["chapters"] or "")
+            tags = json.loads(row["tags_json"] or "[]")
+            title_variants = json.loads(
+                row["title_variants_json"] or "[]"
+            )
+
+            if not chapters.strip():
+                clean_description, detected_chapters = (
+                    extract_chapters_from_description(description)
+                )
+                if detected_chapters:
+                    description = clean_description
+                    chapters = detected_chapters
+                    save_optimization_draft(
+                        self.conn,
+                        video_id,
+                        str(row["new_title"] or ""),
+                        description,
+                        chapters,
+                        tags,
+                        status,
+                        title_variants,
+                    )
+                    chapters_fixed += 1
+
+            check = validate_content_package(
+                str(row["new_title"] or ""),
+                description,
+                chapters,
+                tags,
+                title_variants,
+            )
+            errors_total += len(check.errors)
+            warnings_total += len(check.warnings)
+            if check.errors or check.warnings:
+                summary = []
+                if check.errors:
+                    summary.append(f"помилок {len(check.errors)}")
+                if check.warnings:
+                    summary.append(f"рекомендацій {len(check.warnings)}")
+                details.append(
+                    f"{scheduled_at} · {video_id}: " + ", ".join(summary)
+                )
+
+        self.reload_optimization_queue()
+
+        lines = [
+            f"Запланованих стрімів: {len(rows)}",
+            f"Застосовано: {applied}",
+            f"Готово до застосування: {ready}",
+            f"Чернеток: {draft}",
+            f"Без пакета: {missing}",
+            f"Автоматично перенесено розділи з опису: {chapters_fixed}",
+            f"Критичних помилок: {errors_total}",
+            f"Рекомендацій: {warnings_total}",
+        ]
+        if details:
+            lines.append("\nДеталі:")
+            lines.extend(details[:12])
+            if len(details) > 12:
+                lines.append(f"...ще {len(details) - 12}")
+
+        QMessageBox.information(
+            self,
+            "Перевірка запланованих стрімів",
+            "\n".join(lines),
+        )
 
     def apply_ready_scheduled_packages(self) -> None:
         rows = self.conn.execute(
