@@ -4408,18 +4408,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 continue
 
-            video_ids = [
-                row["video_id"]
-                for row in self.conn.execute(
-                    "SELECT video_id FROM videos "
-                    "WHERE profile=? AND privacy_status='public' "
-                    "ORDER BY published_at DESC LIMIT 20",
-                    (profile,),
-                ).fetchall()
-            ]
-            if not video_ids:
-                continue
-
             default_auto = (
                 get_setting(self.conn, "auto_reply_enabled", "0")
                 if profile == "main"
@@ -4430,24 +4418,47 @@ class MainWindow(QMainWindow):
                 f"auto_reply_enabled_{profile}",
                 default_auto,
             ) == "1"
+            daily_limit = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_daily_limit_{profile}",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                )
+            )
+            scan_limit = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_scan_limit_{profile}",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                )
+            )
+            age_hours = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_max_age_hours_{profile}",
+                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                )
+            )
 
             try:
-                stats = scan_comments(
+                stats = scan_channel_comments(
                     client,
                     self.conn,
-                    video_ids,
+                    target_id,
                     auto_reply=auto_enabled,
-                    max_auto_replies=self.daily_limit_spin.value(),
-                    max_auto_replies_per_scan=self.scan_limit_spin.value(),
-                    max_auto_age_hours=self.age_limit_spin.value(),
+                    max_auto_replies=daily_limit,
+                    max_auto_replies_per_scan=scan_limit,
+                    max_auto_age_hours=age_hours,
                 )
                 summaries.append(
-                    f"{PROFILE_LABELS[profile]}: {stats['seen']} ком."
+                    f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
+                    f"авто {stats['auto_replied']}, API {stats['api_reads']}"
                 )
-            except Exception as exc:
+            except Exception:
                 summaries.append(f"{PROFILE_LABELS[profile]}: помилка")
 
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         if summaries:
             self.statusBar().showMessage(" · ".join(summaries))
@@ -4456,40 +4467,29 @@ class MainWindow(QMainWindow):
         if silent and not self.background_box.isChecked():
             return
         profile = self.current_profile
-        video_ids = [
-            row["video_id"]
-            for row in self.conn.execute(
-                "SELECT video_id FROM videos "
-                "WHERE profile=? AND privacy_status='public' "
-                "ORDER BY published_at DESC LIMIT 20",
-                (profile,),
-            ).fetchall()
-        ]
-        if not video_ids:
-            if not silent:
-                QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
-            return
         try:
-            stats = scan_comments(
+            stats = scan_channel_comments(
                 self.client,
                 self.conn,
-                video_ids,
+                PROFILE_TARGETS[profile],
                 auto_reply=self.auto_box.isChecked(),
                 max_auto_replies=self.daily_limit_spin.value(),
                 max_auto_replies_per_scan=self.scan_limit_spin.value(),
                 max_auto_age_hours=self.age_limit_spin.value(),
             )
             self.reload_comments()
+            self.reload_action_log()
             self.statusBar().showMessage(
-                "Коментарі: {seen} · черга: {queued} · "
-                "автовідповіді: {auto_replied} · вже відповіли: {already_replied} · "
-                "на перевірку: {skipped_review} · застарілі: {skipped_old} · "
-                "ліміт: {skipped_limit} · без коментарів: {skipped_disabled} · "
-                "квота: {quota_blocked}".format(**stats)
+                "Нові: {seen} · черга: {queued} · авто: {auto_replied} · "
+                "вже відповіли: {already_replied} · перевірка: {skipped_review} · "
+                "ліміт: {skipped_limit} · API читань: {api_reads} · "
+                "відомих пропущено: {known_skipped} · квота: {quota_blocked}".format(
+                    **stats
+                )
             )
         except Exception as exc:
             if silent:
-                self.statusBar().showMessage(f"Фонова перевірка: {exc}")
+                self.statusBar().showMessage("Фонова перевірка коментарів не виконана")
             else:
                 self._error("Помилка коментарів", exc)
 
@@ -4505,31 +4505,18 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        profile = self.current_profile
-        video_ids = [
-            row["video_id"]
-            for row in self.conn.execute(
-                "SELECT video_id FROM videos "
-                "WHERE profile=? AND privacy_status='public' "
-                "ORDER BY published_at DESC LIMIT 20",
-                (profile,),
-            ).fetchall()
-        ]
-        if not video_ids:
-            QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
-            return
-
         try:
-            stats = scan_comments(
+            stats = scan_channel_comments(
                 self.client,
                 self.conn,
-                video_ids,
+                PROFILE_TARGETS[self.current_profile],
                 auto_reply=True,
                 max_auto_replies=self.daily_limit_spin.value(),
                 max_auto_replies_per_scan=1,
                 max_auto_age_hours=self.age_limit_spin.value(),
             )
             self.reload_comments()
+            self.reload_action_log()
             if stats["auto_replied"] == 1:
                 QMessageBox.information(
                     self,
@@ -4537,11 +4524,14 @@ class MainWindow(QMainWindow):
                     "Тест успішний: надіслано 1 безпечну автовідповідь.",
                 )
             elif stats["quota_blocked"] > 0:
+                budget = quota_budget_status(self.conn)
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Денну квоту YouTube Data API вже вичерпано. "
-                    "Тестову відповідь не відправлено. Спробуйте після скидання квоти.",
+                    "Тестову відповідь не відправлено через обмеження квоти.\n"
+                    f"Залишок: ≈{budget['remaining']} од. · "
+                    f"резерв: {budget['reserve']} од.\n"
+                    f"Скидання: {budget['reset']}.",
                 )
             else:
                 QMessageBox.information(
