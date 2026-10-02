@@ -676,7 +676,7 @@ class MainWindow(QMainWindow):
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton("Архів: безпечні 100")
+        next_safe_btn = QPushButton("Архів: безпечні 50")
         next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
         package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
@@ -2828,7 +2828,7 @@ class MainWindow(QMainWindow):
         return candidates[:limit], len(candidates)
 
     def apply_next_safe_archive_batch(self) -> None:
-        batch_limit = 100
+        batch_limit = 50
         video_ids, total_candidates = self._safe_archive_candidates(
             limit=batch_limit
         )
@@ -2843,7 +2843,7 @@ class MainWindow(QMainWindow):
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Архів: безпечні 100",
+            "Архів: безпечні 50",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
