@@ -86,6 +86,19 @@ def _own_reply_exists(
     total = int(thread.get("snippet", {}).get("totalReplyCount") or 0)
     if total <= 0:
         return False
+
+    embedded = thread.get("replies", {}).get("comments", []) or []
+    for reply in embedded:
+        author = reply.get("snippet", {}).get("authorChannelId", {}).get("value")
+        if author == channel_id:
+            return True
+
+    # commentThreads.list(part="replies") already includes available replies.
+    # Only make an extra comments.list call when YouTube reports more replies
+    # than were embedded in the thread payload.
+    if len(embedded) >= total:
+        return False
+
     top_id = thread["snippet"]["topLevelComment"]["id"]
     for reply in client.replies(top_id):
         author = reply.get("snippet", {}).get("authorChannelId", {}).get("value")
@@ -197,14 +210,18 @@ def scan_comments(
         stats["quota_blocked"] += 1
         return stats
 
-    try:
-        channel_id = client.my_channel()["id"]
-    except Exception as exc:
-        if _is_quota_error(exc):
-            mark_quota_exhausted(conn)
-            stats["quota_blocked"] += 1
-            return stats
-        raise
+    channel_key = f"youtube_channel_id_{getattr(client, \"profile\", \"default\")}"
+    channel_id = get_setting(conn, channel_key, "").strip()
+    if not channel_id:
+        try:
+            channel_id = client.my_channel()["id"]
+            set_setting(conn, channel_key, channel_id)
+        except Exception as exc:
+            if _is_quota_error(exc):
+                mark_quota_exhausted(conn)
+                stats["quota_blocked"] += 1
+                return stats
+            raise
 
     for video_id in video_ids:
         try:
@@ -235,14 +252,27 @@ def scan_comments(
                     f"reply_template_{decision.category}",
                     DEFAULT_REPLY_TEMPLATES[decision.category],
                 ).strip()
-            try:
-                has_reply = _own_reply_exists(client, thread, channel_id)
-            except Exception as exc:
-                if _is_quota_error(exc):
-                    mark_quota_exhausted(conn)
-                    stats["quota_blocked"] += 1
-                    return stats
-                raise
+
+            comment_id = top["id"]
+            current = conn.execute(
+                "SELECT status FROM comments WHERE comment_id=?", (comment_id,)
+            ).fetchone()
+            known_status = str(current["status"] or "") if current else ""
+
+            # Local state is authoritative for comments the app already replied to
+            # or the user explicitly ignored. Avoid a remote replies.list call.
+            if known_status in {"replied", "ignored"}:
+                has_reply = known_status == "replied"
+            else:
+                try:
+                    has_reply = _own_reply_exists(client, thread, channel_id)
+                except Exception as exc:
+                    if _is_quota_error(exc):
+                        mark_quota_exhausted(conn)
+                        stats["quota_blocked"] += 1
+                        return stats
+                    raise
+
             status = "replied" if has_reply else "new"
             item = {
                 "comment_id": top["id"],
@@ -263,9 +293,6 @@ def scan_comments(
                 stats["already_replied"] += 1
                 continue
 
-            current = conn.execute(
-                "SELECT status FROM comments WHERE comment_id=?", (top["id"],)
-            ).fetchone()
             if current and current["status"] in {"replied", "ignored"}:
                 continue
 
