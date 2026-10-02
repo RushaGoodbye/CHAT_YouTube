@@ -69,6 +69,7 @@ from .db import (
 )
 from .metadata_audit import audit, normalize_links
 from .package_bridge import bridge_health, fetch_package, upload_transcript
+from .recovery import create_recovery_backup, read_recovery_manifest, restore_recovery_backup
 from .optimization import (
     archive_potential_score,
     compose_description,
@@ -1685,6 +1686,10 @@ class MainWindow(QMainWindow):
         self.version_label = QLabel(f"Версія: {__version__}")
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
+        backup_btn = QPushButton("Зберегти робочу версію на NAS")
+        backup_btn.clicked.connect(self.create_recovery_backup_now)
+        restore_btn = QPushButton("Відновити робочу версію")
+        restore_btn.clicked.connect(self.restore_recovery_backup_now)
 
         layout.addWidget(self.profile_combo)
         layout.addWidget(self.channel_label)
@@ -1708,8 +1713,107 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
+        layout.addWidget(QLabel("Резервне копіювання / відновлення"))
+        layout.addWidget(backup_btn)
+        layout.addWidget(restore_btn)
         layout.addStretch()
         self.tabs.addTab(page, "Налаштування")
+
+    def _recovery_backup_root(self) -> Path:
+        packages = self._nas_path("nas_packages_path", DEFAULT_NAS_PACKAGES_PATH)
+        return packages.parent / "BACKUPS"
+
+    def create_recovery_backup_now(self) -> None:
+        root = self._recovery_backup_root()
+        answer = QMessageBox.question(
+            self,
+            "Резервна копія робочої версії",
+            f"Створити повну резервну копію версії {__version__}?\n\n"
+            f"Місце: {root}\n\n"
+            "Буде збережено базу, налаштування, історію оптимізацій, "
+            "службові дані та інсталятор цієї ж версії. "
+            "Авторизація YouTube не копіюється; після чистої Windows "
+            "потрібно буде повторно підключити два канали.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self.statusBar().showMessage("Створюю резервну копію на NAS...")
+        QApplication.processEvents()
+        try:
+            archive = create_recovery_backup(
+                conn=self.conn,
+                data_dir=self.data_dir,
+                backup_root=root,
+                version=__version__,
+            )
+        except Exception as exc:
+            self._error("Помилка резервного копіювання", exc)
+            return
+
+        QMessageBox.information(
+            self,
+            "Резервну копію створено",
+            "Робочу версію збережено.\n\n"
+            f"Архів відновлення:\n{archive}\n\n"
+            "Після перевстановлення Windows встановіть збережений "
+            "інсталятор, відновіть цей архів і повторно підключіть два "
+            "YouTube-канали.",
+        )
+        self.statusBar().showMessage("Резервну копію робочої версії створено")
+
+    def restore_recovery_backup_now(self) -> None:
+        root = self._recovery_backup_root()
+        archive_name, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Виберіть recovery.zip",
+            str(root),
+            "RG YouTube Control recovery (recovery.zip);;ZIP (*.zip)",
+        )
+        if not archive_name:
+            return
+
+        archive = Path(archive_name)
+        try:
+            manifest = read_recovery_manifest(archive)
+        except Exception as exc:
+            self._error("Некоректна резервна копія", exc)
+            return
+
+        version = str(manifest.get("version") or "?")
+        created = str(manifest.get("created_at_utc") or "?")
+        answer = QMessageBox.question(
+            self,
+            "Відновити робочу версію",
+            f"Версія копії: {version}\n"
+            f"Створено: {created}\n\n"
+            "Поточну локальну базу й налаштування буде замінено. "
+            "Після відновлення програма закриється. Продовжити?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.scan_timer.stop()
+            self.conn.close()
+            restore_recovery_backup(data_dir=self.data_dir, archive=archive)
+        except Exception as exc:
+            QMessageBox.critical(self, "Помилка відновлення", str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "Відновлення завершено",
+            "Базу та налаштування відновлено. Програма зараз закриється.\n\n"
+            "Після запуску повторно підключіть YouTube-канали, якщо Windows "
+            "було перевстановлено.",
+        )
+        QTimer.singleShot(300, QApplication.quit)
+
 
     def _save_nas_path_setting(
         self,

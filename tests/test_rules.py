@@ -706,3 +706,44 @@ def test_optimization_event_roundtrip():
     assert len(rows) == 1
     assert rows[0]["video_id"] == "vid1"
     assert rows[0]["reason"] == "safe_optimization"
+
+def test_recovery_backup_roundtrip(tmp_path):
+    from rg_youtube_control.db import connect, set_setting, get_setting
+    from rg_youtube_control.recovery import (
+        create_recovery_backup,
+        read_recovery_manifest,
+        restore_recovery_backup,
+    )
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    conn = connect(data_dir / "rg_youtube_control.db")
+    set_setting(conn, "probe", "before")
+
+    updates = data_dir / "updates"
+    updates.mkdir()
+    installer = updates / "RG_YouTube_Control_Setup_0.3.23.exe"
+    installer.write_bytes(b"fake-installer")
+
+    backup_root = tmp_path / "nas-backups"
+    archive = create_recovery_backup(
+        conn=conn,
+        data_dir=data_dir,
+        backup_root=backup_root,
+        version="0.3.23",
+    )
+    assert archive.is_file()
+
+    manifest = read_recovery_manifest(archive)
+    assert manifest["version"] == "0.3.23"
+    assert manifest["installer_saved"] is True
+    conn.close()
+
+    damaged = connect(data_dir / "rg_youtube_control.db")
+    set_setting(damaged, "probe", "after")
+    damaged.close()
+
+    restore_recovery_backup(data_dir=data_dir, archive=archive)
+    restored = connect(data_dir / "rg_youtube_control.db")
+    assert get_setting(restored, "probe", "") == "before"
+    restored.close()
