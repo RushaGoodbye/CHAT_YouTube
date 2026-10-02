@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
         badge.setObjectName("AppBadge")
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
-        title = QLabel("YouTube Control")
+        title = QLabel("Керування YouTube")
         title.setObjectName("AppTitle")
         subtitle = QLabel("Відео · оптимізація · коментарі")
         subtitle.setObjectName("AppSubtitle")
@@ -879,7 +879,7 @@ class MainWindow(QMainWindow):
 
         hint = QLabel(
             "Дані надходять безпосередньо з YouTube Analytics API. "
-            "vidIQ та його AI Credits для цієї вкладки не використовуються."
+            "vidIQ та його AI-кредити для цієї вкладки не використовуються."
         )
         hint.setWordWrap(True)
 
@@ -928,9 +928,9 @@ class MainWindow(QMainWindow):
         self.results_table.setHorizontalHeaderLabels([
             "Дата", "Відео", "Зміни", "Статус",
             "Перегляди ДО", "ПІСЛЯ", "Δ",
-            "Watch ДО, год", "ПІСЛЯ",
-            "AVD ДО", "ПІСЛЯ",
-            "Підписки ДО", "ПІСЛЯ", "Період",
+            "Час перегляду ДО, год", "ПІСЛЯ",
+            "Сер. тривалість ДО", "ПІСЛЯ",
+            "Підписники ДО", "ПІСЛЯ", "Період",
         ])
         self.results_table.horizontalHeader().setStretchLastSection(True)
         self._configure_table(self.results_table)
@@ -1185,7 +1185,7 @@ class MainWindow(QMainWindow):
                     self,
                     APP_NAME,
                     "Завдання CTR / показів створено. YouTube Reporting API "
-                    "почне формувати щоденні Reach-звіти. Історичні "
+                    "почне формувати щоденні звіти про охоплення. Історичні "
                     "дані приблизно за 30 днів з’являться не одразу, зазвичай протягом "
                     "кількох годин або до доби.",
                 )
@@ -1194,7 +1194,7 @@ class MainWindow(QMainWindow):
                     self,
                     APP_NAME,
                     "CTR / покази вже підключені для цього каналу. "
-                    f"Job ID: {job.get('id', '—')}",
+                    f"ID завдання: {job.get('id', '—')}",
                 )
         except Exception as exc:
             message = str(exc)
@@ -1293,7 +1293,7 @@ class MainWindow(QMainWindow):
                 "END_SCREEN": "Кінцеві заставки",
                 "EXT_URL": "Зовнішні сайти / Google",
                 "HASHTAGS": "Хештеги",
-                "LIVE_REDIRECT": "Live Redirect",
+                "LIVE_REDIRECT": "Перенаправлення трансляції",
                 "NO_LINK_EMBEDDED": "Вбудовані плеєри",
                 "NO_LINK_OTHER": "Прямі / невідомі",
                 "NOTIFICATION": "Сповіщення",
@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
             if reach_by_video:
                 if reach_dates:
                     lines.append(
-                        f"Доступний період Reach: {min(reach_dates)} — {max(reach_dates)}"
+                        f"Доступний період охоплення: {min(reach_dates)} — {max(reach_dates)}"
                     )
                 reach_ranked = sorted(
                     reach_by_video.items(),
@@ -1473,7 +1473,7 @@ class MainWindow(QMainWindow):
                 )
             elif reach_job is not None:
                 lines.append(
-                    "• Reach-завдання активне, але звіти ще не готові. "
+                    "• Завдання охоплення активне, але звіти ще не готові. "
                     "YouTube формує їх окремо."
                 )
             elif reach_error:
@@ -1508,7 +1508,7 @@ class MainWindow(QMainWindow):
                     f"• {title}\n"
                     f"  {views:,} переглядів · {engaged:,} залучених · "
                     f"{hours:,.1f} ч · AVD {avd // 60}:{avd % 60:02d} · "
-                    f"+{subs} subs{reach_text}"
+                    f"+{subs} підписників{reach_text}"
                 )
 
             self.analytics_text.setPlainText("\n".join(lines))
@@ -1677,7 +1677,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        oauth_btn = QPushButton("Вибрати OAuth client JSON")
+        oauth_btn = QPushButton("Вибрати JSON клієнта OAuth")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
         self.youtube_quota_label = QLabel()
@@ -1735,7 +1735,7 @@ class MainWindow(QMainWindow):
         exhausted = quota_exhausted(self.conn)
         state = "ВИЧЕРПАНО" if exhausted else "доступна"
         self.youtube_quota_label.setText(
-            f"Враховано застосунком: ≈{used}/{YOUTUBE_DAILY_QUOTA_DEFAULT} units · {state}"
+            f"Враховано застосунком: ≈{used}/{YOUTUBE_DAILY_QUOTA_DEFAULT} од. квоти · {state}"
         )
 
     def _quota_update_video(self, video_id: str, **kwargs) -> None:
@@ -1762,7 +1762,7 @@ class MainWindow(QMainWindow):
 
     def choose_oauth_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "OAuth client JSON", str(Path.home()), "JSON (*.json)"
+            self, "JSON клієнта OAuth", str(Path.home()), "JSON (*.json)"
         )
         if path:
             set_setting(self.conn, "client_secret_path", path)
@@ -2374,7 +2374,7 @@ class MainWindow(QMainWindow):
             f"Знайдено запланованих: {len(rows)}.\n"
             f"Уже на NAS: {already}.\n"
             f"Потрібно отримати: {len(pending)}.\n"
-            f"Оцінка квоти Captions API: до ≈{estimated} units.\n\n"
+            f"Оцінка квоти Captions API: до ≈{estimated} од.\n\n"
             "Отримати транскрипти зараз?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -2482,7 +2482,7 @@ class MainWindow(QMainWindow):
             self,
             "Отримати транскрипт",
             "Буде використано офіційний YouTube Captions API. "
-            "Операція читання caption-track витрачає квоту API. Продовжити?",
+            "Операція читання доріжки субтитрів витрачає квоту API. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -2882,7 +2882,7 @@ class MainWindow(QMainWindow):
                 f"{len(final_description)} символів\n"
                 f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
                 "Усі поля буде надіслано одним videos.update "
-                "(≈50 quota units). Продовжити?",
+                "(≈50 од. квоти). Продовжити?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -3066,7 +3066,7 @@ class MainWindow(QMainWindow):
             self,
             "Оптимізація запланованих стрімів",
             f"Готових пакетів: {len(rows)}.\n"
-            f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
+            f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
             "Буде змінено лише назву, опис і теги. "
             "Дата й час публікації, видимість і налаштування розкладу "
             "залишаться без змін. Продовжити?",
@@ -3192,7 +3192,7 @@ class MainWindow(QMainWindow):
             "Архів: безпечні 50",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
-            f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
+            f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
             "Черга йде від відео з найбільшою кількістю переглядів.\n"
             "Буде змінено лише старі або відсутні посилання "
             "проєкту й донату та окремий рядок хештегів: "
@@ -3304,7 +3304,7 @@ class MainWindow(QMainWindow):
             self,
             "Застосувати безпечні правки",
             f"Вибрано відео: {len(video_ids)}.\n"
-            f"Максимальна витрата на videos.update: ≈{estimated} units.\n\n"
+            f"Максимальна витрата на videos.update: ≈{estimated} од. квоти.\n\n"
             "Буде змінено лише старі/відсутні посилання та окремий рядок "
             "хештегів: 2 постійні + до 3 тематичних. "
             "Назва, теги YouTube та решта тексту залишаться без змін. Продовжити?",
@@ -3664,7 +3664,7 @@ class MainWindow(QMainWindow):
             self.auto_quota_label.setText(
                 f"Автовідповіді: {safe_used}/{daily_limit} "
                 f"· надіслано через застосунок сьогодні: {total_used} "
-                f"· ≈{total_used * 50} units"
+                f"· ≈{total_used * 50} од. квоти"
             )
 
     def reply_selected(self) -> None:
