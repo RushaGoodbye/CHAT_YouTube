@@ -2641,24 +2641,28 @@ class MainWindow(QMainWindow):
                 row["title_variants_json"] or "[]"
             )
 
-            if not chapters.strip():
-                clean_description, detected_chapters = (
-                    extract_chapters_from_description(description)
-                )
-                if detected_chapters:
-                    description = clean_description
+            clean_description, detected_chapters = (
+                extract_chapters_from_description(description)
+            )
+            if detected_chapters:
+                description = clean_description
+                if not chapters.strip():
                     chapters = detected_chapters
-                    save_optimization_draft(
-                        self.conn,
-                        video_id,
-                        str(row["new_title"] or ""),
-                        description,
-                        chapters,
-                        tags,
-                        status,
-                        title_variants,
-                    )
-                    chapters_fixed += 1
+                if status == "applied":
+                    status = "ready"
+                    applied -= 1
+                    ready += 1
+                save_optimization_draft(
+                    self.conn,
+                    video_id,
+                    str(row["new_title"] or ""),
+                    description,
+                    chapters,
+                    tags,
+                    status,
+                    title_variants,
+                )
+                chapters_fixed += 1
 
             check = validate_content_package(
                 str(row["new_title"] or ""),
@@ -2687,7 +2691,7 @@ class MainWindow(QMainWindow):
             f"Готово до застосування: {ready}",
             f"Чернеток: {draft}",
             f"Без пакета: {missing}",
-            f"Автоматично перенесено розділи з опису: {chapters_fixed}",
+            f"Очищено дублікати таймінгів в описі: {chapters_fixed}",
             f"Критичних помилок: {errors_total}",
             f"Рекомендацій: {warnings_total}",
         ]

@@ -319,7 +319,11 @@ def validate_content_package(
 
 def compose_description(description: str, chapters: str) -> str:
     body = (description or "").strip()
-    chapter_block = chapters.strip()
+    detected_body, detected_chapters = extract_chapters_from_description(body)
+    if detected_chapters:
+        body = detected_body
+
+    chapter_block = chapters.strip() or detected_chapters
     if not chapter_block:
         return body
 
