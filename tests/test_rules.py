@@ -654,3 +654,22 @@ def test_audit_allows_five_hashtags():
     )
     result = audit(description, ["tag"])
     assert "too_many_hashtags" not in result.issues
+
+def test_hashtag_quality_uses_curated_topics_only():
+    from rg_youtube_control.optimization import optimized_hashtags
+    tags = optimized_hashtags(
+        "УНИКАЛЬНИЙ РОЗІГРАШ НА ПІДТРИМКУ ЗСУ ВІД ПРОЄКТУ РАША ГУДБАЙ"
+    )
+    assert tags == (
+        "#рашагудбай", "#чатрулетка", "#зсу", "#підтримказсу", "#розіграш"
+    )
+    assert "#уникальний" not in tags
+    assert "#підтримку" not in tags
+
+
+def test_hashtag_quality_never_exceeds_five():
+    from rg_youtube_control.optimization import optimized_hashtags
+    tags = optimized_hashtags(
+        "Путин война Россия Украина бензин экономика санкции мобилизация"
+    )
+    assert len(tags) == 5
