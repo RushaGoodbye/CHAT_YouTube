@@ -1035,3 +1035,55 @@ def test_result_summary_uses_multiple_metrics():
     assert label.startswith("Краще:")
     assert "перегляди" in detail
     assert "CTR" in detail
+
+
+def test_automatic_backup_can_omit_installer_and_prune(tmp_path):
+    import os
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.recovery import (
+        create_recovery_backup,
+        prune_recovery_backups,
+        read_recovery_manifest,
+    )
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    conn = connect(data_dir / "rg_youtube_control.db")
+    backup_root = tmp_path / "backups"
+
+    archive = create_recovery_backup(
+        conn=conn,
+        data_dir=data_dir,
+        backup_root=backup_root,
+        version="9.9.9",
+        include_installer=False,
+        label="RG_YOUTUBE_CONTROL_AUTO",
+    )
+    manifest = read_recovery_manifest(archive)
+    assert manifest["installer_saved"] is False
+    assert archive.is_file()
+
+    for index in range(4):
+        folder = backup_root / f"RG_YOUTUBE_CONTROL_AUTO_dummy_{index}"
+        folder.mkdir()
+        os.utime(folder, (100 + index, 100 + index))
+
+    removed = prune_recovery_backups(
+        backup_root,
+        keep=2,
+        prefix="RG_YOUTUBE_CONTROL_AUTO_",
+    )
+    assert removed >= 3
+    remaining = [
+        path for path in backup_root.iterdir()
+        if path.is_dir() and path.name.startswith("RG_YOUTUBE_CONTROL_AUTO_")
+    ]
+    assert len(remaining) == 2
+
+
+def test_current_quota_day_is_iso_date():
+    from datetime import date
+    from rg_youtube_control.service import current_quota_day
+
+    parsed = date.fromisoformat(current_quota_day())
+    assert isinstance(parsed, date)

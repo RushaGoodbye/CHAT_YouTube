@@ -54,10 +54,16 @@ def create_recovery_backup(
     data_dir: Path,
     backup_root: Path,
     version: str,
+    include_installer: bool = True,
+    label: str = "RG_YOUTUBE_CONTROL",
 ) -> Path:
     backup_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder = backup_root / f"RG_YOUTUBE_CONTROL_{version}_{stamp}"
+    safe_label = "".join(
+        ch if ch.isalnum() or ch in {"_", "-"} else "_"
+        for ch in str(label or "RG_YOUTUBE_CONTROL")
+    )
+    folder = backup_root / f"{safe_label}_{version}_{stamp}"
     folder.mkdir(parents=True, exist_ok=False)
 
     database_copy = folder / "rg_youtube_control.db"
@@ -86,23 +92,26 @@ def create_recovery_backup(
     installer_target = folder / installer_name
     installer_saved = False
     installer_error = ""
-    cached = data_dir / "updates" / installer_name
-    try:
-        if cached.is_file():
-            shutil.copy2(cached, installer_target)
-        else:
-            _download(_installer_url(version), installer_target)
-        installer_saved = installer_target.is_file()
-        if installer_saved:
-            copied_files.append(installer_name)
-            (folder / f"{installer_name}.sha256").write_text(
-                f"{_sha256(installer_target)}  {installer_name}\n",
-                encoding="utf-8",
-            )
-            copied_files.append(f"{installer_name}.sha256")
-    except Exception as exc:
-        installer_error = str(exc)
-        installer_target.unlink(missing_ok=True)
+    if include_installer:
+        cached = data_dir / "updates" / installer_name
+        try:
+            if cached.is_file():
+                shutil.copy2(cached, installer_target)
+            else:
+                _download(_installer_url(version), installer_target)
+            installer_saved = installer_target.is_file()
+            if installer_saved:
+                copied_files.append(installer_name)
+                (folder / f"{installer_name}.sha256").write_text(
+                    f"{_sha256(installer_target)}  {installer_name}\n",
+                    encoding="utf-8",
+                )
+                copied_files.append(f"{installer_name}.sha256")
+        except Exception as exc:
+            installer_error = str(exc)
+            installer_target.unlink(missing_ok=True)
+    else:
+        installer_error = "installer intentionally omitted from automatic backup"
 
     manifest = {
         "format": 1,
@@ -124,10 +133,15 @@ def create_recovery_backup(
         encoding="utf-8",
     )
 
+    install_step = (
+        "1. Встановіть інсталятор із цієї папки.\n"
+        if installer_saved
+        else "1. Встановіть RG YouTube Control звичайним інсталятором.\n"
+    )
     guide = (
         "RG YouTube Control - відновлення після перевстановлення Windows\n\n"
-        "1. Встановіть інсталятор із цієї папки.\n"
-        "2. Запустіть програму один раз і закрийте її.\n"
+        + install_step
+        + "2. Запустіть програму один раз і закрийте її.\n"
         "3. У Налаштуваннях виберіть «Відновити робочу версію» та вкажіть recovery.zip.\n"
         "4. Перезапустіть програму.\n"
         "5. Один раз перепідключіть обидва YouTube-канали.\n\n"
@@ -181,3 +195,24 @@ def restore_recovery_backup(*, data_dir: Path, archive: Path) -> dict:
 
 
     return manifest
+
+
+def prune_recovery_backups(
+    backup_root: Path,
+    *,
+    keep: int = 14,
+    prefix: str = "RG_YOUTUBE_CONTROL_AUTO_",
+) -> int:
+    if keep < 1 or not backup_root.exists():
+        return 0
+    folders = [
+        path
+        for path in backup_root.iterdir()
+        if path.is_dir() and path.name.startswith(prefix)
+    ]
+    folders.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    removed = 0
+    for old in folders[keep:]:
+        shutil.rmtree(old, ignore_errors=True)
+        removed += 1
+    return removed

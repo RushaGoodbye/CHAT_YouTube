@@ -127,6 +127,10 @@ def _quota_day() -> str:
     except Exception:
         return datetime.now(timezone.utc).date().isoformat()
 
+def current_quota_day() -> str:
+    return _quota_day()
+
+
 def _quota_key(name: str) -> str:
     return f"youtube_quota_{name}_{_quota_day()}"
 
@@ -449,7 +453,11 @@ def scan_channel_comments(
         action="Сканування",
         details=(
             f"нових {stats['seen']}, авто {stats['auto_replied']}, "
-            f"API читань {stats['api_reads']}, пропущено відомих {stats['known_skipped']}"
+            f"API читань {stats['api_reads']}, відомих {stats['known_skipped']}, "
+            f"на перевірку {stats['skipped_review']}, "
+            f"застарілих {stats['skipped_old']}, "
+            f"ліміт {stats['skipped_limit']}, "
+            f"квота {stats['quota_blocked']}"
         ),
     )
     return stats

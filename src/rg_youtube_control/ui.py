@@ -60,6 +60,7 @@ from .db import (
     database_integrity_cleanup,
     get_optimization_draft,
     get_setting,
+    log_action,
     recent_action_log,
     latest_metadata_snapshot,
     optimization_events,
@@ -73,7 +74,12 @@ from .db import (
 )
 from .metadata_audit import audit, normalize_links
 from .package_bridge import bridge_health, fetch_package, upload_transcript
-from .recovery import create_recovery_backup, read_recovery_manifest, restore_recovery_backup
+from .recovery import (
+    create_recovery_backup,
+    prune_recovery_backups,
+    read_recovery_manifest,
+    restore_recovery_backup,
+)
 from .optimization import (
     archive_potential_score,
     compose_description,
@@ -85,6 +91,7 @@ from .optimization import (
     validate_content_package,
 )
 from .service import (
+    current_quota_day,
     manual_reply,
     quota_budget_status,
     scan_channel_comments,
@@ -456,6 +463,7 @@ class MainWindow(QMainWindow):
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.background_scan_all_channels)
+        self.scan_timer.timeout.connect(self.run_background_maintenance)
         self.scan_timer.start(DEFAULT_SCAN_MINUTES * 60 * 1000)
 
         self.statusBar().showMessage("СИСТЕМА ГОТОВА")
@@ -466,6 +474,9 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(3000, self.check_for_updates_silent)
+        QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
+        QTimer.singleShot(8000, self.check_quota_plan_ready)
+        QTimer.singleShot(10000, self.run_background_maintenance)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -480,7 +491,7 @@ class MainWindow(QMainWindow):
         title_box.setSpacing(0)
         title = QLabel("Керування YouTube")
         title.setObjectName("AppTitle")
-        subtitle = QLabel("Відео · оптимізація · коментарі")
+        subtitle = QLabel("Центр · відео · оптимізація · коментарі")
         subtitle.setObjectName("AppSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -639,6 +650,17 @@ class MainWindow(QMainWindow):
             self.auto_box.setChecked(enabled)
             self.auto_box.blockSignals(False)
 
+        if hasattr(self, "safe_autopilot_box"):
+            self.safe_autopilot_box.blockSignals(True)
+            self.safe_autopilot_box.setChecked(
+                get_setting(
+                    self.conn,
+                    f"safe_metadata_autopilot_{profile}",
+                    "0",
+                ) == "1"
+            )
+            self.safe_autopilot_box.blockSignals(False)
+
         if hasattr(self, "daily_limit_spin"):
             controls = (
                 (
@@ -736,6 +758,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         actions = QHBoxLayout()
+        planner_btn = QPushButton("Планувальник квоти")
+        planner_btn.clicked.connect(self.show_quota_planner)
         scheduled_btn = QPushButton("Заплановані стріми")
         scheduled_btn.clicked.connect(self.show_scheduled_center)
         comments_btn = QPushButton("Коментарі")
@@ -747,7 +771,7 @@ class MainWindow(QMainWindow):
         settings_btn = QPushButton("Налаштування")
         settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
         for button in (
-            scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
+            planner_btn, scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
         ):
             actions.addWidget(button)
         actions.addStretch()
@@ -799,7 +823,7 @@ class MainWindow(QMainWindow):
         else:
             quota_value = f"{budget['remaining']} од."
             quota_note = (
-                f"резерв {budget['reserve']} · автоответів ≈{budget['reply_capacity']}"
+                f"резерв {budget['reserve']} · автовідповідей ≈{budget['reply_capacity']}"
             )
 
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
@@ -807,6 +831,191 @@ class MainWindow(QMainWindow):
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_quota.set_value(quota_value, quota_note)
         self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
+
+    def show_quota_planner(self) -> None:
+        profile = self.current_profile
+        prepared_raw = get_setting(
+            self.conn, f"prepared_safe_queue_{profile}", "[]"
+        )
+        try:
+            prepared_count = len(json.loads(prepared_raw) or [])
+        except Exception:
+            prepared_count = 0
+        scheduled_ready = int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM videos v
+                   JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.profile=?
+                     AND v.scheduled_publish_at IS NOT NULL
+                     AND d.status='ready'""",
+                (profile,),
+            ).fetchone()[0]
+        )
+        budget = quota_budget_status(self.conn)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Планувальник квоти")
+        dialog.resize(620, 430)
+        layout = QVBoxLayout(dialog)
+
+        summary = QLabel(
+            f"Канал: {PROFILE_LABELS[profile]}\n"
+            f"Залишок квоти: ≈{budget['remaining']} од. · "
+            f"резерв: {budget['reserve']} од.\n"
+            f"Підготовлена безпечна черга: {prepared_count}\n"
+            f"Готових запланованих стрімів: {scheduled_ready}\n\n"
+            "План зберігається локально. Після початку наступного квотного "
+            "дня програма запропонує продовжити роботу. Коментарі з "
+            "увімкненими автовідповідями відновляться автоматично."
+        )
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+
+        safe_spin = QSpinBox()
+        safe_spin.setRange(0, min(50, max(0, prepared_count)))
+        existing_safe = int(
+            get_setting(
+                self.conn,
+                f"quota_plan_safe_count_{profile}",
+                str(min(50, prepared_count)),
+            )
+            or 0
+        )
+        safe_spin.setValue(min(safe_spin.maximum(), existing_safe))
+        layout.addWidget(QLabel("Безпечних відео на наступний квотний день"))
+        layout.addWidget(safe_spin)
+
+        scheduled_box = QCheckBox(
+            "Нагадати про застосування готових запланованих стрімів"
+        )
+        scheduled_box.setChecked(
+            get_setting(
+                self.conn,
+                f"quota_plan_scheduled_{profile}",
+                "1" if scheduled_ready else "0",
+            ) == "1"
+        )
+        layout.addWidget(scheduled_box)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Зберегти план")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Скасувати")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        next_day = (
+            datetime.fromisoformat(current_quota_day()) + timedelta(days=1)
+        ).date().isoformat()
+        safe_count = int(safe_spin.value())
+        scheduled_flag = scheduled_box.isChecked() and scheduled_ready > 0
+        set_setting(
+            self.conn,
+            f"quota_plan_safe_count_{profile}",
+            str(safe_count),
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_scheduled_{profile}",
+            "1" if scheduled_flag else "0",
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_target_day_{profile}",
+            next_day,
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_armed_{profile}",
+            "1" if safe_count > 0 or scheduled_flag else "0",
+        )
+        log_action(
+            self.conn,
+            profile=profile,
+            category="квота",
+            action="План на наступний день",
+            details=(
+                f"безпечних відео {safe_count}; "
+                f"заплановані {'так' if scheduled_flag else 'ні'}; "
+                f"ціль {next_day}"
+            ),
+        )
+        self.reload_action_log()
+        QMessageBox.information(
+            self,
+            "План збережено",
+            f"План для {PROFILE_LABELS[profile]} збережено на квотний день "
+            f"{next_day}.",
+        )
+
+    def check_quota_plan_ready(self) -> None:
+        if quota_exhausted(self.conn):
+            return
+        current_day = current_quota_day()
+        for profile in PROFILE_TARGETS:
+            if get_setting(
+                self.conn, f"quota_plan_armed_{profile}", "0"
+            ) != "1":
+                continue
+            target_day = get_setting(
+                self.conn, f"quota_plan_target_day_{profile}", ""
+            )
+            if target_day and current_day < target_day:
+                continue
+            prompted_key = f"quota_plan_prompted_{profile}_{current_day}"
+            if get_setting(self.conn, prompted_key, "0") == "1":
+                continue
+
+            safe_count = int(
+                get_setting(
+                    self.conn,
+                    f"quota_plan_safe_count_{profile}",
+                    "0",
+                )
+                or 0
+            )
+            scheduled_flag = get_setting(
+                self.conn,
+                f"quota_plan_scheduled_{profile}",
+                "0",
+            ) == "1"
+            set_setting(self.conn, prompted_key, "1")
+
+            answer = QMessageBox.question(
+                self,
+                "Квота відновлена",
+                f"{PROFILE_LABELS[profile]}\n\n"
+                f"План готовий до продовження:\n"
+                f"- безпечних відео: {safe_count}\n"
+                f"- заплановані стріми: {'так' if scheduled_flag else 'ні'}\n\n"
+                "Відкрити підготовлену роботу зараз?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                continue
+
+            self._activate_profile(profile)
+            set_setting(
+                self.conn,
+                f"quota_plan_armed_{profile}",
+                "0",
+            )
+            if safe_count > 0 and hasattr(self, "optimization_filter"):
+                index = self.optimization_filter.findData("prepared")
+                if index >= 0:
+                    self.optimization_filter.setCurrentIndex(index)
+                self.tabs.setCurrentIndex(2)
+            elif scheduled_flag:
+                self.show_scheduled_center()
+            break
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
@@ -893,19 +1102,6 @@ class MainWindow(QMainWindow):
         )
         scheduled_center_btn = QPushButton("Центр запланованих")
         scheduled_center_btn.clicked.connect(self.show_scheduled_center)
-        fetch_scheduled_btn = QPushButton("Пакети запланованих")
-        fetch_scheduled_btn.clicked.connect(
-            self.fetch_scheduled_packages
-        )
-        audit_scheduled_btn = QPushButton("Перевірити заплановані")
-        audit_scheduled_btn.clicked.connect(
-            self.audit_scheduled_packages
-        )
-        apply_scheduled_btn = QPushButton("Застосувати заплановані")
-        apply_scheduled_btn.clicked.connect(
-            self.apply_ready_scheduled_packages
-        )
-
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
         sync_row.addWidget(potential_btn)
@@ -914,9 +1110,6 @@ class MainWindow(QMainWindow):
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
         sync_row.addWidget(scheduled_center_btn)
-        sync_row.addWidget(fetch_scheduled_btn)
-        sync_row.addWidget(audit_scheduled_btn)
-        sync_row.addWidget(apply_scheduled_btn)
         sync_row.addStretch()
 
         safe_row.addWidget(QLabel("Безпечні правки:"))
@@ -2213,6 +2406,21 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        self.safe_autopilot_box = QCheckBox(
+            "Автопілот безпечних метаданих "
+            "(лише посилання + рядок хештегів)"
+        )
+        self.safe_autopilot_box.setChecked(
+            get_setting(
+                self.conn,
+                f"safe_metadata_autopilot_{self.current_profile}",
+                "0",
+            ) == "1"
+        )
+        self.safe_autopilot_box.stateChanged.connect(
+            self.save_safe_autopilot_setting
+        )
+
         for profile_key in PROFILE_TARGETS:
             for suffix, legacy_key, default_value in (
                 ("daily_limit", "auto_reply_daily_limit", DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
@@ -2415,6 +2623,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
+        layout.addWidget(self.safe_autopilot_box)
+        autopilot_note = QLabel(
+            "Автопілот за один фоновий цикл змінює максимум 3 відео, "
+            "не торкається назв, тегів YouTube, розділів або основного тексту "
+            "та автоматично зупиняється на резерві квоти."
+        )
+        autopilot_note.setWordWrap(True)
+        autopilot_note.setProperty("muted", True)
+        layout.addWidget(autopilot_note)
         layout.addWidget(QLabel("Денний ліміт автовідповідей"))
         layout.addWidget(self.daily_limit_spin)
         layout.addWidget(QLabel("Ліміт автовідповідей за одне сканування"))
@@ -2429,13 +2646,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
+        planner_settings_btn = QPushButton("Планувальник квоти")
+        planner_settings_btn.clicked.connect(self.show_quota_planner)
         layout.addWidget(QLabel("YouTube API · резерв для важливих операцій"))
         layout.addWidget(self.quota_reserve_spin)
+        layout.addWidget(planner_settings_btn)
         layout.addWidget(QLabel("YouTube API · квота"))
         layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
         layout.addWidget(QLabel("Резервне копіювання / відновлення"))
+        backup_note = QLabel(
+            "Автоматично: одна щоденна копія та копія перед кожною "
+            "масовою зміною. На NAS зберігаються останні 20 автоматичних копій."
+        )
+        backup_note.setWordWrap(True)
+        backup_note.setProperty("muted", True)
+        layout.addWidget(backup_note)
         layout.addWidget(backup_btn)
         layout.addWidget(restore_btn)
         layout.addWidget(db_check_btn)
@@ -2475,6 +2702,75 @@ class MainWindow(QMainWindow):
     def _recovery_backup_root(self) -> Path:
         packages = self._nas_path("nas_packages_path", DEFAULT_NAS_PACKAGES_PATH)
         return packages.parent / "BACKUPS"
+
+    def _create_automatic_recovery_backup(
+        self,
+        reason: str,
+        *,
+        force: bool = False,
+        profile: str | None = None,
+    ) -> Path | None:
+        today = datetime.now(timezone.utc).date().isoformat()
+        daily_key = "automatic_recovery_backup_day"
+        if not force and get_setting(self.conn, daily_key, "") == today:
+            return None
+
+        root = self._recovery_backup_root()
+        archive = create_recovery_backup(
+            conn=self.conn,
+            data_dir=self.data_dir,
+            backup_root=root,
+            version=__version__,
+            include_installer=False,
+            label="RG_YOUTUBE_CONTROL_AUTO",
+        )
+        removed = prune_recovery_backups(
+            root,
+            keep=20,
+            prefix="RG_YOUTUBE_CONTROL_AUTO_",
+        )
+        set_setting(self.conn, daily_key, today)
+        log_action(
+            self.conn,
+            profile=profile or self.current_profile,
+            category="резервна копія",
+            action="Автоматична копія",
+            details=f"{reason} · {archive.name} · очищено старих: {removed}",
+        )
+        self.reload_action_log()
+        return archive
+
+    def ensure_daily_recovery_backup(self) -> None:
+        try:
+            self._create_automatic_recovery_backup(
+                "щоденна копія",
+                force=False,
+            )
+        except Exception as exc:
+            try:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="резервна копія",
+                    action="Помилка щоденної копії",
+                    details=str(exc),
+                )
+            except Exception:
+                pass
+
+    def _prechange_backup_or_warn(self, reason: str) -> bool:
+        try:
+            self._create_automatic_recovery_backup(reason, force=True)
+            return True
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Резервна копія не створена",
+                "Масову зміну зупинено, тому що перед нею не вдалося "
+                "створити резервну копію на NAS.\n\n"
+                f"{exc}",
+            )
+            return False
 
     def create_recovery_backup_now(self) -> None:
         root = self._recovery_backup_root()
@@ -2602,21 +2898,48 @@ class MainWindow(QMainWindow):
             )
         self.youtube_quota_label.setText(text)
 
-    def _quota_update_video(self, video_id: str, **kwargs) -> None:
-        if quota_exhausted(self.conn):
+    def _quota_update_video_with_client(
+        self,
+        client: YouTubeClient,
+        video_id: str,
+        *,
+        respect_reserve: bool = False,
+        **kwargs,
+    ) -> None:
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
             raise RuntimeError(
                 "Денну квоту YouTube Data API вже вичерпано. "
                 "Продовжіть після її відновлення."
             )
+        if respect_reserve and int(budget["spendable"]) < VIDEO_UPDATE_COST:
+            raise RuntimeError(
+                "Досягнуто резерву квоти. Автоматичні безпечні зміни "
+                "призупинено до наступного квотного дня."
+            )
         try:
-            self.client.update_video(video_id, **kwargs)
+            client.update_video(video_id, **kwargs)
         except Exception as exc:
             if _is_quota_exceeded_error(exc):
                 mark_quota_exhausted(self.conn)
                 self.refresh_youtube_quota_label()
             raise
         record_quota_units(self.conn, VIDEO_UPDATE_COST)
+        log_action(
+            self.conn,
+            profile=getattr(client, "profile", self.current_profile),
+            category="YouTube",
+            action="Оновлено відео",
+            details=f"{video_id}: {', '.join(sorted(kwargs.keys()))}",
+        )
         self.refresh_youtube_quota_label()
+
+    def _quota_update_video(self, video_id: str, **kwargs) -> None:
+        self._quota_update_video_with_client(
+            self.client,
+            video_id,
+            **kwargs,
+        )
 
     def switch_profile(self, _index: int) -> None:
         profile = self.profile_combo.currentData()
@@ -4339,6 +4662,10 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        if not self._prechange_backup_or_warn(
+            f"перед пакетом запланованих · {self.current_profile}"
+        ):
+            return
 
         import json
 
@@ -4397,8 +4724,9 @@ class MainWindow(QMainWindow):
             message += f"\nПомилок: {len(errors)}.\n\n{preview}"
         QMessageBox.information(self, APP_NAME, message)
 
-    def _safe_archive_candidates(
+    def _safe_archive_candidates_for_profile(
         self,
+        profile: str,
         limit: int = 20,
     ) -> tuple[list[str], int]:
         rows = self.conn.execute(
@@ -4410,7 +4738,7 @@ class MainWindow(QMainWindow):
                WHERE v.profile=?
                  AND v.privacy_status='public'
                  AND v.scheduled_publish_at IS NULL""",
-            (self.current_profile,),
+            (profile,),
         ).fetchall()
 
         ctr_values = [
@@ -4450,6 +4778,123 @@ class MainWindow(QMainWindow):
         ranked.sort(reverse=True)
         candidates = [item[-1] for item in ranked]
         return candidates[:limit], len(candidates)
+
+    def _safe_archive_candidates(
+        self,
+        limit: int = 20,
+    ) -> tuple[list[str], int]:
+        return self._safe_archive_candidates_for_profile(
+            self.current_profile,
+            limit=limit,
+        )
+
+    def _run_safe_metadata_autopilot(
+        self,
+        profile: str,
+        client: YouTubeClient,
+        *,
+        max_items: int = 3,
+    ) -> int:
+        if get_setting(
+            self.conn,
+            f"safe_metadata_autopilot_{profile}",
+            "0",
+        ) != "1":
+            return 0
+
+        budget = quota_budget_status(self.conn)
+        allowed = min(
+            max_items,
+            max(0, int(budget["spendable"]) // VIDEO_UPDATE_COST),
+        )
+        if allowed <= 0 or bool(budget["exhausted"]):
+            return 0
+
+        video_ids, _total = self._safe_archive_candidates_for_profile(
+            profile,
+            limit=allowed,
+        )
+        if not video_ids:
+            return 0
+
+        try:
+            self._create_automatic_recovery_backup(
+                f"перед автопілотом метаданих · {PROFILE_LABELS[profile]}",
+                force=True,
+                profile=profile,
+            )
+        except Exception as exc:
+            log_action(
+                self.conn,
+                profile=profile,
+                category="автопілот",
+                action="Зупинено",
+                details=f"не створено резервну копію: {exc}",
+            )
+            return 0
+
+        changed = 0
+        for video_id in video_ids:
+            try:
+                items = client.video_details([video_id])
+                record_quota_units(self.conn, 1)
+                if not items:
+                    continue
+                snippet = items[0].get("snippet", {})
+                title = str(snippet.get("title") or "")
+                description = str(snippet.get("description") or "")
+                tags = list(snippet.get("tags") or [])
+                fix = safe_description_fix(description, title)
+                if not fix.changes or fix.after == description:
+                    self._store_local_safe_audit(video_id, description, tags)
+                    continue
+
+                history_id = save_metadata_snapshot(
+                    self.conn,
+                    video_id,
+                    title,
+                    description,
+                    tags,
+                    "before_safe_autopilot",
+                )
+                self._quota_update_video_with_client(
+                    client,
+                    video_id,
+                    description=fix.after,
+                    respect_reserve=True,
+                )
+                record_optimization_event(
+                    self.conn,
+                    history_id=history_id,
+                    video_id=video_id,
+                    profile=profile,
+                    reason="safe_optimization",
+                    changed_fields="посилання + хештеги · автопілот",
+                )
+                self._store_local_safe_audit(video_id, fix.after, tags)
+                changed += 1
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="автопілот",
+                    action="Безпечні метадані",
+                    details=f"{video_id}: {', '.join(fix.changes)}",
+                )
+            except Exception as exc:
+                if _is_quota_exceeded_error(exc):
+                    mark_quota_exhausted(self.conn)
+                    self.refresh_youtube_quota_label()
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="автопілот",
+                    action="Помилка",
+                    details=f"{video_id}: {exc}",
+                )
+                if quota_exhausted(self.conn):
+                    break
+
+        return changed
 
     def _store_local_safe_audit(
         self, video_id: str, description: str, tags: list[str]
@@ -4525,6 +4970,10 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
+            return
+        if not self._prechange_backup_or_warn(
+            f"перед безпечним пакетом архіву · {self.current_profile}"
+        ):
             return
 
         changed_ids: list[str] = []
@@ -4634,6 +5083,11 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        if len(video_ids) > 1 and not self._prechange_backup_or_warn(
+            f"перед безпечною оптимізацією {len(video_ids)} відео · "
+            f"{self.current_profile}"
+        ):
+            return
 
         changed = 0
         skipped = 0
@@ -4725,6 +5179,43 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Метадані відео відновлено")
         except Exception as exc:
             self._error("Помилка відкату метаданих", exc)
+
+    def run_background_maintenance(self) -> None:
+        changed_total = 0
+        summaries: list[str] = []
+        for profile in PROFILE_TARGETS:
+            if get_setting(
+                self.conn,
+                f"safe_metadata_autopilot_{profile}",
+                "0",
+            ) != "1":
+                continue
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+            except Exception:
+                continue
+            changed = self._run_safe_metadata_autopilot(
+                profile,
+                client,
+                max_items=3,
+            )
+            if changed:
+                changed_total += changed
+                summaries.append(
+                    f"{PROFILE_LABELS[profile]}: {changed}"
+                )
+
+        if changed_total:
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.reload_action_log()
+            self.update_dashboard()
+            self.statusBar().showMessage(
+                "Автопілот безпечних метаданих: "
+                + ", ".join(summaries)
+            )
+        self.check_quota_plan_ready()
 
     def background_scan_all_channels(self) -> None:
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
@@ -5078,6 +5569,22 @@ class MainWindow(QMainWindow):
                 "1" if self.auto_box.isChecked() else "0",
             )
 
+    def save_safe_autopilot_setting(self, _state: int) -> None:
+        enabled = self.safe_autopilot_box.isChecked()
+        set_setting(
+            self.conn,
+            f"safe_metadata_autopilot_{self.current_profile}",
+            "1" if enabled else "0",
+        )
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="автопілот",
+            action="Налаштування",
+            details="увімкнено" if enabled else "вимкнено",
+        )
+        self.reload_action_log()
+
     def save_background_setting(self, _state: int) -> None:
         set_setting(
             self.conn,
@@ -5146,5 +5653,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(800, QApplication.quit)
 
     def _error(self, title: str, exc: Exception) -> None:
+        try:
+            log_action(
+                self.conn,
+                profile=getattr(self, "current_profile", None),
+                category="помилка",
+                action=title,
+                details=str(exc),
+            )
+            self.reload_action_log()
+        except Exception:
+            pass
         QMessageBox.critical(self, title, str(exc))
         self.statusBar().showMessage(str(exc))
