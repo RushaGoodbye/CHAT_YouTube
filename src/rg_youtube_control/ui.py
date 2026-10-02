@@ -648,6 +648,17 @@ class MainWindow(QMainWindow):
             self.auto_box.setChecked(enabled)
             self.auto_box.blockSignals(False)
 
+        if hasattr(self, "safe_autopilot_box"):
+            self.safe_autopilot_box.blockSignals(True)
+            self.safe_autopilot_box.setChecked(
+                get_setting(
+                    self.conn,
+                    f"safe_metadata_autopilot_{profile}",
+                    "0",
+                ) == "1"
+            )
+            self.safe_autopilot_box.blockSignals(False)
+
         if hasattr(self, "daily_limit_spin"):
             controls = (
                 (
@@ -2409,6 +2420,21 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        self.safe_autopilot_box = QCheckBox(
+            "Автопілот безпечних метаданих "
+            "(лише посилання + рядок хештегів)"
+        )
+        self.safe_autopilot_box.setChecked(
+            get_setting(
+                self.conn,
+                f"safe_metadata_autopilot_{self.current_profile}",
+                "0",
+            ) == "1"
+        )
+        self.safe_autopilot_box.stateChanged.connect(
+            self.save_safe_autopilot_setting
+        )
+
         for profile_key in PROFILE_TARGETS:
             for suffix, legacy_key, default_value in (
                 ("daily_limit", "auto_reply_daily_limit", DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
@@ -2611,6 +2637,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
+        layout.addWidget(self.safe_autopilot_box)
+        autopilot_note = QLabel(
+            "Автопілот за один фоновий цикл змінює максимум 3 відео, "
+            "не торкається назв, тегів YouTube, розділів або основного тексту "
+            "та автоматично зупиняється на резерві квоти."
+        )
+        autopilot_note.setWordWrap(True)
+        autopilot_note.setProperty("muted", True)
+        layout.addWidget(autopilot_note)
         layout.addWidget(QLabel("Денний ліміт автовідповідей"))
         layout.addWidget(self.daily_limit_spin)
         layout.addWidget(QLabel("Ліміт автовідповідей за одне сканування"))
@@ -2625,8 +2660,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
+        planner_settings_btn = QPushButton("Планувальник квоти")
+        planner_settings_btn.clicked.connect(self.show_quota_planner)
         layout.addWidget(QLabel("YouTube API · резерв для важливих операцій"))
         layout.addWidget(self.quota_reserve_spin)
+        layout.addWidget(planner_settings_btn)
         layout.addWidget(QLabel("YouTube API · квота"))
         layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
@@ -5475,6 +5513,22 @@ class MainWindow(QMainWindow):
                 "auto_reply_enabled",
                 "1" if self.auto_box.isChecked() else "0",
             )
+
+    def save_safe_autopilot_setting(self, _state: int) -> None:
+        enabled = self.safe_autopilot_box.isChecked()
+        set_setting(
+            self.conn,
+            f"safe_metadata_autopilot_{self.current_profile}",
+            "1" if enabled else "0",
+        )
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="автопілот",
+            action="Налаштування",
+            details="увімкнено" if enabled else "вимкнено",
+        )
+        self.reload_action_log()
 
     def save_background_setting(self, _state: int) -> None:
         set_setting(
