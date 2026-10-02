@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -908,13 +909,37 @@ class MainWindow(QMainWindow):
         self.results_period_combo.addItem("90 днів", 90)
         self.results_period_combo.setCurrentIndex(0)
 
+        self.results_change_filter = QComboBox()
+        self.results_change_filter.addItem("Усі результати", "all")
+        self.results_change_filter.addItem("Покращились", "improved")
+        self.results_change_filter.addItem("Погіршились", "declined")
+        self.results_change_filter.addItem("Готові до аналізу", "ready")
+        self.results_change_filter.addItem("Очікування даних", "waiting")
+        self.results_change_filter.currentIndexChanged.connect(
+            self._filter_results_table
+        )
+
+        self.results_type_filter = QComboBox()
+        self.results_type_filter.addItem("Усі типи", "all")
+        self.results_type_filter.addItem("Безпечні правки", "safe")
+        self.results_type_filter.addItem("Пакет контенту", "content")
+        self.results_type_filter.addItem("Заплановані стріми", "scheduled")
+        self.results_type_filter.currentIndexChanged.connect(
+            self._filter_results_table
+        )
+
         refresh_btn = QPushButton("Оновити результати")
         refresh_btn.setProperty("role", "primary")
         refresh_btn.clicked.connect(self.load_optimization_results)
+        export_btn = QPushButton("Експорт CSV")
+        export_btn.clicked.connect(self.export_optimization_results_csv)
 
         controls.addWidget(QLabel("Порівняння:"))
         controls.addWidget(self.results_period_combo)
+        controls.addWidget(self.results_change_filter)
+        controls.addWidget(self.results_type_filter)
         controls.addWidget(refresh_btn)
+        controls.addWidget(export_btn)
         controls.addStretch()
 
         hint = QLabel(
@@ -925,10 +950,12 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setProperty("muted", True)
 
-        self.results_table = QTableWidget(0, 14)
+        self.results_table = QTableWidget(0, 18)
         self.results_table.setHorizontalHeaderLabels([
             "Дата", "Відео", "Зміни", "Статус",
             "Перегляди ДО", "ПІСЛЯ", "Δ",
+            "Покази ДО", "ПІСЛЯ",
+            "CTR ДО", "ПІСЛЯ",
             "Час перегляду ДО, год", "ПІСЛЯ",
             "Сер. тривалість ДО", "ПІСЛЯ",
             "Підписники ДО", "ПІСЛЯ", "Період",
@@ -978,6 +1005,139 @@ class MainWindow(QMainWindow):
             "avd_seconds": float(row[2] or 0),
             "subs": float(row[3] or 0),
         }
+
+    @staticmethod
+    def _reach_window_metrics(
+        rows: list[dict[str, str]],
+        video_id: str,
+        start_date: str,
+        end_date: str,
+        coverage_start: str | None,
+        coverage_end: str | None,
+    ) -> dict[str, float] | None:
+        if not coverage_start or not coverage_end:
+            return None
+        if coverage_start > start_date or coverage_end < end_date:
+            return None
+
+        impressions = 0.0
+        clicks = 0.0
+        for row in rows:
+            if str(row.get("video_id") or "") != video_id:
+                continue
+            day = str(row.get("date") or "")
+            if not day or day < start_date or day > end_date:
+                continue
+            try:
+                current_impressions = float(
+                    row.get("video_thumbnail_impressions") or 0
+                )
+                ctr_raw = float(
+                    row.get("video_thumbnail_impressions_ctr") or 0
+                )
+            except (TypeError, ValueError):
+                continue
+            ctr_ratio = ctr_raw if ctr_raw <= 1 else ctr_raw / 100
+            impressions += current_impressions
+            clicks += current_impressions * ctr_ratio
+
+        ctr = clicks / impressions * 100 if impressions else 0.0
+        return {"impressions": impressions, "ctr": ctr}
+
+    def _filter_results_table(self, _index: int = -1) -> None:
+        if not hasattr(self, "results_table"):
+            return
+        change_filter = (
+            self.results_change_filter.currentData()
+            if hasattr(self, "results_change_filter")
+            else "all"
+        )
+        type_filter = (
+            self.results_type_filter.currentData()
+            if hasattr(self, "results_type_filter")
+            else "all"
+        )
+
+        for row in range(self.results_table.rowCount()):
+            status_item = self.results_table.item(row, 3)
+            delta_item = self.results_table.item(row, 6)
+            type_item = self.results_table.item(row, 2)
+            status_key = (
+                status_item.data(Qt.ItemDataRole.UserRole)
+                if status_item else ""
+            )
+            delta_value = (
+                delta_item.data(Qt.ItemDataRole.UserRole)
+                if delta_item else None
+            )
+            reason = (
+                type_item.data(Qt.ItemDataRole.UserRole)
+                if type_item else ""
+            )
+
+            show = True
+            if change_filter == "improved":
+                show = status_key == "ready" and delta_value is not None and delta_value > 0
+            elif change_filter == "declined":
+                show = status_key == "ready" and delta_value is not None and delta_value < 0
+            elif change_filter == "ready":
+                show = status_key == "ready"
+            elif change_filter == "waiting":
+                show = status_key == "waiting"
+
+            if show and type_filter != "all":
+                if type_filter == "safe":
+                    show = reason in {"safe_archive_batch", "safe_optimization"}
+                elif type_filter == "content":
+                    show = reason == "content_package"
+                elif type_filter == "scheduled":
+                    show = reason == "scheduled_package_batch"
+
+            self.results_table.setRowHidden(row, not show)
+
+    def export_optimization_results_csv(self) -> None:
+        if not hasattr(self, "results_table") or self.results_table.rowCount() == 0:
+            QMessageBox.information(
+                self, APP_NAME, "Спочатку завантажте результати оптимізації."
+            )
+            return
+
+        suggested = (
+            f"RG_YouTube_Results_{self.current_profile}_"
+            f"{datetime.now().date().isoformat()}.csv"
+        )
+        path, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Експорт результатів",
+            str(Path.home() / suggested),
+            "CSV для Excel (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+
+        headers = [
+            self.results_table.horizontalHeaderItem(col).text()
+            for col in range(self.results_table.columnCount())
+        ]
+        with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.writer(fh, delimiter=";")
+            writer.writerow(headers)
+            for row in range(self.results_table.rowCount()):
+                if self.results_table.isRowHidden(row):
+                    continue
+                writer.writerow([
+                    self.results_table.item(row, col).text()
+                    if self.results_table.item(row, col) else ""
+                    for col in range(self.results_table.columnCount())
+                ])
+
+        QMessageBox.information(
+            self,
+            "Експорт завершено",
+            f"Звіт збережено:\n{path}",
+        )
 
     def _import_historical_optimization_events(self) -> int:
         setting_key = f"optimization_history_backfill_done_{self.current_profile}"
@@ -1067,6 +1227,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             imported = 0
             self.statusBar().showMessage(f"Імпорт історії: {exc}")
+
         days = int(self.results_period_combo.currentData() or 7)
         events = optimization_events(self.conn, self.current_profile, limit=100)
         self.results_table.setRowCount(0)
@@ -1080,11 +1241,7 @@ class MainWindow(QMainWindow):
             return
 
         today = datetime.now(timezone.utc).date()
-        prepared = []
-        complete_events = 0
-        self.statusBar().showMessage("Аналіз результатів оптимізації…")
-        QApplication.processEvents()
-
+        event_windows = []
         for event in events:
             raw_dt = str(event["optimized_at"] or "")
             try:
@@ -1092,55 +1249,162 @@ class MainWindow(QMainWindow):
                 optimized_date = optimized_dt.date()
             except Exception:
                 continue
-
             before_start = optimized_date - timedelta(days=days)
             before_end = optimized_date - timedelta(days=1)
             after_start = optimized_date + timedelta(days=1)
             after_end = optimized_date + timedelta(days=days)
             remaining_days = max(0, (after_end - today).days)
+            event_windows.append((
+                event,
+                before_start,
+                before_end,
+                after_start,
+                after_end,
+                remaining_days,
+            ))
 
+        reach_rows: list[dict[str, str]] = []
+        coverage_start = None
+        coverage_end = None
+        complete_windows = [item for item in event_windows if item[5] == 0]
+        if complete_windows:
+            reach_start = min(item[1] for item in complete_windows).isoformat()
+            reach_end = max(item[4] for item in complete_windows).isoformat()
+            try:
+                reach_rows, _job = self.client.reach_report_rows(
+                    start_date=reach_start,
+                    end_date=reach_end,
+                )
+                dates = sorted({
+                    str(row.get("date") or "")
+                    for row in reach_rows
+                    if str(row.get("date") or "")
+                })
+                if dates:
+                    coverage_start = dates[0]
+                    coverage_end = dates[-1]
+            except Exception:
+                reach_rows = []
+
+        prepared = []
+        complete_events = 0
+        self.statusBar().showMessage("Аналіз результатів оптимізації…")
+        QApplication.processEvents()
+
+        for (
+            event,
+            before_start,
+            before_end,
+            after_start,
+            after_end,
+            remaining_days,
+        ) in event_windows:
             before = None
             after = None
+            reach_before = None
+            reach_after = None
             error_text = ""
             if remaining_days == 0:
                 try:
+                    video_id = str(event["video_id"])
                     before = self._video_window_metrics(
-                        str(event["video_id"]),
+                        video_id,
                         before_start.isoformat(),
                         before_end.isoformat(),
                     )
                     after = self._video_window_metrics(
-                        str(event["video_id"]),
+                        video_id,
                         after_start.isoformat(),
                         after_end.isoformat(),
+                    )
+                    reach_before = self._reach_window_metrics(
+                        reach_rows,
+                        video_id,
+                        before_start.isoformat(),
+                        before_end.isoformat(),
+                        coverage_start,
+                        coverage_end,
+                    )
+                    reach_after = self._reach_window_metrics(
+                        reach_rows,
+                        video_id,
+                        after_start.isoformat(),
+                        after_end.isoformat(),
+                        coverage_start,
+                        coverage_end,
                     )
                     complete_events += 1
                 except Exception as exc:
                     error_text = str(exc)
 
             prepared.append((
-                event, before, after, remaining_days, error_text
+                event,
+                before,
+                after,
+                reach_before,
+                reach_after,
+                remaining_days,
+                error_text,
             ))
 
         self.results_table.setRowCount(len(prepared))
-        for row_index, (event, before, after, remaining_days, error_text) in enumerate(prepared):
+        for row_index, (
+            event,
+            before,
+            after,
+            reach_before,
+            reach_after,
+            remaining_days,
+            error_text,
+        ) in enumerate(prepared):
             if error_text:
                 status = "помилка Analytics"
+                status_key = "error"
             elif remaining_days > 0:
                 status = f"ще {remaining_days} дн."
+                status_key = "waiting"
             else:
                 status = "готово"
+                status_key = "ready"
 
+            delta_value = None
             if before is not None and after is not None:
+                if before["views"] > 0:
+                    delta_value = (
+                        (after["views"] - before["views"])
+                        / before["views"] * 100.0
+                    )
                 delta = self._pct_change(before["views"], after["views"])
+                before_impressions = (
+                    f"{int(reach_before['impressions']):,}"
+                    if reach_before is not None else "—"
+                )
+                after_impressions = (
+                    f"{int(reach_after['impressions']):,}"
+                    if reach_after is not None else "—"
+                )
+                before_ctr = (
+                    f"{reach_before['ctr']:.2f}%"
+                    if reach_before is not None else "—"
+                )
+                after_ctr = (
+                    f"{reach_after['ctr']:.2f}%"
+                    if reach_after is not None else "—"
+                )
                 values = [
                     str(event["optimized_at"] or "")[:10],
                     str(event["title"] or event["video_id"]),
-                    str(event["changed_fields"] or self._optimization_reason_label(str(event["reason"] or ""))),
+                    str(event["changed_fields"] or self._optimization_reason_label(
+                        str(event["reason"] or "")
+                    )),
                     status,
                     f"{int(before['views']):,}",
                     f"{int(after['views']):,}",
                     delta,
+                    before_impressions,
+                    after_impressions,
+                    before_ctr,
+                    after_ctr,
                     f"{before['watch_minutes'] / 60:.1f}",
                     f"{after['watch_minutes'] / 60:.1f}",
                     f"{before['avd_seconds']:.0f} с",
@@ -1153,25 +1417,48 @@ class MainWindow(QMainWindow):
                 values = [
                     str(event["optimized_at"] or "")[:10],
                     str(event["title"] or event["video_id"]),
-                    str(event["changed_fields"] or self._optimization_reason_label(str(event["reason"] or ""))),
-                    status, "—", "—", "—", "—", "—", "—", "—", "—", "—", f"{days} днів"
+                    str(event["changed_fields"] or self._optimization_reason_label(
+                        str(event["reason"] or "")
+                    )),
+                    status,
+                    "—", "—", "—",
+                    "—", "—", "—", "—",
+                    "—", "—", "—", "—", "—", "—",
+                    f"{days} днів",
                 ]
+
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
-                if column == 3:
-                    item.setForeground(QColor(SUCCESS if status == "готово" else WARNING))
+                if column == 2:
+                    item.setData(
+                        Qt.ItemDataRole.UserRole,
+                        str(event["reason"] or ""),
+                    )
+                elif column == 3:
+                    item.setData(Qt.ItemDataRole.UserRole, status_key)
+                    item.setForeground(
+                        QColor(SUCCESS if status_key == "ready" else WARNING)
+                    )
                     if error_text:
                         item.setToolTip(error_text)
-                elif column == 6 and value not in {"—", "+∞"}:
-                    try:
-                        item.setForeground(QColor(SUCCESS if float(str(value).rstrip('%')) >= 0 else YOUTUBE_RED))
-                    except Exception:
-                        pass
+                elif column == 6:
+                    item.setData(Qt.ItemDataRole.UserRole, delta_value)
+                    if delta_value is not None:
+                        item.setForeground(
+                            QColor(SUCCESS if delta_value >= 0 else YOUTUBE_RED)
+                        )
                 self.results_table.setItem(row_index, column, item)
 
+        self._filter_results_table()
         suffix = f" · імпортовано з історії {imported}" if imported else ""
+        reach_note = (
+            f" · CTR/покази {coverage_start}–{coverage_end}"
+            if coverage_start and coverage_end else
+            " · CTR/покази недоступні для цього періоду"
+        )
         self.statusBar().showMessage(
-            f"Результати: {len(prepared)} подій · готово до порівняння {complete_events}{suffix}"
+            f"Результати: {len(prepared)} подій · "
+            f"готово до порівняння {complete_events}{suffix}{reach_note}"
         )
 
     @staticmethod
