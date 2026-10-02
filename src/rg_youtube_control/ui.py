@@ -56,6 +56,7 @@ from .config import (
 from .db import (
     commit_video_analytics,
     connect,
+    database_integrity_cleanup,
     get_optimization_draft,
     get_setting,
     latest_metadata_snapshot,
@@ -689,6 +690,8 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         potential_btn = QPushButton("Оновити ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
+        prepare_queue_btn = QPushButton("Підготувати 50 на завтра")
+        prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
         preview_btn = QPushButton("Попередній перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
@@ -721,6 +724,10 @@ class MainWindow(QMainWindow):
             "Архів: ТОП потенціал",
             "archive_top",
         )
+        self.optimization_filter.addItem(
+            "Підготовлена черга",
+            "prepared",
+        )
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
@@ -740,6 +747,7 @@ class MainWindow(QMainWindow):
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
         sync_row.addWidget(potential_btn)
+        sync_row.addWidget(prepare_queue_btn)
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
@@ -1979,6 +1987,8 @@ class MainWindow(QMainWindow):
         backup_btn.clicked.connect(self.create_recovery_backup_now)
         restore_btn = QPushButton("Відновити робочу версію")
         restore_btn.clicked.connect(self.restore_recovery_backup_now)
+        db_check_btn = QPushButton("Перевірити локальну базу")
+        db_check_btn.clicked.connect(self.check_local_database)
 
         layout.addWidget(self.profile_combo)
         layout.addWidget(self.channel_label)
@@ -2005,8 +2015,39 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Резервне копіювання / відновлення"))
         layout.addWidget(backup_btn)
         layout.addWidget(restore_btn)
+        layout.addWidget(db_check_btn)
         layout.addStretch()
         self.tabs.addTab(page, "Налаштування")
+
+    def check_local_database(self) -> None:
+        try:
+            report = database_integrity_cleanup(self.conn)
+        except Exception as exc:
+            self._error("Помилка перевірки бази", exc)
+            return
+
+        orphan_total = sum(report["orphans"].values())
+        deleted_total = sum(report["deleted"].values())
+        duplicate_snapshots = int(report["duplicate_snapshots"] or 0)
+        lines = [
+            f"SQLite integrity: {report['integrity']}",
+            f"Сирітських записів знайдено: {orphan_total}",
+            f"Безпечно очищено: {deleted_total}",
+            f"Точних повторів snapshots: {duplicate_snapshots}",
+        ]
+        if duplicate_snapshots:
+            lines.append(
+                "Повтори snapshots не видалялись автоматично, "
+                "щоб не пошкодити історію відкату."
+            )
+        QMessageBox.information(
+            self,
+            "Перевірка локальної бази",
+            "\n".join(lines),
+        )
+        self.reload_videos()
+        self.reload_optimization_queue()
+        self.reload_comments()
 
     def _recovery_backup_root(self) -> Path:
         packages = self._nas_path("nas_packages_path", DEFAULT_NAS_PACKAGES_PATH)
@@ -2345,6 +2386,92 @@ class MainWindow(QMainWindow):
             next_date = "усі готові"
         return optimized.isoformat(), " · ".join(parts)
 
+    def _prepared_queue_ids(self) -> list[str]:
+        raw = get_setting(
+            self.conn,
+            f"prepared_safe_queue_{self.current_profile}",
+            "[]",
+        )
+        try:
+            value = json.loads(raw)
+        except Exception:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if str(item)]
+
+    def prepare_safe_queue(self) -> None:
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.views,v.audit_json,
+                      a.analytics_views,a.impressions,a.ctr_percent
+               FROM videos v
+               LEFT JOIN video_analytics_cache a
+                 ON a.video_id=v.video_id AND a.profile=v.profile
+               WHERE v.profile=?
+                 AND v.privacy_status='public'
+                 AND v.scheduled_publish_at IS NULL""",
+            (self.current_profile,),
+        ).fetchall()
+
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
+
+        ranked = []
+        for row in rows:
+            try:
+                audit_data = json.loads(row["audit_json"] or "{}")
+                issues = list(audit_data.get("issues", []))
+            except Exception:
+                issues = []
+            if not has_safe_link_issue(issues):
+                continue
+            potential = archive_potential_score(
+                lifetime_views=int(row["views"] or 0),
+                analytics_views=int(row["analytics_views"] or 0),
+                impressions=int(row["impressions"] or 0),
+                ctr_percent=float(row["ctr_percent"] or 0),
+                median_ctr_percent=float(channel_median_ctr),
+                issues=issues,
+            )
+            ranked.append((
+                potential,
+                int(row["impressions"] or 0),
+                int(row["analytics_views"] or 0),
+                int(row["views"] or 0),
+                str(row["video_id"]),
+            ))
+
+        ranked.sort(reverse=True)
+        queue = [item[-1] for item in ranked[:50]]
+        set_setting(
+            self.conn,
+            f"prepared_safe_queue_{self.current_profile}",
+            json.dumps(queue, ensure_ascii=False),
+        )
+        set_setting(
+            self.conn,
+            f"prepared_safe_queue_created_{self.current_profile}",
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+        if hasattr(self, "optimization_filter"):
+            index = self.optimization_filter.findData("prepared")
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+        self.reload_optimization_queue()
+
+        QMessageBox.information(
+            self,
+            "Підготовлена черга",
+            f"Підготовлено відео: {len(queue)}.\n"
+            "Черга збережена локально та готова до наступного квотного дня.",
+        )
+
     def reload_optimization_queue(self) -> None:
         if not hasattr(self, "optimization_table"):
             return
@@ -2362,6 +2489,11 @@ class MainWindow(QMainWindow):
         elif queue_filter == "archive":
             extra_where = " AND v.scheduled_publish_at IS NULL"
         elif queue_filter == "archive_top":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
+        elif queue_filter == "prepared":
             extra_where = (
                 " AND v.scheduled_publish_at IS NULL"
                 " AND v.privacy_status='public'"
@@ -2390,6 +2522,18 @@ class MainWindow(QMainWindow):
                 WHERE v.profile=?{extra_where}""",
             (profile,),
         ).fetchall()
+
+        prepared_order = {}
+        if queue_filter == "prepared":
+            queue_ids = self._prepared_queue_ids()
+            prepared_order = {
+                video_id: index for index, video_id in enumerate(queue_ids)
+            }
+            rows = [
+                row for row in rows
+                if str(row["video_id"]) in prepared_order
+            ]
+
 
         ctr_values = [
             float(row["ctr_percent"] or 0)
@@ -2437,7 +2581,13 @@ class MainWindow(QMainWindow):
                 )
             )
 
-        if queue_filter == "archive_top":
+        if queue_filter == "prepared":
+            prepared.sort(
+                key=lambda item: prepared_order.get(
+                    str(item[3]["video_id"]), 10**9
+                )
+            )
+        elif queue_filter == "archive_top":
             prepared.sort(
                 key=lambda item: (
                     -item[0],
@@ -3702,9 +3852,34 @@ class MainWindow(QMainWindow):
 
     def apply_next_safe_archive_batch(self) -> None:
         batch_limit = 50
-        video_ids, total_candidates = self._safe_archive_candidates(
-            limit=batch_limit
+        use_prepared = (
+            hasattr(self, "optimization_filter")
+            and self.optimization_filter.currentData() == "prepared"
         )
+        if use_prepared:
+            prepared_ids = self._prepared_queue_ids()
+            valid_ids = []
+            for video_id in prepared_ids:
+                row = self.conn.execute(
+                    "SELECT audit_json FROM videos WHERE video_id=? AND profile=?",
+                    (video_id, self.current_profile),
+                ).fetchone()
+                if row is None:
+                    continue
+                try:
+                    issues = json.loads(row["audit_json"] or "{}").get(
+                        "issues", []
+                    )
+                except Exception:
+                    issues = []
+                if has_safe_link_issue(issues):
+                    valid_ids.append(video_id)
+            video_ids = valid_ids[:batch_limit]
+            total_candidates = len(valid_ids)
+        else:
+            video_ids, total_candidates = self._safe_archive_candidates(
+                limit=batch_limit
+            )
         if not video_ids:
             QMessageBox.information(
                 self,
@@ -3720,8 +3895,12 @@ class MainWindow(QMainWindow):
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
-            "Черга йде від відео з найбільшою кількістю переглядів.\n"
-            "Буде змінено лише старі або відсутні посилання "
+            + (
+                "Використовується підготовлена черга за пріоритетом.\n"
+                if use_prepared
+                else "Черга йде від відео з найбільшою кількістю переглядів.\n"
+            )
+            + "Буде змінено лише старі або відсутні посилання "
             "проєкту й донату та окремий рядок хештегів: "
             "2 постійні + до 3 тематичних. "
             "Назви, теги YouTube, розділи та решта тексту залишаться "

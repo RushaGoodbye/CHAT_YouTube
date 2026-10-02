@@ -747,3 +747,30 @@ def test_recovery_backup_roundtrip(tmp_path):
     restored = connect(data_dir / "rg_youtube_control.db")
     assert get_setting(restored, "probe", "") == "before"
     restored.close()
+
+
+def test_database_integrity_cleanup_removes_orphans(tmp_path):
+    from rg_youtube_control.db import connect, database_integrity_cleanup
+
+    conn = connect(tmp_path / "health.sqlite")
+    conn.execute(
+        """INSERT INTO metadata_history(
+            video_id,title,description,tags_json,reason,created_at
+        ) VALUES(?,?,?,?,?,?)""",
+        ("missing-video", "Title", "Description", "[]", "test", "2026-10-02T00:00:00Z"),
+    )
+    conn.execute(
+        """INSERT INTO optimization_drafts(
+            video_id,new_title,description,chapters,tags_json,
+            title_variants_json,status,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        ("missing-video", "Title", "Description", "", "[]", "[]", "draft", "2026-10-02T00:00:00Z"),
+    )
+    conn.commit()
+
+    report = database_integrity_cleanup(conn)
+    assert report["integrity"] == "ok"
+    assert report["deleted"]["metadata_history"] == 1
+    assert report["deleted"]["optimization_drafts"] == 1
+    assert conn.execute("SELECT COUNT(*) FROM metadata_history").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM optimization_drafts").fetchone()[0] == 0
