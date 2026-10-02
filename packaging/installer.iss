@@ -1,5 +1,7 @@
+[Reading 29 lines from start (total: 29 lines, 0 remaining)]
+
 #define MyAppName "RG YouTube Control"
-#define MyAppVersion "0.3.9"
+#define MyAppVersion "0.3.10"
 #define MyAppPublisher "RushaGoodbye"
 #define MyAppExeName "RG YouTube Control.exe"
 
@@ -27,3 +29,5 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[executed on device: AlexLosServer-RDC (b2d6a985-3c60-41bc-84aa-ec469ab4fb7f)]
