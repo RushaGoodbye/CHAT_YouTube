@@ -180,7 +180,6 @@ def scan_comments(
     max_auto_replies_per_scan: int = DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     max_auto_age_hours: int = DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
 ) -> dict[str, int]:
-    channel_id = client.my_channel()["id"]
     stats = {
         "seen": 0,
         "queued": 0,
@@ -194,6 +193,19 @@ def scan_comments(
     }
     auto_count = today_auto_reply_count(conn)
 
+    if quota_exhausted(conn):
+        stats["quota_blocked"] += 1
+        return stats
+
+    try:
+        channel_id = client.my_channel()["id"]
+    except Exception as exc:
+        if _is_quota_error(exc):
+            mark_quota_exhausted(conn)
+            stats["quota_blocked"] += 1
+            return stats
+        raise
+
     for video_id in video_ids:
         try:
             threads = client.comment_threads(video_id, limit=100)
@@ -201,6 +213,10 @@ def scan_comments(
             if exc.resp.status == 403 and _http_error_reason(exc) == "commentsDisabled":
                 stats["skipped_disabled"] += 1
                 continue
+            if _is_quota_error(exc):
+                mark_quota_exhausted(conn)
+                stats["quota_blocked"] += 1
+                return stats
             raise
 
         for thread in threads:
