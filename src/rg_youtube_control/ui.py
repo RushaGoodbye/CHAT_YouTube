@@ -60,6 +60,7 @@ from .db import (
     database_integrity_cleanup,
     get_optimization_draft,
     get_setting,
+    recent_action_log,
     latest_metadata_snapshot,
     optimization_events,
     record_optimization_event,
@@ -85,6 +86,8 @@ from .optimization import (
 )
 from .service import (
     manual_reply,
+    quota_budget_status,
+    scan_channel_comments,
     scan_comments,
     sync_specific_videos,
     sync_videos,
@@ -441,11 +444,13 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         shell.addWidget(self.tabs, 1)
+        self._build_task_center_tab()
         self._build_videos_tab()
         self._build_optimization_tab()
         self._build_comments_tab()
         self._build_analytics_tab()
         self._build_results_tab()
+        self._build_log_tab()
         self._build_settings_tab()
 
         self.scan_timer = QTimer(self)
