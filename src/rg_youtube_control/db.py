@@ -394,3 +394,70 @@ def set_optimization_draft_status(
         (status, utc_now(), video_id),
     )
     conn.commit()
+
+def database_integrity_cleanup(conn: sqlite3.Connection) -> dict[str, Any]:
+    integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
+    integrity = ", ".join(str(row[0]) for row in integrity_rows) or "unknown"
+
+    orphan_queries = {
+        "comments": (
+            "SELECT COUNT(*) FROM comments c "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=c.video_id)"
+        ),
+        "metadata_history": (
+            "SELECT COUNT(*) FROM metadata_history h "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=h.video_id)"
+        ),
+        "optimization_events": (
+            "SELECT COUNT(*) FROM optimization_events e "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=e.video_id)"
+        ),
+        "optimization_drafts": (
+            "SELECT COUNT(*) FROM optimization_drafts d "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=d.video_id)"
+        ),
+        "video_analytics_cache": (
+            "SELECT COUNT(*) FROM video_analytics_cache a "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=a.video_id)"
+        ),
+    }
+    orphans = {
+        table: int(conn.execute(query).fetchone()[0])
+        for table, query in orphan_queries.items()
+    }
+
+    duplicate_snapshots = int(
+        conn.execute(
+            """SELECT COALESCE(SUM(n - 1), 0)
+               FROM (
+                 SELECT COUNT(*) AS n
+                 FROM metadata_history
+                 GROUP BY video_id,title,description,tags_json,reason
+                 HAVING COUNT(*) > 1
+               )"""
+        ).fetchone()[0]
+    )
+
+    deleted = {}
+    for table in (
+        "comments",
+        "metadata_history",
+        "optimization_events",
+        "optimization_drafts",
+        "video_analytics_cache",
+    ):
+        cursor = conn.execute(
+            f"DELETE FROM {table} "
+            "WHERE NOT EXISTS ("
+            f"SELECT 1 FROM videos v WHERE v.video_id={table}.video_id"
+            ")"
+        )
+        deleted[table] = int(cursor.rowcount if cursor.rowcount >= 0 else 0)
+
+    conn.commit()
+    return {
+        "integrity": integrity,
+        "orphans": orphans,
+        "deleted": deleted,
+        "duplicate_snapshots": duplicate_snapshots,
+    }
