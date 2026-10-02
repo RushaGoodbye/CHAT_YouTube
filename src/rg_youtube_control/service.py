@@ -23,14 +23,19 @@ def sync_videos(
 ) -> list[dict[str, Any]]:
     items = client.recent_videos(limit=limit)
     rows: list[dict[str, Any]] = []
+    seen_video_ids: set[str] = set()
     for item in items:
+        video_id = str(item.get("id") or "")
+        if not video_id or video_id in seen_video_ids:
+            continue
+        seen_video_ids.add(video_id)
         snippet = item.get("snippet", {})
         status = item.get("status", {})
         stats = item.get("statistics", {})
         content = item.get("contentDetails", {})
         result = audit(snippet.get("description", ""), snippet.get("tags", []))
         row = {
-            "video_id": item["id"],
+            "video_id": video_id,
             "profile": client.profile,
             "channel_id": snippet.get("channelId"),
             "title": snippet.get("title", ""),
