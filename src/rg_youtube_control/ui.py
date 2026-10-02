@@ -1134,7 +1134,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setProperty("muted", True)
 
-        self.results_table = QTableWidget(0, 18)
+        self.results_table = QTableWidget(0, 19)
         self.results_table.setHorizontalHeaderLabels([
             "Дата", "Відео", "Зміни", "Статус",
             "Перегляди ДО", "ПІСЛЯ", "Δ",
@@ -1142,7 +1142,7 @@ class MainWindow(QMainWindow):
             "CTR ДО", "ПІСЛЯ",
             "Час перегляду ДО, год", "ПІСЛЯ",
             "Сер. тривалість ДО", "ПІСЛЯ",
-            "Підписники ДО", "ПІСЛЯ", "Період",
+            "Підписники ДО", "ПІСЛЯ", "Період", "Висновок",
         ])
         results_header = self.results_table.horizontalHeader()
         results_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -1151,7 +1151,7 @@ class MainWindow(QMainWindow):
         for column, width in {
             0: 95, 1: 260, 2: 170, 3: 105, 4: 105, 5: 95, 6: 75,
             7: 105, 8: 95, 9: 85, 10: 85, 11: 145, 12: 95,
-            13: 145, 14: 95, 15: 110, 16: 95, 17: 85,
+            13: 145, 14: 95, 15: 110, 16: 95, 17: 85, 18: 210,
         }.items():
             self.results_table.setColumnWidth(column, width)
         self.results_table.setHorizontalScrollMode(
@@ -1180,6 +1180,71 @@ class MainWindow(QMainWindow):
             return "—" if after <= 0 else "+∞"
         value = (after - before) / before * 100.0
         return f"{value:+.1f}%"
+
+    @staticmethod
+    def _result_summary(
+        before: dict[str, float] | None,
+        after: dict[str, float] | None,
+        reach_before: dict[str, float] | None,
+        reach_after: dict[str, float] | None,
+    ) -> tuple[str, str, str]:
+        if before is None or after is None:
+            return "—", "", ""
+
+        metrics: list[tuple[str, float, float]] = [
+            ("перегляди", float(before["views"]), float(after["views"])),
+            (
+                "час перегляду",
+                float(before["watch_minutes"]),
+                float(after["watch_minutes"]),
+            ),
+            (
+                "сер. тривалість",
+                float(before["avd_seconds"]),
+                float(after["avd_seconds"]),
+            ),
+            ("підписники", float(before["subs"]), float(after["subs"])),
+        ]
+        if reach_before is not None and reach_after is not None:
+            metrics.extend([
+                (
+                    "покази",
+                    float(reach_before["impressions"]),
+                    float(reach_after["impressions"]),
+                ),
+                ("CTR", float(reach_before["ctr"]), float(reach_after["ctr"])),
+            ])
+
+        improved: list[str] = []
+        declined: list[str] = []
+        neutral: list[str] = []
+        for name, before_value, after_value in metrics:
+            tolerance = max(abs(before_value) * 0.005, 0.01)
+            if after_value > before_value + tolerance:
+                improved.append(name)
+            elif after_value < before_value - tolerance:
+                declined.append(name)
+            else:
+                neutral.append(name)
+
+        if len(improved) > len(declined):
+            key = "improved"
+            label = f"Краще: {len(improved)}/{len(metrics)}"
+        elif len(declined) > len(improved):
+            key = "declined"
+            label = f"Гірше: {len(declined)}/{len(metrics)}"
+        else:
+            key = "mixed"
+            label = "Змішаний результат"
+
+        detail_parts = []
+        if improved:
+            detail_parts.append("зросли: " + ", ".join(improved))
+        if declined:
+            detail_parts.append("знизились: " + ", ".join(declined))
+        if neutral:
+            detail_parts.append("без суттєвої зміни: " + ", ".join(neutral))
+        return label, key, "; ".join(detail_parts)
 
     def _video_window_metrics(
         self, video_id: str, start_date: str, end_date: str
@@ -1256,15 +1321,15 @@ class MainWindow(QMainWindow):
 
         for row in range(self.results_table.rowCount()):
             status_item = self.results_table.item(row, 3)
-            delta_item = self.results_table.item(row, 6)
+            summary_item = self.results_table.item(row, 18)
             type_item = self.results_table.item(row, 2)
             status_key = (
                 status_item.data(Qt.ItemDataRole.UserRole)
                 if status_item else ""
             )
-            delta_value = (
-                delta_item.data(Qt.ItemDataRole.UserRole)
-                if delta_item else None
+            result_key = (
+                summary_item.data(Qt.ItemDataRole.UserRole)
+                if summary_item else ""
             )
             reason = (
                 type_item.data(Qt.ItemDataRole.UserRole)
@@ -1273,9 +1338,9 @@ class MainWindow(QMainWindow):
 
             show = True
             if change_filter == "improved":
-                show = status_key == "ready" and delta_value is not None and delta_value > 0
+                show = status_key == "ready" and result_key == "improved"
             elif change_filter == "declined":
-                show = status_key == "ready" and delta_value is not None and delta_value < 0
+                show = status_key == "ready" and result_key == "declined"
             elif change_filter == "ready":
                 show = status_key == "ready"
             elif change_filter == "waiting":
