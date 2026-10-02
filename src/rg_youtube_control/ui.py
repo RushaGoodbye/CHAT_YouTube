@@ -462,6 +462,7 @@ class MainWindow(QMainWindow):
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(3000, self.check_for_updates_silent)
@@ -2020,6 +2021,61 @@ class MainWindow(QMainWindow):
                 )
                 return
             self._error("Помилка YouTube Analytics", exc)
+
+    def _build_log_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        controls = QHBoxLayout()
+        refresh_btn = QPushButton("Оновити журнал")
+        refresh_btn.clicked.connect(self.reload_action_log)
+        controls.addWidget(refresh_btn)
+        controls.addWidget(
+            QLabel("Показуються останні дії для активного каналу.")
+        )
+        controls.addStretch()
+
+        self.action_log_table = QTableWidget(0, 4)
+        self.action_log_table.setHorizontalHeaderLabels(
+            ["Час", "Категорія", "Дія", "Деталі"]
+        )
+        header = self.action_log_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        self.action_log_table.setColumnWidth(0, 180)
+        self.action_log_table.setColumnWidth(1, 130)
+        self.action_log_table.setColumnWidth(2, 220)
+        self._configure_table(self.action_log_table)
+
+        layout.addLayout(controls)
+        layout.addWidget(self.action_log_table)
+        self.tabs.addTab(page, "Журнал")
+
+    def reload_action_log(self) -> None:
+        if not hasattr(self, "action_log_table"):
+            return
+        rows = recent_action_log(
+            self.conn,
+            profile=self.current_profile,
+            limit=250,
+        )
+        self.action_log_table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            created = str(row["created_at"] or "")
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                created = dt.astimezone().strftime("%d.%m.%Y %H:%M:%S")
+            except Exception:
+                pass
+            values = [
+                created,
+                str(row["category"] or ""),
+                str(row["action"] or ""),
+                str(row["details"] or ""),
+            ]
+            for column, value in enumerate(values):
+                self.action_log_table.setItem(
+                    index, column, QTableWidgetItem(value)
+                )
 
     def _build_settings_tab(self) -> None:
         page = QWidget()
@@ -4645,8 +4701,8 @@ class MainWindow(QMainWindow):
 
         self.update_dashboard()
         if hasattr(self, "auto_quota_label"):
-            safe_used = today_auto_reply_count(self.conn)
-            total_used = today_reply_count(self.conn)
+            safe_used = today_auto_reply_count(self.conn, self.current_profile)
+            total_used = today_reply_count(self.conn, self.current_profile)
             daily_limit = (
                 self.daily_limit_spin.value()
                 if hasattr(self, "daily_limit_spin")
