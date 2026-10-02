@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
         title_box.setSpacing(0)
         title = QLabel("Керування YouTube")
         title.setObjectName("AppTitle")
-        subtitle = QLabel("Відео · оптимізація · коментарі")
+        subtitle = QLabel("Центр · відео · оптимізація · коментарі")
         subtitle.setObjectName("AppSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -2656,6 +2656,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
         layout.addWidget(QLabel("Резервне копіювання / відновлення"))
+        backup_note = QLabel(
+            "Автоматично: одна щоденна копія та копія перед кожною "
+            "масовою зміною. На NAS зберігаються останні 20 автоматичних копій."
+        )
+        backup_note.setWordWrap(True)
+        backup_note.setProperty("muted", True)
+        layout.addWidget(backup_note)
         layout.addWidget(backup_btn)
         layout.addWidget(restore_btn)
         layout.addWidget(db_check_btn)
