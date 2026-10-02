@@ -670,7 +670,7 @@ class MainWindow(QMainWindow):
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton("Архів: наступні 20")
+        next_safe_btn = QPushButton("Архів: безпечні 100")
         next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
         package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
@@ -694,6 +694,10 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem("Усі відео", "all")
         self.optimization_filter.addItem("Лише заплановані", "scheduled")
         self.optimization_filter.addItem("Архів", "archive")
+        self.optimization_filter.addItem(
+            "Архів: ТОП потенціал",
+            "archive_top",
+        )
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
@@ -1548,6 +1552,11 @@ class MainWindow(QMainWindow):
             extra_where = " AND v.scheduled_publish_at IS NOT NULL"
         elif queue_filter == "archive":
             extra_where = " AND v.scheduled_publish_at IS NULL"
+        elif queue_filter == "archive_top":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
 
         rows = self.conn.execute(
             f"""SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
@@ -1586,13 +1595,22 @@ class MainWindow(QMainWindow):
                 )
             )
 
-        prepared.sort(
-            key=lambda item: (
-                -item[0],
-                item[1] or "9999",
-                -(int(item[3]["views"] or 0)),
+        if queue_filter == "archive_top":
+            prepared.sort(
+                key=lambda item: (
+                    -(int(item[3]["views"] or 0)),
+                    -item[0],
+                    item[1] or "9999",
+                )
             )
-        )
+        else:
+            prepared.sort(
+                key=lambda item: (
+                    -item[0],
+                    item[1] or "9999",
+                    -(int(item[3]["views"] or 0)),
+                )
+            )
 
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
@@ -2670,12 +2688,12 @@ class MainWindow(QMainWindow):
     ) -> tuple[list[str], int]:
         rows = self.conn.execute(
             """
-            SELECT video_id,audit_json
+            SELECT video_id,audit_json,views,published_at
             FROM videos
             WHERE profile=?
               AND privacy_status='public'
               AND scheduled_publish_at IS NULL
-            ORDER BY published_at DESC, video_id
+            ORDER BY views DESC, published_at DESC, video_id
             """,
             (self.current_profile,),
         ).fetchall()
@@ -2692,26 +2710,31 @@ class MainWindow(QMainWindow):
         return candidates[:limit], len(candidates)
 
     def apply_next_safe_archive_batch(self) -> None:
-        video_ids, total_candidates = self._safe_archive_candidates(limit=20)
+        batch_limit = 100
+        video_ids, total_candidates = self._safe_archive_candidates(
+            limit=batch_limit
+        )
         if not video_ids:
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "В архіві більше немає відео з безпечними правками посилань.",
+                "В архіві більше немає відео з безпечними правками.",
             )
             return
 
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Архів: наступні 20",
+            "Архів: безпечні 100",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
+            "Черга йде від відео з найбільшою кількістю переглядів.\n"
             "Буде змінено лише старі або відсутні посилання "
-            "проєкту й донату. Назви, теги, розділи та решта тексту "
-            "залишаться без змін. Для кожного запису зберігається "
-            "точка відкату. Продовжити?",
+            "проєкту й донату та надлишкові хештеги в окремих рядках. "
+            "Назви, теги YouTube, розділи та решта тексту залишаться "
+            "без змін. Для кожного запису зберігається точка відкату. "
+            "Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2722,7 +2745,12 @@ class MainWindow(QMainWindow):
         skipped_ids: list[str] = []
         error_text = ""
         try:
-            for video_id in video_ids:
+            for index, video_id in enumerate(video_ids, start=1):
+                self.statusBar().showMessage(
+                    f"Безпечна оптимізація архіву: "
+                    f"{index}/{len(video_ids)} · {video_id}"
+                )
+                QApplication.processEvents()
                 try:
                     title, description, tags = self._current_video_metadata(video_id)
                     fix = safe_description_fix(description)

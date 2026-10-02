@@ -500,3 +500,18 @@ def test_package_bridge_validates_local_endpoint_inputs():
         pass
     else:
         raise AssertionError("Bridge URL without scheme must be rejected")
+def test_safe_description_fix_trims_only_hashtag_lines():
+    from rg_youtube_control.optimization import safe_description_fix
+
+    value = (
+        "Опис відео з #текстом у реченні.\n\n"
+        "#one #two #three #four #five"
+    )
+    fixed = safe_description_fix(value)
+    assert "#текстом" in fixed.after
+    assert "#one" in fixed.after
+    assert "#two" in fixed.after
+    assert "#three" not in fixed.after
+    assert "#four" not in fixed.after
+    assert "#five" not in fixed.after
+    assert "залишено не більше 3 хештегів" in fixed.changes

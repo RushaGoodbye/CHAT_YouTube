@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from .config import DONATE_URL, PROJECT_LINKS_URL
-from .metadata_audit import normalize_links
+from .metadata_audit import HASHTAG_RE, normalize_links
 
 @dataclass(frozen=True)
 class SafeFix:
@@ -23,11 +23,45 @@ SAFE_LINK_ISSUES = frozenset({
     "old_links",
     "missing_project_link",
     "missing_donate_link",
+    "too_many_hashtags",
 })
+
+HASHTAG_ONLY_LINE_RE = re.compile(
+    r"^\s*(?:#[\wА-Яа-яІіЇїЄєҐґ]+\s*)+$",
+    re.UNICODE,
+)
 
 
 def has_safe_link_issue(issues: list[str] | tuple[str, ...]) -> bool:
     return bool(SAFE_LINK_ISSUES.intersection(issues))
+
+
+def _trim_hashtag_only_lines(value: str, limit: int = 3) -> tuple[str, bool]:
+    lines = value.splitlines()
+    kept_elsewhere = 0
+    changed = False
+    output: list[str] = []
+
+    for line in lines:
+        tokens = HASHTAG_RE.findall(line)
+        if not HASHTAG_ONLY_LINE_RE.fullmatch(line):
+            kept_elsewhere += len(tokens)
+            output.append(line)
+            continue
+
+        room = max(0, limit - kept_elsewhere)
+        kept = tokens[:room]
+        kept_elsewhere += len(kept)
+        if len(kept) != len(tokens):
+            changed = True
+        if kept:
+            output.append(" ".join(kept))
+        elif line.strip():
+            changed = True
+
+    result = "\n".join(output)
+    result = re.sub(r"\n{3,}", "\n\n", result).strip()
+    return result, changed
 
 
 def safe_description_fix(description: str) -> SafeFix:
@@ -37,6 +71,10 @@ def safe_description_fix(description: str) -> SafeFix:
 
     if after != before:
         changes.append("замінено старі посилання")
+
+    after, hashtags_trimmed = _trim_hashtag_only_lines(after, limit=3)
+    if hashtags_trimmed:
+        changes.append("залишено не більше 3 хештегів")
 
     missing_project = PROJECT_LINKS_URL not in after
     missing_donate = DONATE_URL not in after
