@@ -256,6 +256,17 @@ def test_chapter_validation_and_composition():
         "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:"
     )
 
+    duplicated = (
+        "Короткий опис ролика.\n\n"
+        "00:00 Вступ\n00:15 Тема\n00:40 Фінал\n\n"
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        f"{PROJECT_LINKS_URL}"
+    )
+    cleaned = compose_description(duplicated, chapters)
+    assert cleaned.count("00:00 Вступ") == 1
+    assert cleaned.count("00:15 Тема") == 1
+    assert cleaned.count("00:40 Фінал") == 1
+
 
 def test_optimization_draft_round_trip(tmp_path):
     import json
