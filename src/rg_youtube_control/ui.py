@@ -2483,6 +2483,74 @@ class MainWindow(QMainWindow):
         packages = self._nas_path("nas_packages_path", DEFAULT_NAS_PACKAGES_PATH)
         return packages.parent / "BACKUPS"
 
+    def _create_automatic_recovery_backup(
+        self,
+        reason: str,
+        *,
+        force: bool = False,
+    ) -> Path | None:
+        today = datetime.now(timezone.utc).date().isoformat()
+        daily_key = "automatic_recovery_backup_day"
+        if not force and get_setting(self.conn, daily_key, "") == today:
+            return None
+
+        root = self._recovery_backup_root()
+        archive = create_recovery_backup(
+            conn=self.conn,
+            data_dir=self.data_dir,
+            backup_root=root,
+            version=__version__,
+            include_installer=False,
+            label="RG_YOUTUBE_CONTROL_AUTO",
+        )
+        removed = prune_recovery_backups(
+            root,
+            keep=20,
+            prefix="RG_YOUTUBE_CONTROL_AUTO_",
+        )
+        set_setting(self.conn, daily_key, today)
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="резервна копія",
+            action="Автоматична копія",
+            details=f"{reason} · {archive.name} · очищено старих: {removed}",
+        )
+        self.reload_action_log()
+        return archive
+
+    def ensure_daily_recovery_backup(self) -> None:
+        try:
+            self._create_automatic_recovery_backup(
+                "щоденна копія",
+                force=False,
+            )
+        except Exception as exc:
+            try:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="резервна копія",
+                    action="Помилка щоденної копії",
+                    details=str(exc),
+                )
+            except Exception:
+                pass
+
+    def _prechange_backup_or_warn(self, reason: str) -> bool:
+        try:
+            self._create_automatic_recovery_backup(reason, force=True)
+            return True
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Резервна копія не створена",
+                "Масову зміну зупинено, тому що перед нею не вдалося "
+                "створити резервну копію на NAS.\n\n"
+                f"{exc}",
+            )
+            return False
+
     def create_recovery_backup_now(self) -> None:
         root = self._recovery_backup_root()
         answer = QMessageBox.question(
