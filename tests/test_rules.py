@@ -481,3 +481,22 @@ def test_extract_chapters_from_description():
     assert "0:00 Початок" not in body
     assert "Завершення." in body
     assert chapters == "0:00 Початок\n05:20 Друга тема\n12:40 Фінал"
+def test_package_bridge_validates_local_endpoint_inputs():
+    from rg_youtube_control.package_bridge import _base_url, _video_id
+
+    assert _video_id("GQL6N4jQpI8") == "GQL6N4jQpI8"
+    assert _base_url("http://AlexLosServer:8790/") == "http://AlexLosServer:8790"
+
+    try:
+        _video_id("../../bad")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid video id must be rejected")
+
+    try:
+        _base_url("AlexLosServer:8790")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Bridge URL without scheme must be rejected")
