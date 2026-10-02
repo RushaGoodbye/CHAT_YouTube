@@ -99,6 +99,7 @@ from .service import (
     mark_quota_exhausted,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
     VIDEO_UPDATE_COST,
+    QUOTA_RESERVE_DEFAULT,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -593,6 +594,7 @@ class MainWindow(QMainWindow):
         self.metric_attention.set_value(str(attention), "Аудит < 100")
         self.metric_comments.set_value(str(queued), "нові / не оброблені")
         self.refresh_youtube_quota_label()
+        self.update_task_center()
 
     def switch_profile_from_header(self, _index: int) -> None:
         profile = self.header_profile_combo.currentData()
@@ -635,6 +637,56 @@ class MainWindow(QMainWindow):
             self.auto_box.blockSignals(True)
             self.auto_box.setChecked(enabled)
             self.auto_box.blockSignals(False)
+
+        if hasattr(self, "daily_limit_spin"):
+            controls = (
+                (
+                    self.daily_limit_spin,
+                    f"auto_reply_daily_limit_{profile}",
+                    "auto_reply_daily_limit",
+                    DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+                ),
+                (
+                    self.scan_limit_spin,
+                    f"auto_reply_scan_limit_{profile}",
+                    "auto_reply_scan_limit",
+                    DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
+                ),
+                (
+                    self.age_limit_spin,
+                    f"auto_reply_max_age_hours_{profile}",
+                    "auto_reply_max_age_hours",
+                    DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
+                ),
+            )
+            for control, profile_key, legacy_key, default_value in controls:
+                control.blockSignals(True)
+                control.setValue(
+                    int(
+                        get_setting(
+                            self.conn,
+                            profile_key,
+                            get_setting(self.conn, legacy_key, str(default_value)),
+                        )
+                    )
+                )
+                control.blockSignals(False)
+
+        if hasattr(self, "reply_template_edits"):
+            for category, (_label, edit) in self.reply_template_edits.items():
+                edit.blockSignals(True)
+                edit.setText(
+                    get_setting(
+                        self.conn,
+                        f"reply_template_{profile}_{category}",
+                        get_setting(
+                            self.conn,
+                            f"reply_template_{category}",
+                            DEFAULT_REPLY_TEMPLATES[category],
+                        ),
+                    )
+                )
+                edit.blockSignals(False)
 
         if hasattr(self, "channel_label"):
             title = get_setting(self.conn, f"channel_title_{profile}", "")
