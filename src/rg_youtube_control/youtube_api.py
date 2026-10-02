@@ -221,6 +221,52 @@ class YouTubeClient:
             result.extend(response.get("items", []))
         return result
 
+    def channel_comment_threads(
+        self,
+        channel_id: str,
+        *,
+        stop_before: str | None = None,
+        max_pages: int = 5,
+        moderation_status: str = "published",
+    ) -> tuple[list[dict[str, Any]], int]:
+        result: list[dict[str, Any]] = []
+        token = None
+        requests = 0
+        pages = 0
+        while pages < max_pages:
+            response = self.service().commentThreads().list(
+                part="snippet,replies",
+                allThreadsRelatedToChannelId=channel_id,
+                moderationStatus=moderation_status,
+                textFormat="plainText",
+                order="time",
+                maxResults=100,
+                pageToken=token,
+            ).execute()
+            requests += 1
+            pages += 1
+            items = response.get("items", [])
+            result.extend(items)
+
+            if stop_before and items:
+                oldest = ""
+                for item in items:
+                    published = str(
+                        item.get("snippet", {})
+                        .get("topLevelComment", {})
+                        .get("snippet", {})
+                        .get("publishedAt", "")
+                    )
+                    if published and (not oldest or published < oldest):
+                        oldest = published
+                if oldest and oldest <= stop_before:
+                    break
+
+            token = response.get("nextPageToken")
+            if not token:
+                break
+        return result, requests
+
     def comment_threads(
         self, video_id: str, moderation_status: str = "published", limit: int = 100
     ) -> list[dict[str, Any]]:
