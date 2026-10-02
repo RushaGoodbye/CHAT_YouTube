@@ -4872,6 +4872,9 @@ class MainWindow(QMainWindow):
                     details=f"{video_id}: {', '.join(fix.changes)}",
                 )
             except Exception as exc:
+                if _is_quota_exceeded_error(exc):
+                    mark_quota_exhausted(self.conn)
+                    self.refresh_youtube_quota_label()
                 log_action(
                     self.conn,
                     profile=profile,
