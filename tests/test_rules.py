@@ -679,3 +679,15 @@ def test_quota_error_detection():
     assert _is_quota_exceeded_error(Exception("reason: quotaExceeded"))
     assert _is_quota_exceeded_error(Exception("Quota exceeded for quota metric"))
     assert not _is_quota_exceeded_error(Exception("commentsDisabled"))
+
+
+def test_quota_accounting_is_day_scoped():
+    from rg_youtube_control.service import record_quota_units, today_quota_units
+    from rg_youtube_control.db import connect
+    import tempfile
+    from pathlib import Path
+    conn = connect(Path(tempfile.mkdtemp()) / "quota.db")
+    before = today_quota_units(conn)
+    after = record_quota_units(conn, 50)
+    assert after == before + 50
+    assert today_quota_units(conn) == after
