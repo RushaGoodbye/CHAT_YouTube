@@ -473,6 +473,8 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(3000, self.check_for_updates_silent)
+        QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
+        QTimer.singleShot(8000, self.check_quota_plan_ready)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
