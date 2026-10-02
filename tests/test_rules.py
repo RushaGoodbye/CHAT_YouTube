@@ -774,3 +774,56 @@ def test_database_integrity_cleanup_removes_orphans(tmp_path):
     assert report["deleted"]["optimization_drafts"] == 1
     assert conn.execute("SELECT COUNT(*) FROM metadata_history").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM optimization_drafts").fetchone()[0] == 0
+
+
+def test_manual_reply_blocks_duplicate_send(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import manual_reply
+
+    class FakeClient:
+        def __init__(self):
+            self.sent = 0
+
+        def reply(self, parent_comment_id, text):
+            self.sent += 1
+            return {}
+
+    conn = connect(tmp_path / "comments.sqlite")
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (
+            "c1",
+            "v1",
+            "viewer",
+            "Дякую",
+            datetime.now(timezone.utc).isoformat(),
+            "thanks",
+            "replied",
+            "{}",
+        ),
+    )
+    conn.commit()
+
+    client = FakeClient()
+    try:
+        manual_reply(client, conn, "c1", "Дякуємо!")
+    except RuntimeError as exc:
+        assert "вже" in str(exc)
+    else:
+        raise AssertionError("Duplicate reply must be blocked")
+    assert client.sent == 0
+
+
+def test_reply_text_validation():
+    from rg_youtube_control.service import _validated_reply_text
+
+    assert _validated_reply_text("  Дякуємо!  ") == "Дякуємо!"
+    try:
+        _validated_reply_text("   ")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Empty reply must be blocked")

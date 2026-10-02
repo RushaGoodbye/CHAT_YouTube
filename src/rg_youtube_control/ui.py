@@ -4196,8 +4196,11 @@ class MainWindow(QMainWindow):
             )
             self.reload_comments()
             self.statusBar().showMessage(
-                "Коментарі: {seen}, черга: {queued}, автовідповіді: {auto_replied}, "
-                "пропущено без коментарів: {skipped_disabled}".format(**stats)
+                "Коментарі: {seen} · черга: {queued} · "
+                "автовідповіді: {auto_replied} · вже відповіли: {already_replied} · "
+                "на перевірку: {skipped_review} · застарілі: {skipped_old} · "
+                "ліміт: {skipped_limit} · без коментарів: {skipped_disabled} · "
+                "квота: {quota_blocked}".format(**stats)
             )
         except Exception as exc:
             if silent:
