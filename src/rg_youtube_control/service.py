@@ -145,7 +145,7 @@ def mark_quota_exhausted(conn: sqlite3.Connection) -> None:
     set_setting(conn, _quota_key("exhausted"), "1")
 
 def _counter_key(name: str, profile: str | None = None) -> str:
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = _quota_day()
     suffix = f"_{profile}" if profile else ""
     return f"{name}{suffix}_{day}"
 
