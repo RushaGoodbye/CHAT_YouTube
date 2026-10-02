@@ -353,6 +353,6 @@ class YouTubeClient:
     ) -> tuple[dict[str, Any], str]:
         track = self.best_caption_track(video_id, preferred_languages)
         if track is None:
-            raise RuntimeError("Для этого видео не найдено доступных субтитров.")
+            raise RuntimeError("Для цього відео не знайдено доступних субтитрів.")
         text = self.download_caption_srt(track["id"])
         return track, text

@@ -81,10 +81,43 @@ from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .updater import UpdateInfo, check_for_update, download_update
 
+ISSUE_LABELS = {
+    "old_links": "старі посилання",
+    "missing_project_link": "немає посилання проєкту",
+    "missing_donate_link": "немає посилання на донат",
+    "thin_description": "закороткий опис",
+    "no_chapters": "немає розділів",
+    "too_many_hashtags": "забагато хештегів",
+    "no_tags": "немає тегів",
+}
+
+PRIVACY_LABELS = {
+    "public": "публічне",
+    "private": "приватне",
+    "unlisted": "за посиланням",
+}
+
+COMMENT_CATEGORY_LABELS = {
+    "review": "на перевірці",
+    "thanks": "подяка",
+    "links": "посилання",
+    "donate": "донат",
+    "schedule": "розклад",
+}
+
+COMMENT_STATUS_LABELS = {
+    "new": "новий",
+    "replied": "відповіли",
+    "ignored": "проігноровано",
+}
+
+def _issue_labels(issues: list[str]) -> str:
+    return ", ".join(ISSUE_LABELS.get(item, item) for item in issues)
+
 class MetadataDialog(QDialog):
     def __init__(self, title: str, description: str, tags: list[str], parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Метаданные видео")
+        self.setWindowTitle("Метадані відео")
         self.resize(780, 620)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -92,12 +125,12 @@ class MetadataDialog(QDialog):
         self.title_edit = QLineEdit(title)
         self.description_edit = QPlainTextEdit(description)
         self.tags_edit = QPlainTextEdit(", ".join(tags))
-        form.addRow("Название:", self.title_edit)
-        form.addRow("Описание:", self.description_edit)
+        form.addRow("Назва:", self.title_edit)
+        form.addRow("Опис:", self.description_edit)
         form.addRow("Теги:", self.tags_edit)
         layout.addLayout(form)
 
-        normalize_btn = QPushButton("Заменить старые ссылки")
+        normalize_btn = QPushButton("Замінити старі посилання")
         normalize_btn.clicked.connect(self.normalize_description_links)
         layout.addWidget(normalize_btn)
 
@@ -105,6 +138,8 @@ class MetadataDialog(QDialog):
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Зберегти")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Скасувати")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -134,12 +169,22 @@ class ContentOptimizationDialog(QDialog):
         tags: list[str],
         status: str,
         title_variants: list[str] | None = None,
+        scheduled_publish_at: str | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Пакет оптимизации контента")
+        self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
+
+        if scheduled_publish_at:
+            scheduled_note = QLabel(
+                f"Запланований стрім · {scheduled_publish_at}\n"
+                "Назву, опис і теги можна оптимізувати заздалегідь. "
+                "Дата, час публікації та видимість не змінюються."
+            )
+            scheduled_note.setWordWrap(True)
+            layout.addWidget(scheduled_note)
 
         form = QFormLayout()
         self.title_edit = QLineEdit(title)
@@ -153,26 +198,26 @@ class ContentOptimizationDialog(QDialog):
             "\n".join(title_variants or [])
         )
         self.title_variants_edit.setPlaceholderText(
-            "Вариант A — сильный конфликт / цитата\n"
-            "Вариант B — конфликт + контекст\n"
-            "Вариант C — сильный хук | ЧАТ РУЛЕТКА"
+            "Варіант A — сильний конфлікт / цитата\n"
+            "Варіант B — конфлікт + контекст\n"
+            "Варіант C — сильний хук | ЧАТ РУЛЕТКА"
         )
         self.status_combo = QComboBox()
-        self.status_combo.addItem("Черновик", "draft")
-        self.status_combo.addItem("Готово к применению", "ready")
+        self.status_combo.addItem("Чернетка", "draft")
+        self.status_combo.addItem("Готово до застосування", "ready")
         idx = self.status_combo.findData(status)
         if idx >= 0:
             self.status_combo.setCurrentIndex(idx)
 
-        form.addRow("Новое название:", self.title_edit)
-        form.addRow("Полное описание:", self.description_edit)
-        form.addRow("Главы:", self.chapters_edit)
+        form.addRow("Нова назва:", self.title_edit)
+        form.addRow("Повний опис:", self.description_edit)
+        form.addRow("Розділи:", self.chapters_edit)
         form.addRow("Теги:", self.tags_edit)
-        form.addRow("A/B варианты названия:", self.title_variants_edit)
+        form.addRow("A/B варіанти назви:", self.title_variants_edit)
         form.addRow("Статус:", self.status_combo)
         layout.addLayout(form)
 
-        validate_btn = QPushButton("Проверить главы")
+        validate_btn = QPushButton("Перевірити розділи")
         validate_btn.clicked.connect(self.validate_chapters_now)
         layout.addWidget(validate_btn)
 
@@ -180,6 +225,8 @@ class ContentOptimizationDialog(QDialog):
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Зберегти")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Скасувати")
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -187,13 +234,13 @@ class ContentOptimizationDialog(QDialog):
     def validate_chapters_now(self) -> None:
         ok, message = validate_chapters(self.chapters_edit.toPlainText())
         if ok:
-            QMessageBox.information(self, APP_NAME, "Главы корректны.")
+            QMessageBox.information(self, APP_NAME, "Розділи коректні.")
         else:
             QMessageBox.warning(self, APP_NAME, message)
 
     def _accept_checked(self) -> None:
         if not self.title_edit.text().strip():
-            QMessageBox.warning(self, APP_NAME, "Название не может быть пустым.")
+            QMessageBox.warning(self, APP_NAME, "Назва не може бути порожньою.")
             return
         ok, message = validate_chapters(self.chapters_edit.toPlainText())
         if not ok:
@@ -283,7 +330,7 @@ class MainWindow(QMainWindow):
         self.scan_timer.timeout.connect(self.background_scan_all_channels)
         self.scan_timer.start(DEFAULT_SCAN_MINUTES * 60 * 1000)
 
-        self.statusBar().showMessage("SYSTEM READY")
+        self.statusBar().showMessage("СИСТЕМА ГОТОВА")
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
@@ -304,7 +351,7 @@ class MainWindow(QMainWindow):
         title_box.setSpacing(0)
         title = QLabel("YouTube Control")
         title.setObjectName("AppTitle")
-        subtitle = QLabel("Видео · оптимизация · комментарии")
+        subtitle = QLabel("Відео · оптимізація · коментарі")
         subtitle.setObjectName("AppSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -323,7 +370,7 @@ class MainWindow(QMainWindow):
         self.header_channel_state = QLabel()
         self.header_channel_state.setObjectName("ChannelState")
 
-        sync_btn = QPushButton("Синхронизировать")
+        sync_btn = QPushButton("Синхронізувати")
         sync_btn.setProperty("role", "primary")
         sync_btn.clicked.connect(self.sync_video_list)
 
@@ -343,10 +390,10 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
 
-        self.metric_videos = MetricCard("Видео в базе")
-        self.metric_scheduled = MetricCard("Запланировано")
-        self.metric_attention = MetricCard("Требует внимания")
-        self.metric_comments = MetricCard("Комментарии в очереди")
+        self.metric_videos = MetricCard("Відео в базі")
+        self.metric_scheduled = MetricCard("Заплановано")
+        self.metric_attention = MetricCard("Потребує уваги")
+        self.metric_comments = MetricCard("Коментарі в черзі")
 
         grid.addWidget(self.metric_videos, 0, 0)
         grid.addWidget(self.metric_scheduled, 0, 1)
@@ -376,7 +423,7 @@ class MainWindow(QMainWindow):
                 f"color: {SUCCESS};"
             )
         else:
-            self.header_channel_state.setText("○ не подключён")
+            self.header_channel_state.setText("○ не підключено")
             self.header_channel_state.setStyleSheet(
                 f"color: {WARNING};"
             )
@@ -415,9 +462,9 @@ class MainWindow(QMainWindow):
         ).fetchone()["n"]
 
         self.metric_videos.set_value(str(total), PROFILE_LABELS[self.current_profile])
-        self.metric_scheduled.set_value(str(scheduled), "будущие публикации")
-        self.metric_attention.set_value(str(attention), "Audit < 100")
-        self.metric_comments.set_value(str(queued), "новые / не обработаны")
+        self.metric_scheduled.set_value(str(scheduled), "майбутні публікації")
+        self.metric_attention.set_value(str(attention), "Аудит < 100")
+        self.metric_comments.set_value(str(queued), "нові / не оброблені")
 
     def switch_profile_from_header(self, _index: int) -> None:
         profile = self.header_profile_combo.currentData()
@@ -467,7 +514,7 @@ class MainWindow(QMainWindow):
             self.channel_label.setText(
                 f"YouTube: {title} · {channel_id}"
                 if title and channel_id
-                else "YouTube: не подключен"
+                else "YouTube: не підключено"
             )
 
         self.reload_videos()
@@ -476,7 +523,7 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage(
-            f"Активный канал: {PROFILE_LABELS[self.current_profile]}"
+            f"Активний канал: {PROFILE_LABELS[self.current_profile]}"
         )
 
     def _build_videos_tab(self) -> None:
@@ -484,13 +531,13 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         controls = QHBoxLayout()
 
-        connect_btn = QPushButton("Подключить YouTube")
+        connect_btn = QPushButton("Підключити YouTube")
         connect_btn.clicked.connect(self.connect_youtube)
-        sync_btn = QPushButton("Синхронизировать видео")
+        sync_btn = QPushButton("Синхронізувати відео")
         sync_btn.clicked.connect(self.sync_video_list)
-        sync_both_btn = QPushButton("Синхронизировать оба канала")
+        sync_both_btn = QPushButton("Синхронізувати обидва канали")
         sync_both_btn.clicked.connect(self.sync_both_channels)
-        edit_btn = QPushButton("Редактировать выбранное")
+        edit_btn = QPushButton("Редагувати вибране")
         edit_btn.clicked.connect(self.edit_selected_video)
         controls.addWidget(connect_btn)
         controls.addWidget(sync_btn)
@@ -500,46 +547,58 @@ class MainWindow(QMainWindow):
 
         self.video_table = QTableWidget(0, 5)
         self.video_table.setHorizontalHeaderLabels(
-            ["Видео", "Название", "Просмотры", "Audit", "Проблемы"]
+            ["Відео", "Назва", "Перегляди", "Аудит", "Проблеми"]
         )
         self.video_table.horizontalHeader().setStretchLastSection(True)
         self._configure_table(self.video_table)
         layout.addLayout(controls)
         layout.addWidget(self.video_table)
-        self.tabs.addTab(page, "Видео")
+        self.tabs.addTab(page, "Відео")
 
     def _build_optimization_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
         controls = QHBoxLayout()
 
-        sync_all_btn = QPushButton("Синхронизировать весь архив")
+        sync_all_btn = QPushButton("Синхронізувати весь архів")
         sync_all_btn.clicked.connect(self.sync_full_archive)
-        refresh_btn = QPushButton("Обновить очередь")
+        refresh_btn = QPushButton("Оновити чергу")
         refresh_btn.clicked.connect(self.reload_optimization_queue)
-        preview_btn = QPushButton("Предпросмотр безопасных правок")
+        preview_btn = QPushButton("Попередній перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
-        apply_btn = QPushButton("Применить безопасные")
+        apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton("Архив: следующие 20")
+        next_safe_btn = QPushButton("Архів: наступні 20")
         next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
-        package_btn = QPushButton("Пакет контента")
+        package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
         transcript_btn = QPushButton("Транскрипт → NAS")
         transcript_btn.clicked.connect(self.export_selected_transcript_to_nas)
-        batch_transcript_btn = QPushButton("Транскрипты запланированных → NAS")
+        batch_transcript_btn = QPushButton("Транскрипти запланованих → NAS")
         batch_transcript_btn.clicked.connect(
             self.export_scheduled_transcripts_to_nas
         )
-        nas_test_btn = QPushButton("Проверить NAS")
+        nas_test_btn = QPushButton("Перевірити NAS")
         nas_test_btn.clicked.connect(self.test_nas_transcript_path)
-        import_btn = QPushButton("Импорт пакета NAS")
+        import_btn = QPushButton("Імпорт пакета NAS")
         import_btn.clicked.connect(self.import_selected_package_from_nas)
-        apply_package_btn = QPushButton("Применить пакет")
+        apply_package_btn = QPushButton("Застосувати пакет")
         apply_package_btn.setProperty("role", "primary")
         apply_package_btn.clicked.connect(self.apply_content_package)
-        rollback_btn = QPushButton("Откатить последнее")
+        rollback_btn = QPushButton("Відкотити останнє")
         rollback_btn.clicked.connect(self.rollback_selected_metadata)
+
+        self.optimization_filter = QComboBox()
+        self.optimization_filter.addItem("Усі відео", "all")
+        self.optimization_filter.addItem("Лише заплановані", "scheduled")
+        self.optimization_filter.addItem("Архів", "archive")
+        self.optimization_filter.currentIndexChanged.connect(
+            self.reload_optimization_queue
+        )
+        apply_scheduled_btn = QPushButton("Застосувати готові заплановані")
+        apply_scheduled_btn.clicked.connect(
+            self.apply_ready_scheduled_packages
+        )
 
         controls.addWidget(sync_all_btn)
         controls.addWidget(refresh_btn)
@@ -555,19 +614,25 @@ class MainWindow(QMainWindow):
         controls.addWidget(rollback_btn)
         controls.addStretch()
 
+        filters = QHBoxLayout()
+        filters.addWidget(QLabel("Фільтр:"))
+        filters.addWidget(self.optimization_filter)
+        filters.addWidget(apply_scheduled_btn)
+        filters.addStretch()
+
         self.optimization_table = QTableWidget(0, 10)
         self.optimization_table.setHorizontalHeaderLabels(
             [
-                "Приоритет",
-                "Публикация",
+                "Пріоритет",
+                "Публікація",
                 "Статус",
-                "Видео",
-                "Название",
-                "Просмотры",
-                "Audit",
+                "Відео",
+                "Назва",
+                "Перегляди",
+                "Аудит",
                 "Транскрипт",
                 "Пакет",
-                "Проблемы",
+                "Проблеми",
             ]
         )
         self.optimization_table.setSelectionBehavior(
@@ -583,39 +648,40 @@ class MainWindow(QMainWindow):
         )
 
         layout.addLayout(controls)
+        layout.addLayout(filters)
         layout.addWidget(self.optimization_table)
-        self.tabs.addTab(page, "Оптимизация")
+        self.tabs.addTab(page, "Оптимізація")
 
     def _build_comments_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
         controls = QHBoxLayout()
 
-        scan_btn = QPushButton("Проверить комментарии")
+        scan_btn = QPushButton("Перевірити коментарі")
         scan_btn.clicked.connect(lambda: self.scan_comment_queue(silent=False))
-        test_auto_btn = QPushButton("Тест: 1 автоответ")
+        test_auto_btn = QPushButton("Тест: 1 автовідповідь")
         test_auto_btn.clicked.connect(self.test_one_auto_reply)
-        reply_btn = QPushButton("Ответить на выбранный")
+        reply_btn = QPushButton("Відповісти на вибраний")
         reply_btn.clicked.connect(self.reply_selected)
-        ignore_btn = QPushButton("Игнорировать")
+        ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
-        queue_btn = QPushButton("Вернуть в очередь")
+        queue_btn = QPushButton("Повернути в чергу")
         queue_btn.clicked.connect(lambda: self.set_selected_comment_status("new"))
 
         self.comment_status_filter = QComboBox()
-        self.comment_status_filter.addItem("Все статусы", "")
-        self.comment_status_filter.addItem("Новые", "new")
-        self.comment_status_filter.addItem("Отвеченные", "replied")
-        self.comment_status_filter.addItem("Игнорированные", "ignored")
+        self.comment_status_filter.addItem("Усі статуси", "")
+        self.comment_status_filter.addItem("Нові", "new")
+        self.comment_status_filter.addItem("З відповіддю", "replied")
+        self.comment_status_filter.addItem("Проігноровані", "ignored")
         self.comment_status_filter.currentIndexChanged.connect(self.reload_comments)
 
         self.comment_category_filter = QComboBox()
-        self.comment_category_filter.addItem("Все категории", "")
-        self.comment_category_filter.addItem("На проверке", "review")
-        self.comment_category_filter.addItem("Благодарности", "thanks")
-        self.comment_category_filter.addItem("Ссылки", "links")
-        self.comment_category_filter.addItem("Донаты", "donate")
-        self.comment_category_filter.addItem("Расписание", "schedule")
+        self.comment_category_filter.addItem("Усі категорії", "")
+        self.comment_category_filter.addItem("На перевірці", "review")
+        self.comment_category_filter.addItem("Подяки", "thanks")
+        self.comment_category_filter.addItem("Посилання", "links")
+        self.comment_category_filter.addItem("Донати", "donate")
+        self.comment_category_filter.addItem("Розклад", "schedule")
         self.comment_category_filter.currentIndexChanged.connect(self.reload_comments)
 
         self.auto_quota_label = QLabel()
@@ -632,13 +698,13 @@ class MainWindow(QMainWindow):
 
         self.comment_table = QTableWidget(0, 7)
         self.comment_table.setHorizontalHeaderLabels(
-            ["Дата", "Видео", "Автор", "Комментарий", "Категория", "Статус", "Черновик"]
+            ["Дата", "Відео", "Автор", "Коментар", "Категорія", "Статус", "Чернетка"]
         )
         self.comment_table.horizontalHeader().setStretchLastSection(True)
         self._configure_table(self.comment_table)
         layout.addLayout(controls)
         layout.addWidget(self.comment_table)
-        self.tabs.addTab(page, "Комментарии")
+        self.tabs.addTab(page, "Коментарі")
 
     def _build_analytics_tab(self) -> None:
         page = QWidget()
@@ -646,22 +712,22 @@ class MainWindow(QMainWindow):
         controls = QHBoxLayout()
 
         self.analytics_period_combo = QComboBox()
-        self.analytics_period_combo.addItem("28 дней", 28)
-        self.analytics_period_combo.addItem("90 дней", 90)
-        self.analytics_period_combo.addItem("180 дней", 180)
+        self.analytics_period_combo.addItem("28 днів", 28)
+        self.analytics_period_combo.addItem("90 днів", 90)
+        self.analytics_period_combo.addItem("180 днів", 180)
         self.analytics_period_combo.setCurrentIndex(1)
 
-        refresh_btn = QPushButton("Обновить аналитику")
+        refresh_btn = QPushButton("Оновити аналітику")
         refresh_btn.setProperty("role", "primary")
         refresh_btn.clicked.connect(self.load_channel_analytics)
 
-        reauth_btn = QPushButton("Переподключить YouTube")
+        reauth_btn = QPushButton("Перепідключити YouTube")
         reauth_btn.clicked.connect(self.connect_youtube)
 
-        reach_btn = QPushButton("Включить CTR / показы")
+        reach_btn = QPushButton("Увімкнути CTR / покази")
         reach_btn.clicked.connect(self.setup_reach_reporting)
 
-        controls.addWidget(QLabel("Период:"))
+        controls.addWidget(QLabel("Період:"))
         controls.addWidget(self.analytics_period_combo)
         controls.addWidget(refresh_btn)
         controls.addWidget(reach_btn)
@@ -669,23 +735,23 @@ class MainWindow(QMainWindow):
         controls.addStretch()
 
         hint = QLabel(
-            "Данные берутся напрямую из YouTube Analytics API. "
-            "vidIQ и его AI Credits для этой вкладки не используются."
+            "Дані надходять безпосередньо з YouTube Analytics API. "
+            "vidIQ та його AI Credits для цієї вкладки не використовуються."
         )
         hint.setWordWrap(True)
 
         self.analytics_text = QPlainTextEdit()
         self.analytics_text.setReadOnly(True)
         self.analytics_text.setPlaceholderText(
-            "Нажмите «Обновить аналитику». "
-            "После установки версии с аналитикой потребуется один раз "
-            "переподключить каждый YouTube-канал, чтобы разрешить чтение Analytics."
+            "Натисніть «Оновити аналітику». "
+            "Після встановлення версії з аналітикою потрібно один раз "
+            "перепідключити кожен YouTube-канал, щоб дозволити читання Analytics."
         )
 
         layout.addLayout(controls)
         layout.addWidget(hint)
         layout.addWidget(self.analytics_text, 1)
-        self.tabs.addTab(page, "Аналитика")
+        self.tabs.addTab(page, "Аналітика")
 
     @staticmethod
     def _analytics_result_rows(report: dict) -> list[list]:
@@ -698,16 +764,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Задание CTR / показов создано. YouTube Reporting API "
-                    "начнёт формировать ежедневные Reach-отчёты. Исторические "
-                    "данные примерно за 30 дней появятся не сразу, обычно в "
-                    "течение нескольких часов или до суток.",
+                    "Завдання CTR / показів створено. YouTube Reporting API "
+                    "почне формувати щоденні Reach-звіти. Історичні "
+                    "дані приблизно за 30 днів з’являться не одразу, зазвичай протягом "
+                    "кількох годин або до доби.",
                 )
             else:
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "CTR / показы уже подключены для этого канала. "
+                    "CTR / покази вже підключені для цього каналу. "
                     f"Job ID: {job.get('id', '—')}",
                 )
         except Exception as exc:
@@ -716,11 +782,20 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     APP_NAME,
-                    "YouTube Reporting API пока не включён в Google Cloud. "
-                    "Включите его для проекта RG YouTube Control и повторите.",
+                    "YouTube Reporting API ще не увімкнено в Google Cloud. "
+                    "Увімкніть його для проєкту RG YouTube Control і повторіть.",
                 )
                 return
-            self._error("Ошибка подключения CTR / показов", exc)
+            if "invalid_scope" in message.lower():
+                QMessageBox.warning(
+                    self,
+                    APP_NAME,
+                    "Для цього каналу потрібна повторна авторизація. "
+                    "Натисніть «Перепідключити YouTube», дозвольте доступ "
+                    "і знову увімкніть CTR / покази.",
+                )
+                return
+            self._error("Помилка підключення CTR / показів", exc)
 
     def load_channel_analytics(self) -> None:
         days = int(self.analytics_period_combo.currentData() or 90)
@@ -730,7 +805,7 @@ class MainWindow(QMainWindow):
         end_s = end.isoformat()
 
         try:
-            self.statusBar().showMessage("Загрузка YouTube Analytics…")
+            self.statusBar().showMessage("Завантаження YouTube Analytics…")
             QApplication.processEvents()
 
             totals = self.client.analytics_report(
@@ -787,29 +862,29 @@ class MainWindow(QMainWindow):
 
             traffic_names = {
                 "ADVERTISING": "Реклама",
-                "ANNOTATION": "Аннотации / карточки",
-                "END_SCREEN": "Конечные заставки",
-                "EXT_URL": "Внешние сайты / Google",
+                "ANNOTATION": "Анотації / картки",
+                "END_SCREEN": "Кінцеві заставки",
+                "EXT_URL": "Зовнішні сайти / Google",
                 "HASHTAGS": "Хештеги",
                 "LIVE_REDIRECT": "Live Redirect",
-                "NO_LINK_EMBEDDED": "Встроенные плееры",
-                "NO_LINK_OTHER": "Прямые / неизвестные",
-                "NOTIFICATION": "Уведомления",
-                "PLAYLIST": "Плейлисты",
-                "RELATED_VIDEO": "Рекомендованные видео",
-                "SHORTS": "Лента Shorts",
-                "SOUND_PAGE": "Страницы звука",
-                "SUBSCRIBER": "Главная / подписки",
-                "YT_CHANNEL": "Страницы каналов",
-                "YT_OTHER_PAGE": "Другие страницы YouTube",
-                "YT_SEARCH": "Поиск YouTube",
-                "VIDEO_REMIXES": "Ремиксы",
+                "NO_LINK_EMBEDDED": "Вбудовані плеєри",
+                "NO_LINK_OTHER": "Прямі / невідомі",
+                "NOTIFICATION": "Сповіщення",
+                "PLAYLIST": "Плейлисти",
+                "RELATED_VIDEO": "Рекомендовані відео",
+                "SHORTS": "Стрічка Shorts",
+                "SOUND_PAGE": "Сторінки звуку",
+                "SUBSCRIBER": "Головна / підписки",
+                "YT_CHANNEL": "Сторінки каналів",
+                "YT_OTHER_PAGE": "Інші сторінки YouTube",
+                "YT_SEARCH": "Пошук YouTube",
+                "VIDEO_REMIXES": "Ремікси",
             }
 
             lines: list[str] = []
             lines.append(
                 f"{PROFILE_LABELS[self.current_profile]} · "
-                f"{start_s} — {end_s} · {days} дней"
+                f"{start_s} — {end_s} · {days} днів"
             )
             lines.append("=" * 72)
 
@@ -821,13 +896,13 @@ class MainWindow(QMainWindow):
                 minutes = float(row[2] or 0)
                 subs = int(row[3] or 0)
                 lines.append(
-                    f"Просмотры: {views:,} · Вовлечённые просмотры: {engaged:,} · "
-                    f"Часы просмотра: {minutes / 60:,.1f} · "
-                    f"Подписчики: +{subs:,}"
+                    f"Перегляди: {views:,} · Залучені перегляди: {engaged:,} · "
+                    f"Години перегляду: {minutes / 60:,.1f} · "
+                    f"Підписники: +{subs:,}"
                 )
                 lines.append("")
 
-            lines.append("ИСТОЧНИКИ ТРАФИКА")
+            lines.append("ДЖЕРЕЛА ТРАФІКУ")
             traffic_rows = self._analytics_result_rows(traffic)
             traffic_total = sum(float(r[1] or 0) for r in traffic_rows) or 1.0
             for row in traffic_rows[:15]:
@@ -836,29 +911,29 @@ class MainWindow(QMainWindow):
                 pct = views / traffic_total * 100
                 hours = float(row[2] or 0) / 60
                 lines.append(
-                    f"• {source}: {int(views):,} просмотров "
+                    f"• {source}: {int(views):,} переглядів "
                     f"({pct:.1f}%), {hours:,.1f} ч"
                 )
             lines.append("")
 
-            lines.append("ПОИСКОВЫЕ ЗАПРОСЫ YOUTUBE")
+            lines.append("ПОШУКОВІ ЗАПИТИ YOUTUBE")
             search_rows = self._analytics_result_rows(search)
             if not search_rows:
-                lines.append("• Нет данных за выбранный период")
+                lines.append("• Немає даних за вибраний період")
             else:
                 for row in search_rows:
                     term = str(row[0] or "—")
                     views = int(row[1] or 0)
                     hours = float(row[2] or 0) / 60
-                    lines.append(f"• {term}: {views:,} просмотров, {hours:,.1f} ч")
+                    lines.append(f"• {term}: {views:,} переглядів, {hours:,.1f} ч")
             lines.append("")
 
-            lines.append("ГЕОГРАФИЯ")
+            lines.append("ГЕОГРАФІЯ")
             for row in self._analytics_result_rows(geography)[:15]:
                 country = str(row[0] or "—")
                 views = int(row[1] or 0)
                 hours = float(row[2] or 0) / 60
-                lines.append(f"• {country}: {views:,} просмотров, {hours:,.1f} ч")
+                lines.append(f"• {country}: {views:,} переглядів, {hours:,.1f} ч")
             lines.append("")
 
             reach_by_video: dict[str, dict[str, float]] = {}
@@ -895,11 +970,11 @@ class MainWindow(QMainWindow):
                 ).fetchall()
             }
 
-            lines.append("ПОКАЗЫ И CTR")
+            lines.append("ПОКАЗИ ТА CTR")
             if reach_by_video:
                 if reach_dates:
                     lines.append(
-                        f"Доступный период Reach: {min(reach_dates)} — {max(reach_dates)}"
+                        f"Доступний період Reach: {min(reach_dates)} — {max(reach_dates)}"
                     )
                 reach_ranked = sorted(
                     reach_by_video.items(),
@@ -916,28 +991,28 @@ class MainWindow(QMainWindow):
                     title = title_by_id.get(video_id, video_id)
                     lines.append(
                         f"• {title}\n"
-                        f"  {impressions:,} показов · CTR {ctr:.2f}%"
+                        f"  {impressions:,} показів · CTR {ctr:.2f}%"
                     )
             elif reach_job is None and not reach_error:
                 lines.append(
-                    "• CTR/показы ещё не подключены. "
-                    "Нажмите «Включить CTR / показы»."
+                    "• CTR/покази ще не підключені. "
+                    "Натисніть «Увімкнути CTR / покази»."
                 )
             elif reach_job is not None:
                 lines.append(
-                    "• Reach-задание активно, но отчёты ещё не готовы. "
-                    "YouTube формирует их отдельно."
+                    "• Reach-завдання активне, але звіти ще не готові. "
+                    "YouTube формує їх окремо."
                 )
             elif reach_error:
                 if "accessNotConfigured" in reach_error:
                     lines.append(
-                        "• YouTube Reporting API не включён в Google Cloud."
+                        "• YouTube Reporting API не увімкнено в Google Cloud."
                     )
                 else:
-                    lines.append("• CTR/показы временно недоступны.")
+                    lines.append("• CTR/покази тимчасово недоступні.")
             lines.append("")
 
-            lines.append("ТОП ВИДЕО")
+            lines.append("ТОП ВІДЕО")
             for row in self._analytics_result_rows(top_videos):
                 video_id = str(row[0])
                 views = int(row[1] or 0)
@@ -955,16 +1030,16 @@ class MainWindow(QMainWindow):
                         if values["impressions"]
                         else 0.0
                     )
-                    reach_text = f" · {impressions:,} показов · CTR {ctr:.2f}%"
+                    reach_text = f" · {impressions:,} показів · CTR {ctr:.2f}%"
                 lines.append(
                     f"• {title}\n"
-                    f"  {views:,} views · {engaged:,} engaged · "
+                    f"  {views:,} переглядів · {engaged:,} залучених · "
                     f"{hours:,.1f} ч · AVD {avd // 60}:{avd % 60:02d} · "
                     f"+{subs} subs{reach_text}"
                 )
 
             self.analytics_text.setPlainText("\n".join(lines))
-            self.statusBar().showMessage("YouTube Analytics обновлена")
+            self.statusBar().showMessage("YouTube Analytics оновлено")
         except Exception as exc:
             message = str(exc)
             if (
@@ -975,12 +1050,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     APP_NAME,
-                    "Для YouTube Analytics нужна новая авторизация. "
-                    "Нажмите «Переподключить YouTube» на этой вкладке и "
-                    "разрешите доступ, затем повторите загрузку.",
+                    "Для YouTube Analytics потрібна нова авторизація. "
+                    "Натисніть «Перепідключити YouTube» на цій вкладці та "
+                    "дозвольте доступ, потім повторіть завантаження.",
                 )
                 return
-            self._error("Ошибка YouTube Analytics", exc)
+            self._error("Помилка YouTube Analytics", exc)
 
     def _build_settings_tab(self) -> None:
         page = QWidget()
@@ -1002,10 +1077,10 @@ class MainWindow(QMainWindow):
         if saved_title and saved_id:
             self.channel_label = QLabel(f"YouTube: {saved_title} · {saved_id}")
         else:
-            self.channel_label = QLabel("YouTube: не подключен")
+            self.channel_label = QLabel("YouTube: не підключено")
 
         self.background_box = QCheckBox(
-            f"Фоновая проверка комментариев каждые {DEFAULT_SCAN_MINUTES} минут"
+            f"Фонова перевірка коментарів кожні {DEFAULT_SCAN_MINUTES} хвилин"
         )
         self.background_box.setChecked(
             get_setting(self.conn, "background_scan_enabled", "1") == "1"
@@ -1013,7 +1088,7 @@ class MainWindow(QMainWindow):
         self.background_box.stateChanged.connect(self.save_background_setting)
 
         self.auto_box = QCheckBox(
-            "Автоответы только на безопасные служебные комментарии"
+            "Автовідповіді лише на безпечні службові коментарі"
         )
         default_auto = (
             get_setting(self.conn, "auto_reply_enabled", "0")
@@ -1071,10 +1146,10 @@ class MainWindow(QMainWindow):
 
         self.reply_template_edits = {}
         template_labels = {
-            "thanks": "Ответ на благодарность",
-            "links": "Ответ со ссылками",
-            "donate": "Ответ про донат",
-            "schedule": "Ответ про расписание",
+            "thanks": "Відповідь на подяку",
+            "links": "Відповідь із посиланнями",
+            "donate": "Відповідь про донат",
+            "schedule": "Відповідь про розклад",
         }
         for category, label in template_labels.items():
             edit = QLineEdit(
@@ -1126,35 +1201,35 @@ class MainWindow(QMainWindow):
             )
         )
 
-        oauth_btn = QPushButton("Выбрать OAuth client JSON")
+        oauth_btn = QPushButton("Вибрати OAuth client JSON")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
-        self.version_label = QLabel(f"Версия: {__version__}")
-        update_btn = QPushButton("Проверить обновления")
+        self.version_label = QLabel(f"Версія: {__version__}")
+        update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
 
         layout.addWidget(self.profile_combo)
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
-        layout.addWidget(QLabel("Дневной лимит автоответов"))
+        layout.addWidget(QLabel("Денний ліміт автовідповідей"))
         layout.addWidget(self.daily_limit_spin)
-        layout.addWidget(QLabel("Лимит автоответов за один скан"))
+        layout.addWidget(QLabel("Ліміт автовідповідей за одне сканування"))
         layout.addWidget(self.scan_limit_spin)
-        layout.addWidget(QLabel("Автоответ только на комментарии не старше"))
+        layout.addWidget(QLabel("Автовідповідь лише на коментарі не старші за"))
         layout.addWidget(self.age_limit_spin)
         for label, edit in self.reply_template_edits.values():
             layout.addWidget(QLabel(label))
             layout.addWidget(edit)
-        layout.addWidget(QLabel("NAS · транскрипты"))
+        layout.addWidget(QLabel("NAS · транскрипти"))
         layout.addWidget(self.nas_transcripts_edit)
-        layout.addWidget(QLabel("NAS · пакеты оптимизации"))
+        layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
         layout.addStretch()
-        self.tabs.addTab(page, "Настройки")
+        self.tabs.addTab(page, "Налаштування")
 
     def _save_nas_path_setting(
         self,
@@ -1185,7 +1260,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             set_setting(self.conn, "client_secret_path", path)
-            self.statusBar().showMessage("OAuth JSON выбран")
+            self.statusBar().showMessage("OAuth JSON вибрано")
 
     def connect_youtube(self) -> None:
         path = get_setting(self.conn, "client_secret_path")
@@ -1202,8 +1277,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     APP_NAME,
-                    "Авторизован другой канал. Выберите нужный канал YouTube "
-                    f"для профиля {PROFILE_LABELS[self.current_profile]}.",
+                    "Авторизовано інший канал. Виберіть потрібний канал YouTube "
+                    f"для профілю {PROFILE_LABELS[self.current_profile]}.",
                 )
                 return
             self.channel_label.setText(
@@ -1217,9 +1292,9 @@ class MainWindow(QMainWindow):
             )
             self._refresh_channel_header()
             self.update_dashboard()
-            self.statusBar().showMessage("YouTube подключен")
+            self.statusBar().showMessage("YouTube підключено")
         except Exception as exc:
-            self._error("Ошибка авторизации", exc)
+            self._error("Помилка авторизації", exc)
 
     def sync_video_list(self) -> None:
         try:
@@ -1227,16 +1302,16 @@ class MainWindow(QMainWindow):
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-            self.statusBar().showMessage(f"Видео синхронизированы: {len(rows)}")
+            self.statusBar().showMessage(f"Відео синхронізовано: {len(rows)}")
         except Exception as exc:
-            self._error("Ошибка синхронизации", exc)
+            self._error("Помилка синхронізації", exc)
 
     def sync_both_channels(self) -> None:
         answer = QMessageBox.question(
             self,
-            "Синхронизация двух каналов",
-            "Синхронизировать архивы РАША ГУДБАЙ и РАША ГУДБАЙ LIVE? "
-            "Это только чтение метаданных.",
+            "Синхронізація двох каналів",
+            "Синхронізувати архіви РАША ГУДБАЙ і РАША ГУДБАЙ LIVE? "
+            "Це лише читання метаданих.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -1250,7 +1325,7 @@ class MainWindow(QMainWindow):
             try:
                 client.credentials()
             except Exception:
-                errors.append(f"{PROFILE_LABELS[profile]}: не подключён")
+                errors.append(f"{PROFILE_LABELS[profile]}: не підключено")
                 continue
             try:
                 rows = sync_videos(client, self.conn, limit=1000)
@@ -1262,9 +1337,9 @@ class MainWindow(QMainWindow):
         self.reload_optimization_queue()
         self.reload_comments()
         self.update_dashboard()
-        message = "Синхронизировано:\n" + ("\n".join(results) or "—")
+        message = "Синхронізовано:\n" + ("\n".join(results) or "—")
         if errors:
-            message += "\n\nНе выполнено:\n" + "\n".join(errors)
+            message += "\n\nНе виконано:\n" + "\n".join(errors)
         QMessageBox.information(self, APP_NAME, message)
 
     def edit_selected_video(self) -> None:
@@ -1285,7 +1360,7 @@ class MainWindow(QMainWindow):
                 return
             title, description, tags = dialog.values()
             if not title:
-                QMessageBox.warning(self, APP_NAME, "Название не может быть пустым.")
+                QMessageBox.warning(self, APP_NAME, "Назва не може бути порожньою.")
                 return
             save_metadata_snapshot(
                 self.conn,
@@ -1299,33 +1374,33 @@ class MainWindow(QMainWindow):
                 video_id, title=title, description=description, tags=tags
             )
             self.sync_video_list()
-            self.statusBar().showMessage("Метаданные видео обновлены")
+            self.statusBar().showMessage("Метадані відео оновлено")
         except Exception as exc:
-            self._error("Ошибка обновления видео", exc)
+            self._error("Помилка оновлення відео", exc)
 
     def sync_full_archive(self) -> None:
         answer = QMessageBox.question(
             self,
-            "Полная синхронизация архива",
-            "Синхронизировать весь архив канала? Это только чтение метаданных "
-            "и не изменит видео.",
+            "Повна синхронізація архіву",
+            "Синхронізувати весь архів каналу? Це лише читання метаданих "
+            "і не змінить відео.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            self.statusBar().showMessage("Синхронизирую весь архив...")
+            self.statusBar().showMessage("Синхронізую весь архів...")
             QApplication.processEvents()
             rows = sync_videos(self.client, self.conn, limit=1000)
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
             self.statusBar().showMessage(
-                f"Архив синхронизирован: {len(rows)} видео"
+                f"Архів синхронізовано: {len(rows)} відео"
             )
         except Exception as exc:
-            self._error("Ошибка полной синхронизации", exc)
+            self._error("Помилка повної синхронізації", exc)
 
     def _selected_optimization_video_ids(self) -> list[str]:
         if not hasattr(self, "optimization_table"):
@@ -1346,13 +1421,24 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        queue_filter = (
+            self.optimization_filter.currentData()
+            if hasattr(self, "optimization_filter")
+            else "all"
+        )
+        extra_where = ""
+        if queue_filter == "scheduled":
+            extra_where = " AND v.scheduled_publish_at IS NOT NULL"
+        elif queue_filter == "archive":
+            extra_where = " AND v.scheduled_publish_at IS NULL"
+
         rows = self.conn.execute(
-            """SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
-                      v.privacy_status,v.views,v.audit_json,
-                      d.status AS draft_status
-               FROM videos v
-               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
-               WHERE v.profile=?""",
+            f"""SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
+                       v.privacy_status,v.views,v.audit_json,
+                       d.status AS draft_status
+                FROM videos v
+                LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+                WHERE v.profile=?{extra_where}""",
             (profile,),
         ).fetchall()
 
@@ -1405,21 +1491,24 @@ class MainWindow(QMainWindow):
                 else ""
             )
             draft_status = {
-                "draft": "ЧЕРНОВИК",
+                "draft": "ЧЕРНЕТКА",
                 "ready": "ГОТОВО",
-                "applied": "ПРИМЕНЕНО",
+                "applied": "ЗАСТОСОВАНО",
             }.get(row["draft_status"] or "", "")
             values = [
                 priority_text,
                 publish_text,
-                row["privacy_status"] or "",
+                PRIVACY_LABELS.get(
+                    str(row["privacy_status"] or ""),
+                    str(row["privacy_status"] or ""),
+                ),
                 row["video_id"],
                 row["title"],
                 str(row["views"] or 0),
                 str(score),
                 transcript_status,
                 draft_status,
-                ", ".join(issues),
+                _issue_labels(issues),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -1444,9 +1533,9 @@ class MainWindow(QMainWindow):
                     item.setForeground(
                         QColor(
                             SUCCESS
-                            if draft_status == "ПРИМЕНЕНО"
+                            if draft_status == "ЗАСТОСОВАНО"
                             else WARNING
-                            if draft_status == "ЧЕРНОВИК"
+                            if draft_status == "ЧЕРНЕТКА"
                             else YOUTUBE_RED
                         )
                     )
@@ -1467,7 +1556,7 @@ class MainWindow(QMainWindow):
         video_ids = self._selected_optimization_video_ids()
         if not video_ids:
             QMessageBox.information(
-                self, APP_NAME, "Выберите одно видео в очереди оптимизации."
+                self, APP_NAME, "Виберіть одне відео в черзі оптимізації."
             )
             return
         video_id = video_ids[0]
@@ -1476,11 +1565,11 @@ class MainWindow(QMainWindow):
             fix = safe_description_fix(description)
 
             dialog = QDialog(self)
-            dialog.setWindowTitle(f"Предпросмотр · {title}")
+            dialog.setWindowTitle(f"Попередній перегляд · {title}")
             dialog.resize(1050, 720)
             layout = QVBoxLayout(dialog)
-            changes = ", ".join(fix.changes) if fix.changes else "изменений нет"
-            layout.addWidget(QLabel(f"Безопасные изменения: {changes}"))
+            changes = ", ".join(fix.changes) if fix.changes else "змін немає"
+            layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
 
             columns = QHBoxLayout()
             before = QPlainTextEdit(fix.before)
@@ -1491,13 +1580,14 @@ class MainWindow(QMainWindow):
             left.addWidget(QLabel("ДО"))
             left.addWidget(before)
             right = QVBoxLayout()
-            right.addWidget(QLabel("ПОСЛЕ"))
+            right.addWidget(QLabel("ПІСЛЯ"))
             right.addWidget(after)
             columns.addLayout(left)
             columns.addLayout(right)
             layout.addLayout(columns)
 
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
             buttons.rejected.connect(dialog.reject)
             buttons.accepted.connect(dialog.accept)
             buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
@@ -1506,7 +1596,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(buttons)
             dialog.exec()
         except Exception as exc:
-            self._error("Ошибка предпросмотра", exc)
+            self._error("Помилка попереднього перегляду", exc)
 
     def test_nas_transcript_path(self) -> None:
         target_dir = self._nas_path(
@@ -1524,21 +1614,21 @@ class MainWindow(QMainWindow):
             probe.write_text(payload, encoding="utf-8")
             check = probe.read_text(encoding="utf-8")
             if check != payload:
-                raise RuntimeError("Контрольное чтение не совпало с записью.")
+                raise RuntimeError("Контрольне читання не збіглося із записом.")
             probe.unlink(missing_ok=True)
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"NAS доступен на запись и чтение:\n{target_dir}",
+                f"NAS доступний для запису й читання:\n{target_dir}",
             )
-            self.statusBar().showMessage("NAS: запись и чтение OK")
+            self.statusBar().showMessage("NAS: запис і читання OK")
         except Exception as exc:
             QMessageBox.critical(
                 self,
-                "Ошибка доступа к NAS",
-                f"Путь:\n{target_dir}\n\n{exc}",
+                "Помилка доступу до NAS",
+                f"Шлях:\n{target_dir}\n\n{exc}",
             )
-            self.statusBar().showMessage("NAS: ошибка записи/чтения")
+            self.statusBar().showMessage("NAS: помилка запису/читання")
 
     def _export_transcript_video_to_nas(
         self,
@@ -1592,7 +1682,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "На активном канале нет запланированных видео.",
+                "На активному каналі немає запланованих відео.",
             )
             return
 
@@ -1611,7 +1701,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Все {len(rows)} запланированных транскриптов уже есть на NAS.",
+                f"Усі {len(rows)} запланованих транскриптів уже є на NAS.",
             )
             self.reload_optimization_queue()
             return
@@ -1620,19 +1710,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                "За один пакет можно получить не более 20 транскриптов.",
+                "За один пакет можна отримати не більше 20 транскриптів.",
             )
             return
 
         estimated = len(pending) * 250
         answer = QMessageBox.question(
             self,
-            "Транскрипты запланированных видео",
-            f"Найдено запланированных: {len(rows)}.\n"
+            "Транскрипти запланованих відео",
+            f"Знайдено запланованих: {len(rows)}.\n"
             f"Уже на NAS: {already}.\n"
-            f"Нужно получить: {len(pending)}.\n"
-            f"Оценка квоты Captions API: до ≈{estimated} units.\n\n"
-            "Получить транскрипты сейчас?",
+            f"Потрібно отримати: {len(pending)}.\n"
+            f"Оцінка квоти Captions API: до ≈{estimated} units.\n\n"
+            "Отримати транскрипти зараз?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -1646,7 +1736,7 @@ class MainWindow(QMainWindow):
         for index, row in enumerate(pending, start=1):
             video_id = row["video_id"]
             self.statusBar().showMessage(
-                f"Транскрипты: {index}/{len(pending)} · {video_id}"
+                f"Транскрипти: {index}/{len(pending)} · {video_id}"
             )
             QApplication.processEvents()
             try:
@@ -1708,38 +1798,38 @@ class MainWindow(QMainWindow):
 
         self.reload_optimization_queue()
         message = (
-            f"Готово. Сохранено новых транскриптов: {saved}.\n"
-            f"Уже существовало: {skipped}."
+            f"Готово. Збережено нових транскриптів: {saved}.\n"
+            f"Уже існувало: {skipped}."
         )
         if errors:
             preview = "\n".join(errors[:8])
-            message += f"\n\nНе удалось получить: {len(errors)}\n{preview}"
+            message += f"\n\nНе вдалося отримати: {len(errors)}\n{preview}"
             if len(errors) > 8:
                 message += "\n…"
         if report_write_error:
             message += (
-                "\n\nОтчёт на NAS записать не удалось:\n"
+                "\n\nЗвіт на NAS записати не вдалося:\n"
                 + report_write_error
             )
         else:
-            message += f"\n\nДиагностический отчёт:\n{report_path}"
+            message += f"\n\nДіагностичний звіт:\n{report_path}"
         QMessageBox.information(self, APP_NAME, message)
-        self.statusBar().showMessage("Пакет транскриптов обработан")
+        self.statusBar().showMessage("Пакет транскриптів оброблено")
 
     def export_selected_transcript_to_nas(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для транскрипта выберите ровно одно видео."
+                self, APP_NAME, "Для транскрипту виберіть рівно одне відео."
             )
             return
 
         video_id = video_ids[0]
         answer = QMessageBox.question(
             self,
-            "Получить транскрипт",
-            "Будет использован официальный YouTube Captions API. "
-            "Операция чтения caption-track расходует квоту API. Продолжить?",
+            "Отримати транскрипт",
+            "Буде використано офіційний YouTube Captions API. "
+            "Операція читання caption-track витрачає квоту API. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -1748,7 +1838,7 @@ class MainWindow(QMainWindow):
 
         try:
             srt_path, downloaded = self._export_transcript_video_to_nas(video_id)
-            action = "сохранён" if downloaded else "уже был на NAS"
+            action = "збережено" if downloaded else "уже був на NAS"
             QMessageBox.information(
                 self,
                 APP_NAME,
@@ -1759,13 +1849,13 @@ class MainWindow(QMainWindow):
                 f"Транскрипт {video_id}: {action}"
             )
         except Exception as exc:
-            self._error("Ошибка получения транскрипта", exc)
+            self._error("Помилка отримання транскрипту", exc)
 
     def import_selected_package_from_nas(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для импорта выберите ровно одно видео."
+                self, APP_NAME, "Для імпорту виберіть рівно одне відео."
             )
             return
 
@@ -1780,7 +1870,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    f"Пакет пока не найден:\n{package_path}",
+                    f"Пакет поки не знайдено:\n{package_path}",
                 )
                 return
 
@@ -1788,7 +1878,7 @@ class MainWindow(QMainWindow):
             package_video_id = str(payload.get("video_id") or video_id)
             if package_video_id != video_id:
                 raise RuntimeError(
-                    "video_id в пакете не совпадает с выбранным видео."
+                    "video_id у пакеті не збігається з вибраним відео."
                 )
 
             title = str(
@@ -1822,7 +1912,7 @@ class MainWindow(QMainWindow):
                 tags = [str(item).strip() for item in tags_value if str(item).strip()]
 
             if not title:
-                raise RuntimeError("В пакете отсутствует название.")
+                raise RuntimeError("У пакеті немає назви.")
             ok, message = validate_chapters(chapters)
             if not ok:
                 raise RuntimeError(message)
@@ -1845,21 +1935,30 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Пакет импортирован: {package_path.name}",
+                f"Пакет імпортовано: {package_path.name}",
             )
         except Exception as exc:
-            self._error("Ошибка импорта пакета", exc)
+            self._error("Помилка імпорту пакета", exc)
 
     def edit_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для пакета контента выберите ровно одно видео."
+                self, APP_NAME, "Для пакета контенту виберіть рівно одне відео."
             )
             return
 
         video_id = video_ids[0]
         try:
+            video_row = self.conn.execute(
+                "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            scheduled_publish_at = (
+                str(video_row["scheduled_publish_at"])
+                if video_row and video_row["scheduled_publish_at"]
+                else None
+            )
             current_title, current_description, current_tags = (
                 self._current_video_metadata(video_id)
             )
@@ -1889,6 +1988,7 @@ class MainWindow(QMainWindow):
                 tags,
                 status,
                 title_variants,
+                scheduled_publish_at,
                 self,
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1913,15 +2013,15 @@ class MainWindow(QMainWindow):
                 title_variants,
             )
             self.reload_optimization_queue()
-            self.statusBar().showMessage("Пакет оптимизации сохранён")
+            self.statusBar().showMessage("Пакет оптимізації збережено")
         except Exception as exc:
-            self._error("Ошибка пакета оптимизации", exc)
+            self._error("Помилка пакета оптимізації", exc)
 
     def apply_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для применения выберите ровно одно видео."
+                self, APP_NAME, "Для застосування виберіть рівно одне відео."
             )
             return
 
@@ -1929,14 +2029,14 @@ class MainWindow(QMainWindow):
         draft = get_optimization_draft(self.conn, video_id)
         if draft is None:
             QMessageBox.information(
-                self, APP_NAME, "Для этого видео ещё нет пакета оптимизации."
+                self, APP_NAME, "Для цього відео ще немає пакета оптимізації."
             )
             return
         if draft["status"] != "ready":
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                "Пакет должен иметь статус «Готово к применению».",
+                "Пакет повинен мати статус «Готово до застосування».",
             )
             return
 
@@ -1954,14 +2054,14 @@ class MainWindow(QMainWindow):
 
             answer = QMessageBox.question(
                 self,
-                "Применить пакет оптимизации",
-                f"Видео: {video_id}\n\n"
-                f"Название:\n{current_title}\n→\n{new_title}\n\n"
-                f"Описание: {len(current_description)} → "
-                f"{len(final_description)} символов\n"
+                "Застосувати пакет оптимізації",
+                f"Відео: {video_id}\n\n"
+                f"Назва:\n{current_title}\n→\n{new_title}\n\n"
+                f"Опис: {len(current_description)} → "
+                f"{len(final_description)} символів\n"
                 f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
-                "Все поля будут отправлены одним videos.update "
-                "(≈50 quota units). Продолжить?",
+                "Усі поля буде надіслано одним videos.update "
+                "(≈50 quota units). Продовжити?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1989,10 +2089,98 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "Пакет применён. Перед изменением сохранена точка отката.",
+                "Пакет застосовано. Перед зміною збережено точку відкату.",
             )
         except Exception as exc:
-            self._error("Ошибка применения пакета", exc)
+            self._error("Помилка застосування пакета", exc)
+
+    def apply_ready_scheduled_packages(self) -> None:
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.scheduled_publish_at,
+                      d.new_title,d.description,d.chapters,d.tags_json
+               FROM videos v
+               JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=?
+                 AND v.scheduled_publish_at IS NOT NULL
+                 AND d.status='ready'
+               ORDER BY v.scheduled_publish_at ASC
+               LIMIT 20""",
+            (self.current_profile,),
+        ).fetchall()
+
+        if not rows:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Немає запланованих стрімів із пакетом «Готово до застосування».",
+            )
+            return
+
+        estimated = len(rows) * 50
+        answer = QMessageBox.question(
+            self,
+            "Оптимізація запланованих стрімів",
+            f"Готових пакетів: {len(rows)}.\n"
+            f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
+            "Буде змінено лише назву, опис і теги. "
+            "Дата й час публікації, видимість і налаштування розкладу "
+            "залишаться без змін. Продовжити?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        import json
+
+        changed_ids: list[str] = []
+        errors: list[str] = []
+        for row in rows:
+            video_id = str(row["video_id"])
+            try:
+                current_title, current_description, current_tags = (
+                    self._current_video_metadata(video_id)
+                )
+                final_description = compose_description(
+                    row["description"] or "",
+                    row["chapters"] or "",
+                )
+                new_tags = json.loads(row["tags_json"] or "[]")
+                new_title = str(row["new_title"] or "").strip()
+                if not new_title:
+                    raise RuntimeError("Назва не може бути порожньою.")
+
+                save_metadata_snapshot(
+                    self.conn,
+                    video_id,
+                    current_title,
+                    current_description,
+                    current_tags,
+                    "before_scheduled_package_batch",
+                )
+                self.client.update_video(
+                    video_id,
+                    title=new_title,
+                    description=final_description,
+                    tags=new_tags,
+                )
+                set_optimization_draft_status(self.conn, video_id, "applied")
+                changed_ids.append(video_id)
+            except Exception as exc:
+                errors.append(f"{video_id}: {exc}")
+
+        if changed_ids:
+            sync_specific_videos(self.client, self.conn, changed_ids)
+        self.reload_videos()
+        self.reload_optimization_queue()
+
+        message = (
+            f"Готово. Оптимізовано запланованих стрімів: {len(changed_ids)}."
+        )
+        if errors:
+            preview = "\n".join(errors[:5])
+            message += f"\nПомилок: {len(errors)}.\n\n{preview}"
+        QMessageBox.information(self, APP_NAME, message)
 
     def _safe_archive_candidates(
         self,
@@ -2027,21 +2215,21 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "В архиве больше нет видео с безопасными правками ссылок.",
+                "В архіві більше немає відео з безпечними правками посилань.",
             )
             return
 
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Архив: следующие 20",
-            f"Найдено видео с безопасными правками: {total_candidates}.\n"
-            f"Сейчас будет обработано: {len(video_ids)}.\n"
-            f"Максимальный расход videos.update: ≈{estimated} units.\n\n"
-            "Будут изменены только старые или отсутствующие ссылки "
-            "проекта и доната. Названия, теги, главы и остальной текст "
-            "останутся без изменений. Для каждой записи сохраняется "
-            "точка отката. Продолжить?",
+            "Архів: наступні 20",
+            f"Знайдено відео з безпечними правками: {total_candidates}.\n"
+            f"Зараз буде оброблено: {len(video_ids)}.\n"
+            f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
+            "Буде змінено лише старі або відсутні посилання "
+            "проєкту й донату. Назви, теги, розділи та решта тексту "
+            "залишаться без змін. Для кожного запису зберігається "
+            "точка відкату. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2085,44 +2273,44 @@ class MainWindow(QMainWindow):
                 total_candidates - len(changed_ids) - len(skipped_ids),
             )
             message = (
-                f"Готово. Изменено: {len(changed_ids)}. "
-                f"Без изменений: {len(skipped_ids)}.\n"
-                f"Осталось в очереди безопасных правок: ≈{remaining}."
+                f"Готово. Змінено: {len(changed_ids)}. "
+                f"Без змін: {len(skipped_ids)}.\n"
+                f"Залишилося в черзі безпечних правок: ≈{remaining}."
             )
             if error_text:
                 QMessageBox.warning(
                     self,
                     APP_NAME,
-                    message + f"\n\nОбработка остановлена на ошибке:\n{error_text}",
+                    message + f"\n\nОбробку зупинено через помилку:\n{error_text}",
                 )
             else:
                 QMessageBox.information(self, APP_NAME, message)
         except Exception as exc:
-            self._error("Ошибка пакетной оптимизации архива", exc)
+            self._error("Помилка пакетної оптимізації архіву", exc)
 
     def apply_safe_optimization(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if not video_ids:
             QMessageBox.information(
-                self, APP_NAME, "Выберите видео для безопасной оптимизации."
+                self, APP_NAME, "Виберіть відео для безпечної оптимізації."
             )
             return
         if len(video_ids) > 20:
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                "За один пакет можно обработать не более 20 видео.",
+                "За один пакет можна обробити не більше 20 відео.",
             )
             return
 
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Применить безопасные правки",
-            f"Выбрано видео: {len(video_ids)}.\n"
-            f"Максимальный расход на videos.update: ≈{estimated} units.\n\n"
-            "Будут изменены только старые/отсутствующие ссылки в описании. "
-            "Название, теги и остальной текст останутся без изменений. Продолжить?",
+            "Застосувати безпечні правки",
+            f"Вибрано відео: {len(video_ids)}.\n"
+            f"Максимальна витрата на videos.update: ≈{estimated} units.\n\n"
+            "Буде змінено лише старі/відсутні посилання в описі. "
+            "Назва, теги та решта тексту залишаться без змін. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2158,32 +2346,32 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Готово. Изменено: {changed}. Без изменений: {skipped}.",
+                f"Готово. Змінено: {changed}. Без змін: {skipped}.",
             )
         except Exception as exc:
-            self._error("Ошибка безопасной оптимизации", exc)
+            self._error("Помилка безпечної оптимізації", exc)
 
     def rollback_selected_metadata(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для отката выберите ровно одно видео."
+                self, APP_NAME, "Для відкату виберіть рівно одне відео."
             )
             return
         video_id = video_ids[0]
         snapshot = latest_metadata_snapshot(self.conn, video_id)
         if snapshot is None:
             QMessageBox.information(
-                self, APP_NAME, "Для этого видео ещё нет сохранённой версии."
+                self, APP_NAME, "Для цього відео ще немає збереженої версії."
             )
             return
 
         import json
         answer = QMessageBox.question(
             self,
-            "Откат метаданных",
-            f"Вернуть метаданные из сохранения {snapshot['created_at']}?\n"
-            f"Причина сохранения: {snapshot['reason']}",
+            "Відкат метаданих",
+            f"Повернути метадані зі збереження {snapshot['created_at']}?\n"
+            f"Причина збереження: {snapshot['reason']}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2211,9 +2399,9 @@ class MainWindow(QMainWindow):
             sync_specific_videos(self.client, self.conn, [video_id])
             self.reload_videos()
             self.reload_optimization_queue()
-            self.statusBar().showMessage("Метаданные видео восстановлены")
+            self.statusBar().showMessage("Метадані відео відновлено")
         except Exception as exc:
-            self._error("Ошибка отката метаданных", exc)
+            self._error("Помилка відкату метаданих", exc)
 
     def background_scan_all_channels(self) -> None:
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
@@ -2261,10 +2449,10 @@ class MainWindow(QMainWindow):
                     max_auto_age_hours=self.age_limit_spin.value(),
                 )
                 summaries.append(
-                    f"{PROFILE_LABELS[profile]}: {stats['seen']} комм."
+                    f"{PROFILE_LABELS[profile]}: {stats['seen']} ком."
                 )
             except Exception as exc:
-                summaries.append(f"{PROFILE_LABELS[profile]}: ошибка")
+                summaries.append(f"{PROFILE_LABELS[profile]}: помилка")
 
         self.reload_comments()
         self.update_dashboard()
@@ -2286,7 +2474,7 @@ class MainWindow(QMainWindow):
         ]
         if not video_ids:
             if not silent:
-                QMessageBox.information(self, APP_NAME, "Сначала синхронизируйте видео.")
+                QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
             return
         try:
             stats = scan_comments(
@@ -2300,21 +2488,21 @@ class MainWindow(QMainWindow):
             )
             self.reload_comments()
             self.statusBar().showMessage(
-                "Комментарии: {seen}, очередь: {queued}, автоответы: {auto_replied}, "
-                "пропущено без комментариев: {skipped_disabled}".format(**stats)
+                "Коментарі: {seen}, черга: {queued}, автовідповіді: {auto_replied}, "
+                "пропущено без коментарів: {skipped_disabled}".format(**stats)
             )
         except Exception as exc:
             if silent:
-                self.statusBar().showMessage(f"Фоновая проверка: {exc}")
+                self.statusBar().showMessage(f"Фонова перевірка: {exc}")
             else:
-                self._error("Ошибка комментариев", exc)
+                self._error("Помилка коментарів", exc)
 
     def test_one_auto_reply(self) -> None:
         answer = QMessageBox.question(
             self,
-            "Тест автоответа",
-            "Программа отправит ровно один безопасный автоответ "
-            "на свежий комментарий. Продолжить?",
+            "Тест автовідповіді",
+            "Програма надішле рівно одну безпечну автовідповідь "
+            "на свіжий коментар. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2332,7 +2520,7 @@ class MainWindow(QMainWindow):
             ).fetchall()
         ]
         if not video_ids:
-            QMessageBox.information(self, APP_NAME, "Сначала синхронизируйте видео.")
+            QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
             return
 
         try:
@@ -2350,16 +2538,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Тест успешен: отправлен 1 безопасный автоответ.",
+                    "Тест успішний: надіслано 1 безпечну автовідповідь.",
                 )
             else:
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Подходящего свежего безопасного комментария для теста не найдено.",
+                    "Відповідного свіжого безпечного коментаря для тесту не знайдено.",
                 )
         except Exception as exc:
-            self._error("Ошибка тестового автоответа", exc)
+            self._error("Помилка тестової автовідповіді", exc)
 
     def reload_videos(self) -> None:
         import json
@@ -2373,7 +2561,7 @@ class MainWindow(QMainWindow):
         self.video_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
             audit_data = json.loads(row["audit_json"] or "{}")
-            issues = ", ".join(audit_data.get("issues", []))
+            issues = _issue_labels(list(audit_data.get("issues", [])))
             values = [
                 row["video_id"],
                 row["title"],
@@ -2427,8 +2615,14 @@ class MainWindow(QMainWindow):
                 row["video_title"] or row["video_id"],
                 row["author"] or "",
                 row["text"],
-                row["category"],
-                row["status"],
+                COMMENT_CATEGORY_LABELS.get(
+                    str(row["category"] or ""),
+                    str(row["category"] or ""),
+                ),
+                COMMENT_STATUS_LABELS.get(
+                    str(row["status"] or ""),
+                    str(row["status"] or ""),
+                ),
                 row["reply_text"] or "",
             ]
             for column, value in enumerate(values):
@@ -2443,16 +2637,16 @@ class MainWindow(QMainWindow):
                         "donate": WARNING,
                         "schedule": "#b78cff",
                         "review": MUTED,
-                    }.get(str(value), MUTED)
+                    }.get(str(row["category"]), MUTED)
                     item.setForeground(QColor(category_color))
                 elif column == 5:
                     status_color = {
                         "replied": SUCCESS,
                         "new": YOUTUBE_RED,
                         "ignored": MUTED,
-                    }.get(str(value), MUTED)
+                    }.get(str(row["status"]), MUTED)
                     item.setForeground(QColor(status_color))
-                    if str(value) in {"replied", "new"}:
+                    if str(row["status"]) in {"replied", "new"}:
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 self.comment_table.setItem(index, column, item)
 
@@ -2466,8 +2660,8 @@ class MainWindow(QMainWindow):
                 else DEFAULT_MAX_AUTO_REPLIES_PER_DAY
             )
             self.auto_quota_label.setText(
-                f"Автоответы: {safe_used}/{daily_limit} "
-                f"· отправлено через приложение сегодня: {total_used} "
+                f"Автовідповіді: {safe_used}/{daily_limit} "
+                f"· надіслано через застосунок сьогодні: {total_used} "
                 f"· ≈{total_used * 50} units"
             )
 
@@ -2480,16 +2674,16 @@ class MainWindow(QMainWindow):
         comment_id = key_item.data(Qt.ItemDataRole.UserRole)
         draft = draft_item.text() if draft_item else ""
         text, ok = QInputDialog.getMultiLineText(
-            self, "Ответ на комментарий", "Текст ответа:", draft
+            self, "Відповідь на коментар", "Текст відповіді:", draft
         )
         if not ok or not text.strip():
             return
         try:
             manual_reply(self.client, self.conn, comment_id, text.strip())
             self.reload_comments()
-            self.statusBar().showMessage("Ответ опубликован")
+            self.statusBar().showMessage("Відповідь опубліковано")
         except Exception as exc:
-            self._error("Ошибка ответа", exc)
+            self._error("Помилка відповіді", exc)
 
     def set_selected_comment_status(self, status: str) -> None:
         row = self.comment_table.currentRow()
@@ -2502,17 +2696,17 @@ class MainWindow(QMainWindow):
         set_comment_status(self.conn, str(comment_id), status)
         self.reload_comments()
         labels = {
-            "ignored": "Комментарий помечен как игнорируемый",
-            "new": "Комментарий возвращён в очередь",
+            "ignored": "Коментар позначено як проігнорований",
+            "new": "Коментар повернуто в чергу",
         }
-        self.statusBar().showMessage(labels.get(status, "Статус обновлён"))
+        self.statusBar().showMessage(labels.get(status, "Статус оновлено"))
 
     def save_reply_template(self, category: str, value: str) -> None:
         text = value.strip() or DEFAULT_REPLY_TEMPLATES[category]
         set_setting(self.conn, f"reply_template_{category}", text)
         if category in self.reply_template_edits:
             self.reply_template_edits[category][1].setText(text)
-        self.statusBar().showMessage("Шаблон автоответа сохранён")
+        self.statusBar().showMessage("Шаблон автовідповіді збережено")
 
     def save_auto_limits(self, _value: int = 0) -> None:
         set_setting(
@@ -2561,19 +2755,19 @@ class MainWindow(QMainWindow):
             self._offer_update(info)
 
     def check_for_updates_manual(self) -> None:
-        self.statusBar().showMessage("Проверяю обновления...")
+        self.statusBar().showMessage("Перевіряю оновлення...")
         QApplication.processEvents()
         try:
             info = check_for_update()
         except Exception as exc:
-            self._error("Ошибка проверки обновлений", exc)
+            self._error("Помилка перевірки оновлень", exc)
             return
         if info is None:
-            self.statusBar().showMessage("Установлена актуальная версия")
+            self.statusBar().showMessage("Встановлено актуальну версію")
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Установлена актуальная версия {__version__}.",
+                f"Встановлено актуальну версію {__version__}.",
             )
             return
         self._offer_update(info)
@@ -2581,33 +2775,33 @@ class MainWindow(QMainWindow):
     def _offer_update(self, info: UpdateInfo) -> None:
         answer = QMessageBox.question(
             self,
-            "Доступно обновление",
-            f"Доступна версия {info.version}.\n"
-            f"Установлена версия {__version__}.\n\n"
-            "Скачать и установить обновление сейчас?",
+            "Доступне оновлення",
+            f"Доступна версія {info.version}.\n"
+            f"Встановлена версія {__version__}.\n\n"
+            "Завантажити й установити оновлення зараз?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         self.statusBar().showMessage(
-            f"Скачиваю RG YouTube Control {info.version}..."
+            f"Завантажую RG YouTube Control {info.version}..."
         )
         QApplication.processEvents()
         try:
             installer = download_update(info)
         except Exception as exc:
-            self._error("Ошибка загрузки обновления", exc)
+            self._error("Помилка завантаження оновлення", exc)
             return
 
-        self.statusBar().showMessage("Запускаю установку обновления...")
+        self.statusBar().showMessage("Запускаю встановлення оновлення...")
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(installer)))
         if not opened:
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                f"Не удалось запустить установщик автоматически.\n"
-                f"Файл сохранён здесь:\n{installer}",
+                f"Не вдалося запустити інсталятор автоматично.\n"
+                f"Файл збережено тут:\n{installer}",
             )
             return
         QTimer.singleShot(800, QApplication.quit)
