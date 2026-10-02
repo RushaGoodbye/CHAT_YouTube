@@ -114,6 +114,11 @@ COMMENT_STATUS_LABELS = {
 def _issue_labels(issues: list[str]) -> str:
     return ", ".join(ISSUE_LABELS.get(item, item) for item in issues)
 
+
+def _standard_hyphen(text: str) -> str:
+    return str(text or "").replace("—", "-").replace("–", "-")
+
+
 class MetadataDialog(QDialog):
     def __init__(self, title: str, description: str, tags: list[str], parent=None) -> None:
         super().__init__(parent)
@@ -122,9 +127,9 @@ class MetadataDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        self.title_edit = QLineEdit(title)
-        self.description_edit = QPlainTextEdit(description)
-        self.tags_edit = QPlainTextEdit(", ".join(tags))
+        self.title_edit = QLineEdit(_standard_hyphen(title))
+        self.description_edit = QPlainTextEdit(_standard_hyphen(description))
+        self.tags_edit = QPlainTextEdit(_standard_hyphen(", ".join(tags)))
         form.addRow("Назва:", self.title_edit)
         form.addRow("Опис:", self.description_edit)
         form.addRow("Теги:", self.tags_edit)
@@ -155,9 +160,9 @@ class MetadataDialog(QDialog):
             if item.strip()
         ]
         return (
-            self.title_edit.text().strip(),
-            self.description_edit.toPlainText().strip(),
-            tags,
+            _standard_hyphen(self.title_edit.text().strip()),
+            _standard_hyphen(self.description_edit.toPlainText().strip()),
+            [_standard_hyphen(item) for item in tags],
         )
 
 class ContentOptimizationDialog(QDialog):
@@ -187,20 +192,22 @@ class ContentOptimizationDialog(QDialog):
             layout.addWidget(scheduled_note)
 
         form = QFormLayout()
-        self.title_edit = QLineEdit(title)
-        self.description_edit = QPlainTextEdit(description)
-        self.chapters_edit = QPlainTextEdit(chapters)
+        self.title_edit = QLineEdit(_standard_hyphen(title))
+        self.description_edit = QPlainTextEdit(_standard_hyphen(description))
+        self.chapters_edit = QPlainTextEdit(_standard_hyphen(chapters))
         self.chapters_edit.setPlaceholderText(
             "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
         )
-        self.tags_edit = QPlainTextEdit(", ".join(tags))
+        self.tags_edit = QPlainTextEdit(
+            _standard_hyphen(", ".join(tags))
+        )
         self.title_variants_edit = QPlainTextEdit(
-            "\n".join(title_variants or [])
+            _standard_hyphen("\n".join(title_variants or []))
         )
         self.title_variants_edit.setPlaceholderText(
-            "Варіант A — сильний конфлікт / цитата\n"
-            "Варіант B — конфлікт + контекст\n"
-            "Варіант C — сильний хук | ЧАТ РУЛЕТКА"
+            "Варіант A - сильний конфлікт / цитата\n"
+            "Варіант B - конфлікт + контекст\n"
+            "Варіант C - сильний хук | ЧАТ РУЛЕТКА"
         )
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
@@ -260,12 +267,12 @@ class ContentOptimizationDialog(QDialog):
             if item.strip()
         ][:3]
         return (
-            self.title_edit.text().strip(),
-            self.description_edit.toPlainText().strip(),
-            self.chapters_edit.toPlainText().strip(),
-            tags,
+            _standard_hyphen(self.title_edit.text().strip()),
+            _standard_hyphen(self.description_edit.toPlainText().strip()),
+            _standard_hyphen(self.chapters_edit.toPlainText().strip()),
+            [_standard_hyphen(item) for item in tags],
             str(self.status_combo.currentData()),
-            title_variants,
+            [_standard_hyphen(item) for item in title_variants],
         )
 
 
