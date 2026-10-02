@@ -1911,6 +1911,35 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        if get_setting(self.conn, "auto_reply_daily_limit", "5") == "5":
+            set_setting(self.conn, "auto_reply_daily_limit", "30")
+        if get_setting(self.conn, "auto_reply_scan_limit", "5") == "5":
+            set_setting(self.conn, "auto_reply_scan_limit", "5")
+        if get_setting(self.conn, "auto_reply_max_age_hours", "24") == "24":
+            set_setting(self.conn, "auto_reply_max_age_hours", "24")
+
+        template_migrations = {
+            "thanks": {
+                "Дякуємо за підтримку! 💙💛": DEFAULT_REPLY_TEMPLATES["thanks"],
+            },
+            "links": {
+                "Усі актуальні посилання проєкту: https://links.rginfoua.pp.ua/": DEFAULT_REPLY_TEMPLATES["links"],
+            },
+            "donate": {
+                "Дякуємо за підтримку! Усі варіанти відправити донейт для ЗСУ: https://donate.rginfoua.pp.ua/": DEFAULT_REPLY_TEMPLATES["donate"],
+                "Дякуємо за підтримку! Усі варіанти донейту: https://donate.rginfoua.pp.ua/": DEFAULT_REPLY_TEMPLATES["donate"],
+            },
+            "schedule": {
+                "Дивіться стріми Пн., Ср., Пт., Сб. з 21:00 до 00:00": DEFAULT_REPLY_TEMPLATES["schedule"],
+                "Актуальний розклад і всі посилання проєкту: https://links.rginfoua.pp.ua/": DEFAULT_REPLY_TEMPLATES["schedule"],
+            },
+        }
+        for category, replacements in template_migrations.items():
+            key = f"reply_template_{category}"
+            current = get_setting(self.conn, key, DEFAULT_REPLY_TEMPLATES[category])
+            if current in replacements:
+                set_setting(self.conn, key, replacements[current])
+
         self.daily_limit_spin = QSpinBox()
         self.daily_limit_spin.setRange(1, 100)
         self.daily_limit_spin.setValue(

@@ -43,15 +43,15 @@ def normalize_nas_unc_path(value: str | None, default: str) -> str:
     return text
 
 DEFAULT_SCAN_MINUTES = 10
-DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 20
-DEFAULT_MAX_AUTO_REPLIES_PER_SCAN = 3
-DEFAULT_AUTO_REPLY_MAX_AGE_HOURS = 72
+DEFAULT_MAX_AUTO_REPLIES_PER_DAY = 30
+DEFAULT_MAX_AUTO_REPLIES_PER_SCAN = 5
+DEFAULT_AUTO_REPLY_MAX_AGE_HOURS = 24
 SAFE_AUTO_CATEGORIES = {"thanks", "links", "donate", "schedule"}
 DEFAULT_REPLY_TEMPLATES = {
     "thanks": "Дякуємо за підтримку! 💙💛",
-    "links": f"Усі актуальні посилання проєкту: {PROJECT_LINKS_URL}",
-    "donate": f"Дякуємо за підтримку! Усі варіанти донейту: {DONATE_URL}",
-    "schedule": f"Актуальний розклад і всі посилання проєкту: {PROJECT_LINKS_URL}",
+    "links": f"Усі актуальні посилання проєкту тут: {PROJECT_LINKS_URL}",
+    "donate": f"Дякуємо за підтримку! Усі варіанти донату для ЗСУ тут: {DONATE_URL}",
+    "schedule": "Стріми виходять Пн, Ср, Пт і Сб з 21:00 до 00:00. До зустрічі в ефірі 🙂",
 }
 
 def app_data_dir() -> Path:
