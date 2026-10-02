@@ -1008,3 +1008,30 @@ def test_incremental_channel_scan_replies_once(tmp_path):
     assert second["known_skipped"] == 1
     assert len(client.sent) == 1
     assert client.remote_reply_checks == 0
+
+
+def test_result_summary_uses_multiple_metrics():
+    from rg_youtube_control.ui import MainWindow
+
+    before = {
+        "views": 100,
+        "watch_minutes": 500,
+        "avd_seconds": 120,
+        "subs": 4,
+    }
+    after = {
+        "views": 130,
+        "watch_minutes": 620,
+        "avd_seconds": 125,
+        "subs": 5,
+    }
+    reach_before = {"impressions": 1000, "ctr": 4.0}
+    reach_after = {"impressions": 1200, "ctr": 4.4}
+
+    label, key, detail = MainWindow._result_summary(
+        before, after, reach_before, reach_after
+    )
+    assert key == "improved"
+    assert label.startswith("Краще:")
+    assert "перегляди" in detail
+    assert "CTR" in detail
