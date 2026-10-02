@@ -737,7 +737,7 @@ class MainWindow(QMainWindow):
 
         actions = QHBoxLayout()
         scheduled_btn = QPushButton("Заплановані стріми")
-        scheduled_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        scheduled_btn.clicked.connect(self.show_scheduled_center)
         comments_btn = QPushButton("Коментарі")
         comments_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
         results_btn = QPushButton("Результати")
