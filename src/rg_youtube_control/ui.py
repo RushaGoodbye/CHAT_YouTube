@@ -1580,8 +1580,13 @@ class MainWindow(QMainWindow):
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
+            stored = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+                (self.current_profile,),
+            ).fetchone()["n"]
             self.statusBar().showMessage(
-                f"Архів синхронізовано: {len(rows)} відео"
+                f"Архів синхронізовано: {len(rows)} унікальних відео · "
+                f"у базі профілю: {stored}"
             )
         except Exception as exc:
             self._error("Помилка повної синхронізації", exc)
