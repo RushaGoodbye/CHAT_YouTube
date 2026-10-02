@@ -60,6 +60,7 @@ from .db import (
     database_integrity_cleanup,
     get_optimization_draft,
     get_setting,
+    log_action,
     recent_action_log,
     latest_metadata_snapshot,
     optimization_events,
@@ -73,7 +74,12 @@ from .db import (
 )
 from .metadata_audit import audit, normalize_links
 from .package_bridge import bridge_health, fetch_package, upload_transcript
-from .recovery import create_recovery_backup, read_recovery_manifest, restore_recovery_backup
+from .recovery import (
+    create_recovery_backup,
+    prune_recovery_backups,
+    read_recovery_manifest,
+    restore_recovery_backup,
+)
 from .optimization import (
     archive_potential_score,
     compose_description,
@@ -85,6 +91,7 @@ from .optimization import (
     validate_content_package,
 )
 from .service import (
+    current_quota_day,
     manual_reply,
     quota_budget_status,
     scan_channel_comments,
