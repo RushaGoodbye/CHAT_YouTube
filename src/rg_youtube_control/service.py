@@ -235,7 +235,14 @@ def scan_comments(
                     f"reply_template_{decision.category}",
                     DEFAULT_REPLY_TEMPLATES[decision.category],
                 ).strip()
-            has_reply = _own_reply_exists(client, thread, channel_id)
+            try:
+                has_reply = _own_reply_exists(client, thread, channel_id)
+            except Exception as exc:
+                if _is_quota_error(exc):
+                    mark_quota_exhausted(conn)
+                    stats["quota_blocked"] += 1
+                    return stats
+                raise
             status = "replied" if has_reply else "new"
             item = {
                 "comment_id": top["id"],
