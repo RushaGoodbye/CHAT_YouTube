@@ -316,7 +316,7 @@ def manual_reply(
         (comment_id,),
     ).fetchone()
     if row is not None and str(row["status"] or "") == "replied":
-        raise RuntimeError("На цей коментар уже надіслано відповідь.")
+        raise RuntimeError("На цей коментар вже надіслано відповідь.")
 
     if quota_exhausted(conn):
         raise RuntimeError(
