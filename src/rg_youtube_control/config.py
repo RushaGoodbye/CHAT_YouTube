@@ -25,6 +25,7 @@ OLD_DONATE_LINK = "https://rg-donates.pages.dev/"
 
 DEFAULT_NAS_TRANSCRIPTS_PATH = r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS"
 DEFAULT_NAS_PACKAGES_PATH = r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\PACKAGES"
+PACKAGE_BRIDGE_URL = "http://AlexLosServer:8790"
 
 
 def normalize_nas_unc_path(value: str | None, default: str) -> str:
