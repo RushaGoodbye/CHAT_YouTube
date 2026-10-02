@@ -2443,12 +2443,19 @@ class MainWindow(QMainWindow):
     def refresh_youtube_quota_label(self) -> None:
         if not hasattr(self, "youtube_quota_label"):
             return
-        used = today_quota_units(self.conn)
-        exhausted = quota_exhausted(self.conn)
-        state = "ВИЧЕРПАНО" if exhausted else "доступна"
-        self.youtube_quota_label.setText(
-            f"Враховано застосунком: ≈{used}/{YOUTUBE_DAILY_QUOTA_DEFAULT} од. квоти · {state}"
-        )
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
+            text = (
+                f"ВИЧЕРПАНО · враховано ≈{budget['used']}/"
+                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · скидання {budget['reset']}"
+            )
+        else:
+            text = (
+                f"Враховано ≈{budget['used']}/{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
+                f"залишок ≈{budget['remaining']} · резерв {budget['reserve']} · "
+                f"доступно для автоответів ≈{budget['reply_capacity']} відповідей"
+            )
+        self.youtube_quota_label.setText(text)
 
     def _quota_update_video(self, video_id: str, **kwargs) -> None:
         if quota_exhausted(self.conn):
