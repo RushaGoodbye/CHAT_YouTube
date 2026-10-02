@@ -463,6 +463,7 @@ class MainWindow(QMainWindow):
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.background_scan_all_channels)
+        self.scan_timer.timeout.connect(self.run_background_maintenance)
         self.scan_timer.start(DEFAULT_SCAN_MINUTES * 60 * 1000)
 
         self.statusBar().showMessage("СИСТЕМА ГОТОВА")
@@ -475,6 +476,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(3000, self.check_for_updates_silent)
         QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
         QTimer.singleShot(8000, self.check_quota_plan_ready)
+        QTimer.singleShot(10000, self.run_background_maintenance)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -5161,6 +5163,43 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Метадані відео відновлено")
         except Exception as exc:
             self._error("Помилка відкату метаданих", exc)
+
+    def run_background_maintenance(self) -> None:
+        changed_total = 0
+        summaries: list[str] = []
+        for profile in PROFILE_TARGETS:
+            if get_setting(
+                self.conn,
+                f"safe_metadata_autopilot_{profile}",
+                "0",
+            ) != "1":
+                continue
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+            except Exception:
+                continue
+            changed = self._run_safe_metadata_autopilot(
+                profile,
+                client,
+                max_items=3,
+            )
+            if changed:
+                changed_total += changed
+                summaries.append(
+                    f"{PROFILE_LABELS[profile]}: {changed}"
+                )
+
+        if changed_total:
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.reload_action_log()
+            self.update_dashboard()
+            self.statusBar().showMessage(
+                "Автопілот безпечних метаданих: "
+                + ", ".join(summaries)
+            )
+        self.check_quota_plan_ready()
 
     def background_scan_all_channels(self) -> None:
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
