@@ -515,3 +515,58 @@ def test_safe_description_fix_trims_only_hashtag_lines():
     assert "#four" not in fixed.after
     assert "#five" not in fixed.after
     assert "залишено не більше 3 хештегів" in fixed.changes
+def test_archive_potential_rewards_reach_and_metadata_gaps():
+    from rg_youtube_control.optimization import archive_potential_score
+
+    base = archive_potential_score(
+        lifetime_views=100000,
+        analytics_views=20000,
+        impressions=150000,
+        ctr_percent=6.0,
+        median_ctr_percent=6.0,
+        issues=[],
+    )
+    opportunity = archive_potential_score(
+        lifetime_views=100000,
+        analytics_views=20000,
+        impressions=150000,
+        ctr_percent=2.5,
+        median_ctr_percent=6.0,
+        issues=["no_chapters", "thin_description"],
+    )
+    assert 0 <= base <= 100
+    assert 0 <= opportunity <= 100
+    assert opportunity > base
+
+
+def test_video_analytics_cache_roundtrip(tmp_path):
+    from rg_youtube_control.db import (
+        commit_video_analytics,
+        connect,
+        upsert_video_analytics,
+    )
+
+    conn = connect(tmp_path / "test.sqlite3")
+    upsert_video_analytics(
+        conn,
+        video_id="abc123XYZ",
+        profile="main",
+        period_days=90,
+        analytics_views=1234,
+        engaged_views=987,
+        watch_minutes=543.2,
+        avd_seconds=321.0,
+        subs_gained=12,
+        impressions=45678,
+        ctr_percent=4.25,
+        start_date="2026-07-05",
+        end_date="2026-10-02",
+    )
+    commit_video_analytics(conn)
+    row = conn.execute(
+        "SELECT * FROM video_analytics_cache WHERE video_id=?",
+        ("abc123XYZ",),
+    ).fetchone()
+    assert row["analytics_views"] == 1234
+    assert row["impressions"] == 45678
+    assert abs(row["ctr_percent"] - 4.25) < 0.001

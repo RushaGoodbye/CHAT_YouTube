@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from statistics import median
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
@@ -52,6 +53,7 @@ from .config import (
     normalize_nas_unc_path,
 )
 from .db import (
+    commit_video_analytics,
     connect,
     get_optimization_draft,
     get_setting,
@@ -61,10 +63,12 @@ from .db import (
     set_comment_status,
     set_optimization_draft_status,
     set_setting,
+    upsert_video_analytics,
 )
 from .metadata_audit import normalize_links
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .optimization import (
+    archive_potential_score,
     compose_description,
     extract_chapters_from_description,
     has_safe_link_issue,
@@ -666,6 +670,8 @@ class MainWindow(QMainWindow):
         sync_all_btn.clicked.connect(self.sync_full_archive)
         refresh_btn = QPushButton("Оновити чергу")
         refresh_btn.clicked.connect(self.reload_optimization_queue)
+        potential_btn = QPushButton("Оновити ТОП потенціал")
+        potential_btn.clicked.connect(self.refresh_archive_potential)
         preview_btn = QPushButton("Попередній перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
@@ -716,6 +722,7 @@ class MainWindow(QMainWindow):
 
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
+        sync_row.addWidget(potential_btn)
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
@@ -918,6 +925,13 @@ class MainWindow(QMainWindow):
                 return
             self._error("Помилка підключення CTR / показів", exc)
 
+    def refresh_archive_potential(self) -> None:
+        if hasattr(self, "analytics_period_combo"):
+            index = self.analytics_period_combo.findData(90)
+            if index >= 0:
+                self.analytics_period_combo.setCurrentIndex(index)
+        self.load_channel_analytics()
+
     def load_channel_analytics(self) -> None:
         days = int(self.analytics_period_combo.currentData() or 90)
         end = datetime.now(timezone.utc).date()
@@ -967,7 +981,7 @@ class MainWindow(QMainWindow):
                 ),
                 dimensions="video",
                 sort="-views",
-                max_results=25,
+                max_results=200,
             )
 
             reach_rows: list[dict[str, str]] = []
@@ -1083,6 +1097,52 @@ class MainWindow(QMainWindow):
                 if day:
                     reach_dates.append(day)
 
+            top_video_rows = self._analytics_result_rows(top_videos)
+            analytics_by_video: dict[str, dict[str, float]] = {}
+            for top_row in top_video_rows:
+                video_id = str(top_row[0] or "")
+                if not video_id:
+                    continue
+                analytics_by_video[video_id] = {
+                    "views": float(top_row[1] or 0),
+                    "engaged": float(top_row[2] or 0),
+                    "watch_minutes": float(top_row[3] or 0),
+                    "avd_seconds": float(top_row[4] or 0),
+                    "subs": float(top_row[5] or 0),
+                }
+
+            self.conn.execute(
+                "DELETE FROM video_analytics_cache WHERE profile=?",
+                (self.current_profile,),
+            )
+            for video_id in set(analytics_by_video) | set(reach_by_video):
+                stats = analytics_by_video.get(video_id, {})
+                reach_values = reach_by_video.get(video_id, {})
+                impressions = int(reach_values.get("impressions") or 0)
+                ctr_percent = (
+                    float(reach_values.get("clicks") or 0)
+                    / float(reach_values.get("impressions") or 1)
+                    * 100
+                    if impressions
+                    else 0.0
+                )
+                upsert_video_analytics(
+                    self.conn,
+                    video_id=video_id,
+                    profile=self.current_profile,
+                    period_days=days,
+                    analytics_views=int(stats.get("views") or 0),
+                    engaged_views=int(stats.get("engaged") or 0),
+                    watch_minutes=float(stats.get("watch_minutes") or 0),
+                    avd_seconds=float(stats.get("avd_seconds") or 0),
+                    subs_gained=int(stats.get("subs") or 0),
+                    impressions=impressions,
+                    ctr_percent=ctr_percent,
+                    start_date=start_s,
+                    end_date=end_s,
+                )
+            commit_video_analytics(self.conn)
+
             title_by_id = {
                 row["video_id"]: row["title"]
                 for row in self.conn.execute(
@@ -1134,7 +1194,7 @@ class MainWindow(QMainWindow):
             lines.append("")
 
             lines.append("ТОП ВІДЕО")
-            for row in self._analytics_result_rows(top_videos):
+            for row in top_video_rows:
                 video_id = str(row[0])
                 views = int(row[1] or 0)
                 engaged = int(row[2] or 0)
@@ -1160,7 +1220,10 @@ class MainWindow(QMainWindow):
                 )
 
             self.analytics_text.setPlainText("\n".join(lines))
-            self.statusBar().showMessage("YouTube Analytics оновлено")
+            self.reload_optimization_queue()
+            self.statusBar().showMessage(
+                "YouTube Analytics оновлено · ТОП потенціал перераховано"
+            )
         except Exception as exc:
             message = str(exc)
             if (
@@ -1561,24 +1624,48 @@ class MainWindow(QMainWindow):
         rows = self.conn.execute(
             f"""SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
                        v.privacy_status,v.views,v.audit_json,
-                       d.status AS draft_status
+                       d.status AS draft_status,
+                       a.analytics_views,a.impressions,a.ctr_percent,
+                       a.avd_seconds,a.subs_gained,
+                       a.updated_at AS analytics_updated_at
                 FROM videos v
                 LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+                LEFT JOIN video_analytics_cache a
+                  ON a.video_id=v.video_id AND a.profile=v.profile
                 WHERE v.profile=?{extra_where}""",
             (profile,),
         ).fetchall()
+
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
 
         prepared = []
         for row in rows:
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            priority_value, priority_text = priority_label(
-                score,
-                row["privacy_status"],
-                row["scheduled_publish_at"],
-                issues,
-            )
+            if queue_filter == "archive_top":
+                priority_value = archive_potential_score(
+                    lifetime_views=int(row["views"] or 0),
+                    analytics_views=int(row["analytics_views"] or 0),
+                    impressions=int(row["impressions"] or 0),
+                    ctr_percent=float(row["ctr_percent"] or 0),
+                    median_ctr_percent=float(channel_median_ctr),
+                    issues=issues,
+                )
+                priority_text = f"ПОТЕНЦІАЛ {priority_value}"
+            else:
+                priority_value, priority_text = priority_label(
+                    score,
+                    row["privacy_status"],
+                    row["scheduled_publish_at"],
+                    issues,
+                )
             publish_text = (
                 row["scheduled_publish_at"]
                 or row["published_at"]
@@ -1598,9 +1685,10 @@ class MainWindow(QMainWindow):
         if queue_filter == "archive_top":
             prepared.sort(
                 key=lambda item: (
-                    -(int(item[3]["views"] or 0)),
                     -item[0],
-                    item[1] or "9999",
+                    -(int(item[3]["impressions"] or 0)),
+                    -(int(item[3]["analytics_views"] or 0)),
+                    -(int(item[3]["views"] or 0)),
                 )
             )
         else:
@@ -1653,6 +1741,27 @@ class MainWindow(QMainWindow):
                     if priority_text == "ЗАПЛАНОВАНО":
                         item.setForeground(QColor(YOUTUBE_RED))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    elif priority_text.startswith("ПОТЕНЦІАЛ "):
+                        potential = int(priority_text.rsplit(" ", 1)[-1])
+                        item.setForeground(
+                            QColor(
+                                YOUTUBE_RED
+                                if potential >= 80
+                                else WARNING
+                                if potential >= 55
+                                else SUCCESS
+                            )
+                        )
+                        item.setFont(
+                            QFont("Segoe UI", 9, QFont.Weight.Bold)
+                        )
+                        item.setToolTip(
+                            "90 днів: "
+                            f"{int(row['analytics_views'] or 0):,} переглядів · "
+                            f"{int(row['impressions'] or 0):,} показів · "
+                            f"CTR {float(row['ctr_percent'] or 0):.2f}% · "
+                            f"медіана каналу {channel_median_ctr:.2f}%"
+                        )
                     elif priority_text == "ВИСОКИЙ":
                         item.setForeground(QColor(WARNING))
                     elif priority_text == "ГОТОВО":

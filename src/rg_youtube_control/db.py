@@ -63,6 +63,23 @@ CREATE TABLE IF NOT EXISTS optimization_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_optimization_drafts_status
   ON optimization_drafts(status, updated_at DESC);
+CREATE TABLE IF NOT EXISTS video_analytics_cache (
+  video_id TEXT PRIMARY KEY,
+  profile TEXT NOT NULL,
+  period_days INTEGER NOT NULL DEFAULT 90,
+  analytics_views INTEGER NOT NULL DEFAULT 0,
+  engaged_views INTEGER NOT NULL DEFAULT 0,
+  watch_minutes REAL NOT NULL DEFAULT 0,
+  avd_seconds REAL NOT NULL DEFAULT 0,
+  subs_gained INTEGER NOT NULL DEFAULT 0,
+  impressions INTEGER NOT NULL DEFAULT 0,
+  ctr_percent REAL NOT NULL DEFAULT 0,
+  start_date TEXT,
+  end_date TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_video_analytics_cache_profile
+  ON video_analytics_cache(profile, updated_at DESC);
 """
 
 def utc_now() -> str:
@@ -104,6 +121,66 @@ def connect(path: Path) -> sqlite3.Connection:
         )
     conn.commit()
     return conn
+
+def upsert_video_analytics(
+    conn: sqlite3.Connection,
+    *,
+    video_id: str,
+    profile: str,
+    period_days: int,
+    analytics_views: int,
+    engaged_views: int,
+    watch_minutes: float,
+    avd_seconds: float,
+    subs_gained: int,
+    impressions: int,
+    ctr_percent: float,
+    start_date: str,
+    end_date: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO video_analytics_cache(
+          video_id,profile,period_days,analytics_views,engaged_views,
+          watch_minutes,avd_seconds,subs_gained,impressions,ctr_percent,
+          start_date,end_date,updated_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(video_id) DO UPDATE SET
+          profile=excluded.profile,
+          period_days=excluded.period_days,
+          analytics_views=excluded.analytics_views,
+          engaged_views=excluded.engaged_views,
+          watch_minutes=excluded.watch_minutes,
+          avd_seconds=excluded.avd_seconds,
+          subs_gained=excluded.subs_gained,
+          impressions=excluded.impressions,
+          ctr_percent=excluded.ctr_percent,
+          start_date=excluded.start_date,
+          end_date=excluded.end_date,
+          updated_at=excluded.updated_at
+        """,
+        (
+            video_id,
+            profile,
+            int(period_days),
+            int(analytics_views),
+            int(engaged_views),
+            float(watch_minutes),
+            float(avd_seconds),
+            int(subs_gained),
+            int(impressions),
+            float(ctr_percent),
+            start_date,
+            end_date,
+            utc_now(),
+        ),
+    )
+
+
+def commit_video_analytics(conn: sqlite3.Connection) -> None:
+    conn.commit()
+
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute(
