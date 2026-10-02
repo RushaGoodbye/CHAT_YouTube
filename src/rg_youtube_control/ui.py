@@ -654,6 +654,106 @@ class MainWindow(QMainWindow):
             f"Активний канал: {PROFILE_LABELS[self.current_profile]}"
         )
 
+    def _build_task_center_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        title = QLabel("Центр задач")
+        title.setObjectName("AppTitle")
+        subtitle = QLabel(
+            "Що потребує уваги зараз. Підготовчі дії виконуються локально, "
+            "запис у YouTube контролюється квотою."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setProperty("muted", True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        grid = QGridLayout()
+        self.center_scheduled = MetricCard("Заплановані")
+        self.center_prepared = MetricCard("Підготовлена черга")
+        self.center_comments = MetricCard("Коментарі")
+        self.center_quota = MetricCard("YouTube API")
+        self.center_results = MetricCard("Контроль результатів")
+        grid.addWidget(self.center_scheduled, 0, 0)
+        grid.addWidget(self.center_prepared, 0, 1)
+        grid.addWidget(self.center_comments, 0, 2)
+        grid.addWidget(self.center_quota, 1, 0)
+        grid.addWidget(self.center_results, 1, 1)
+        layout.addLayout(grid)
+
+        actions = QHBoxLayout()
+        scheduled_btn = QPushButton("Заплановані стріми")
+        scheduled_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        comments_btn = QPushButton("Коментарі")
+        comments_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        results_btn = QPushButton("Результати")
+        results_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
+        log_btn = QPushButton("Журнал")
+        log_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
+        settings_btn = QPushButton("Налаштування")
+        settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
+        for button in (
+            scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
+        ):
+            actions.addWidget(button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        layout.addStretch()
+        self.tabs.addTab(page, "Центр")
+
+    def update_task_center(self) -> None:
+        if not hasattr(self, "center_scheduled"):
+            return
+        profile = self.current_profile
+        scheduled = int(self.conn.execute(
+            """SELECT COUNT(*) FROM videos
+               WHERE profile=? AND scheduled_publish_at IS NOT NULL""",
+            (profile,),
+        ).fetchone()[0])
+        queued = int(self.conn.execute(
+            """SELECT COUNT(*) FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=? AND c.status='new'""",
+            (profile,),
+        ).fetchone()[0])
+
+        prepared_raw = get_setting(
+            self.conn, f"prepared_safe_queue_{profile}", "[]"
+        )
+        try:
+            prepared = len(json.loads(prepared_raw) or [])
+        except Exception:
+            prepared = 0
+
+        events = optimization_events(self.conn, profile, limit=100)
+        today = datetime.now(timezone.utc).date()
+        waiting = 0
+        for event in events:
+            try:
+                optimized = datetime.fromisoformat(
+                    str(event["optimized_at"]).replace("Z", "+00:00")
+                ).date()
+            except Exception:
+                continue
+            if (today - optimized).days < 90:
+                waiting += 1
+
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
+            quota_value = "ВИЧЕРПАНО"
+            quota_note = f"скидання: {budget['reset']}"
+        else:
+            quota_value = f"{budget['remaining']} од."
+            quota_note = (
+                f"резерв {budget['reserve']} · автоответів ≈{budget['reply_capacity']}"
+            )
+
+        self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
+        self.center_prepared.set_value(str(prepared), "відео готові до безпечних правок")
+        self.center_comments.set_value(str(queued), "нові / не оброблені")
+        self.center_quota.set_value(quota_value, quota_note)
+        self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
+
     def _build_videos_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
