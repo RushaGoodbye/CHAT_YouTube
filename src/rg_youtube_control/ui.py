@@ -2917,6 +2917,13 @@ class MainWindow(QMainWindow):
                 self.refresh_youtube_quota_label()
             raise
         record_quota_units(self.conn, VIDEO_UPDATE_COST)
+        log_action(
+            self.conn,
+            profile=getattr(client, "profile", self.current_profile),
+            category="YouTube",
+            action="Оновлено відео",
+            details=f"{video_id}: {', '.join(sorted(kwargs.keys()))}",
+        )
         self.refresh_youtube_quota_label()
 
     def _quota_update_video(self, video_id: str, **kwargs) -> None:
@@ -5634,5 +5641,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(800, QApplication.quit)
 
     def _error(self, title: str, exc: Exception) -> None:
+        try:
+            log_action(
+                self.conn,
+                profile=getattr(self, "current_profile", None),
+                category="помилка",
+                action=title,
+                details=str(exc),
+            )
+            self.reload_action_log()
+        except Exception:
+            pass
         QMessageBox.critical(self, title, str(exc))
         self.statusBar().showMessage(str(exc))
