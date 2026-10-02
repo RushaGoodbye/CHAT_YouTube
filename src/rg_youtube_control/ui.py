@@ -764,7 +764,7 @@ class MainWindow(QMainWindow):
         content_row.addWidget(rollback_btn)
         content_row.addStretch()
 
-        self.optimization_table = QTableWidget(0, 10)
+        self.optimization_table = QTableWidget(0, 12)
         self.optimization_table.setHorizontalHeaderLabels(
             [
                 "Пріоритет",
@@ -776,6 +776,8 @@ class MainWindow(QMainWindow):
                 "Аудит",
                 "Транскрипт",
                 "Пакет",
+                "Остання оптимізація",
+                "Контроль 7/28/90",
                 "Проблеми",
             ]
         )
@@ -2317,6 +2319,32 @@ class MainWindow(QMainWindow):
                 result.append(str(value))
         return result
 
+    @staticmethod
+    def _optimization_checkpoint_text(raw_date: str | None) -> tuple[str, str]:
+        if not raw_date:
+            return "—", "—"
+        try:
+            optimized = datetime.fromisoformat(
+                str(raw_date).replace("Z", "+00:00")
+            ).date()
+        except Exception:
+            return str(raw_date)[:10], "—"
+
+        today = datetime.now(timezone.utc).date()
+        parts: list[str] = []
+        next_date = ""
+        for days in (7, 28, 90):
+            due = optimized + timedelta(days=days)
+            if today >= due:
+                parts.append(f"{days} ✓")
+            else:
+                parts.append(f"{days}: {due.strftime('%d.%m.%Y')}")
+                if not next_date:
+                    next_date = due.isoformat()
+        if not next_date:
+            next_date = "усі готові"
+        return optimized.isoformat(), " · ".join(parts)
+
     def reload_optimization_queue(self) -> None:
         if not hasattr(self, "optimization_table"):
             return
@@ -2345,11 +2373,20 @@ class MainWindow(QMainWindow):
                        d.status AS draft_status,
                        a.analytics_views,a.impressions,a.ctr_percent,
                        a.avd_seconds,a.subs_gained,
-                       a.updated_at AS analytics_updated_at
+                       a.updated_at AS analytics_updated_at,
+                       oe.optimized_at AS last_optimized_at
                 FROM videos v
                 LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
                 LEFT JOIN video_analytics_cache a
                   ON a.video_id=v.video_id AND a.profile=v.profile
+                LEFT JOIN optimization_events oe
+                  ON oe.event_id=(
+                    SELECT e.event_id
+                    FROM optimization_events e
+                    WHERE e.video_id=v.video_id AND e.profile=v.profile
+                    ORDER BY e.optimized_at DESC,e.event_id DESC
+                    LIMIT 1
+                  )
                 WHERE v.profile=?{extra_where}""",
             (profile,),
         ).fetchall()
@@ -2436,6 +2473,9 @@ class MainWindow(QMainWindow):
                 "ready": "ГОТОВО",
                 "applied": "ЗАСТОСОВАНО",
             }.get(row["draft_status"] or "", "")
+            last_optimized, checkpoint_text = (
+                self._optimization_checkpoint_text(row["last_optimized_at"])
+            )
             values = [
                 priority_text,
                 publish_text,
@@ -2449,6 +2489,8 @@ class MainWindow(QMainWindow):
                 str(score),
                 transcript_status,
                 draft_status,
+                last_optimized,
+                checkpoint_text,
                 _issue_labels(issues),
             ]
             for column, value in enumerate(values):
@@ -2502,6 +2544,17 @@ class MainWindow(QMainWindow):
                         )
                     )
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif column == 10 and checkpoint_text != "—":
+                    item.setForeground(
+                        QColor(
+                            SUCCESS
+                            if "90 ✓" in checkpoint_text
+                            else WARNING
+                        )
+                    )
+                    item.setToolTip(
+                        "Контрольні точки аналізу після останньої оптимізації"
+                    )
                 self.optimization_table.setItem(index, column, item)
         self.update_dashboard()
 
