@@ -92,6 +92,34 @@ def _own_reply_exists(
             return True
     return False
 
+
+YOUTUBE_DAILY_QUOTA_DEFAULT = 10000
+VIDEO_UPDATE_COST = 50
+COMMENT_REPLY_COST = 50
+
+def _quota_day() -> str:
+    try:
+        return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        return datetime.now(timezone.utc).date().isoformat()
+
+def _quota_key(name: str) -> str:
+    return f"youtube_quota_{name}_{_quota_day()}"
+
+def today_quota_units(conn: sqlite3.Connection) -> int:
+    return int(get_setting(conn, _quota_key("units"), "0") or 0)
+
+def record_quota_units(conn: sqlite3.Connection, units: int) -> int:
+    total = today_quota_units(conn) + max(0, int(units))
+    set_setting(conn, _quota_key("units"), str(total))
+    return total
+
+def quota_exhausted(conn: sqlite3.Connection) -> bool:
+    return get_setting(conn, _quota_key("exhausted"), "0") == "1"
+
+def mark_quota_exhausted(conn: sqlite3.Connection) -> None:
+    set_setting(conn, _quota_key("exhausted"), "1")
+
 def _counter_key(name: str) -> str:
     day = datetime.now(timezone.utc).date().isoformat()
     return f"{name}_{day}"
@@ -105,6 +133,7 @@ def today_reply_count(conn: sqlite3.Connection) -> int:
 def _record_reply(conn: sqlite3.Connection, auto: bool) -> None:
     total = today_reply_count(conn) + 1
     set_setting(conn, _counter_key("replies"), str(total))
+    record_quota_units(conn, COMMENT_REPLY_COST)
     if auto:
         auto_total = today_auto_reply_count(conn) + 1
         set_setting(conn, _counter_key("auto_replies"), str(auto_total))
