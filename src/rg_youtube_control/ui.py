@@ -745,6 +745,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         actions = QHBoxLayout()
+        planner_btn = QPushButton("Планувальник квоти")
+        planner_btn.clicked.connect(self.show_quota_planner)
         scheduled_btn = QPushButton("Заплановані стріми")
         scheduled_btn.clicked.connect(self.show_scheduled_center)
         comments_btn = QPushButton("Коментарі")
@@ -756,7 +758,7 @@ class MainWindow(QMainWindow):
         settings_btn = QPushButton("Налаштування")
         settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
         for button in (
-            scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
+            planner_btn, scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
         ):
             actions.addWidget(button)
         actions.addStretch()
@@ -816,6 +818,191 @@ class MainWindow(QMainWindow):
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_quota.set_value(quota_value, quota_note)
         self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
+
+    def show_quota_planner(self) -> None:
+        profile = self.current_profile
+        prepared_raw = get_setting(
+            self.conn, f"prepared_safe_queue_{profile}", "[]"
+        )
+        try:
+            prepared_count = len(json.loads(prepared_raw) or [])
+        except Exception:
+            prepared_count = 0
+        scheduled_ready = int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM videos v
+                   JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.profile=?
+                     AND v.scheduled_publish_at IS NOT NULL
+                     AND d.status='ready'""",
+                (profile,),
+            ).fetchone()[0]
+        )
+        budget = quota_budget_status(self.conn)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Планувальник квоти")
+        dialog.resize(620, 430)
+        layout = QVBoxLayout(dialog)
+
+        summary = QLabel(
+            f"Канал: {PROFILE_LABELS[profile]}\n"
+            f"Залишок квоти: ≈{budget['remaining']} од. · "
+            f"резерв: {budget['reserve']} од.\n"
+            f"Підготовлена безпечна черга: {prepared_count}\n"
+            f"Готових запланованих стрімів: {scheduled_ready}\n\n"
+            "План зберігається локально. Після початку наступного квотного "
+            "дня програма запропонує продовжити роботу. Коментарі з "
+            "увімкненими автоответами відновляться автоматично."
+        )
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+
+        safe_spin = QSpinBox()
+        safe_spin.setRange(0, min(50, max(0, prepared_count)))
+        existing_safe = int(
+            get_setting(
+                self.conn,
+                f"quota_plan_safe_count_{profile}",
+                str(min(50, prepared_count)),
+            )
+            or 0
+        )
+        safe_spin.setValue(min(safe_spin.maximum(), existing_safe))
+        layout.addWidget(QLabel("Безпечних відео на наступний квотний день"))
+        layout.addWidget(safe_spin)
+
+        scheduled_box = QCheckBox(
+            "Нагадати про застосування готових запланованих стрімів"
+        )
+        scheduled_box.setChecked(
+            get_setting(
+                self.conn,
+                f"quota_plan_scheduled_{profile}",
+                "1" if scheduled_ready else "0",
+            ) == "1"
+        )
+        layout.addWidget(scheduled_box)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Зберегти план")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Скасувати")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        next_day = (
+            datetime.fromisoformat(current_quota_day()) + timedelta(days=1)
+        ).date().isoformat()
+        safe_count = int(safe_spin.value())
+        scheduled_flag = scheduled_box.isChecked() and scheduled_ready > 0
+        set_setting(
+            self.conn,
+            f"quota_plan_safe_count_{profile}",
+            str(safe_count),
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_scheduled_{profile}",
+            "1" if scheduled_flag else "0",
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_target_day_{profile}",
+            next_day,
+        )
+        set_setting(
+            self.conn,
+            f"quota_plan_armed_{profile}",
+            "1" if safe_count > 0 or scheduled_flag else "0",
+        )
+        log_action(
+            self.conn,
+            profile=profile,
+            category="квота",
+            action="План на наступний день",
+            details=(
+                f"безпечних відео {safe_count}; "
+                f"заплановані {'так' if scheduled_flag else 'ні'}; "
+                f"ціль {next_day}"
+            ),
+        )
+        self.reload_action_log()
+        QMessageBox.information(
+            self,
+            "План збережено",
+            f"План для {PROFILE_LABELS[profile]} збережено на квотний день "
+            f"{next_day}.",
+        )
+
+    def check_quota_plan_ready(self) -> None:
+        if quota_exhausted(self.conn):
+            return
+        current_day = current_quota_day()
+        for profile in PROFILE_TARGETS:
+            if get_setting(
+                self.conn, f"quota_plan_armed_{profile}", "0"
+            ) != "1":
+                continue
+            target_day = get_setting(
+                self.conn, f"quota_plan_target_day_{profile}", ""
+            )
+            if target_day and current_day < target_day:
+                continue
+            prompted_key = f"quota_plan_prompted_{profile}_{current_day}"
+            if get_setting(self.conn, prompted_key, "0") == "1":
+                continue
+
+            safe_count = int(
+                get_setting(
+                    self.conn,
+                    f"quota_plan_safe_count_{profile}",
+                    "0",
+                )
+                or 0
+            )
+            scheduled_flag = get_setting(
+                self.conn,
+                f"quota_plan_scheduled_{profile}",
+                "0",
+            ) == "1"
+            set_setting(self.conn, prompted_key, "1")
+
+            answer = QMessageBox.question(
+                self,
+                "Квота відновлена",
+                f"{PROFILE_LABELS[profile]}\n\n"
+                f"План готовий до продовження:\n"
+                f"- безпечних відео: {safe_count}\n"
+                f"- заплановані стріми: {'так' if scheduled_flag else 'ні'}\n\n"
+                "Відкрити підготовлену роботу зараз?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                continue
+
+            self._activate_profile(profile)
+            set_setting(
+                self.conn,
+                f"quota_plan_armed_{profile}",
+                "0",
+            )
+            if safe_count > 0 and hasattr(self, "optimization_filter"):
+                index = self.optimization_filter.findData("prepared")
+                if index >= 0:
+                    self.optimization_filter.setCurrentIndex(index)
+                self.tabs.setCurrentIndex(2)
+            elif scheduled_flag:
+                self.show_scheduled_center()
+            break
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
