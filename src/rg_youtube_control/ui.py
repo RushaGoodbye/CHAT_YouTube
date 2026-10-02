@@ -2068,6 +2068,32 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        for profile_key in PROFILE_TARGETS:
+            for suffix, legacy_key, default_value in (
+                ("daily_limit", "auto_reply_daily_limit", DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                ("scan_limit", "auto_reply_scan_limit", DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                ("max_age_hours", "auto_reply_max_age_hours", DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+            ):
+                target_key = f"auto_reply_{suffix}_{profile_key}"
+                if get_setting(self.conn, target_key, "__missing__") == "__missing__":
+                    set_setting(
+                        self.conn,
+                        target_key,
+                        get_setting(self.conn, legacy_key, str(default_value)),
+                    )
+            for category in DEFAULT_REPLY_TEMPLATES:
+                target_key = f"reply_template_{profile_key}_{category}"
+                if get_setting(self.conn, target_key, "__missing__") == "__missing__":
+                    set_setting(
+                        self.conn,
+                        target_key,
+                        get_setting(
+                            self.conn,
+                            f"reply_template_{category}",
+                            DEFAULT_REPLY_TEMPLATES[category],
+                        ),
+                    )
+
         if get_setting(self.conn, "auto_reply_daily_limit", "5") == "5":
             set_setting(self.conn, "auto_reply_daily_limit", "30")
         if get_setting(self.conn, "auto_reply_scan_limit", "5") == "5":
@@ -2103,8 +2129,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_daily_limit",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    f"auto_reply_daily_limit_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_daily_limit",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    ),
                 )
             )
         )
@@ -2116,8 +2146,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_scan_limit",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    f"auto_reply_scan_limit_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_scan_limit",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    ),
                 )
             )
         )
@@ -2130,8 +2164,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_max_age_hours",
-                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    f"auto_reply_max_age_hours_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_max_age_hours",
+                        str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    ),
                 )
             )
         )
@@ -2148,8 +2186,12 @@ class MainWindow(QMainWindow):
             edit = QLineEdit(
                 get_setting(
                     self.conn,
-                    f"reply_template_{category}",
-                    DEFAULT_REPLY_TEMPLATES[category],
+                    f"reply_template_{self.current_profile}_{category}",
+                    get_setting(
+                        self.conn,
+                        f"reply_template_{category}",
+                        DEFAULT_REPLY_TEMPLATES[category],
+                    ),
                 )
             )
             edit.setPlaceholderText(label)
@@ -2197,6 +2239,21 @@ class MainWindow(QMainWindow):
         oauth_btn = QPushButton("Вибрати JSON клієнта OAuth")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
+        self.quota_reserve_spin = QSpinBox()
+        self.quota_reserve_spin.setRange(0, 9000)
+        self.quota_reserve_spin.setSingleStep(250)
+        self.quota_reserve_spin.setSuffix(" од.")
+        self.quota_reserve_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    "youtube_quota_reserve_units",
+                    str(QUOTA_RESERVE_DEFAULT),
+                )
+            )
+        )
+        self.quota_reserve_spin.valueChanged.connect(self.save_quota_reserve)
+
         self.youtube_quota_label = QLabel()
         self.refresh_youtube_quota_label()
         self.version_label = QLabel(f"Версія: {__version__}")
@@ -2227,6 +2284,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
+        layout.addWidget(QLabel("YouTube API · резерв для важливих операцій"))
+        layout.addWidget(self.quota_reserve_spin)
         layout.addWidget(QLabel("YouTube API · квота"))
         layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
@@ -4640,28 +4699,44 @@ class MainWindow(QMainWindow):
 
     def save_reply_template(self, category: str, value: str) -> None:
         text = value.strip() or DEFAULT_REPLY_TEMPLATES[category]
-        set_setting(self.conn, f"reply_template_{category}", text)
-        if category in self.reply_template_edits:
-            self.reply_template_edits[category][1].setText(text)
-        self.statusBar().showMessage("Шаблон автовідповіді збережено")
-
-    def save_auto_limits(self, _value: int = 0) -> None:
         set_setting(
             self.conn,
-            "auto_reply_daily_limit",
+            f"reply_template_{self.current_profile}_{category}",
+            text,
+        )
+        if category in self.reply_template_edits:
+            self.reply_template_edits[category][1].setText(text)
+        self.statusBar().showMessage(
+            f"Шаблон автовідповіді збережено для {PROFILE_LABELS[self.current_profile]}"
+        )
+
+    def save_auto_limits(self, _value: int = 0) -> None:
+        profile = self.current_profile
+        set_setting(
+            self.conn,
+            f"auto_reply_daily_limit_{profile}",
             str(self.daily_limit_spin.value()),
         )
         set_setting(
             self.conn,
-            "auto_reply_scan_limit",
+            f"auto_reply_scan_limit_{profile}",
             str(self.scan_limit_spin.value()),
         )
         set_setting(
             self.conn,
-            "auto_reply_max_age_hours",
+            f"auto_reply_max_age_hours_{profile}",
             str(self.age_limit_spin.value()),
         )
         self.reload_comments()
+
+    def save_quota_reserve(self, _value: int = 0) -> None:
+        set_setting(
+            self.conn,
+            "youtube_quota_reserve_units",
+            str(self.quota_reserve_spin.value()),
+        )
+        self.refresh_youtube_quota_label()
+        self.update_task_center()
 
     def save_auto_setting(self, _state: int) -> None:
         set_setting(
