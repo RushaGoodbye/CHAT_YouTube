@@ -691,3 +691,18 @@ def test_quota_accounting_is_day_scoped():
     after = record_quota_units(conn, 50)
     assert after == before + 50
     assert today_quota_units(conn) == after
+
+def test_optimization_event_roundtrip():
+    from pathlib import Path
+    import tempfile
+    from rg_youtube_control.db import connect, record_optimization_event, optimization_events
+    conn = connect(Path(tempfile.mkdtemp()) / "events.db")
+    event_id = record_optimization_event(
+        conn, history_id=123, video_id="vid1", profile="main",
+        reason="safe_optimization", changed_fields="посилання + хештеги"
+    )
+    assert event_id > 0
+    rows = optimization_events(conn, "main", limit=10)
+    assert len(rows) == 1
+    assert rows[0]["video_id"] == "vid1"
+    assert rows[0]["reason"] == "safe_optimization"
