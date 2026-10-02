@@ -904,3 +904,107 @@ def test_known_replied_comment_skips_remote_reply_lookup(tmp_path):
 
     assert client.reply_checks == 0
     assert client.channel_calls == 1
+
+
+def test_quota_budget_keeps_reserve(tmp_path):
+    from rg_youtube_control.db import connect, set_setting
+    from rg_youtube_control.service import (
+        quota_budget_status,
+        record_quota_units,
+    )
+
+    conn = connect(tmp_path / "quota_budget.sqlite")
+    set_setting(conn, "youtube_quota_reserve_units", "2500")
+    record_quota_units(conn, 1000)
+    budget = quota_budget_status(conn)
+
+    assert budget["remaining"] == 9000
+    assert budget["reserve"] == 2500
+    assert budget["spendable"] == 6500
+    assert budget["reply_capacity"] == 130
+
+
+def test_action_log_roundtrip(tmp_path):
+    from rg_youtube_control.db import connect, log_action, recent_action_log
+
+    conn = connect(tmp_path / "journal.sqlite")
+    log_action(
+        conn,
+        profile="main",
+        category="коментарі",
+        action="Тест",
+        details="деталі",
+    )
+    rows = recent_action_log(conn, profile="main", limit=10)
+    assert len(rows) == 1
+    assert rows[0]["category"] == "коментарі"
+    assert rows[0]["action"] == "Тест"
+
+
+def test_incremental_channel_scan_replies_once(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import scan_channel_comments
+
+    class FakeClient:
+        profile = "main"
+
+        def __init__(self):
+            self.sent = []
+            self.remote_reply_checks = 0
+
+        def channel_comment_threads(
+            self, channel_id, *, stop_before=None, max_pages=5,
+            moderation_status="published"
+        ):
+            return ([{
+                "snippet": {
+                    "videoId": "video1",
+                    "totalReplyCount": 0,
+                    "topLevelComment": {
+                        "id": "new-comment",
+                        "snippet": {
+                            "authorChannelId": {"value": "viewer"},
+                            "authorDisplayName": "viewer",
+                            "textOriginal": "Спасибо большое!",
+                            "publishedAt": datetime.now(timezone.utc).isoformat(),
+                        },
+                    },
+                },
+            }], 1)
+
+        def replies(self, parent_comment_id):
+            self.remote_reply_checks += 1
+            return []
+
+        def reply(self, parent_comment_id, text):
+            self.sent.append((parent_comment_id, text))
+            return {}
+
+    conn = connect(tmp_path / "incremental.sqlite")
+    client = FakeClient()
+
+    first = scan_channel_comments(
+        client,
+        conn,
+        "owner",
+        auto_reply=True,
+        max_auto_replies=30,
+        max_auto_replies_per_scan=5,
+        max_auto_age_hours=24,
+    )
+    second = scan_channel_comments(
+        client,
+        conn,
+        "owner",
+        auto_reply=True,
+        max_auto_replies=30,
+        max_auto_replies_per_scan=5,
+        max_auto_age_hours=24,
+    )
+
+    assert first["auto_replied"] == 1
+    assert second["auto_replied"] == 0
+    assert second["known_skipped"] == 1
+    assert len(client.sent) == 1
+    assert client.remote_reply_checks == 0

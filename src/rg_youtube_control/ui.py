@@ -60,6 +60,7 @@ from .db import (
     database_integrity_cleanup,
     get_optimization_draft,
     get_setting,
+    recent_action_log,
     latest_metadata_snapshot,
     optimization_events,
     record_optimization_event,
@@ -85,6 +86,8 @@ from .optimization import (
 )
 from .service import (
     manual_reply,
+    quota_budget_status,
+    scan_channel_comments,
     scan_comments,
     sync_specific_videos,
     sync_videos,
@@ -96,6 +99,7 @@ from .service import (
     mark_quota_exhausted,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
     VIDEO_UPDATE_COST,
+    QUOTA_RESERVE_DEFAULT,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -441,11 +445,13 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         shell.addWidget(self.tabs, 1)
+        self._build_task_center_tab()
         self._build_videos_tab()
         self._build_optimization_tab()
         self._build_comments_tab()
         self._build_analytics_tab()
         self._build_results_tab()
+        self._build_log_tab()
         self._build_settings_tab()
 
         self.scan_timer = QTimer(self)
@@ -456,6 +462,7 @@ class MainWindow(QMainWindow):
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(3000, self.check_for_updates_silent)
@@ -588,6 +595,7 @@ class MainWindow(QMainWindow):
         self.metric_attention.set_value(str(attention), "Аудит < 100")
         self.metric_comments.set_value(str(queued), "нові / не оброблені")
         self.refresh_youtube_quota_label()
+        self.update_task_center()
 
     def switch_profile_from_header(self, _index: int) -> None:
         profile = self.header_profile_combo.currentData()
@@ -631,6 +639,56 @@ class MainWindow(QMainWindow):
             self.auto_box.setChecked(enabled)
             self.auto_box.blockSignals(False)
 
+        if hasattr(self, "daily_limit_spin"):
+            controls = (
+                (
+                    self.daily_limit_spin,
+                    f"auto_reply_daily_limit_{profile}",
+                    "auto_reply_daily_limit",
+                    DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+                ),
+                (
+                    self.scan_limit_spin,
+                    f"auto_reply_scan_limit_{profile}",
+                    "auto_reply_scan_limit",
+                    DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
+                ),
+                (
+                    self.age_limit_spin,
+                    f"auto_reply_max_age_hours_{profile}",
+                    "auto_reply_max_age_hours",
+                    DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
+                ),
+            )
+            for control, profile_key, legacy_key, default_value in controls:
+                control.blockSignals(True)
+                control.setValue(
+                    int(
+                        get_setting(
+                            self.conn,
+                            profile_key,
+                            get_setting(self.conn, legacy_key, str(default_value)),
+                        )
+                    )
+                )
+                control.blockSignals(False)
+
+        if hasattr(self, "reply_template_edits"):
+            for category, (_label, edit) in self.reply_template_edits.items():
+                edit.blockSignals(True)
+                edit.setText(
+                    get_setting(
+                        self.conn,
+                        f"reply_template_{profile}_{category}",
+                        get_setting(
+                            self.conn,
+                            f"reply_template_{category}",
+                            DEFAULT_REPLY_TEMPLATES[category],
+                        ),
+                    )
+                )
+                edit.blockSignals(False)
+
         if hasattr(self, "channel_label"):
             title = get_setting(self.conn, f"channel_title_{profile}", "")
             channel_id = get_setting(self.conn, f"channel_id_{profile}", "")
@@ -643,11 +701,112 @@ class MainWindow(QMainWindow):
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage(
             f"Активний канал: {PROFILE_LABELS[self.current_profile]}"
         )
+
+    def _build_task_center_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        title = QLabel("Центр задач")
+        title.setObjectName("AppTitle")
+        subtitle = QLabel(
+            "Що потребує уваги зараз. Підготовчі дії виконуються локально, "
+            "запис у YouTube контролюється квотою."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setProperty("muted", True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        grid = QGridLayout()
+        self.center_scheduled = MetricCard("Заплановані")
+        self.center_prepared = MetricCard("Підготовлена черга")
+        self.center_comments = MetricCard("Коментарі")
+        self.center_quota = MetricCard("YouTube API")
+        self.center_results = MetricCard("Контроль результатів")
+        grid.addWidget(self.center_scheduled, 0, 0)
+        grid.addWidget(self.center_prepared, 0, 1)
+        grid.addWidget(self.center_comments, 0, 2)
+        grid.addWidget(self.center_quota, 1, 0)
+        grid.addWidget(self.center_results, 1, 1)
+        layout.addLayout(grid)
+
+        actions = QHBoxLayout()
+        scheduled_btn = QPushButton("Заплановані стріми")
+        scheduled_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        comments_btn = QPushButton("Коментарі")
+        comments_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        results_btn = QPushButton("Результати")
+        results_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
+        log_btn = QPushButton("Журнал")
+        log_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
+        settings_btn = QPushButton("Налаштування")
+        settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
+        for button in (
+            scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
+        ):
+            actions.addWidget(button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        layout.addStretch()
+        self.tabs.addTab(page, "Центр")
+
+    def update_task_center(self) -> None:
+        if not hasattr(self, "center_scheduled"):
+            return
+        profile = self.current_profile
+        scheduled = int(self.conn.execute(
+            """SELECT COUNT(*) FROM videos
+               WHERE profile=? AND scheduled_publish_at IS NOT NULL""",
+            (profile,),
+        ).fetchone()[0])
+        queued = int(self.conn.execute(
+            """SELECT COUNT(*) FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=? AND c.status='new'""",
+            (profile,),
+        ).fetchone()[0])
+
+        prepared_raw = get_setting(
+            self.conn, f"prepared_safe_queue_{profile}", "[]"
+        )
+        try:
+            prepared = len(json.loads(prepared_raw) or [])
+        except Exception:
+            prepared = 0
+
+        events = optimization_events(self.conn, profile, limit=100)
+        today = datetime.now(timezone.utc).date()
+        waiting = 0
+        for event in events:
+            try:
+                optimized = datetime.fromisoformat(
+                    str(event["optimized_at"]).replace("Z", "+00:00")
+                ).date()
+            except Exception:
+                continue
+            if (today - optimized).days < 90:
+                waiting += 1
+
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
+            quota_value = "ВИЧЕРПАНО"
+            quota_note = f"скидання: {budget['reset']}"
+        else:
+            quota_value = f"{budget['remaining']} од."
+            quota_note = (
+                f"резерв {budget['reserve']} · автоответів ≈{budget['reply_capacity']}"
+            )
+
+        self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
+        self.center_prepared.set_value(str(prepared), "відео готові до безпечних правок")
+        self.center_comments.set_value(str(queued), "нові / не оброблені")
+        self.center_quota.set_value(quota_value, quota_note)
+        self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
@@ -1864,6 +2023,61 @@ class MainWindow(QMainWindow):
                 return
             self._error("Помилка YouTube Analytics", exc)
 
+    def _build_log_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        controls = QHBoxLayout()
+        refresh_btn = QPushButton("Оновити журнал")
+        refresh_btn.clicked.connect(self.reload_action_log)
+        controls.addWidget(refresh_btn)
+        controls.addWidget(
+            QLabel("Показуються останні дії для активного каналу.")
+        )
+        controls.addStretch()
+
+        self.action_log_table = QTableWidget(0, 4)
+        self.action_log_table.setHorizontalHeaderLabels(
+            ["Час", "Категорія", "Дія", "Деталі"]
+        )
+        header = self.action_log_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        self.action_log_table.setColumnWidth(0, 180)
+        self.action_log_table.setColumnWidth(1, 130)
+        self.action_log_table.setColumnWidth(2, 220)
+        self._configure_table(self.action_log_table)
+
+        layout.addLayout(controls)
+        layout.addWidget(self.action_log_table)
+        self.tabs.addTab(page, "Журнал")
+
+    def reload_action_log(self) -> None:
+        if not hasattr(self, "action_log_table"):
+            return
+        rows = recent_action_log(
+            self.conn,
+            profile=self.current_profile,
+            limit=250,
+        )
+        self.action_log_table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            created = str(row["created_at"] or "")
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                created = dt.astimezone().strftime("%d.%m.%Y %H:%M:%S")
+            except Exception:
+                pass
+            values = [
+                created,
+                str(row["category"] or ""),
+                str(row["action"] or ""),
+                str(row["details"] or ""),
+            ]
+            for column, value in enumerate(values):
+                self.action_log_table.setItem(
+                    index, column, QTableWidgetItem(value)
+                )
+
     def _build_settings_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -1911,6 +2125,32 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        for profile_key in PROFILE_TARGETS:
+            for suffix, legacy_key, default_value in (
+                ("daily_limit", "auto_reply_daily_limit", DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                ("scan_limit", "auto_reply_scan_limit", DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                ("max_age_hours", "auto_reply_max_age_hours", DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+            ):
+                target_key = f"auto_reply_{suffix}_{profile_key}"
+                if get_setting(self.conn, target_key, "__missing__") == "__missing__":
+                    set_setting(
+                        self.conn,
+                        target_key,
+                        get_setting(self.conn, legacy_key, str(default_value)),
+                    )
+            for category in DEFAULT_REPLY_TEMPLATES:
+                target_key = f"reply_template_{profile_key}_{category}"
+                if get_setting(self.conn, target_key, "__missing__") == "__missing__":
+                    set_setting(
+                        self.conn,
+                        target_key,
+                        get_setting(
+                            self.conn,
+                            f"reply_template_{category}",
+                            DEFAULT_REPLY_TEMPLATES[category],
+                        ),
+                    )
+
         if get_setting(self.conn, "auto_reply_daily_limit", "5") == "5":
             set_setting(self.conn, "auto_reply_daily_limit", "30")
         if get_setting(self.conn, "auto_reply_scan_limit", "5") == "5":
@@ -1946,8 +2186,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_daily_limit",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    f"auto_reply_daily_limit_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_daily_limit",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    ),
                 )
             )
         )
@@ -1959,8 +2203,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_scan_limit",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    f"auto_reply_scan_limit_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_scan_limit",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    ),
                 )
             )
         )
@@ -1973,8 +2221,12 @@ class MainWindow(QMainWindow):
             int(
                 get_setting(
                     self.conn,
-                    "auto_reply_max_age_hours",
-                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    f"auto_reply_max_age_hours_{self.current_profile}",
+                    get_setting(
+                        self.conn,
+                        "auto_reply_max_age_hours",
+                        str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    ),
                 )
             )
         )
@@ -1991,8 +2243,12 @@ class MainWindow(QMainWindow):
             edit = QLineEdit(
                 get_setting(
                     self.conn,
-                    f"reply_template_{category}",
-                    DEFAULT_REPLY_TEMPLATES[category],
+                    f"reply_template_{self.current_profile}_{category}",
+                    get_setting(
+                        self.conn,
+                        f"reply_template_{category}",
+                        DEFAULT_REPLY_TEMPLATES[category],
+                    ),
                 )
             )
             edit.setPlaceholderText(label)
@@ -2040,6 +2296,21 @@ class MainWindow(QMainWindow):
         oauth_btn = QPushButton("Вибрати JSON клієнта OAuth")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
+        self.quota_reserve_spin = QSpinBox()
+        self.quota_reserve_spin.setRange(0, 9000)
+        self.quota_reserve_spin.setSingleStep(250)
+        self.quota_reserve_spin.setSuffix(" од.")
+        self.quota_reserve_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    "youtube_quota_reserve_units",
+                    str(QUOTA_RESERVE_DEFAULT),
+                )
+            )
+        )
+        self.quota_reserve_spin.valueChanged.connect(self.save_quota_reserve)
+
         self.youtube_quota_label = QLabel()
         self.refresh_youtube_quota_label()
         self.version_label = QLabel(f"Версія: {__version__}")
@@ -2070,6 +2341,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
+        layout.addWidget(QLabel("YouTube API · резерв для важливих операцій"))
+        layout.addWidget(self.quota_reserve_spin)
         layout.addWidget(QLabel("YouTube API · квота"))
         layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
@@ -2227,12 +2500,19 @@ class MainWindow(QMainWindow):
     def refresh_youtube_quota_label(self) -> None:
         if not hasattr(self, "youtube_quota_label"):
             return
-        used = today_quota_units(self.conn)
-        exhausted = quota_exhausted(self.conn)
-        state = "ВИЧЕРПАНО" if exhausted else "доступна"
-        self.youtube_quota_label.setText(
-            f"Враховано застосунком: ≈{used}/{YOUTUBE_DAILY_QUOTA_DEFAULT} од. квоти · {state}"
-        )
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
+            text = (
+                f"ВИЧЕРПАНО · враховано ≈{budget['used']}/"
+                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · скидання {budget['reset']}"
+            )
+        else:
+            text = (
+                f"Враховано ≈{budget['used']}/{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
+                f"залишок ≈{budget['remaining']} · резерв {budget['reserve']} · "
+                f"доступно для автоответів ≈{budget['reply_capacity']} відповідей"
+            )
+        self.youtube_quota_label.setText(text)
 
     def _quota_update_video(self, video_id: str, **kwargs) -> None:
         if quota_exhausted(self.conn):
@@ -4185,18 +4465,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 continue
 
-            video_ids = [
-                row["video_id"]
-                for row in self.conn.execute(
-                    "SELECT video_id FROM videos "
-                    "WHERE profile=? AND privacy_status='public' "
-                    "ORDER BY published_at DESC LIMIT 20",
-                    (profile,),
-                ).fetchall()
-            ]
-            if not video_ids:
-                continue
-
             default_auto = (
                 get_setting(self.conn, "auto_reply_enabled", "0")
                 if profile == "main"
@@ -4207,24 +4475,47 @@ class MainWindow(QMainWindow):
                 f"auto_reply_enabled_{profile}",
                 default_auto,
             ) == "1"
+            daily_limit = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_daily_limit_{profile}",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                )
+            )
+            scan_limit = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_scan_limit_{profile}",
+                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                )
+            )
+            age_hours = int(
+                get_setting(
+                    self.conn,
+                    f"auto_reply_max_age_hours_{profile}",
+                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                )
+            )
 
             try:
-                stats = scan_comments(
+                stats = scan_channel_comments(
                     client,
                     self.conn,
-                    video_ids,
+                    target_id,
                     auto_reply=auto_enabled,
-                    max_auto_replies=self.daily_limit_spin.value(),
-                    max_auto_replies_per_scan=self.scan_limit_spin.value(),
-                    max_auto_age_hours=self.age_limit_spin.value(),
+                    max_auto_replies=daily_limit,
+                    max_auto_replies_per_scan=scan_limit,
+                    max_auto_age_hours=age_hours,
                 )
                 summaries.append(
-                    f"{PROFILE_LABELS[profile]}: {stats['seen']} ком."
+                    f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
+                    f"авто {stats['auto_replied']}, API {stats['api_reads']}"
                 )
-            except Exception as exc:
+            except Exception:
                 summaries.append(f"{PROFILE_LABELS[profile]}: помилка")
 
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         if summaries:
             self.statusBar().showMessage(" · ".join(summaries))
@@ -4233,40 +4524,29 @@ class MainWindow(QMainWindow):
         if silent and not self.background_box.isChecked():
             return
         profile = self.current_profile
-        video_ids = [
-            row["video_id"]
-            for row in self.conn.execute(
-                "SELECT video_id FROM videos "
-                "WHERE profile=? AND privacy_status='public' "
-                "ORDER BY published_at DESC LIMIT 20",
-                (profile,),
-            ).fetchall()
-        ]
-        if not video_ids:
-            if not silent:
-                QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
-            return
         try:
-            stats = scan_comments(
+            stats = scan_channel_comments(
                 self.client,
                 self.conn,
-                video_ids,
+                PROFILE_TARGETS[profile],
                 auto_reply=self.auto_box.isChecked(),
                 max_auto_replies=self.daily_limit_spin.value(),
                 max_auto_replies_per_scan=self.scan_limit_spin.value(),
                 max_auto_age_hours=self.age_limit_spin.value(),
             )
             self.reload_comments()
+            self.reload_action_log()
             self.statusBar().showMessage(
-                "Коментарі: {seen} · черга: {queued} · "
-                "автовідповіді: {auto_replied} · вже відповіли: {already_replied} · "
-                "на перевірку: {skipped_review} · застарілі: {skipped_old} · "
-                "ліміт: {skipped_limit} · без коментарів: {skipped_disabled} · "
-                "квота: {quota_blocked}".format(**stats)
+                "Нові: {seen} · черга: {queued} · авто: {auto_replied} · "
+                "вже відповіли: {already_replied} · перевірка: {skipped_review} · "
+                "ліміт: {skipped_limit} · API читань: {api_reads} · "
+                "відомих пропущено: {known_skipped} · квота: {quota_blocked}".format(
+                    **stats
+                )
             )
         except Exception as exc:
             if silent:
-                self.statusBar().showMessage(f"Фонова перевірка: {exc}")
+                self.statusBar().showMessage("Фонова перевірка коментарів не виконана")
             else:
                 self._error("Помилка коментарів", exc)
 
@@ -4282,31 +4562,18 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        profile = self.current_profile
-        video_ids = [
-            row["video_id"]
-            for row in self.conn.execute(
-                "SELECT video_id FROM videos "
-                "WHERE profile=? AND privacy_status='public' "
-                "ORDER BY published_at DESC LIMIT 20",
-                (profile,),
-            ).fetchall()
-        ]
-        if not video_ids:
-            QMessageBox.information(self, APP_NAME, "Спочатку синхронізуйте відео.")
-            return
-
         try:
-            stats = scan_comments(
+            stats = scan_channel_comments(
                 self.client,
                 self.conn,
-                video_ids,
+                PROFILE_TARGETS[self.current_profile],
                 auto_reply=True,
                 max_auto_replies=self.daily_limit_spin.value(),
                 max_auto_replies_per_scan=1,
                 max_auto_age_hours=self.age_limit_spin.value(),
             )
             self.reload_comments()
+            self.reload_action_log()
             if stats["auto_replied"] == 1:
                 QMessageBox.information(
                     self,
@@ -4314,11 +4581,14 @@ class MainWindow(QMainWindow):
                     "Тест успішний: надіслано 1 безпечну автовідповідь.",
                 )
             elif stats["quota_blocked"] > 0:
+                budget = quota_budget_status(self.conn)
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Денну квоту YouTube Data API вже вичерпано. "
-                    "Тестову відповідь не відправлено. Спробуйте після скидання квоти.",
+                    "Тестову відповідь не відправлено через обмеження квоти.\n"
+                    f"Залишок: ≈{budget['remaining']} од. · "
+                    f"резерв: {budget['reserve']} од.\n"
+                    f"Скидання: {budget['reset']}.",
                 )
             else:
                 QMessageBox.information(
@@ -4432,8 +4702,8 @@ class MainWindow(QMainWindow):
 
         self.update_dashboard()
         if hasattr(self, "auto_quota_label"):
-            safe_used = today_auto_reply_count(self.conn)
-            total_used = today_reply_count(self.conn)
+            safe_used = today_auto_reply_count(self.conn, self.current_profile)
+            total_used = today_reply_count(self.conn, self.current_profile)
             daily_limit = (
                 self.daily_limit_spin.value()
                 if hasattr(self, "daily_limit_spin")
@@ -4483,28 +4753,44 @@ class MainWindow(QMainWindow):
 
     def save_reply_template(self, category: str, value: str) -> None:
         text = value.strip() or DEFAULT_REPLY_TEMPLATES[category]
-        set_setting(self.conn, f"reply_template_{category}", text)
-        if category in self.reply_template_edits:
-            self.reply_template_edits[category][1].setText(text)
-        self.statusBar().showMessage("Шаблон автовідповіді збережено")
-
-    def save_auto_limits(self, _value: int = 0) -> None:
         set_setting(
             self.conn,
-            "auto_reply_daily_limit",
+            f"reply_template_{self.current_profile}_{category}",
+            text,
+        )
+        if category in self.reply_template_edits:
+            self.reply_template_edits[category][1].setText(text)
+        self.statusBar().showMessage(
+            f"Шаблон автовідповіді збережено для {PROFILE_LABELS[self.current_profile]}"
+        )
+
+    def save_auto_limits(self, _value: int = 0) -> None:
+        profile = self.current_profile
+        set_setting(
+            self.conn,
+            f"auto_reply_daily_limit_{profile}",
             str(self.daily_limit_spin.value()),
         )
         set_setting(
             self.conn,
-            "auto_reply_scan_limit",
+            f"auto_reply_scan_limit_{profile}",
             str(self.scan_limit_spin.value()),
         )
         set_setting(
             self.conn,
-            "auto_reply_max_age_hours",
+            f"auto_reply_max_age_hours_{profile}",
             str(self.age_limit_spin.value()),
         )
         self.reload_comments()
+
+    def save_quota_reserve(self, _value: int = 0) -> None:
+        set_setting(
+            self.conn,
+            "youtube_quota_reserve_units",
+            str(self.quota_reserve_spin.value()),
+        )
+        self.refresh_youtube_quota_label()
+        self.update_task_center()
 
     def save_auto_setting(self, _state: int) -> None:
         set_setting(
