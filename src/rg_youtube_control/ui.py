@@ -1102,19 +1102,6 @@ class MainWindow(QMainWindow):
         )
         scheduled_center_btn = QPushButton("Центр запланованих")
         scheduled_center_btn.clicked.connect(self.show_scheduled_center)
-        fetch_scheduled_btn = QPushButton("Пакети запланованих")
-        fetch_scheduled_btn.clicked.connect(
-            self.fetch_scheduled_packages
-        )
-        audit_scheduled_btn = QPushButton("Перевірити заплановані")
-        audit_scheduled_btn.clicked.connect(
-            self.audit_scheduled_packages
-        )
-        apply_scheduled_btn = QPushButton("Застосувати заплановані")
-        apply_scheduled_btn.clicked.connect(
-            self.apply_ready_scheduled_packages
-        )
-
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
         sync_row.addWidget(potential_btn)
@@ -1123,9 +1110,6 @@ class MainWindow(QMainWindow):
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
         sync_row.addWidget(scheduled_center_btn)
-        sync_row.addWidget(fetch_scheduled_btn)
-        sync_row.addWidget(audit_scheduled_btn)
-        sync_row.addWidget(apply_scheduled_btn)
         sync_row.addStretch()
 
         safe_row.addWidget(QLabel("Безпечні правки:"))
@@ -4663,6 +4647,10 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        if not self._prechange_backup_or_warn(
+            f"перед пакетом запланованих · {self.current_profile}"
+        ):
+            return
 
         import json
 
@@ -4964,6 +4952,10 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        if not self._prechange_backup_or_warn(
+            f"перед безпечним пакетом архіву · {self.current_profile}"
+        ):
+            return
 
         changed_ids: list[str] = []
         skipped_ids: list[str] = []
@@ -5071,6 +5063,11 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
+            return
+        if len(video_ids) > 1 and not self._prechange_backup_or_warn(
+            f"перед безпечною оптимізацією {len(video_ids)} відео · "
+            f"{self.current_profile}"
+        ):
             return
 
         changed = 0
