@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS metadata_history (
 );
 CREATE INDEX IF NOT EXISTS idx_metadata_history_video
   ON metadata_history(video_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS optimization_events (
+  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  history_id INTEGER,
+  video_id TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  changed_fields TEXT NOT NULL DEFAULT '',
+  optimized_at TEXT NOT NULL,
+  UNIQUE(history_id)
+);
+CREATE INDEX IF NOT EXISTS idx_optimization_events_profile_date
+  ON optimization_events(profile, optimized_at DESC);
 CREATE TABLE IF NOT EXISTS optimization_drafts (
   video_id TEXT PRIMARY KEY,
   new_title TEXT NOT NULL,
@@ -289,6 +301,40 @@ def latest_metadata_snapshot(
         (video_id,),
     ).fetchone()
 
+
+
+def record_optimization_event(
+    conn: sqlite3.Connection,
+    *,
+    history_id: int | None,
+    video_id: str,
+    profile: str,
+    reason: str,
+    changed_fields: str,
+    optimized_at: str | None = None,
+) -> int:
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO optimization_events(
+            history_id,video_id,profile,reason,changed_fields,optimized_at
+        ) VALUES(?,?,?,?,?,?)""",
+        (history_id, video_id, profile, reason, changed_fields, optimized_at or utc_now()),
+    )
+    conn.commit()
+    return int(cursor.lastrowid or 0)
+
+def optimization_events(
+    conn: sqlite3.Connection, profile: str, limit: int = 30
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT e.event_id,e.history_id,e.video_id,e.profile,e.reason,
+                  e.changed_fields,e.optimized_at,v.title
+           FROM optimization_events e
+           LEFT JOIN videos v ON v.video_id=e.video_id
+           WHERE e.profile=?
+           ORDER BY e.optimized_at DESC,e.event_id DESC
+           LIMIT ?""",
+        (profile, int(limit)),
+    ).fetchall()
 
 def save_optimization_draft(
     conn: sqlite3.Connection,

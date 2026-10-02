@@ -58,6 +58,8 @@ from .db import (
     get_optimization_draft,
     get_setting,
     latest_metadata_snapshot,
+    optimization_events,
+    record_optimization_event,
     save_metadata_snapshot,
     save_optimization_draft,
     set_comment_status,
@@ -439,6 +441,7 @@ class MainWindow(QMainWindow):
         self._build_optimization_tab()
         self._build_comments_tab()
         self._build_analytics_tab()
+        self._build_results_tab()
         self._build_settings_tab()
 
         self.scan_timer = QTimer(self)
@@ -892,6 +895,283 @@ class MainWindow(QMainWindow):
         layout.addWidget(hint)
         layout.addWidget(self.analytics_text, 1)
         self.tabs.addTab(page, "Аналітика")
+
+    def _build_results_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        controls = QHBoxLayout()
+
+        self.results_period_combo = QComboBox()
+        self.results_period_combo.addItem("7 днів", 7)
+        self.results_period_combo.addItem("28 днів", 28)
+        self.results_period_combo.addItem("90 днів", 90)
+        self.results_period_combo.setCurrentIndex(0)
+
+        refresh_btn = QPushButton("Оновити результати")
+        refresh_btn.setProperty("role", "primary")
+        refresh_btn.clicked.connect(self.load_optimization_results)
+
+        controls.addWidget(QLabel("Порівняння:"))
+        controls.addWidget(self.results_period_combo)
+        controls.addWidget(refresh_btn)
+        controls.addStretch()
+
+        hint = QLabel(
+            "Порівнюються однакові періоди ДО і ПІСЛЯ оптимізації. "
+            "День зміни не входить у жодне вікно. Якщо повний період ще "
+            "не минув, результат не оцінюється."
+        )
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+
+        self.results_table = QTableWidget(0, 14)
+        self.results_table.setHorizontalHeaderLabels([
+            "Дата", "Відео", "Зміни", "Статус",
+            "Перегляди ДО", "ПІСЛЯ", "Δ",
+            "Watch ДО, год", "ПІСЛЯ",
+            "AVD ДО", "ПІСЛЯ",
+            "Підписки ДО", "ПІСЛЯ", "Період",
+        ])
+        self.results_table.horizontalHeader().setStretchLastSection(True)
+        self._configure_table(self.results_table)
+
+        layout.addLayout(controls)
+        layout.addWidget(hint)
+        layout.addWidget(self.results_table)
+        self.tabs.addTab(page, "Результати")
+
+    @staticmethod
+    def _optimization_reason_label(reason: str) -> str:
+        return {
+            "safe_archive_batch": "посилання + хештеги",
+            "safe_optimization": "посилання + хештеги",
+            "content_package": "назва + опис + теги",
+            "scheduled_package_batch": "запланований стрім",
+            "metadata_edit": "ручні метадані",
+        }.get(reason, reason.replace("_", " "))
+
+    @staticmethod
+    def _pct_change(before: float, after: float) -> str:
+        if before <= 0:
+            return "—" if after <= 0 else "+∞"
+        value = (after - before) / before * 100.0
+        return f"{value:+.1f}%"
+
+    def _video_window_metrics(
+        self, video_id: str, start_date: str, end_date: str
+    ) -> dict[str, float]:
+        report = self.client.analytics_report(
+            start_date=start_date,
+            end_date=end_date,
+            metrics=(
+                "views,estimatedMinutesWatched,averageViewDuration,"
+                "subscribersGained"
+            ),
+            filters=f"video=={video_id}",
+        )
+        rows = self._analytics_result_rows(report)
+        row = rows[0] if rows else [0, 0, 0, 0]
+        return {
+            "views": float(row[0] or 0),
+            "watch_minutes": float(row[1] or 0),
+            "avd_seconds": float(row[2] or 0),
+            "subs": float(row[3] or 0),
+        }
+
+    def _import_historical_optimization_events(self) -> int:
+        setting_key = f"optimization_history_backfill_done_{self.current_profile}"
+        if get_setting(self.conn, setting_key, "0") == "1":
+            return 0
+
+        rows = self.conn.execute(
+            """SELECT h.history_id,h.video_id,h.title,h.description,h.tags_json,
+                      h.reason,h.created_at
+               FROM metadata_history h
+               JOIN videos v ON v.video_id=h.video_id
+               WHERE v.profile=?
+                 AND h.reason IN (
+                   'before_safe_archive_batch',
+                   'before_safe_optimization',
+                   'before_content_package',
+                   'before_scheduled_package_batch'
+                 )
+               ORDER BY h.history_id DESC
+               LIMIT 300""",
+            (self.current_profile,),
+        ).fetchall()
+        if not rows:
+            set_setting(self.conn, setting_key, "1")
+            return 0
+
+        unique_rows = []
+        seen_snapshots = set()
+        for row in rows:
+            key = (
+                str(row["video_id"]), str(row["reason"]),
+                str(row["title"]), str(row["description"]), str(row["tags_json"]),
+            )
+            if key in seen_snapshots:
+                continue
+            seen_snapshots.add(key)
+            unique_rows.append(row)
+
+        video_ids = sorted({str(row["video_id"]) for row in unique_rows})
+        current_items = self.client.video_details(video_ids) if video_ids else []
+        current_by_id = {str(item.get("id")): item for item in current_items}
+        imported = 0
+        reason_map = {
+            "before_safe_archive_batch": ("safe_archive_batch", "посилання + хештеги"),
+            "before_safe_optimization": ("safe_optimization", "посилання + хештеги"),
+            "before_content_package": ("content_package", "назва + опис + теги"),
+            "before_scheduled_package_batch": ("scheduled_package_batch", "назва + опис + теги"),
+        }
+        for row in unique_rows:
+            item = current_by_id.get(str(row["video_id"]))
+            if not item:
+                continue
+            snippet = item.get("snippet", {})
+            current_title = str(snippet.get("title") or "")
+            current_description = str(snippet.get("description") or "")
+            current_tags = list(snippet.get("tags") or [])
+            try:
+                old_tags = json.loads(row["tags_json"] or "[]")
+            except Exception:
+                old_tags = []
+            changed = (
+                current_title != str(row["title"] or "")
+                or current_description != str(row["description"] or "")
+                or current_tags != list(old_tags)
+            )
+            if not changed:
+                continue
+            reason, fields = reason_map[str(row["reason"])]
+            event_id = record_optimization_event(
+                self.conn,
+                history_id=int(row["history_id"]),
+                video_id=str(row["video_id"]),
+                profile=self.current_profile,
+                reason=reason,
+                changed_fields=fields + " · історія",
+                optimized_at=str(row["created_at"] or ""),
+            )
+            if event_id:
+                imported += 1
+
+        set_setting(self.conn, setting_key, "1")
+        return imported
+
+    def load_optimization_results(self) -> None:
+        try:
+            imported = self._import_historical_optimization_events()
+        except Exception as exc:
+            imported = 0
+            self.statusBar().showMessage(f"Імпорт історії: {exc}")
+        days = int(self.results_period_combo.currentData() or 7)
+        events = optimization_events(self.conn, self.current_profile, limit=30)
+        self.results_table.setRowCount(0)
+        if not events:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Ще немає зафіксованих успішних оптимізацій для аналізу. "
+                "Наступні застосовані зміни будуть записуватися автоматично.",
+            )
+            return
+
+        today = datetime.now(timezone.utc).date()
+        prepared = []
+        complete_events = 0
+        self.statusBar().showMessage("Аналіз результатів оптимізації…")
+        QApplication.processEvents()
+
+        for event in events:
+            raw_dt = str(event["optimized_at"] or "")
+            try:
+                optimized_dt = datetime.fromisoformat(raw_dt.replace("Z", "+00:00"))
+                optimized_date = optimized_dt.date()
+            except Exception:
+                continue
+
+            before_start = optimized_date - timedelta(days=days)
+            before_end = optimized_date - timedelta(days=1)
+            after_start = optimized_date + timedelta(days=1)
+            after_end = optimized_date + timedelta(days=days)
+            remaining_days = max(0, (after_end - today).days + 1)
+
+            before = None
+            after = None
+            error_text = ""
+            if remaining_days == 0:
+                try:
+                    before = self._video_window_metrics(
+                        str(event["video_id"]),
+                        before_start.isoformat(),
+                        before_end.isoformat(),
+                    )
+                    after = self._video_window_metrics(
+                        str(event["video_id"]),
+                        after_start.isoformat(),
+                        after_end.isoformat(),
+                    )
+                    complete_events += 1
+                except Exception as exc:
+                    error_text = str(exc)
+
+            prepared.append((
+                event, before, after, remaining_days, error_text
+            ))
+
+        self.results_table.setRowCount(len(prepared))
+        for row_index, (event, before, after, remaining_days, error_text) in enumerate(prepared):
+            if error_text:
+                status = "помилка Analytics"
+            elif remaining_days > 0:
+                status = f"ще {remaining_days} дн."
+            else:
+                status = "готово"
+
+            if before is not None and after is not None:
+                delta = self._pct_change(before["views"], after["views"])
+                values = [
+                    str(event["optimized_at"] or "")[:10],
+                    str(event["title"] or event["video_id"]),
+                    str(event["changed_fields"] or self._optimization_reason_label(str(event["reason"] or ""))),
+                    status,
+                    f"{int(before['views']):,}",
+                    f"{int(after['views']):,}",
+                    delta,
+                    f"{before['watch_minutes'] / 60:.1f}",
+                    f"{after['watch_minutes'] / 60:.1f}",
+                    f"{before['avd_seconds']:.0f} с",
+                    f"{after['avd_seconds']:.0f} с",
+                    f"{int(before['subs']):,}",
+                    f"{int(after['subs']):,}",
+                    f"{days} днів",
+                ]
+            else:
+                values = [
+                    str(event["optimized_at"] or "")[:10],
+                    str(event["title"] or event["video_id"]),
+                    str(event["changed_fields"] or self._optimization_reason_label(str(event["reason"] or ""))),
+                    status, "—", "—", "—", "—", "—", "—", "—", "—", "—", f"{days} днів"
+                ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                if column == 3:
+                    item.setForeground(QColor(SUCCESS if status == "готово" else WARNING))
+                    if error_text:
+                        item.setToolTip(error_text)
+                elif column == 6 and value not in {"—", "+∞"}:
+                    try:
+                        item.setForeground(QColor(SUCCESS if float(str(value).rstrip('%')) >= 0 else YOUTUBE_RED))
+                    except Exception:
+                        pass
+                self.results_table.setItem(row_index, column, item)
+
+        suffix = f" · імпортовано з історії {imported}" if imported else ""
+        self.statusBar().showMessage(
+            f"Результати: {len(prepared)} подій · готово до порівняння {complete_events}{suffix}"
+        )
 
     @staticmethod
     def _analytics_result_rows(report: dict) -> list[list]:
@@ -2609,7 +2889,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
-            save_metadata_snapshot(
+            history_id = save_metadata_snapshot(
                 self.conn,
                 video_id,
                 current_title,
@@ -2622,6 +2902,11 @@ class MainWindow(QMainWindow):
                 title=new_title,
                 description=final_description,
                 tags=new_tags,
+            )
+            record_optimization_event(
+                self.conn, history_id=history_id, video_id=video_id,
+                profile=self.current_profile, reason="content_package",
+                changed_fields="назва + опис + теги",
             )
             set_optimization_draft_status(self.conn, video_id, "applied")
             sync_specific_videos(self.client, self.conn, [video_id])
@@ -2810,7 +3095,7 @@ class MainWindow(QMainWindow):
                 if not new_title:
                     raise RuntimeError("Назва не може бути порожньою.")
 
-                save_metadata_snapshot(
+                history_id = save_metadata_snapshot(
                     self.conn,
                     video_id,
                     current_title,
@@ -2823,6 +3108,11 @@ class MainWindow(QMainWindow):
                     title=new_title,
                     description=final_description,
                     tags=new_tags,
+                )
+                record_optimization_event(
+                    self.conn, history_id=history_id, video_id=video_id,
+                    profile=self.current_profile, reason="scheduled_package_batch",
+                    changed_fields="назва + опис + теги",
                 )
                 set_optimization_draft_status(self.conn, video_id, "applied")
                 changed_ids.append(video_id)
@@ -2933,7 +3223,7 @@ class MainWindow(QMainWindow):
                         skipped_ids.append(video_id)
                         continue
 
-                    save_metadata_snapshot(
+                    history_id = save_metadata_snapshot(
                         self.conn,
                         video_id,
                         title,
@@ -2942,6 +3232,11 @@ class MainWindow(QMainWindow):
                         "before_safe_archive_batch",
                     )
                     self._quota_update_video(video_id, description=fix.after)
+                    record_optimization_event(
+                        self.conn, history_id=history_id, video_id=video_id,
+                        profile=self.current_profile, reason="safe_archive_batch",
+                        changed_fields="посилання + хештеги",
+                    )
                     self._store_local_safe_audit(video_id, fix.after, tags)
                     changed_ids.append(video_id)
                 except Exception as exc:
@@ -3029,7 +3324,7 @@ class MainWindow(QMainWindow):
                 if not fix.changes or fix.after == description:
                     skipped += 1
                     continue
-                save_metadata_snapshot(
+                history_id = save_metadata_snapshot(
                     self.conn,
                     video_id,
                     title,
@@ -3038,6 +3333,11 @@ class MainWindow(QMainWindow):
                     "before_safe_optimization",
                 )
                 self._quota_update_video(video_id, description=fix.after)
+                record_optimization_event(
+                    self.conn, history_id=history_id, video_id=video_id,
+                    profile=self.current_profile, reason="safe_optimization",
+                    changed_fields="посилання + хештеги",
+                )
                 changed += 1
                 changed_ids.append(video_id)
 
