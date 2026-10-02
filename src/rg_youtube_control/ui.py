@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -684,15 +685,15 @@ class MainWindow(QMainWindow):
         safe_row = QHBoxLayout()
         content_row = QHBoxLayout()
 
-        sync_all_btn = QPushButton("Синхронізувати весь архів")
+        sync_all_btn = QPushButton("Синхронізувати архів")
         sync_all_btn.clicked.connect(self.sync_full_archive)
         refresh_btn = QPushButton("Оновити чергу")
         refresh_btn.clicked.connect(self.reload_optimization_queue)
-        potential_btn = QPushButton("Оновити ТОП потенціал")
+        potential_btn = QPushButton("ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
-        prepare_queue_btn = QPushButton("Підготувати 50 на завтра")
+        prepare_queue_btn = QPushButton("Підготувати 50")
         prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
-        preview_btn = QPushButton("Попередній перегляд безпечних правок")
+        preview_btn = QPushButton("Перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
@@ -731,7 +732,7 @@ class MainWindow(QMainWindow):
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
-        fetch_scheduled_btn = QPushButton("Отримати пакети запланованих")
+        fetch_scheduled_btn = QPushButton("Пакети запланованих")
         fetch_scheduled_btn.clicked.connect(
             self.fetch_scheduled_packages
         )
@@ -739,7 +740,7 @@ class MainWindow(QMainWindow):
         audit_scheduled_btn.clicked.connect(
             self.audit_scheduled_packages
         )
-        apply_scheduled_btn = QPushButton("Застосувати готові заплановані")
+        apply_scheduled_btn = QPushButton("Застосувати заплановані")
         apply_scheduled_btn.clicked.connect(
             self.apply_ready_scheduled_packages
         )
@@ -795,7 +796,18 @@ class MainWindow(QMainWindow):
         self.optimization_table.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self.optimization_table.horizontalHeader().setStretchLastSection(True)
+        opt_header = self.optimization_table.horizontalHeader()
+        opt_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        opt_header.setStretchLastSection(True)
+        opt_header.setMinimumSectionSize(72)
+        for column, width in {
+            0: 110, 1: 110, 2: 90, 3: 115, 4: 260, 5: 95,
+            6: 75, 7: 105, 8: 100, 9: 135, 10: 190, 11: 260,
+        }.items():
+            self.optimization_table.setColumnWidth(column, width)
+        self.optimization_table.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self._configure_table(self.optimization_table)
         self.optimization_table.doubleClicked.connect(
             lambda _index: self.edit_content_package()
@@ -970,7 +982,19 @@ class MainWindow(QMainWindow):
             "Сер. тривалість ДО", "ПІСЛЯ",
             "Підписники ДО", "ПІСЛЯ", "Період",
         ])
-        self.results_table.horizontalHeader().setStretchLastSection(True)
+        results_header = self.results_table.horizontalHeader()
+        results_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        results_header.setStretchLastSection(True)
+        results_header.setMinimumSectionSize(72)
+        for column, width in {
+            0: 95, 1: 260, 2: 170, 3: 105, 4: 105, 5: 95, 6: 75,
+            7: 105, 8: 95, 9: 85, 10: 85, 11: 145, 12: 95,
+            13: 145, 14: 95, 15: 110, 16: 95, 17: 85,
+        }.items():
+            self.results_table.setColumnWidth(column, width)
+        self.results_table.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self._configure_table(self.results_table)
 
         layout.addLayout(controls)
@@ -1236,7 +1260,16 @@ class MainWindow(QMainWindow):
             imported = self._import_historical_optimization_events()
         except Exception as exc:
             imported = 0
-            self.statusBar().showMessage(f"Імпорт історії: {exc}")
+            error_text = str(exc)
+            if "403" in error_text or "quota" in error_text.casefold():
+                self.statusBar().showMessage(
+                    "Імпорт історії: YouTube API тимчасово недоступний "
+                    "(квота або доступ). Локальні дані не пошкоджені."
+                )
+            else:
+                self.statusBar().showMessage(
+                    "Імпорт історії не виконано. Локальні дані не пошкоджені."
+                )
 
         days = int(self.results_period_combo.currentData() or 7)
         events = optimization_events(self.conn, self.current_profile, limit=100)
