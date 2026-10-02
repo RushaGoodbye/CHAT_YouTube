@@ -26,6 +26,9 @@ HASHTAG_ONLY_LINE_RE = re.compile(
     r"^\s*(?:#[\wА-Яа-яІіЇїЄєҐґ]+\s*){1,15}$", re.UNICODE
 )
 TOPIC_HASHTAGS = (
+    (("зсу", "всу", "збройн", "вооруженн"), "#зсу"),
+    (("підтрим", "поддерж"), "#підтримказсу"),
+    (("розіграш", "розыгрыш", "лот"), "#розіграш"),
     (("бензин", "топлив", "азс"), "#бензин"),
     (("эконом", "економ"), "#экономикароссии"),
     (("санкц",), "#санкции"),
@@ -34,16 +37,12 @@ TOPIC_HASHTAGS = (
     (("войн", "війн"), "#война"),
     (("росси", "росі"), "#россия"),
     (("украин", "україн"), "#украина"),
-    (("дрон",), "#дроны"),
-    (("нефт", "нафт"), "#нефть"),
+    (("дрон", "бпла", "безпілот"), "#дроны"),
+    (("нефт", "нафт", "нпз"), "#нефть"),
+    (("крым", "крим"), "#крым"),
+    (("донбасс", "донбас"), "#донбасс"),
+    (("армия", "армі"), "#армия"),
 )
-TOPIC_STOPWORDS = {
-    "этот", "эта", "это", "эти", "как", "что", "кто", "где", "когда",
-    "почему", "зачем", "если", "только", "просто", "очень", "после",
-    "перед", "снова", "свой", "свои", "свою", "наш", "наша", "наши",
-    "его", "ее", "они", "она", "всем", "весь", "все", "для", "про",
-    "shorts", "рашагудбай", "russiagoodbye", "чатрулетка",
-}
 
 def optimized_hashtags(title: str) -> tuple[str, ...]:
     lowered = (title or "").casefold()
@@ -53,19 +52,6 @@ def optimized_hashtags(title: str) -> tuple[str, ...]:
             topics.append(hashtag)
         if len(topics) >= 3:
             break
-
-    if len(topics) < 3:
-        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]{4,}", lowered)
-        for token in tokens:
-            if token in TOPIC_STOPWORDS or token.isdigit():
-                continue
-            hashtag = "#" + token
-            if hashtag in BASE_HASHTAGS or hashtag in topics:
-                continue
-            topics.append(hashtag)
-            if len(topics) >= 3:
-                break
-
     if not topics:
         topics.append("#россия")
     return tuple((*BASE_HASHTAGS, *topics[:3]))
@@ -78,20 +64,20 @@ def _optimize_hashtag_lines(description: str, title: str) -> tuple[str, bool]:
     output: list[str] = []
     replaced = False
     for line in lines:
-        if HASHTAG_ONLY_LINE_RE.match(line):
+        if HASHTAG_ONLY_LINE_RE.fullmatch(line):
             if not replaced:
                 output.append(desired)
                 replaced = True
             continue
         output.append(line)
-    if not replaced:
-        value = "\n".join(output).rstrip()
-        if value:
-            value += "\n\n"
-        value += desired
-        return value, True
     value = "\n".join(output)
-    return value, value != description
+    if replaced:
+        return value, value != description
+    value = value.rstrip()
+    if value:
+        value += "\n\n"
+    value += desired
+    return value, True
 
 SAFE_LINK_ISSUES = frozenset({
     "old_links",
@@ -100,42 +86,9 @@ SAFE_LINK_ISSUES = frozenset({
     "too_many_hashtags",
 })
 
-HASHTAG_ONLY_LINE_RE = re.compile(
-    r"^\s*(?:#[\wА-Яа-яІіЇїЄєҐґ]+\s*)+$",
-    re.UNICODE,
-)
-
 
 def has_safe_link_issue(issues: list[str] | tuple[str, ...]) -> bool:
     return bool(SAFE_LINK_ISSUES.intersection(issues))
-
-
-def _trim_hashtag_only_lines(value: str, limit: int = 3) -> tuple[str, bool]:
-    lines = value.splitlines()
-    kept_elsewhere = 0
-    changed = False
-    output: list[str] = []
-
-    for line in lines:
-        tokens = HASHTAG_RE.findall(line)
-        if not HASHTAG_ONLY_LINE_RE.fullmatch(line):
-            kept_elsewhere += len(tokens)
-            output.append(line)
-            continue
-
-        room = max(0, limit - kept_elsewhere)
-        kept = tokens[:room]
-        kept_elsewhere += len(kept)
-        if len(kept) != len(tokens):
-            changed = True
-        if kept:
-            output.append(" ".join(kept))
-        elif line.strip():
-            changed = True
-
-    result = "\n".join(output)
-    result = re.sub(r"\n{3,}", "\n\n", result).strip()
-    return result, changed
 
 
 def safe_description_fix(description: str, title: str = "") -> SafeFix:
@@ -146,9 +99,6 @@ def safe_description_fix(description: str, title: str = "") -> SafeFix:
     if after != before:
         changes.append("замінено старі посилання")
 
-    after, hashtags_trimmed = _trim_hashtag_only_lines(after, limit=3)
-    if hashtags_trimmed:
-        changes.append("залишено не більше 3 хештегів")
 
     missing_project = PROJECT_LINKS_URL not in after
     missing_donate = DONATE_URL not in after
