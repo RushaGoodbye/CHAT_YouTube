@@ -94,24 +94,24 @@ def validate_chapters(chapters: str) -> tuple[bool, str]:
         return True, ""
     lines = [line.strip() for line in value.splitlines() if line.strip()]
     if len(lines) < 3:
-        return False, "Для ручных глав нужно минимум 3 таймкода."
+        return False, "Для ручних розділів потрібно щонайменше 3 таймкоди."
     points: list[int] = []
     for line in lines:
         match = CHAPTER_LINE_RE.match(line)
         if not match:
-            return False, f"Неверный формат главы: {line}"
+            return False, f"Некоректний формат розділу: {line}"
         second = int(match.group(2))
         third = match.group(3)
         if second > 59 or (third is not None and int(third) > 59):
-            return False, f"Неверное значение времени: {line}"
+            return False, f"Некоректне значення часу: {line}"
         points.append(_chapter_seconds(match))
     if points[0] != 0:
-        return False, "Первая глава должна начинаться с 00:00."
+        return False, "Перший розділ має починатися з 00:00."
     if points != sorted(points) or len(set(points)) != len(points):
-        return False, "Таймкоды должны идти строго по возрастанию."
+        return False, "Таймкоди мають іти строго за зростанням."
     for left, right in zip(points, points[1:]):
         if right - left < 10:
-            return False, "Каждая глава должна длиться минимум 10 секунд."
+            return False, "Кожен розділ має тривати щонайменше 10 секунд."
     return True, ""
 
 def compose_description(description: str, chapters: str) -> str:

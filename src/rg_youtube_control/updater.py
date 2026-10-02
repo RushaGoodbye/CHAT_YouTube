@@ -51,7 +51,7 @@ def _from_manifest(data: dict) -> UpdateInfo | None:
     installer_url = str(data.get("installer_url") or "").strip()
     checksum_url = str(data.get("checksum_url") or "").strip() or None
     if not installer_name or not installer_url:
-        raise RuntimeError("В манифесте обновления нет установщика Windows.")
+        raise RuntimeError("У маніфесті оновлення немає інсталятора Windows.")
 
     return UpdateInfo(
         version=remote,
@@ -85,7 +85,7 @@ def check_for_update() -> UpdateInfo | None:
             checksum = url
 
     if not installer:
-        raise RuntimeError("В релизе нет установщика Windows.")
+        raise RuntimeError("У релізі немає інсталятора Windows.")
 
     return UpdateInfo(
         version=remote,
@@ -125,6 +125,6 @@ def download_update(info: UpdateInfo) -> Path:
         actual = _sha256(installer).lower()
         if expected != actual:
             installer.unlink(missing_ok=True)
-            raise RuntimeError("SHA-256 обновления не совпадает. Установка отменена.")
+            raise RuntimeError("SHA-256 оновлення не збігається. Встановлення скасовано.")
 
     return installer
