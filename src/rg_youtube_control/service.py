@@ -127,6 +127,10 @@ def _quota_day() -> str:
     except Exception:
         return datetime.now(timezone.utc).date().isoformat()
 
+def current_quota_day() -> str:
+    return _quota_day()
+
+
 def _quota_key(name: str) -> str:
     return f"youtube_quota_{name}_{_quota_day()}"
 
