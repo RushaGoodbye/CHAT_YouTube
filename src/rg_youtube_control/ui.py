@@ -45,6 +45,7 @@ from .config import (
     DEFAULT_SCAN_MINUTES,
     DEFAULT_NAS_PACKAGES_PATH,
     DEFAULT_NAS_TRANSCRIPTS_PATH,
+    PACKAGE_BRIDGE_URL,
     PROFILE_LABELS,
     PROFILE_TARGETS,
     app_data_dir,
@@ -62,6 +63,7 @@ from .db import (
     set_setting,
 )
 from .metadata_audit import normalize_links
+from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .optimization import (
     compose_description,
     extract_chapters_from_description,
@@ -678,9 +680,9 @@ class MainWindow(QMainWindow):
         batch_transcript_btn.clicked.connect(
             self.export_scheduled_transcripts_to_nas
         )
-        nas_test_btn = QPushButton("Перевірити NAS")
+        nas_test_btn = QPushButton("Перевірити сховища")
         nas_test_btn.clicked.connect(self.test_nas_transcript_path)
-        import_btn = QPushButton("Імпорт пакета NAS")
+        import_btn = QPushButton("Імпорт пакета")
         import_btn.clicked.connect(self.import_selected_package_from_nas)
         apply_package_btn = QPushButton("Застосувати пакет")
         apply_package_btn.setProperty("role", "primary")
@@ -694,6 +696,10 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem("Архів", "archive")
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
+        )
+        fetch_scheduled_btn = QPushButton("Отримати пакети запланованих")
+        fetch_scheduled_btn.clicked.connect(
+            self.fetch_scheduled_packages
         )
         audit_scheduled_btn = QPushButton("Перевірити заплановані")
         audit_scheduled_btn.clicked.connect(
@@ -709,6 +715,7 @@ class MainWindow(QMainWindow):
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
+        sync_row.addWidget(fetch_scheduled_btn)
         sync_row.addWidget(audit_scheduled_btn)
         sync_row.addWidget(apply_scheduled_btn)
         sync_row.addStretch()
@@ -1713,6 +1720,10 @@ class MainWindow(QMainWindow):
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
+        nas_ok = False
+        bridge_ok = False
+        details: list[str] = []
+
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
             probe = target_dir / "_rg_youtube_control_write_test.txt"
@@ -1726,19 +1737,50 @@ class MainWindow(QMainWindow):
             if check != payload:
                 raise RuntimeError("Контрольне читання не збіглося із записом.")
             probe.unlink(missing_ok=True)
+            nas_ok = True
+            details.append(f"NAS: OK\n{target_dir}")
+        except Exception as exc:
+            details.append(f"NAS: ПОМИЛКА\n{target_dir}\n{exc}")
+
+        try:
+            health = bridge_health(PACKAGE_BRIDGE_URL)
+            bridge_ok = bool(health.get("ok"))
+            if bridge_ok:
+                details.append(
+                    f"Package Bridge: OK\n{PACKAGE_BRIDGE_URL}"
+                )
+            else:
+                details.append(
+                    f"Package Bridge: некоректна відповідь\n{PACKAGE_BRIDGE_URL}"
+                )
+        except Exception as exc:
+            details.append(
+                f"Package Bridge: ПОМИЛКА\n{PACKAGE_BRIDGE_URL}\n{exc}"
+            )
+
+        message = "\n\n".join(details)
+        if nas_ok or bridge_ok:
             QMessageBox.information(
                 self,
-                APP_NAME,
-                f"NAS доступний для запису й читання:\n{target_dir}",
+                "Перевірка сховищ",
+                message,
             )
-            self.statusBar().showMessage("NAS: запис і читання OK")
-        except Exception as exc:
+            self.statusBar().showMessage(
+                "Сховища: " + (
+                    "NAS + Bridge OK"
+                    if nas_ok and bridge_ok
+                    else "резервний канал доступний"
+                )
+            )
+        else:
             QMessageBox.critical(
                 self,
-                "Помилка доступу до NAS",
-                f"Шлях:\n{target_dir}\n\n{exc}",
+                "Помилка доступу до сховищ",
+                message,
             )
-            self.statusBar().showMessage("NAS: помилка запису/читання")
+            self.statusBar().showMessage(
+                "Сховища: NAS і Package Bridge недоступні"
+            )
 
     def _export_transcript_video_to_nas(
         self,
@@ -1752,17 +1794,44 @@ class MainWindow(QMainWindow):
         srt_path = target_dir / f"{video_id}.srt"
         meta_path = target_dir / f"{video_id}.json"
 
+        row = self.conn.execute(
+            "SELECT title FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+
         if srt_path.exists() and srt_path.stat().st_size > 0:
+            srt = srt_path.read_text(encoding="utf-8")
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    meta = {}
+            else:
+                meta = {}
+            meta.update(
+                {
+                    "video_id": video_id,
+                    "channel_profile": self.current_profile,
+                    "channel_id": PROFILE_TARGETS[self.current_profile],
+                    "title": row["title"] if row else "",
+                    "srt_path": str(srt_path),
+                }
+            )
+            try:
+                upload_transcript(
+                    PACKAGE_BRIDGE_URL,
+                    video_id,
+                    srt,
+                    meta,
+                )
+            except Exception:
+                pass
             return srt_path, False
 
         track, srt = self.client.download_best_caption_srt(video_id)
         snippet = track.get("snippet", {})
         srt_path.write_text(srt, encoding="utf-8")
 
-        row = self.conn.execute(
-            "SELECT title FROM videos WHERE video_id=?",
-            (video_id,),
-        ).fetchone()
         meta = {
             "video_id": video_id,
             "channel_profile": self.current_profile,
@@ -1778,6 +1847,15 @@ class MainWindow(QMainWindow):
             json.dumps(meta, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        try:
+            upload_transcript(
+                PACKAGE_BRIDGE_URL,
+                video_id,
+                srt,
+                meta,
+            )
+        except Exception:
+            pass
         return srt_path, True
 
     def export_scheduled_transcripts_to_nas(self) -> None:
@@ -1806,6 +1884,17 @@ class MainWindow(QMainWindow):
             if not (target_dir / f"{row['video_id']}.srt").exists()
         ]
         already = len(rows) - len(pending)
+
+        # Existing NAS transcripts are mirrored to Package Bridge without
+        # consuming YouTube Captions API quota.
+        for row in rows:
+            existing_path = target_dir / f"{row['video_id']}.srt"
+            if not existing_path.exists():
+                continue
+            try:
+                self._export_transcript_video_to_nas(str(row["video_id"]))
+            except Exception:
+                pass
 
         if not pending:
             QMessageBox.information(
@@ -1961,6 +2050,96 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка отримання транскрипту", exc)
 
+    def _save_package_payload(
+        self,
+        video_id: str,
+        payload: dict,
+    ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+        package_video_id = str(payload.get("video_id") or video_id)
+        if package_video_id != video_id:
+            raise RuntimeError(
+                "video_id у пакеті не збігається з вибраним відео."
+            )
+
+        title = _standard_hyphen(
+            str(
+                payload.get("new_title")
+                or payload.get("title")
+                or ""
+            ).strip()
+        )
+        description = _standard_hyphen(
+            str(payload.get("description") or "").strip()
+        )
+        chapters = _standard_hyphen(
+            str(payload.get("chapters") or "").strip()
+        )
+        if not chapters:
+            description, detected_chapters = (
+                extract_chapters_from_description(description)
+            )
+            if detected_chapters:
+                chapters = detected_chapters
+
+        tags_value = payload.get("tags") or []
+        title_variants_value = payload.get("title_variants") or []
+        if isinstance(title_variants_value, str):
+            title_variants = [
+                _standard_hyphen(item.strip())
+                for item in title_variants_value.splitlines()
+                if item.strip()
+            ][:3]
+        else:
+            title_variants = [
+                _standard_hyphen(str(item).strip())
+                for item in title_variants_value
+                if str(item).strip()
+            ][:3]
+
+        if isinstance(tags_value, str):
+            tags = [
+                _standard_hyphen(item.strip())
+                for item in tags_value.replace("\n", ",").split(",")
+                if item.strip()
+            ]
+        else:
+            tags = [
+                _standard_hyphen(str(item).strip())
+                for item in tags_value
+                if str(item).strip()
+            ]
+
+        if not title:
+            raise RuntimeError("У пакеті немає назви.")
+
+        check = validate_content_package(
+            title,
+            description,
+            chapters,
+            tags,
+            title_variants,
+        )
+        requested_status = str(payload.get("status") or "ready")
+        if requested_status not in {"draft", "ready"}:
+            requested_status = "ready"
+        status = (
+            "draft"
+            if check.errors and requested_status == "ready"
+            else requested_status
+        )
+
+        save_optimization_draft(
+            self.conn,
+            video_id,
+            title,
+            description,
+            chapters,
+            tags,
+            status,
+            title_variants,
+        )
+        return status, check.errors, check.warnings
+
     def import_selected_package_from_nas(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
@@ -1976,79 +2155,141 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_PACKAGES_PATH,
             )
             package_path = package_dir / f"{video_id}.json"
-            if not package_path.exists():
-                QMessageBox.information(
-                    self,
-                    APP_NAME,
-                    f"Пакет поки не знайдено:\n{package_path}",
+            source = "NAS"
+            if package_path.exists():
+                payload = json.loads(
+                    package_path.read_text(encoding="utf-8")
                 )
-                return
-
-            payload = json.loads(package_path.read_text(encoding="utf-8"))
-            package_video_id = str(payload.get("video_id") or video_id)
-            if package_video_id != video_id:
-                raise RuntimeError(
-                    "video_id у пакеті не збігається з вибраним відео."
+            else:
+                payload = fetch_package(
+                    PACKAGE_BRIDGE_URL,
+                    video_id,
                 )
+                source = "Package Bridge"
+                if payload is None:
+                    QMessageBox.information(
+                        self,
+                        APP_NAME,
+                        "Пакет поки не знайдено.\n\n"
+                        f"NAS: {package_path}\n"
+                        f"Bridge: {PACKAGE_BRIDGE_URL}",
+                    )
+                    return
 
-            title = str(
-                payload.get("new_title")
-                or payload.get("title")
-                or ""
-            ).strip()
-            description = str(payload.get("description") or "").strip()
-            chapters = str(payload.get("chapters") or "").strip()
-            tags_value = payload.get("tags") or []
-            title_variants_value = payload.get("title_variants") or []
-            if isinstance(title_variants_value, str):
-                title_variants = [
-                    item.strip()
-                    for item in title_variants_value.splitlines()
-                    if item.strip()
-                ][:3]
-            else:
-                title_variants = [
-                    str(item).strip()
-                    for item in title_variants_value
-                    if str(item).strip()
-                ][:3]
-            if isinstance(tags_value, str):
-                tags = [
-                    item.strip()
-                    for item in tags_value.replace("\n", ",").split(",")
-                    if item.strip()
-                ]
-            else:
-                tags = [str(item).strip() for item in tags_value if str(item).strip()]
-
-            if not title:
-                raise RuntimeError("У пакеті немає назви.")
-            ok, message = validate_chapters(chapters)
-            if not ok:
-                raise RuntimeError(message)
-
-            status = str(payload.get("status") or "ready")
-            if status not in {"draft", "ready"}:
-                status = "ready"
-
-            save_optimization_draft(
-                self.conn,
+            status, errors, warnings = self._save_package_payload(
                 video_id,
-                title,
-                description,
-                chapters,
-                tags,
-                status,
-                title_variants,
+                payload,
             )
             self.reload_optimization_queue()
+
+            details = [
+                f"Пакет імпортовано з {source}.",
+                f"Статус: {'Готово' if status == 'ready' else 'Чернетка'}.",
+            ]
+            if errors:
+                details.append(
+                    f"Критичних помилок: {len(errors)}."
+                )
+            if warnings:
+                details.append(
+                    f"Рекомендацій: {len(warnings)}."
+                )
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"Пакет імпортовано: {package_path.name}",
+                "\n".join(details),
             )
         except Exception as exc:
             self._error("Помилка імпорту пакета", exc)
+
+    def fetch_scheduled_packages(self) -> None:
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.scheduled_publish_at,d.status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=?
+                 AND v.scheduled_publish_at IS NOT NULL
+               ORDER BY v.scheduled_publish_at ASC""",
+            (self.current_profile,),
+        ).fetchall()
+        if not rows:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "На активному каналі немає запланованих стрімів.",
+            )
+            return
+
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        imported = 0
+        ready = 0
+        draft = 0
+        skipped = 0
+        missing = 0
+        failed: list[str] = []
+
+        for index, row in enumerate(rows, start=1):
+            video_id = str(row["video_id"])
+            existing_status = str(row["status"] or "")
+            if existing_status in {"ready", "applied"}:
+                skipped += 1
+                continue
+
+            self.statusBar().showMessage(
+                f"Пакети запланованих: {index}/{len(rows)} · {video_id}"
+            )
+            QApplication.processEvents()
+
+            try:
+                package_path = package_dir / f"{video_id}.json"
+                if package_path.exists():
+                    payload = json.loads(
+                        package_path.read_text(encoding="utf-8")
+                    )
+                else:
+                    payload = fetch_package(
+                        PACKAGE_BRIDGE_URL,
+                        video_id,
+                    )
+                if payload is None:
+                    missing += 1
+                    continue
+
+                status, errors, _warnings = self._save_package_payload(
+                    video_id,
+                    payload,
+                )
+                imported += 1
+                if status == "ready" and not errors:
+                    ready += 1
+                else:
+                    draft += 1
+            except Exception as exc:
+                failed.append(f"{video_id}: {exc}")
+
+        self.reload_optimization_queue()
+        message = (
+            f"Запланованих: {len(rows)}.\n"
+            f"Імпортовано пакетів: {imported}.\n"
+            f"Готово до застосування: {ready}.\n"
+            f"Чернеток після перевірки: {draft}.\n"
+            f"Уже готові / застосовані: {skipped}.\n"
+            f"Пакетів поки немає: {missing}."
+        )
+        if failed:
+            message += (
+                f"\nПомилок: {len(failed)}.\n\n"
+                + "\n".join(failed[:5])
+            )
+        QMessageBox.information(
+            self,
+            "Пакети запланованих стрімів",
+            message,
+        )
+        self.statusBar().showMessage("Пакети запланованих перевірено")
 
     def edit_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
