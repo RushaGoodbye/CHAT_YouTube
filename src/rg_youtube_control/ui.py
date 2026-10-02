@@ -2413,17 +2413,6 @@ class MainWindow(QMainWindow):
             (self.current_profile,),
         ).fetchall()
 
-        prepared_order = {}
-        if queue_filter == "prepared":
-            queue_ids = self._prepared_queue_ids()
-            prepared_order = {
-                video_id: index for index, video_id in enumerate(queue_ids)
-            }
-            rows = [
-                row for row in rows
-                if str(row["video_id"]) in prepared_order
-            ]
-
         ctr_values = [
             float(row["ctr_percent"] or 0)
             for row in rows
@@ -2533,6 +2522,18 @@ class MainWindow(QMainWindow):
                 WHERE v.profile=?{extra_where}""",
             (profile,),
         ).fetchall()
+
+        prepared_order = {}
+        if queue_filter == "prepared":
+            queue_ids = self._prepared_queue_ids()
+            prepared_order = {
+                video_id: index for index, video_id in enumerate(queue_ids)
+            }
+            rows = [
+                row for row in rows
+                if str(row["video_id"]) in prepared_order
+            ]
+
 
         ctr_values = [
             float(row["ctr_percent"] or 0)
@@ -3894,12 +3895,12 @@ class MainWindow(QMainWindow):
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
-            (
+            + (
                 "Використовується підготовлена черга за пріоритетом.\n"
                 if use_prepared
                 else "Черга йде від відео з найбільшою кількістю переглядів.\n"
             )
-            "Буде змінено лише старі або відсутні посилання "
+            + "Буде змінено лише старі або відсутні посилання "
             "проєкту й донату та окремий рядок хештегів: "
             "2 постійні + до 3 тематичних. "
             "Назви, теги YouTube, розділи та решта тексту залишаться "
