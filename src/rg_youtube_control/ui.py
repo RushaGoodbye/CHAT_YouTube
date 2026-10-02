@@ -891,6 +891,8 @@ class MainWindow(QMainWindow):
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
+        scheduled_center_btn = QPushButton("Центр запланованих")
+        scheduled_center_btn.clicked.connect(self.show_scheduled_center)
         fetch_scheduled_btn = QPushButton("Пакети запланованих")
         fetch_scheduled_btn.clicked.connect(
             self.fetch_scheduled_packages
@@ -911,6 +913,7 @@ class MainWindow(QMainWindow):
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
+        sync_row.addWidget(scheduled_center_btn)
         sync_row.addWidget(fetch_scheduled_btn)
         sync_row.addWidget(audit_scheduled_btn)
         sync_row.addWidget(apply_scheduled_btn)
@@ -3870,6 +3873,158 @@ class MainWindow(QMainWindow):
             seen.add(key)
             result.append(value)
         return result
+
+    def show_scheduled_center(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Центр запланованих стрімів")
+        dialog.resize(1450, 720)
+        layout = QVBoxLayout(dialog)
+
+        hint = QLabel(
+            "В одному вікні: дата, видимість, пакет, назва, опис, теги та "
+            "передпублікаційна перевірка. Запис у YouTube виконується лише "
+            "кнопкою «Застосувати готові»."
+        )
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+        layout.addWidget(hint)
+
+        table = QTableWidget(0, 9)
+        table.setHorizontalHeaderLabels([
+            "Дата",
+            "Видимість",
+            "Відео",
+            "Поточна назва",
+            "Пакет",
+            "Назва",
+            "Опис",
+            "Теги",
+            "Перевірка",
+        ])
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        for column, width in {
+            0: 155, 1: 100, 2: 120, 3: 290, 4: 110,
+            5: 100, 6: 100, 7: 90, 8: 330,
+        }.items():
+            table.setColumnWidth(column, width)
+        layout.addWidget(table, 1)
+
+        def refresh() -> None:
+            rows = self.conn.execute(
+                """SELECT v.video_id,v.title,v.scheduled_publish_at,
+                          v.privacy_status,
+                          d.new_title,d.description,d.chapters,d.tags_json,
+                          d.title_variants_json,d.status
+                   FROM videos v
+                   LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.profile=?
+                     AND v.scheduled_publish_at IS NOT NULL
+                   ORDER BY v.scheduled_publish_at ASC""",
+                (self.current_profile,),
+            ).fetchall()
+            table.setRowCount(len(rows))
+            for row_index, row in enumerate(rows):
+                if row["new_title"] is None:
+                    package_text = "НЕМАЄ"
+                    title_state = "—"
+                    description_state = "—"
+                    tags_state = "—"
+                    check_text = "Потрібен пакет контенту"
+                    check_color = WARNING
+                else:
+                    (
+                        new_title,
+                        description,
+                        chapters,
+                        tags,
+                        check,
+                        changes,
+                    ) = self._prepare_scheduled_package(row)
+                    package_text = {
+                        "draft": "ЧЕРНЕТКА",
+                        "ready": "ГОТОВО",
+                        "applied": "ЗАСТОСОВАНО",
+                    }.get(str(row["status"] or "draft"), "ЧЕРНЕТКА")
+                    title_state = f"{len(new_title)}/100"
+                    description_state = f"{len(compose_description(description, chapters))}/5000"
+                    tags_state = f"{len(tags)} шт."
+                    parts = []
+                    if check.errors:
+                        parts.append("помилки: " + "; ".join(check.errors))
+                    if check.warnings:
+                        parts.append("рекомендації: " + "; ".join(check.warnings))
+                    if changes:
+                        parts.append("авто: " + "; ".join(changes))
+                    check_text = "OK" if not parts else " | ".join(parts)
+                    check_color = YOUTUBE_RED if check.errors else WARNING if check.warnings else SUCCESS
+
+                values = [
+                    str(row["scheduled_publish_at"] or "")[:16],
+                    PRIVACY_LABELS.get(
+                        str(row["privacy_status"] or ""),
+                        str(row["privacy_status"] or ""),
+                    ),
+                    str(row["video_id"]),
+                    str(row["title"] or ""),
+                    package_text,
+                    title_state,
+                    description_state,
+                    tags_state,
+                    check_text,
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if column == 4:
+                        item.setForeground(
+                            QColor(
+                                SUCCESS if package_text in {"ГОТОВО", "ЗАСТОСОВАНО"}
+                                else WARNING
+                            )
+                        )
+                    elif column == 8:
+                        item.setForeground(QColor(check_color))
+                        item.setToolTip(check_text)
+                    table.setItem(row_index, column, item)
+
+        buttons = QHBoxLayout()
+        prepare_btn = QPushButton("Підготувати всі")
+        check_btn = QPushButton("Перевірити все")
+        apply_btn = QPushButton("Застосувати готові")
+        apply_btn.setProperty("role", "primary")
+        refresh_btn = QPushButton("Оновити")
+        close_btn = QPushButton("Закрити")
+
+        def prepare_all() -> None:
+            self.fetch_scheduled_packages()
+            self.audit_scheduled_packages()
+            refresh()
+
+        def audit_all() -> None:
+            self.audit_scheduled_packages()
+            refresh()
+
+        def apply_all() -> None:
+            self.apply_ready_scheduled_packages()
+            refresh()
+
+        prepare_btn.clicked.connect(prepare_all)
+        check_btn.clicked.connect(audit_all)
+        apply_btn.clicked.connect(apply_all)
+        refresh_btn.clicked.connect(refresh)
+        close_btn.clicked.connect(dialog.accept)
+        for button in (
+            prepare_btn, check_btn, apply_btn, refresh_btn, close_btn
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+        refresh()
+        dialog.exec()
 
     def _prepare_scheduled_package(
         self, row
