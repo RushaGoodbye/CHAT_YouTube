@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from googleapiclient.errors import HttpError
 
@@ -151,6 +152,25 @@ def _http_error_reason(exc: HttpError) -> str:
     return ""
 
 
+
+def _validated_reply_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("Текст відповіді порожній.")
+    if len(text) > 10000:
+        raise ValueError("Текст відповіді перевищує 10 000 символів.")
+    return text
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    reason = _http_error_reason(exc) if isinstance(exc, HttpError) else ""
+    text = str(exc).casefold()
+    return (
+        reason.casefold() == "quotaexceeded"
+        or "quotaexceeded" in text
+        or "quota exceeded" in text
+    )
+
 def scan_comments(
     client: YouTubeClient,
     conn: sqlite3.Connection,
@@ -167,6 +187,10 @@ def scan_comments(
         "auto_replied": 0,
         "already_replied": 0,
         "skipped_disabled": 0,
+        "skipped_old": 0,
+        "skipped_review": 0,
+        "skipped_limit": 0,
+        "quota_blocked": 0,
     }
     auto_count = today_auto_reply_count(conn)
 
@@ -246,14 +270,38 @@ def scan_comments(
                 and recent_for_auto
                 and auto_count < max_auto_replies
                 and stats["auto_replied"] < max_auto_replies_per_scan
+                and not quota_exhausted(conn)
             )
             if can_auto:
-                client.reply(top["id"], reply_text)
-                mark_replied(conn, top["id"], reply_text)
+                safe_reply = _validated_reply_text(reply_text)
+                try:
+                    client.reply(top["id"], safe_reply)
+                except Exception as exc:
+                    if _is_quota_error(exc):
+                        mark_quota_exhausted(conn)
+                        stats["quota_blocked"] += 1
+                        return stats
+                    raise
+                mark_replied(conn, top["id"], safe_reply)
                 _record_reply(conn, auto=True)
                 auto_count += 1
                 stats["auto_replied"] += 1
             else:
+                if auto_reply:
+                    if quota_exhausted(conn):
+                        stats["quota_blocked"] += 1
+                    elif not recent_for_auto:
+                        stats["skipped_old"] += 1
+                    elif (
+                        not decision.auto_allowed
+                        or decision.category not in SAFE_AUTO_CATEGORIES
+                    ):
+                        stats["skipped_review"] += 1
+                    elif (
+                        auto_count >= max_auto_replies
+                        or stats["auto_replied"] >= max_auto_replies_per_scan
+                    ):
+                        stats["skipped_limit"] += 1
                 stats["queued"] += 1
     return stats
 
@@ -263,6 +311,30 @@ def manual_reply(
     comment_id: str,
     reply_text: str,
 ) -> None:
-    client.reply(comment_id, reply_text)
-    mark_replied(conn, comment_id, reply_text)
+    row = conn.execute(
+        "SELECT status FROM comments WHERE comment_id=?",
+        (comment_id,),
+    ).fetchone()
+    if row is not None and str(row["status"] or "") == "replied":
+        raise RuntimeError("На цей коментар уже надіслано відповідь.")
+
+    if quota_exhausted(conn):
+        raise RuntimeError(
+            "Денну квоту YouTube Data API вже вичерпано. "
+            "Відповідь не відправлено."
+        )
+
+    safe_reply = _validated_reply_text(reply_text)
+    try:
+        client.reply(comment_id, safe_reply)
+    except Exception as exc:
+        if _is_quota_error(exc):
+            mark_quota_exhausted(conn)
+            raise RuntimeError(
+                "Денну квоту YouTube Data API вичерпано. "
+                "Відповідь не відправлено."
+            ) from exc
+        raise
+
+    mark_replied(conn, comment_id, safe_reply)
     _record_reply(conn, auto=False)
