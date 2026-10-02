@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
         else:
             quota_value = f"{budget['remaining']} од."
             quota_note = (
-                f"резерв {budget['reserve']} · автоответів ≈{budget['reply_capacity']}"
+                f"резерв {budget['reserve']} · автовідповідей ≈{budget['reply_capacity']}"
             )
 
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
@@ -867,7 +867,7 @@ class MainWindow(QMainWindow):
             f"Готових запланованих стрімів: {scheduled_ready}\n\n"
             "План зберігається локально. Після початку наступного квотного "
             "дня програма запропонує продовжити роботу. Коментарі з "
-            "увімкненими автоответами відновляться автоматично."
+            "увімкненими автовідповідями відновляться автоматично."
         )
         summary.setWordWrap(True)
         layout.addWidget(summary)
