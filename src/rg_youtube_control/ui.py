@@ -2978,7 +2978,7 @@ class MainWindow(QMainWindow):
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            if queue_filter == "archive_top":
+            if queue_filter in {"archive_top", "prepared"}:
                 priority_value = archive_potential_score(
                     lifetime_views=int(row["views"] or 0),
                     analytics_views=int(row["analytics_views"] or 0),
@@ -4396,26 +4396,53 @@ class MainWindow(QMainWindow):
         limit: int = 20,
     ) -> tuple[list[str], int]:
         rows = self.conn.execute(
-            """
-            SELECT video_id,audit_json,views,published_at
-            FROM videos
-            WHERE profile=?
-              AND privacy_status='public'
-              AND scheduled_publish_at IS NULL
-            ORDER BY views DESC, published_at DESC, video_id
-            """,
+            """SELECT v.video_id,v.audit_json,v.views,
+                      a.analytics_views,a.impressions,a.ctr_percent
+               FROM videos v
+               LEFT JOIN video_analytics_cache a
+                 ON a.video_id=v.video_id AND a.profile=v.profile
+               WHERE v.profile=?
+                 AND v.privacy_status='public'
+                 AND v.scheduled_publish_at IS NULL""",
             (self.current_profile,),
         ).fetchall()
 
-        candidates: list[str] = []
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
+
+        ranked: list[tuple[int, int, int, int, str]] = []
         for row in rows:
             try:
-                issues = json.loads(row["audit_json"] or "{}").get("issues", [])
+                issues = list(
+                    json.loads(row["audit_json"] or "{}").get("issues", [])
+                )
             except Exception:
                 issues = []
-            if has_safe_link_issue(issues):
-                candidates.append(row["video_id"])
+            if not has_safe_link_issue(issues):
+                continue
+            potential = archive_potential_score(
+                lifetime_views=int(row["views"] or 0),
+                analytics_views=int(row["analytics_views"] or 0),
+                impressions=int(row["impressions"] or 0),
+                ctr_percent=float(row["ctr_percent"] or 0),
+                median_ctr_percent=channel_median_ctr,
+                issues=issues,
+            )
+            ranked.append((
+                potential,
+                int(row["impressions"] or 0),
+                int(row["analytics_views"] or 0),
+                int(row["views"] or 0),
+                str(row["video_id"]),
+            ))
 
+        ranked.sort(reverse=True)
+        candidates = [item[-1] for item in ranked]
         return candidates[:limit], len(candidates)
 
     def _store_local_safe_audit(
@@ -4480,7 +4507,7 @@ class MainWindow(QMainWindow):
             + (
                 "Використовується підготовлена черга за пріоритетом.\n"
                 if use_prepared
-                else "Черга йде від відео з найбільшою кількістю переглядів.\n"
+                else "Черга автоматично відсортована за потенціалом оптимізації.\n"
             )
             + "Буде змінено лише старі або відсутні посилання "
             "проєкту й донату та окремий рядок хештегів: "
