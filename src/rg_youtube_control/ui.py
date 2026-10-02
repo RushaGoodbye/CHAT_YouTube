@@ -2866,14 +2866,27 @@ class MainWindow(QMainWindow):
             )
         self.youtube_quota_label.setText(text)
 
-    def _quota_update_video(self, video_id: str, **kwargs) -> None:
-        if quota_exhausted(self.conn):
+    def _quota_update_video_with_client(
+        self,
+        client: YouTubeClient,
+        video_id: str,
+        *,
+        respect_reserve: bool = False,
+        **kwargs,
+    ) -> None:
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]):
             raise RuntimeError(
                 "Денну квоту YouTube Data API вже вичерпано. "
                 "Продовжіть після її відновлення."
             )
+        if respect_reserve and int(budget["spendable"]) < VIDEO_UPDATE_COST:
+            raise RuntimeError(
+                "Досягнуто резерву квоти. Автоматичні безпечні зміни "
+                "призупинено до наступного квотного дня."
+            )
         try:
-            self.client.update_video(video_id, **kwargs)
+            client.update_video(video_id, **kwargs)
         except Exception as exc:
             if _is_quota_exceeded_error(exc):
                 mark_quota_exhausted(self.conn)
@@ -2881,6 +2894,13 @@ class MainWindow(QMainWindow):
             raise
         record_quota_units(self.conn, VIDEO_UPDATE_COST)
         self.refresh_youtube_quota_label()
+
+    def _quota_update_video(self, video_id: str, **kwargs) -> None:
+        self._quota_update_video_with_client(
+            self.client,
+            video_id,
+            **kwargs,
+        )
 
     def switch_profile(self, _index: int) -> None:
         profile = self.profile_combo.currentData()
@@ -4661,8 +4681,9 @@ class MainWindow(QMainWindow):
             message += f"\nПомилок: {len(errors)}.\n\n{preview}"
         QMessageBox.information(self, APP_NAME, message)
 
-    def _safe_archive_candidates(
+    def _safe_archive_candidates_for_profile(
         self,
+        profile: str,
         limit: int = 20,
     ) -> tuple[list[str], int]:
         rows = self.conn.execute(
@@ -4674,7 +4695,7 @@ class MainWindow(QMainWindow):
                WHERE v.profile=?
                  AND v.privacy_status='public'
                  AND v.scheduled_publish_at IS NULL""",
-            (self.current_profile,),
+            (profile,),
         ).fetchall()
 
         ctr_values = [
@@ -4714,6 +4735,119 @@ class MainWindow(QMainWindow):
         ranked.sort(reverse=True)
         candidates = [item[-1] for item in ranked]
         return candidates[:limit], len(candidates)
+
+    def _safe_archive_candidates(
+        self,
+        limit: int = 20,
+    ) -> tuple[list[str], int]:
+        return self._safe_archive_candidates_for_profile(
+            self.current_profile,
+            limit=limit,
+        )
+
+    def _run_safe_metadata_autopilot(
+        self,
+        profile: str,
+        client: YouTubeClient,
+        *,
+        max_items: int = 3,
+    ) -> int:
+        if get_setting(
+            self.conn,
+            f"safe_metadata_autopilot_{profile}",
+            "0",
+        ) != "1":
+            return 0
+
+        budget = quota_budget_status(self.conn)
+        allowed = min(
+            max_items,
+            max(0, int(budget["spendable"]) // VIDEO_UPDATE_COST),
+        )
+        if allowed <= 0 or bool(budget["exhausted"]):
+            return 0
+
+        video_ids, _total = self._safe_archive_candidates_for_profile(
+            profile,
+            limit=allowed,
+        )
+        if not video_ids:
+            return 0
+
+        try:
+            self._create_automatic_recovery_backup(
+                f"перед автопілотом метаданих · {PROFILE_LABELS[profile]}",
+                force=True,
+            )
+        except Exception as exc:
+            log_action(
+                self.conn,
+                profile=profile,
+                category="автопілот",
+                action="Зупинено",
+                details=f"не створено резервну копію: {exc}",
+            )
+            return 0
+
+        changed = 0
+        for video_id in video_ids:
+            try:
+                items = client.video_details([video_id])
+                record_quota_units(self.conn, 1)
+                if not items:
+                    continue
+                snippet = items[0].get("snippet", {})
+                title = str(snippet.get("title") or "")
+                description = str(snippet.get("description") or "")
+                tags = list(snippet.get("tags") or [])
+                fix = safe_description_fix(description, title)
+                if not fix.changes or fix.after == description:
+                    self._store_local_safe_audit(video_id, description, tags)
+                    continue
+
+                history_id = save_metadata_snapshot(
+                    self.conn,
+                    video_id,
+                    title,
+                    description,
+                    tags,
+                    "before_safe_autopilot",
+                )
+                self._quota_update_video_with_client(
+                    client,
+                    video_id,
+                    description=fix.after,
+                    respect_reserve=True,
+                )
+                record_optimization_event(
+                    self.conn,
+                    history_id=history_id,
+                    video_id=video_id,
+                    profile=profile,
+                    reason="safe_optimization",
+                    changed_fields="посилання + хештеги · автопілот",
+                )
+                self._store_local_safe_audit(video_id, fix.after, tags)
+                changed += 1
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="автопілот",
+                    action="Безпечні метадані",
+                    details=f"{video_id}: {', '.join(fix.changes)}",
+                )
+            except Exception as exc:
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="автопілот",
+                    action="Помилка",
+                    details=f"{video_id}: {exc}",
+                )
+                if quota_exhausted(self.conn):
+                    break
+
+        return changed
 
     def _store_local_safe_audit(
         self, video_id: str, description: str, tags: list[str]
