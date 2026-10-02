@@ -3045,15 +3045,18 @@ class MainWindow(QMainWindow):
             errors_total += len(check.errors)
             warnings_total += len(check.warnings)
             if check.errors or check.warnings or prep_changes:
-                summary = []
+                title = str(row["title"] or video_id).strip()
+                short_title = title if len(title) <= 54 else title[:51] + "..."
+                parts: list[str] = []
                 if prep_changes:
-                    summary.append("автовиправлень " + str(len(prep_changes)))
+                    parts.append("авто: " + "; ".join(prep_changes))
                 if check.errors:
-                    summary.append(f"помилок {len(check.errors)}")
+                    parts.append("помилки: " + "; ".join(check.errors))
                 if check.warnings:
-                    summary.append(f"рекомендацій {len(check.warnings)}")
+                    parts.append("рекомендації: " + "; ".join(check.warnings))
                 details.append(
-                    f"{scheduled_at} · {video_id}: " + ", ".join(summary)
+                    f"{scheduled_at} · {short_title} [{video_id}]: "
+                    + " | ".join(parts)
                 )
 
         self.reload_optimization_queue()
