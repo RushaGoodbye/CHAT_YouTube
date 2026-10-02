@@ -4284,6 +4284,13 @@ class MainWindow(QMainWindow):
                     APP_NAME,
                     "Тест успішний: надіслано 1 безпечну автовідповідь.",
                 )
+            elif stats["quota_blocked"] > 0:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Денну квоту YouTube Data API вже вичерпано. "
+                    "Тестову відповідь не відправлено. Спробуйте після скидання квоти.",
+                )
             else:
                 QMessageBox.information(
                     self,
