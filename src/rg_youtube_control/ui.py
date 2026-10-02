@@ -4035,7 +4035,13 @@ class MainWindow(QMainWindow):
                         "applied": "ЗАСТОСОВАНО",
                     }.get(str(row["status"] or "draft"), "ЧЕРНЕТКА")
                     title_state = f"{len(new_title)}/100"
-                    description_state = f"{len(compose_description(description, chapters))}/5000"
+                    try:
+                        final_description = compose_description(
+                            description, chapters
+                        )
+                    except Exception:
+                        final_description = description
+                    description_state = f"{len(final_description)}/5000"
                     tags_state = f"{len(tags)} шт."
                     parts = []
                     if check.errors:
