@@ -701,6 +701,7 @@ class MainWindow(QMainWindow):
         self.reload_videos()
         self.reload_optimization_queue()
         self.reload_comments()
+        self.reload_action_log()
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage(
