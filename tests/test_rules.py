@@ -1,5 +1,3 @@
-[Reading 576 lines from start (total: 576 lines, 0 remaining)]
-
 from rg_youtube_control.comment_rules import classify
 from rg_youtube_control.metadata_audit import audit, normalize_links
 
@@ -576,5 +574,3 @@ def test_video_analytics_cache_roundtrip(tmp_path):
     assert row["analytics_views"] == 1234
     assert row["impressions"] == 45678
     assert abs(row["ctr_percent"] - 4.25) < 0.001
-
-[executed on device: AlexLosServer-RDC (b2d6a985-3c60-41bc-84aa-ec469ab4fb7f)]
