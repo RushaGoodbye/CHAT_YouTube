@@ -1811,7 +1811,7 @@ class MainWindow(QMainWindow):
         video_id = video_ids[0]
         try:
             title, description, _tags = self._current_video_metadata(video_id)
-            fix = safe_description_fix(description)
+            fix = safe_description_fix(description, title)
 
             dialog = QDialog(self)
             dialog.setWindowTitle(f"Попередній перегляд · {title}")
@@ -2849,7 +2849,8 @@ class MainWindow(QMainWindow):
             f"Максимальна витрата videos.update: ≈{estimated} units.\n\n"
             "Черга йде від відео з найбільшою кількістю переглядів.\n"
             "Буде змінено лише старі або відсутні посилання "
-            "проєкту й донату та надлишкові хештеги в окремих рядках. "
+            "проєкту й донату та окремий рядок хештегів: "
+            "2 постійні + до 3 тематичних. "
             "Назви, теги YouTube, розділи та решта тексту залишаться "
             "без змін. Для кожного запису зберігається точка відкату. "
             "Продовжити?",
@@ -2871,7 +2872,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 try:
                     title, description, tags = self._current_video_metadata(video_id)
-                    fix = safe_description_fix(description)
+                    fix = safe_description_fix(description, title)
                     if not fix.changes or fix.after == description:
                         skipped_ids.append(video_id)
                         continue
@@ -2937,8 +2938,9 @@ class MainWindow(QMainWindow):
             "Застосувати безпечні правки",
             f"Вибрано відео: {len(video_ids)}.\n"
             f"Максимальна витрата на videos.update: ≈{estimated} units.\n\n"
-            "Буде змінено лише старі/відсутні посилання в описі. "
-            "Назва, теги та решта тексту залишаться без змін. Продовжити?",
+            "Буде змінено лише старі/відсутні посилання та окремий рядок "
+            "хештегів: 2 постійні + до 3 тематичних. "
+            "Назва, теги YouTube та решта тексту залишаться без змін. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2951,7 +2953,7 @@ class MainWindow(QMainWindow):
         try:
             for video_id in video_ids:
                 title, description, tags = self._current_video_metadata(video_id)
-                fix = safe_description_fix(description)
+                fix = safe_description_fix(description, title)
                 if not fix.changes or fix.after == description:
                     skipped += 1
                     continue
