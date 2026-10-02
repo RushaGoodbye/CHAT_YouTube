@@ -319,6 +319,10 @@ def test_nas_paths_are_normalized_to_unc():
         DEFAULT_NAS_TRANSCRIPTS_PATH,
         DEFAULT_NAS_TRANSCRIPTS_PATH,
     ) == DEFAULT_NAS_TRANSCRIPTS_PATH
+    assert normalize_nas_unc_path(
+        r"\\\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS",
+        DEFAULT_NAS_TRANSCRIPTS_PATH,
+    ) == DEFAULT_NAS_TRANSCRIPTS_PATH
 
 
 def test_best_caption_track_prefers_language_and_manual_track():

@@ -31,12 +31,12 @@ def normalize_nas_unc_path(value: str | None, default: str) -> str:
     text = (value or "").strip().replace("/", "\\")
     if not text:
         text = default
-    if text.startswith("\\\\"):
-        return text
-    if text.startswith("\\"):
-        return "\\" + text
+
     if ":" not in text and "\\" in text:
+        # Repair malformed UNC paths from older builds. Windows SMB paths
+        # must start with exactly two backslashes, not three or four.
         return "\\\\" + text.lstrip("\\")
+
     return text
 
 DEFAULT_SCAN_MINUTES = 10
