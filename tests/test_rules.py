@@ -673,3 +673,9 @@ def test_hashtag_quality_never_exceeds_five():
         "Путин война Россия Украина бензин экономика санкции мобилизация"
     )
     assert len(tags) == 5
+
+def test_quota_error_detection():
+    from rg_youtube_control.ui import _is_quota_exceeded_error
+    assert _is_quota_exceeded_error(Exception("reason: quotaExceeded"))
+    assert _is_quota_exceeded_error(Exception("Quota exceeded for quota metric"))
+    assert not _is_quota_exceeded_error(Exception("commentsDisabled"))

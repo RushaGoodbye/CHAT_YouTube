@@ -65,7 +65,7 @@ from .db import (
     set_setting,
     upsert_video_analytics,
 )
-from .metadata_audit import normalize_links
+from .metadata_audit import audit, normalize_links
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .optimization import (
     archive_potential_score,
@@ -88,6 +88,11 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .updater import UpdateInfo, check_for_update, download_update
+
+def _is_quota_exceeded_error(exc: Exception) -> bool:
+    text = str(exc).casefold()
+    return "quotaexceeded" in text or "quota exceeded" in text
+
 
 ISSUE_LABELS = {
     "old_links": "старі посилання",
@@ -2827,6 +2832,20 @@ class MainWindow(QMainWindow):
 
         return candidates[:limit], len(candidates)
 
+    def _store_local_safe_audit(
+        self, video_id: str, description: str, tags: list[str]
+    ) -> None:
+        result = audit(description, tags)
+        payload = json.dumps(
+            {"score": result.score, "issues": list(result.issues)},
+            ensure_ascii=False,
+        )
+        self.conn.execute(
+            "UPDATE videos SET audit_json=? WHERE video_id=?",
+            (payload, video_id),
+        )
+        self.conn.commit()
+
     def apply_next_safe_archive_batch(self) -> None:
         batch_limit = 50
         video_ids, total_candidates = self._safe_archive_candidates(
@@ -2886,13 +2905,17 @@ class MainWindow(QMainWindow):
                         "before_safe_archive_batch",
                     )
                     self.client.update_video(video_id, description=fix.after)
+                    self._store_local_safe_audit(video_id, fix.after, tags)
                     changed_ids.append(video_id)
                 except Exception as exc:
-                    error_text = f"{video_id}: {exc}"
+                    if _is_quota_exceeded_error(exc):
+                        error_text = "quota_exceeded"
+                    else:
+                        error_text = f"{video_id}: {exc}"
                     break
 
             refresh_ids = changed_ids + skipped_ids
-            if refresh_ids:
+            if refresh_ids and error_text != "quota_exceeded":
                 sync_specific_videos(self.client, self.conn, refresh_ids)
             self.reload_videos()
             self.reload_optimization_queue()
@@ -2906,7 +2929,17 @@ class MainWindow(QMainWindow):
                 f"Без змін: {len(skipped_ids)}.\n"
                 f"Залишилося в черзі безпечних правок: ≈{remaining}."
             )
-            if error_text:
+            if error_text == "quota_exceeded":
+                QMessageBox.warning(
+                    self,
+                    "Квоту YouTube вичерпано",
+                    message
+                    + "\n\nДенну квоту YouTube Data API вичерпано. "
+                    "Обробку зупинено безпечно. Уже змінені відео "
+                    "збережено й повторно в чергу не потраплять. "
+                    "Продовжіть після відновлення квоти.",
+                )
+            elif error_text:
                 QMessageBox.warning(
                     self,
                     APP_NAME,
