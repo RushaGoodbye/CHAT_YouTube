@@ -121,6 +121,34 @@ def validate_chapters(chapters: str) -> tuple[bool, str]:
             return False, "Кожен розділ має тривати щонайменше 10 секунд."
     return True, ""
 
+def extract_chapters_from_description(
+    description: str,
+) -> tuple[str, str]:
+    lines = (description or "").splitlines()
+    chapter_lines = [
+        line.strip()
+        for line in lines
+        if CHAPTER_LINE_RE.match(line.strip())
+    ]
+    if len(chapter_lines) < 3:
+        return (description or "").strip(), ""
+
+    chapters = "\n".join(chapter_lines)
+    ok, _message = validate_chapters(chapters)
+    if not ok:
+        return (description or "").strip(), ""
+
+    chapter_set = set(chapter_lines)
+    body_lines = [
+        line
+        for line in lines
+        if line.strip() not in chapter_set
+    ]
+    body = "\n".join(body_lines).strip()
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    return body, chapters
+
+
 def validate_content_package(
     title: str,
     description: str,

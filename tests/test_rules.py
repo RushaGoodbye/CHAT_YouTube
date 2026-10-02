@@ -467,3 +467,17 @@ def test_content_package_preflight_blocks_youtube_limits():
     assert check.ready is False
     assert any("100" in item for item in check.errors)
     assert any("10 секунд" in item for item in check.errors)
+def test_extract_chapters_from_description():
+    from rg_youtube_control.optimization import extract_chapters_from_description
+
+    description = """Вступний текст.
+
+0:00 Початок
+05:20 Друга тема
+12:40 Фінал
+
+Завершення."""
+    body, chapters = extract_chapters_from_description(description)
+    assert "0:00 Початок" not in body
+    assert "Завершення." in body
+    assert chapters == "0:00 Початок\n05:20 Друга тема\n12:40 Фінал"
