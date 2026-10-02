@@ -2920,6 +2920,58 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка застосування пакета", exc)
 
+    @staticmethod
+    def _dedupe_tags(tags: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in tags:
+            value = str(item).strip()
+            if not value:
+                continue
+            key = value.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(value)
+        return result
+
+    def _prepare_scheduled_package(
+        self, row
+    ) -> tuple[str, str, list[str], list[str], object, list[str]]:
+        new_title = str(row["new_title"] or "").strip()
+        description = str(row["description"] or "")
+        chapters = str(row["chapters"] or "")
+        tags = self._dedupe_tags(json.loads(row["tags_json"] or "[]"))
+        title_variants = json.loads(row["title_variants_json"] or "[]")
+
+        clean_description, detected_chapters = extract_chapters_from_description(
+            description
+        )
+        changes: list[str] = []
+        if detected_chapters:
+            description = clean_description
+            if not chapters.strip():
+                chapters = detected_chapters
+            changes.append("прибрано дубль розділів з опису")
+
+        safe_fix = safe_description_fix(description, new_title)
+        if safe_fix.after != description:
+            description = safe_fix.after
+            changes.extend(safe_fix.changes)
+
+        original_tags = [
+            str(item).strip()
+            for item in json.loads(row["tags_json"] or "[]")
+            if str(item).strip()
+        ]
+        if tags != original_tags:
+            changes.append("прибрано дублікати тегів")
+
+        check = validate_content_package(
+            new_title, description, chapters, tags, title_variants
+        )
+        return new_title, description, chapters, tags, check, changes
+
     def audit_scheduled_packages(self) -> None:
         rows = self.conn.execute(
             """SELECT v.video_id,v.title,v.scheduled_publish_at,
@@ -2948,6 +3000,7 @@ class MainWindow(QMainWindow):
         errors_total = 0
         warnings_total = 0
         chapters_fixed = 0
+        normalized_packages = 0
         details: list[str] = []
 
         for row in rows:
@@ -2966,20 +3019,15 @@ class MainWindow(QMainWindow):
             else:
                 draft += 1
 
-            description = str(row["description"] or "")
-            chapters = str(row["chapters"] or "")
-            tags = json.loads(row["tags_json"] or "[]")
-            title_variants = json.loads(
-                row["title_variants_json"] or "[]"
-            )
+            (
+                prepared_title, description, chapters, tags, check, prep_changes
+            ) = self._prepare_scheduled_package(row)
+            title_variants = json.loads(row["title_variants_json"] or "[]")
 
-            clean_description, detected_chapters = (
-                extract_chapters_from_description(description)
-            )
-            if detected_chapters:
-                description = clean_description
-                if not chapters.strip():
-                    chapters = detected_chapters
+            if prep_changes:
+                normalized_packages += 1
+                if any("розділ" in item for item in prep_changes):
+                    chapters_fixed += 1
                 if status == "applied":
                     status = "ready"
                     applied -= 1
@@ -2987,26 +3035,19 @@ class MainWindow(QMainWindow):
                 save_optimization_draft(
                     self.conn,
                     video_id,
-                    str(row["new_title"] or ""),
+                    prepared_title,
                     description,
                     chapters,
                     tags,
                     status,
                     title_variants,
                 )
-                chapters_fixed += 1
-
-            check = validate_content_package(
-                str(row["new_title"] or ""),
-                description,
-                chapters,
-                tags,
-                title_variants,
-            )
             errors_total += len(check.errors)
             warnings_total += len(check.warnings)
-            if check.errors or check.warnings:
+            if check.errors or check.warnings or prep_changes:
                 summary = []
+                if prep_changes:
+                    summary.append("автовиправлень " + str(len(prep_changes)))
                 if check.errors:
                     summary.append(f"помилок {len(check.errors)}")
                 if check.warnings:
@@ -3023,6 +3064,7 @@ class MainWindow(QMainWindow):
             f"Готово до застосування: {ready}",
             f"Чернеток: {draft}",
             f"Без пакета: {missing}",
+            f"Автоматично нормалізовано пакетів: {normalized_packages}",
             f"Очищено дублікати таймінгів в описі: {chapters_fixed}",
             f"Критичних помилок: {errors_total}",
             f"Рекомендацій: {warnings_total}",
@@ -3041,8 +3083,9 @@ class MainWindow(QMainWindow):
 
     def apply_ready_scheduled_packages(self) -> None:
         rows = self.conn.execute(
-            """SELECT v.video_id,v.scheduled_publish_at,
-                      d.new_title,d.description,d.chapters,d.tags_json
+            """SELECT v.video_id,v.title,v.scheduled_publish_at,
+                      d.new_title,d.description,d.chapters,d.tags_json,
+                      d.title_variants_json
                FROM videos v
                JOIN optimization_drafts d ON d.video_id=v.video_id
                WHERE v.profile=?
@@ -3061,15 +3104,51 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(rows) * 50
+        prepared_rows = []
+        blocked: list[str] = []
+        for row in rows:
+            prepared = self._prepare_scheduled_package(row)
+            new_title, description, chapters, tags, check, prep_changes = prepared
+            if check.errors:
+                blocked.append(
+                    f"{row['video_id']}: " + "; ".join(check.errors)
+                )
+                continue
+            prepared_rows.append((row, prepared))
+
+        if blocked:
+            QMessageBox.warning(
+                self,
+                "Заплановані стріми потребують виправлення",
+                "Критичні помилки знайдено до запису в YouTube. "
+                "Нічого не змінено.\n\n" + "\n".join(blocked[:10]),
+            )
+            return
+
+        estimated = len(prepared_rows) * 50
+        preview_lines = []
+        for row, prepared in prepared_rows[:10]:
+            new_title, description, chapters, tags, check, prep_changes = prepared
+            suffix = (
+                " · авто: " + ", ".join(prep_changes)
+                if prep_changes else ""
+            )
+            preview_lines.append(
+                f"• {str(row['scheduled_publish_at'] or '')[:16]} · "
+                f"{str(row['title'] or row['video_id'])[:55]}{suffix}"
+            )
+        if len(prepared_rows) > 10:
+            preview_lines.append(f"...ще {len(prepared_rows) - 10}")
+
         answer = QMessageBox.question(
             self,
             "Оптимізація запланованих стрімів",
-            f"Готових пакетів: {len(rows)}.\n"
+            f"Перевірено й готово: {len(prepared_rows)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
-            "Буде змінено лише назву, опис і теги. "
-            "Дата й час публікації, видимість і налаштування розкладу "
-            "залишаться без змін. Продовжити?",
+            + "\n".join(preview_lines)
+            + "\n\nБуде змінено лише назву, опис і теги. "
+            "Дата й час публікації, видимість, параметри трансляції та "
+            "налаштування розкладу залишаться без змін. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -3080,20 +3159,16 @@ class MainWindow(QMainWindow):
 
         changed_ids: list[str] = []
         errors: list[str] = []
-        for row in rows:
+        for row, prepared in prepared_rows:
             video_id = str(row["video_id"])
             try:
                 current_title, current_description, current_tags = (
                     self._current_video_metadata(video_id)
                 )
+                new_title, prepared_description, chapters, new_tags, check, prep_changes = prepared
                 final_description = compose_description(
-                    row["description"] or "",
-                    row["chapters"] or "",
+                    prepared_description, chapters
                 )
-                new_tags = json.loads(row["tags_json"] or "[]")
-                new_title = str(row["new_title"] or "").strip()
-                if not new_title:
-                    raise RuntimeError("Назва не може бути порожньою.")
 
                 history_id = save_metadata_snapshot(
                     self.conn,
@@ -3113,6 +3188,11 @@ class MainWindow(QMainWindow):
                     self.conn, history_id=history_id, video_id=video_id,
                     profile=self.current_profile, reason="scheduled_package_batch",
                     changed_fields="назва + опис + теги",
+                )
+                save_optimization_draft(
+                    self.conn, video_id, new_title, prepared_description, chapters,
+                    new_tags, "applied",
+                    json.loads(row["title_variants_json"] or "[]"),
                 )
                 set_optimization_draft_status(self.conn, video_id, "applied")
                 changed_ids.append(video_id)
