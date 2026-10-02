@@ -737,7 +737,7 @@ class MainWindow(QMainWindow):
 
         actions = QHBoxLayout()
         scheduled_btn = QPushButton("Заплановані стріми")
-        scheduled_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
+        scheduled_btn.clicked.connect(self.show_scheduled_center)
         comments_btn = QPushButton("Коментарі")
         comments_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
         results_btn = QPushButton("Результати")
@@ -891,6 +891,8 @@ class MainWindow(QMainWindow):
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
+        scheduled_center_btn = QPushButton("Центр запланованих")
+        scheduled_center_btn.clicked.connect(self.show_scheduled_center)
         fetch_scheduled_btn = QPushButton("Пакети запланованих")
         fetch_scheduled_btn.clicked.connect(
             self.fetch_scheduled_packages
@@ -911,6 +913,7 @@ class MainWindow(QMainWindow):
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
         sync_row.addWidget(self.optimization_filter)
+        sync_row.addWidget(scheduled_center_btn)
         sync_row.addWidget(fetch_scheduled_btn)
         sync_row.addWidget(audit_scheduled_btn)
         sync_row.addWidget(apply_scheduled_btn)
@@ -1131,7 +1134,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setProperty("muted", True)
 
-        self.results_table = QTableWidget(0, 18)
+        self.results_table = QTableWidget(0, 19)
         self.results_table.setHorizontalHeaderLabels([
             "Дата", "Відео", "Зміни", "Статус",
             "Перегляди ДО", "ПІСЛЯ", "Δ",
@@ -1139,7 +1142,7 @@ class MainWindow(QMainWindow):
             "CTR ДО", "ПІСЛЯ",
             "Час перегляду ДО, год", "ПІСЛЯ",
             "Сер. тривалість ДО", "ПІСЛЯ",
-            "Підписники ДО", "ПІСЛЯ", "Період",
+            "Підписники ДО", "ПІСЛЯ", "Період", "Висновок",
         ])
         results_header = self.results_table.horizontalHeader()
         results_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -1148,7 +1151,7 @@ class MainWindow(QMainWindow):
         for column, width in {
             0: 95, 1: 260, 2: 170, 3: 105, 4: 105, 5: 95, 6: 75,
             7: 105, 8: 95, 9: 85, 10: 85, 11: 145, 12: 95,
-            13: 145, 14: 95, 15: 110, 16: 95, 17: 85,
+            13: 145, 14: 95, 15: 110, 16: 95, 17: 85, 18: 210,
         }.items():
             self.results_table.setColumnWidth(column, width)
         self.results_table.setHorizontalScrollMode(
@@ -1177,6 +1180,71 @@ class MainWindow(QMainWindow):
             return "—" if after <= 0 else "+∞"
         value = (after - before) / before * 100.0
         return f"{value:+.1f}%"
+
+    @staticmethod
+    def _result_summary(
+        before: dict[str, float] | None,
+        after: dict[str, float] | None,
+        reach_before: dict[str, float] | None,
+        reach_after: dict[str, float] | None,
+    ) -> tuple[str, str, str]:
+        if before is None or after is None:
+            return "—", "", ""
+
+        metrics: list[tuple[str, float, float]] = [
+            ("перегляди", float(before["views"]), float(after["views"])),
+            (
+                "час перегляду",
+                float(before["watch_minutes"]),
+                float(after["watch_minutes"]),
+            ),
+            (
+                "сер. тривалість",
+                float(before["avd_seconds"]),
+                float(after["avd_seconds"]),
+            ),
+            ("підписники", float(before["subs"]), float(after["subs"])),
+        ]
+        if reach_before is not None and reach_after is not None:
+            metrics.extend([
+                (
+                    "покази",
+                    float(reach_before["impressions"]),
+                    float(reach_after["impressions"]),
+                ),
+                ("CTR", float(reach_before["ctr"]), float(reach_after["ctr"])),
+            ])
+
+        improved: list[str] = []
+        declined: list[str] = []
+        neutral: list[str] = []
+        for name, before_value, after_value in metrics:
+            tolerance = max(abs(before_value) * 0.005, 0.01)
+            if after_value > before_value + tolerance:
+                improved.append(name)
+            elif after_value < before_value - tolerance:
+                declined.append(name)
+            else:
+                neutral.append(name)
+
+        if len(improved) > len(declined):
+            key = "improved"
+            label = f"Краще: {len(improved)}/{len(metrics)}"
+        elif len(declined) > len(improved):
+            key = "declined"
+            label = f"Гірше: {len(declined)}/{len(metrics)}"
+        else:
+            key = "mixed"
+            label = "Змішаний результат"
+
+        detail_parts = []
+        if improved:
+            detail_parts.append("зросли: " + ", ".join(improved))
+        if declined:
+            detail_parts.append("знизились: " + ", ".join(declined))
+        if neutral:
+            detail_parts.append("без суттєвої зміни: " + ", ".join(neutral))
+        return label, key, "; ".join(detail_parts)
 
     def _video_window_metrics(
         self, video_id: str, start_date: str, end_date: str
@@ -1253,15 +1321,15 @@ class MainWindow(QMainWindow):
 
         for row in range(self.results_table.rowCount()):
             status_item = self.results_table.item(row, 3)
-            delta_item = self.results_table.item(row, 6)
+            summary_item = self.results_table.item(row, 18)
             type_item = self.results_table.item(row, 2)
             status_key = (
                 status_item.data(Qt.ItemDataRole.UserRole)
                 if status_item else ""
             )
-            delta_value = (
-                delta_item.data(Qt.ItemDataRole.UserRole)
-                if delta_item else None
+            result_key = (
+                summary_item.data(Qt.ItemDataRole.UserRole)
+                if summary_item else ""
             )
             reason = (
                 type_item.data(Qt.ItemDataRole.UserRole)
@@ -1270,9 +1338,9 @@ class MainWindow(QMainWindow):
 
             show = True
             if change_filter == "improved":
-                show = status_key == "ready" and delta_value is not None and delta_value > 0
+                show = status_key == "ready" and result_key == "improved"
             elif change_filter == "declined":
-                show = status_key == "ready" and delta_value is not None and delta_value < 0
+                show = status_key == "ready" and result_key == "declined"
             elif change_filter == "ready":
                 show = status_key == "ready"
             elif change_filter == "waiting":
@@ -1593,6 +1661,12 @@ class MainWindow(QMainWindow):
                     f"{reach_after['ctr']:.2f}%"
                     if reach_after is not None else "—"
                 )
+                summary_text, result_key, summary_detail = self._result_summary(
+                    before,
+                    after,
+                    reach_before,
+                    reach_after,
+                )
                 values = [
                     str(event["optimized_at"] or "")[:10],
                     str(event["title"] or event["video_id"]),
@@ -1614,6 +1688,7 @@ class MainWindow(QMainWindow):
                     f"{int(before['subs']):,}",
                     f"{int(after['subs']):,}",
                     f"{days} днів",
+                    summary_text,
                 ]
             else:
                 values = [
@@ -1627,7 +1702,10 @@ class MainWindow(QMainWindow):
                     "—", "—", "—", "—",
                     "—", "—", "—", "—", "—", "—",
                     f"{days} днів",
+                    "—",
                 ]
+                result_key = ""
+                summary_detail = ""
 
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
@@ -1649,6 +1727,16 @@ class MainWindow(QMainWindow):
                         item.setForeground(
                             QColor(SUCCESS if delta_value >= 0 else YOUTUBE_RED)
                         )
+                elif column == 18:
+                    item.setData(Qt.ItemDataRole.UserRole, result_key)
+                    if result_key == "improved":
+                        item.setForeground(QColor(SUCCESS))
+                    elif result_key == "declined":
+                        item.setForeground(QColor(YOUTUBE_RED))
+                    elif result_key == "mixed":
+                        item.setForeground(QColor(WARNING))
+                    if summary_detail:
+                        item.setToolTip(summary_detail)
                 self.results_table.setItem(row_index, column, item)
 
         self._filter_results_table()
@@ -2890,7 +2978,7 @@ class MainWindow(QMainWindow):
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            if queue_filter == "archive_top":
+            if queue_filter in {"archive_top", "prepared"}:
                 priority_value = archive_potential_score(
                     lifetime_views=int(row["views"] or 0),
                     analytics_views=int(row["analytics_views"] or 0),
@@ -3871,6 +3959,164 @@ class MainWindow(QMainWindow):
             result.append(value)
         return result
 
+    def show_scheduled_center(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Центр запланованих стрімів")
+        dialog.resize(1450, 720)
+        layout = QVBoxLayout(dialog)
+
+        hint = QLabel(
+            "В одному вікні: дата, видимість, пакет, назва, опис, теги та "
+            "передпублікаційна перевірка. Запис у YouTube виконується лише "
+            "кнопкою «Застосувати готові»."
+        )
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+        layout.addWidget(hint)
+
+        table = QTableWidget(0, 9)
+        table.setHorizontalHeaderLabels([
+            "Дата",
+            "Видимість",
+            "Відео",
+            "Поточна назва",
+            "Пакет",
+            "Назва",
+            "Опис",
+            "Теги",
+            "Перевірка",
+        ])
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        for column, width in {
+            0: 155, 1: 100, 2: 120, 3: 290, 4: 110,
+            5: 100, 6: 100, 7: 90, 8: 330,
+        }.items():
+            table.setColumnWidth(column, width)
+        layout.addWidget(table, 1)
+
+        def refresh() -> None:
+            rows = self.conn.execute(
+                """SELECT v.video_id,v.title,v.scheduled_publish_at,
+                          v.privacy_status,
+                          d.new_title,d.description,d.chapters,d.tags_json,
+                          d.title_variants_json,d.status
+                   FROM videos v
+                   LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.profile=?
+                     AND v.scheduled_publish_at IS NOT NULL
+                   ORDER BY v.scheduled_publish_at ASC""",
+                (self.current_profile,),
+            ).fetchall()
+            table.setRowCount(len(rows))
+            for row_index, row in enumerate(rows):
+                if row["new_title"] is None:
+                    package_text = "НЕМАЄ"
+                    title_state = "—"
+                    description_state = "—"
+                    tags_state = "—"
+                    check_text = "Потрібен пакет контенту"
+                    check_color = WARNING
+                else:
+                    (
+                        new_title,
+                        description,
+                        chapters,
+                        tags,
+                        check,
+                        changes,
+                    ) = self._prepare_scheduled_package(row)
+                    package_text = {
+                        "draft": "ЧЕРНЕТКА",
+                        "ready": "ГОТОВО",
+                        "applied": "ЗАСТОСОВАНО",
+                    }.get(str(row["status"] or "draft"), "ЧЕРНЕТКА")
+                    title_state = f"{len(new_title)}/100"
+                    try:
+                        final_description = compose_description(
+                            description, chapters
+                        )
+                    except Exception:
+                        final_description = description
+                    description_state = f"{len(final_description)}/5000"
+                    tags_state = f"{len(tags)} шт."
+                    parts = []
+                    if check.errors:
+                        parts.append("помилки: " + "; ".join(check.errors))
+                    if check.warnings:
+                        parts.append("рекомендації: " + "; ".join(check.warnings))
+                    if changes:
+                        parts.append("авто: " + "; ".join(changes))
+                    check_text = "OK" if not parts else " | ".join(parts)
+                    check_color = YOUTUBE_RED if check.errors else WARNING if check.warnings else SUCCESS
+
+                values = [
+                    str(row["scheduled_publish_at"] or "")[:16],
+                    PRIVACY_LABELS.get(
+                        str(row["privacy_status"] or ""),
+                        str(row["privacy_status"] or ""),
+                    ),
+                    str(row["video_id"]),
+                    str(row["title"] or ""),
+                    package_text,
+                    title_state,
+                    description_state,
+                    tags_state,
+                    check_text,
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if column == 4:
+                        item.setForeground(
+                            QColor(
+                                SUCCESS if package_text in {"ГОТОВО", "ЗАСТОСОВАНО"}
+                                else WARNING
+                            )
+                        )
+                    elif column == 8:
+                        item.setForeground(QColor(check_color))
+                        item.setToolTip(check_text)
+                    table.setItem(row_index, column, item)
+
+        buttons = QHBoxLayout()
+        prepare_btn = QPushButton("Підготувати всі")
+        check_btn = QPushButton("Перевірити все")
+        apply_btn = QPushButton("Застосувати готові")
+        apply_btn.setProperty("role", "primary")
+        refresh_btn = QPushButton("Оновити")
+        close_btn = QPushButton("Закрити")
+
+        def prepare_all() -> None:
+            self.fetch_scheduled_packages()
+            self.audit_scheduled_packages()
+            refresh()
+
+        def audit_all() -> None:
+            self.audit_scheduled_packages()
+            refresh()
+
+        def apply_all() -> None:
+            self.apply_ready_scheduled_packages()
+            refresh()
+
+        prepare_btn.clicked.connect(prepare_all)
+        check_btn.clicked.connect(audit_all)
+        apply_btn.clicked.connect(apply_all)
+        refresh_btn.clicked.connect(refresh)
+        close_btn.clicked.connect(dialog.accept)
+        for button in (
+            prepare_btn, check_btn, apply_btn, refresh_btn, close_btn
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+        refresh()
+        dialog.exec()
+
     def _prepare_scheduled_package(
         self, row
     ) -> tuple[str, str, list[str], list[str], object, list[str]]:
@@ -4156,26 +4402,53 @@ class MainWindow(QMainWindow):
         limit: int = 20,
     ) -> tuple[list[str], int]:
         rows = self.conn.execute(
-            """
-            SELECT video_id,audit_json,views,published_at
-            FROM videos
-            WHERE profile=?
-              AND privacy_status='public'
-              AND scheduled_publish_at IS NULL
-            ORDER BY views DESC, published_at DESC, video_id
-            """,
+            """SELECT v.video_id,v.audit_json,v.views,
+                      a.analytics_views,a.impressions,a.ctr_percent
+               FROM videos v
+               LEFT JOIN video_analytics_cache a
+                 ON a.video_id=v.video_id AND a.profile=v.profile
+               WHERE v.profile=?
+                 AND v.privacy_status='public'
+                 AND v.scheduled_publish_at IS NULL""",
             (self.current_profile,),
         ).fetchall()
 
-        candidates: list[str] = []
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
+
+        ranked: list[tuple[int, int, int, int, str]] = []
         for row in rows:
             try:
-                issues = json.loads(row["audit_json"] or "{}").get("issues", [])
+                issues = list(
+                    json.loads(row["audit_json"] or "{}").get("issues", [])
+                )
             except Exception:
                 issues = []
-            if has_safe_link_issue(issues):
-                candidates.append(row["video_id"])
+            if not has_safe_link_issue(issues):
+                continue
+            potential = archive_potential_score(
+                lifetime_views=int(row["views"] or 0),
+                analytics_views=int(row["analytics_views"] or 0),
+                impressions=int(row["impressions"] or 0),
+                ctr_percent=float(row["ctr_percent"] or 0),
+                median_ctr_percent=channel_median_ctr,
+                issues=issues,
+            )
+            ranked.append((
+                potential,
+                int(row["impressions"] or 0),
+                int(row["analytics_views"] or 0),
+                int(row["views"] or 0),
+                str(row["video_id"]),
+            ))
 
+        ranked.sort(reverse=True)
+        candidates = [item[-1] for item in ranked]
         return candidates[:limit], len(candidates)
 
     def _store_local_safe_audit(
@@ -4240,7 +4513,7 @@ class MainWindow(QMainWindow):
             + (
                 "Використовується підготовлена черга за пріоритетом.\n"
                 if use_prepared
-                else "Черга йде від відео з найбільшою кількістю переглядів.\n"
+                else "Черга автоматично відсортована за потенціалом оптимізації.\n"
             )
             + "Буде змінено лише старі або відсутні посилання "
             "проєкту й донату та окремий рядок хештегів: "
