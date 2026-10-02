@@ -827,3 +827,80 @@ def test_reply_text_validation():
         pass
     else:
         raise AssertionError("Empty reply must be blocked")
+
+
+def test_embedded_replies_avoid_extra_api_call():
+    from rg_youtube_control.service import _own_reply_exists
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+        def replies(self, parent_comment_id):
+            self.calls += 1
+            return []
+
+    thread = {
+        "snippet": {
+            "totalReplyCount": 1,
+            "topLevelComment": {"id": "c1"},
+        },
+        "replies": {
+            "comments": [{
+                "snippet": {
+                    "authorChannelId": {"value": "viewer"}
+                }
+            }]
+        },
+    }
+    client = FakeClient()
+    assert _own_reply_exists(client, thread, "owner") is False
+    assert client.calls == 0
+
+
+def test_known_replied_comment_skips_remote_reply_lookup(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import scan_comments
+
+    class FakeClient:
+        profile = "test"
+        def __init__(self):
+            self.reply_checks = 0
+            self.channel_calls = 0
+        def my_channel(self):
+            self.channel_calls += 1
+            return {"id": "owner"}
+        def comment_threads(self, video_id, limit=100):
+            return [{
+                "snippet": {
+                    "totalReplyCount": 1,
+                    "topLevelComment": {
+                        "id": "known1",
+                        "snippet": {
+                            "authorChannelId": {"value": "viewer"},
+                            "authorDisplayName": "viewer",
+                            "textOriginal": "Спасибо!",
+                            "publishedAt": datetime.now(timezone.utc).isoformat(),
+                        },
+                    },
+                },
+            }]
+        def replies(self, parent_comment_id):
+            self.reply_checks += 1
+            return []
+
+    conn = connect(tmp_path / "rg.db")
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        ("known1", "video1", "viewer", "Спасибо!", datetime.now(timezone.utc).isoformat(), "thanks", "replied", "{}"),
+    )
+    conn.commit()
+
+    client = FakeClient()
+    scan_comments(client, conn, ["video1"])
+    scan_comments(client, conn, ["video1"])
+
+    assert client.reply_checks == 0
+    assert client.channel_calls == 1
