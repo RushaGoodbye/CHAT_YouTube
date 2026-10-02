@@ -68,6 +68,7 @@ from .optimization import (
     priority_label,
     safe_description_fix,
     validate_chapters,
+    validate_content_package,
 )
 from .service import (
     manual_reply,
@@ -224,9 +225,15 @@ class ContentOptimizationDialog(QDialog):
         form.addRow("Статус:", self.status_combo)
         layout.addLayout(form)
 
+        checks = QHBoxLayout()
         validate_btn = QPushButton("Перевірити розділи")
         validate_btn.clicked.connect(self.validate_chapters_now)
-        layout.addWidget(validate_btn)
+        package_check_btn = QPushButton("Перевірити пакет")
+        package_check_btn.clicked.connect(self.validate_package_now)
+        checks.addWidget(validate_btn)
+        checks.addWidget(package_check_btn)
+        checks.addStretch()
+        layout.addLayout(checks)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
@@ -245,6 +252,44 @@ class ContentOptimizationDialog(QDialog):
         else:
             QMessageBox.warning(self, APP_NAME, message)
 
+    def validate_package_now(self) -> None:
+        (
+            title,
+            description,
+            chapters,
+            tags,
+            _status,
+            title_variants,
+        ) = self.values()
+        check = validate_content_package(
+            title,
+            description,
+            chapters,
+            tags,
+            title_variants,
+        )
+
+        lines: list[str] = []
+        if check.ready:
+            lines.append("Технічна перевірка: OK")
+        else:
+            lines.append("Технічна перевірка: є помилки")
+
+        if check.errors:
+            lines.append("\nПОМИЛКИ:")
+            lines.extend(f"- {item}" for item in check.errors)
+        if check.warnings:
+            lines.append("\nРЕКОМЕНДАЦІЇ:")
+            lines.extend(f"- {item}" for item in check.warnings)
+        if not check.errors and not check.warnings:
+            lines.append("\nПакет повністю готовий до застосування.")
+
+        message = "\n".join(lines)
+        if check.ready:
+            QMessageBox.information(self, "Перевірка пакета", message)
+        else:
+            QMessageBox.warning(self, "Перевірка пакета", message)
+
     def _accept_checked(self) -> None:
         if not self.title_edit.text().strip():
             QMessageBox.warning(self, APP_NAME, "Назва не може бути порожньою.")
@@ -253,6 +298,31 @@ class ContentOptimizationDialog(QDialog):
         if not ok:
             QMessageBox.warning(self, APP_NAME, message)
             return
+
+        if self.status_combo.currentData() == "ready":
+            (
+                title,
+                description,
+                chapters,
+                tags,
+                _status,
+                title_variants,
+            ) = self.values()
+            check = validate_content_package(
+                title,
+                description,
+                chapters,
+                tags,
+                title_variants,
+            )
+            if check.errors:
+                QMessageBox.warning(
+                    self,
+                    "Пакет не готовий",
+                    "\n".join(f"- {item}" for item in check.errors),
+                )
+                return
+
         self.accept()
 
     def values(self) -> tuple[str, str, str, list[str], str, list[str]]:
