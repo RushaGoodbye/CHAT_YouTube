@@ -1661,6 +1661,12 @@ class MainWindow(QMainWindow):
                     f"{reach_after['ctr']:.2f}%"
                     if reach_after is not None else "—"
                 )
+                summary_text, result_key, summary_detail = self._result_summary(
+                    before,
+                    after,
+                    reach_before,
+                    reach_after,
+                )
                 values = [
                     str(event["optimized_at"] or "")[:10],
                     str(event["title"] or event["video_id"]),
@@ -1682,6 +1688,7 @@ class MainWindow(QMainWindow):
                     f"{int(before['subs']):,}",
                     f"{int(after['subs']):,}",
                     f"{days} днів",
+                    summary_text,
                 ]
             else:
                 values = [
@@ -1695,7 +1702,10 @@ class MainWindow(QMainWindow):
                     "—", "—", "—", "—",
                     "—", "—", "—", "—", "—", "—",
                     f"{days} днів",
+                    "—",
                 ]
+                result_key = ""
+                summary_detail = ""
 
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
@@ -1717,6 +1727,16 @@ class MainWindow(QMainWindow):
                         item.setForeground(
                             QColor(SUCCESS if delta_value >= 0 else YOUTUBE_RED)
                         )
+                elif column == 18:
+                    item.setData(Qt.ItemDataRole.UserRole, result_key)
+                    if result_key == "improved":
+                        item.setForeground(QColor(SUCCESS))
+                    elif result_key == "declined":
+                        item.setForeground(QColor(YOUTUBE_RED))
+                    elif result_key == "mixed":
+                        item.setForeground(QColor(WARNING))
+                    if summary_detail:
+                        item.setToolTip(summary_detail)
                 self.results_table.setItem(row_index, column, item)
 
         self._filter_results_table()
