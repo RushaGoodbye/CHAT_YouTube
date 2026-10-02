@@ -585,3 +585,34 @@ def test_video_analytics_cache_roundtrip(tmp_path):
     assert row["analytics_views"] == 1234
     assert row["impressions"] == 45678
     assert abs(row["ctr_percent"] - 4.25) < 0.001
+
+def test_sync_videos_deduplicates_duplicate_video_ids(tmp_path):
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import sync_videos
+
+    class FakeClient:
+        profile = "live"
+
+        def recent_videos(self, limit=50):
+            base = {
+                "id": "same-id",
+                "snippet": {
+                    "channelId": "channel-live",
+                    "title": "Stream",
+                    "description": "",
+                    "tags": [],
+                    "publishedAt": "2026-10-01T00:00:00Z",
+                },
+                "status": {"privacyStatus": "public"},
+                "statistics": {"viewCount": "1"},
+                "contentDetails": {"duration": "PT1H"},
+            }
+            return [base, dict(base)]
+
+    conn = connect(tmp_path / "dedupe.sqlite")
+    rows = sync_videos(FakeClient(), conn, limit=1000)
+    assert len(rows) == 1
+    count = conn.execute(
+        "SELECT COUNT(*) AS n FROM videos WHERE profile='live'"
+    ).fetchone()["n"]
+    assert count == 1
