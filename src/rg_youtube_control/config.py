@@ -1,3 +1,5 @@
+[Reading 60 lines from start (total: 60 lines, 0 remaining)]
+
 import os
 from pathlib import Path
 
@@ -35,8 +37,10 @@ def normalize_nas_unc_path(value: str | None, default: str) -> str:
 
     if ":" not in text and "\\" in text:
         # Repair malformed UNC paths from older builds. Windows SMB paths
-        # must start with exactly two backslashes, not three or four.
-        return "\\\\" + text.lstrip("\\")
+        # must start with exactly two backslashes, with single separators
+        # between every path component.
+        parts = [part for part in text.strip("\\").split("\\") if part]
+        return "\\\\" + "\\".join(parts)
 
     return text
 
@@ -56,3 +60,5 @@ def app_data_dir() -> Path:
     fallback = Path.home() / "AppData" / "Local"
     base = Path(os.getenv("LOCALAPPDATA", str(fallback)))
     return base / "RGYouTubeControl"
+
+[executed on device: AlexLosServer-RDC (b2d6a985-3c60-41bc-84aa-ec469ab4fb7f)]
