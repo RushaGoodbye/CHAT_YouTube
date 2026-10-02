@@ -54,7 +54,6 @@ def create_recovery_backup(
     data_dir: Path,
     backup_root: Path,
     version: str,
-    oauth_client_path: str = "",
 ) -> Path:
     backup_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -82,14 +81,6 @@ def create_recovery_backup(
         else:
             continue
         copied_files.append(str(destination.relative_to(folder)))
-
-    oauth_source = Path(oauth_client_path) if oauth_client_path else None
-    oauth_saved = False
-    if oauth_source and oauth_source.is_file():
-        oauth_target = folder / "oauth_client.json"
-        shutil.copy2(oauth_source, oauth_target)
-        copied_files.append(oauth_target.name)
-        oauth_saved = True
 
     installer_name = _installer_name(version)
     installer_target = folder / installer_name
@@ -119,7 +110,6 @@ def create_recovery_backup(
         "version": version,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "database": "rg_youtube_control.db",
-        "oauth_client_saved": oauth_saved,
         "installer_saved": installer_saved,
         "installer_error": installer_error,
         "youtube_tokens_saved": False,
@@ -189,8 +179,5 @@ def restore_recovery_backup(*, data_dir: Path, archive: Path) -> dict:
                 else:
                     shutil.copy2(source, destination)
 
-        oauth_source = tmp_dir / "oauth_client.json"
-        if oauth_source.is_file():
-            shutil.copy2(oauth_source, data_dir / "oauth_client.json")
 
     return manifest
