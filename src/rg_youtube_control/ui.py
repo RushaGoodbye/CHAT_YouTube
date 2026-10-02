@@ -1067,7 +1067,7 @@ class MainWindow(QMainWindow):
             imported = 0
             self.statusBar().showMessage(f"Імпорт історії: {exc}")
         days = int(self.results_period_combo.currentData() or 7)
-        events = optimization_events(self.conn, self.current_profile, limit=30)
+        events = optimization_events(self.conn, self.current_profile, limit=100)
         self.results_table.setRowCount(0)
         if not events:
             QMessageBox.information(
@@ -1096,7 +1096,7 @@ class MainWindow(QMainWindow):
             before_end = optimized_date - timedelta(days=1)
             after_start = optimized_date + timedelta(days=1)
             after_end = optimized_date + timedelta(days=days)
-            remaining_days = max(0, (after_end - today).days + 1)
+            remaining_days = max(0, (after_end - today).days)
 
             before = None
             after = None
