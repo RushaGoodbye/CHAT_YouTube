@@ -84,6 +84,12 @@ from .service import (
     sync_videos,
     today_auto_reply_count,
     today_reply_count,
+    today_quota_units,
+    record_quota_units,
+    quota_exhausted,
+    mark_quota_exhausted,
+    YOUTUBE_DAILY_QUOTA_DEFAULT,
+    VIDEO_UPDATE_COST,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -574,6 +580,7 @@ class MainWindow(QMainWindow):
         self.metric_scheduled.set_value(str(scheduled), "майбутні публікації")
         self.metric_attention.set_value(str(attention), "Аудит < 100")
         self.metric_comments.set_value(str(queued), "нові / не оброблені")
+        self.refresh_youtube_quota_label()
 
     def switch_profile_from_header(self, _index: int) -> None:
         profile = self.header_profile_combo.currentData()
@@ -1393,6 +1400,8 @@ class MainWindow(QMainWindow):
         oauth_btn = QPushButton("Вибрати OAuth client JSON")
         oauth_btn.clicked.connect(self.choose_oauth_file)
 
+        self.youtube_quota_label = QLabel()
+        self.refresh_youtube_quota_label()
         self.version_label = QLabel(f"Версія: {__version__}")
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
@@ -1415,6 +1424,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("NAS · пакети оптимізації"))
         layout.addWidget(self.nas_packages_edit)
         layout.addWidget(oauth_btn)
+        layout.addWidget(QLabel("YouTube API · квота"))
+        layout.addWidget(self.youtube_quota_label)
         layout.addWidget(self.version_label)
         layout.addWidget(update_btn)
         layout.addStretch()
@@ -1436,6 +1447,32 @@ class MainWindow(QMainWindow):
         if normalized != raw:
             set_setting(self.conn, key, normalized)
         return Path(normalized)
+
+    def refresh_youtube_quota_label(self) -> None:
+        if not hasattr(self, "youtube_quota_label"):
+            return
+        used = today_quota_units(self.conn)
+        exhausted = quota_exhausted(self.conn)
+        state = "ВИЧЕРПАНО" if exhausted else "доступна"
+        self.youtube_quota_label.setText(
+            f"Враховано застосунком: ≈{used}/{YOUTUBE_DAILY_QUOTA_DEFAULT} units · {state}"
+        )
+
+    def _quota_update_video(self, video_id: str, **kwargs) -> None:
+        if quota_exhausted(self.conn):
+            raise RuntimeError(
+                "Денну квоту YouTube Data API вже вичерпано. "
+                "Продовжіть після її відновлення."
+            )
+        try:
+            self.client.update_video(video_id, **kwargs)
+        except Exception as exc:
+            if _is_quota_exceeded_error(exc):
+                mark_quota_exhausted(self.conn)
+                self.refresh_youtube_quota_label()
+            raise
+        record_quota_units(self.conn, VIDEO_UPDATE_COST)
+        self.refresh_youtube_quota_label()
 
     def switch_profile(self, _index: int) -> None:
         profile = self.profile_combo.currentData()
@@ -1559,7 +1596,7 @@ class MainWindow(QMainWindow):
                 snippet.get("tags", []) or [],
                 "before_manual_edit",
             )
-            self.client.update_video(
+            self._quota_update_video(
                 video_id, title=title, description=description, tags=tags
             )
             self.sync_video_list()
@@ -2580,7 +2617,7 @@ class MainWindow(QMainWindow):
                 current_tags,
                 "before_content_package",
             )
-            self.client.update_video(
+            self._quota_update_video(
                 video_id,
                 title=new_title,
                 description=final_description,
@@ -2781,7 +2818,7 @@ class MainWindow(QMainWindow):
                     current_tags,
                     "before_scheduled_package_batch",
                 )
-                self.client.update_video(
+                self._quota_update_video(
                     video_id,
                     title=new_title,
                     description=final_description,
@@ -2904,11 +2941,13 @@ class MainWindow(QMainWindow):
                         tags,
                         "before_safe_archive_batch",
                     )
-                    self.client.update_video(video_id, description=fix.after)
+                    self._quota_update_video(video_id, description=fix.after)
                     self._store_local_safe_audit(video_id, fix.after, tags)
                     changed_ids.append(video_id)
                 except Exception as exc:
                     if _is_quota_exceeded_error(exc):
+                        mark_quota_exhausted(self.conn)
+                        self.refresh_youtube_quota_label()
                         error_text = "quota_exceeded"
                     else:
                         error_text = f"{video_id}: {exc}"
@@ -2998,7 +3037,7 @@ class MainWindow(QMainWindow):
                     tags,
                     "before_safe_optimization",
                 )
-                self.client.update_video(video_id, description=fix.after)
+                self._quota_update_video(video_id, description=fix.after)
                 changed += 1
                 changed_ids.append(video_id)
 
@@ -3053,7 +3092,7 @@ class MainWindow(QMainWindow):
                 current_tags,
                 "before_rollback",
             )
-            self.client.update_video(
+            self._quota_update_video(
                 video_id,
                 title=snapshot["title"],
                 description=snapshot["description"],
