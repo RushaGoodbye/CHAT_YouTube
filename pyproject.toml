@@ -1,5 +1,3 @@
-[Reading 23 lines from start (total: 23 lines, 0 remaining)]
-
 [build-system]
 requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -23,5 +21,3 @@ rg-youtube-control = "rg_youtube_control.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[executed on device: AlexLosServer-RDC (b2d6a985-3c60-41bc-84aa-ec469ab4fb7f)]
