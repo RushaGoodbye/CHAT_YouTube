@@ -20,6 +20,79 @@ class PackageCheck:
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
 
+
+BASE_HASHTAGS = ("#рашагудбай", "#чатрулетка")
+HASHTAG_ONLY_LINE_RE = re.compile(
+    r"^\s*(?:#[\wА-Яа-яІіЇїЄєҐґ]+\s*){1,15}$", re.UNICODE
+)
+TOPIC_HASHTAGS = (
+    (("бензин", "топлив", "азс"), "#бензин"),
+    (("эконом", "економ"), "#экономикароссии"),
+    (("санкц",), "#санкции"),
+    (("мобилиз", "мобіліз"), "#мобилизация"),
+    (("путин", "путін"), "#путин"),
+    (("войн", "війн"), "#война"),
+    (("росси", "росі"), "#россия"),
+    (("украин", "україн"), "#украина"),
+    (("дрон",), "#дроны"),
+    (("нефт", "нафт"), "#нефть"),
+)
+TOPIC_STOPWORDS = {
+    "этот", "эта", "это", "эти", "как", "что", "кто", "где", "когда",
+    "почему", "зачем", "если", "только", "просто", "очень", "после",
+    "перед", "снова", "свой", "свои", "свою", "наш", "наша", "наши",
+    "его", "ее", "они", "она", "всем", "весь", "все", "для", "про",
+    "shorts", "рашагудбай", "russiagoodbye", "чатрулетка",
+}
+
+def optimized_hashtags(title: str) -> tuple[str, ...]:
+    lowered = (title or "").casefold()
+    topics: list[str] = []
+    for needles, hashtag in TOPIC_HASHTAGS:
+        if any(needle in lowered for needle in needles) and hashtag not in topics:
+            topics.append(hashtag)
+        if len(topics) >= 3:
+            break
+
+    if len(topics) < 3:
+        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]{4,}", lowered)
+        for token in tokens:
+            if token in TOPIC_STOPWORDS or token.isdigit():
+                continue
+            hashtag = "#" + token
+            if hashtag in BASE_HASHTAGS or hashtag in topics:
+                continue
+            topics.append(hashtag)
+            if len(topics) >= 3:
+                break
+
+    if not topics:
+        topics.append("#россия")
+    return tuple((*BASE_HASHTAGS, *topics[:3]))
+
+def _optimize_hashtag_lines(description: str, title: str) -> tuple[str, bool]:
+    if not title.strip():
+        return description, False
+    desired = " ".join(optimized_hashtags(title))
+    lines = description.splitlines()
+    output: list[str] = []
+    replaced = False
+    for line in lines:
+        if HASHTAG_ONLY_LINE_RE.match(line):
+            if not replaced:
+                output.append(desired)
+                replaced = True
+            continue
+        output.append(line)
+    if not replaced:
+        value = "\n".join(output).rstrip()
+        if value:
+            value += "\n\n"
+        value += desired
+        return value, True
+    value = "\n".join(output)
+    return value, value != description
+
 SAFE_LINK_ISSUES = frozenset({
     "old_links",
     "missing_project_link",
@@ -65,7 +138,7 @@ def _trim_hashtag_only_lines(value: str, limit: int = 3) -> tuple[str, bool]:
     return result, changed
 
 
-def safe_description_fix(description: str) -> SafeFix:
+def safe_description_fix(description: str, title: str = "") -> SafeFix:
     before = description or ""
     after = normalize_links(before)
     changes: list[str] = []
@@ -99,6 +172,10 @@ def safe_description_fix(description: str) -> SafeFix:
         if after:
             after += "\n\n"
         after += "\n\n".join(additions)
+
+    after, hashtags_changed = _optimize_hashtag_lines(after, title)
+    if hashtags_changed:
+        changes.append("оновлено хештеги")
 
     return SafeFix(before=before, after=after, changes=tuple(changes))
 
@@ -296,8 +373,8 @@ def validate_content_package(
             )
 
     hashtags = re.findall(r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+", clean_description)
-    if len(hashtags) > 3:
-        warnings.append("В описі більше 3 хештегів.")
+    if len(hashtags) > 5:
+        warnings.append("В описі більше 5 хештегів.")
 
     if len(clean_variants) < 3:
         warnings.append("Для A/B перевірки бажано мати 3 варіанти назви.")

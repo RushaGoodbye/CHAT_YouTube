@@ -41,7 +41,7 @@ def audit(description: str, tags: list[str] | None) -> AuditResult:
         score -= 10
 
     hashtags = HASHTAG_RE.findall(value)
-    if len(hashtags) > 3:
+    if len(hashtags) > 5:
         issues.append("too_many_hashtags")
         score -= 5
     if not tags:

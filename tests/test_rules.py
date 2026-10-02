@@ -616,3 +616,41 @@ def test_sync_videos_deduplicates_duplicate_video_ids(tmp_path):
         "SELECT COUNT(*) AS n FROM videos WHERE profile='live'"
     ).fetchone()["n"]
     assert count == 1
+
+
+def test_safe_fix_builds_three_to_five_relevant_hashtags():
+    from rg_youtube_control.optimization import safe_description_fix
+
+    source = (
+        "Опис відео\n\n"
+        "#чатрулетка #рашагудбай #russiagoodbye"
+    )
+    fixed = safe_description_fix(
+        source,
+        "С бензином беда: очереди на АЗС и экономика России",
+    )
+    hashtag_lines = [
+        line for line in fixed.after.splitlines() if line.strip().startswith("#")
+    ]
+    assert len(hashtag_lines) == 1
+    tags = hashtag_lines[0].split()
+    assert 3 <= len(tags) <= 5
+    assert tags[:2] == ["#рашагудбай", "#чатрулетка"]
+    assert "#бензин" in tags
+    assert "#экономикароссии" in tags
+    assert "#russiagoodbye" not in tags
+    assert "оновлено хештеги" in fixed.changes
+
+
+def test_audit_allows_five_hashtags():
+    from rg_youtube_control.metadata_audit import audit
+    from rg_youtube_control.config import DONATE_URL, PROJECT_LINKS_URL
+
+    description = (
+        "Достатньо довгий опис відео " * 20
+        + f"\n{PROJECT_LINKS_URL}\n{DONATE_URL}\n"
+        + "00:00 Старт\n00:20 Тема\n00:40 Фінал\n"
+        + "#one #two #three #four #five"
+    )
+    result = audit(description, ["tag"])
+    assert "too_many_hashtags" not in result.issues
