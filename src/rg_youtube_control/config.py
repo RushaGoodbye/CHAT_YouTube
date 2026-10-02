@@ -1,5 +1,3 @@
-[Reading 60 lines from start (total: 60 lines, 0 remaining)]
-
 import os
 from pathlib import Path
 
@@ -60,5 +58,3 @@ def app_data_dir() -> Path:
     fallback = Path.home() / "AppData" / "Local"
     base = Path(os.getenv("LOCALAPPDATA", str(fallback)))
     return base / "RGYouTubeControl"
-
-[executed on device: AlexLosServer-RDC (b2d6a985-3c60-41bc-84aa-ec469ab4fb7f)]
