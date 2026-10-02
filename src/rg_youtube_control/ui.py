@@ -2701,6 +2701,7 @@ class MainWindow(QMainWindow):
         reason: str,
         *,
         force: bool = False,
+        profile: str | None = None,
     ) -> Path | None:
         today = datetime.now(timezone.utc).date().isoformat()
         daily_key = "automatic_recovery_backup_day"
@@ -2724,7 +2725,7 @@ class MainWindow(QMainWindow):
         set_setting(self.conn, daily_key, today)
         log_action(
             self.conn,
-            profile=self.current_profile,
+            profile=profile or self.current_profile,
             category="резервна копія",
             action="Автоматична копія",
             details=f"{reason} · {archive.name} · очищено старих: {removed}",
@@ -4813,6 +4814,7 @@ class MainWindow(QMainWindow):
             self._create_automatic_recovery_backup(
                 f"перед автопілотом метаданих · {PROFILE_LABELS[profile]}",
                 force=True,
+                profile=profile,
             )
         except Exception as exc:
             log_action(
