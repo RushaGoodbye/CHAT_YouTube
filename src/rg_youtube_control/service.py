@@ -210,7 +210,7 @@ def scan_comments(
         stats["quota_blocked"] += 1
         return stats
 
-    channel_key = f"youtube_channel_id_{client.profile}"
+    channel_key = f"youtube_channel_id_{getattr(client, \"profile\", \"default\")}"
     channel_id = get_setting(conn, channel_key, "").strip()
     if not channel_id:
         try:
