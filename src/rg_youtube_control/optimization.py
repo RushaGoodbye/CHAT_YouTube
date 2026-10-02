@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -100,6 +101,54 @@ def safe_description_fix(description: str) -> SafeFix:
         after += "\n\n".join(additions)
 
     return SafeFix(before=before, after=after, changes=tuple(changes))
+
+def archive_potential_score(
+    *,
+    lifetime_views: int,
+    analytics_views: int,
+    impressions: int,
+    ctr_percent: float,
+    median_ctr_percent: float,
+    issues: list[str] | tuple[str, ...],
+) -> int:
+    """Heuristic opportunity score for archive work, 0..100.
+
+    It intentionally rewards videos that already have audience/reach and
+    still have fixable metadata weaknesses. Low CTR only contributes when
+    there are enough impressions and a channel-relative median is known.
+    """
+    score = 0.0
+    recent_views = max(0, int(analytics_views or 0))
+    lifetime = max(0, int(lifetime_views or 0))
+    impressions = max(0, int(impressions or 0))
+    ctr = max(0.0, float(ctr_percent or 0.0))
+    median_ctr = max(0.0, float(median_ctr_percent or 0.0))
+
+    if recent_views:
+        score += min(25.0, math.log10(recent_views + 1) * 5.0)
+    elif lifetime:
+        score += min(20.0, math.log10(lifetime + 1) * 4.0)
+
+    if impressions >= 1000:
+        score += min(35.0, math.log10(impressions + 1) * 7.0)
+        if median_ctr > 0 and ctr < median_ctr:
+            relative_gap = (median_ctr - ctr) / median_ctr
+            score += min(25.0, relative_gap * 25.0)
+
+    issue_weights = {
+        "no_chapters": 8.0,
+        "thin_description": 6.0,
+        "no_tags": 4.0,
+        "too_many_hashtags": 2.0,
+        "old_links": 1.0,
+        "missing_project_link": 1.0,
+        "missing_donate_link": 1.0,
+    }
+    for issue in set(issues):
+        score += issue_weights.get(issue, 0.0)
+
+    return max(0, min(100, int(round(score))))
+
 
 def priority_label(
     audit_score: int,
