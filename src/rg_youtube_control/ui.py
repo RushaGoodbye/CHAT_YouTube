@@ -2204,7 +2204,8 @@ class MainWindow(QMainWindow):
 
     def fetch_scheduled_packages(self) -> None:
         rows = self.conn.execute(
-            """SELECT v.video_id,v.scheduled_publish_at,d.status
+            """SELECT v.video_id,v.scheduled_publish_at,
+                      d.status,d.new_title
                FROM videos v
                LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
                WHERE v.profile=?
@@ -2234,9 +2235,9 @@ class MainWindow(QMainWindow):
         for index, row in enumerate(rows, start=1):
             video_id = str(row["video_id"])
             existing_status = str(row["status"] or "")
-            if existing_status in {"ready", "applied"}:
-                skipped += 1
-                continue
+            existing_title = _standard_hyphen(
+                str(row["new_title"] or "").strip()
+            )
 
             self.statusBar().showMessage(
                 f"Пакети запланованих: {index}/{len(rows)} · {video_id}"
@@ -2258,6 +2259,21 @@ class MainWindow(QMainWindow):
                     missing += 1
                     continue
 
+                remote_title = _standard_hyphen(
+                    str(
+                        payload.get("new_title")
+                        or payload.get("title")
+                        or ""
+                    ).strip()
+                )
+                if (
+                    existing_status in {"ready", "applied"}
+                    and existing_title
+                    and existing_title == remote_title
+                ):
+                    skipped += 1
+                    continue
+
                 status, errors, _warnings = self._save_package_payload(
                     video_id,
                     payload,
@@ -2276,7 +2292,7 @@ class MainWindow(QMainWindow):
             f"Імпортовано пакетів: {imported}.\n"
             f"Готово до застосування: {ready}.\n"
             f"Чернеток після перевірки: {draft}.\n"
-            f"Уже готові / застосовані: {skipped}.\n"
+            f"Без змін: {skipped}.\n"
             f"Пакетів поки немає: {missing}."
         )
         if failed:
