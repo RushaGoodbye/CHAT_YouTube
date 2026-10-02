@@ -427,3 +427,39 @@ def test_updater_manifest_parser(monkeypatch):
             "installer_url": "https://example.test/setup.exe",
         }
     ) is None
+
+def test_content_package_preflight_accepts_complete_package():
+    from rg_youtube_control.config import DONATE_URL, PROJECT_LINKS_URL
+    from rg_youtube_control.optimization import validate_content_package
+
+    description = (
+        "Розгорнутий опис випуску з достатньою кількістю тексту для перевірки. "
+        "Тут є контекст розмови, основні теми, згадки про співрозмовників і зміст. "
+        "Опис спеціально довший за двісті п'ятдесят символів, щоб технічна "
+        "перевірка не вважала його надто коротким. Додаємо ще кілька речень.\n\n"
+        f"{PROJECT_LINKS_URL}\n{DONATE_URL}"
+    )
+    check = validate_content_package(
+        "Сильна назва відео - без довгого тире",
+        description,
+        "00:00 Вступ\n00:30 Головна тема\n02:00 Фінал",
+        ["тег один", "тег два", "тег три"],
+        ["Варіант A", "Варіант B", "Варіант C"],
+    )
+    assert check.ready is True
+    assert not check.errors
+
+
+def test_content_package_preflight_blocks_youtube_limits():
+    from rg_youtube_control.optimization import validate_content_package
+
+    check = validate_content_package(
+        "X" * 101,
+        "Опис",
+        "00:00 Вступ\n00:05 Надто рано\n00:20 Далі",
+        ["тег"],
+        [],
+    )
+    assert check.ready is False
+    assert any("100" in item for item in check.errors)
+    assert any("10 секунд" in item for item in check.errors)

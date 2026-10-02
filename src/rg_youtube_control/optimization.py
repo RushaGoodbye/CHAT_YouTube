@@ -12,6 +12,13 @@ class SafeFix:
     after: str
     changes: tuple[str, ...]
 
+
+@dataclass(frozen=True)
+class PackageCheck:
+    ready: bool
+    errors: tuple[str, ...]
+    warnings: tuple[str, ...]
+
 SAFE_LINK_ISSUES = frozenset({
     "old_links",
     "missing_project_link",
@@ -113,6 +120,87 @@ def validate_chapters(chapters: str) -> tuple[bool, str]:
         if right - left < 10:
             return False, "Кожен розділ має тривати щонайменше 10 секунд."
     return True, ""
+
+def validate_content_package(
+    title: str,
+    description: str,
+    chapters: str,
+    tags: list[str] | None,
+    title_variants: list[str] | None = None,
+) -> PackageCheck:
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    clean_title = (title or "").strip()
+    clean_description = (description or "").strip()
+    clean_tags = [str(item).strip() for item in (tags or []) if str(item).strip()]
+    clean_variants = [
+        str(item).strip()
+        for item in (title_variants or [])
+        if str(item).strip()
+    ]
+
+    if not clean_title:
+        errors.append("Назва порожня.")
+    elif len(clean_title) > 100:
+        errors.append(
+            f"Назва має {len(clean_title)} символів. YouTube дозволяє не більше 100."
+        )
+
+    if not clean_description:
+        errors.append("Опис порожній.")
+    elif len(clean_description) > 5000:
+        errors.append(
+            f"Опис має {len(clean_description)} символів. YouTube дозволяє не більше 5000."
+        )
+    elif len(clean_description) < 250:
+        warnings.append("Опис коротший за 250 символів.")
+
+    if PROJECT_LINKS_URL not in clean_description:
+        warnings.append("В описі немає актуального посилання проєкту.")
+    if DONATE_URL not in clean_description:
+        warnings.append("В описі немає актуального посилання на донат.")
+
+    chapter_ok, chapter_message = validate_chapters(chapters)
+    if not chapter_ok:
+        errors.append(chapter_message)
+    elif not chapters.strip():
+        warnings.append("Розділи не заповнені.")
+
+    if not clean_tags:
+        warnings.append("Теги не заповнені.")
+    else:
+        normalized_tags = [item.casefold() for item in clean_tags]
+        if len(normalized_tags) != len(set(normalized_tags)):
+            warnings.append("У тегах є дублікати.")
+        tag_chars = len(", ".join(clean_tags))
+        if tag_chars > 500:
+            errors.append(
+                f"Теги займають приблизно {tag_chars} символів. "
+                "Потрібно вкластися у 500."
+            )
+
+    hashtags = re.findall(r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+", clean_description)
+    if len(hashtags) > 3:
+        warnings.append("В описі більше 3 хештегів.")
+
+    if len(clean_variants) < 3:
+        warnings.append("Для A/B перевірки бажано мати 3 варіанти назви.")
+    if len({item.casefold() for item in clean_variants}) != len(clean_variants):
+        warnings.append("Серед A/B варіантів є дублікати.")
+    for index, variant in enumerate(clean_variants, start=1):
+        if len(variant) > 100:
+            errors.append(
+                f"A/B варіант {index} має {len(variant)} символів. "
+                "Потрібно не більше 100."
+            )
+
+    return PackageCheck(
+        ready=not errors,
+        errors=tuple(errors),
+        warnings=tuple(warnings),
+    )
+
 
 def compose_description(description: str, chapters: str) -> str:
     body = (description or "").strip()
