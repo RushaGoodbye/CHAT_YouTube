@@ -91,7 +91,6 @@ from .optimization import (
     archive_potential_score,
     compose_description,
     extract_chapters_from_description,
-    has_safe_link_issue,
     is_safe_archive_candidate,
     priority_label,
     safe_description_fix,
