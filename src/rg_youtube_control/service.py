@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -67,6 +68,32 @@ def sync_videos(
         upsert_video(conn, row)
         rows.append(row)
     return rows
+
+def reconcile_local_video_title(
+    conn: sqlite3.Connection,
+    *,
+    video_id: str,
+    title: str,
+    description: str,
+    tags: list[str] | None,
+) -> None:
+    result = audit(description, tags or [], title)
+    conn.execute(
+        """UPDATE videos
+           SET title=?, audit_json=?, last_synced_at=?
+           WHERE video_id=?""",
+        (
+            title,
+            json.dumps(
+                {"score": result.score, "issues": list(result.issues)},
+                ensure_ascii=False,
+            ),
+            datetime.now(timezone.utc).isoformat(),
+            video_id,
+        ),
+    )
+    conn.commit()
+
 
 def sync_specific_videos(
     client: YouTubeClient,
