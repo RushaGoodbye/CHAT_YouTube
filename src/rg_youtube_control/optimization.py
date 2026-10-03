@@ -195,6 +195,15 @@ def has_safe_link_issue(issues: list[str] | tuple[str, ...]) -> bool:
     return bool(SAFE_LINK_ISSUES.intersection(issues))
 
 
+def is_safe_archive_candidate(issues: list[str] | tuple[str, ...]) -> bool:
+    """Safe archive batches must not mix in videos with title-language issues."""
+    issue_set = set(issues)
+    return (
+        bool(SAFE_LINK_ISSUES.intersection(issue_set))
+        and "latin_title_review" not in issue_set
+    )
+
+
 def safe_description_fix(description: str, title: str = "") -> SafeFix:
     before = description or ""
     after = normalize_links(before)
@@ -290,6 +299,8 @@ def priority_label(
     issue_set = set(issues)
     if scheduled_publish_at:
         return 1000, "ЗАПЛАНОВАНО"
+    if "latin_title_review" in issue_set:
+        return 900, "НАЗВА"
     if "old_links" in issue_set:
         return 800, "ВИСОКИЙ"
     if "missing_project_link" in issue_set or "missing_donate_link" in issue_set:
