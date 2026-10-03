@@ -698,6 +698,35 @@ def test_hashtag_generic_russia_is_only_a_last_resort():
     assert tags == ("#рашагудбай", "#чатрулетка", "#россия")
 
 
+def test_hashtag_confidence_handles_english_titles():
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    assert optimized_hashtags(
+        "My Favorite Anime Character: Sanji from One Piece"
+    ) == ("#рашагудбай", "#чатрулетка", "#sanji")
+
+    assert optimized_hashtags(
+        "Critique of past Ukrainian presidents' decisions"
+    ) == ("#рашагудбай", "#чатрулетка", "#украина")
+
+    assert optimized_hashtags(
+        "Sergey's Identity Crisis: Armenian or Not?"
+    ) == ("#рашагудбай", "#чатрулетка", "#армения")
+
+    assert optimized_hashtags(
+        "Cheburashka's Origin: Found in Oranges!"
+    ) == ("#рашагудбай", "#чатрулетка", "#чебурашка")
+
+
+def test_hashtag_confidence_rejects_generic_verb_title():
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    tags = optimized_hashtags(
+        "Высказываться сдержанно в великом споре"
+    )
+    assert tags == ("#рашагудбай", "#чатрулетка", "#россия")
+
+
 def test_safe_archive_batch_limit_is_twenty():
     from rg_youtube_control.config import DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
 
