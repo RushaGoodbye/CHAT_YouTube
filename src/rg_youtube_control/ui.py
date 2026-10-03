@@ -85,7 +85,10 @@ from .archive_campaign import (
     archive_profile_stats,
     deep_review_candidates,
     export_deep_review_manifest,
+    load_campaign_checkpoint,
     next_campaign_phase,
+    reconcile_campaign_checkpoint,
+    save_campaign_checkpoint,
 )
 from .metadata_audit import (
     audit,
@@ -141,7 +144,12 @@ from .service import (
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
-from .updater import UpdateInfo, check_for_update, download_update
+from .updater import (
+    UpdateInfo,
+    check_for_update,
+    download_update,
+    prune_cached_updates,
+)
 
 def _is_quota_exceeded_error(exc: Exception) -> bool:
     text = str(exc).casefold()
@@ -515,6 +523,8 @@ class MainWindow(QMainWindow):
         self.reload_action_log()
         self.update_dashboard()
         self._refresh_channel_header()
+        QTimer.singleShot(1200, self.recover_archive_campaign_state)
+        QTimer.singleShot(2000, self.cleanup_cached_updates)
         QTimer.singleShot(3000, self.check_for_updates_silent)
         QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
         QTimer.singleShot(8000, self.check_quota_plan_ready)
@@ -3892,6 +3902,51 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, APP_NAME, message)
         except Exception as exc:
             self._error("Помилка виправлення назв", exc)
+
+    def cleanup_cached_updates(self) -> None:
+        try:
+            removed = prune_cached_updates(keep=3)
+            if removed:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="система",
+                    action="Очищення оновлень",
+                    details=f"видалено старих файлів: {len(removed)}",
+                )
+        except Exception:
+            pass
+
+    def recover_archive_campaign_state(self) -> None:
+        if not archive_priority_enabled(self.conn):
+            return
+        try:
+            stats = self._archive_campaign_stats()
+            checkpoint, interrupted = reconcile_campaign_checkpoint(
+                self.conn,
+                stats,
+            )
+            if interrupted:
+                log_action(
+                    self.conn,
+                    profile=checkpoint.get("target") or self.current_profile,
+                    category="кампанія архіву",
+                    action="Відновлено після переривання",
+                    details=(
+                        f"етап {checkpoint.get('phase', '')} · "
+                        f"{checkpoint.get('target', '')}; "
+                        "продовження з поточного стану бази"
+                    ),
+                )
+            self._advance_archive_campaign()
+        except Exception as exc:
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="кампанія архіву",
+                action="Відновлення відкладено",
+                details=str(exc),
+            )
 
     def _archive_campaign_stats(self) -> dict[str, dict[str, int]]:
         transcript_dir = self._nas_path(
