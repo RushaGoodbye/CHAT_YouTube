@@ -4641,6 +4641,8 @@ class MainWindow(QMainWindow):
         self,
         video_id: str,
         payload: dict,
+        *,
+        force_draft: bool = False,
     ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
         package_video_id = str(payload.get("video_id") or video_id)
         if package_video_id != video_id:
@@ -4723,6 +4725,8 @@ class MainWindow(QMainWindow):
         requested_status = str(payload.get("status") or "ready")
         if requested_status not in {"draft", "ready"}:
             requested_status = "ready"
+        if force_draft:
+            requested_status = "draft"
         status = (
             "draft"
             if errors and requested_status == "ready"
