@@ -1125,6 +1125,30 @@ def test_archive_priority_enable_is_idempotent(tmp_path):
     ) == "1"
 
 
+def test_daily_archive_capacity_uses_full_safe_budget():
+    from rg_youtube_control.service import reserve_safe_daily_batch_capacity
+
+    assert reserve_safe_daily_batch_capacity(7500, 500) == 144
+    assert reserve_safe_daily_batch_capacity(728, 500) == 13
+    assert reserve_safe_daily_batch_capacity(365, 500) == 7
+    assert reserve_safe_daily_batch_capacity(51, 500) == 0
+
+
+def test_daily_archive_button_and_progress_exist():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    build_source = inspect.getsource(MainWindow._build_optimization_tab)
+    apply_source = inspect.getsource(MainWindow.apply_next_safe_archive_batch)
+
+    assert "Архів: денний пакет" in build_source
+    assert "daily=True" in build_source
+    assert "QProgressDialog" in apply_source
+    assert "reserve_safe_daily_batch_capacity" in apply_source
+    assert "Пріоритет архіву" in apply_source
+
+
 def test_reserve_safe_batch_capacity_uses_real_item_cost():
     from rg_youtube_control.service import (
         SAFE_METADATA_ITEM_COST,
