@@ -42,6 +42,8 @@ from . import __version__
 from .config import (
     APP_NAME,
     DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
+    DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES,
+    DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
     DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     DEFAULT_REPLY_TEMPLATES,
@@ -2423,6 +2425,37 @@ class MainWindow(QMainWindow):
             self.save_safe_autopilot_setting
         )
 
+        self.autopilot_interval_spin = QSpinBox()
+        self.autopilot_interval_spin.setRange(15, 1440)
+        self.autopilot_interval_spin.setSuffix(" хв")
+        self.autopilot_interval_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    f"safe_autopilot_interval_minutes_{self.current_profile}",
+                    str(DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES),
+                )
+            )
+        )
+        self.autopilot_interval_spin.valueChanged.connect(
+            self.save_safe_autopilot_limits
+        )
+
+        self.autopilot_daily_spin = QSpinBox()
+        self.autopilot_daily_spin.setRange(1, 100)
+        self.autopilot_daily_spin.setValue(
+            int(
+                get_setting(
+                    self.conn,
+                    f"safe_autopilot_daily_limit_{self.current_profile}",
+                    str(DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT),
+                )
+            )
+        )
+        self.autopilot_daily_spin.valueChanged.connect(
+            self.save_safe_autopilot_limits
+        )
+
         for profile_key in PROFILE_TARGETS:
             for suffix, legacy_key, default_value in (
                 ("daily_limit", "auto_reply_daily_limit", DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
@@ -2634,10 +2667,15 @@ class MainWindow(QMainWindow):
         moderation_note.setProperty("muted", True)
         layout.addWidget(moderation_note)
         layout.addWidget(self.safe_autopilot_box)
+        layout.addWidget(QLabel("Інтервал автопілота безпечних метаданих"))
+        layout.addWidget(self.autopilot_interval_spin)
+        layout.addWidget(QLabel("Денний ліміт відео для автопілота"))
+        layout.addWidget(self.autopilot_daily_spin)
         autopilot_note = QLabel(
             "Автопілот за один фоновий цикл змінює максимум 3 відео, "
-            "не торкається назв, тегів YouTube, розділів або основного тексту "
-            "та автоматично зупиняється на резерві квоти."
+            "не запускається частіше заданого інтервалу, дотримується "
+            "денного ліміту, не торкається назв, тегів YouTube, розділів "
+            "або основного тексту та автоматично зупиняється на резерві квоти."
         )
         autopilot_note.setWordWrap(True)
         autopilot_note.setProperty("muted", True)
