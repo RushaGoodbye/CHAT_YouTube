@@ -44,6 +44,42 @@ TOPIC_HASHTAGS = (
     (("армия", "армі"), "#армия"),
 )
 
+GENERIC_TOPIC_HASHTAGS = {"#россия", "#украина", "#война"}
+TITLE_BOILERPLATE_RE = re.compile(
+    r"(?iu)\b(?:чат\s*рулетка|раша\s*гудбай|russia\s*goodbye|"
+    r"russiagoodbye|стрим|эфир|ефір|stream)\b"
+)
+TITLE_TOPIC_STOPWORDS = {
+    "это", "этот", "эта", "эти", "как", "что", "кто", "где", "когда", "почему",
+    "зачем", "или", "для", "про", "при", "без", "под", "над", "между", "после",
+    "перед", "его", "ее", "её", "они", "она", "оно", "мы", "вы", "ты", "я",
+    "мой", "моя", "мои", "твой", "твоя", "наш", "ваш", "есть", "нет", "был",
+    "была", "были", "будет", "будут", "уже", "еще", "ещё", "очень", "просто",
+    "снова", "опять", "реально", "вообще", "теперь", "сегодня", "завтра",
+    "від", "для", "про", "після", "перед", "його", "її", "вони", "вона",
+    "ми", "ви", "ти", "мій", "моя", "наша", "ваша", "є", "нема", "буде",
+    "будуть", "вже", "ще", "дуже", "просто", "сьогодні", "завтра",
+    "происходит", "произошло", "говорит", "говорят", "разговор", "мнение",
+    "история", "видео", "вопрос", "ответ", "живешь", "живёшь",
+    "відбувається", "сталося", "говорить", "кажуть", "розмова", "думка",
+    "історія", "відео", "питання", "відповідь",
+}
+
+
+def _title_topic_hashtag(title: str) -> str:
+    cleaned = TITLE_BOILERPLATE_RE.sub(" ", title or "")
+    tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+", cleaned, re.UNICODE)
+    for token in tokens:
+        value = token.casefold()
+        if len(value) < 4:
+            continue
+        if value.isdigit() or value in TITLE_TOPIC_STOPWORDS:
+            continue
+        if value in {"россия", "россии", "россию", "украина", "украине", "украину"}:
+            continue
+        return "#" + value
+    return ""
+
 def optimized_hashtags(
     title: str,
     description: str = "",
@@ -57,13 +93,22 @@ def optimized_hashtags(
     combined_text = f"{title or ''}\n{description or ''}".casefold()
 
     topic = ""
+    generic_topic = ""
     for needles, hashtag in TOPIC_HASHTAGS:
-        if any(needle in combined_text for needle in needles):
-            topic = hashtag
-            break
+        if not any(needle in combined_text for needle in needles):
+            continue
+        if hashtag in GENERIC_TOPIC_HASHTAGS:
+            if not generic_topic:
+                generic_topic = hashtag
+            continue
+        topic = hashtag
+        break
 
     if not topic:
-        topic = "#россия"
+        topic = _title_topic_hashtag(title)
+
+    if not topic:
+        topic = generic_topic or "#россия"
 
     return (*BASE_HASHTAGS, topic)
 
