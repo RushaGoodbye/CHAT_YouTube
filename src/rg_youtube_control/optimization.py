@@ -54,20 +54,13 @@ def optimized_hashtags(
     fall back to the description. This keeps the safe archive pass compact
     and avoids a universal third hashtag on unrelated videos.
     """
-    title_text = (title or "").casefold()
-    description_text = (description or "").casefold()
+    combined_text = f"{title or ''}\n{description or ''}".casefold()
 
     topic = ""
     for needles, hashtag in TOPIC_HASHTAGS:
-        if any(needle in title_text for needle in needles):
+        if any(needle in combined_text for needle in needles):
             topic = hashtag
             break
-
-    if not topic:
-        for needles, hashtag in TOPIC_HASHTAGS:
-            if any(needle in description_text for needle in needles):
-                topic = hashtag
-                break
 
     if not topic:
         topic = "#россия"
