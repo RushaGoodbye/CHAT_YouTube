@@ -47,6 +47,18 @@ TOPIC_HASHTAGS = (
 )
 
 GENERIC_TOPIC_HASHTAGS = {"#россия", "#украина", "#война"}
+
+DEEP_REVIEW_ISSUES = {
+    "thin_description",
+    "no_chapters",
+    "no_tags",
+}
+
+
+def needs_deep_review(issues: list[str] | tuple[str, ...]) -> bool:
+    return bool(DEEP_REVIEW_ISSUES.intersection(set(issues)))
+
+
 TITLE_BOILERPLATE_RE = re.compile(
     r"(?iu)\b(?:чат\s*рулетка|раша\s*гудбай|russia\s*goodbye|"
     r"russiagoodbye|стрим|эфир|ефір|stream)\b"
