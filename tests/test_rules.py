@@ -1347,6 +1347,25 @@ def test_deep_transcript_batch_accounts_quota_and_reserve():
     assert "Транскрипти глибокої черги" in center_source
 
 
+def test_deep_stage_runs_queue_and_transcripts_without_manual_dialogs():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
+    queue_source = inspect.getsource(MainWindow.export_deep_review_queue_to_nas)
+    transcript_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+
+    assert "export_deep_review_queue_to_nas(" in center_source
+    assert "notify=False" in center_source
+    assert "export_deep_review_transcripts(" in center_source
+    assert "confirm=False" in center_source
+    assert "notify: bool = True" in queue_source
+    assert "confirm: bool = True" in transcript_source
+    assert "notify: bool = True" in transcript_source
+    assert "respect_reserve=True" in transcript_source
+
+
 def test_daily_archive_capacity_uses_full_safe_budget():
     from rg_youtube_control.service import reserve_safe_daily_batch_capacity
 
