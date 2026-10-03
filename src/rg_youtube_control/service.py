@@ -42,7 +42,11 @@ def sync_videos(
         status = item.get("status", {})
         stats = item.get("statistics", {})
         content = item.get("contentDetails", {})
-        result = audit(snippet.get("description", ""), snippet.get("tags", []))
+        result = audit(
+            snippet.get("description", ""),
+            snippet.get("tags", []),
+            snippet.get("title", ""),
+        )
         row = {
             "video_id": video_id,
             "profile": client.profile,
