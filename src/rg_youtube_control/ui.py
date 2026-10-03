@@ -5630,7 +5630,9 @@ class MainWindow(QMainWindow):
             f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
-            f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
+            f"Безпечний ліміт за поточною квотою: {batch_limit}.\n"
+            f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
+            f"Резерв {budget['reserve']} од. не буде використано.\n\n"
             + (
                 "Використовується підготовлена черга за пріоритетом.\n"
                 if use_prepared
