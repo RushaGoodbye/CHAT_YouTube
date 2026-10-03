@@ -342,20 +342,68 @@ class YouTubeClient:
         description: str | None = None,
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
-        current = self.service().videos().list(part="snippet", id=video_id).execute()
+        current = self.service().videos().list(
+            part="snippet",
+            id=video_id,
+        ).execute()
         items = current.get("items", [])
         if not items:
             raise RuntimeError(f"Video not found: {video_id}")
-        snippet = items[0]["snippet"]
-        if title is not None:
-            snippet["title"] = title
-        if description is not None:
-            snippet["description"] = description
+
+        current_snippet = items[0].get("snippet", {})
+        snippet: dict[str, Any] = {
+            "title": (
+                title
+                if title is not None
+                else str(current_snippet.get("title") or "")
+            ),
+            "description": (
+                description
+                if description is not None
+                else str(current_snippet.get("description") or "")
+            ),
+            "categoryId": str(current_snippet.get("categoryId") or "22"),
+        }
+
         if tags is not None:
-            snippet["tags"] = tags
-        return self.service().videos().update(
-            part="snippet", body={"id": video_id, "snippet": snippet}
+            snippet["tags"] = list(tags)
+        elif "tags" in current_snippet:
+            snippet["tags"] = list(current_snippet.get("tags") or [])
+
+        for key in ("defaultLanguage", "defaultAudioLanguage"):
+            value = current_snippet.get(key)
+            if value:
+                snippet[key] = value
+
+        updated = self.service().videos().update(
+            part="snippet",
+            body={"id": video_id, "snippet": snippet},
         ).execute()
+
+        updated_snippet = updated.get("snippet", {})
+        if title is not None:
+            returned_title = str(updated_snippet.get("title") or "")
+            if returned_title != title:
+                raise RuntimeError(
+                    "YouTube не підтвердив зміну назви відео. "
+                    f"Очікувалось: {title!r}; отримано: {returned_title!r}"
+                )
+        if description is not None:
+            returned_description = str(
+                updated_snippet.get("description") or ""
+            )
+            if returned_description != description:
+                raise RuntimeError(
+                    "YouTube не підтвердив зміну опису відео."
+                )
+        if tags is not None:
+            returned_tags = list(updated_snippet.get("tags") or [])
+            if returned_tags != list(tags):
+                raise RuntimeError(
+                    "YouTube не підтвердив зміну тегів відео."
+                )
+
+        return updated
 
 
     def caption_tracks(self, video_id: str) -> list[dict[str, Any]]:
