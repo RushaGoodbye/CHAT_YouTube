@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -63,6 +64,8 @@ from .db import (
     commit_video_analytics,
     connect,
     database_integrity_cleanup,
+    deep_review_counts,
+    deep_review_state_map,
     get_optimization_draft,
     get_setting,
     log_action,
@@ -73,9 +76,16 @@ from .db import (
     save_metadata_snapshot,
     save_optimization_draft,
     set_comment_status,
+    set_deep_review_state,
     set_optimization_draft_status,
     set_setting,
     upsert_video_analytics,
+)
+from .archive_campaign import (
+    archive_profile_stats,
+    deep_review_candidates,
+    export_deep_review_manifest,
+    next_campaign_phase,
 )
 from .metadata_audit import (
     audit,
@@ -95,6 +105,7 @@ from .optimization import (
     compose_description,
     extract_chapters_from_description,
     is_safe_archive_candidate,
+    needs_deep_review,
     priority_label,
     safe_description_fix,
     validate_chapters,
@@ -122,6 +133,7 @@ from .service import (
     COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
     READ_REQUEST_COST,
+    CAPTION_TRANSCRIPT_COST,
     SAFE_METADATA_ITEM_COST,
     reserve_safe_batch_capacity,
     reserve_safe_daily_batch_capacity,
@@ -1120,6 +1132,9 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         potential_btn = QPushButton("ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
+        campaign_btn = QPushButton("Центр кампанії")
+        campaign_btn.setProperty("role", "success")
+        campaign_btn.clicked.connect(self.show_archive_campaign_center)
         prepare_queue_btn = QPushButton(f"Підготувати {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
         prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
         preview_btn = QPushButton("Перегляд безпечних правок")
@@ -1180,6 +1195,10 @@ class MainWindow(QMainWindow):
             "Англомовні назви",
             "latin_titles",
         )
+        self.optimization_filter.addItem(
+            "Глибока оптимізація",
+            "deep_review",
+        )
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
@@ -1188,6 +1207,7 @@ class MainWindow(QMainWindow):
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
         sync_row.addWidget(potential_btn)
+        sync_row.addWidget(campaign_btn)
         sync_row.addWidget(prepare_queue_btn)
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
@@ -1217,6 +1237,12 @@ class MainWindow(QMainWindow):
         title_row.addWidget(preview_titles_btn)
         title_row.addWidget(apply_titles_btn)
         title_row.addStretch()
+
+        self.archive_campaign_summary = QLabel()
+        self.archive_campaign_summary.setObjectName("ArchiveCampaignSummary")
+        self.archive_campaign_summary.setProperty("muted", True)
+        self.archive_campaign_summary.setWordWrap(True)
+        self._refresh_archive_campaign_summary()
 
         self.optimization_table = QTableWidget(0, 12)
         self.optimization_table.setHorizontalHeaderLabels(
@@ -1262,6 +1288,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(safe_row)
         layout.addLayout(content_row)
         layout.addLayout(title_row)
+        layout.addWidget(self.archive_campaign_summary)
         layout.addWidget(self.optimization_table)
         self.tabs.addTab(page, "Оптимізація")
 
@@ -3866,6 +3893,616 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка виправлення назв", exc)
 
+    def _archive_campaign_stats(self) -> dict[str, dict[str, int]]:
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        return {
+            profile: archive_profile_stats(
+                self.conn,
+                profile,
+                transcript_dir=transcript_dir,
+            )
+            for profile in PROFILE_TARGETS
+        }
+
+    def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
+        budget = quota_budget_status(self.conn)
+        fresh_spendable = max(
+            0,
+            YOUTUBE_DAILY_QUOTA_DEFAULT - int(budget["reserve"]),
+        )
+        current_capacity = reserve_safe_daily_batch_capacity(
+            int(budget["spendable"]),
+            500,
+        )
+        fresh_capacity = reserve_safe_daily_batch_capacity(
+            fresh_spendable,
+            500,
+        )
+        return {
+            **budget,
+            "current_capacity": current_capacity,
+            "fresh_capacity": fresh_capacity,
+        }
+
+    def _refresh_archive_campaign_summary(self) -> None:
+        if not hasattr(self, "archive_campaign_summary"):
+            return
+        stats = self._archive_campaign_stats()
+        budget = self._archive_campaign_budget()
+        phase, target = next_campaign_phase(stats)
+        total_safe = sum(
+            int(item["safe_remaining"])
+            for item in stats.values()
+        )
+        fresh_capacity = int(budget["fresh_capacity"])
+        days = (
+            math.ceil(total_safe / fresh_capacity)
+            if total_safe > 0 and fresh_capacity > 0
+            else 0
+        )
+        phase_text = {
+            ("safe", "main"): "основний канал · безпечний архів",
+            ("safe", "live"): "LIVE · безпечний архів",
+            ("deep", "main"): "основний канал · глибока оптимізація",
+            ("deep", "live"): "LIVE · глибока оптимізація",
+            ("complete", ""): "кампанію завершено",
+        }.get((phase, target), "—")
+        main = stats.get("main", {})
+        live = stats.get("live", {})
+        self.archive_campaign_summary.setText(
+            "Кампанія архіву · "
+            f"етап: {phase_text} · "
+            f"безпечних: основний {main.get('safe_remaining', 0)}, "
+            f"LIVE {live.get('safe_remaining', 0)} · "
+            f"глибока черга: {main.get('deep_remaining', 0)} + "
+            f"{live.get('deep_remaining', 0)} · "
+            f"сьогодні можна ≈{budget['current_capacity']} · "
+            f"свіжий день ≈{fresh_capacity}"
+            + (f" · до завершення безпечного архіву ≈{days} дн." if days else "")
+            + f" · скидання {budget['reset']}"
+        )
+
+    def _advance_archive_campaign(self, *, notify: bool = False) -> None:
+        stats = self._archive_campaign_stats()
+        phase, target = next_campaign_phase(stats)
+        if phase == "complete":
+            if archive_priority_enabled(self.conn):
+                set_archive_priority_mode(
+                    self.conn,
+                    False,
+                    tuple(PROFILE_TARGETS.keys()),
+                )
+                if hasattr(self, "archive_priority_box"):
+                    self.archive_priority_box.blockSignals(True)
+                    self.archive_priority_box.setChecked(False)
+                    self.archive_priority_box.blockSignals(False)
+                    self._refresh_archive_priority_controls()
+                if hasattr(self, "safe_autopilot_box"):
+                    restored = (
+                        get_setting(
+                            self.conn,
+                            f"safe_metadata_autopilot_{self.current_profile}",
+                            "0",
+                        )
+                        == "1"
+                    )
+                    self.safe_autopilot_box.blockSignals(True)
+                    self.safe_autopilot_box.setChecked(restored)
+                    self.safe_autopilot_box.blockSignals(False)
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="кампанія архіву",
+                    action="Завершено",
+                    details=(
+                        "обидва канали пройдено; попередній стан "
+                        "автопілота метаданих відновлено"
+                    ),
+                )
+                if notify:
+                    QMessageBox.information(
+                        self,
+                        "Кампанію архіву завершено",
+                        "Основний канал і LIVE завершили безпечний та "
+                        "глибокий етапи. Пріоритет архіву вимкнено, "
+                        "попередній стан автопілота метаданих відновлено. "
+                        "Коментарі весь час продовжували працювати.",
+                    )
+            self._refresh_archive_campaign_summary()
+            return
+
+        if target and target != self.current_profile:
+            self._activate_profile(target)
+            self.statusBar().showMessage(
+                "Кампанія архіву: наступний етап · "
+                f"{PROFILE_LABELS[target]}"
+            )
+        self._refresh_archive_campaign_summary()
+
+    def export_deep_review_queue_to_nas(
+        self,
+        profile: str | None = None,
+    ) -> None:
+        target = profile or self.current_profile
+        stats = self._archive_campaign_stats()
+        if int(stats.get(target, {}).get("safe_remaining", 0)) > 0:
+            QMessageBox.information(
+                self,
+                "Глибока оптимізація",
+                f"Спочатку завершіть безпечний архів каналу "
+                f"{PROFILE_LABELS[target]}. Залишилося: "
+                f"{stats[target]['safe_remaining']}.",
+            )
+            return
+
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        path, exported, total = export_deep_review_manifest(
+            self.conn,
+            target,
+            transcript_dir=transcript_dir,
+            package_dir=package_dir,
+            limit=20,
+        )
+        items, _ = deep_review_candidates(
+            self.conn,
+            target,
+            limit=20,
+        )
+        transcript_ready = sum(
+            1
+            for item in items
+            if (transcript_dir / f"{item['video_id']}.srt").exists()
+        )
+        self.reload_optimization_queue()
+        self._refresh_archive_campaign_summary()
+        QMessageBox.information(
+            self,
+            "Глибока черга",
+            f"Канал: {PROFILE_LABELS[target]}\n"
+            f"Експортовано: {exported} з {total}.\n"
+            f"Транскрипт уже є: {transcript_ready}/{exported}.\n"
+            "Квота YouTube: 0.\n\n"
+            f"{path}\n\n"
+            "Усі майбутні пакети з цієї черги імпортуються тільки "
+            "як чернетки. Автоматичне застосування заборонено.",
+        )
+
+    def import_deep_review_packages(
+        self,
+        profile: str | None = None,
+    ) -> None:
+        target = profile or self.current_profile
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        manifest_path = package_dir / f"deep_review_{target}.json"
+        if not manifest_path.exists():
+            QMessageBox.information(
+                self,
+                "Глибока черга",
+                "Спочатку експортуйте глибоку чергу на NAS.",
+            )
+            return
+
+        try:
+            payload = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            items = payload.get("items") or []
+            imported = 0
+            missing = 0
+            failed: list[str] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                video_id = str(item.get("video_id") or "").strip()
+                if not video_id:
+                    continue
+                package_path = Path(
+                    str(item.get("package_path") or package_dir / f"{video_id}.json")
+                )
+                if not package_path.exists():
+                    missing += 1
+                    continue
+                try:
+                    deep_payload = json.loads(
+                        package_path.read_text(encoding="utf-8")
+                    )
+                    self._save_package_payload(
+                        video_id,
+                        deep_payload,
+                        force_draft=True,
+                    )
+                    set_deep_review_state(
+                        self.conn,
+                        video_id=video_id,
+                        profile=target,
+                        status="review",
+                        note="package_imported_as_draft",
+                    )
+                    imported += 1
+                except Exception as exc:
+                    failed.append(f"{video_id}: {exc}")
+
+            self.reload_optimization_queue()
+            self._refresh_archive_campaign_summary()
+            message = (
+                f"Імпортовано чернеток: {imported}.\n"
+                f"Пакетів ще немає: {missing}.\n"
+                "Квота YouTube: 0.\n\n"
+                "Перед застосуванням кожен пакет потрібно відкрити, "
+                "переглянути зміни та вручну перевести у «Готово»."
+            )
+            if failed:
+                message += (
+                    f"\nПомилок: {len(failed)}.\n"
+                    + "\n".join(failed[:5])
+                )
+            QMessageBox.information(
+                self,
+                "Глибокі пакети",
+                message,
+            )
+        except Exception as exc:
+            self._error("Помилка імпорту глибоких пакетів", exc)
+
+    def export_deep_review_transcripts(
+        self,
+        profile: str | None = None,
+    ) -> None:
+        target = profile or self.current_profile
+        if target != self.current_profile:
+            self._activate_profile(target)
+
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        manifest_path = package_dir / f"deep_review_{target}.json"
+        if not manifest_path.exists():
+            QMessageBox.information(
+                self,
+                "Транскрипти глибокої черги",
+                "Спочатку експортуйте глибоку чергу на NAS.",
+            )
+            return
+
+        try:
+            payload = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            items = [
+                item
+                for item in (payload.get("items") or [])
+                if isinstance(item, dict)
+            ]
+            pending = [
+                item
+                for item in items
+                if item.get("video_id")
+                and not (
+                    transcript_dir / f"{item['video_id']}.srt"
+                ).exists()
+            ]
+            if not pending:
+                QMessageBox.information(
+                    self,
+                    "Транскрипти глибокої черги",
+                    "Усі транскрипти поточної глибокої черги вже є на NAS.",
+                )
+                return
+
+            budget = quota_budget_status(self.conn)
+            capacity = max(
+                0,
+                int(budget["spendable"]) // CAPTION_TRANSCRIPT_COST,
+            )
+            batch = pending[: min(20, capacity)]
+            if not batch:
+                QMessageBox.information(
+                    self,
+                    "Резерв квоти",
+                    "Над захищеним резервом недостатньо квоти "
+                    "для нового транскрипту.",
+                )
+                return
+
+            estimated = len(batch) * CAPTION_TRANSCRIPT_COST
+            answer = QMessageBox.question(
+                self,
+                "Транскрипти глибокої черги",
+                f"Канал: {PROFILE_LABELS[target]}\n"
+                f"Без транскрипту: {len(pending)}.\n"
+                f"Зараз буде отримано: до {len(batch)}.\n"
+                f"Максимальна витрата: ≈{estimated} од. квоти.\n"
+                f"Резерв {budget['reserve']} од. не буде використано.\n\n"
+                "Продовжити?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            saved = 0
+            failed: list[str] = []
+            for index, item in enumerate(batch, start=1):
+                video_id = str(item["video_id"])
+                self.statusBar().showMessage(
+                    f"Глибокі транскрипти: {index}/{len(batch)} · {video_id}"
+                )
+                QApplication.processEvents()
+                try:
+                    path, _downloaded = self._export_transcript_video_to_nas(
+                        video_id,
+                        respect_reserve=True,
+                    )
+                    item["transcript_ready"] = True
+                    item["transcript_path"] = str(path)
+                    saved += 1
+                except Exception as exc:
+                    failed.append(f"{video_id}: {exc}")
+
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            manifest_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self.reload_optimization_queue()
+            self._refresh_archive_campaign_summary()
+
+            message = (
+                f"Збережено транскриптів: {saved}.\n"
+                f"Помилок: {len(failed)}."
+            )
+            if failed:
+                message += "\n\n" + "\n".join(failed[:5])
+            QMessageBox.information(
+                self,
+                "Транскрипти глибокої черги",
+                message,
+            )
+        except Exception as exc:
+            self._error("Помилка транскриптів глибокої черги", exc)
+
+    def show_archive_campaign_center(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Центр кампанії архіву")
+        dialog.resize(1050, 560)
+        layout = QVBoxLayout(dialog)
+
+        phase_label = QLabel()
+        phase_label.setObjectName("SettingsSectionTitle")
+        quota_label = QLabel()
+        quota_label.setWordWrap(True)
+        quota_label.setProperty("muted", True)
+        layout.addWidget(phase_label)
+        layout.addWidget(quota_label)
+
+        table = QTableWidget(2, 8)
+        table.setHorizontalHeaderLabels([
+            "Канал",
+            "Архів",
+            "Безпечні",
+            "Глибока",
+            "Транскрипти",
+            "Пакети готові",
+            "Застосовано",
+            "Пропущено",
+        ])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(table)
+
+        hint = QLabel(
+            "Фази йдуть автоматично: основний безпечний архів → LIVE "
+            "безпечний архів → глибока оптимізація основного → LIVE. "
+            "Після повного завершення попередній стан автопілота "
+            "метаданих буде відновлено автоматично."
+        )
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+        layout.addWidget(hint)
+
+        buttons = QHBoxLayout()
+        run_btn = QPushButton("Запустити поточний етап")
+        run_btn.setProperty("role", "primary")
+        deep_export_btn = QPushButton("Глибока черга → NAS")
+        deep_transcripts_btn = QPushButton("Транскрипти глибокої черги")
+        deep_import_btn = QPushButton("Імпорт глибоких пакетів")
+        open_btn = QPushButton("Відкрити етап в Оптимізації")
+        refresh_btn = QPushButton("Оновити локально")
+        close_btn = QPushButton("Закрити")
+        for button in (
+            run_btn,
+            deep_export_btn,
+            deep_transcripts_btn,
+            deep_import_btn,
+            open_btn,
+            refresh_btn,
+            close_btn,
+        ):
+            buttons.addWidget(button)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+        def refresh() -> None:
+            stats = self._archive_campaign_stats()
+            budget = self._archive_campaign_budget()
+            phase, target = next_campaign_phase(stats)
+            phase_name = {
+                "safe": "БЕЗПЕЧНИЙ АРХІВ",
+                "deep": "ГЛИБОКА ОПТИМІЗАЦІЯ",
+                "complete": "ЗАВЕРШЕНО",
+            }.get(phase, phase)
+            target_name = (
+                PROFILE_LABELS.get(target, "")
+                if target
+                else "обидва канали"
+            )
+            phase_label.setText(
+                f"Поточний етап: {phase_name} · {target_name}"
+            )
+            total_safe = sum(
+                int(value["safe_remaining"])
+                for value in stats.values()
+            )
+            fresh_capacity = int(budget["fresh_capacity"])
+            days = (
+                math.ceil(total_safe / fresh_capacity)
+                if total_safe and fresh_capacity
+                else 0
+            )
+            today_count = 0
+            utc_day = datetime.now(timezone.utc).date().isoformat()
+            for profile in PROFILE_TARGETS:
+                counter_key = (
+                    f"archive_campaign_changed_{profile}_"
+                    f"{current_quota_day()}"
+                )
+                raw_counter = get_setting(
+                    self.conn,
+                    counter_key,
+                    "",
+                ).strip()
+                if raw_counter:
+                    today_count += int(raw_counter or 0)
+                else:
+                    fallback = self.conn.execute(
+                        """SELECT COUNT(*) AS n
+                           FROM optimization_events
+                           WHERE profile=?
+                             AND reason='safe_archive_batch'
+                             AND optimized_at LIKE ?""",
+                        (profile, f"{utc_day}%"),
+                    ).fetchone()
+                    today_count += int(fallback["n"] or 0)
+            quota_label.setText(
+                f"Квота: враховано ≈{budget['used']}/"
+                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
+                f"залишок ≈{budget['remaining']} · "
+                f"резерв {budget['reserve']} · "
+                f"доступно зараз ≈{budget['current_capacity']} відео · "
+                f"свіжий день ≈{fresh_capacity} · "
+                f"оброблено сьогодні {today_count} · "
+                f"скидання {budget['reset']}"
+                + (f" · безпечний архів ≈{days} дн." if days else "")
+            )
+            for row_index, profile in enumerate(("main", "live")):
+                item = stats.get(profile, {})
+                values = [
+                    PROFILE_LABELS[profile],
+                    str(item.get("archive_total", 0)),
+                    str(item.get("safe_remaining", 0)),
+                    str(item.get("deep_remaining", 0)),
+                    str(item.get("transcripts", 0)),
+                    str(item.get("ready_packages", 0)),
+                    str(item.get("applied_packages", 0)),
+                    str(item.get("skipped_deep", 0)),
+                ]
+                for column, value in enumerate(values):
+                    cell = QTableWidgetItem(value)
+                    if column == 0:
+                        cell.setFont(
+                            QFont("Segoe UI", 9, QFont.Weight.Bold)
+                        )
+                    table.setItem(row_index, column, cell)
+
+            deep_mode = phase == "deep"
+            deep_export_btn.setEnabled(deep_mode)
+            deep_transcripts_btn.setEnabled(deep_mode)
+            deep_import_btn.setEnabled(deep_mode)
+            run_btn.setEnabled(phase != "complete")
+
+        def run_current() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase == "complete":
+                self._advance_archive_campaign(notify=True)
+                refresh()
+                return
+            if target:
+                self._activate_profile(target)
+            if phase == "safe":
+                self.apply_next_safe_archive_batch(daily=True)
+            elif phase == "deep":
+                self.export_deep_review_queue_to_nas(target)
+            self._advance_archive_campaign()
+            refresh()
+
+        def export_deep() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase != "deep" or not target:
+                return
+            self._activate_profile(target)
+            self.export_deep_review_queue_to_nas(target)
+            refresh()
+
+        def fetch_deep_transcripts() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase != "deep" or not target:
+                return
+            self._activate_profile(target)
+            self.export_deep_review_transcripts(target)
+            refresh()
+
+        def import_deep() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase != "deep" or not target:
+                return
+            self._activate_profile(target)
+            self.import_deep_review_packages(target)
+            refresh()
+
+        def open_current() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if target:
+                self._activate_profile(target)
+            if phase == "deep":
+                index = self.optimization_filter.findData("deep_review")
+                if index >= 0:
+                    self.optimization_filter.setCurrentIndex(index)
+            elif phase == "safe":
+                index = self.optimization_filter.findData("archive_top")
+                if index >= 0:
+                    self.optimization_filter.setCurrentIndex(index)
+            self.tabs.setCurrentIndex(2)
+            dialog.accept()
+
+        run_btn.clicked.connect(run_current)
+        deep_export_btn.clicked.connect(export_deep)
+        deep_transcripts_btn.clicked.connect(fetch_deep_transcripts)
+        deep_import_btn.clicked.connect(import_deep)
+        open_btn.clicked.connect(open_current)
+        refresh_btn.clicked.connect(refresh)
+        close_btn.clicked.connect(dialog.accept)
+
+        refresh()
+        dialog.exec()
+
     def _prepared_queue_ids(self) -> list[str]:
         raw = get_setting(
             self.conn,
@@ -3958,11 +4595,23 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        self._refresh_archive_campaign_summary()
         latin_index = self.optimization_filter.findData("latin_titles")
         if latin_index >= 0:
             self.optimization_filter.setItemText(
                 latin_index,
                 f"Англомовні назви ({self._latin_title_review_count(profile)})",
+            )
+        deep_index = self.optimization_filter.findData("deep_review")
+        if deep_index >= 0:
+            _deep_items, deep_total = deep_review_candidates(
+                self.conn,
+                profile,
+                limit=1,
+            )
+            self.optimization_filter.setItemText(
+                deep_index,
+                f"Глибока оптимізація ({deep_total})",
             )
         queue_filter = (
             self.optimization_filter.currentData()
@@ -3985,6 +4634,11 @@ class MainWindow(QMainWindow):
                 " AND v.privacy_status='public'"
             )
         elif queue_filter == "latin_titles":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
+        elif queue_filter == "deep_review":
             extra_where = (
                 " AND v.scheduled_publish_at IS NULL"
                 " AND v.privacy_status='public'"
@@ -4036,6 +4690,23 @@ class MainWindow(QMainWindow):
                 if "latin_title_review" in row_issues:
                     latin_rows.append(row)
             rows = latin_rows
+        elif queue_filter == "deep_review":
+            state_map = deep_review_state_map(self.conn, profile)
+            deep_rows = []
+            for row in rows:
+                try:
+                    row_issues = json.loads(
+                        row["audit_json"] or "{}"
+                    ).get("issues", [])
+                except Exception:
+                    row_issues = []
+                video_id = str(row["video_id"])
+                if (
+                    needs_deep_review(row_issues)
+                    and state_map.get(video_id) not in {"applied", "skipped"}
+                ):
+                    deep_rows.append(row)
+            rows = deep_rows
 
 
         ctr_values = [
@@ -4051,7 +4722,7 @@ class MainWindow(QMainWindow):
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            if queue_filter in {"archive_top", "prepared"}:
+            if queue_filter in {"archive_top", "prepared", "deep_review"}:
                 priority_value = archive_potential_score(
                     lifetime_views=int(row["views"] or 0),
                     analytics_views=int(row["analytics_views"] or 0),
@@ -4060,7 +4731,11 @@ class MainWindow(QMainWindow):
                     median_ctr_percent=float(channel_median_ctr),
                     issues=issues,
                 )
-                priority_text = f"ПОТЕНЦІАЛ {priority_value}"
+                priority_text = (
+                    f"ГЛИБОКА {priority_value}"
+                    if queue_filter == "deep_review"
+                    else f"ПОТЕНЦІАЛ {priority_value}"
+                )
             else:
                 priority_value, priority_text = priority_label(
                     score,
@@ -4090,7 +4765,7 @@ class MainWindow(QMainWindow):
                     str(item[3]["video_id"]), 10**9
                 )
             )
-        elif queue_filter == "archive_top":
+        elif queue_filter in {"archive_top", "deep_review"}:
             prepared.sort(
                 key=lambda item: (
                     -item[0],
@@ -4154,7 +4829,10 @@ class MainWindow(QMainWindow):
                     if priority_text == "ЗАПЛАНОВАНО":
                         item.setForeground(QColor(YOUTUBE_RED))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    elif priority_text.startswith("ПОТЕНЦІАЛ "):
+                    elif (
+                        priority_text.startswith("ПОТЕНЦІАЛ ")
+                        or priority_text.startswith("ГЛИБОКА ")
+                    ):
                         potential = int(priority_text.rsplit(" ", 1)[-1])
                         item.setForeground(
                             QColor(
@@ -4351,6 +5029,8 @@ class MainWindow(QMainWindow):
     def _export_transcript_video_to_nas(
         self,
         video_id: str,
+        *,
+        respect_reserve: bool = False,
     ) -> tuple[Path, bool]:
         target_dir = self._nas_path(
             "nas_transcripts_path",
@@ -4394,7 +5074,26 @@ class MainWindow(QMainWindow):
                 pass
             return srt_path, False
 
-        track, srt = self.client.download_best_caption_srt(video_id)
+        if respect_reserve:
+            budget = quota_budget_status(self.conn)
+            if int(budget["spendable"]) < CAPTION_TRANSCRIPT_COST:
+                raise RuntimeError(
+                    "Недостатньо квоти вище захищеного резерву "
+                    "для отримання транскрипту."
+                )
+
+        try:
+            track, srt = self.client.download_best_caption_srt(video_id)
+        except Exception as exc:
+            # captions.list is still a quota-bearing read even when no usable
+            # track exists. Count the known list cost conservatively.
+            if "не знайдено доступних субтитрів" in str(exc):
+                record_quota_units(self.conn, 50)
+                self.refresh_youtube_quota_label()
+            raise
+        record_quota_units(self.conn, CAPTION_TRANSCRIPT_COST)
+        self.refresh_youtube_quota_label()
+
         snippet = track.get("snippet", {})
         srt_path.write_text(srt, encoding="utf-8")
 
@@ -4620,6 +5319,8 @@ class MainWindow(QMainWindow):
         self,
         video_id: str,
         payload: dict,
+        *,
+        force_draft: bool = False,
     ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
         package_video_id = str(payload.get("video_id") or video_id)
         if package_video_id != video_id:
@@ -4702,6 +5403,8 @@ class MainWindow(QMainWindow):
         requested_status = str(payload.get("status") or "ready")
         if requested_status not in {"draft", "ready"}:
             requested_status = "ready"
+        if force_draft:
+            requested_status = "draft"
         status = (
             "draft"
             if errors and requested_status == "ready"
@@ -4964,6 +5667,72 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка пакета оптимізації", exc)
 
+    def _preview_deep_content_package(
+        self,
+        *,
+        video_id: str,
+        current_title: str,
+        current_description: str,
+        current_tags: list[str],
+        new_title: str,
+        new_description: str,
+        new_tags: list[str],
+    ) -> bool:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
+        dialog.resize(1180, 760)
+        layout = QVBoxLayout(dialog)
+
+        note = QLabel(
+            "Це повний перегляд небезпечних змін. Thumbnail, видимість, "
+            "дата публікації та інші налаштування не змінюються."
+        )
+        note.setWordWrap(True)
+        note.setProperty("muted", True)
+        layout.addWidget(note)
+
+        columns = QHBoxLayout()
+        before_box = QVBoxLayout()
+        after_box = QVBoxLayout()
+        before_box.addWidget(QLabel("ДО"))
+        after_box.addWidget(QLabel("ПІСЛЯ"))
+
+        before = QPlainTextEdit()
+        before.setReadOnly(True)
+        before.setPlainText(
+            f"НАЗВА\n{current_title}\n\n"
+            f"ОПИС\n{current_description}\n\n"
+            f"ТЕГИ\n{', '.join(current_tags)}"
+        )
+        after = QPlainTextEdit()
+        after.setReadOnly(True)
+        after.setPlainText(
+            f"НАЗВА\n{new_title}\n\n"
+            f"ОПИС\n{new_description}\n\n"
+            f"ТЕГИ\n{', '.join(new_tags)}"
+        )
+        before_box.addWidget(before)
+        after_box.addWidget(after)
+        columns.addLayout(before_box, 1)
+        columns.addLayout(after_box, 1)
+        layout.addLayout(columns, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(
+            QDialogButtonBox.StandardButton.Ok
+        ).setText("Перевірено · продовжити")
+        buttons.button(
+            QDialogButtonBox.StandardButton.Cancel
+        ).setText("Скасувати")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        return dialog.exec() == QDialog.DialogCode.Accepted
+
     def apply_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
@@ -4999,19 +5768,46 @@ class MainWindow(QMainWindow):
             new_tags = json.loads(draft["tags_json"] or "[]")
             new_title = draft["new_title"]
 
-            answer = QMessageBox.question(
-                self,
-                "Застосувати пакет оптимізації",
-                f"Відео: {video_id}\n\n"
-                f"Назва:\n{current_title}\n→\n{new_title}\n\n"
-                f"Опис: {len(current_description)} → "
-                f"{len(final_description)} символів\n"
-                f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
-                "Усі поля буде надіслано одним videos.update "
-                f"(≈{VIDEO_UPDATE_COST} од. квоти). Продовжити?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+            deep_state_before = deep_review_state_map(
+                self.conn,
+                self.current_profile,
             )
+            if video_id in deep_state_before:
+                if not self._preview_deep_content_package(
+                    video_id=video_id,
+                    current_title=current_title,
+                    current_description=current_description,
+                    current_tags=current_tags,
+                    new_title=new_title,
+                    new_description=final_description,
+                    new_tags=new_tags,
+                ):
+                    return
+                answer = QMessageBox.question(
+                    self,
+                    "Підтвердити глибоку оптимізацію",
+                    f"Перегляд завершено. Буде змінено назву, опис і теги "
+                    f"одного відео (≈{VIDEO_UPDATE_COST} од. квоти).\n\n"
+                    "Застосувати перевірений пакет?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+            else:
+                answer = QMessageBox.question(
+                    self,
+                    "Застосувати пакет оптимізації",
+                    f"Відео: {video_id}\n\n"
+                    f"Назва:\n{current_title}\n→\n{new_title}\n\n"
+                    f"Опис: {len(current_description)} → "
+                    f"{len(final_description)} символів\n"
+                    f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
+                    "Усі поля буде надіслано одним videos.update "
+                    f"(≈{VIDEO_UPDATE_COST} од. квоти). Продовжити?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
@@ -5035,9 +5831,22 @@ class MainWindow(QMainWindow):
                 changed_fields="назва + опис + теги",
             )
             set_optimization_draft_status(self.conn, video_id, "applied")
+            deep_state = deep_review_state_map(
+                self.conn,
+                self.current_profile,
+            )
+            if video_id in deep_state:
+                set_deep_review_state(
+                    self.conn,
+                    video_id=video_id,
+                    profile=self.current_profile,
+                    status="applied",
+                    note="content_package_applied_after_preview",
+                )
             sync_specific_videos(self.client, self.conn, [video_id])
             self.reload_videos()
             self.reload_optimization_queue()
+            self._advance_archive_campaign()
             QMessageBox.information(
                 self,
                 APP_NAME,
@@ -5970,11 +6779,26 @@ class MainWindow(QMainWindow):
             if progress is not None:
                 progress.close()
 
+            if changed_ids:
+                counter_key = (
+                    f"archive_campaign_changed_{self.current_profile}_"
+                    f"{current_quota_day()}"
+                )
+                previous = int(
+                    get_setting(self.conn, counter_key, "0") or 0
+                )
+                set_setting(
+                    self.conn,
+                    counter_key,
+                    str(previous + len(changed_ids)),
+                )
+
             refresh_ids = changed_ids + skipped_ids
             if refresh_ids and error_text not in {"quota_exceeded", "cancelled"}:
                 sync_specific_videos(self.client, self.conn, refresh_ids)
             self.reload_videos()
             self.reload_optimization_queue()
+            self._advance_archive_campaign()
 
             remaining = max(
                 0,

@@ -1125,6 +1125,228 @@ def test_archive_priority_enable_is_idempotent(tmp_path):
     ) == "1"
 
 
+def test_archive_campaign_phase_order():
+    from rg_youtube_control.archive_campaign import next_campaign_phase
+
+    stats = {
+        "main": {"safe_remaining": 5, "deep_remaining": 10},
+        "live": {"safe_remaining": 7, "deep_remaining": 20},
+    }
+    assert next_campaign_phase(stats) == ("safe", "main")
+
+    stats["main"]["safe_remaining"] = 0
+    assert next_campaign_phase(stats) == ("safe", "live")
+
+    stats["live"]["safe_remaining"] = 0
+    assert next_campaign_phase(stats) == ("deep", "main")
+
+    stats["main"]["deep_remaining"] = 0
+    assert next_campaign_phase(stats) == ("deep", "live")
+
+    stats["live"]["deep_remaining"] = 0
+    assert next_campaign_phase(stats) == ("complete", "")
+
+
+def test_archive_campaign_stats_and_deep_manifest(tmp_path):
+    import json
+
+    from rg_youtube_control.archive_campaign import (
+        archive_profile_stats,
+        export_deep_review_manifest,
+    )
+    from rg_youtube_control.db import connect, deep_review_state_map
+
+    conn = connect(tmp_path / "campaign.sqlite")
+    rows = [
+        (
+            "safe-1",
+            "main",
+            "c",
+            "Безпечне відео",
+            "public",
+            100,
+            {"score": 70, "issues": ["old_links"]},
+        ),
+        (
+            "deep-1",
+            "main",
+            "c",
+            "Глибоке відео",
+            "public",
+            200,
+            {"score": 55, "issues": ["thin_description", "no_tags"]},
+        ),
+        (
+            "clean-1",
+            "main",
+            "c",
+            "Чисте відео",
+            "public",
+            50,
+            {"score": 100, "issues": []},
+        ),
+    ]
+    for video_id, profile, channel_id, title, privacy, views, audit_data in rows:
+        conn.execute(
+            """INSERT INTO videos(
+                video_id,profile,channel_id,title,published_at,
+                scheduled_publish_at,privacy_status,duration,views,
+                audit_json,last_synced_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                video_id,
+                profile,
+                channel_id,
+                title,
+                "2026-01-01T00:00:00Z",
+                None,
+                privacy,
+                "PT10M",
+                views,
+                json.dumps(audit_data, ensure_ascii=False),
+                "2026-10-03T00:00:00Z",
+            ),
+        )
+    conn.commit()
+
+    transcript_dir = tmp_path / "transcripts"
+    transcript_dir.mkdir()
+    (transcript_dir / "deep-1.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nТест\n",
+        encoding="utf-8",
+    )
+
+    stats = archive_profile_stats(
+        conn,
+        "main",
+        transcript_dir=transcript_dir,
+    )
+    assert stats["archive_total"] == 3
+    assert stats["safe_remaining"] == 1
+    assert stats["deep_remaining"] == 1
+    assert stats["transcripts"] == 1
+
+    package_dir = tmp_path / "packages"
+    path, exported, total = export_deep_review_manifest(
+        conn,
+        "main",
+        transcript_dir=transcript_dir,
+        package_dir=package_dir,
+        limit=20,
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert exported == 1
+    assert total == 1
+    assert payload["items"][0]["video_id"] == "deep-1"
+    assert payload["items"][0]["transcript_ready"] is True
+    assert payload["items"][0]["workflow"]["status"] == "draft"
+    assert payload["items"][0]["workflow"]["preview_required"] is True
+    assert payload["items"][0]["workflow"]["auto_apply"] is False
+    assert deep_review_state_map(conn, "main")["deep-1"] == "queued"
+
+
+def test_deep_review_state_can_complete_candidate(tmp_path):
+    import json
+
+    from rg_youtube_control.archive_campaign import archive_profile_stats
+    from rg_youtube_control.db import connect, set_deep_review_state
+
+    conn = connect(tmp_path / "deep-state.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?)""",
+        (
+            "v1",
+            "live",
+            "Тест",
+            "public",
+            1,
+            json.dumps(
+                {"score": 50, "issues": ["thin_description"]},
+                ensure_ascii=False,
+            ),
+            "2026-10-03T00:00:00Z",
+        ),
+    )
+    conn.commit()
+
+    before = archive_profile_stats(
+        conn,
+        "live",
+        transcript_dir=tmp_path,
+    )
+    assert before["deep_remaining"] == 1
+
+    set_deep_review_state(
+        conn,
+        video_id="v1",
+        profile="live",
+        status="applied",
+        note="reviewed",
+    )
+    after = archive_profile_stats(
+        conn,
+        "live",
+        transcript_dir=tmp_path,
+    )
+    assert after["deep_remaining"] == 0
+    assert after["applied_packages"] == 1
+
+
+def test_deep_packages_force_draft_and_full_preview():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    save_source = inspect.getsource(MainWindow._save_package_payload)
+    apply_source = inspect.getsource(MainWindow.apply_content_package)
+    preview_source = inspect.getsource(MainWindow._preview_deep_content_package)
+
+    assert "force_draft" in save_source
+    assert "requested_status = \"draft\"" in save_source
+    assert "_preview_deep_content_package" in apply_source
+    assert "ДО" in preview_source
+    assert "ПІСЛЯ" in preview_source
+    assert "Thumbnail" in preview_source
+
+
+def test_archive_campaign_center_controls_both_channels():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.show_archive_campaign_center)
+    advance_source = inspect.getsource(MainWindow._advance_archive_campaign)
+
+    assert "Основний канал" not in source or "PROFILE_LABELS" in source
+    assert "Глибока черга → NAS" in source
+    assert "Імпорт глибоких пакетів" in source
+    assert "apply_next_safe_archive_batch(daily=True)" in source
+    assert "set_archive_priority_mode" in advance_source
+    assert "tuple(PROFILE_TARGETS.keys())" in advance_source
+
+
+def test_deep_transcript_batch_accounts_quota_and_reserve():
+    import inspect
+
+    from rg_youtube_control.service import CAPTION_TRANSCRIPT_COST
+    from rg_youtube_control.ui import MainWindow
+
+    assert CAPTION_TRANSCRIPT_COST == 250
+
+    source = inspect.getsource(MainWindow._export_transcript_video_to_nas)
+    deep_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+    center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
+
+    assert "respect_reserve" in source
+    assert "record_quota_units" in source
+    assert "CAPTION_TRANSCRIPT_COST" in source
+    assert "CAPTION_TRANSCRIPT_COST" in deep_source
+    assert "Транскрипти глибокої черги" in center_source
+
+
 def test_daily_archive_capacity_uses_full_safe_budget():
     from rg_youtube_control.service import reserve_safe_daily_batch_capacity
 
