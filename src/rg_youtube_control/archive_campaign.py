@@ -165,6 +165,10 @@ def archive_profile_stats(
     ).fetchall()
 
     state = deep_review_state_map(conn, profile)
+    try:
+        transcript_storage_available = transcript_dir.is_dir()
+    except OSError:
+        transcript_storage_available = False
     safe_remaining = 0
     deep_remaining = 0
     transcripts = 0
@@ -181,10 +185,14 @@ def archive_profile_stats(
             and state.get(video_id) not in {"applied", "skipped"}
         ):
             deep_remaining += 1
-        try:
-            transcript_exists = (transcript_dir / f"{video_id}.srt").exists()
-        except OSError:
-            transcript_exists = False
+        transcript_exists = False
+        if transcript_storage_available:
+            try:
+                transcript_exists = (
+                    transcript_dir / f"{video_id}.srt"
+                ).exists()
+            except OSError:
+                transcript_exists = False
         if transcript_exists:
             transcripts += 1
         draft_status = str(row["draft_status"] or "")
