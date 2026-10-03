@@ -138,6 +138,13 @@ def _validate_safe_update_fields(fields: set[str]) -> None:
         )
 
 
+def _title_review_item_is_applied(item: dict) -> bool:
+    return bool(
+        str(item.get("applied_at") or "").strip()
+        and str(item.get("applied_title") or "").strip()
+    )
+
+
 ISSUE_LABELS = {
     "old_links": "старі посилання",
     "missing_project_link": "немає посилання проєкту",
@@ -3343,6 +3350,8 @@ class MainWindow(QMainWindow):
         for raw in payload.get("items", []):
             if not isinstance(raw, dict):
                 continue
+            if _title_review_item_is_applied(raw):
+                continue
             video_id = str(raw.get("video_id") or "").strip()
             exported_title = str(raw.get("title") or "").strip()
             new_title = _standard_hyphen(
@@ -3402,17 +3411,27 @@ class MainWindow(QMainWindow):
             path.parent.mkdir(parents=True, exist_ok=True)
 
             previous_titles: dict[str, str] = {}
+            previous_applied: dict[str, dict[str, str]] = {}
             if path.exists():
                 try:
                     previous = json.loads(path.read_text(encoding="utf-8"))
                     for item in previous.get("items", []):
-                        if isinstance(item, dict):
-                            video_id = str(item.get("video_id") or "")
-                            new_title = str(item.get("new_title") or "").strip()
-                            if video_id and new_title:
-                                previous_titles[video_id] = new_title
+                        if not isinstance(item, dict):
+                            continue
+                        video_id = str(item.get("video_id") or "")
+                        new_title = str(item.get("new_title") or "").strip()
+                        if video_id and new_title:
+                            previous_titles[video_id] = new_title
+                        if video_id and _title_review_item_is_applied(item):
+                            previous_applied[video_id] = {
+                                "applied_at": str(item.get("applied_at") or ""),
+                                "applied_title": str(
+                                    item.get("applied_title") or ""
+                                ),
+                            }
                 except Exception:
                     previous_titles = {}
+                    previous_applied = {}
 
             rows = self.conn.execute(
                 """SELECT video_id,title,published_at,views,audit_json
@@ -3433,15 +3452,16 @@ class MainWindow(QMainWindow):
                 if "latin_title_review" not in issues:
                     continue
                 video_id = str(row["video_id"])
-                items.append(
-                    {
-                        "video_id": video_id,
-                        "title": str(row["title"] or ""),
-                        "new_title": previous_titles.get(video_id, ""),
-                        "published_at": str(row["published_at"] or ""),
-                        "views": int(row["views"] or 0),
-                    }
-                )
+                item_payload = {
+                    "video_id": video_id,
+                    "title": str(row["title"] or ""),
+                    "new_title": previous_titles.get(video_id, ""),
+                    "published_at": str(row["published_at"] or ""),
+                    "views": int(row["views"] or 0),
+                }
+                if video_id in previous_applied:
+                    item_payload.update(previous_applied[video_id])
+                items.append(item_payload)
 
             payload = {
                 "schema_version": 1,
@@ -3593,6 +3613,26 @@ class MainWindow(QMainWindow):
                         changed_fields="назва · виправлення мови",
                     )
                     changed_ids.append(video_id)
+                    local_audit = audit(description, tags, new_title)
+                    self.conn.execute(
+                        """UPDATE videos
+                           SET title=?, audit_json=?, last_synced_at=?
+                           WHERE video_id=?""",
+                        (
+                            new_title,
+                            json.dumps(
+                                {
+                                    "score": local_audit.score,
+                                    "needs_update": local_audit.needs_update,
+                                    "issues": list(local_audit.issues),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            datetime.now(timezone.utc).isoformat(),
+                            video_id,
+                        ),
+                    )
+                    self.conn.commit()
                     item = item_by_id.get(video_id)
                     if item is not None:
                         item["applied_at"] = datetime.now(timezone.utc).isoformat()
@@ -3609,9 +3649,10 @@ class MainWindow(QMainWindow):
                 encoding="utf-8",
             )
 
-            if changed_ids and not quota_exhausted(self.conn):
-                sync_specific_videos(self.client, self.conn, changed_ids)
-
+            # Do not immediately re-read changed titles from YouTube here.
+            # videos.update may succeed while the subsequent videos.list still
+            # returns a short-lived stale title. The local state above comes
+            # from the successful update; a later normal sync will confirm it.
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
