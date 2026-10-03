@@ -3553,6 +3553,7 @@ class MainWindow(QMainWindow):
                 if isinstance(item, dict)
             }
             changed_ids: list[str] = []
+            reconciled_ids: list[str] = []
             errors: list[str] = []
 
             for index, correction in enumerate(batch, start=1):
@@ -3565,11 +3566,22 @@ class MainWindow(QMainWindow):
                     current_title, description, tags = (
                         self._current_video_metadata(video_id)
                     )
+                    new_title = correction["new_title"]
+                    if current_title == new_title:
+                        reconciled_ids.append(video_id)
+                        item = item_by_id.get(video_id)
+                        if item is not None:
+                            item["applied_at"] = (
+                                item.get("applied_at")
+                                or datetime.now(timezone.utc).isoformat()
+                            )
+                            item["applied_title"] = new_title
+                        continue
                     if current_title != correction["old_title"]:
                         raise RuntimeError(
-                            "Назва змінилася після експорту. Пропущено."
+                            "Назва змінилася після експорту і не збігається "
+                            "з підготовленим виправленням. Пропущено."
                         )
-                    new_title = correction["new_title"]
                     if title_script_profile(new_title) == "latin":
                         raise RuntimeError(
                             "Нова назва визначена як англомовна."
@@ -3609,17 +3621,20 @@ class MainWindow(QMainWindow):
                 encoding="utf-8",
             )
 
-            if changed_ids and not quota_exhausted(self.conn):
-                sync_specific_videos(self.client, self.conn, changed_ids)
+            synced_ids = list(dict.fromkeys(changed_ids + reconciled_ids))
+            if synced_ids and not quota_exhausted(self.conn):
+                sync_specific_videos(self.client, self.conn, synced_ids)
 
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
 
+            completed = len(changed_ids) + len(reconciled_ids)
             message = (
                 f"Виправлено назв: {len(changed_ids)}.\n"
+                f"Вже було застосовано на YouTube: {len(reconciled_ids)}.\n"
                 f"Залишилось готових до наступного пакета: "
-                f"{max(0, len(valid) - len(changed_ids))}."
+                f"{max(0, len(valid) - completed)}."
             )
             if errors:
                 message += (
