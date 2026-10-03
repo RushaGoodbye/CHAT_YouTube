@@ -1033,6 +1033,18 @@ def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
     assert "latin_title_review" not in audit_data["issues"]
 
 
+def test_reply_template_fields_show_from_start():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow._build_settings_tab)
+    assert "edit.setCursorPosition(0)" in source
+
+    switch_source = inspect.getsource(MainWindow._activate_profile)
+    assert "edit.setCursorPosition(0)" in switch_source
+
+
 def test_settings_polish_avoids_duplicate_channel_selector_and_wide_spins():
     import inspect
 
