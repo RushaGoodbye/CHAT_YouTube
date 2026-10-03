@@ -680,6 +680,12 @@ def test_hashtag_topic_falls_back_to_description():
     )
     assert tags == ("#рашагудбай", "#чатрулетка", "#бензин")
 
+def test_safe_archive_batch_limit_is_twenty():
+    from rg_youtube_control.config import DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
+
+    assert DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT == 20
+
+
 def test_quota_error_detection():
     from rg_youtube_control.ui import _is_quota_exceeded_error
     assert _is_quota_exceeded_error(Exception("reason: quotaExceeded"))
