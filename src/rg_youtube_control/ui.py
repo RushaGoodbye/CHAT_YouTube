@@ -4327,6 +4327,7 @@ class MainWindow(QMainWindow):
         run_btn = QPushButton("Запустити поточний етап")
         run_btn.setProperty("role", "primary")
         deep_export_btn = QPushButton("Глибока черга → NAS")
+        deep_transcripts_btn = QPushButton("Транскрипти глибокої черги")
         deep_import_btn = QPushButton("Імпорт глибоких пакетів")
         open_btn = QPushButton("Відкрити етап в Оптимізації")
         refresh_btn = QPushButton("Оновити локально")
@@ -4334,6 +4335,7 @@ class MainWindow(QMainWindow):
         for button in (
             run_btn,
             deep_export_btn,
+            deep_transcripts_btn,
             deep_import_btn,
             open_btn,
             refresh_btn,
@@ -4427,6 +4429,7 @@ class MainWindow(QMainWindow):
 
             deep_mode = phase == "deep"
             deep_export_btn.setEnabled(deep_mode)
+            deep_transcripts_btn.setEnabled(deep_mode)
             deep_import_btn.setEnabled(deep_mode)
             run_btn.setEnabled(phase != "complete")
 
@@ -4453,6 +4456,15 @@ class MainWindow(QMainWindow):
                 return
             self._activate_profile(target)
             self.export_deep_review_queue_to_nas(target)
+            refresh()
+
+        def fetch_deep_transcripts() -> None:
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase != "deep" or not target:
+                return
+            self._activate_profile(target)
+            self.export_deep_review_transcripts(target)
             refresh()
 
         def import_deep() -> None:
@@ -4482,6 +4494,7 @@ class MainWindow(QMainWindow):
 
         run_btn.clicked.connect(run_current)
         deep_export_btn.clicked.connect(export_deep)
+        deep_transcripts_btn.clicked.connect(fetch_deep_transcripts)
         deep_import_btn.clicked.connect(import_deep)
         open_btn.clicked.connect(open_current)
         refresh_btn.clicked.connect(refresh)
