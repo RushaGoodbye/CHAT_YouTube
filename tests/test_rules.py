@@ -1033,6 +1033,19 @@ def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
     assert "latin_title_review" not in audit_data["issues"]
 
 
+def test_reserve_safe_batch_capacity_uses_real_item_cost():
+    from rg_youtube_control.service import (
+        SAFE_METADATA_ITEM_COST,
+        reserve_safe_batch_capacity,
+    )
+
+    assert SAFE_METADATA_ITEM_COST == 52
+    assert reserve_safe_batch_capacity(728, 20, final_refresh_reads=1) == 13
+    assert reserve_safe_batch_capacity(729, 20, final_refresh_reads=1) == 14
+    assert reserve_safe_batch_capacity(52, 20, final_refresh_reads=1) == 0
+    assert reserve_safe_batch_capacity(53, 20, final_refresh_reads=1) == 1
+
+
 def test_video_update_cost_includes_internal_preread():
     from rg_youtube_control.service import VIDEO_UPDATE_COST
 
