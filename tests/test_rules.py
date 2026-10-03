@@ -1033,6 +1033,55 @@ def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
     assert "latin_title_review" not in audit_data["issues"]
 
 
+def test_archive_priority_mode_pauses_and_restores_metadata_autopilot(tmp_path):
+    from rg_youtube_control.db import connect, get_setting, set_setting
+    from rg_youtube_control.service import (
+        archive_priority_enabled,
+        set_archive_priority_mode,
+    )
+
+    conn = connect(tmp_path / "archive-priority.sqlite")
+    set_setting(conn, "safe_metadata_autopilot_main", "1")
+    set_setting(conn, "safe_metadata_autopilot_live", "0")
+
+    set_archive_priority_mode(conn, True, ("main", "live"))
+
+    assert archive_priority_enabled(conn)
+    assert get_setting(conn, "safe_metadata_autopilot_main", "") == "0"
+    assert get_setting(conn, "safe_metadata_autopilot_live", "") == "0"
+    assert get_setting(
+        conn, "archive_priority_saved_autopilot_main", ""
+    ) == "1"
+    assert get_setting(
+        conn, "archive_priority_saved_autopilot_live", ""
+    ) == "0"
+
+    set_archive_priority_mode(conn, False, ("main", "live"))
+
+    assert not archive_priority_enabled(conn)
+    assert get_setting(conn, "safe_metadata_autopilot_main", "") == "1"
+    assert get_setting(conn, "safe_metadata_autopilot_live", "") == "0"
+    assert get_setting(
+        conn, "safe_autopilot_last_run_main", ""
+    )
+
+
+def test_archive_priority_enable_is_idempotent(tmp_path):
+    from rg_youtube_control.db import connect, get_setting, set_setting
+    from rg_youtube_control.service import set_archive_priority_mode
+
+    conn = connect(tmp_path / "archive-priority-idempotent.sqlite")
+    set_setting(conn, "safe_metadata_autopilot_main", "1")
+
+    set_archive_priority_mode(conn, True, ("main",))
+    set_setting(conn, "safe_metadata_autopilot_main", "0")
+    set_archive_priority_mode(conn, True, ("main",))
+
+    assert get_setting(
+        conn, "archive_priority_saved_autopilot_main", ""
+    ) == "1"
+
+
 def test_reserve_safe_batch_capacity_uses_real_item_cost():
     from rg_youtube_control.service import (
         SAFE_METADATA_ITEM_COST,
