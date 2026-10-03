@@ -1100,6 +1100,21 @@ def test_reply_test_uses_fresh_safe_local_queue(tmp_path):
         def __init__(self):
             self.sent = []
 
+        def channel_comment_threads(self, channel_id, *, stop_before=None, max_pages=5):
+            return (
+                [
+                    {
+                        "snippet": {
+                            "topLevelComment": {
+                                "id": "c-safe",
+                                "snippet": {},
+                            }
+                        }
+                    }
+                ],
+                1,
+            )
+
         def reply(self, parent_comment_id, text):
             self.sent.append((parent_comment_id, text))
             return {}
@@ -1143,6 +1158,56 @@ def test_reply_test_uses_fresh_safe_local_queue(tmp_path):
         "SELECT status FROM comments WHERE comment_id='c-safe'"
     ).fetchone()["status"]
     assert status == "replied"
+
+
+def test_reply_test_blocks_comment_not_reconfirmed_as_published(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import reply_one_queued_safe_comment
+
+    class FakeClient:
+        profile = "main"
+
+        def channel_comment_threads(self, channel_id, *, stop_before=None, max_pages=5):
+            return ([], 1)
+
+        def reply(self, parent_comment_id, text):
+            raise AssertionError("Non-published comment must never be answered")
+
+    conn = connect(tmp_path / "queued-moderation-lock.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,published_at,
+            views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (
+            "v1", "main", "Video", "public",
+            datetime.now(timezone.utc).isoformat(), 1, "{}",
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,reply_text,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (
+            "c-held", "v1", "viewer", "Дякую!",
+            datetime.now(timezone.utc).isoformat(),
+            "thanks", "new", "Дякуємо!", "{}",
+        ),
+    )
+    conn.commit()
+
+    result = reply_one_queued_safe_comment(
+        FakeClient(), conn, "main", max_auto_age_hours=24
+    )
+
+    assert result["sent"] == 0
+    assert result["moderation_blocked"] == 1
+    status = conn.execute(
+        "SELECT status FROM comments WHERE comment_id='c-held'"
+    ).fetchone()["status"]
+    assert status == "moderation_locked"
 
 
 def test_reply_test_ignores_old_safe_local_comment(tmp_path):
