@@ -392,6 +392,124 @@ def test_nas_paths_are_normalized_to_unc():
     ) == DEFAULT_NAS_TRANSCRIPTS_PATH
 
 
+def test_update_video_sends_only_writable_snippet_and_verifies_title():
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    calls = {}
+
+    class Request:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def execute(self):
+            return self.payload
+
+    class Videos:
+        def list(self, **kwargs):
+            return Request(
+                {
+                    "items": [
+                        {
+                            "snippet": {
+                                "title": "Old title",
+                                "description": "Old description",
+                                "tags": ["one", "two"],
+                                "categoryId": "22",
+                                "defaultLanguage": "ru",
+                                "localized": {"title": "Localized old title"},
+                                "channelTitle": "Read only",
+                                "publishedAt": "2026-01-01T00:00:00Z",
+                            }
+                        }
+                    ]
+                }
+            )
+
+        def update(self, **kwargs):
+            calls.update(kwargs)
+            return Request({"snippet": kwargs["body"]["snippet"]})
+
+    videos = Videos()
+
+    class Client(YouTubeClient):
+        def service(self):
+            class Service:
+                def videos(self):
+                    return videos
+
+            return Service()
+
+    client = Client(profile="main")
+    result = client.update_video("video-1", title="Нова назва")
+
+    snippet = calls["body"]["snippet"]
+    assert snippet["title"] == "Нова назва"
+    assert snippet["description"] == "Old description"
+    assert snippet["tags"] == ["one", "two"]
+    assert snippet["categoryId"] == "22"
+    assert snippet["defaultLanguage"] == "ru"
+    assert "localized" not in snippet
+    assert "channelTitle" not in snippet
+    assert "publishedAt" not in snippet
+    assert result["snippet"]["title"] == "Нова назва"
+
+
+def test_update_video_rejects_unconfirmed_title_change():
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    class Request:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def execute(self):
+            return self.payload
+
+    class Videos:
+        def list(self, **kwargs):
+            return Request(
+                {
+                    "items": [
+                        {
+                            "snippet": {
+                                "title": "Old title",
+                                "description": "Description",
+                                "categoryId": "22",
+                            }
+                        }
+                    ]
+                }
+            )
+
+        def update(self, **kwargs):
+            return Request(
+                {
+                    "snippet": {
+                        "title": "Old title",
+                        "description": "Description",
+                        "categoryId": "22",
+                    }
+                }
+            )
+
+    videos = Videos()
+
+    class Client(YouTubeClient):
+        def service(self):
+            class Service:
+                def videos(self):
+                    return videos
+
+            return Service()
+
+    client = Client(profile="main")
+    try:
+        client.update_video("video-1", title="Нова назва")
+    except RuntimeError as exc:
+        assert "не підтвердив зміну назви" in str(exc)
+    else:
+        raise AssertionError("Unconfirmed title mutation must fail")
+
+
 def test_best_caption_track_prefers_language_and_manual_track():
     from rg_youtube_control.youtube_api import YouTubeClient
 
