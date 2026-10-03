@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS optimization_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_optimization_drafts_status
   ON optimization_drafts(status, updated_at DESC);
+CREATE TABLE IF NOT EXISTS deep_review_state (
+  video_id TEXT PRIMARY KEY,
+  profile TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  note TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deep_review_state_profile_status
+  ON deep_review_state(profile, status, updated_at DESC);
 CREATE TABLE IF NOT EXISTS video_analytics_cache (
   video_id TEXT PRIMARY KEY,
   profile TEXT NOT NULL,
@@ -405,6 +414,66 @@ def set_optimization_draft_status(
     )
     conn.commit()
 
+def set_deep_review_state(
+    conn: sqlite3.Connection,
+    *,
+    video_id: str,
+    profile: str,
+    status: str,
+    note: str = "",
+) -> None:
+    allowed = {"queued", "review", "applied", "skipped"}
+    if status not in allowed:
+        raise ValueError(f"Unsupported deep review status: {status}")
+    conn.execute(
+        """INSERT INTO deep_review_state(
+            video_id,profile,status,note,updated_at
+        ) VALUES(?,?,?,?,?)
+        ON CONFLICT(video_id) DO UPDATE SET
+          profile=excluded.profile,
+          status=excluded.status,
+          note=excluded.note,
+          updated_at=excluded.updated_at""",
+        (video_id, profile, status, note, utc_now()),
+    )
+    conn.commit()
+
+
+def deep_review_state_map(
+    conn: sqlite3.Connection,
+    profile: str,
+) -> dict[str, str]:
+    rows = conn.execute(
+        """SELECT video_id,status
+           FROM deep_review_state
+           WHERE profile=?""",
+        (profile,),
+    ).fetchall()
+    return {
+        str(row["video_id"]): str(row["status"])
+        for row in rows
+    }
+
+
+def deep_review_counts(
+    conn: sqlite3.Connection,
+    profile: str,
+) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT status,COUNT(*) AS n
+           FROM deep_review_state
+           WHERE profile=?
+           GROUP BY status""",
+        (profile,),
+    ).fetchall()
+    result = {"queued": 0, "review": 0, "applied": 0, "skipped": 0}
+    for row in rows:
+        status = str(row["status"])
+        if status in result:
+            result[status] = int(row["n"] or 0)
+    return result
+
+
 def log_action(
     conn: sqlite3.Connection,
     *,
@@ -462,6 +531,10 @@ def database_integrity_cleanup(conn: sqlite3.Connection) -> dict[str, Any]:
         ),
         "optimization_drafts": (
             "SELECT COUNT(*) FROM optimization_drafts d "
+            "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=d.video_id)"
+        ),
+        "deep_review_state": (
+            "SELECT COUNT(*) FROM deep_review_state d "
             "WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.video_id=d.video_id)"
         ),
         "video_analytics_cache": (
