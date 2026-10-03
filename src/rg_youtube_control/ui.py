@@ -764,6 +764,7 @@ class MainWindow(QMainWindow):
                         ),
                     )
                 )
+                edit.setCursorPosition(0)
                 edit.blockSignals(False)
 
         if hasattr(self, "channel_label"):
@@ -2687,6 +2688,7 @@ class MainWindow(QMainWindow):
                 )
             )
             edit.setPlaceholderText(label)
+            edit.setCursorPosition(0)
             edit.editingFinished.connect(
                 lambda c=category, e=edit: self.save_reply_template(c, e.text())
             )
