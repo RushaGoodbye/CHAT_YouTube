@@ -618,7 +618,7 @@ def test_sync_videos_deduplicates_duplicate_video_ids(tmp_path):
     assert count == 1
 
 
-def test_safe_fix_builds_three_to_five_relevant_hashtags():
+def test_safe_fix_builds_exactly_one_thematic_hashtag():
     from rg_youtube_control.optimization import safe_description_fix
 
     source = (
@@ -634,10 +634,8 @@ def test_safe_fix_builds_three_to_five_relevant_hashtags():
     ]
     assert len(hashtag_lines) == 1
     tags = hashtag_lines[0].split()
-    assert 3 <= len(tags) <= 5
-    assert tags[:2] == ["#рашагудбай", "#чатрулетка"]
-    assert "#бензин" in tags
-    assert "#экономикароссии" in tags
+    assert tags == ["#рашагудбай", "#чатрулетка", "#бензин"]
+    assert "#экономикароссии" not in tags
     assert "#russiagoodbye" not in tags
     assert "оновлено хештеги" in fixed.changes
 
@@ -655,24 +653,32 @@ def test_audit_allows_five_hashtags():
     result = audit(description, ["tag"])
     assert "too_many_hashtags" not in result.issues
 
-def test_hashtag_quality_uses_curated_topics_only():
+def test_hashtag_quality_uses_one_curated_topic_only():
     from rg_youtube_control.optimization import optimized_hashtags
     tags = optimized_hashtags(
         "УНИКАЛЬНИЙ РОЗІГРАШ НА ПІДТРИМКУ ЗСУ ВІД ПРОЄКТУ РАША ГУДБАЙ"
     )
-    assert tags == (
-        "#рашагудбай", "#чатрулетка", "#зсу", "#підтримказсу", "#розіграш"
-    )
+    assert tags == ("#рашагудбай", "#чатрулетка", "#зсу")
     assert "#уникальний" not in tags
     assert "#підтримку" not in tags
 
 
-def test_hashtag_quality_never_exceeds_five():
+def test_hashtag_quality_is_exactly_three():
     from rg_youtube_control.optimization import optimized_hashtags
     tags = optimized_hashtags(
         "Путин война Россия Украина бензин экономика санкции мобилизация"
     )
-    assert len(tags) == 5
+    assert len(tags) == 3
+    assert tags[:2] == ("#рашагудбай", "#чатрулетка")
+
+
+def test_hashtag_topic_falls_back_to_description():
+    from rg_youtube_control.optimization import optimized_hashtags
+    tags = optimized_hashtags(
+        "Сильный разговор с россиянином",
+        "Обсуждаем очереди на АЗС и дефицит бензина.",
+    )
+    assert tags == ("#рашагудбай", "#чатрулетка", "#бензин")
 
 def test_quota_error_detection():
     from rg_youtube_control.ui import _is_quota_exceeded_error

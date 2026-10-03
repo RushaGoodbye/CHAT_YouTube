@@ -44,22 +44,33 @@ TOPIC_HASHTAGS = (
     (("армия", "армі"), "#армия"),
 )
 
-def optimized_hashtags(title: str) -> tuple[str, ...]:
-    lowered = (title or "").casefold()
-    topics: list[str] = []
+def optimized_hashtags(
+    title: str,
+    description: str = "",
+) -> tuple[str, ...]:
+    """Return exactly two project hashtags plus one thematic hashtag.
+
+    Prefer a specific topic found in the title. If the title is generic,
+    fall back to the description. This keeps the safe archive pass compact
+    and avoids a universal third hashtag on unrelated videos.
+    """
+    combined_text = f"{title or ''}\n{description or ''}".casefold()
+
+    topic = ""
     for needles, hashtag in TOPIC_HASHTAGS:
-        if any(needle in lowered for needle in needles) and hashtag not in topics:
-            topics.append(hashtag)
-        if len(topics) >= 3:
+        if any(needle in combined_text for needle in needles):
+            topic = hashtag
             break
-    if not topics:
-        topics.append("#россия")
-    return tuple((*BASE_HASHTAGS, *topics[:3]))
+
+    if not topic:
+        topic = "#россия"
+
+    return (*BASE_HASHTAGS, topic)
 
 def _optimize_hashtag_lines(description: str, title: str) -> tuple[str, bool]:
     if not title.strip():
         return description, False
-    desired = " ".join(optimized_hashtags(title))
+    desired = " ".join(optimized_hashtags(title, description))
     lines = description.splitlines()
     output: list[str] = []
     replaced = False
