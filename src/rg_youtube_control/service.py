@@ -640,6 +640,32 @@ def scan_comments(
                 stats["queued"] += 1
     return stats
 
+def _reconfirm_comment_is_published(
+    client: YouTubeClient,
+    conn: sqlite3.Connection,
+    profile: str,
+    comment_id: str,
+) -> bool:
+    channel_key = f"youtube_channel_id_{profile}"
+    channel_id = get_setting(conn, channel_key, "").strip()
+    if not channel_id:
+        channel_id = str(client.my_channel()["id"])
+        set_setting(conn, channel_key, channel_id)
+        record_quota_units(conn, READ_REQUEST_COST)
+
+    threads, requests = client.channel_comment_threads(
+        channel_id,
+        max_pages=5,
+    )
+    record_quota_units(conn, requests * READ_REQUEST_COST)
+
+    for thread in threads:
+        top = thread.get("snippet", {}).get("topLevelComment", {})
+        if str(top.get("id") or "") == comment_id:
+            return True
+    return False
+
+
 def reply_one_queued_safe_comment(
     client: YouTubeClient,
     conn: sqlite3.Connection,
@@ -652,6 +678,7 @@ def reply_one_queued_safe_comment(
         "sent": 0,
         "quota_blocked": 0,
         "limit_blocked": 0,
+        "moderation_blocked": 0,
         "comment_id": "",
         "category": "",
         "author": "",
@@ -665,7 +692,9 @@ def reply_one_queued_safe_comment(
         return result
 
     budget = quota_budget_status(conn)
-    if int(budget["spendable"]) < COMMENT_REPLY_COST:
+    # One reply costs 50 units. Reserve up to six extra read units for the
+    # published-only preflight (channel lookup + five comment pages).
+    if int(budget["spendable"]) < COMMENT_REPLY_COST + (6 * READ_REQUEST_COST):
         result["quota_blocked"] = 1
         return result
 
@@ -702,6 +731,43 @@ def reply_one_queued_safe_comment(
                 conn, profile, category, comment_id
             )
         safe_reply = _validated_reply_text(reply_text)
+
+        try:
+            still_published = _reconfirm_comment_is_published(
+                client, conn, profile, comment_id
+            )
+        except Exception as exc:
+            if _is_quota_error(exc):
+                mark_quota_exhausted(conn)
+                result["quota_blocked"] = 1
+                return result
+            raise
+
+        if not still_published:
+            conn.execute(
+                "UPDATE comments SET status='moderation_locked' WHERE comment_id=?",
+                (comment_id,),
+            )
+            conn.commit()
+            result.update(
+                {
+                    "moderation_blocked": 1,
+                    "comment_id": comment_id,
+                    "category": category,
+                    "author": str(row["author"] or ""),
+                }
+            )
+            log_action(
+                conn,
+                profile=profile,
+                category="коментарі",
+                action="Автовідповідь заблоковано",
+                details=(
+                    f"{comment_id}: коментар повторно не підтверджено "
+                    "серед published; статус модерації не змінювався"
+                ),
+            )
+            return result
 
         try:
             client.reply(comment_id, safe_reply)
