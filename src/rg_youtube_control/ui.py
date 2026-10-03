@@ -126,6 +126,16 @@ def _is_quota_exceeded_error(exc: Exception) -> bool:
     return "quotaexceeded" in text or "quota exceeded" in text
 
 
+def _validate_safe_update_fields(fields: set[str]) -> None:
+    forbidden = sorted(set(fields) - {"description"})
+    if forbidden:
+        raise RuntimeError(
+            "Безпечний режим може змінювати лише опис відео. "
+            "Назва, теги YouTube та налаштування публікації заблоковані: "
+            + ", ".join(forbidden)
+        )
+
+
 ISSUE_LABELS = {
     "old_links": "старі посилання",
     "missing_project_link": "немає посилання проєкту",
@@ -2981,13 +2991,7 @@ class MainWindow(QMainWindow):
         **kwargs,
     ) -> None:
         if safe_mode:
-            forbidden = sorted(set(kwargs) - {"description"})
-            if forbidden:
-                raise RuntimeError(
-                    "Безпечний режим може змінювати лише опис відео. "
-                    "Назва, теги YouTube та налаштування публікації заблоковані: "
-                    + ", ".join(forbidden)
-                )
+            _validate_safe_update_fields(set(kwargs))
 
         budget = quota_budget_status(self.conn)
         if bool(budget["exhausted"]):
