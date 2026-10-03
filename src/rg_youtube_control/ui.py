@@ -4329,11 +4329,7 @@ class MainWindow(QMainWindow):
                 index = self.optimization_filter.findData("archive_top")
                 if index >= 0:
                     self.optimization_filter.setCurrentIndex(index)
-            self.tabs.setCurrentIndex(
-                self.tabs.indexOf(self.optimization_table.parentWidget())
-                if self.tabs.indexOf(self.optimization_table.parentWidget()) >= 0
-                else 2
-            )
+            self.tabs.setCurrentIndex(2)
             dialog.accept()
 
         run_btn.clicked.connect(run_current)
@@ -5560,9 +5556,22 @@ class MainWindow(QMainWindow):
                 changed_fields="назва + опис + теги",
             )
             set_optimization_draft_status(self.conn, video_id, "applied")
+            deep_state = deep_review_state_map(
+                self.conn,
+                self.current_profile,
+            )
+            if video_id in deep_state:
+                set_deep_review_state(
+                    self.conn,
+                    video_id=video_id,
+                    profile=self.current_profile,
+                    status="applied",
+                    note="content_package_applied_after_preview",
+                )
             sync_specific_videos(self.client, self.conn, [video_id])
             self.reload_videos()
             self.reload_optimization_queue()
+            self._advance_archive_campaign()
             QMessageBox.information(
                 self,
                 APP_NAME,
@@ -6495,11 +6504,26 @@ class MainWindow(QMainWindow):
             if progress is not None:
                 progress.close()
 
+            if changed_ids:
+                counter_key = (
+                    f"archive_campaign_changed_{self.current_profile}_"
+                    f"{current_quota_day()}"
+                )
+                previous = int(
+                    get_setting(self.conn, counter_key, "0") or 0
+                )
+                set_setting(
+                    self.conn,
+                    counter_key,
+                    str(previous + len(changed_ids)),
+                )
+
             refresh_ids = changed_ids + skipped_ids
             if refresh_ids and error_text not in {"quota_exceeded", "cancelled"}:
                 sync_specific_videos(self.client, self.conn, refresh_ids)
             self.reload_videos()
             self.reload_optimization_queue()
+            self._advance_archive_campaign()
 
             remaining = max(
                 0,
