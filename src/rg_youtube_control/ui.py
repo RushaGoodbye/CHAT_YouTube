@@ -4036,6 +4036,13 @@ class MainWindow(QMainWindow):
     def _advance_archive_campaign(self, *, notify: bool = False) -> None:
         stats = self._archive_campaign_stats()
         phase, target = next_campaign_phase(stats)
+        save_campaign_checkpoint(
+            self.conn,
+            phase=phase,
+            target=target,
+            status="complete" if phase == "complete" else "ready",
+            note="",
+        )
         if phase == "complete":
             if archive_priority_enabled(self.conn):
                 set_archive_priority_mode(
@@ -4375,6 +4382,161 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка транскриптів глибокої черги", exc)
 
+    def run_archive_campaign_step(self, *, automatic: bool = False) -> bool:
+        stats = self._archive_campaign_stats()
+        phase, target = next_campaign_phase(stats)
+        if phase == "complete":
+            save_campaign_checkpoint(
+                self.conn,
+                phase="complete",
+                target="",
+                status="complete",
+                note="campaign_complete",
+            )
+            self._advance_archive_campaign(notify=not automatic)
+            return True
+
+        if target:
+            self._activate_profile(target)
+
+        budget = self._archive_campaign_budget()
+        if phase == "safe" and int(budget["current_capacity"]) <= 0:
+            save_campaign_checkpoint(
+                self.conn,
+                phase=phase,
+                target=target,
+                status="paused_quota",
+                note="protected_comment_reserve",
+            )
+            self.statusBar().showMessage(
+                "Кампанія архіву: пауза до нового квотного дня - "
+                "резерв коментарів не використовується"
+            )
+            return False
+
+        save_campaign_checkpoint(
+            self.conn,
+            phase=phase,
+            target=target,
+            status="running",
+            note="automatic" if automatic else "manual",
+        )
+
+        if phase == "safe":
+            self.apply_next_safe_archive_batch(
+                daily=True,
+                confirm=not automatic,
+                notify=not automatic,
+            )
+        elif phase == "deep":
+            self.export_deep_review_queue_to_nas(
+                target,
+                notify=not automatic,
+            )
+            if int(budget.get("deep_transcript_capacity", 0)) > 0:
+                self.export_deep_review_transcripts(
+                    target,
+                    confirm=False,
+                    notify=not automatic,
+                )
+            self.import_deep_review_packages(
+                target,
+                notify=False,
+            )
+
+        self._advance_archive_campaign()
+        refreshed = self._archive_campaign_stats()
+        next_phase, next_target = next_campaign_phase(refreshed)
+        save_campaign_checkpoint(
+            self.conn,
+            phase=next_phase,
+            target=next_target,
+            status="complete" if next_phase == "complete" else "ready",
+            note="",
+        )
+        return True
+
+    def _run_archive_campaign_autorun(self) -> None:
+        if not archive_priority_enabled(self.conn):
+            return
+        if get_setting(
+            self.conn,
+            "archive_campaign_autorun",
+            "1",
+        ) != "1":
+            return
+
+        current_day = current_quota_day()
+        done_key = f"archive_campaign_autorun_done_{current_day}"
+        if get_setting(self.conn, done_key, "0") == "1":
+            return
+
+        stats = self._archive_campaign_stats()
+        phase, target = next_campaign_phase(stats)
+        if phase == "complete":
+            self._advance_archive_campaign()
+            set_setting(self.conn, done_key, "1")
+            return
+
+        budget = self._archive_campaign_budget()
+        if phase == "safe" and int(budget["current_capacity"]) <= 0:
+            save_campaign_checkpoint(
+                self.conn,
+                phase=phase,
+                target=target,
+                status="paused_quota",
+                note="protected_comment_reserve",
+            )
+            return
+
+        try:
+            if target:
+                client = YouTubeClient(profile=target)
+                client.credentials()
+                self.client = client
+                self.current_profile = target
+            if phase == "safe":
+                backup_root = self._recovery_backup_root()
+                if not backup_root.parent.exists():
+                    save_campaign_checkpoint(
+                        self.conn,
+                        phase=phase,
+                        target=target,
+                        status="paused_storage",
+                        note="nas_unavailable",
+                    )
+                    return
+            completed = self.run_archive_campaign_step(automatic=True)
+            if completed:
+                set_setting(self.conn, done_key, "1")
+                log_action(
+                    self.conn,
+                    profile=target or self.current_profile,
+                    category="кампанія архіву",
+                    action="Автозапуск квотного дня",
+                    details=(
+                        f"{phase}:{target} · "
+                        f"бюджет кампанії {budget['campaign_spendable']} · "
+                        f"резерв коментарів {budget['reserve']}"
+                    ),
+                )
+                self.reload_action_log()
+        except Exception as exc:
+            save_campaign_checkpoint(
+                self.conn,
+                phase=phase,
+                target=target,
+                status="interrupted",
+                note=str(exc),
+            )
+            log_action(
+                self.conn,
+                profile=target or self.current_profile,
+                category="кампанія архіву",
+                action="Автозапуск відкладено",
+                details=str(exc),
+            )
+
     def show_archive_campaign_center(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Центр кампанії архіву")
@@ -4529,27 +4691,7 @@ class MainWindow(QMainWindow):
             run_btn.setEnabled(phase != "complete")
 
         def run_current() -> None:
-            stats = self._archive_campaign_stats()
-            phase, target = next_campaign_phase(stats)
-            if phase == "complete":
-                self._advance_archive_campaign(notify=True)
-                refresh()
-                return
-            if target:
-                self._activate_profile(target)
-            if phase == "safe":
-                self.apply_next_safe_archive_batch(daily=True)
-            elif phase == "deep":
-                self.export_deep_review_queue_to_nas(
-                    target,
-                    notify=False,
-                )
-                self.export_deep_review_transcripts(
-                    target,
-                    confirm=False,
-                    notify=False,
-                )
-            self._advance_archive_campaign()
+            self.run_archive_campaign_step(automatic=False)
             refresh()
 
         def export_deep() -> None:
@@ -7129,6 +7271,7 @@ class MainWindow(QMainWindow):
 
     def run_background_maintenance(self) -> None:
         if archive_priority_enabled(self.conn):
+            self._run_archive_campaign_autorun()
             self.check_quota_plan_ready()
             return
 
@@ -7707,6 +7850,8 @@ class MainWindow(QMainWindow):
             enabled,
             tuple(PROFILE_TARGETS.keys()),
         )
+        if enabled:
+            set_setting(self.conn, "archive_campaign_autorun", "1")
         self._refresh_archive_priority_controls()
 
         if not enabled:
