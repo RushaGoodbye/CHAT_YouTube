@@ -128,11 +128,13 @@ def archive_profile_stats(
         if (transcript_dir / f"{video_id}.srt").exists():
             transcripts += 1
         draft_status = str(row["draft_status"] or "")
-        if draft_status == "ready":
+        deep_status = state.get(video_id)
+        if deep_status in {"queued", "review"} and draft_status == "ready":
             ready_packages += 1
-        elif draft_status == "applied":
-            applied_packages += 1
 
+    applied_packages = sum(
+        1 for value in state.values() if value == "applied"
+    )
     skipped_deep = sum(1 for value in state.values() if value == "skipped")
     return {
         "archive_total": len(rows),
