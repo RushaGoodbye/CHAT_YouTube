@@ -117,6 +117,7 @@ from .service import (
     VIDEO_UPDATE_COST,
     COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
+    READ_REQUEST_COST,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -3625,8 +3626,20 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
-        item = self.client.video_details([video_id])[0]
-        snippet = item.get("snippet", {})
+        counted = getattr(self.client, "video_details_with_request_count", None)
+        if callable(counted):
+            items, requests = counted([video_id])
+            record_quota_units(
+                self.conn,
+                int(requests) * READ_REQUEST_COST,
+            )
+        else:
+            items = self.client.video_details([video_id])
+            record_quota_units(self.conn, READ_REQUEST_COST)
+        if not items:
+            raise RuntimeError(f"Відео не знайдено: {video_id}")
+        snippet = items[0].get("snippet", {})
+        self.refresh_youtube_quota_label()
         return (
             snippet.get("title", ""),
             snippet.get("description", ""),
