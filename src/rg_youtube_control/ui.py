@@ -42,6 +42,7 @@ from . import __version__
 from .config import (
     APP_NAME,
     DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
+    DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT,
     DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES,
     DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT,
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
@@ -1082,13 +1083,13 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         potential_btn = QPushButton("ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
-        prepare_queue_btn = QPushButton("Підготувати 20")
+        prepare_queue_btn = QPushButton(f"Підготувати {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
         prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
         preview_btn = QPushButton("Перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton("Архів: безпечні 20")
+        next_safe_btn = QPushButton(f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
         next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
         package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
@@ -3267,7 +3268,7 @@ class MainWindow(QMainWindow):
             ))
 
         ranked.sort(reverse=True)
-        queue = [item[-1] for item in ranked[:20]]
+        queue = [item[-1] for item in ranked[:DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT]]
         set_setting(
             self.conn,
             f"prepared_safe_queue_{self.current_profile}",
@@ -5056,7 +5057,7 @@ class MainWindow(QMainWindow):
         self.conn.commit()
 
     def apply_next_safe_archive_batch(self) -> None:
-        batch_limit = 20
+        batch_limit = DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
         use_prepared = (
             hasattr(self, "optimization_filter")
             and self.optimization_filter.currentData() == "prepared"
@@ -5096,7 +5097,7 @@ class MainWindow(QMainWindow):
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Архів: безпечні 20",
+            f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
