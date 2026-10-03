@@ -680,6 +680,24 @@ def test_hashtag_topic_falls_back_to_description():
     )
     assert tags == ("#рашагудбай", "#чатрулетка", "#бензин")
 
+def test_hashtag_title_fallback_uses_concrete_topic_from_real_title():
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    tags = optimized_hashtags(
+        "ЧАТ РУЛЕТКА РАША ГУДБАЙ. ВЬЕТНАМ, РЯЗАНЬ и Wildberries"
+    )
+    assert tags == ("#рашагудбай", "#чатрулетка", "#вьетнам")
+
+
+def test_hashtag_generic_russia_is_only_a_last_resort():
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    tags = optimized_hashtags(
+        "ЧАТ РУЛЕТКА РАША ГУДБАЙ. Что происходит в России?"
+    )
+    assert tags == ("#рашагудбай", "#чатрулетка", "#россия")
+
+
 def test_safe_archive_batch_limit_is_twenty():
     from rg_youtube_control.config import DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
 
