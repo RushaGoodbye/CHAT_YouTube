@@ -168,6 +168,33 @@ SAFE_METADATA_ITEM_COST = VIDEO_UPDATE_COST + READ_REQUEST_COST
 QUOTA_RESERVE_DEFAULT = 2500
 
 
+def reserve_safe_daily_batch_capacity(
+    spendable: int,
+    requested: int,
+) -> int:
+    """Largest daily archive batch that fits above reserve.
+
+    Each item costs one metadata read plus videos.update. The final refresh
+    reads videos in chunks of 50, so large batches need more than one final
+    read request.
+    """
+    requested = max(0, int(requested))
+    spendable = max(0, int(spendable))
+    if requested <= 0 or spendable < SAFE_METADATA_ITEM_COST:
+        return 0
+
+    upper = min(requested, spendable // SAFE_METADATA_ITEM_COST)
+    for count in range(upper, 0, -1):
+        refresh_reads = (count + 49) // 50
+        total_cost = (
+            count * SAFE_METADATA_ITEM_COST
+            + refresh_reads * READ_REQUEST_COST
+        )
+        if total_cost <= spendable:
+            return count
+    return 0
+
+
 def reserve_safe_batch_capacity(
     spendable: int,
     requested: int,
