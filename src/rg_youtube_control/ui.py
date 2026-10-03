@@ -195,6 +195,7 @@ COMMENT_STATUS_LABELS = {
     "new": "новий",
     "replied": "відповіли",
     "ignored": "проігноровано",
+    "moderation_locked": "модерація YouTube",
 }
 
 def _issue_labels(issues: list[str]) -> str:
@@ -4540,27 +4541,27 @@ class MainWindow(QMainWindow):
     def show_archive_campaign_center(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Центр кампанії архіву")
-        dialog.resize(1050, 560)
+        dialog.resize(860, 430)
         layout = QVBoxLayout(dialog)
 
         phase_label = QLabel()
         phase_label.setObjectName("SettingsSectionTitle")
+        next_label = QLabel()
+        next_label.setWordWrap(True)
         quota_label = QLabel()
         quota_label.setWordWrap(True)
         quota_label.setProperty("muted", True)
         layout.addWidget(phase_label)
+        layout.addWidget(next_label)
         layout.addWidget(quota_label)
 
-        table = QTableWidget(2, 8)
+        table = QTableWidget(2, 5)
         table.setHorizontalHeaderLabels([
             "Канал",
-            "Архів",
             "Безпечні",
             "Глибока",
             "Транскрипти",
-            "Пакети готові",
-            "Застосовано",
-            "Пропущено",
+            "Готові пакети",
         ])
         table.verticalHeader().setVisible(False)
         table.setSelectionMode(
@@ -4571,29 +4572,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
 
         hint = QLabel(
-            "Фази йдуть автоматично: основний безпечний архів → LIVE "
-            "безпечний архів → глибока оптимізація основного → LIVE. "
-            "Після повного завершення попередній стан автопілота "
-            "метаданих буде відновлено автоматично."
+            "Кампанія проходить автоматично: основний safe -> LIVE safe -> "
+            "основний deep -> LIVE deep. Deep-пакети лишаються чернетками "
+            "до ручного перегляду. Резерв коментарів архів не використовує."
         )
         hint.setWordWrap(True)
         hint.setProperty("muted", True)
         layout.addWidget(hint)
 
         buttons = QHBoxLayout()
-        run_btn = QPushButton("Запустити поточний етап")
+        run_btn = QPushButton("Запустити зараз")
         run_btn.setProperty("role", "primary")
-        deep_export_btn = QPushButton("Глибока черга → NAS")
-        deep_transcripts_btn = QPushButton("Транскрипти глибокої черги")
-        deep_import_btn = QPushButton("Імпорт глибоких пакетів")
-        open_btn = QPushButton("Відкрити етап в Оптимізації")
-        refresh_btn = QPushButton("Оновити локально")
+        open_btn = QPushButton("Відкрити поточний етап")
+        refresh_btn = QPushButton("Оновити")
         close_btn = QPushButton("Закрити")
         for button in (
             run_btn,
-            deep_export_btn,
-            deep_transcripts_btn,
-            deep_import_btn,
             open_btn,
             refresh_btn,
             close_btn,
@@ -4617,8 +4611,32 @@ class MainWindow(QMainWindow):
                 else "обидва канали"
             )
             phase_label.setText(
-                f"Поточний етап: {phase_name} · {target_name}"
+                f"Поточний етап: {phase_name} - {target_name}"
             )
+
+            if phase == "safe":
+                remaining = int(
+                    stats.get(target, {}).get("safe_remaining", 0)
+                )
+                next_text = (
+                    f"Наступна дія: автоматичний safe-пакет для "
+                    f"{target_name}. Залишилось: {remaining}."
+                )
+            elif phase == "deep":
+                remaining = int(
+                    stats.get(target, {}).get("deep_remaining", 0)
+                )
+                next_text = (
+                    f"Наступна дія: deep-черга, транскрипти та імпорт "
+                    f"чернеток для {target_name}. Залишилось: {remaining}."
+                )
+            else:
+                next_text = (
+                    "Наступна дія: кампанію завершено. Попередній стан "
+                    "автопілота метаданих відновлюється автоматично."
+                )
+            next_label.setText(next_text)
+
             total_safe = sum(
                 int(value["safe_remaining"])
                 for value in stats.values()
@@ -4629,52 +4647,22 @@ class MainWindow(QMainWindow):
                 if total_safe and fresh_capacity
                 else 0
             )
-            today_count = 0
-            utc_day = datetime.now(timezone.utc).date().isoformat()
-            for profile in PROFILE_TARGETS:
-                counter_key = (
-                    f"archive_campaign_changed_{profile}_"
-                    f"{current_quota_day()}"
-                )
-                raw_counter = get_setting(
-                    self.conn,
-                    counter_key,
-                    "",
-                ).strip()
-                if raw_counter:
-                    today_count += int(raw_counter or 0)
-                else:
-                    fallback = self.conn.execute(
-                        """SELECT COUNT(*) AS n
-                           FROM optimization_events
-                           WHERE profile=?
-                             AND reason='safe_archive_batch'
-                             AND optimized_at LIKE ?""",
-                        (profile, f"{utc_day}%"),
-                    ).fetchone()
-                    today_count += int(fallback["n"] or 0)
             quota_label.setText(
-                f"Квота: враховано ≈{budget['used']}/"
-                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
-                f"залишок ≈{budget['remaining']} · "
-                f"резерв {budget['reserve']} · "
-                f"доступно зараз ≈{budget['current_capacity']} відео · "
-                f"свіжий день ≈{fresh_capacity} · "
-                f"оброблено сьогодні {today_count} · "
+                f"Квота: {budget['used']}/{YOUTUBE_DAILY_QUOTA_DEFAULT} - "
+                f"для кампанії зараз ≈{budget['current_capacity']} відео - "
+                f"резерв коментарів {budget['reserve']} - "
                 f"скидання {budget['reset']}"
-                + (f" · безпечний архів ≈{days} дн." if days else "")
+                + (f" - safe-етап ≈{days} дн." if days else "")
             )
+
             for row_index, profile in enumerate(("main", "live")):
                 item = stats.get(profile, {})
                 values = [
                     PROFILE_LABELS[profile],
-                    str(item.get("archive_total", 0)),
                     str(item.get("safe_remaining", 0)),
                     str(item.get("deep_remaining", 0)),
                     str(item.get("transcripts", 0)),
                     str(item.get("ready_packages", 0)),
-                    str(item.get("applied_packages", 0)),
-                    str(item.get("skipped_deep", 0)),
                 ]
                 for column, value in enumerate(values):
                     cell = QTableWidgetItem(value)
@@ -4684,41 +4672,10 @@ class MainWindow(QMainWindow):
                         )
                     table.setItem(row_index, column, cell)
 
-            deep_mode = phase == "deep"
-            deep_export_btn.setEnabled(deep_mode)
-            deep_transcripts_btn.setEnabled(deep_mode)
-            deep_import_btn.setEnabled(deep_mode)
             run_btn.setEnabled(phase != "complete")
 
         def run_current() -> None:
             self.run_archive_campaign_step(automatic=False)
-            refresh()
-
-        def export_deep() -> None:
-            stats = self._archive_campaign_stats()
-            phase, target = next_campaign_phase(stats)
-            if phase != "deep" or not target:
-                return
-            self._activate_profile(target)
-            self.export_deep_review_queue_to_nas(target)
-            refresh()
-
-        def fetch_deep_transcripts() -> None:
-            stats = self._archive_campaign_stats()
-            phase, target = next_campaign_phase(stats)
-            if phase != "deep" or not target:
-                return
-            self._activate_profile(target)
-            self.export_deep_review_transcripts(target)
-            refresh()
-
-        def import_deep() -> None:
-            stats = self._archive_campaign_stats()
-            phase, target = next_campaign_phase(stats)
-            if phase != "deep" or not target:
-                return
-            self._activate_profile(target)
-            self.import_deep_review_packages(target)
             refresh()
 
         def open_current() -> None:
@@ -4738,9 +4695,6 @@ class MainWindow(QMainWindow):
             dialog.accept()
 
         run_btn.clicked.connect(run_current)
-        deep_export_btn.clicked.connect(export_deep)
-        deep_transcripts_btn.clicked.connect(fetch_deep_transcripts)
-        deep_import_btn.clicked.connect(import_deep)
         open_btn.clicked.connect(open_current)
         refresh_btn.clicked.connect(refresh)
         close_btn.clicked.connect(dialog.accept)
