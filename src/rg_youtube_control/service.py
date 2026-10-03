@@ -324,8 +324,13 @@ def quota_budget_status(conn: sqlite3.Connection) -> dict[str, int | bool | str]
         "remaining": remaining,
         "reserve": reserve,
         "spendable": spendable,
-        "reply_capacity": spendable // COMMENT_REPLY_COST,
-        "video_update_capacity": remaining // VIDEO_UPDATE_COST,
+        "campaign_spendable": spendable,
+        "comment_spendable": remaining,
+        "reply_capacity": remaining // COMMENT_REPLY_COST,
+        "campaign_video_capacity": spendable // VIDEO_UPDATE_COST,
+        "deep_transcript_capacity": spendable // CAPTION_TRANSCRIPT_COST,
+        "video_update_capacity": spendable // VIDEO_UPDATE_COST,
+        "campaign_blocked": exhausted or spendable < SAFE_METADATA_ITEM_COST,
         "exhausted": exhausted,
         "reset": reset_text,
     }
@@ -399,6 +404,17 @@ def _thread_needs_remote_reply_lookup(thread: dict[str, Any]) -> bool:
     total = int(thread.get("snippet", {}).get("totalReplyCount") or 0)
     embedded = thread.get("replies", {}).get("comments", []) or []
     return total > len(embedded)
+
+
+def _thread_moderation_status(thread: dict[str, Any]) -> str:
+    top = thread.get("snippet", {}).get("topLevelComment", {}) or {}
+    snippet = top.get("snippet", {}) or {}
+    return str(snippet.get("moderationStatus") or "").strip().casefold()
+
+
+def _thread_is_explicitly_non_published(thread: dict[str, Any]) -> bool:
+    status = _thread_moderation_status(thread)
+    return bool(status and status != "published")
 
 
 def scan_channel_comments(
@@ -497,6 +513,23 @@ def scan_channel_comments(
             stats["known_skipped"] += 1
             continue
 
+        if _thread_is_explicitly_non_published(thread):
+            item = {
+                "comment_id": comment_id,
+                "video_id": video_id,
+                "author": snippet.get("authorDisplayName"),
+                "text": snippet.get("textOriginal") or snippet.get("textDisplay") or "",
+                "published_at": published_at,
+                "category": "review",
+                "status": "moderation_locked",
+                "reply_text": "",
+                "raw": thread,
+            }
+            upsert_comment(conn, item)
+            stats["skipped_review"] += 1
+            stats["queued"] += 1
+            continue
+
         text = snippet.get("textOriginal") or snippet.get("textDisplay") or ""
         decision = classify(text)
         reply_text = decision.reply
@@ -546,7 +579,7 @@ def scan_channel_comments(
             and recent_for_auto
             and auto_count < max_auto_replies
             and stats["auto_replied"] < max_auto_replies_per_scan
-            and int(budget["spendable"]) >= COMMENT_REPLY_COST
+            and int(budget["comment_spendable"]) >= COMMENT_REPLY_COST
             and not bool(budget["exhausted"])
         )
         if can_auto:
@@ -578,7 +611,7 @@ def scan_channel_comments(
                     stats["skipped_review"] += 1
                 elif auto_count >= max_auto_replies or stats["auto_replied"] >= max_auto_replies_per_scan:
                     stats["skipped_limit"] += 1
-                elif int(budget["spendable"]) < COMMENT_REPLY_COST:
+                elif int(budget["comment_spendable"]) < COMMENT_REPLY_COST:
                     stats["quota_blocked"] += 1
             stats["queued"] += 1
 
@@ -663,6 +696,24 @@ def scan_comments(
             snippet = top["snippet"]
             author_id = snippet.get("authorChannelId", {}).get("value")
             if author_id == channel_id:
+                continue
+
+            if _thread_is_explicitly_non_published(thread):
+                item = {
+                    "comment_id": str(top.get("id") or ""),
+                    "video_id": video_id,
+                    "author": snippet.get("authorDisplayName"),
+                    "text": snippet.get("textOriginal") or snippet.get("textDisplay") or "",
+                    "published_at": snippet.get("publishedAt"),
+                    "category": "review",
+                    "status": "moderation_locked",
+                    "reply_text": "",
+                    "raw": thread,
+                }
+                if item["comment_id"]:
+                    upsert_comment(conn, item)
+                stats["skipped_review"] += 1
+                stats["queued"] += 1
                 continue
 
             text = snippet.get("textOriginal") or snippet.get("textDisplay") or ""
@@ -835,7 +886,7 @@ def reply_one_queued_safe_comment(
     budget = quota_budget_status(conn)
     # One reply costs 50 units. Reserve up to six extra read units for the
     # published-only preflight (channel lookup + five comment pages).
-    if int(budget["spendable"]) < COMMENT_REPLY_COST + (6 * READ_REQUEST_COST):
+    if int(budget["comment_spendable"]) < COMMENT_REPLY_COST + (6 * READ_REQUEST_COST):
         result["quota_blocked"] = 1
         return result
 
@@ -951,8 +1002,15 @@ def manual_reply(
         "SELECT status FROM comments WHERE comment_id=?",
         (comment_id,),
     ).fetchone()
-    if row is not None and str(row["status"] or "") == "replied":
-        raise RuntimeError("На цей коментар вже надіслано відповідь.")
+    if row is not None:
+        local_status = str(row["status"] or "")
+        if local_status == "replied":
+            raise RuntimeError("На цей коментар вже надіслано відповідь.")
+        if local_status == "moderation_locked":
+            raise RuntimeError(
+                "Коментар знаходиться на модерації YouTube. "
+                "RG YouTube Control не буде відповідати або змінювати його статус."
+            )
 
     if quota_exhausted(conn):
         raise RuntimeError(
