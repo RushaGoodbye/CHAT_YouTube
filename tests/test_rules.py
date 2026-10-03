@@ -1158,12 +1158,13 @@ def test_reply_test_ignores_old_safe_local_comment(tmp_path):
     conn = connect(tmp_path / "queued-old.sqlite")
     conn.execute(
         """INSERT INTO videos(
-            video_id,profile,title,description,tags_json,privacy_status,
-            published_at,views,audit_json,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            video_id,profile,title,privacy_status,published_at,
+            views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
         (
-            "v1", "main", "Video", "", "[]", "public",
-            datetime.now(timezone.utc).isoformat(), 1, "{}", datetime.now(timezone.utc).isoformat(),
+            "v1", "main", "Video", "public",
+            datetime.now(timezone.utc).isoformat(), 1, "{}",
+            datetime.now(timezone.utc).isoformat(),
         ),
     )
     conn.execute(
