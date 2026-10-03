@@ -111,6 +111,7 @@ from .service import (
     today_reply_count,
     today_quota_units,
     record_quota_units,
+    reconcile_local_video_title,
     quota_exhausted,
     mark_quota_exhausted,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
@@ -3531,8 +3532,7 @@ class MainWindow(QMainWindow):
                 "Застосувати виправлення назв",
                 f"Готово виправлень: {len(valid)}.\n"
                 f"Зараз буде застосовано: {len(batch)}.\n"
-                f"Орієнтовна квота: ≈{estimated} од. + 1 од. "
-                "на контрольне оновлення списку.\n\n"
+                f"Орієнтовна квота: ≈{estimated} од.\n\n"
                 "Змінюється лише назва відео. Опис, теги YouTube, "
                 "прев'ю та налаштування публікації не змінюються. "
                 "Продовжити?",
@@ -3568,6 +3568,13 @@ class MainWindow(QMainWindow):
                     )
                     new_title = correction["new_title"]
                     if current_title == new_title:
+                        reconcile_local_video_title(
+                            self.conn,
+                            video_id=video_id,
+                            title=new_title,
+                            description=description,
+                            tags=tags,
+                        )
                         reconciled_ids.append(video_id)
                         item = item_by_id.get(video_id)
                         if item is not None:
@@ -3596,6 +3603,13 @@ class MainWindow(QMainWindow):
                         "before_title_language_correction",
                     )
                     self._quota_update_video(video_id, title=new_title)
+                    reconcile_local_video_title(
+                        self.conn,
+                        video_id=video_id,
+                        title=new_title,
+                        description=description,
+                        tags=tags,
+                    )
                     record_optimization_event(
                         self.conn,
                         history_id=history_id,
@@ -3621,10 +3635,10 @@ class MainWindow(QMainWindow):
                 encoding="utf-8",
             )
 
-            synced_ids = list(dict.fromkeys(changed_ids + reconciled_ids))
-            if synced_ids and not quota_exhausted(self.conn):
-                sync_specific_videos(self.client, self.conn, synced_ids)
-
+            # YouTube's immediate videos.list may briefly return stale title
+            # data after a successful videos.update. The update response was
+            # already verified, so keep the confirmed local state and let the
+            # next normal synchronization re-check it later.
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
