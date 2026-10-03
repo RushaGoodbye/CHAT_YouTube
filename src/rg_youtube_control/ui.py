@@ -4869,9 +4869,65 @@ class MainWindow(QMainWindow):
         ) != "1":
             return 0
 
+        now = datetime.now(timezone.utc)
+        interval_minutes = int(
+            get_setting(
+                self.conn,
+                f"safe_autopilot_interval_minutes_{profile}",
+                str(DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES),
+            )
+            or DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES
+        )
+        daily_limit = int(
+            get_setting(
+                self.conn,
+                f"safe_autopilot_daily_limit_{profile}",
+                str(DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT),
+            )
+            or DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT
+        )
+
+        last_key = f"safe_autopilot_last_run_{profile}"
+        last_raw = get_setting(self.conn, last_key, "").strip()
+        if not last_raw:
+            # Existing enabled installations must not immediately mutate three
+            # more videos just because the application was updated/restarted.
+            set_setting(self.conn, last_key, now.isoformat())
+            log_action(
+                self.conn,
+                profile=profile,
+                category="автопілот",
+                action="Захисний інтервал",
+                details=(
+                    f"ініціалізовано · наступний цикл не раніше ніж через "
+                    f"{interval_minutes} хв"
+                ),
+            )
+            return 0
+
+        try:
+            last_run = datetime.fromisoformat(last_raw.replace("Z", "+00:00"))
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=timezone.utc)
+        except ValueError:
+            last_run = now
+            set_setting(self.conn, last_key, now.isoformat())
+
+        elapsed_minutes = (now - last_run).total_seconds() / 60.0
+        if elapsed_minutes < interval_minutes:
+            return 0
+
+        quota_day = current_quota_day()
+        count_key = f"safe_autopilot_count_{profile}_{quota_day}"
+        daily_count = int(get_setting(self.conn, count_key, "0") or 0)
+        remaining_daily = max(0, daily_limit - daily_count)
+        if remaining_daily <= 0:
+            return 0
+
         budget = quota_budget_status(self.conn)
         allowed = min(
             max_items,
+            remaining_daily,
             max(0, int(budget["spendable"]) // VIDEO_UPDATE_COST),
         )
         if allowed <= 0 or bool(budget["exhausted"]):
@@ -4882,6 +4938,7 @@ class MainWindow(QMainWindow):
             limit=allowed,
         )
         if not video_ids:
+            set_setting(self.conn, last_key, now.isoformat())
             return 0
 
         try:
@@ -4899,6 +4956,10 @@ class MainWindow(QMainWindow):
                 details=f"не створено резервну копію: {exc}",
             )
             return 0
+
+        # Set the timestamp before remote writes. A restart or an exception
+        # therefore cannot immediately trigger another batch.
+        set_setting(self.conn, last_key, now.isoformat())
 
         changed = 0
         for video_id in video_ids:
@@ -4940,13 +5001,20 @@ class MainWindow(QMainWindow):
                 )
                 self._store_local_safe_audit(video_id, fix.after, tags)
                 changed += 1
+                daily_count += 1
+                set_setting(self.conn, count_key, str(daily_count))
                 log_action(
                     self.conn,
                     profile=profile,
                     category="автопілот",
                     action="Безпечні метадані",
-                    details=f"{video_id}: {', '.join(fix.changes)}",
+                    details=(
+                        f"{video_id}: {', '.join(fix.changes)} · "
+                        f"сьогодні {daily_count}/{daily_limit}"
+                    ),
                 )
+                if daily_count >= daily_limit:
+                    break
             except Exception as exc:
                 if _is_quota_exceeded_error(exc):
                     mark_quota_exhausted(self.conn)
@@ -4961,6 +5029,16 @@ class MainWindow(QMainWindow):
                 if quota_exhausted(self.conn):
                     break
 
+        log_action(
+            self.conn,
+            profile=profile,
+            category="автопілот",
+            action="Цикл завершено",
+            details=(
+                f"змінено {changed}; сьогодні {daily_count}/{daily_limit}; "
+                f"наступний цикл не раніше ніж через {interval_minutes} хв"
+            ),
+        )
         return changed
 
     def _store_local_safe_audit(
