@@ -43,6 +43,7 @@ TOPIC_HASHTAGS = (
     (("донбасс", "донбас", "donbas"), "#донбасс"),
     (("армия", "армі", " army ", "military"), "#армия"),
     (("armenian", "armenia", "армян", "вірмен", "вермен"), "#армения"),
+    (("cheburashka", "чебураш"), "#чебурашка"),
 )
 
 GENERIC_TOPIC_HASHTAGS = {"#россия", "#украина", "#война"}
@@ -95,6 +96,8 @@ def _title_topic_hashtag(title: str) -> str:
         if len(value) < 4 or value.isdigit():
             continue
         if value in TITLE_TOPIC_STOPWORDS or value in generic_places:
+            continue
+        if value.endswith(("ться", "тися")):
             continue
 
         letters = "".join(ch for ch in token if ch.isalpha())
