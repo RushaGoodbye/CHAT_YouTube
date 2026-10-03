@@ -94,6 +94,7 @@ from .service import (
     current_quota_day,
     manual_reply,
     quota_budget_status,
+    reply_one_queued_safe_comment,
     scan_channel_comments,
     scan_comments,
     sync_specific_videos,
@@ -5318,8 +5319,10 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Тест автовідповіді",
-            "Програма надішле рівно одну безпечну автовідповідь "
-            "на свіжий коментар. Продовжити?",
+            "Програма спочатку спробує взяти один свіжий безпечний "
+            "коментар із локальної черги. Якщо такого немає - перевірить "
+            "нові коментарі YouTube. Буде надіслано максимум одну відповідь. "
+            "Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -5327,6 +5330,43 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            queued = reply_one_queued_safe_comment(
+                self.client,
+                self.conn,
+                self.current_profile,
+                max_auto_age_hours=self.age_limit_spin.value(),
+                max_auto_replies=self.daily_limit_spin.value(),
+            )
+            if queued["sent"] == 1:
+                self.reload_comments()
+                self.reload_action_log()
+                self.update_dashboard()
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Тест успішний: надіслано 1 безпечну автовідповідь "
+                    "із локальної черги.",
+                )
+                return
+            if queued["quota_blocked"] > 0:
+                budget = quota_budget_status(self.conn)
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Тестову відповідь не відправлено через обмеження квоти.\n"
+                    f"Залишок: ≈{budget['remaining']} од. · "
+                    f"резерв: {budget['reserve']} од.\n"
+                    f"Скидання: {budget['reset']}.",
+                )
+                return
+            if queued["limit_blocked"] > 0:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Денний ліміт автовідповідей для цього каналу вже досягнуто.",
+                )
+                return
+
             stats = scan_channel_comments(
                 self.client,
                 self.conn,
@@ -5338,11 +5378,13 @@ class MainWindow(QMainWindow):
             )
             self.reload_comments()
             self.reload_action_log()
+            self.update_dashboard()
             if stats["auto_replied"] == 1:
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Тест успішний: надіслано 1 безпечну автовідповідь.",
+                    "Тест успішний: надіслано 1 безпечну автовідповідь "
+                    "на новий коментар.",
                 )
             elif stats["quota_blocked"] > 0:
                 budget = quota_budget_status(self.conn)
@@ -5358,7 +5400,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     APP_NAME,
-                    "Відповідного свіжого безпечного коментаря для тесту не знайдено.",
+                    "У локальній черзі та серед нових коментарів немає "
+                    "свіжого безпечного коментаря для тесту.",
                 )
         except Exception as exc:
             self._error("Помилка тестової автовідповіді", exc)
