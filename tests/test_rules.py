@@ -1100,6 +1100,9 @@ def test_reply_test_uses_fresh_safe_local_queue(tmp_path):
         def __init__(self):
             self.sent = []
 
+        def my_channel(self):
+            return {"id": "channel-1"}
+
         def channel_comment_threads(self, channel_id, *, stop_before=None, max_pages=5):
             return (
                 [
@@ -1167,6 +1170,9 @@ def test_reply_test_blocks_comment_not_reconfirmed_as_published(tmp_path):
 
     class FakeClient:
         profile = "main"
+
+        def my_channel(self):
+            return {"id": "channel-1"}
 
         def channel_comment_threads(self, channel_id, *, stop_before=None, max_pages=5):
             return ([], 1)
