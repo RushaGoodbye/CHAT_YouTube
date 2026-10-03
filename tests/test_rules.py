@@ -1033,6 +1033,20 @@ def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
     assert "latin_title_review" not in audit_data["issues"]
 
 
+def test_settings_polish_avoids_duplicate_channel_selector_and_wide_spins():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow._build_settings_tab)
+
+    assert "self.profile_combo.setVisible(False)" in source
+    assert "spin.setMaximumWidth(180)" in source
+    assert "comments_columns = QHBoxLayout()" in source
+    assert "comments_columns.addLayout(comments_left, 1)" in source
+    assert "comments_columns.addLayout(comments_right, 1)" in source
+
+
 def test_settings_ui_is_split_into_readable_sections():
     import inspect
 
