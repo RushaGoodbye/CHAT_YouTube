@@ -1230,3 +1230,64 @@ def test_comment_moderation_mutation_is_disabled():
         assert "не змінює статус модерації" in str(exc)
     else:
         raise AssertionError("Moderation mutation must be blocked")
+
+
+def test_manual_reply_is_profile_counted_and_journaled(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect, recent_action_log
+    from rg_youtube_control.service import manual_reply, today_reply_count
+
+    class FakeClient:
+        profile = "live"
+        def __init__(self):
+            self.sent = []
+        def reply(self, comment_id, text):
+            self.sent.append((comment_id, text))
+            return {}
+
+    conn = connect(tmp_path / "manual-reply-log.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,published_at,
+            views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (
+            "v-live", "live", "Video", "public",
+            datetime.now(timezone.utc).isoformat(), 1, "{}",
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,
+            category,status,reply_text,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (
+            "c-manual", "v-live", "viewer", "Привіт",
+            datetime.now(timezone.utc).isoformat(),
+            "review", "new", "", "{}",
+        ),
+    )
+    conn.commit()
+
+    client = FakeClient()
+    manual_reply(client, conn, "c-manual", "Дякую!")
+
+    assert client.sent == [("c-manual", "Дякую!")]
+    assert today_reply_count(conn, "live") == 1
+    rows = recent_action_log(conn, profile="live", limit=10)
+    assert any(
+        row["action"] == "Ручна відповідь"
+        and "c-manual" in row["details"]
+        for row in rows
+    )
+
+
+def test_autopilot_guardrail_defaults():
+    from rg_youtube_control.config import (
+        DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT,
+        DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES,
+    )
+
+    assert DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES == 60
+    assert DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT == 30
