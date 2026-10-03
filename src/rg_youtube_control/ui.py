@@ -4152,7 +4152,9 @@ class MainWindow(QMainWindow):
     def import_deep_review_packages(
         self,
         profile: str | None = None,
-    ) -> None:
+        *,
+        notify: bool = True,
+    ) -> int:
         target = profile or self.current_profile
         package_dir = self._nas_path(
             "nas_packages_path",
@@ -4160,12 +4162,13 @@ class MainWindow(QMainWindow):
         )
         manifest_path = package_dir / f"deep_review_{target}.json"
         if not manifest_path.exists():
-            QMessageBox.information(
-                self,
-                "Глибока черга",
-                "Спочатку експортуйте глибоку чергу на NAS.",
-            )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Глибока черга",
+                    "Спочатку експортуйте глибоку чергу на NAS.",
+                )
+            return 0
 
         try:
             payload = json.loads(
@@ -4221,13 +4224,25 @@ class MainWindow(QMainWindow):
                     f"\nПомилок: {len(failed)}.\n"
                     + "\n".join(failed[:5])
                 )
-            QMessageBox.information(
-                self,
-                "Глибокі пакети",
-                message,
-            )
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Глибокі пакети",
+                    message,
+                )
+            return imported
         except Exception as exc:
-            self._error("Помилка імпорту глибоких пакетів", exc)
+            if notify:
+                self._error("Помилка імпорту глибоких пакетів", exc)
+            else:
+                log_action(
+                    self.conn,
+                    profile=target,
+                    category="кампанія архіву",
+                    action="Імпорт deep-пакетів відкладено",
+                    details=str(exc),
+                )
+            return 0
 
     def export_deep_review_transcripts(
         self,
