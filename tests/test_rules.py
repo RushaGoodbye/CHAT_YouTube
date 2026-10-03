@@ -841,6 +841,30 @@ def test_hashtag_confidence_rejects_generic_verb_title():
     assert tags == ("#рашагудбай", "#чатрулетка", "#россия")
 
 
+def test_latin_title_review_is_excluded_from_safe_archive():
+    from rg_youtube_control.optimization import is_safe_archive_candidate
+
+    assert is_safe_archive_candidate(["old_links"])
+    assert is_safe_archive_candidate(["missing_project_link", "no_chapters"])
+    assert not is_safe_archive_candidate(
+        ["old_links", "latin_title_review"]
+    )
+    assert not is_safe_archive_candidate(["latin_title_review"])
+
+
+def test_latin_title_review_gets_dedicated_priority():
+    from rg_youtube_control.optimization import priority_label
+
+    priority, label = priority_label(
+        85,
+        "public",
+        None,
+        ["latin_title_review", "old_links"],
+    )
+    assert priority == 900
+    assert label == "НАЗВА"
+
+
 def test_safe_archive_batch_limit_is_twenty():
     from rg_youtube_control.config import DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
 
