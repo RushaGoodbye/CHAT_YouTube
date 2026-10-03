@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTabWidget,
@@ -2757,78 +2758,212 @@ class MainWindow(QMainWindow):
         db_check_btn = QPushButton("Перевірити локальну базу")
         db_check_btn.clicked.connect(self.check_local_database)
 
-        layout.addWidget(self.profile_combo)
-        layout.addWidget(self.channel_label)
-        layout.addWidget(self.background_box)
-        layout.addWidget(self.auto_box)
-        moderation_note = QLabel(
-            "Модерація захищена: програма працює лише з уже опублікованими "
-            "коментарями. Коментарі «Очікує на розгляд» не читаються, "
-            "не схвалюються і не відхиляються автоматично."
+        def settings_hint(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            label.setProperty("muted", True)
+            label.setObjectName("SettingsHint")
+            return label
+
+        def settings_card(
+            parent_layout: QVBoxLayout,
+            title: str,
+            note: str = "",
+        ) -> QVBoxLayout:
+            card = QFrame()
+            card.setObjectName("SettingsCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(16, 14, 16, 14)
+            card_layout.setSpacing(10)
+
+            heading = QLabel(title)
+            heading.setObjectName("SettingsSectionTitle")
+            card_layout.addWidget(heading)
+            if note:
+                card_layout.addWidget(settings_hint(note))
+
+            parent_layout.addWidget(card)
+            return card_layout
+
+        def settings_scroll_page() -> tuple[QScrollArea, QVBoxLayout]:
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(12, 12, 12, 12)
+            content_layout.setSpacing(12)
+            scroll = QScrollArea()
+            scroll.setObjectName("SettingsScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            scroll.setWidget(content)
+            return scroll, content_layout
+
+        def compact_form() -> QFormLayout:
+            form = QFormLayout()
+            form.setLabelAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+            form.setHorizontalSpacing(22)
+            form.setVerticalSpacing(10)
+            form.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+            )
+            return form
+
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        channel_bar = QFrame()
+        channel_bar.setObjectName("SettingsChannelBar")
+        channel_layout = QHBoxLayout(channel_bar)
+        channel_layout.setContentsMargins(14, 10, 14, 10)
+        channel_layout.setSpacing(12)
+        channel_layout.addWidget(QLabel("Канал"))
+        self.profile_combo.setMaximumWidth(260)
+        channel_layout.addWidget(self.profile_combo)
+        self.channel_label.setProperty("muted", True)
+        channel_layout.addWidget(self.channel_label, 1)
+        layout.addWidget(channel_bar)
+
+        self.settings_sections = QTabWidget()
+        self.settings_sections.setObjectName("SettingsSections")
+        layout.addWidget(self.settings_sections, 1)
+
+        # Коментарі
+        comments_page, comments_layout = settings_scroll_page()
+
+        comments_card = settings_card(
+            comments_layout,
+            "Фонова робота з коментарями",
+            "Працюємо лише з уже опублікованими коментарями. "
+            "«Очікує на розгляд» програма не читає і не модерує.",
         )
-        moderation_note.setWordWrap(True)
-        moderation_note.setProperty("muted", True)
-        layout.addWidget(moderation_note)
-        layout.addWidget(self.archive_priority_box)
-        archive_priority_note = QLabel(
-            "Коли увімкнено, фоновий автопілот метаданих не витрачає "
-            "квоту YouTube. Попередній стан автопілота зберігається і "
-            "відновлюється після вимкнення режиму. Коментарі та інші "
-            "функції програми не змінюються."
+        comments_card.addWidget(self.background_box)
+        comments_card.addWidget(self.auto_box)
+
+        reply_limits = compact_form()
+        reply_limits.addRow("Денний ліміт", self.daily_limit_spin)
+        reply_limits.addRow("За одне сканування", self.scan_limit_spin)
+        reply_limits.addRow("Максимальний вік", self.age_limit_spin)
+        comments_card.addLayout(reply_limits)
+
+        templates_card = settings_card(
+            comments_layout,
+            "Шаблони автовідповідей",
+            "Тексти можна редагувати. Зміни зберігаються автоматично.",
         )
-        archive_priority_note.setWordWrap(True)
-        archive_priority_note.setProperty("muted", True)
-        layout.addWidget(archive_priority_note)
-        layout.addWidget(self.safe_autopilot_box)
-        layout.addWidget(QLabel("Інтервал автопілота безпечних метаданих"))
-        layout.addWidget(self.autopilot_interval_spin)
-        layout.addWidget(QLabel("Денний ліміт відео для автопілота"))
-        layout.addWidget(self.autopilot_daily_spin)
-        autopilot_note = QLabel(
-            "Автопілот за один фоновий цикл змінює максимум 3 відео, "
-            "не запускається частіше заданого інтервалу, дотримується "
-            "денного ліміту, не торкається назв, тегів YouTube, розділів "
-            "або основного тексту та автоматично зупиняється на резерві квоти."
-        )
-        autopilot_note.setWordWrap(True)
-        autopilot_note.setProperty("muted", True)
-        layout.addWidget(autopilot_note)
-        self._refresh_archive_priority_controls()
-        layout.addWidget(QLabel("Денний ліміт автовідповідей"))
-        layout.addWidget(self.daily_limit_spin)
-        layout.addWidget(QLabel("Ліміт автовідповідей за одне сканування"))
-        layout.addWidget(self.scan_limit_spin)
-        layout.addWidget(QLabel("Автовідповідь лише на коментарі не старші за"))
-        layout.addWidget(self.age_limit_spin)
+        templates_form = compact_form()
         for label, edit in self.reply_template_edits.values():
-            layout.addWidget(QLabel(label))
-            layout.addWidget(edit)
-        layout.addWidget(QLabel("NAS · транскрипти"))
-        layout.addWidget(self.nas_transcripts_edit)
-        layout.addWidget(QLabel("NAS · пакети оптимізації"))
-        layout.addWidget(self.nas_packages_edit)
-        layout.addWidget(oauth_btn)
-        planner_settings_btn = QPushButton("Планувальник квоти")
-        planner_settings_btn.clicked.connect(self.show_quota_planner)
-        layout.addWidget(QLabel("YouTube API · резерв для важливих операцій"))
-        layout.addWidget(self.quota_reserve_spin)
-        layout.addWidget(planner_settings_btn)
-        layout.addWidget(QLabel("YouTube API · квота"))
-        layout.addWidget(self.youtube_quota_label)
-        layout.addWidget(self.version_label)
-        layout.addWidget(update_btn)
-        layout.addWidget(QLabel("Резервне копіювання / відновлення"))
-        backup_note = QLabel(
-            "Автоматично: одна щоденна копія та копія перед кожною "
-            "масовою зміною. На NAS зберігаються останні 20 автоматичних копій."
+            templates_form.addRow(label, edit)
+        templates_card.addLayout(templates_form)
+        comments_layout.addStretch()
+
+        self.settings_sections.addTab(comments_page, "Коментарі")
+
+        # Архів і квота
+        archive_page, archive_layout = settings_scroll_page()
+
+        priority_card = settings_card(
+            archive_layout,
+            "Пріоритет архіву",
+            "Зберігає квоту для масової обробки архіву. "
+            "Фоновий автопілот метаданих призупиняється, але коментарі "
+            "та інші функції продовжують працювати.",
         )
-        backup_note.setWordWrap(True)
-        backup_note.setProperty("muted", True)
-        layout.addWidget(backup_note)
-        layout.addWidget(backup_btn)
-        layout.addWidget(restore_btn)
-        layout.addWidget(db_check_btn)
-        layout.addStretch()
+        priority_card.addWidget(self.archive_priority_box)
+
+        autopilot_card = settings_card(
+            archive_layout,
+            "Автопілот безпечних метаданих",
+            "Змінює тільки посилання та рядок хештегів. "
+            "Назви, YouTube-теги і основний текст не чіпає.",
+        )
+        autopilot_card.addWidget(self.safe_autopilot_box)
+        autopilot_form = compact_form()
+        autopilot_form.addRow("Інтервал", self.autopilot_interval_spin)
+        autopilot_form.addRow("Денний ліміт відео", self.autopilot_daily_spin)
+        autopilot_card.addLayout(autopilot_form)
+
+        quota_card = settings_card(
+            archive_layout,
+            "YouTube API",
+            "Резерв захищає квоту для важливих операцій.",
+        )
+        self.youtube_quota_label.setWordWrap(True)
+        self.youtube_quota_label.setObjectName("QuotaSummary")
+        quota_card.addWidget(self.youtube_quota_label)
+
+        quota_form = compact_form()
+        quota_form.addRow("Резерв квоти", self.quota_reserve_spin)
+        quota_card.addLayout(quota_form)
+
+        planner_settings_btn = QPushButton("Відкрити планувальник квоти")
+        planner_settings_btn.clicked.connect(self.show_quota_planner)
+        quota_card.addWidget(planner_settings_btn)
+
+        self._refresh_archive_priority_controls()
+        archive_layout.addStretch()
+        self.settings_sections.addTab(archive_page, "Архів і квота")
+
+        # Сховища та API
+        storage_page, storage_layout = settings_scroll_page()
+
+        nas_card = settings_card(
+            storage_layout,
+            "NAS",
+            "Шляхи до транскриптів і пакетів оптимізації.",
+        )
+        nas_form = compact_form()
+        nas_form.addRow("Транскрипти", self.nas_transcripts_edit)
+        nas_form.addRow("Пакети оптимізації", self.nas_packages_edit)
+        nas_card.addLayout(nas_form)
+
+        oauth_card = settings_card(
+            storage_layout,
+            "YouTube OAuth",
+            "Файл OAuth використовується для авторизації YouTube Data API.",
+        )
+        oauth_card.addWidget(oauth_btn)
+
+        storage_layout.addStretch()
+        self.settings_sections.addTab(storage_page, "Сховища / API")
+
+        # Система
+        system_page, system_layout = settings_scroll_page()
+
+        update_card = settings_card(system_layout, "Версія та оновлення")
+        version_row = QHBoxLayout()
+        self.version_label.setObjectName("SettingsVersion")
+        version_row.addWidget(self.version_label)
+        version_row.addStretch()
+        version_row.addWidget(update_btn)
+        update_card.addLayout(version_row)
+
+        backup_card = settings_card(
+            system_layout,
+            "Резервні копії",
+            "Одна щоденна копія та копія перед масовими змінами. "
+            "На NAS зберігаються останні 20 автоматичних копій.",
+        )
+        backup_row = QHBoxLayout()
+        backup_row.addWidget(backup_btn)
+        backup_row.addWidget(restore_btn)
+        backup_row.addStretch()
+        backup_card.addLayout(backup_row)
+
+        database_card = settings_card(
+            system_layout,
+            "Локальна база",
+            "Перевірка цілісності SQLite та безпечне очищення сирітських записів.",
+        )
+        database_card.addWidget(db_check_btn)
+
+        system_layout.addStretch()
+        self.settings_sections.addTab(system_page, "Система")
+
         self.tabs.addTab(page, "Налаштування")
 
     def check_local_database(self) -> None:
