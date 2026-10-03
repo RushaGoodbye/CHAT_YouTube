@@ -107,6 +107,7 @@ from .service import (
     mark_quota_exhausted,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
     VIDEO_UPDATE_COST,
+    COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
 )
 from .youtube_api import YouTubeClient
@@ -5315,6 +5316,133 @@ class MainWindow(QMainWindow):
             else:
                 self._error("Помилка коментарів", exc)
 
+    def _test_reply_fallback(self) -> None:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            hours=self.age_limit_spin.value()
+        )
+        rows = self.conn.execute(
+            """SELECT c.comment_id,c.author,c.text,c.published_at,
+                      v.title AS video_title,c.reply_text
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=? AND c.status='new'
+               ORDER BY c.published_at DESC
+               LIMIT 100""",
+            (self.current_profile,),
+        ).fetchall()
+
+        candidates = []
+        for row in rows:
+            raw = str(row["published_at"] or "")
+            try:
+                published = datetime.fromisoformat(
+                    raw.replace("Z", "+00:00")
+                )
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if published < cutoff:
+                continue
+            candidates.append(row)
+            if len(candidates) >= 10:
+                break
+
+        if not candidates:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Немає свіжих коментарів для контрольного ручного тесту.",
+            )
+            return
+
+        labels = []
+        for row in candidates:
+            text = " ".join(str(row["text"] or "").split())
+            if len(text) > 70:
+                text = text[:67] + "..."
+            labels.append(
+                f"{row['author'] or '—'} · {text}"
+            )
+
+        selected, ok = QInputDialog.getItem(
+            self,
+            "Контрольний тест відповіді",
+            "Автоматично безпечного кандидата немає.\n"
+            "Виберіть один свіжий коментар для ручного контрольного тесту:",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not selected:
+            return
+
+        index = labels.index(selected)
+        row = candidates[index]
+        original_text = str(row["text"] or "")
+        suggested = str(row["reply_text"] or "").strip()
+        if not suggested:
+            suggested = "Дякуємо за коментар!"
+
+        reply_text, ok = QInputDialog.getMultiLineText(
+            self,
+            "Перевірка відповіді",
+            "Повний коментар:\n"
+            f"{original_text}\n\n"
+            "Відповідь нижче можна відредагувати перед відправленням:",
+            suggested,
+        )
+        if not ok:
+            return
+        reply_text = reply_text.strip()
+        if not reply_text:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Порожню відповідь не надіслано.",
+            )
+            return
+
+        budget = quota_budget_status(self.conn)
+        if (
+            int(budget["spendable"]) < COMMENT_REPLY_COST
+            or bool(budget["exhausted"])
+        ):
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Контрольну відповідь не відправлено: досягнуто резерву "
+                "або вичерпано квоту.",
+            )
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Підтвердити контрольну відповідь",
+            f"Коментар:\n{original_text}\n\n"
+            f"Відповідь:\n{reply_text}\n\n"
+            "Надіслати цю одну відповідь у YouTube?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        manual_reply(
+            self.client,
+            self.conn,
+            str(row["comment_id"]),
+            reply_text,
+        )
+        self.reload_comments()
+        self.reload_action_log()
+        self.update_dashboard()
+        QMessageBox.information(
+            self,
+            APP_NAME,
+            "Контрольний тест успішний: надіслано 1 підтверджену відповідь.",
+        )
+
     def test_one_auto_reply(self) -> None:
         answer = QMessageBox.question(
             self,
@@ -5397,12 +5525,7 @@ class MainWindow(QMainWindow):
                     f"Скидання: {budget['reset']}.",
                 )
             else:
-                QMessageBox.information(
-                    self,
-                    APP_NAME,
-                    "У локальній черзі та серед нових коментарів немає "
-                    "свіжого безпечного коментаря для тесту.",
-                )
+                self._test_reply_fallback()
         except Exception as exc:
             self._error("Помилка тестової автовідповіді", exc)
 
