@@ -30,18 +30,19 @@ TOPIC_HASHTAGS = (
     (("підтрим", "поддерж"), "#підтримказсу"),
     (("розіграш", "розыгрыш", "лот"), "#розіграш"),
     (("бензин", "топлив", "азс"), "#бензин"),
-    (("эконом", "економ"), "#экономикароссии"),
-    (("санкц",), "#санкции"),
-    (("мобилиз", "мобіліз"), "#мобилизация"),
-    (("путин", "путін"), "#путин"),
-    (("войн", "війн"), "#война"),
-    (("росси", "росі"), "#россия"),
-    (("украин", "україн"), "#украина"),
-    (("дрон", "бпла", "безпілот"), "#дроны"),
-    (("нефт", "нафт", "нпз"), "#нефть"),
-    (("крым", "крим"), "#крым"),
-    (("донбасс", "донбас"), "#донбасс"),
-    (("армия", "армі"), "#армия"),
+    (("эконом", "економ", "econom"), "#экономикароссии"),
+    (("санкц", "sanction"), "#санкции"),
+    (("мобилиз", "мобіліз", "mobiliz"), "#мобилизация"),
+    (("путин", "путін", "putin"), "#путин"),
+    (("войн", "війн", " war ", "war:"), "#война"),
+    (("росси", "росі", "russia", "russian"), "#россия"),
+    (("украин", "україн", "ukrain"), "#украина"),
+    (("дрон", "бпла", "безпілот", "drone"), "#дроны"),
+    (("нефт", "нафт", "нпз", " oil ", "refiner"), "#нефть"),
+    (("крым", "крим", "crimea"), "#крым"),
+    (("донбасс", "донбас", "donbas"), "#донбасс"),
+    (("армия", "армі", " army ", "military"), "#армия"),
+    (("armenian", "armenia", "армян", "вірмен", "вермен"), "#армения"),
 )
 
 GENERIC_TOPIC_HASHTAGS = {"#россия", "#украина", "#война"}
@@ -63,22 +64,66 @@ TITLE_TOPIC_STOPWORDS = {
     "история", "видео", "вопрос", "ответ", "живешь", "живёшь",
     "відбувається", "сталося", "говорить", "кажуть", "розмова", "думка",
     "історія", "відео", "питання", "відповідь",
+    "the", "and", "from", "with", "without", "into", "about", "after", "before",
+    "this", "that", "these", "those", "what", "who", "where", "when", "why",
+    "how", "your", "you", "they", "their", "his", "her", "our", "my", "not",
+    "favorite", "real", "critique", "past", "found", "origin", "identity",
+    "crisis", "video", "live", "stream", "character", "question", "answer",
+    "story", "presidents", "president", "people", "thing", "things",
 }
 
 
 def _title_topic_hashtag(title: str) -> str:
+    """Extract a concrete title topic only when confidence is high enough.
+
+    This deliberately avoids turning generic English title words such as
+    "Favorite" or "Critique" into hashtags.
+    """
     cleaned = TITLE_BOILERPLATE_RE.sub(" ", title or "")
-    tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+", cleaned, re.UNICODE)
-    for token in tokens:
+    generic_places = {
+        "россия", "россии", "россию", "украина", "украине", "украину",
+        "russia", "russian", "ukraine", "ukrainian",
+    }
+    candidates: list[tuple[int, int, str]] = []
+    separator_at = max(cleaned.find(":"), cleaned.find(" - "), cleaned.find(" — "))
+
+    for index, match in enumerate(
+        re.finditer(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+", cleaned, re.UNICODE)
+    ):
+        token = match.group(0)
         value = token.casefold()
-        if len(value) < 4:
+        if len(value) < 4 or value.isdigit():
             continue
-        if value.isdigit() or value in TITLE_TOPIC_STOPWORDS:
+        if value in TITLE_TOPIC_STOPWORDS or value in generic_places:
             continue
-        if value in {"россия", "россии", "россию", "украина", "украине", "украину"}:
-            continue
-        return "#" + value
-    return ""
+
+        letters = "".join(ch for ch in token if ch.isalpha())
+        is_all_caps = bool(letters) and letters.upper() == letters and letters.lower() != letters
+        is_capitalized = bool(letters) and letters[0].isupper()
+        after_separator = separator_at >= 0 and match.start() > separator_at
+
+        score = 0
+        if is_all_caps:
+            score += 5
+        elif is_capitalized:
+            score += 2
+        if after_separator:
+            score += 2
+        if len(value) >= 8:
+            score += 1
+
+        # Lower-case words are accepted only when they are unusually specific.
+        if not is_all_caps and not is_capitalized and len(value) >= 10:
+            score += 2
+
+        if score >= 2:
+            candidates.append((score, -index, value))
+
+    if not candidates:
+        return ""
+
+    candidates.sort(reverse=True)
+    return "#" + candidates[0][2]
 
 def optimized_hashtags(
     title: str,
