@@ -119,6 +119,8 @@ from .service import (
     COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
     READ_REQUEST_COST,
+    SAFE_METADATA_ITEM_COST,
+    reserve_safe_batch_capacity,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -5224,7 +5226,9 @@ class MainWindow(QMainWindow):
             self,
             "Оптимізація запланованих стрімів",
             f"Перевірено й готово: {len(prepared_rows)}.\n"
-            f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
+            f"Безпечний ліміт на цю партію: {batch_limit}.\n"
+            f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
+            f"Резерв після партії не буде використано.\n\n"
             + "\n".join(preview_lines)
             + "\n\nБуде змінено лише назву, опис і теги. "
             "Дата й час публікації, видимість, параметри трансляції та "
@@ -5567,7 +5571,20 @@ class MainWindow(QMainWindow):
         self.conn.commit()
 
     def apply_next_safe_archive_batch(self) -> None:
-        batch_limit = DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT
+        budget = quota_budget_status(self.conn)
+        batch_limit = reserve_safe_batch_capacity(
+            int(budget["spendable"]),
+            DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT,
+            final_refresh_reads=1,
+        )
+        if batch_limit <= 0:
+            QMessageBox.information(
+                self,
+                "Резерв квоти",
+                "Безпечний резерв квоти вже досягнуто. "
+                "Архівну партію сьогодні не запускаємо.",
+            )
+            return
         use_prepared = (
             hasattr(self, "optimization_filter")
             and self.optimization_filter.currentData() == "prepared"
@@ -5604,7 +5621,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(video_ids) * VIDEO_UPDATE_COST
+        estimated = (
+            len(video_ids) * SAFE_METADATA_ITEM_COST
+            + READ_REQUEST_COST
+        )
         answer = QMessageBox.question(
             self,
             f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
@@ -5662,6 +5682,7 @@ class MainWindow(QMainWindow):
                         video_id,
                         description=fix.after,
                         safe_mode=True,
+                        respect_reserve=True,
                     )
                     record_optimization_event(
                         self.conn, history_id=history_id, video_id=video_id,
@@ -5730,12 +5751,32 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(video_ids) * VIDEO_UPDATE_COST
+        budget = quota_budget_status(self.conn)
+        safe_capacity = reserve_safe_batch_capacity(
+            int(budget["spendable"]),
+            len(video_ids),
+            final_refresh_reads=1,
+        )
+        if safe_capacity < len(video_ids):
+            QMessageBox.warning(
+                self,
+                "Резерв квоти",
+                f"Вибрано: {len(video_ids)}. "
+                f"Зараз безпечно можна змінити не більше: {safe_capacity}.\n\n"
+                "Зменште вибір або продовжіть наступного квотного дня.",
+            )
+            return
+
+        estimated = (
+            len(video_ids) * SAFE_METADATA_ITEM_COST
+            + READ_REQUEST_COST
+        )
         answer = QMessageBox.question(
             self,
             "Застосувати безпечні правки",
             f"Вибрано відео: {len(video_ids)}.\n"
-            f"Максимальна витрата на videos.update: ≈{estimated} од. квоти.\n\n"
+            f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
+            f"Резерв квоти не буде використано.\n\n"
             "Буде змінено лише старі/відсутні посилання та окремий рядок "
             "хештегів: 2 постійні + 1 тематичний. "
             "Назва, теги YouTube та решта тексту залишаться без змін. Продовжити?",
@@ -5773,6 +5814,7 @@ class MainWindow(QMainWindow):
                     video_id,
                     description=fix.after,
                     safe_mode=True,
+                    respect_reserve=True,
                 )
                 record_optimization_event(
                     self.conn, history_id=history_id, video_id=video_id,
