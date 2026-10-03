@@ -107,6 +107,7 @@ from .service import (
     mark_quota_exhausted,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
     VIDEO_UPDATE_COST,
+    COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
 )
 from .youtube_api import YouTubeClient
@@ -5403,7 +5404,10 @@ class MainWindow(QMainWindow):
             return
 
         budget = quota_budget_status(self.conn)
-        if int(budget["spendable"]) < 50 or bool(budget["exhausted"]):
+        if (
+            int(budget["spendable"]) < COMMENT_REPLY_COST
+            or bool(budget["exhausted"])
+        ):
             QMessageBox.information(
                 self,
                 APP_NAME,
