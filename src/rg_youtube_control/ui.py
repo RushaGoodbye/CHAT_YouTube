@@ -4025,17 +4025,20 @@ class MainWindow(QMainWindow):
     def export_deep_review_queue_to_nas(
         self,
         profile: str | None = None,
+        *,
+        notify: bool = True,
     ) -> None:
         target = profile or self.current_profile
         stats = self._archive_campaign_stats()
         if int(stats.get(target, {}).get("safe_remaining", 0)) > 0:
-            QMessageBox.information(
-                self,
-                "Глибока оптимізація",
-                f"Спочатку завершіть безпечний архів каналу "
-                f"{PROFILE_LABELS[target]}. Залишилося: "
-                f"{stats[target]['safe_remaining']}.",
-            )
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Глибока оптимізація",
+                    f"Спочатку завершіть безпечний архів каналу "
+                    f"{PROFILE_LABELS[target]}. Залишилося: "
+                    f"{stats[target]['safe_remaining']}.",
+                )
             return
 
         transcript_dir = self._nas_path(
@@ -4065,17 +4068,18 @@ class MainWindow(QMainWindow):
         )
         self.reload_optimization_queue()
         self._refresh_archive_campaign_summary()
-        QMessageBox.information(
-            self,
-            "Глибока черга",
-            f"Канал: {PROFILE_LABELS[target]}\n"
-            f"Експортовано: {exported} з {total}.\n"
-            f"Транскрипт уже є: {transcript_ready}/{exported}.\n"
-            "Квота YouTube: 0.\n\n"
-            f"{path}\n\n"
-            "Усі майбутні пакети з цієї черги імпортуються тільки "
-            "як чернетки. Автоматичне застосування заборонено.",
-        )
+        if notify:
+            QMessageBox.information(
+                self,
+                "Глибока черга",
+                f"Канал: {PROFILE_LABELS[target]}\n"
+                f"Експортовано: {exported} з {total}.\n"
+                f"Транскрипт уже є: {transcript_ready}/{exported}.\n"
+                "Квота YouTube: 0.\n\n"
+                f"{path}\n\n"
+                "Усі майбутні пакети з цієї черги імпортуються тільки "
+                "як чернетки. Автоматичне застосування заборонено.",
+            )
 
     def import_deep_review_packages(
         self,
@@ -4160,6 +4164,9 @@ class MainWindow(QMainWindow):
     def export_deep_review_transcripts(
         self,
         profile: str | None = None,
+        *,
+        confirm: bool = True,
+        notify: bool = True,
     ) -> None:
         target = profile or self.current_profile
         if target != self.current_profile:
@@ -4175,11 +4182,12 @@ class MainWindow(QMainWindow):
         )
         manifest_path = package_dir / f"deep_review_{target}.json"
         if not manifest_path.exists():
-            QMessageBox.information(
-                self,
-                "Транскрипти глибокої черги",
-                "Спочатку експортуйте глибоку чергу на NAS.",
-            )
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Транскрипти глибокої черги",
+                    "Спочатку експортуйте глибоку чергу на NAS.",
+                )
             return
 
         try:
@@ -4200,11 +4208,12 @@ class MainWindow(QMainWindow):
                 ).exists()
             ]
             if not pending:
-                QMessageBox.information(
-                    self,
-                    "Транскрипти глибокої черги",
-                    "Усі транскрипти поточної глибокої черги вже є на NAS.",
-                )
+                if notify:
+                    QMessageBox.information(
+                        self,
+                        "Транскрипти глибокої черги",
+                        "Усі транскрипти поточної глибокої черги вже є на NAS.",
+                    )
                 return
 
             budget = quota_budget_status(self.conn)
@@ -4214,30 +4223,32 @@ class MainWindow(QMainWindow):
             )
             batch = pending[: min(20, capacity)]
             if not batch:
-                QMessageBox.information(
-                    self,
-                    "Резерв квоти",
-                    "Над захищеним резервом недостатньо квоти "
-                    "для нового транскрипту.",
-                )
+                if notify:
+                    QMessageBox.information(
+                        self,
+                        "Резерв квоти",
+                        "Над захищеним резервом недостатньо квоти "
+                        "для нового транскрипту.",
+                    )
                 return
 
             estimated = len(batch) * CAPTION_TRANSCRIPT_COST
-            answer = QMessageBox.question(
-                self,
-                "Транскрипти глибокої черги",
-                f"Канал: {PROFILE_LABELS[target]}\n"
-                f"Без транскрипту: {len(pending)}.\n"
-                f"Зараз буде отримано: до {len(batch)}.\n"
-                f"Максимальна витрата: ≈{estimated} од. квоти.\n"
-                f"Резерв {budget['reserve']} од. не буде використано.\n\n"
-                "Продовжити?",
-                QMessageBox.StandardButton.Yes
-                | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
+            if confirm:
+                answer = QMessageBox.question(
+                    self,
+                    "Транскрипти глибокої черги",
+                    f"Канал: {PROFILE_LABELS[target]}\n"
+                    f"Без транскрипту: {len(pending)}.\n"
+                    f"Зараз буде отримано: до {len(batch)}.\n"
+                    f"Максимальна витрата: ≈{estimated} од. квоти.\n"
+                    f"Резерв {budget['reserve']} од. не буде використано.\n\n"
+                    "Продовжити?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
 
             saved = 0
             failed: list[str] = []
@@ -4272,11 +4283,12 @@ class MainWindow(QMainWindow):
             )
             if failed:
                 message += "\n\n" + "\n".join(failed[:5])
-            QMessageBox.information(
-                self,
-                "Транскрипти глибокої черги",
-                message,
-            )
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Транскрипти глибокої черги",
+                    message,
+                )
         except Exception as exc:
             self._error("Помилка транскриптів глибокої черги", exc)
 
@@ -4445,7 +4457,15 @@ class MainWindow(QMainWindow):
             if phase == "safe":
                 self.apply_next_safe_archive_batch(daily=True)
             elif phase == "deep":
-                self.export_deep_review_queue_to_nas(target)
+                self.export_deep_review_queue_to_nas(
+                    target,
+                    notify=False,
+                )
+                self.export_deep_review_transcripts(
+                    target,
+                    confirm=False,
+                    notify=False,
+                )
             self._advance_archive_campaign()
             refresh()
 
