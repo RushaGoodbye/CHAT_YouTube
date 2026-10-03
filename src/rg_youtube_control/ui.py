@@ -79,6 +79,7 @@ from .metadata_audit import (
     audit,
     blocks_automatic_title_language_change,
     normalize_links,
+    title_script_profile,
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .recovery import (
@@ -1091,6 +1092,7 @@ class MainWindow(QMainWindow):
         sync_row = QHBoxLayout()
         safe_row = QHBoxLayout()
         content_row = QHBoxLayout()
+        title_row = QHBoxLayout()
 
         sync_all_btn = QPushButton("Синхронізувати архів")
         sync_all_btn.clicked.connect(self.sync_full_archive)
@@ -1123,6 +1125,14 @@ class MainWindow(QMainWindow):
         apply_package_btn.clicked.connect(self.apply_content_package)
         rollback_btn = QPushButton("Відкотити останнє")
         rollback_btn.clicked.connect(self.rollback_selected_metadata)
+
+        export_titles_btn = QPushButton("Англомовні назви → NAS")
+        export_titles_btn.clicked.connect(self.export_latin_title_review_to_nas)
+        preview_titles_btn = QPushButton("Перегляд виправлень назв")
+        preview_titles_btn.clicked.connect(self.preview_title_corrections)
+        apply_titles_btn = QPushButton("Застосувати назви (до 20)")
+        apply_titles_btn.setProperty("role", "primary")
+        apply_titles_btn.clicked.connect(self.apply_title_corrections)
 
         self.optimization_filter = QComboBox()
         self.optimization_filter.addItem("Усі відео", "all")
@@ -1171,6 +1181,12 @@ class MainWindow(QMainWindow):
         content_row.addWidget(rollback_btn)
         content_row.addStretch()
 
+        title_row.addWidget(QLabel("Назви:"))
+        title_row.addWidget(export_titles_btn)
+        title_row.addWidget(preview_titles_btn)
+        title_row.addWidget(apply_titles_btn)
+        title_row.addStretch()
+
         self.optimization_table = QTableWidget(0, 12)
         self.optimization_table.setHorizontalHeaderLabels(
             [
@@ -1214,6 +1230,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(sync_row)
         layout.addLayout(safe_row)
         layout.addLayout(content_row)
+        layout.addLayout(title_row)
         layout.addWidget(self.optimization_table)
         self.tabs.addTab(page, "Оптимізація")
 
