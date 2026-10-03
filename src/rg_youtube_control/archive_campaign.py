@@ -7,7 +7,12 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from .db import deep_review_state_map, set_deep_review_state
+from .db import (
+    deep_review_state_map,
+    get_setting,
+    set_deep_review_state,
+    set_setting,
+)
 from .optimization import (
     archive_potential_score,
     is_safe_archive_candidate,
@@ -20,6 +25,57 @@ def _issues(raw: str | None) -> list[str]:
         return list(json.loads(raw or "{}").get("issues", []))
     except Exception:
         return []
+
+
+def load_campaign_checkpoint(conn: sqlite3.Connection) -> dict[str, Any]:
+    raw = get_setting(conn, "archive_campaign_checkpoint", "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def save_campaign_checkpoint(
+    conn: sqlite3.Connection,
+    *,
+    phase: str,
+    target: str,
+    status: str = "ready",
+    note: str = "",
+) -> dict[str, Any]:
+    payload = {
+        "phase": str(phase or ""),
+        "target": str(target or ""),
+        "status": str(status or "ready"),
+        "note": str(note or ""),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    set_setting(
+        conn,
+        "archive_campaign_checkpoint",
+        json.dumps(payload, ensure_ascii=False),
+    )
+    return payload
+
+
+def reconcile_campaign_checkpoint(
+    conn: sqlite3.Connection,
+    stats: dict[str, dict[str, int]],
+) -> tuple[dict[str, Any], bool]:
+    previous = load_campaign_checkpoint(conn)
+    phase, target = next_campaign_phase(stats)
+    interrupted = previous.get("status") == "running"
+    checkpoint = save_campaign_checkpoint(
+        conn,
+        phase=phase,
+        target=target,
+        status="complete" if phase == "complete" else "ready",
+        note="recovered_after_interruption" if interrupted else "",
+    )
+    return checkpoint, interrupted
 
 
 def deep_review_candidates(
@@ -125,7 +181,11 @@ def archive_profile_stats(
             and state.get(video_id) not in {"applied", "skipped"}
         ):
             deep_remaining += 1
-        if (transcript_dir / f"{video_id}.srt").exists():
+        try:
+            transcript_exists = (transcript_dir / f"{video_id}.srt").exists()
+        except OSError:
+            transcript_exists = False
+        if transcript_exists:
             transcripts += 1
         draft_status = str(row["draft_status"] or "")
         deep_status = state.get(video_id)
@@ -175,13 +235,6 @@ def export_deep_review_manifest(
         video_id = str(item["video_id"])
         transcript_path = transcript_dir / f"{video_id}.srt"
         package_path = package_dir / f"{video_id}.json"
-        set_deep_review_state(
-            conn,
-            video_id=video_id,
-            profile=profile,
-            status="queued",
-            note="deep_review_manifest",
-        )
         items.append(
             {
                 **item,
@@ -221,4 +274,13 @@ def export_deep_review_manifest(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # Commit queue state only after the manifest is safely present on storage.
+    for item in items:
+        set_deep_review_state(
+            conn,
+            video_id=str(item["video_id"]),
+            profile=profile,
+            status="queued",
+            note="deep_review_manifest",
+        )
     return path, len(items), total
