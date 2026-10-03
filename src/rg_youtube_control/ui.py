@@ -4157,6 +4157,129 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка імпорту глибоких пакетів", exc)
 
+    def export_deep_review_transcripts(
+        self,
+        profile: str | None = None,
+    ) -> None:
+        target = profile or self.current_profile
+        if target != self.current_profile:
+            self._activate_profile(target)
+
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        manifest_path = package_dir / f"deep_review_{target}.json"
+        if not manifest_path.exists():
+            QMessageBox.information(
+                self,
+                "Транскрипти глибокої черги",
+                "Спочатку експортуйте глибоку чергу на NAS.",
+            )
+            return
+
+        try:
+            payload = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            items = [
+                item
+                for item in (payload.get("items") or [])
+                if isinstance(item, dict)
+            ]
+            pending = [
+                item
+                for item in items
+                if item.get("video_id")
+                and not (
+                    transcript_dir / f"{item['video_id']}.srt"
+                ).exists()
+            ]
+            if not pending:
+                QMessageBox.information(
+                    self,
+                    "Транскрипти глибокої черги",
+                    "Усі транскрипти поточної глибокої черги вже є на NAS.",
+                )
+                return
+
+            budget = quota_budget_status(self.conn)
+            capacity = max(
+                0,
+                int(budget["spendable"]) // CAPTION_TRANSCRIPT_COST,
+            )
+            batch = pending[: min(20, capacity)]
+            if not batch:
+                QMessageBox.information(
+                    self,
+                    "Резерв квоти",
+                    "Над захищеним резервом недостатньо квоти "
+                    "для нового транскрипту.",
+                )
+                return
+
+            estimated = len(batch) * CAPTION_TRANSCRIPT_COST
+            answer = QMessageBox.question(
+                self,
+                "Транскрипти глибокої черги",
+                f"Канал: {PROFILE_LABELS[target]}\n"
+                f"Без транскрипту: {len(pending)}.\n"
+                f"Зараз буде отримано: до {len(batch)}.\n"
+                f"Максимальна витрата: ≈{estimated} од. квоти.\n"
+                f"Резерв {budget['reserve']} од. не буде використано.\n\n"
+                "Продовжити?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            saved = 0
+            failed: list[str] = []
+            for index, item in enumerate(batch, start=1):
+                video_id = str(item["video_id"])
+                self.statusBar().showMessage(
+                    f"Глибокі транскрипти: {index}/{len(batch)} · {video_id}"
+                )
+                QApplication.processEvents()
+                try:
+                    path, _downloaded = self._export_transcript_video_to_nas(
+                        video_id,
+                        respect_reserve=True,
+                    )
+                    item["transcript_ready"] = True
+                    item["transcript_path"] = str(path)
+                    saved += 1
+                except Exception as exc:
+                    failed.append(f"{video_id}: {exc}")
+
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            manifest_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self.reload_optimization_queue()
+            self._refresh_archive_campaign_summary()
+
+            message = (
+                f"Збережено транскриптів: {saved}.\n"
+                f"Помилок: {len(failed)}."
+            )
+            if failed:
+                message += "\n\n" + "\n".join(failed[:5])
+            QMessageBox.information(
+                self,
+                "Транскрипти глибокої черги",
+                message,
+            )
+        except Exception as exc:
+            self._error("Помилка транскриптів глибокої черги", exc)
+
     def show_archive_campaign_center(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Центр кампанії архіву")
