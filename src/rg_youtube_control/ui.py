@@ -665,6 +665,25 @@ class MainWindow(QMainWindow):
             )
             self.safe_autopilot_box.blockSignals(False)
 
+        if hasattr(self, "autopilot_interval_spin"):
+            for control, key, default_value in (
+                (
+                    self.autopilot_interval_spin,
+                    f"safe_autopilot_interval_minutes_{profile}",
+                    DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES,
+                ),
+                (
+                    self.autopilot_daily_spin,
+                    f"safe_autopilot_daily_limit_{profile}",
+                    DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT,
+                ),
+            ):
+                control.blockSignals(True)
+                control.setValue(
+                    int(get_setting(self.conn, key, str(default_value)))
+                )
+                control.blockSignals(False)
+
         if hasattr(self, "daily_limit_spin"):
             controls = (
                 (
@@ -5788,12 +5807,41 @@ class MainWindow(QMainWindow):
             f"safe_metadata_autopilot_{self.current_profile}",
             "1" if enabled else "0",
         )
+        if enabled:
+            set_setting(
+                self.conn,
+                f"safe_autopilot_last_run_{self.current_profile}",
+                datetime.now(timezone.utc).isoformat(),
+            )
         log_action(
             self.conn,
             profile=self.current_profile,
             category="автопілот",
             action="Налаштування",
             details="увімкнено" if enabled else "вимкнено",
+        )
+        self.reload_action_log()
+
+    def save_safe_autopilot_limits(self, _value: int = 0) -> None:
+        set_setting(
+            self.conn,
+            f"safe_autopilot_interval_minutes_{self.current_profile}",
+            str(self.autopilot_interval_spin.value()),
+        )
+        set_setting(
+            self.conn,
+            f"safe_autopilot_daily_limit_{self.current_profile}",
+            str(self.autopilot_daily_spin.value()),
+        )
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="автопілот",
+            action="Ліміти",
+            details=(
+                f"інтервал {self.autopilot_interval_spin.value()} хв; "
+                f"денний ліміт {self.autopilot_daily_spin.value()} відео"
+            ),
         )
         self.reload_action_log()
 
