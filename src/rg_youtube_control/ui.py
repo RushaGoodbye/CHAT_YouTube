@@ -3129,18 +3129,31 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def _prechange_backup_or_warn(self, reason: str) -> bool:
+    def _prechange_backup_or_warn(
+        self,
+        reason: str,
+        *,
+        notify: bool = True,
+    ) -> bool:
         try:
             self._create_automatic_recovery_backup(reason, force=True)
             return True
         except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "Резервна копія не створена",
-                "Масову зміну зупинено, тому що перед нею не вдалося "
-                "створити резервну копію на NAS.\n\n"
-                f"{exc}",
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="резервна копія",
+                action="Масову зміну заблоковано",
+                details=f"{reason} · {exc}",
             )
+            if notify:
+                QMessageBox.warning(
+                    self,
+                    "Резервна копія не створена",
+                    "Масову зміну зупинено, тому що перед нею не вдалося "
+                    "створити резервну копію на NAS.\n\n"
+                    f"{exc}",
+                )
             return False
 
     def create_recovery_backup_now(self) -> None:
@@ -6662,15 +6675,22 @@ class MainWindow(QMainWindow):
         )
         self.conn.commit()
 
-    def apply_next_safe_archive_batch(self, daily: bool = False) -> None:
+    def apply_next_safe_archive_batch(
+        self,
+        daily: bool = False,
+        *,
+        confirm: bool = True,
+        notify: bool = True,
+    ) -> int:
         budget = quota_budget_status(self.conn)
         if daily and not archive_priority_enabled(self.conn):
-            QMessageBox.information(
-                self,
-                "Пріоритет архіву",
-                "Для денного пакета спочатку увімкніть «Пріоритет архіву».",
-            )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Пріоритет архіву",
+                    "Для денного пакета спочатку увімкніть «Пріоритет архіву».",
+                )
+            return 0
 
         if daily:
             batch_limit = reserve_safe_daily_batch_capacity(
@@ -6684,13 +6704,21 @@ class MainWindow(QMainWindow):
                 final_refresh_reads=1,
             )
         if batch_limit <= 0:
-            QMessageBox.information(
-                self,
-                "Резерв квоти",
-                "Безпечний резерв квоти вже досягнуто. "
-                "Архівну партію сьогодні не запускаємо.",
+            save_campaign_checkpoint(
+                self.conn,
+                phase="safe",
+                target=self.current_profile,
+                status="paused_quota",
+                note="protected_comment_reserve",
             )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Резерв квоти",
+                    "Безпечний резерв квоти вже досягнуто. "
+                    "Архівну партію сьогодні не запускаємо.",
+                )
+            return 0
         use_prepared = (
             not daily
             and hasattr(self, "optimization_filter")
@@ -6721,12 +6749,13 @@ class MainWindow(QMainWindow):
                 limit=batch_limit
             )
         if not video_ids:
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "В архіві більше немає відео з безпечними правками.",
-            )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "В архіві більше немає відео з безпечними правками.",
+                )
+            return 0
 
         refresh_reads = (len(video_ids) + 49) // 50
         estimated = (
@@ -6738,48 +6767,52 @@ class MainWindow(QMainWindow):
             if daily
             else f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}"
         )
-        answer = QMessageBox.question(
-            self,
-            dialog_title,
-            f"Знайдено відео з безпечними правками: {total_candidates}.\n"
-            f"Зараз буде оброблено: {len(video_ids)}.\n"
-            f"Безпечний ліміт за поточною квотою: {batch_limit}.\n"
-            + (
-                "Режим: весь доступний денний бюджет архіву.\n"
-                if daily
-                else ""
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                dialog_title,
+                f"Знайдено відео з безпечними правками: {total_candidates}.\n"
+                f"Зараз буде оброблено: {len(video_ids)}.\n"
+                f"Безпечний ліміт за поточною квотою: {batch_limit}.\n"
+                + (
+                    "Режим: весь доступний денний бюджет архіву.\n"
+                    if daily
+                    else ""
+                )
+                + f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
+                f"Резерв {budget['reserve']} од. не буде використано.\n\n"
+                + (
+                    "Використовується підготовлена черга за пріоритетом.\n"
+                    if use_prepared
+                    else "Черга автоматично відсортована за потенціалом оптимізації.\n"
+                )
+                + "Буде змінено лише старі або відсутні посилання "
+                "проєкту й донату та окремий рядок хештегів: "
+                "2 постійні + 1 тематичний. "
+                "Назви, теги YouTube, розділи та решта тексту залишаться "
+                "без змін. Для кожного запису зберігається точка відкату. "
+                "Продовжити?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            + f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
-            f"Резерв {budget['reserve']} од. не буде використано.\n\n"
-            + (
-                "Використовується підготовлена черга за пріоритетом.\n"
-                if use_prepared
-                else "Черга автоматично відсортована за потенціалом оптимізації.\n"
-            )
-            + "Буде змінено лише старі або відсутні посилання "
-            "проєкту й донату та окремий рядок хештегів: "
-            "2 постійні + 1 тематичний. "
-            "Назви, теги YouTube, розділи та решта тексту залишаться "
-            "без змін. Для кожного запису зберігається точка відкату. "
-            "Продовжити?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
         backup_reason = (
             f"перед денним пакетом архіву · {self.current_profile}"
             if daily
             else f"перед безпечним пакетом архіву · {self.current_profile}"
         )
-        if not self._prechange_backup_or_warn(backup_reason):
-            return
+        if not self._prechange_backup_or_warn(
+            backup_reason,
+            notify=notify,
+        ):
+            return 0
 
         changed_ids: list[str] = []
         skipped_ids: list[str] = []
         error_text = ""
         progress = None
-        if daily:
+        if daily and notify:
             progress = QProgressDialog(
                 "Обробка денного пакета архіву...",
                 "Зупинити після поточного відео",
@@ -6884,36 +6917,48 @@ class MainWindow(QMainWindow):
                 f"Без змін: {len(skipped_ids)}.\n"
                 f"Залишилося в черзі безпечних правок: ≈{remaining}."
             )
-            if error_text == "cancelled":
-                QMessageBox.information(
-                    self,
-                    "Денний пакет зупинено",
-                    message
-                    + "\n\nЗупинено користувачем. Уже змінені відео "
-                    "збережено, решта залишилася в черзі.",
-                )
-            elif error_text == "quota_exceeded":
-                QMessageBox.warning(
-                    self,
-                    "Квоту YouTube вичерпано",
-                    message
-                    + "\n\nДенну квоту YouTube Data API вичерпано. "
-                    "Обробку зупинено безпечно. Уже змінені відео "
-                    "збережено й повторно в чергу не потраплять. "
-                    "Продовжіть після відновлення квоти.",
-                )
-            elif error_text:
-                QMessageBox.warning(
-                    self,
-                    APP_NAME,
-                    message + f"\n\nОбробку зупинено через помилку:\n{error_text}",
-                )
-            else:
-                QMessageBox.information(self, APP_NAME, message)
+            if notify:
+                if error_text == "cancelled":
+                    QMessageBox.information(
+                        self,
+                        "Денний пакет зупинено",
+                        message
+                        + "\n\nЗупинено користувачем. Уже змінені відео "
+                        "збережено, решта залишилася в черзі.",
+                    )
+                elif error_text == "quota_exceeded":
+                    QMessageBox.warning(
+                        self,
+                        "Квоту YouTube вичерпано",
+                        message
+                        + "\n\nДенну квоту YouTube Data API вичерпано. "
+                        "Обробку зупинено безпечно. Уже змінені відео "
+                        "збережено й повторно в чергу не потраплять. "
+                        "Продовжіть після відновлення квоти.",
+                    )
+                elif error_text:
+                    QMessageBox.warning(
+                        self,
+                        APP_NAME,
+                        message + f"\n\nОбробку зупинено через помилку:\n{error_text}",
+                    )
+                else:
+                    QMessageBox.information(self, APP_NAME, message)
+            return len(changed_ids)
         except Exception as exc:
             if progress is not None:
                 progress.close()
-            self._error("Помилка пакетної оптимізації архіву", exc)
+            if notify:
+                self._error("Помилка пакетної оптимізації архіву", exc)
+            else:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="кампанія архіву",
+                    action="Автозапуск зупинено",
+                    details=str(exc),
+                )
+            return len(changed_ids)
 
     def apply_safe_optimization(self) -> None:
         video_ids = self._selected_optimization_video_ids()
