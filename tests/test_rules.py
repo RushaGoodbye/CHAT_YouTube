@@ -871,6 +871,20 @@ def test_safe_archive_batch_limit_is_twenty():
     assert DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT == 20
 
 
+def test_video_update_cost_includes_internal_preread():
+    from rg_youtube_control.service import VIDEO_UPDATE_COST
+
+    assert VIDEO_UPDATE_COST == 51
+
+
+def test_title_review_workflow_methods_exist():
+    from rg_youtube_control.ui import MainWindow
+
+    assert hasattr(MainWindow, "export_latin_title_review_to_nas")
+    assert hasattr(MainWindow, "preview_title_corrections")
+    assert hasattr(MainWindow, "apply_title_corrections")
+
+
 def test_quota_error_detection():
     from rg_youtube_control.ui import _is_quota_exceeded_error
     assert _is_quota_exceeded_error(Exception("reason: quotaExceeded"))
