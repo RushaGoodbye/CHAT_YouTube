@@ -75,7 +75,11 @@ from .db import (
     set_setting,
     upsert_video_analytics,
 )
-from .metadata_audit import audit, normalize_links
+from .metadata_audit import (
+    audit,
+    blocks_automatic_title_language_change,
+    normalize_links,
+)
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .recovery import (
     create_recovery_backup,
@@ -130,6 +134,7 @@ ISSUE_LABELS = {
     "no_chapters": "немає розділів",
     "too_many_hashtags": "забагато хештегів",
     "no_tags": "немає тегів",
+    "latin_title_review": "англомовна назва - перевірити",
 }
 
 PRIVACY_LABELS = {
@@ -2972,8 +2977,18 @@ class MainWindow(QMainWindow):
         video_id: str,
         *,
         respect_reserve: bool = False,
+        safe_mode: bool = False,
         **kwargs,
     ) -> None:
+        if safe_mode:
+            forbidden = sorted(set(kwargs) - {"description"})
+            if forbidden:
+                raise RuntimeError(
+                    "Безпечний режим може змінювати лише опис відео. "
+                    "Назва, теги YouTube та налаштування публікації заблоковані: "
+                    + ", ".join(forbidden)
+                )
+
         budget = quota_budget_status(self.conn)
         if bool(budget["exhausted"]):
             raise RuntimeError(
@@ -3988,12 +4003,26 @@ class MainWindow(QMainWindow):
             tags,
             title_variants,
         )
+        errors = list(check.errors)
+        warnings = list(check.warnings)
+
+        current_row = self.conn.execute(
+            "SELECT title FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        current_title = str(current_row["title"] or "") if current_row else ""
+        if blocks_automatic_title_language_change(current_title, title):
+            errors.append(
+                "Автоматичну зміну назви з кирилиці на англійську заблоковано. "
+                "Назва має відповідати мові відео; змініть її вручну."
+            )
+
         requested_status = str(payload.get("status") or "ready")
         if requested_status not in {"draft", "ready"}:
             requested_status = "ready"
         status = (
             "draft"
-            if check.errors and requested_status == "ready"
+            if errors and requested_status == "ready"
             else requested_status
         )
 
@@ -4007,7 +4036,7 @@ class MainWindow(QMainWindow):
             status,
             title_variants,
         )
-        return status, check.errors, check.warnings
+        return status, tuple(errors), tuple(warnings)
 
     def import_selected_package_from_nas(self) -> None:
         video_ids = self._selected_optimization_video_ids()
@@ -4991,6 +5020,7 @@ class MainWindow(QMainWindow):
                     video_id,
                     description=fix.after,
                     respect_reserve=True,
+                    safe_mode=True,
                 )
                 record_optimization_event(
                     self.conn,
@@ -5045,7 +5075,12 @@ class MainWindow(QMainWindow):
     def _store_local_safe_audit(
         self, video_id: str, description: str, tags: list[str]
     ) -> None:
-        result = audit(description, tags)
+        row = self.conn.execute(
+            "SELECT title FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        title = str(row["title"] or "") if row else ""
+        result = audit(description, tags, title)
         payload = json.dumps(
             {"score": result.score, "issues": list(result.issues)},
             ensure_ascii=False,
@@ -5147,7 +5182,12 @@ class MainWindow(QMainWindow):
                         tags,
                         "before_safe_archive_batch",
                     )
-                    self._quota_update_video(video_id, description=fix.after)
+                    self._quota_update_video_with_client(
+                        self.client,
+                        video_id,
+                        description=fix.after,
+                        safe_mode=True,
+                    )
                     record_optimization_event(
                         self.conn, history_id=history_id, video_id=video_id,
                         profile=self.current_profile, reason="safe_archive_batch",
@@ -5253,7 +5293,12 @@ class MainWindow(QMainWindow):
                     tags,
                     "before_safe_optimization",
                 )
-                self._quota_update_video(video_id, description=fix.after)
+                self._quota_update_video_with_client(
+                    self.client,
+                    video_id,
+                    description=fix.after,
+                    safe_mode=True,
+                )
                 record_optimization_event(
                     self.conn, history_id=history_id, video_id=video_id,
                     profile=self.current_profile, reason="safe_optimization",
