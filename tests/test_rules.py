@@ -1183,3 +1183,50 @@ def test_reply_test_ignores_old_safe_local_comment(tmp_path):
         FakeClient(), conn, "main", max_auto_age_hours=24
     )
     assert result["sent"] == 0
+
+
+def test_comment_threads_are_hard_locked_to_published():
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    calls = []
+
+    class Request:
+        def execute(self):
+            return {"items": []}
+
+    class CommentThreads:
+        def list(self, **kwargs):
+            calls.append(kwargs)
+            return Request()
+
+    class Service:
+        def commentThreads(self):
+            return CommentThreads()
+
+    class Client(YouTubeClient):
+        def service(self):
+            return Service()
+
+    client = Client(profile="main")
+    client.channel_comment_threads("channel-1", max_pages=1)
+    client.comment_threads("video-1", limit=1)
+
+    assert len(calls) == 2
+    assert calls[0]["moderationStatus"] == "published"
+    assert calls[1]["moderationStatus"] == "published"
+
+
+def test_comment_moderation_mutation_is_disabled():
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    class Client(YouTubeClient):
+        def service(self):
+            raise AssertionError("Moderation API must never be called")
+
+    client = Client(profile="main")
+    try:
+        client.set_moderation("comment-1", "published")
+    except RuntimeError as exc:
+        assert "не змінює статус модерації" in str(exc)
+    else:
+        raise AssertionError("Moderation mutation must be blocked")
