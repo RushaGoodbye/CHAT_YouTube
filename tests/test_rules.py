@@ -1033,6 +1033,23 @@ def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
     assert "latin_title_review" not in audit_data["issues"]
 
 
+def test_settings_ui_is_split_into_readable_sections():
+    import inspect
+
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow._build_settings_tab)
+    for label in (
+        "Коментарі",
+        "Архів і квота",
+        "Сховища / API",
+        "Система",
+    ):
+        assert label in source
+    assert "settings_scroll_page" in source
+    assert "settings_card" in source
+
+
 def test_archive_priority_mode_pauses_and_restores_metadata_autopilot(tmp_path):
     from rg_youtube_control.db import connect, get_setting, set_setting
     from rg_youtube_control.service import (
