@@ -989,6 +989,50 @@ def test_safe_archive_batch_limit_is_twenty():
     assert DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT == 20
 
 
+def test_reconcile_local_video_title_updates_audit_without_api(tmp_path):
+    import json
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import reconcile_local_video_title
+
+    conn = connect(tmp_path / "reconcile.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,published_at,
+            views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (
+            "v1",
+            "main",
+            "English title",
+            "public",
+            "2026-10-01T00:00:00Z",
+            1,
+            json.dumps(
+                {"score": 20, "issues": ["latin_title_review", "no_tags"]},
+                ensure_ascii=False,
+            ),
+            "2026-10-01T00:00:00Z",
+        ),
+    )
+    conn.commit()
+
+    reconcile_local_video_title(
+        conn,
+        video_id="v1",
+        title="Русское название",
+        description="",
+        tags=[],
+    )
+
+    row = conn.execute(
+        "SELECT title,audit_json FROM videos WHERE video_id='v1'"
+    ).fetchone()
+    audit_data = json.loads(row["audit_json"])
+
+    assert row["title"] == "Русское название"
+    assert "latin_title_review" not in audit_data["issues"]
+
+
 def test_video_update_cost_includes_internal_preread():
     from rg_youtube_control.service import VIDEO_UPDATE_COST
 
