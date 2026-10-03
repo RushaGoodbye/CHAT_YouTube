@@ -133,6 +133,7 @@ from .service import (
     COMMENT_REPLY_COST,
     QUOTA_RESERVE_DEFAULT,
     READ_REQUEST_COST,
+    CAPTION_TRANSCRIPT_COST,
     SAFE_METADATA_ITEM_COST,
     reserve_safe_batch_capacity,
     reserve_safe_daily_batch_capacity,
@@ -4892,6 +4893,8 @@ class MainWindow(QMainWindow):
     def _export_transcript_video_to_nas(
         self,
         video_id: str,
+        *,
+        respect_reserve: bool = False,
     ) -> tuple[Path, bool]:
         target_dir = self._nas_path(
             "nas_transcripts_path",
@@ -4935,7 +4938,26 @@ class MainWindow(QMainWindow):
                 pass
             return srt_path, False
 
-        track, srt = self.client.download_best_caption_srt(video_id)
+        if respect_reserve:
+            budget = quota_budget_status(self.conn)
+            if int(budget["spendable"]) < CAPTION_TRANSCRIPT_COST:
+                raise RuntimeError(
+                    "Недостатньо квоти вище захищеного резерву "
+                    "для отримання транскрипту."
+                )
+
+        try:
+            track, srt = self.client.download_best_caption_srt(video_id)
+        except Exception as exc:
+            # captions.list is still a quota-bearing read even when no usable
+            # track exists. Count the known list cost conservatively.
+            if "не знайдено доступних субтитрів" in str(exc):
+                record_quota_units(self.conn, 50)
+                self.refresh_youtube_quota_label()
+            raise
+        record_quota_units(self.conn, CAPTION_TRANSCRIPT_COST)
+        self.refresh_youtube_quota_label()
+
         snippet = track.get("snippet", {})
         srt_path.write_text(srt, encoding="utf-8")
 
