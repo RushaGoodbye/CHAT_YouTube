@@ -6,6 +6,38 @@ from .config import (
 
 CHAPTER_RE = re.compile(r"(?m)^\s*\d{1,2}:\d{2}\s+")
 HASHTAG_RE = re.compile(r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+", re.UNICODE)
+LATIN_LETTER_RE = re.compile(r"[A-Za-z]")
+CYRILLIC_LETTER_RE = re.compile(r"[А-Яа-яІіЇїЄєҐґЁё]")
+
+
+def title_script_profile(title: str) -> str:
+    """Classify a title as latin, cyrillic, mixed, or unknown.
+
+    RG channels are Russian/Ukrainian spoken-content channels, so a strongly
+    Latin title is a review signal, not something safe automation should create.
+    """
+    value = title or ""
+    latin = len(LATIN_LETTER_RE.findall(value))
+    cyrillic = len(CYRILLIC_LETTER_RE.findall(value))
+    recognized = latin + cyrillic
+    if recognized < 8:
+        return "unknown"
+    if latin >= 8 and latin / recognized >= 0.75:
+        return "latin"
+    if cyrillic >= 8 and cyrillic / recognized >= 0.60:
+        return "cyrillic"
+    return "mixed"
+
+
+def blocks_automatic_title_language_change(
+    current_title: str,
+    new_title: str,
+) -> bool:
+    """Block an automatic Cyrillic -> Latin title replacement."""
+    return (
+        title_script_profile(current_title) == "cyrillic"
+        and title_script_profile(new_title) == "latin"
+    )
 
 @dataclass(frozen=True)
 class AuditResult:
@@ -19,10 +51,18 @@ def normalize_links(description: str) -> str:
         OLD_DONATE_LINK, DONATE_URL
     )
 
-def audit(description: str, tags: list[str] | None) -> AuditResult:
+def audit(
+    description: str,
+    tags: list[str] | None,
+    title: str = "",
+) -> AuditResult:
     value = description or ""
     issues: list[str] = []
     score = 100
+
+    if title and title_script_profile(title) == "latin":
+        issues.append("latin_title_review")
+        score -= 15
 
     if OLD_PROJECT_LINKS in value or OLD_DONATE_LINK in value:
         issues.append("old_links")
