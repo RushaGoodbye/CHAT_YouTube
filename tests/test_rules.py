@@ -1355,14 +1355,14 @@ def test_deep_stage_runs_queue_and_transcripts_without_manual_dialogs():
 
     from rg_youtube_control.ui import MainWindow
 
-    center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
+    step_source = inspect.getsource(MainWindow.run_archive_campaign_step)
     queue_source = inspect.getsource(MainWindow.export_deep_review_queue_to_nas)
     transcript_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
 
-    assert "export_deep_review_queue_to_nas(" in center_source
-    assert "notify=False" in center_source
-    assert "export_deep_review_transcripts(" in center_source
-    assert "confirm=False" in center_source
+    assert "export_deep_review_queue_to_nas(" in step_source
+    assert "export_deep_review_transcripts(" in step_source
+    assert "confirm=False" in step_source
+    assert "notify=not automatic" in step_source
     assert "notify: bool = True" in queue_source
     assert "confirm: bool = True" in transcript_source
     assert "notify: bool = True" in transcript_source
