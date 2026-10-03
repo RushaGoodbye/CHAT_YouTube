@@ -32,6 +32,58 @@ def test_empty_metadata_needs_work():
     assert "thin_description" in result.issues
     assert "no_tags" in result.issues
 
+def test_title_script_profile_and_audit_flag_latin_title():
+    from rg_youtube_control.metadata_audit import audit, title_script_profile
+
+    assert title_script_profile("Sergey's Identity Crisis: Armenian or Not?") == "latin"
+    assert title_script_profile("Доктор-анестезиолог: Моя зарплата в России!") == "cyrillic"
+
+    result = audit(
+        "Достатньо довгий опис " * 30,
+        ["tag"],
+        "Sergey's Identity Crisis: Armenian or Not?",
+    )
+    assert "latin_title_review" in result.issues
+
+
+def test_automatic_cyrillic_to_latin_title_change_is_blocked():
+    from rg_youtube_control.metadata_audit import (
+        blocks_automatic_title_language_change,
+    )
+
+    assert blocks_automatic_title_language_change(
+        "Доктор-анестезиолог: Моя зарплата в России!",
+        "Anesthesiologist: My Salary in Russia!",
+    )
+    assert not blocks_automatic_title_language_change(
+        "Доктор-анестезиолог: Моя зарплата в России!",
+        "Доктор-анестезиолог: Сколько платят в России?",
+    )
+    assert not blocks_automatic_title_language_change(
+        "Sergey's Identity Crisis: Armenian or Not?",
+        "Сергей: армянин или нет?",
+    )
+
+
+def test_safe_metadata_mode_allows_description_only():
+    from rg_youtube_control.ui import _validate_safe_update_fields
+
+    _validate_safe_update_fields({"description"})
+
+    for fields in (
+        {"title"},
+        {"tags"},
+        {"description", "title"},
+        {"privacy_status"},
+    ):
+        try:
+            _validate_safe_update_fields(fields)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"Safe mode accepted forbidden fields: {fields}")
+
+
 def test_comments_disabled_reason_is_detected():
     import json
     import httplib2
