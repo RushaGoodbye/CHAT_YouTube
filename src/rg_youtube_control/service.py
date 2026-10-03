@@ -766,4 +766,12 @@ def manual_reply(
         raise
 
     mark_replied(conn, comment_id, safe_reply)
-    _record_reply(conn, auto=False)
+    profile = getattr(client, "profile", None)
+    _record_reply(conn, auto=False, profile=profile)
+    log_action(
+        conn,
+        profile=profile,
+        category="коментарі",
+        action="Ручна відповідь",
+        details=f"{comment_id}: {safe_reply}",
+    )
