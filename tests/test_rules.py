@@ -885,6 +885,23 @@ def test_title_review_workflow_methods_exist():
     assert hasattr(MainWindow, "apply_title_corrections")
 
 
+def test_applied_title_review_item_is_idempotent():
+    from rg_youtube_control.ui import _title_review_item_is_applied
+
+    assert _title_review_item_is_applied(
+        {
+            "applied_at": "2026-10-03T14:50:54+00:00",
+            "applied_title": "Нова назва",
+        }
+    )
+    assert not _title_review_item_is_applied(
+        {"applied_at": "", "applied_title": "Нова назва"}
+    )
+    assert not _title_review_item_is_applied(
+        {"applied_at": "2026-10-03T14:50:54+00:00", "applied_title": ""}
+    )
+
+
 def test_quota_error_detection():
     from rg_youtube_control.ui import _is_quota_exceeded_error
     assert _is_quota_exceeded_error(Exception("reason: quotaExceeded"))
