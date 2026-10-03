@@ -227,7 +227,6 @@ class YouTubeClient:
         *,
         stop_before: str | None = None,
         max_pages: int = 5,
-        moderation_status: str = "published",
     ) -> tuple[list[dict[str, Any]], int]:
         result: list[dict[str, Any]] = []
         token = None
@@ -237,7 +236,7 @@ class YouTubeClient:
             response = self.service().commentThreads().list(
                 part="snippet,replies",
                 allThreadsRelatedToChannelId=channel_id,
-                moderationStatus=moderation_status,
+                moderationStatus="published",
                 textFormat="plainText",
                 order="time",
                 maxResults=100,
@@ -268,7 +267,7 @@ class YouTubeClient:
         return result, requests
 
     def comment_threads(
-        self, video_id: str, moderation_status: str = "published", limit: int = 100
+        self, video_id: str, limit: int = 100
     ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         token = None
@@ -276,7 +275,7 @@ class YouTubeClient:
             response = self.service().commentThreads().list(
                 part="snippet,replies",
                 videoId=video_id,
-                moderationStatus=moderation_status,
+                moderationStatus="published",
                 textFormat="plainText",
                 order="time",
                 maxResults=min(100, limit - len(result)),
@@ -311,12 +310,11 @@ class YouTubeClient:
     def set_moderation(
         self, comment_id: str, status: str, ban_author: bool = False
     ) -> None:
-        request = self.service().comments().setModerationStatus(
-            id=comment_id,
-            moderationStatus=status,
-            banAuthor=bool(ban_author and status == "rejected"),
+        raise RuntimeError(
+            "RG YouTube Control не змінює статус модерації коментарів. "
+            "Коментарі з «Очікує на розгляд» залишаються лише для ручної "
+            "модерації у YouTube Studio."
         )
-        request.execute()
 
     def update_video(
         self,
