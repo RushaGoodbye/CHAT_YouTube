@@ -227,6 +227,55 @@ def today_reply_count(
 ) -> int:
     return int(get_setting(conn, _counter_key("replies", profile), "0") or 0)
 
+def archive_priority_enabled(conn: sqlite3.Connection) -> bool:
+    return get_setting(conn, "archive_priority_mode", "0") == "1"
+
+
+def set_archive_priority_mode(
+    conn: sqlite3.Connection,
+    enabled: bool,
+    profiles: tuple[str, ...] = ("main", "live"),
+) -> None:
+    currently_enabled = archive_priority_enabled(conn)
+    if enabled and not currently_enabled:
+        for profile in profiles:
+            current = get_setting(
+                conn,
+                f"safe_metadata_autopilot_{profile}",
+                "0",
+            )
+            set_setting(
+                conn,
+                f"archive_priority_saved_autopilot_{profile}",
+                current,
+            )
+            set_setting(
+                conn,
+                f"safe_metadata_autopilot_{profile}",
+                "0",
+            )
+    elif not enabled and currently_enabled:
+        now = datetime.now(timezone.utc).isoformat()
+        for profile in profiles:
+            restored = get_setting(
+                conn,
+                f"archive_priority_saved_autopilot_{profile}",
+                "0",
+            )
+            set_setting(
+                conn,
+                f"safe_metadata_autopilot_{profile}",
+                restored,
+            )
+            if restored == "1":
+                set_setting(
+                    conn,
+                    f"safe_autopilot_last_run_{profile}",
+                    now,
+                )
+    set_setting(conn, "archive_priority_mode", "1" if enabled else "0")
+
+
 def quota_budget_status(conn: sqlite3.Connection) -> dict[str, int | bool | str]:
     used = today_quota_units(conn)
     exhausted = quota_exhausted(conn)
