@@ -63,6 +63,7 @@ from .db import (
     commit_video_analytics,
     connect,
     database_integrity_cleanup,
+    deep_review_counts,
     get_optimization_draft,
     get_setting,
     log_action,
@@ -73,9 +74,16 @@ from .db import (
     save_metadata_snapshot,
     save_optimization_draft,
     set_comment_status,
+    set_deep_review_state,
     set_optimization_draft_status,
     set_setting,
     upsert_video_analytics,
+)
+from .archive_campaign import (
+    archive_profile_stats,
+    deep_review_candidates,
+    export_deep_review_manifest,
+    next_campaign_phase,
 )
 from .metadata_audit import (
     audit,
@@ -95,6 +103,7 @@ from .optimization import (
     compose_description,
     extract_chapters_from_description,
     is_safe_archive_candidate,
+    needs_deep_review,
     priority_label,
     safe_description_fix,
     validate_chapters,
