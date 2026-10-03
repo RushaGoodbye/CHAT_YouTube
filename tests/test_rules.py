@@ -1321,9 +1321,12 @@ def test_archive_campaign_center_controls_both_channels():
     advance_source = inspect.getsource(MainWindow._advance_archive_campaign)
 
     assert "Основний канал" not in source or "PROFILE_LABELS" in source
-    assert "Глибока черга → NAS" in source
-    assert "Імпорт глибоких пакетів" in source
-    assert "apply_next_safe_archive_batch(daily=True)" in source
+    assert "Запустити зараз" in source
+    assert "Відкрити поточний етап" in source
+    assert "Готові пакети" in source
+    assert "Глибока черга → NAS" not in source
+    assert "Імпорт глибоких пакетів" not in source
+    assert "run_archive_campaign_step(automatic=False)" in source
     assert "set_archive_priority_mode" in advance_source
     assert "tuple(PROFILE_TARGETS.keys())" in advance_source
 
@@ -1344,7 +1347,7 @@ def test_deep_transcript_batch_accounts_quota_and_reserve():
     assert "record_quota_units" in source
     assert "CAPTION_TRANSCRIPT_COST" in source
     assert "CAPTION_TRANSCRIPT_COST" in deep_source
-    assert "Транскрипти глибокої черги" in center_source
+    assert "deep-черга, транскрипти та імпорт" in center_source
 
 
 def test_deep_stage_runs_queue_and_transcripts_without_manual_dialogs():
@@ -1664,7 +1667,11 @@ def test_quota_budget_keeps_reserve(tmp_path):
     assert budget["remaining"] == 9000
     assert budget["reserve"] == 2500
     assert budget["spendable"] == 6500
-    assert budget["reply_capacity"] == 130
+    assert budget["reply_capacity"] == 180
+    assert budget["campaign_spendable"] == 6500
+    assert budget["comment_spendable"] == 9000
+    assert budget["campaign_video_capacity"] == 127
+    assert budget["campaign_blocked"] is False
 
 
 def test_action_log_roundtrip(tmp_path):
@@ -2105,3 +2112,251 @@ def test_autopilot_guardrail_defaults():
 
     assert DEFAULT_SAFE_AUTOPILOT_INTERVAL_MINUTES == 60
     assert DEFAULT_SAFE_AUTOPILOT_DAILY_LIMIT == 30
+
+def test_explicit_nonpublished_comment_never_auto_replies(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import scan_channel_comments
+
+    class FakeClient:
+        profile = "main"
+
+        def channel_comment_threads(self, channel_id, *, stop_before=None, max_pages=5):
+            return ([
+                {
+                    "snippet": {
+                        "videoId": "v-held",
+                        "topLevelComment": {
+                            "id": "c-held-explicit",
+                            "snippet": {
+                                "moderationStatus": "heldForReview",
+                                "authorDisplayName": "viewer",
+                                "authorChannelId": {"value": "viewer-channel"},
+                                "textOriginal": "Дякую!",
+                                "publishedAt": datetime.now(timezone.utc).isoformat(),
+                            },
+                        },
+                        "totalReplyCount": 0,
+                    }
+                }
+            ], 1)
+
+        def reply(self, parent_comment_id, text):
+            raise AssertionError("heldForReview comment must never be answered")
+
+    conn = connect(tmp_path / "held-explicit.sqlite")
+    result = scan_channel_comments(
+        FakeClient(),
+        conn,
+        "owner-channel",
+        auto_reply=True,
+    )
+    assert result["auto_replied"] == 0
+    assert result["skipped_review"] == 1
+    row = conn.execute(
+        "SELECT status,category FROM comments WHERE comment_id=?",
+        ("c-held-explicit",),
+    ).fetchone()
+    assert row["status"] == "moderation_locked"
+    assert row["category"] == "review"
+
+
+def test_manual_reply_refuses_moderation_locked_comment(tmp_path):
+    from datetime import datetime, timezone
+    import pytest
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import manual_reply
+
+    class FakeClient:
+        def reply(self, parent_comment_id, text):
+            raise AssertionError("moderation-locked comment must not be answered")
+
+    conn = connect(tmp_path / "manual-held.sqlite")
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (
+            "c-locked", "v1", "viewer", "Дякую!",
+            datetime.now(timezone.utc).isoformat(),
+            "review", "moderation_locked", "{}",
+        ),
+    )
+    conn.commit()
+    with pytest.raises(RuntimeError, match="модерації YouTube"):
+        manual_reply(FakeClient(), conn, "c-locked", "Відповідь")
+
+
+def test_comment_reserve_remains_available_when_campaign_is_blocked(tmp_path):
+    from rg_youtube_control.db import connect, set_setting
+    from rg_youtube_control.service import (
+        quota_budget_status,
+        record_quota_units,
+        SAFE_METADATA_ITEM_COST,
+    )
+
+    conn = connect(tmp_path / "reserve-split.sqlite")
+    set_setting(conn, "youtube_quota_reserve_units", "2500")
+    record_quota_units(conn, 7477)
+    budget = quota_budget_status(conn)
+
+    assert budget["remaining"] == 2523
+    assert budget["campaign_spendable"] == 23
+    assert budget["comment_spendable"] == 2523
+    assert budget["campaign_blocked"] is True
+    assert budget["campaign_spendable"] < SAFE_METADATA_ITEM_COST
+    assert budget["reply_capacity"] >= 50
+
+
+def test_campaign_checkpoint_recovers_running_stage(tmp_path):
+    from rg_youtube_control.archive_campaign import (
+        load_campaign_checkpoint,
+        reconcile_campaign_checkpoint,
+        save_campaign_checkpoint,
+    )
+    from rg_youtube_control.db import connect
+
+    conn = connect(tmp_path / "checkpoint.sqlite")
+    save_campaign_checkpoint(
+        conn,
+        phase="safe",
+        target="main",
+        status="running",
+        note="simulated_crash",
+    )
+    stats = {
+        "main": {"safe_remaining": 4, "deep_remaining": 7},
+        "live": {"safe_remaining": 2, "deep_remaining": 9},
+    }
+    checkpoint, interrupted = reconcile_campaign_checkpoint(conn, stats)
+
+    assert interrupted is True
+    assert checkpoint["phase"] == "safe"
+    assert checkpoint["target"] == "main"
+    assert checkpoint["status"] == "ready"
+    assert checkpoint["note"] == "recovered_after_interruption"
+    assert load_campaign_checkpoint(conn)["status"] == "ready"
+
+
+def test_deep_manifest_write_failure_does_not_queue_state(tmp_path):
+    import json
+    import pytest
+    from rg_youtube_control.archive_campaign import export_deep_review_manifest
+    from rg_youtube_control.db import connect, deep_review_state_map
+
+    conn = connect(tmp_path / "deep-nas-failure.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?)""",
+        (
+            "deep-fail",
+            "main",
+            "Тест",
+            "public",
+            10,
+            json.dumps({"score": 50, "issues": ["thin_description"]}),
+            "2026-10-03T00:00:00Z",
+        ),
+    )
+    conn.commit()
+
+    package_file = tmp_path / "not-a-directory"
+    package_file.write_text("occupied", encoding="utf-8")
+
+    with pytest.raises((OSError, FileExistsError, NotADirectoryError)):
+        export_deep_review_manifest(
+            conn,
+            "main",
+            transcript_dir=tmp_path / "missing-transcripts",
+            package_dir=package_file,
+            limit=20,
+        )
+
+    assert deep_review_state_map(conn, "main").get("deep-fail") is None
+
+
+def test_unavailable_transcript_storage_does_not_break_campaign_stats(tmp_path):
+    import json
+    from rg_youtube_control.archive_campaign import archive_profile_stats
+    from rg_youtube_control.db import connect
+
+    conn = connect(tmp_path / "stats-storage.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,privacy_status,views,audit_json,last_synced_at
+        ) VALUES(?,?,?,?,?,?,?)""",
+        (
+            "deep-storage",
+            "main",
+            "Тест",
+            "public",
+            10,
+            json.dumps({"score": 50, "issues": ["thin_description"]}),
+            "2026-10-03T00:00:00Z",
+        ),
+    )
+    conn.commit()
+    occupied = tmp_path / "occupied"
+    occupied.write_text("x", encoding="utf-8")
+
+    stats = archive_profile_stats(
+        conn,
+        "main",
+        transcript_dir=occupied,
+    )
+    assert stats["deep_remaining"] == 1
+    assert stats["transcripts"] == 0
+
+
+def test_cached_update_cleanup_keeps_latest_three(tmp_path):
+    from rg_youtube_control.updater import prune_cached_updates
+
+    versions = ["0.3.55", "0.3.56", "0.3.57", "0.3.58", "0.3.59"]
+    for version in versions:
+        (tmp_path / f"RG_YouTube_Control_Setup_{version}.exe").write_bytes(b"x")
+        (tmp_path / f"RG_YouTube_Control_Setup_{version}.exe.sha256").write_text(
+            "hash", encoding="utf-8"
+        )
+
+    removed = prune_cached_updates(tmp_path, keep=3)
+    remaining = sorted(path.name for path in tmp_path.iterdir())
+
+    assert len(removed) == 4
+    assert all("0.3.55" not in name for name in remaining)
+    assert all("0.3.56" not in name for name in remaining)
+    assert any("0.3.57" in name for name in remaining)
+    assert any("0.3.58" in name for name in remaining)
+    assert any("0.3.59" in name for name in remaining)
+
+
+def test_archive_autorun_is_quota_day_guarded_and_silent():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow._run_archive_campaign_autorun)
+    step_source = inspect.getsource(MainWindow.run_archive_campaign_step)
+    batch_source = inspect.getsource(MainWindow.apply_next_safe_archive_batch)
+
+    assert "archive_campaign_autorun_done_" in source
+    assert 'get_setting(\n            self.conn,\n            "archive_campaign_autorun",\n            "1",' in source
+    assert 'budget["current_capacity"]' in source
+    assert "paused_quota" in source
+    assert "run_archive_campaign_step(automatic=True)" in source
+    assert "confirm=not automatic" in step_source
+    assert "notify=not automatic" in step_source
+    assert "respect_reserve=True" in batch_source
+
+
+def test_archive_center_is_compact():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.show_archive_campaign_center)
+    assert "QTableWidget(2, 5)" in source
+    assert "Готові пакети" in source
+    assert "Запустити зараз" in source
+    assert "Відкрити поточний етап" in source
+    assert "Глибока черга → NAS" not in source
+    assert "Імпорт глибоких пакетів" not in source
+
