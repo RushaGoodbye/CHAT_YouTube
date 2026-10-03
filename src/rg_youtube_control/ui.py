@@ -91,7 +91,7 @@ from .optimization import (
     archive_potential_score,
     compose_description,
     extract_chapters_from_description,
-    has_safe_link_issue,
+    is_safe_archive_candidate,
     priority_label,
     safe_description_fix,
     validate_chapters,
@@ -1135,6 +1135,10 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem(
             "Підготовлена черга",
             "prepared",
+        )
+        self.optimization_filter.addItem(
+            "Англомовні назви",
+            "latin_titles",
         )
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
@@ -3191,9 +3195,11 @@ class MainWindow(QMainWindow):
                 "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
                 (self.current_profile,),
             ).fetchone()["n"]
+            latin_titles = self._latin_title_review_count()
             self.statusBar().showMessage(
                 f"Архів синхронізовано: {len(rows)} унікальних відео · "
-                f"у базі профілю: {stored} · квота читання: {consumed}"
+                f"у базі профілю: {stored} · англомовних назв: {latin_titles} · "
+                f"квота читання: {consumed}"
             )
         except Exception as exc:
             self._error("Помилка повної синхронізації", exc)
@@ -3237,6 +3243,22 @@ class MainWindow(QMainWindow):
             next_date = "усі готові"
         return optimized.isoformat(), " · ".join(parts)
 
+    def _latin_title_review_count(self, profile: str | None = None) -> int:
+        target_profile = profile or self.current_profile
+        rows = self.conn.execute(
+            "SELECT audit_json FROM videos WHERE profile=?",
+            (target_profile,),
+        ).fetchall()
+        count = 0
+        for row in rows:
+            try:
+                issues = json.loads(row["audit_json"] or "{}").get("issues", [])
+            except Exception:
+                issues = []
+            if "latin_title_review" in issues:
+                count += 1
+        return count
+
     def _prepared_queue_ids(self) -> list[str]:
         raw = get_setting(
             self.conn,
@@ -3279,7 +3301,7 @@ class MainWindow(QMainWindow):
                 issues = list(audit_data.get("issues", []))
             except Exception:
                 issues = []
-            if not has_safe_link_issue(issues):
+            if not is_safe_archive_candidate(issues):
                 continue
             potential = archive_potential_score(
                 lifetime_views=int(row["views"] or 0),
@@ -3329,6 +3351,12 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        latin_index = self.optimization_filter.findData("latin_titles")
+        if latin_index >= 0:
+            self.optimization_filter.setItemText(
+                latin_index,
+                f"Англомовні назви ({self._latin_title_review_count(profile)})",
+            )
         queue_filter = (
             self.optimization_filter.currentData()
             if hasattr(self, "optimization_filter")
@@ -3345,6 +3373,11 @@ class MainWindow(QMainWindow):
                 " AND v.privacy_status='public'"
             )
         elif queue_filter == "prepared":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
+        elif queue_filter == "latin_titles":
             extra_where = (
                 " AND v.scheduled_publish_at IS NULL"
                 " AND v.privacy_status='public'"
@@ -3384,6 +3417,18 @@ class MainWindow(QMainWindow):
                 row for row in rows
                 if str(row["video_id"]) in prepared_order
             ]
+        elif queue_filter == "latin_titles":
+            latin_rows = []
+            for row in rows:
+                try:
+                    row_issues = json.loads(
+                        row["audit_json"] or "{}"
+                    ).get("issues", [])
+                except Exception:
+                    row_issues = []
+                if "latin_title_review" in row_issues:
+                    latin_rows.append(row)
+            rows = latin_rows
 
 
         ctr_values = [
@@ -3523,6 +3568,9 @@ class MainWindow(QMainWindow):
                             f"CTR {float(row['ctr_percent'] or 0):.2f}% · "
                             f"медіана каналу {channel_median_ctr:.2f}%"
                         )
+                    elif priority_text == "НАЗВА":
+                        item.setForeground(QColor(YOUTUBE_RED))
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                     elif priority_text == "ВИСОКИЙ":
                         item.setForeground(QColor(WARNING))
                     elif priority_text == "ГОТОВО":
@@ -4869,7 +4917,7 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 issues = []
-            if not has_safe_link_issue(issues):
+            if not is_safe_archive_candidate(issues):
                 continue
             potential = archive_potential_score(
                 lifetime_views=int(row["views"] or 0),
@@ -5128,7 +5176,7 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     issues = []
-                if has_safe_link_issue(issues):
+                if is_safe_archive_candidate(issues):
                     valid_ids.append(video_id)
             video_ids = valid_ids[:batch_limit]
             total_candidates = len(valid_ids)
