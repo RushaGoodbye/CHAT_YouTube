@@ -46,8 +46,8 @@ TOPIC_HASHTAGS = (
 
 GENERIC_TOPIC_HASHTAGS = {"#россия", "#украина", "#война"}
 TITLE_BOILERPLATE_RE = re.compile(
-    r"(?iu)\\b(?:чат\\s*рулетка|раша\\s*гудбай|russia\\s*goodbye|"
-    r"russiagoodbye|стрим|эфир|ефір|stream)\\b"
+    r"(?iu)\b(?:чат\s*рулетка|раша\s*гудбай|russia\s*goodbye|"
+    r"russiagoodbye|стрим|эфир|ефір|stream)\b"
 )
 TITLE_TOPIC_STOPWORDS = {
     "это", "этот", "эта", "эти", "как", "что", "кто", "где", "когда", "почему",
