@@ -1692,7 +1692,28 @@ class MainWindow(QMainWindow):
             unique_rows.append(row)
 
         video_ids = sorted({str(row["video_id"]) for row in unique_rows})
-        current_items = self.client.video_details(video_ids) if video_ids else []
+        if video_ids:
+            counted = getattr(
+                self.client,
+                "video_details_with_request_count",
+                None,
+            )
+            if callable(counted):
+                current_items, requests = counted(video_ids)
+                record_quota_units(
+                    self.conn,
+                    int(requests) * READ_REQUEST_COST,
+                )
+            else:
+                current_items = self.client.video_details(video_ids)
+                requests = (len(video_ids) + 49) // 50
+                record_quota_units(
+                    self.conn,
+                    requests * READ_REQUEST_COST,
+                )
+            self.refresh_youtube_quota_label()
+        else:
+            current_items = []
         current_by_id = {str(item.get("id")): item for item in current_items}
         imported = 0
         reason_map = {
@@ -3159,12 +3180,13 @@ class MainWindow(QMainWindow):
             return
         video_id = self.video_table.item(row, 0).text()
         try:
-            item = self.client.video_details([video_id])[0]
-            snippet = item.get("snippet", {})
+            current_title, current_description, current_tags = (
+                self._current_video_metadata(video_id)
+            )
             dialog = MetadataDialog(
-                snippet.get("title", ""),
-                snippet.get("description", ""),
-                snippet.get("tags", []),
+                current_title,
+                current_description,
+                current_tags,
                 self,
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -3176,9 +3198,9 @@ class MainWindow(QMainWindow):
             save_metadata_snapshot(
                 self.conn,
                 video_id,
-                snippet.get("title", ""),
-                snippet.get("description", ""),
-                snippet.get("tags", []) or [],
+                current_title,
+                current_description,
+                current_tags,
                 "before_manual_edit",
             )
             self._quota_update_video(
