@@ -2746,6 +2746,17 @@ class MainWindow(QMainWindow):
         )
         self.quota_reserve_spin.valueChanged.connect(self.save_quota_reserve)
 
+        for spin in (
+            self.daily_limit_spin,
+            self.scan_limit_spin,
+            self.age_limit_spin,
+            self.autopilot_interval_spin,
+            self.autopilot_daily_spin,
+            self.quota_reserve_spin,
+        ):
+            spin.setMinimumWidth(120)
+            spin.setMaximumWidth(180)
+
         self.youtube_quota_label = QLabel()
         self.refresh_youtube_quota_label()
         self.version_label = QLabel(f"Версія: {__version__}")
@@ -2809,24 +2820,17 @@ class MainWindow(QMainWindow):
             form.setHorizontalSpacing(22)
             form.setVerticalSpacing(10)
             form.setFieldGrowthPolicy(
-                QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+                QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint
             )
             return form
 
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        channel_bar = QFrame()
-        channel_bar.setObjectName("SettingsChannelBar")
-        channel_layout = QHBoxLayout(channel_bar)
-        channel_layout.setContentsMargins(14, 10, 14, 10)
-        channel_layout.setSpacing(12)
-        channel_layout.addWidget(QLabel("Канал"))
-        self.profile_combo.setMaximumWidth(260)
-        channel_layout.addWidget(self.profile_combo)
-        self.channel_label.setProperty("muted", True)
-        channel_layout.addWidget(self.channel_label, 1)
-        layout.addWidget(channel_bar)
+        # Канал перемикається у верхній панелі програми.
+        # Прихований combo лишається для сумісності зі старою логікою профілів.
+        self.profile_combo.setVisible(False)
+        self.channel_label.setVisible(False)
 
         self.settings_sections = QTabWidget()
         self.settings_sections.setObjectName("SettingsSections")
@@ -2835,8 +2839,18 @@ class MainWindow(QMainWindow):
         # Коментарі
         comments_page, comments_layout = settings_scroll_page()
 
+        comments_columns = QHBoxLayout()
+        comments_columns.setSpacing(12)
+        comments_left = QVBoxLayout()
+        comments_left.setSpacing(12)
+        comments_right = QVBoxLayout()
+        comments_right.setSpacing(12)
+        comments_columns.addLayout(comments_left, 1)
+        comments_columns.addLayout(comments_right, 1)
+        comments_layout.addLayout(comments_columns)
+
         comments_card = settings_card(
-            comments_layout,
+            comments_left,
             "Фонова робота з коментарями",
             "Працюємо лише з уже опублікованими коментарями. "
             "«Очікує на розгляд» програма не читає і не модерує.",
@@ -2849,16 +2863,21 @@ class MainWindow(QMainWindow):
         reply_limits.addRow("За одне сканування", self.scan_limit_spin)
         reply_limits.addRow("Максимальний вік", self.age_limit_spin)
         comments_card.addLayout(reply_limits)
+        comments_left.addStretch()
 
         templates_card = settings_card(
-            comments_layout,
+            comments_right,
             "Шаблони автовідповідей",
             "Тексти можна редагувати. Зміни зберігаються автоматично.",
         )
         templates_form = compact_form()
+        templates_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         for label, edit in self.reply_template_edits.values():
             templates_form.addRow(label, edit)
         templates_card.addLayout(templates_form)
+        comments_right.addStretch()
         comments_layout.addStretch()
 
         self.settings_sections.addTab(comments_page, "Коментарі")
@@ -2917,6 +2936,9 @@ class MainWindow(QMainWindow):
             "Шляхи до транскриптів і пакетів оптимізації.",
         )
         nas_form = compact_form()
+        nas_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         nas_form.addRow("Транскрипти", self.nas_transcripts_edit)
         nas_form.addRow("Пакети оптимізації", self.nas_packages_edit)
         nas_card.addLayout(nas_form)
