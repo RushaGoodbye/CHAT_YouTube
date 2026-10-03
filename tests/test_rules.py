@@ -1211,7 +1211,10 @@ def test_archive_campaign_stats_and_deep_manifest(tmp_path):
 
     transcript_dir = tmp_path / "transcripts"
     transcript_dir.mkdir()
-    (transcript_dir / "deep-1.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nТест\n")
+    (transcript_dir / "deep-1.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nТест\n",
+        encoding="utf-8",
+    )
 
     stats = archive_profile_stats(
         conn,
