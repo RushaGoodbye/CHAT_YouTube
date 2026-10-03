@@ -2625,6 +2625,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.channel_label)
         layout.addWidget(self.background_box)
         layout.addWidget(self.auto_box)
+        moderation_note = QLabel(
+            "Модерація захищена: програма працює лише з уже опублікованими "
+            "коментарями. Коментарі «Очікує на розгляд» не читаються, "
+            "не схвалюються і не відхиляються автоматично."
+        )
+        moderation_note.setWordWrap(True)
+        moderation_note.setProperty("muted", True)
+        layout.addWidget(moderation_note)
         layout.addWidget(self.safe_autopilot_box)
         autopilot_note = QLabel(
             "Автопілот за один фоновий цикл змінює максимум 3 відео, "
