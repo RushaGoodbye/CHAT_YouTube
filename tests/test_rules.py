@@ -670,6 +670,68 @@ def test_sync_videos_deduplicates_duplicate_video_ids(tmp_path):
     assert count == 1
 
 
+def test_sync_videos_records_exact_read_request_count(tmp_path):
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import sync_videos, today_quota_units
+
+    class FakeClient:
+        profile = "main"
+
+        def recent_videos_with_request_count(self, limit=50):
+            item = {
+                "id": "video-1",
+                "snippet": {
+                    "channelId": "channel-main",
+                    "title": "Тестове відео",
+                    "description": "Опис",
+                    "tags": [],
+                    "publishedAt": "2026-10-01T00:00:00Z",
+                },
+                "status": {"privacyStatus": "public"},
+                "statistics": {"viewCount": "10"},
+                "contentDetails": {"duration": "PT10M"},
+            }
+            return [item], 33
+
+    conn = connect(tmp_path / "sync-quota.sqlite")
+    before = today_quota_units(conn)
+    rows = sync_videos(FakeClient(), conn, limit=1000)
+
+    assert len(rows) == 1
+    assert today_quota_units(conn) == before + 33
+
+
+def test_sync_specific_videos_records_detail_read_count(tmp_path):
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import sync_specific_videos, today_quota_units
+
+    class FakeClient:
+        profile = "main"
+
+        def video_details_with_request_count(self, video_ids):
+            item = {
+                "id": "video-1",
+                "snippet": {
+                    "channelId": "channel-main",
+                    "title": "Тестове відео",
+                    "description": "Опис",
+                    "tags": [],
+                    "publishedAt": "2026-10-01T00:00:00Z",
+                },
+                "status": {"privacyStatus": "public"},
+                "statistics": {"viewCount": "10"},
+                "contentDetails": {"duration": "PT10M"},
+            }
+            return [item], 1
+
+    conn = connect(tmp_path / "specific-sync-quota.sqlite")
+    before = today_quota_units(conn)
+    rows = sync_specific_videos(FakeClient(), conn, ["video-1"])
+
+    assert len(rows) == 1
+    assert today_quota_units(conn) == before + 1
+
+
 def test_safe_fix_builds_exactly_one_thematic_hashtag():
     from rg_youtube_control.optimization import safe_description_fix
 

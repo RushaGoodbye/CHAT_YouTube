@@ -3078,11 +3078,15 @@ class MainWindow(QMainWindow):
 
     def sync_video_list(self) -> None:
         try:
+            before_units = today_quota_units(self.conn)
             rows = sync_videos(self.client, self.conn, limit=50)
+            consumed = max(0, today_quota_units(self.conn) - before_units)
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-            self.statusBar().showMessage(f"Відео синхронізовано: {len(rows)}")
+            self.statusBar().showMessage(
+                f"Відео синхронізовано: {len(rows)} · квота читання: {consumed}"
+            )
         except Exception as exc:
             self._error("Помилка синхронізації", exc)
 
@@ -3098,6 +3102,7 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
+        before_units = today_quota_units(self.conn)
         results: list[str] = []
         errors: list[str] = []
         for profile in PROFILE_TARGETS:
@@ -3117,7 +3122,11 @@ class MainWindow(QMainWindow):
         self.reload_optimization_queue()
         self.reload_comments()
         self.update_dashboard()
-        message = "Синхронізовано:\n" + ("\n".join(results) or "—")
+        consumed = max(0, today_quota_units(self.conn) - before_units)
+        message = (
+            "Синхронізовано:\n" + ("\n".join(results) or "—")
+            + f"\n\nКвота читання YouTube Data API: {consumed} од."
+        )
         if errors:
             message += "\n\nНе виконано:\n" + "\n".join(errors)
         QMessageBox.information(self, APP_NAME, message)
@@ -3170,9 +3179,11 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
+            before_units = today_quota_units(self.conn)
             self.statusBar().showMessage("Синхронізую весь архів...")
             QApplication.processEvents()
             rows = sync_videos(self.client, self.conn, limit=1000)
+            consumed = max(0, today_quota_units(self.conn) - before_units)
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
@@ -3182,7 +3193,7 @@ class MainWindow(QMainWindow):
             ).fetchone()["n"]
             self.statusBar().showMessage(
                 f"Архів синхронізовано: {len(rows)} унікальних відео · "
-                f"у базі профілю: {stored}"
+                f"у базі профілю: {stored} · квота читання: {consumed}"
             )
         except Exception as exc:
             self._error("Помилка повної синхронізації", exc)

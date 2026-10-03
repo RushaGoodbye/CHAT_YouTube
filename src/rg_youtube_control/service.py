@@ -30,7 +30,12 @@ from .youtube_api import YouTubeClient
 def sync_videos(
     client: YouTubeClient, conn: sqlite3.Connection, limit: int = 50
 ) -> list[dict[str, Any]]:
-    items = client.recent_videos(limit=limit)
+    counted = getattr(client, "recent_videos_with_request_count", None)
+    if callable(counted):
+        items, requests = counted(limit=limit)
+        record_quota_units(conn, int(requests) * READ_REQUEST_COST)
+    else:
+        items = client.recent_videos(limit=limit)
     rows: list[dict[str, Any]] = []
     seen_video_ids: set[str] = set()
     for item in items:
@@ -68,7 +73,12 @@ def sync_specific_videos(
     conn: sqlite3.Connection,
     video_ids: list[str],
 ) -> list[dict[str, Any]]:
-    items = client.video_details(video_ids)
+    counted = getattr(client, "video_details_with_request_count", None)
+    if callable(counted):
+        items, requests = counted(video_ids)
+        record_quota_units(conn, int(requests) * READ_REQUEST_COST)
+    else:
+        items = client.video_details(video_ids)
     rows: list[dict[str, Any]] = []
     for item in items:
         snippet = item.get("snippet", {})

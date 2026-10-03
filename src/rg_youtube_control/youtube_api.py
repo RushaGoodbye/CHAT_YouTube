@@ -190,8 +190,12 @@ class YouTubeClient:
             raise RuntimeError("No YouTube channel is available for this authorization")
         return items[0]
 
-    def recent_videos(self, limit: int = 50) -> list[dict[str, Any]]:
+    def recent_videos_with_request_count(
+        self,
+        limit: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
         channel = self.my_channel()
+        requests = 1  # channels.list inside my_channel()
         uploads = channel["contentDetails"]["relatedPlaylists"]["uploads"]
         items: list[dict[str, Any]] = []
         token = None
@@ -202,24 +206,39 @@ class YouTubeClient:
                 maxResults=min(50, limit - len(items)),
                 pageToken=token,
             ).execute()
+            requests += 1
             items.extend(response.get("items", []))
             token = response.get("nextPageToken")
             if not token:
                 break
         ids = [x["contentDetails"]["videoId"] for x in items]
-        return self.video_details(ids)
+        details, detail_requests = self.video_details_with_request_count(ids)
+        return details, requests + detail_requests
 
-    def video_details(self, video_ids: list[str]) -> list[dict[str, Any]]:
+    def recent_videos(self, limit: int = 50) -> list[dict[str, Any]]:
+        items, _requests = self.recent_videos_with_request_count(limit)
+        return items
+
+    def video_details_with_request_count(
+        self,
+        video_ids: list[str],
+    ) -> tuple[list[dict[str, Any]], int]:
         if not video_ids:
-            return []
+            return [], 0
         result: list[dict[str, Any]] = []
+        requests = 0
         for pos in range(0, len(video_ids), 50):
             response = self.service().videos().list(
                 part="snippet,status,contentDetails,statistics",
                 id=",".join(video_ids[pos:pos + 50]),
             ).execute()
+            requests += 1
             result.extend(response.get("items", []))
-        return result
+        return result, requests
+
+    def video_details(self, video_ids: list[str]) -> list[dict[str, Any]]:
+        items, _requests = self.video_details_with_request_count(video_ids)
+        return items
 
     def channel_comment_threads(
         self,
