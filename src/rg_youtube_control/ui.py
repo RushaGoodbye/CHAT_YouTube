@@ -1082,13 +1082,13 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         potential_btn = QPushButton("ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
-        prepare_queue_btn = QPushButton("Підготувати 50")
+        prepare_queue_btn = QPushButton("Підготувати 20")
         prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
         preview_btn = QPushButton("Перегляд безпечних правок")
         preview_btn.clicked.connect(self.preview_safe_optimization)
         apply_btn = QPushButton("Застосувати безпечні")
         apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton("Архів: безпечні 50")
+        next_safe_btn = QPushButton("Архів: безпечні 20")
         next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
         package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
@@ -3267,7 +3267,7 @@ class MainWindow(QMainWindow):
             ))
 
         ranked.sort(reverse=True)
-        queue = [item[-1] for item in ranked[:50]]
+        queue = [item[-1] for item in ranked[:20]]
         set_setting(
             self.conn,
             f"prepared_safe_queue_{self.current_profile}",
@@ -5056,7 +5056,7 @@ class MainWindow(QMainWindow):
         self.conn.commit()
 
     def apply_next_safe_archive_batch(self) -> None:
-        batch_limit = 50
+        batch_limit = 20
         use_prepared = (
             hasattr(self, "optimization_filter")
             and self.optimization_filter.currentData() == "prepared"
@@ -5096,7 +5096,7 @@ class MainWindow(QMainWindow):
         estimated = len(video_ids) * 50
         answer = QMessageBox.question(
             self,
-            "Архів: безпечні 50",
+            "Архів: безпечні 20",
             f"Знайдено відео з безпечними правками: {total_candidates}.\n"
             f"Зараз буде оброблено: {len(video_ids)}.\n"
             f"Максимальна витрата videos.update: ≈{estimated} од. квоти.\n\n"
