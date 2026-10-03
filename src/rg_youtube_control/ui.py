@@ -5485,6 +5485,72 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка пакета оптимізації", exc)
 
+    def _preview_deep_content_package(
+        self,
+        *,
+        video_id: str,
+        current_title: str,
+        current_description: str,
+        current_tags: list[str],
+        new_title: str,
+        new_description: str,
+        new_tags: list[str],
+    ) -> bool:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
+        dialog.resize(1180, 760)
+        layout = QVBoxLayout(dialog)
+
+        note = QLabel(
+            "Це повний перегляд небезпечних змін. Thumbnail, видимість, "
+            "дата публікації та інші налаштування не змінюються."
+        )
+        note.setWordWrap(True)
+        note.setProperty("muted", True)
+        layout.addWidget(note)
+
+        columns = QHBoxLayout()
+        before_box = QVBoxLayout()
+        after_box = QVBoxLayout()
+        before_box.addWidget(QLabel("ДО"))
+        after_box.addWidget(QLabel("ПІСЛЯ"))
+
+        before = QPlainTextEdit()
+        before.setReadOnly(True)
+        before.setPlainText(
+            f"НАЗВА\n{current_title}\n\n"
+            f"ОПИС\n{current_description}\n\n"
+            f"ТЕГИ\n{', '.join(current_tags)}"
+        )
+        after = QPlainTextEdit()
+        after.setReadOnly(True)
+        after.setPlainText(
+            f"НАЗВА\n{new_title}\n\n"
+            f"ОПИС\n{new_description}\n\n"
+            f"ТЕГИ\n{', '.join(new_tags)}"
+        )
+        before_box.addWidget(before)
+        after_box.addWidget(after)
+        columns.addLayout(before_box, 1)
+        columns.addLayout(after_box, 1)
+        layout.addLayout(columns, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(
+            QDialogButtonBox.StandardButton.Ok
+        ).setText("Перевірено · продовжити")
+        buttons.button(
+            QDialogButtonBox.StandardButton.Cancel
+        ).setText("Скасувати")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        return dialog.exec() == QDialog.DialogCode.Accepted
+
     def apply_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
@@ -5520,19 +5586,46 @@ class MainWindow(QMainWindow):
             new_tags = json.loads(draft["tags_json"] or "[]")
             new_title = draft["new_title"]
 
-            answer = QMessageBox.question(
-                self,
-                "Застосувати пакет оптимізації",
-                f"Відео: {video_id}\n\n"
-                f"Назва:\n{current_title}\n→\n{new_title}\n\n"
-                f"Опис: {len(current_description)} → "
-                f"{len(final_description)} символів\n"
-                f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
-                "Усі поля буде надіслано одним videos.update "
-                f"(≈{VIDEO_UPDATE_COST} од. квоти). Продовжити?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+            deep_state_before = deep_review_state_map(
+                self.conn,
+                self.current_profile,
             )
+            if video_id in deep_state_before:
+                if not self._preview_deep_content_package(
+                    video_id=video_id,
+                    current_title=current_title,
+                    current_description=current_description,
+                    current_tags=current_tags,
+                    new_title=new_title,
+                    new_description=final_description,
+                    new_tags=new_tags,
+                ):
+                    return
+                answer = QMessageBox.question(
+                    self,
+                    "Підтвердити глибоку оптимізацію",
+                    f"Перегляд завершено. Буде змінено назву, опис і теги "
+                    f"одного відео (≈{VIDEO_UPDATE_COST} од. квоти).\n\n"
+                    "Застосувати перевірений пакет?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+            else:
+                answer = QMessageBox.question(
+                    self,
+                    "Застосувати пакет оптимізації",
+                    f"Відео: {video_id}\n\n"
+                    f"Назва:\n{current_title}\n→\n{new_title}\n\n"
+                    f"Опис: {len(current_description)} → "
+                    f"{len(final_description)} символів\n"
+                    f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
+                    "Усі поля буде надіслано одним videos.update "
+                    f"(≈{VIDEO_UPDATE_COST} од. квоти). Продовжити?",
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
