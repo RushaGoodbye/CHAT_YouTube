@@ -3351,6 +3351,12 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        latin_index = self.optimization_filter.findData("latin_titles")
+        if latin_index >= 0:
+            self.optimization_filter.setItemText(
+                latin_index,
+                f"Англомовні назви ({self._latin_title_review_count(profile)})",
+            )
         queue_filter = (
             self.optimization_filter.currentData()
             if hasattr(self, "optimization_filter")
