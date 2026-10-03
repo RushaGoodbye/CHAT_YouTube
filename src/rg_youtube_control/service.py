@@ -75,7 +75,11 @@ def sync_specific_videos(
         status = item.get("status", {})
         stats = item.get("statistics", {})
         content = item.get("contentDetails", {})
-        result = audit(snippet.get("description", ""), snippet.get("tags", []))
+        result = audit(
+            snippet.get("description", ""),
+            snippet.get("tags", []),
+            snippet.get("title", ""),
+        )
         row = {
             "video_id": item["id"],
             "profile": client.profile,
