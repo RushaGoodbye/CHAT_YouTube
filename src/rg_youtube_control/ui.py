@@ -3277,6 +3277,337 @@ class MainWindow(QMainWindow):
                 count += 1
         return count
 
+    def _title_review_path(self) -> Path:
+        package_dir = self._nas_path(
+            "nas_packages_path",
+            DEFAULT_NAS_PACKAGES_PATH,
+        )
+        return package_dir / f"title_review_{self.current_profile}.json"
+
+    def _load_title_review_payload(self) -> tuple[Path, dict]:
+        path = self._title_review_path()
+        if not path.exists():
+            raise RuntimeError(
+                "Файл перевірки назв ще не створено. "
+                "Натисніть «Англомовні назви → NAS»."
+            )
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("Некоректний формат файлу перевірки назв.")
+        if str(payload.get("profile") or "") != self.current_profile:
+            raise RuntimeError(
+                "Файл виправлень належить іншому профілю каналу."
+            )
+        if not isinstance(payload.get("items"), list):
+            raise RuntimeError("У файлі немає списку items.")
+        return path, payload
+
+    def _validated_title_corrections(
+        self,
+        payload: dict,
+    ) -> tuple[list[dict[str, str]], list[str], int]:
+        current_rows = self.conn.execute(
+            "SELECT video_id,title,audit_json FROM videos WHERE profile=?",
+            (self.current_profile,),
+        ).fetchall()
+        current = {
+            str(row["video_id"]): row
+            for row in current_rows
+        }
+        valid: list[dict[str, str]] = []
+        blocked: list[str] = []
+        missing = 0
+
+        for raw in payload.get("items", []):
+            if not isinstance(raw, dict):
+                continue
+            video_id = str(raw.get("video_id") or "").strip()
+            exported_title = str(raw.get("title") or "").strip()
+            new_title = _standard_hyphen(
+                str(raw.get("new_title") or "").strip()
+            )
+            if not video_id or not exported_title:
+                blocked.append(f"{video_id or '?'}: немає вихідної назви")
+                continue
+            if not new_title:
+                missing += 1
+                continue
+            if len(new_title) > 100:
+                blocked.append(f"{video_id}: нова назва довша за 100 символів")
+                continue
+            if title_script_profile(new_title) == "latin":
+                blocked.append(
+                    f"{video_id}: нова назва досі англомовна"
+                )
+                continue
+
+            row = current.get(video_id)
+            if row is None:
+                blocked.append(f"{video_id}: відео немає у локальній базі")
+                continue
+            current_title = str(row["title"] or "").strip()
+            if current_title != exported_title:
+                blocked.append(
+                    f"{video_id}: поточна назва вже відрізняється від експортованої"
+                )
+                continue
+            try:
+                issues = json.loads(row["audit_json"] or "{}").get("issues", [])
+            except Exception:
+                issues = []
+            if "latin_title_review" not in issues:
+                blocked.append(
+                    f"{video_id}: відео вже не потребує мовного виправлення"
+                )
+                continue
+            if new_title == current_title:
+                blocked.append(f"{video_id}: назва не змінюється")
+                continue
+
+            valid.append(
+                {
+                    "video_id": video_id,
+                    "old_title": current_title,
+                    "new_title": new_title,
+                }
+            )
+
+        return valid, blocked, missing
+
+    def export_latin_title_review_to_nas(self) -> None:
+        try:
+            path = self._title_review_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            previous_titles: dict[str, str] = {}
+            if path.exists():
+                try:
+                    previous = json.loads(path.read_text(encoding="utf-8"))
+                    for item in previous.get("items", []):
+                        if isinstance(item, dict):
+                            video_id = str(item.get("video_id") or "")
+                            new_title = str(item.get("new_title") or "").strip()
+                            if video_id and new_title:
+                                previous_titles[video_id] = new_title
+                except Exception:
+                    previous_titles = {}
+
+            rows = self.conn.execute(
+                """SELECT video_id,title,published_at,views,audit_json
+                   FROM videos
+                   WHERE profile=?
+                   ORDER BY views DESC,published_at DESC""",
+                (self.current_profile,),
+            ).fetchall()
+
+            items = []
+            for row in rows:
+                try:
+                    issues = json.loads(row["audit_json"] or "{}").get(
+                        "issues", []
+                    )
+                except Exception:
+                    issues = []
+                if "latin_title_review" not in issues:
+                    continue
+                video_id = str(row["video_id"])
+                items.append(
+                    {
+                        "video_id": video_id,
+                        "title": str(row["title"] or ""),
+                        "new_title": previous_titles.get(video_id, ""),
+                        "published_at": str(row["published_at"] or ""),
+                        "views": int(row["views"] or 0),
+                    }
+                )
+
+            payload = {
+                "schema_version": 1,
+                "profile": self.current_profile,
+                "channel_id": PROFILE_TARGETS[self.current_profile],
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "count": len(items),
+                "instructions": (
+                    "Заповніть new_title кирилицею. video_id та title не змінювати."
+                ),
+                "items": items,
+            }
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            QMessageBox.information(
+                self,
+                "Англомовні назви",
+                f"Експортовано: {len(items)}.\n"
+                f"Квота YouTube не витрачалась.\n\n{path}",
+            )
+            self.statusBar().showMessage(
+                f"Англомовні назви експортовано: {len(items)} · квота: 0"
+            )
+        except Exception as exc:
+            self._error("Помилка експорту назв", exc)
+
+    def preview_title_corrections(self) -> None:
+        try:
+            path, payload = self._load_title_review_payload()
+            valid, blocked, missing = self._validated_title_corrections(payload)
+
+            lines = [
+                f"Файл: {path}",
+                f"Готово до застосування: {len(valid)}",
+                f"Без new_title: {missing}",
+                f"Заблоковано перевіркою: {len(blocked)}",
+                "",
+            ]
+            for index, item in enumerate(valid, start=1):
+                lines.extend(
+                    [
+                        f"{index}. {item['video_id']}",
+                        f"ДО: {item['old_title']}",
+                        f"ПІСЛЯ: {item['new_title']}",
+                        "",
+                    ]
+                )
+            if blocked:
+                lines.append("ЗАБЛОКОВАНО:")
+                lines.extend(f"- {value}" for value in blocked)
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Перегляд виправлень назв")
+            dialog.resize(980, 720)
+            layout = QVBoxLayout(dialog)
+            editor = QPlainTextEdit("\n".join(lines))
+            editor.setReadOnly(True)
+            layout.addWidget(editor)
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
+            buttons.rejected.connect(dialog.reject)
+            buttons.accepted.connect(dialog.accept)
+            layout.addWidget(buttons)
+            dialog.exec()
+        except Exception as exc:
+            self._error("Помилка перегляду назв", exc)
+
+    def apply_title_corrections(self) -> None:
+        try:
+            path, payload = self._load_title_review_payload()
+            valid, blocked, missing = self._validated_title_corrections(payload)
+            batch = valid[:DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT]
+            if not batch:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    f"Немає готових виправлень назв. "
+                    f"Без new_title: {missing}. Заблоковано: {len(blocked)}.",
+                )
+                return
+
+            estimated = len(batch) * (VIDEO_UPDATE_COST + READ_REQUEST_COST)
+            answer = QMessageBox.question(
+                self,
+                "Застосувати виправлення назв",
+                f"Готово виправлень: {len(valid)}.\n"
+                f"Зараз буде застосовано: {len(batch)}.\n"
+                f"Орієнтовна квота: ≈{estimated} од. + 1 од. "
+                "на контрольне оновлення списку.\n\n"
+                "Змінюється лише назва відео. Опис, теги YouTube, "
+                "прев'ю та налаштування публікації не змінюються. "
+                "Продовжити?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            if not self._prechange_backup_or_warn(
+                f"перед виправленням мови назв · {self.current_profile}"
+            ):
+                return
+
+            item_by_id = {
+                str(item.get("video_id") or ""): item
+                for item in payload.get("items", [])
+                if isinstance(item, dict)
+            }
+            changed_ids: list[str] = []
+            errors: list[str] = []
+
+            for index, correction in enumerate(batch, start=1):
+                video_id = correction["video_id"]
+                self.statusBar().showMessage(
+                    f"Виправлення назв: {index}/{len(batch)} · {video_id}"
+                )
+                QApplication.processEvents()
+                try:
+                    current_title, description, tags = (
+                        self._current_video_metadata(video_id)
+                    )
+                    if current_title != correction["old_title"]:
+                        raise RuntimeError(
+                            "Назва змінилася після експорту. Пропущено."
+                        )
+                    new_title = correction["new_title"]
+                    if title_script_profile(new_title) == "latin":
+                        raise RuntimeError(
+                            "Нова назва визначена як англомовна."
+                        )
+
+                    history_id = save_metadata_snapshot(
+                        self.conn,
+                        video_id,
+                        current_title,
+                        description,
+                        tags,
+                        "before_title_language_correction",
+                    )
+                    self._quota_update_video(video_id, title=new_title)
+                    record_optimization_event(
+                        self.conn,
+                        history_id=history_id,
+                        video_id=video_id,
+                        profile=self.current_profile,
+                        reason="title_language_correction",
+                        changed_fields="назва · виправлення мови",
+                    )
+                    changed_ids.append(video_id)
+                    item = item_by_id.get(video_id)
+                    if item is not None:
+                        item["applied_at"] = datetime.now(timezone.utc).isoformat()
+                        item["applied_title"] = new_title
+                except Exception as exc:
+                    errors.append(f"{video_id}: {exc}")
+                    if _is_quota_exceeded_error(exc):
+                        mark_quota_exhausted(self.conn)
+                        break
+
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            if changed_ids and not quota_exhausted(self.conn):
+                sync_specific_videos(self.client, self.conn, changed_ids)
+
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.update_dashboard()
+
+            message = (
+                f"Виправлено назв: {len(changed_ids)}.\n"
+                f"Залишилось готових до наступного пакета: "
+                f"{max(0, len(valid) - len(changed_ids))}."
+            )
+            if errors:
+                message += (
+                    f"\nПомилок: {len(errors)}.\n\n"
+                    + "\n".join(errors[:6])
+                )
+            QMessageBox.information(self, APP_NAME, message)
+        except Exception as exc:
+            self._error("Помилка виправлення назв", exc)
+
     def _prepared_queue_ids(self) -> list[str]:
         raw = get_setting(
             self.conn,
