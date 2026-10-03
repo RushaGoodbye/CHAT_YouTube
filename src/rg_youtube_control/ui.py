@@ -99,6 +99,7 @@ from .optimization import (
     validate_content_package,
 )
 from .service import (
+    archive_priority_enabled,
     current_quota_day,
     manual_reply,
     quota_budget_status,
@@ -121,6 +122,7 @@ from .service import (
     READ_REQUEST_COST,
     SAFE_METADATA_ITEM_COST,
     reserve_safe_batch_capacity,
+    set_archive_priority_mode,
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -705,6 +707,14 @@ class MainWindow(QMainWindow):
                 )
                 control.blockSignals(False)
 
+        if hasattr(self, "archive_priority_box"):
+            self.archive_priority_box.blockSignals(True)
+            self.archive_priority_box.setChecked(
+                archive_priority_enabled(self.conn)
+            )
+            self.archive_priority_box.blockSignals(False)
+            self._refresh_archive_priority_controls()
+
         if hasattr(self, "daily_limit_spin"):
             controls = (
                 (
@@ -869,6 +879,8 @@ class MainWindow(QMainWindow):
             quota_note = (
                 f"резерв {budget['reserve']} · автовідповідей ≈{budget['reply_capacity']}"
             )
+            if archive_priority_enabled(self.conn):
+                quota_note += " · ПРІОРИТЕТ АРХІВУ"
 
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
         self.center_prepared.set_value(str(prepared), "відео готові до безпечних правок")
@@ -2491,6 +2503,16 @@ class MainWindow(QMainWindow):
         )
         self.auto_box.stateChanged.connect(self.save_auto_setting)
 
+        self.archive_priority_box = QCheckBox(
+            "Пріоритет архіву - призупинити автопілот безпечних метаданих"
+        )
+        self.archive_priority_box.setChecked(
+            archive_priority_enabled(self.conn)
+        )
+        self.archive_priority_box.stateChanged.connect(
+            self.save_archive_priority_setting
+        )
+
         self.safe_autopilot_box = QCheckBox(
             "Автопілот безпечних метаданих "
             "(лише посилання + рядок хештегів)"
@@ -2747,6 +2769,16 @@ class MainWindow(QMainWindow):
         moderation_note.setWordWrap(True)
         moderation_note.setProperty("muted", True)
         layout.addWidget(moderation_note)
+        layout.addWidget(self.archive_priority_box)
+        archive_priority_note = QLabel(
+            "Коли увімкнено, фоновий автопілот метаданих не витрачає "
+            "квоту YouTube. Попередній стан автопілота зберігається і "
+            "відновлюється після вимкнення режиму. Коментарі та інші "
+            "функції програми не змінюються."
+        )
+        archive_priority_note.setWordWrap(True)
+        archive_priority_note.setProperty("muted", True)
+        layout.addWidget(archive_priority_note)
         layout.addWidget(self.safe_autopilot_box)
         layout.addWidget(QLabel("Інтервал автопілота безпечних метаданих"))
         layout.addWidget(self.autopilot_interval_spin)
@@ -2761,6 +2793,7 @@ class MainWindow(QMainWindow):
         autopilot_note.setWordWrap(True)
         autopilot_note.setProperty("muted", True)
         layout.addWidget(autopilot_note)
+        self._refresh_archive_priority_controls()
         layout.addWidget(QLabel("Денний ліміт автовідповідей"))
         layout.addWidget(self.daily_limit_spin)
         layout.addWidget(QLabel("Ліміт автовідповідей за одне сканування"))
@@ -5371,6 +5404,9 @@ class MainWindow(QMainWindow):
         *,
         max_items: int = 3,
     ) -> int:
+        if archive_priority_enabled(self.conn):
+            return 0
+
         if get_setting(
             self.conn,
             f"safe_metadata_autopilot_{profile}",
@@ -5891,6 +5927,10 @@ class MainWindow(QMainWindow):
             self._error("Помилка відкату метаданих", exc)
 
     def run_background_maintenance(self) -> None:
+        if archive_priority_enabled(self.conn):
+            self.check_quota_plan_ready()
+            return
+
         changed_total = 0
         summaries: list[str] = []
         for profile in PROFILE_TARGETS:
@@ -6443,7 +6483,65 @@ class MainWindow(QMainWindow):
                 "1" if self.auto_box.isChecked() else "0",
             )
 
+    def _refresh_archive_priority_controls(self) -> None:
+        if not hasattr(self, "safe_autopilot_box"):
+            return
+        active = archive_priority_enabled(self.conn)
+        self.safe_autopilot_box.setEnabled(not active)
+        if hasattr(self, "autopilot_interval_spin"):
+            self.autopilot_interval_spin.setEnabled(not active)
+        if hasattr(self, "autopilot_daily_spin"):
+            self.autopilot_daily_spin.setEnabled(not active)
+        if active:
+            self.safe_autopilot_box.blockSignals(True)
+            self.safe_autopilot_box.setChecked(False)
+            self.safe_autopilot_box.blockSignals(False)
+
+    def save_archive_priority_setting(self, _state: int) -> None:
+        enabled = self.archive_priority_box.isChecked()
+        set_archive_priority_mode(
+            self.conn,
+            enabled,
+            tuple(PROFILE_TARGETS.keys()),
+        )
+        self._refresh_archive_priority_controls()
+
+        if not enabled:
+            restored = (
+                get_setting(
+                    self.conn,
+                    f"safe_metadata_autopilot_{self.current_profile}",
+                    "0",
+                )
+                == "1"
+            )
+            self.safe_autopilot_box.blockSignals(True)
+            self.safe_autopilot_box.setChecked(restored)
+            self.safe_autopilot_box.blockSignals(False)
+
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="квота",
+            action="Пріоритет архіву",
+            details=(
+                "увімкнено - автопілот метаданих призупинено"
+                if enabled
+                else "вимкнено - попередній стан автопілота відновлено"
+            ),
+        )
+        self.reload_action_log()
+        self.update_task_center()
+        self.statusBar().showMessage(
+            "Пріоритет архіву увімкнено"
+            if enabled
+            else "Пріоритет архіву вимкнено"
+        )
+
     def save_safe_autopilot_setting(self, _state: int) -> None:
+        if archive_priority_enabled(self.conn):
+            self._refresh_archive_priority_controls()
+            return
         enabled = self.safe_autopilot_box.isChecked()
         set_setting(
             self.conn,
