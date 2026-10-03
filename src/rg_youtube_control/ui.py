@@ -1194,6 +1194,10 @@ class MainWindow(QMainWindow):
             "Англомовні назви",
             "latin_titles",
         )
+        self.optimization_filter.addItem(
+            "Глибока оптимізація",
+            "deep_review",
+        )
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
@@ -4434,11 +4438,23 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        self._refresh_archive_campaign_summary()
         latin_index = self.optimization_filter.findData("latin_titles")
         if latin_index >= 0:
             self.optimization_filter.setItemText(
                 latin_index,
                 f"Англомовні назви ({self._latin_title_review_count(profile)})",
+            )
+        deep_index = self.optimization_filter.findData("deep_review")
+        if deep_index >= 0:
+            _deep_items, deep_total = deep_review_candidates(
+                self.conn,
+                profile,
+                limit=1,
+            )
+            self.optimization_filter.setItemText(
+                deep_index,
+                f"Глибока оптимізація ({deep_total})",
             )
         queue_filter = (
             self.optimization_filter.currentData()
@@ -4461,6 +4477,11 @@ class MainWindow(QMainWindow):
                 " AND v.privacy_status='public'"
             )
         elif queue_filter == "latin_titles":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
+        elif queue_filter == "deep_review":
             extra_where = (
                 " AND v.scheduled_publish_at IS NULL"
                 " AND v.privacy_status='public'"
@@ -4512,6 +4533,23 @@ class MainWindow(QMainWindow):
                 if "latin_title_review" in row_issues:
                     latin_rows.append(row)
             rows = latin_rows
+        elif queue_filter == "deep_review":
+            state_map = deep_review_state_map(self.conn, profile)
+            deep_rows = []
+            for row in rows:
+                try:
+                    row_issues = json.loads(
+                        row["audit_json"] or "{}"
+                    ).get("issues", [])
+                except Exception:
+                    row_issues = []
+                video_id = str(row["video_id"])
+                if (
+                    needs_deep_review(row_issues)
+                    and state_map.get(video_id) not in {"applied", "skipped"}
+                ):
+                    deep_rows.append(row)
+            rows = deep_rows
 
 
         ctr_values = [
@@ -4527,7 +4565,7 @@ class MainWindow(QMainWindow):
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            if queue_filter in {"archive_top", "prepared"}:
+            if queue_filter in {"archive_top", "prepared", "deep_review"}:
                 priority_value = archive_potential_score(
                     lifetime_views=int(row["views"] or 0),
                     analytics_views=int(row["analytics_views"] or 0),
@@ -4536,7 +4574,11 @@ class MainWindow(QMainWindow):
                     median_ctr_percent=float(channel_median_ctr),
                     issues=issues,
                 )
-                priority_text = f"ПОТЕНЦІАЛ {priority_value}"
+                priority_text = (
+                    f"ГЛИБОКА {priority_value}"
+                    if queue_filter == "deep_review"
+                    else f"ПОТЕНЦІАЛ {priority_value}"
+                )
             else:
                 priority_value, priority_text = priority_label(
                     score,
@@ -4566,7 +4608,7 @@ class MainWindow(QMainWindow):
                     str(item[3]["video_id"]), 10**9
                 )
             )
-        elif queue_filter == "archive_top":
+        elif queue_filter in {"archive_top", "deep_review"}:
             prepared.sort(
                 key=lambda item: (
                     -item[0],
@@ -4630,7 +4672,10 @@ class MainWindow(QMainWindow):
                     if priority_text == "ЗАПЛАНОВАНО":
                         item.setForeground(QColor(YOUTUBE_RED))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    elif priority_text.startswith("ПОТЕНЦІАЛ "):
+                    elif (
+                        priority_text.startswith("ПОТЕНЦІАЛ ")
+                        or priority_text.startswith("ГЛИБОКА ")
+                    ):
                         potential = int(priority_text.rsplit(" ", 1)[-1])
                         item.setForeground(
                             QColor(
