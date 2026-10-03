@@ -164,7 +164,26 @@ YOUTUBE_DAILY_QUOTA_DEFAULT = 10000
 VIDEO_UPDATE_COST = 51
 COMMENT_REPLY_COST = 50
 READ_REQUEST_COST = 1
+SAFE_METADATA_ITEM_COST = VIDEO_UPDATE_COST + READ_REQUEST_COST
 QUOTA_RESERVE_DEFAULT = 2500
+
+
+def reserve_safe_batch_capacity(
+    spendable: int,
+    requested: int,
+    *,
+    final_refresh_reads: int = 1,
+) -> int:
+    """Worst-case number of safe metadata edits that fit above reserve."""
+    requested = max(0, int(requested))
+    spendable = max(0, int(spendable))
+    refresh_cost = max(0, int(final_refresh_reads)) * READ_REQUEST_COST
+    if requested <= 0 or spendable <= refresh_cost:
+        return 0
+    return min(
+        requested,
+        (spendable - refresh_cost) // SAFE_METADATA_ITEM_COST,
+    )
 
 def _quota_day() -> str:
     try:
