@@ -4750,7 +4750,7 @@ class MainWindow(QMainWindow):
                 f"{len(final_description)} символів\n"
                 f"Теги: {len(current_tags)} → {len(new_tags)}\n\n"
                 "Усі поля буде надіслано одним videos.update "
-                "(≈50 од. квоти). Продовжити?",
+                f"(≈{VIDEO_UPDATE_COST} од. квоти). Продовжити?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -5154,7 +5154,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(prepared_rows) * 50
+        estimated = len(prepared_rows) * VIDEO_UPDATE_COST
         preview_lines = []
         for row, prepared in prepared_rows[:10]:
             new_title, description, chapters, tags, check, prep_changes = prepared
@@ -5553,7 +5553,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(video_ids) * 50
+        estimated = len(video_ids) * VIDEO_UPDATE_COST
         answer = QMessageBox.question(
             self,
             f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
@@ -5679,7 +5679,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        estimated = len(video_ids) * 50
+        estimated = len(video_ids) * VIDEO_UPDATE_COST
         answer = QMessageBox.question(
             self,
             "Застосувати безпечні правки",
@@ -6255,7 +6255,7 @@ class MainWindow(QMainWindow):
             self.auto_quota_label.setText(
                 f"Автовідповіді: {safe_used}/{daily_limit} "
                 f"· надіслано через застосунок сьогодні: {total_used} "
-                f"· ≈{total_used * 50} од. квоти"
+                f"· ≈{total_used * VIDEO_UPDATE_COST} од. квоти"
             )
 
     def reply_selected(self) -> None:
