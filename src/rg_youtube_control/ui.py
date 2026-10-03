@@ -3979,6 +3979,18 @@ class MainWindow(QMainWindow):
                     self.archive_priority_box.setChecked(False)
                     self.archive_priority_box.blockSignals(False)
                     self._refresh_archive_priority_controls()
+                if hasattr(self, "safe_autopilot_box"):
+                    restored = (
+                        get_setting(
+                            self.conn,
+                            f"safe_metadata_autopilot_{self.current_profile}",
+                            "0",
+                        )
+                        == "1"
+                    )
+                    self.safe_autopilot_box.blockSignals(True)
+                    self.safe_autopilot_box.setChecked(restored)
+                    self.safe_autopilot_box.blockSignals(False)
                 log_action(
                     self.conn,
                     profile=self.current_profile,
@@ -4234,18 +4246,30 @@ class MainWindow(QMainWindow):
                 if total_safe and fresh_capacity
                 else 0
             )
-            today_count = sum(
-                int(
-                    get_setting(
-                        self.conn,
-                        f"archive_campaign_changed_{profile}_"
-                        f"{current_quota_day()}",
-                        "0",
-                    )
-                    or 0
+            today_count = 0
+            utc_day = datetime.now(timezone.utc).date().isoformat()
+            for profile in PROFILE_TARGETS:
+                counter_key = (
+                    f"archive_campaign_changed_{profile}_"
+                    f"{current_quota_day()}"
                 )
-                for profile in PROFILE_TARGETS
-            )
+                raw_counter = get_setting(
+                    self.conn,
+                    counter_key,
+                    "",
+                ).strip()
+                if raw_counter:
+                    today_count += int(raw_counter or 0)
+                else:
+                    fallback = self.conn.execute(
+                        """SELECT COUNT(*) AS n
+                           FROM optimization_events
+                           WHERE profile=?
+                             AND reason='safe_archive_batch'
+                             AND optimized_at LIKE ?""",
+                        (profile, f"{utc_day}%"),
+                    ).fetchone()
+                    today_count += int(fallback["n"] or 0)
             quota_label.setText(
                 f"Квота: враховано ≈{budget['used']}/"
                 f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
