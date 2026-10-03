@@ -1130,6 +1130,9 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self.reload_optimization_queue)
         potential_btn = QPushButton("ТОП потенціал")
         potential_btn.clicked.connect(self.refresh_archive_potential)
+        campaign_btn = QPushButton("Центр кампанії")
+        campaign_btn.setProperty("role", "success")
+        campaign_btn.clicked.connect(self.show_archive_campaign_center)
         prepare_queue_btn = QPushButton(f"Підготувати {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
         prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
         preview_btn = QPushButton("Перегляд безпечних правок")
@@ -1198,6 +1201,7 @@ class MainWindow(QMainWindow):
         sync_row.addWidget(sync_all_btn)
         sync_row.addWidget(refresh_btn)
         sync_row.addWidget(potential_btn)
+        sync_row.addWidget(campaign_btn)
         sync_row.addWidget(prepare_queue_btn)
         sync_row.addSpacing(12)
         sync_row.addWidget(QLabel("Фільтр:"))
@@ -1227,6 +1231,12 @@ class MainWindow(QMainWindow):
         title_row.addWidget(preview_titles_btn)
         title_row.addWidget(apply_titles_btn)
         title_row.addStretch()
+
+        self.archive_campaign_summary = QLabel()
+        self.archive_campaign_summary.setObjectName("ArchiveCampaignSummary")
+        self.archive_campaign_summary.setProperty("muted", True)
+        self.archive_campaign_summary.setWordWrap(True)
+        self._refresh_archive_campaign_summary()
 
         self.optimization_table = QTableWidget(0, 12)
         self.optimization_table.setHorizontalHeaderLabels(
@@ -1272,6 +1282,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(safe_row)
         layout.addLayout(content_row)
         layout.addLayout(title_row)
+        layout.addWidget(self.archive_campaign_summary)
         layout.addWidget(self.optimization_table)
         self.tabs.addTab(page, "Оптимізація")
 
