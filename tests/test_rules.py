@@ -1289,7 +1289,7 @@ def test_deep_review_state_can_complete_candidate(tmp_path):
         transcript_dir=tmp_path,
     )
     assert after["deep_remaining"] == 0
-    assert after["applied_packages"] == 0
+    assert after["applied_packages"] == 1
 
 
 def test_deep_packages_force_draft_and_full_preview():
@@ -1323,6 +1323,25 @@ def test_archive_campaign_center_controls_both_channels():
     assert "apply_next_safe_archive_batch(daily=True)" in source
     assert "set_archive_priority_mode" in advance_source
     assert "tuple(PROFILE_TARGETS.keys())" in advance_source
+
+
+def test_deep_transcript_batch_accounts_quota_and_reserve():
+    import inspect
+
+    from rg_youtube_control.service import CAPTION_TRANSCRIPT_COST
+    from rg_youtube_control.ui import MainWindow
+
+    assert CAPTION_TRANSCRIPT_COST == 250
+
+    source = inspect.getsource(MainWindow._export_transcript_video_to_nas)
+    deep_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+    center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
+
+    assert "respect_reserve" in source
+    assert "record_quota_units" in source
+    assert "CAPTION_TRANSCRIPT_COST" in source
+    assert "CAPTION_TRANSCRIPT_COST" in deep_source
+    assert "Транскрипти глибокої черги" in center_source
 
 
 def test_daily_archive_capacity_uses_full_safe_budget():
