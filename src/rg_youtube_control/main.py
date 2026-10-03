@@ -1,9 +1,10 @@
 import sys
 
-from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
 from PySide6.QtWidgets import QApplication
 
 from .config import APP_NAME
+from .service import archive_priority_enabled
 from .ui import MainWindow
 
 def main() -> int:
@@ -21,6 +22,17 @@ def main() -> int:
 
     window = MainWindow()
     window.show()
+
+    campaign_timer = QTimer(window)
+    campaign_timer.setInterval(60 * 1000)
+
+    def poll_campaign() -> None:
+        if archive_priority_enabled(window.conn):
+            window._run_archive_campaign_autorun()
+
+    campaign_timer.timeout.connect(poll_campaign)
+    campaign_timer.start()
+    window._campaign_quota_timer = campaign_timer
     return app.exec()
 
 if __name__ == "__main__":
