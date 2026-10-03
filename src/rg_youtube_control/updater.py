@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import urllib.request
 from dataclasses import dataclass
@@ -111,6 +112,47 @@ def _sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+def prune_cached_updates(root: Path | None = None, keep: int = 3) -> list[str]:
+    if root is None:
+        base = Path(os.getenv("LOCALAPPDATA", tempfile.gettempdir()))
+        root = base / "RGYouTubeControl" / "updates"
+    if not root.exists():
+        return []
+
+    pattern = re.compile(
+        r"^RG_YouTube_Control_Setup_(\d+(?:\.\d+)+)\.exe(?:\.sha256)?$",
+        re.IGNORECASE,
+    )
+    versions: dict[str, list[Path]] = {}
+    for path in root.iterdir():
+        if not path.is_file():
+            continue
+        match = pattern.match(path.name)
+        if not match:
+            continue
+        versions.setdefault(match.group(1), []).append(path)
+
+    keep_versions = {
+        version
+        for version in sorted(
+            versions,
+            key=_version_tuple,
+            reverse=True,
+        )[: max(1, int(keep))]
+    }
+    removed: list[str] = []
+    for version, paths in versions.items():
+        if version in keep_versions:
+            continue
+        for path in paths:
+            try:
+                path.unlink()
+                removed.append(path.name)
+            except OSError:
+                continue
+    return removed
+
+
 def download_update(info: UpdateInfo) -> Path:
     base = Path(os.getenv("LOCALAPPDATA", tempfile.gettempdir()))
     root = base / "RGYouTubeControl" / "updates"
@@ -127,4 +169,5 @@ def download_update(info: UpdateInfo) -> Path:
             installer.unlink(missing_ok=True)
             raise RuntimeError("SHA-256 оновлення не збігається. Встановлення скасовано.")
 
+    prune_cached_updates(root, keep=3)
     return installer
