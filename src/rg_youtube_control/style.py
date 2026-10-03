@@ -170,6 +170,59 @@ QCheckBox::indicator:checked {
     background: #ff0033;
     border-color: #ff0033;
 }
+
+QFrame#SettingsChannelBar {
+    background: #181818;
+    border: 1px solid #2b2b2b;
+    border-radius: 10px;
+}
+QTabWidget#SettingsSections::pane {
+    background: #121212;
+    border: 1px solid #2b2b2b;
+    border-radius: 10px;
+    top: -1px;
+}
+QTabWidget#SettingsSections QTabBar::tab {
+    background: #141414;
+    padding: 10px 18px;
+    border-bottom: 2px solid transparent;
+}
+QTabWidget#SettingsSections QTabBar::tab:selected {
+    background: #181818;
+    border-bottom: 2px solid #ff0033;
+}
+QScrollArea#SettingsScroll {
+    background: transparent;
+    border: 0;
+}
+QScrollArea#SettingsScroll > QWidget > QWidget {
+    background: transparent;
+}
+QFrame#SettingsCard {
+    background: #181818;
+    border: 1px solid #2b2b2b;
+    border-radius: 10px;
+}
+QLabel#SettingsSectionTitle {
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: 700;
+}
+QLabel#SettingsHint {
+    color: #a5a5a5;
+    font-size: 9pt;
+}
+QLabel#QuotaSummary {
+    background: #111111;
+    border: 1px solid #303030;
+    border-radius: 7px;
+    padding: 9px 11px;
+}
+QLabel#SettingsVersion {
+    font-size: 11pt;
+    font-weight: 600;
+}
+
 QStatusBar {
     background: #181818;
     color: #a8a8a8;
