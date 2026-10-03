@@ -1087,3 +1087,97 @@ def test_current_quota_day_is_iso_date():
 
     parsed = date.fromisoformat(current_quota_day())
     assert isinstance(parsed, date)
+
+
+def test_reply_test_uses_fresh_safe_local_queue(tmp_path):
+    from datetime import datetime, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import reply_one_queued_safe_comment
+
+    class FakeClient:
+        profile = "main"
+
+        def __init__(self):
+            self.sent = []
+
+        def reply(self, parent_comment_id, text):
+            self.sent.append((parent_comment_id, text))
+            return {}
+
+    conn = connect(tmp_path / "queued-reply.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,description,tags_json,privacy_status,
+            published_at,views,audit_json,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (
+            "v1", "main", "Video", "", "[]", "public",
+            datetime.now(timezone.utc).isoformat(), 1, "{}", datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,reply_text,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (
+            "c-safe", "v1", "viewer", "Дякую!",
+            datetime.now(timezone.utc).isoformat(),
+            "thanks", "new", "Дякуємо за підтримку! 💙💛", "{}",
+        ),
+    )
+    conn.commit()
+
+    client = FakeClient()
+    result = reply_one_queued_safe_comment(
+        client,
+        conn,
+        "main",
+        max_auto_age_hours=24,
+        max_auto_replies=30,
+    )
+
+    assert result["sent"] == 1
+    assert client.sent == [("c-safe", "Дякуємо за підтримку! 💙💛")]
+    status = conn.execute(
+        "SELECT status FROM comments WHERE comment_id='c-safe'"
+    ).fetchone()["status"]
+    assert status == "replied"
+
+
+def test_reply_test_ignores_old_safe_local_comment(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import reply_one_queued_safe_comment
+
+    class FakeClient:
+        profile = "main"
+        def reply(self, parent_comment_id, text):
+            raise AssertionError("Old comment must not be answered")
+
+    conn = connect(tmp_path / "queued-old.sqlite")
+    conn.execute(
+        """INSERT INTO videos(
+            video_id,profile,title,description,tags_json,privacy_status,
+            published_at,views,audit_json,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (
+            "v1", "main", "Video", "", "[]", "public",
+            datetime.now(timezone.utc).isoformat(), 1, "{}", datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.execute(
+        """INSERT INTO comments(
+            comment_id,video_id,author,text,published_at,category,status,reply_text,raw_json
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (
+            "c-old", "v1", "viewer", "Дякую!",
+            (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat(),
+            "thanks", "new", "Дякуємо!", "{}",
+        ),
+    )
+    conn.commit()
+
+    result = reply_one_queued_safe_comment(
+        FakeClient(), conn, "main", max_auto_age_hours=24
+    )
+    assert result["sent"] == 0

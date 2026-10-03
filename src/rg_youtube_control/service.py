@@ -640,6 +640,100 @@ def scan_comments(
                 stats["queued"] += 1
     return stats
 
+def reply_one_queued_safe_comment(
+    client: YouTubeClient,
+    conn: sqlite3.Connection,
+    profile: str,
+    *,
+    max_auto_age_hours: int = DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
+    max_auto_replies: int = DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "sent": 0,
+        "quota_blocked": 0,
+        "limit_blocked": 0,
+        "comment_id": "",
+        "category": "",
+        "author": "",
+    }
+
+    if quota_exhausted(conn):
+        result["quota_blocked"] = 1
+        return result
+    if today_auto_reply_count(conn, profile) >= max_auto_replies:
+        result["limit_blocked"] = 1
+        return result
+
+    budget = quota_budget_status(conn)
+    if int(budget["spendable"]) < COMMENT_REPLY_COST:
+        result["quota_blocked"] = 1
+        return result
+
+    rows = conn.execute(
+        """SELECT c.comment_id,c.author,c.published_at,c.category,c.reply_text
+           FROM comments c
+           JOIN videos v ON v.video_id=c.video_id
+           WHERE v.profile=?
+             AND c.status='new'
+             AND c.category IN ('thanks','links','donate','schedule')
+           ORDER BY c.published_at DESC
+           LIMIT 250""",
+        (profile,),
+    ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=max_auto_age_hours)
+    for row in rows:
+        raw_published = str(row["published_at"] or "")
+        try:
+            published = datetime.fromisoformat(raw_published.replace("Z", "+00:00"))
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if published < cutoff:
+            continue
+
+        comment_id = str(row["comment_id"])
+        category = str(row["category"] or "")
+        reply_text = str(row["reply_text"] or "").strip()
+        if not reply_text:
+            reply_text = _reply_template_for(
+                conn, profile, category, comment_id
+            )
+        safe_reply = _validated_reply_text(reply_text)
+
+        try:
+            client.reply(comment_id, safe_reply)
+        except Exception as exc:
+            if _is_quota_error(exc):
+                mark_quota_exhausted(conn)
+                result["quota_blocked"] = 1
+                return result
+            raise
+
+        mark_replied(conn, comment_id, safe_reply)
+        _record_reply(conn, auto=True, profile=profile)
+        log_action(
+            conn,
+            profile=profile,
+            category="коментарі",
+            action="Тестова автовідповідь",
+            details=f"{row['author'] or ''}: {safe_reply}",
+        )
+        result.update(
+            {
+                "sent": 1,
+                "comment_id": comment_id,
+                "category": category,
+                "author": str(row["author"] or ""),
+            }
+        )
+        return result
+
+    return result
+
+
 def manual_reply(
     client: YouTubeClient,
     conn: sqlite3.Connection,
