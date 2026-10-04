@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "request_mcp_protocol_smoke",
-  "args": {"final": true}
+  "action": "enable_one_minute_mcp_tick",
+  "args": {}
 }
