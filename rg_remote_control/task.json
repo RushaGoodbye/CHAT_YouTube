@@ -1,5 +1,7 @@
 {
   "target": "alexpc",
   "action": "stage_mcp_to_docker_root",
-  "args": {}
+  "args": {
+    "reason": "telegram-contour-full-stack-and-telegram-smoke"
+  }
 }
