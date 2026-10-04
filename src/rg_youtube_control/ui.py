@@ -4466,77 +4466,83 @@ class MainWindow(QMainWindow):
             "1",
         ) != "1":
             return
-
-        current_day = current_quota_day()
-        done_key = f"archive_campaign_autorun_done_{current_day}"
-        if get_setting(self.conn, done_key, "0") == "1":
+        if getattr(self, "_archive_campaign_autorun_running", False):
             return
 
-        stats = self._archive_campaign_stats()
-        phase, target = next_campaign_phase(stats)
-        if phase == "complete":
-            self._advance_archive_campaign()
-            set_setting(self.conn, done_key, "1")
-            return
-
-        budget = self._archive_campaign_budget()
-        if phase == "safe" and int(budget["current_capacity"]) <= 0:
-            save_campaign_checkpoint(
-                self.conn,
-                phase=phase,
-                target=target,
-                status="paused_quota",
-                note="protected_comment_reserve",
-            )
-            return
-
+        self._archive_campaign_autorun_running = True
         try:
-            if target:
-                client = YouTubeClient(profile=target)
-                client.credentials()
-                self.client = client
-                self.current_profile = target
-            if phase == "safe":
-                backup_root = self._recovery_backup_root()
-                if not backup_root.parent.exists():
-                    save_campaign_checkpoint(
-                        self.conn,
-                        phase=phase,
-                        target=target,
-                        status="paused_storage",
-                        note="nas_unavailable",
-                    )
-                    return
-            completed = self.run_archive_campaign_step(automatic=True)
-            if completed:
+            current_day = current_quota_day()
+            done_key = f"archive_campaign_autorun_done_{current_day}"
+            if get_setting(self.conn, done_key, "0") == "1":
+                return
+
+            stats = self._archive_campaign_stats()
+            phase, target = next_campaign_phase(stats)
+            if phase == "complete":
+                self._advance_archive_campaign()
                 set_setting(self.conn, done_key, "1")
+                return
+
+            budget = self._archive_campaign_budget()
+            if phase == "safe" and int(budget["current_capacity"]) <= 0:
+                save_campaign_checkpoint(
+                    self.conn,
+                    phase=phase,
+                    target=target,
+                    status="paused_quota",
+                    note="protected_comment_reserve",
+                )
+                return
+
+            try:
+                if target:
+                    client = YouTubeClient(profile=target)
+                    client.credentials()
+                    self.client = client
+                    self.current_profile = target
+                if phase == "safe":
+                    backup_root = self._recovery_backup_root()
+                    if not backup_root.parent.exists():
+                        save_campaign_checkpoint(
+                            self.conn,
+                            phase=phase,
+                            target=target,
+                            status="paused_storage",
+                            note="nas_unavailable",
+                        )
+                        return
+                completed = self.run_archive_campaign_step(automatic=True)
+                if completed:
+                    set_setting(self.conn, done_key, "1")
+                    log_action(
+                        self.conn,
+                        profile=target or self.current_profile,
+                        category="кампанія архіву",
+                        action="Автозапуск квотного дня",
+                        details=(
+                            f"{phase}:{target} · "
+                            f"бюджет кампанії {budget['campaign_spendable']} · "
+                            f"резерв коментарів {budget['reserve']}"
+                        ),
+                    )
+                    self.reload_action_log()
+            except Exception as exc:
+                save_campaign_checkpoint(
+                    self.conn,
+                    phase=phase,
+                    target=target,
+                    status="interrupted",
+                    note=str(exc),
+                )
                 log_action(
                     self.conn,
                     profile=target or self.current_profile,
                     category="кампанія архіву",
-                    action="Автозапуск квотного дня",
-                    details=(
-                        f"{phase}:{target} · "
-                        f"бюджет кампанії {budget['campaign_spendable']} · "
-                        f"резерв коментарів {budget['reserve']}"
-                    ),
+                    action="Автозапуск відкладено",
+                    details=str(exc),
                 )
-                self.reload_action_log()
-        except Exception as exc:
-            save_campaign_checkpoint(
-                self.conn,
-                phase=phase,
-                target=target,
-                status="interrupted",
-                note=str(exc),
-            )
-            log_action(
-                self.conn,
-                profile=target or self.current_profile,
-                category="кампанія архіву",
-                action="Автозапуск відкладено",
-                details=str(exc),
-            )
+        finally:
+            self._archive_campaign_autorun_running = False
 
     def show_archive_campaign_center(self) -> None:
         dialog = QDialog(self)
@@ -6954,6 +6960,10 @@ class MainWindow(QMainWindow):
                 )
                 QApplication.processEvents()
                 try:
+                    live_budget = quota_budget_status(self.conn)
+                    if int(live_budget["spendable"]) < SAFE_METADATA_ITEM_COST:
+                        error_text = "reserve_reached"
+                        break
                     title, description, tags = self._current_video_metadata(video_id)
                     fix = safe_description_fix(description, title)
                     if not fix.changes or fix.after == description:
