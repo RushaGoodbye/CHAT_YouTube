@@ -2,5 +2,7 @@
   "target": "alexpc",
   "contour": "youtube",
   "action": "enable_youtube_mcp_bridge",
-  "args": {}
+  "args": {
+    "retry": 1
+  }
 }
