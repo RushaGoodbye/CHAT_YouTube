@@ -1736,6 +1736,61 @@ def youtube_mcp_call() -> dict:
     return asyncio.run(_call())
 
 
+def pin_live_mcp_lan_bind() -> dict:
+    from datetime import datetime, timezone
+
+    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP")
+    compose = root / "SOURCE" / "docker-compose.yml"
+    request = root / "DEPLOY_REQUEST"
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+
+    if not compose.is_file():
+        raise RuntimeError(f"Live MCP compose missing: {compose}")
+
+    text = compose.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    changed = False
+    out = []
+    for line in lines:
+        if "8765:8765" in line and line.lstrip().startswith("- "):
+            indent = line[: len(line) - len(line.lstrip())]
+            out.append(indent + '- "192.168.50.32:8765:8765"')
+            changed = True
+        else:
+            out.append(line)
+
+    if not changed and "192.168.50.32:8765:8765" not in text:
+        raise RuntimeError("Hub port mapping not found in live compose")
+
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup = state / f"RG_NAS_MCP.compose.before_lan_{stamp}.yml"
+    shutil.copy2(compose, backup)
+
+    updated = "\n".join(out) + "\n"
+    temp = compose.with_name(compose.name + ".lan.tmp")
+    temp.write_text(updated, encoding="utf-8", newline="\n")
+    os.replace(temp, compose)
+
+    verify = compose.read_text(encoding="utf-8", errors="replace")
+    if '"192.168.50.32:8765:8765"' not in verify:
+        shutil.copy2(backup, compose)
+        raise RuntimeError("LAN bind verification failed; backup restored")
+
+    request.write_text(
+        "Pin RG NAS MCP to NAS LAN address\n",
+        encoding="utf-8",
+    )
+
+    return {
+        "updated": True,
+        "bind": "192.168.50.32:8765",
+        "compose": str(compose),
+        "backup": str(backup),
+        "deploy_request": str(request),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1795,6 +1850,7 @@ ACTIONS = {
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
+    "pin_live_mcp_lan_bind": pin_live_mcp_lan_bind,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
