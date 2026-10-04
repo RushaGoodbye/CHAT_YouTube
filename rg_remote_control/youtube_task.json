@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_program_local_status",
   "args": {
-    "mode": "zero_quota_plan"
+    "mode": "inspect_blocked_overflow"
   }
 }
