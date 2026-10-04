@@ -596,7 +596,7 @@ def sync_nas_scheduler_tick() -> dict:
     import hashlib
     from datetime import datetime, timezone
 
-    expected_blob = "5fd7a9dc7f6434ca5bfedd3e82d687ff1388edb3"
+    expected_blob = "499fd06d91fdab32950c69abad04cad27b26beea"
     source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_SCHEDULER_TICK.sh"
     if not source.is_file():
         raise RuntimeError(f"Vendored scheduler missing: {source}")
@@ -810,6 +810,113 @@ def probe_nas_cached_identity() -> dict:
     }
 
 
+def request_local_mcp_deploy() -> dict:
+    import time
+    from datetime import datetime, timezone
+
+    remote_root = Path(r"\\AlexLosServer\RG_AUTO_EDIT\REMOTE_MCP")
+    source = remote_root / "SOURCE"
+    required = [
+        source / "docker-compose.yml",
+        source / "Dockerfile",
+        source / "Dockerfile.worker",
+    ]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise RuntimeError("MCP source incomplete: " + "; ".join(missing))
+
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    status_file = state / "mcp_deploy_status"
+    log_file = state / "mcp-deploy.log"
+    request = remote_root / "DEPLOY_REQUEST"
+
+    before_status_mtime = status_file.stat().st_mtime if status_file.is_file() else 0
+    requested_at = datetime.now(timezone.utc).isoformat()
+    request.write_text(
+        "RG NAS MCP local deploy request\n" + requested_at + "\n",
+        encoding="utf-8",
+    )
+    request_mtime = request.stat().st_mtime
+
+    observations = []
+    started = time.time()
+    while time.time() - started < 420:
+        status = (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else ""
+        )
+        status_mtime = status_file.stat().st_mtime if status_file.is_file() else 0
+        request_exists = request.exists()
+        if (
+            not observations
+            or observations[-1].get("status") != status
+            or observations[-1].get("request_exists") != request_exists
+        ):
+            observations.append({
+                "elapsed": int(time.time() - started),
+                "status": status or None,
+                "request_exists": request_exists,
+            })
+
+        fresh = status_mtime >= request_mtime and status_mtime > before_status_mtime
+        if fresh and status in {"OK", "ERROR"}:
+            log_tail = []
+            if log_file.is_file():
+                log_tail = log_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()[-120:]
+            return {
+                "requested_at": requested_at,
+                "processed": True,
+                "status": status,
+                "elapsed_seconds": int(time.time() - started),
+                "observations": observations,
+                "log_tail": log_tail,
+            }
+        time.sleep(10)
+
+    log_tail = []
+    if log_file.is_file():
+        log_tail = log_file.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()[-120:]
+    return {
+        "requested_at": requested_at,
+        "processed": False,
+        "status": (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else None
+        ),
+        "request_exists": request.exists(),
+        "elapsed_seconds": int(time.time() - started),
+        "observations": observations,
+        "log_tail": log_tail,
+    }
+
+
+def probe_local_mcp_deploy() -> dict:
+    remote_root = Path(r"\\AlexLosServer\RG_AUTO_EDIT\REMOTE_MCP")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    request = remote_root / "DEPLOY_REQUEST"
+    status_file = state / "mcp_deploy_status"
+    log_file = state / "mcp-deploy.log"
+    return {
+        "request_exists": request.exists(),
+        "status": (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else None
+        ),
+        "log_tail": (
+            log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-120:]
+            if log_file.is_file()
+            else []
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -851,6 +958,8 @@ ACTIONS = {
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
     "probe_contour_mounts": probe_contour_mounts,
     "probe_nas_cached_identity": probe_nas_cached_identity,
+    "request_local_mcp_deploy": request_local_mcp_deploy,
+    "probe_local_mcp_deploy": probe_local_mcp_deploy,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
