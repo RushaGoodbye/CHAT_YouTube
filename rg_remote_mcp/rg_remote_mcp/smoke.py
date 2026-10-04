@@ -77,8 +77,32 @@ async def main() -> None:
                 "items": item_count,
             }
 
+        telegram_deploy = await client.call_tool("telegram_fs_list", {"relative": "deploy"})
+        if telegram_deploy.is_error:
+            raise SystemExit(f"telegram_fs_list deploy failed: {telegram_deploy.content}")
+        telegram_payload = _payload(telegram_deploy)
+        telegram_items = telegram_payload if isinstance(telegram_payload, list) else telegram_payload.get("items", [])
+        telegram_names = {
+            str(item.get("name") or "")
+            for item in telegram_items
+            if isinstance(item, dict)
+        }
+        required_telegram = {
+            "cloudflare-video-moderation",
+            "cloudflare-alerts",
+            "cloudflare-content-hub",
+            "cloudflare-admin-control",
+        }
+        missing_telegram = required_telegram - telegram_names
+        if missing_telegram:
+            raise SystemExit(
+                "Telegram contour missing production mounts: "
+                + json.dumps(sorted(missing_telegram), ensure_ascii=False)
+            )
+
         print("RG_NAS_MCP_PROTOCOL_PASS")
         print("CONTOURS_PASS youtube telegram auto_edit")
+        print("TELEGRAM_STACK_PASS video alerts content admin-control")
         print(json.dumps(
             {
                 "health": payload,
