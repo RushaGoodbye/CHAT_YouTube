@@ -2139,7 +2139,8 @@ class MainWindow(QMainWindow):
         coverage_start = None
         coverage_end = None
         complete_windows = [item for item in event_windows if item[5] == 0]
-        if complete_windows:
+        local_only_results = quota_exhausted(self.conn)
+        if complete_windows and not local_only_results:
             reach_start = min(item[1] for item in complete_windows).isoformat()
             reach_end = max(item[4] for item in complete_windows).isoformat()
             try:
@@ -2176,7 +2177,7 @@ class MainWindow(QMainWindow):
             reach_before = None
             reach_after = None
             error_text = ""
-            if remaining_days == 0:
+            if remaining_days == 0 and not local_only_results:
                 try:
                     video_id = str(event["video_id"])
                     before = self._video_window_metrics(
@@ -2232,6 +2233,9 @@ class MainWindow(QMainWindow):
             if error_text:
                 status = "помилка Analytics"
                 status_key = "error"
+            elif local_only_results and remaining_days == 0:
+                status = "локально"
+                status_key = "waiting"
             elif remaining_days > 0:
                 status = f"ще {remaining_days} дн."
                 status_key = "waiting"
