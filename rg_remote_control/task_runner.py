@@ -2833,6 +2833,97 @@ def youtube_program_local_status() -> dict:
     return result
 
 
+def launch_auto_edit_studio() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("launch_auto_edit_studio must run on AlexPC/Windows")
+
+    import subprocess
+    import time
+
+    launcher = Path(
+        r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_studio_main.py"
+    )
+    if not launcher.is_file():
+        raise RuntimeError(f"RG Auto Edit launcher not found: {launcher}")
+
+    # Avoid launching a duplicate Studio instance.
+    probe = run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | "
+                "Where-Object { $_.CommandLine -like '*rg_studio_main.py*' -or "
+                "$_.CommandLine -like '*rg_studio_ui.py*' }; "
+                "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            ),
+        ],
+        timeout=30,
+    )
+    existing_text = (probe.get("stdout") or "").strip()
+    if existing_text and existing_text not in {"null", "[]"}:
+        return {
+            "launched": False,
+            "already_running": True,
+            "processes": existing_text,
+            "launcher": str(launcher),
+        }
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    exe = pythonw if pythonw.is_file() else Path(sys.executable)
+
+    env = os.environ.copy()
+    # Prevent GitHub Actions post-job cleanup from killing the detached GUI.
+    env.pop("RUNNER_TRACKING_ID", None)
+
+    creationflags = 0
+    creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    proc = subprocess.Popen(
+        [str(exe), str(launcher)],
+        cwd=str(launcher.parent),
+        env=env,
+        creationflags=creationflags,
+        close_fds=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+    time.sleep(4)
+
+    verify = run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | "
+                "Where-Object { $_.CommandLine -like '*rg_studio_main.py*' -or "
+                "$_.CommandLine -like '*rg_studio_ui.py*' }; "
+                "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            ),
+        ],
+        timeout=30,
+    )
+    running_text = (verify.get("stdout") or "").strip()
+    if not running_text or running_text in {"null", "[]"}:
+        raise RuntimeError("RG Auto Edit Studio process was not detected after launch")
+
+    return {
+        "launched": True,
+        "already_running": False,
+        "pid": proc.pid,
+        "python": str(exe),
+        "launcher": str(launcher),
+        "processes": running_text,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -2896,6 +2987,7 @@ ACTIONS = {
     "youtube_mcp_batch": youtube_mcp_batch,
     "youtube_program_local_status": youtube_program_local_status,
     "auto_edit_mcp_call": auto_edit_mcp_call,
+    "launch_auto_edit_studio": launch_auto_edit_studio,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
