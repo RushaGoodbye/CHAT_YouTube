@@ -12,11 +12,15 @@ on:
   pull_request:
     branches:
       - "main"
+    paths-ignore:
+      - "rg_remote_mcp/**"
   push:
     branches:
       - "main"
     tags:
       - "v*"
+    paths-ignore:
+      - "rg_remote_mcp/**"
 
 jobs:
   build:
