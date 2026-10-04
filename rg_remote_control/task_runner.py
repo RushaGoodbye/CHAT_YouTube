@@ -1182,6 +1182,28 @@ def migrate_live_mcp_hook_to_docker_root() -> dict:
     }
 
 
+def probe_docker_root_mcp_deploy() -> dict:
+    remote_root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    request = remote_root / "DEPLOY_REQUEST"
+    status_file = state / "mcp_deploy_status"
+    log_file = state / "mcp-deploy.log"
+    return {
+        "source_exists": (remote_root / "SOURCE" / "docker-compose.yml").is_file(),
+        "request_exists": request.exists(),
+        "status": (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else None
+        ),
+        "log_tail": (
+            log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-160:]
+            if log_file.is_file()
+            else []
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1231,6 +1253,7 @@ ACTIONS = {
     "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
     "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
     "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
+    "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
