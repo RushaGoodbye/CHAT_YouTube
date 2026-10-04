@@ -908,13 +908,7 @@ class MainWindow(QMainWindow):
             (profile,),
         ).fetchone()[0])
 
-        prepared_raw = get_setting(
-            self.conn, f"prepared_safe_queue_{profile}", "[]"
-        )
-        try:
-            prepared = len(json.loads(prepared_raw) or [])
-        except Exception:
-            prepared = 0
+        prepared = len(self._prepared_queue_ids())
 
         events = optimization_events(self.conn, profile, limit=100)
         today = datetime.now(timezone.utc).date()
@@ -1144,13 +1138,7 @@ class MainWindow(QMainWindow):
 
     def show_quota_planner(self) -> None:
         profile = self.current_profile
-        prepared_raw = get_setting(
-            self.conn, f"prepared_safe_queue_{profile}", "[]"
-        )
-        try:
-            prepared_count = len(json.loads(prepared_raw) or [])
-        except Exception:
-            prepared_count = 0
+        prepared_count = len(self._prepared_queue_ids())
         scheduled_ready = int(
             self.conn.execute(
                 """SELECT COUNT(*)
