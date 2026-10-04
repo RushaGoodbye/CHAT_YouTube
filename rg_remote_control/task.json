@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "stage_remote_mcp_to_nas",
+  "action": "sync_nas_command_bus_mcp",
   "args": {}
 }
