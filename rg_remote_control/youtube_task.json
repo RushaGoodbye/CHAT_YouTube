@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
+  "action": "youtube_local_quota_plan_status",
   "args": {
-    "mode": "post_repair_verify",
-    "nonce": "post-repair-1"
+    "nonce": "next-quota-plan-20261005"
   }
 }
