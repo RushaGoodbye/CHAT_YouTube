@@ -238,7 +238,7 @@ def transcript_sample_text(
     separator = "\n[...]\n"
     separator_budget = len(separator) * (segments - 1)
     usable = max(200, max_chars - separator_budget)
-    per_window = max(80, usable // segments)
+    per_window = max(20, usable // segments)
     last_start = prepared[-1][0]
 
     chunks: list[str] = []
@@ -292,15 +292,30 @@ def transcript_sample_text(
     if len(result) <= max_chars:
         return result
 
-    # The per-window budget should normally keep us below max_chars. If an
-    # unusually long single caption exceeds its window, trim only that caption
-    # while preserving the final segment and therefore end-of-video coverage.
-    overflow = len(result) - max_chars
-    if overflow > 0 and chunks:
-        first = chunks[0]
-        trim_to = max(0, len(first) - overflow)
-        chunks[0] = first[:trim_to].rstrip()
-    return separator.join(chunk for chunk in chunks if chunk)
+    # Preserve the first and last sampled windows. If a very long caption made
+    # the result exceed the budget, reduce middle windows first.
+    while len(result) > max_chars and len(chunks) > 2:
+        middle = len(chunks) // 2
+        lines = chunks[middle].splitlines()
+        if len(lines) > 1:
+            chunks[middle] = "\n".join(lines[:-1])
+        else:
+            chunks.pop(middle)
+        result = separator.join(chunk for chunk in chunks if chunk)
+
+    if len(result) <= max_chars:
+        return result
+
+    # Last-resort trimming keeps the first line of the first window and the
+    # last line of the final window intact.
+    first_lines = chunks[0].splitlines() if chunks else []
+    last_lines = chunks[-1].splitlines() if chunks else []
+    first_anchor = first_lines[0] if first_lines else ""
+    last_anchor = last_lines[-1] if last_lines else ""
+    anchors = separator.join(
+        item for item in (first_anchor, last_anchor) if item
+    )
+    return anchors[:max_chars]
 
 
 def ollama_chat(
