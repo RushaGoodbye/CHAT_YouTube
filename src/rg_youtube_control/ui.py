@@ -928,10 +928,14 @@ class MainWindow(QMainWindow):
         budget = quota_budget_status(self.conn)
         if bool(budget["exhausted"]):
             quota_value = "ВИЧЕРПАНО"
-            quota_note = f"скидання: {budget['reset']}"
-        else:
-            quota_value = f"{budget['remaining']} од."
             quota_note = (
+                f"використано {budget['used']} / 10000 · залишок 0 · "
+                f"скидання: {budget['reset']}"
+            )
+        else:
+            quota_value = f"{budget['remaining']} од. залишилось"
+            quota_note = (
+                f"використано {budget['used']} / 10000 · "
                 f"резерв {budget['reserve']} · автовідповідей ≈{budget['reply_capacity']}"
             )
             if archive_priority_enabled(self.conn):
@@ -972,7 +976,8 @@ class MainWindow(QMainWindow):
 
         summary = QLabel(
             f"Канал: {PROFILE_LABELS[profile]}\n"
-            f"Залишок квоти: ≈{budget['remaining']} од. · "
+            f"Квота: використано {budget['used']} / 10000 · "
+            f"залишилось ≈{budget['remaining']} од. · "
             f"резерв: {budget['reserve']} од.\n"
             f"Підготовлена безпечна черга: {prepared_count}\n"
             f"Готових запланованих стрімів: {scheduled_ready}\n\n"
