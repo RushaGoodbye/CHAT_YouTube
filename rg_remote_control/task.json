@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_environment",
+  "action": "stage_remote_mcp_to_nas",
   "args": {}
 }
