@@ -1689,6 +1689,48 @@ def telegram_mcp_call() -> dict:
     return asyncio.run(_call())
 
 
+def enable_youtube_mcp_bridge() -> dict:
+    from datetime import datetime, timezone
+
+    source_tick = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_TICK.sh"
+    source_helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_YOUTUBE_CALL.py"
+    live_tick = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_TICK.sh")
+    live_helper = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_YOUTUBE_CALL.py")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+
+    if not source_tick.is_file() or not source_helper.is_file():
+        raise RuntimeError("YouTube MCP bridge sources are missing")
+
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    backups = {}
+    for live, source, label in (
+        (live_tick, source_tick, "tick"),
+        (live_helper, source_helper, "helper"),
+    ):
+        if live.is_file():
+            backup = state / f"{live.name}.before_youtube_bridge_{stamp}"
+            shutil.copy2(live, backup)
+            backups[label] = str(backup)
+        shutil.copy2(source, live)
+
+    tick_text = live_tick.read_text(encoding="utf-8", errors="replace")
+    helper_text = live_helper.read_text(encoding="utf-8", errors="replace")
+    if "YOUTUBE_CALL_ROOT" not in tick_text:
+        raise RuntimeError("YouTube call queue is missing from live MCP tick")
+    if 'tool.startswith("youtube_")' not in helper_text:
+        raise RuntimeError("YouTube-only tool guard is missing from live helper")
+
+    return {
+        "enabled": True,
+        "interval_seconds": 60,
+        "tick": str(live_tick),
+        "helper": str(live_helper),
+        "backups": backups,
+    }
+
+
 def youtube_mcp_call() -> dict:
     import time
     import uuid
