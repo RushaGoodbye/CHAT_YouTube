@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_telegram_locations",
+  "action": "probe_telegram_production_layout",
   "args": {}
 }
