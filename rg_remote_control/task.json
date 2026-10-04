@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_ssh_auth",
+  "action": "probe_nas_mcp_inventory",
   "args": {}
 }
