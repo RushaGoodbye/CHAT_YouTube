@@ -127,6 +127,7 @@ from .service import (
     today_auto_reply_count,
     today_reply_count,
     today_quota_units,
+    today_quota_breakdown,
     record_quota_units,
     reconcile_local_video_title,
     quota_exhausted,
@@ -1771,6 +1772,7 @@ class MainWindow(QMainWindow):
                 record_quota_units(
                     self.conn,
                     int(requests) * READ_REQUEST_COST,
+                purpose="video",
                 )
             else:
                 current_items = self.client.video_details(video_ids)
@@ -1778,6 +1780,7 @@ class MainWindow(QMainWindow):
                 record_quota_units(
                     self.conn,
                     requests * READ_REQUEST_COST,
+                purpose="video",
                 )
             self.refresh_youtube_quota_label()
         else:
@@ -3270,16 +3273,25 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "youtube_quota_label"):
             return
         budget = quota_budget_status(self.conn)
+        breakdown = today_quota_breakdown(self.conn)
+        purpose_text = (
+            f"відео {breakdown['video']} · "
+            f"коментарі {breakdown['comments']} · "
+            f"службове {breakdown['service']}"
+        )
+        if breakdown["legacy"]:
+            purpose_text += f" · до обліку {breakdown['legacy']}"
         if bool(budget["exhausted"]):
             text = (
                 f"ВИЧЕРПАНО · враховано ≈{budget['used']}/"
-                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · скидання {budget['reset']}"
+                f"{YOUTUBE_DAILY_QUOTA_DEFAULT} · {purpose_text} · "
+                f"скидання {budget['reset']}"
             )
         else:
             text = (
                 f"Враховано ≈{budget['used']}/{YOUTUBE_DAILY_QUOTA_DEFAULT} · "
-                f"залишок ≈{budget['remaining']} · резерв {budget['reserve']} · "
-                f"доступно для автоответів ≈{budget['reply_capacity']} відповідей"
+                f"{purpose_text} · залишок ≈{budget['remaining']} · "
+                f"резерв {budget['reserve']}"
             )
         self.youtube_quota_label.setText(text)
 
@@ -3313,7 +3325,7 @@ class MainWindow(QMainWindow):
                 mark_quota_exhausted(self.conn)
                 self.refresh_youtube_quota_label()
             raise
-        record_quota_units(self.conn, VIDEO_UPDATE_COST)
+        record_quota_units(self.conn, VIDEO_UPDATE_COST, purpose="video")
         log_action(
             self.conn,
             profile=getattr(client, "profile", self.current_profile),
@@ -5104,10 +5116,11 @@ class MainWindow(QMainWindow):
             record_quota_units(
                 self.conn,
                 int(requests) * READ_REQUEST_COST,
+            purpose="video",
             )
         else:
             items = self.client.video_details([video_id])
-            record_quota_units(self.conn, READ_REQUEST_COST)
+            record_quota_units(self.conn, READ_REQUEST_COST, purpose="video")
         if not items:
             raise RuntimeError(f"Відео не знайдено: {video_id}")
         snippet = items[0].get("snippet", {})
@@ -5293,10 +5306,10 @@ class MainWindow(QMainWindow):
             # captions.list is still a quota-bearing read even when no usable
             # track exists. Count the known list cost conservatively.
             if "не знайдено доступних субтитрів" in str(exc):
-                record_quota_units(self.conn, 50)
+                record_quota_units(self.conn, 50, purpose="video")
                 self.refresh_youtube_quota_label()
             raise
-        record_quota_units(self.conn, CAPTION_TRANSCRIPT_COST)
+        record_quota_units(self.conn, CAPTION_TRANSCRIPT_COST, purpose="video")
         self.refresh_youtube_quota_label()
 
         snippet = track.get("snippet", {})
@@ -6696,7 +6709,7 @@ class MainWindow(QMainWindow):
         for video_id in video_ids:
             try:
                 items = client.video_details([video_id])
-                record_quota_units(self.conn, 1)
+                record_quota_units(self.conn, 1, purpose="video")
                 if not items:
                     continue
                 snippet = items[0].get("snippet", {})
@@ -6939,6 +6952,7 @@ class MainWindow(QMainWindow):
                 record_quota_units(
                     self.conn,
                     int(requests) * READ_REQUEST_COST,
+                purpose="video",
                 )
             else:
                 items = self.client.video_details(video_ids)
@@ -6946,6 +6960,7 @@ class MainWindow(QMainWindow):
                 record_quota_units(
                     self.conn,
                     requests * READ_REQUEST_COST,
+                purpose="video",
                 )
             prefetched_metadata = {
                 str(item.get("id") or ""): item
