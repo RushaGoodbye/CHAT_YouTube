@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "gh-auth-status-20261005"
+    "nonce": "sync-source-0373"
   }
 }
