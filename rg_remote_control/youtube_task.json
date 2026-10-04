@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "runtime-version-20261005"
+    "nonce": "gh-auth-status-20261005"
   }
 }
