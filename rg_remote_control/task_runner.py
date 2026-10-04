@@ -2855,8 +2855,496 @@ def launch_auto_edit_studio() -> dict:
             "-Command",
             (
                 "$p=Get-CimInstance Win32_Process | "
+                "Where-Object { ($_.Name -match '^(python|pythonw)\\.exe
+            ),
+        ],
+        timeout=30,
+    )
+    existing_text = (probe.get("stdout") or "").strip()
+    if existing_text and existing_text not in {"null", "[]"}:
+        return {
+            "launched": False,
+            "already_running": True,
+            "processes": existing_text,
+            "launcher": str(launcher),
+        }
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    exe = pythonw if pythonw.is_file() else Path(sys.executable)
+
+    env = os.environ.copy()
+    # Prevent GitHub Actions post-job cleanup from killing the detached GUI.
+    env.pop("RUNNER_TRACKING_ID", None)
+
+    creationflags = 0
+    creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    proc = subprocess.Popen(
+        [str(exe), str(launcher)],
+        cwd=str(launcher.parent),
+        env=env,
+        creationflags=creationflags,
+        close_fds=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+    time.sleep(4)
+
+    verify = run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | "
+                "Where-Object { ($_.Name -match '^(python|pythonw)\\.exe
+            ),
+        ],
+        timeout=30,
+    )
+    running_text = (verify.get("stdout") or "").strip()
+    if not running_text or running_text in {"null", "[]"}:
+        raise RuntimeError("RG Auto Edit Studio process was not detected after launch")
+
+    return {
+        "launched": True,
+        "already_running": False,
+        "pid": proc.pid,
+        "python": str(exe),
+        "launcher": str(launcher),
+        "processes": running_text,
+    }
+
+
+def health() -> dict:
+    usage = shutil.disk_usage(Path.home())
+    return {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "cwd": str(Path.cwd()),
+        "disk_free_gb": round(usage.free / (1024 ** 3), 1),
+    }
+
+
+def deploy_remote_mcp() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("deploy_remote_mcp is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "up", "-d", "--build"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=1200,
+    )
+
+
+def remote_mcp_status() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("remote_mcp_status is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "ps"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=120,
+    )
+
+
+ACTIONS = {
+    "health": health,
+    "ensure_github_runner_persistence": ensure_github_runner_persistence,
+    "probe_environment": probe_environment,
+    "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
+    "probe_ssh_config": probe_ssh_config,
+    "probe_nas_ssh_auth": probe_nas_ssh_auth,
+    "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
+    "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "probe_contour_mounts": probe_contour_mounts,
+    "probe_nas_cached_identity": probe_nas_cached_identity,
+    "request_local_mcp_deploy": request_local_mcp_deploy,
+    "probe_local_mcp_deploy": probe_local_mcp_deploy,
+    "probe_remote_commander_runtime": probe_remote_commander_runtime,
+    "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
+    "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
+    "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
+    "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
+    "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
+    "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
+    "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
+    "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
+    "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
+    "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
+    "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
+    "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "telegram_mcp_call": telegram_mcp_call,
+    "youtube_mcp_call": youtube_mcp_call,
+    "youtube_mcp_batch": youtube_mcp_batch,
+    "youtube_program_local_status": youtube_program_local_status,
+    "auto_edit_mcp_call": auto_edit_mcp_call,
+    "launch_auto_edit_studio": launch_auto_edit_studio,
+    "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
+    "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
+    "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
+    "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
+    "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
+    "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
+    "list_nas_project_roots": list_nas_project_roots,
+    "probe_nas_shares": probe_nas_shares,
+    "probe_nas_telegram_locations": probe_nas_telegram_locations,
+    "probe_telegram_production_layout": probe_telegram_production_layout,
+    "probe_nas_identity": probe_nas_identity,
+    "probe_nas_home_connection": probe_nas_home_connection,
+    "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
+    "probe_nas_command_bus": probe_nas_command_bus,
+    "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
+    "probe_command_bus_state": probe_command_bus_state,
+    "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
+    "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
+    "probe_scheduler_history": probe_scheduler_history,
+    "deploy_remote_mcp": deploy_remote_mcp,
+    "remote_mcp_status": remote_mcp_status,
+}
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    action = str(task.get("action") or "")
+    fn = ACTIONS.get(action)
+    if fn is None:
+        raise SystemExit(f"Unsupported action: {action}")
+    result = fn()
+    print(json.dumps({"action": action, "result": result}, ensure_ascii=False, indent=2))
+    if isinstance(result, dict) and int(result.get("exit_code", 0)) != 0:
+        return int(result["exit_code"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+) -and "
+                "($_.CommandLine -like '*rg_studio_main.py*' -or "
+                "$_.CommandLine -like '*rg_studio_ui.py*') }; "
+                "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            ),
+        ],
+        timeout=30,
+    )
+    existing_text = (probe.get("stdout") or "").strip()
+    if existing_text and existing_text not in {"null", "[]"}:
+        return {
+            "launched": False,
+            "already_running": True,
+            "processes": existing_text,
+            "launcher": str(launcher),
+        }
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    exe = pythonw if pythonw.is_file() else Path(sys.executable)
+
+    env = os.environ.copy()
+    # Prevent GitHub Actions post-job cleanup from killing the detached GUI.
+    env.pop("RUNNER_TRACKING_ID", None)
+
+    creationflags = 0
+    creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    proc = subprocess.Popen(
+        [str(exe), str(launcher)],
+        cwd=str(launcher.parent),
+        env=env,
+        creationflags=creationflags,
+        close_fds=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+    time.sleep(4)
+
+    verify = run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | "
                 "Where-Object { $_.CommandLine -like '*rg_studio_main.py*' -or "
                 "$_.CommandLine -like '*rg_studio_ui.py*' }; "
+                "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            ),
+        ],
+        timeout=30,
+    )
+    running_text = (verify.get("stdout") or "").strip()
+    if not running_text or running_text in {"null", "[]"}:
+        raise RuntimeError("RG Auto Edit Studio process was not detected after launch")
+
+    return {
+        "launched": True,
+        "already_running": False,
+        "pid": proc.pid,
+        "python": str(exe),
+        "launcher": str(launcher),
+        "processes": running_text,
+    }
+
+
+def health() -> dict:
+    usage = shutil.disk_usage(Path.home())
+    return {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "cwd": str(Path.cwd()),
+        "disk_free_gb": round(usage.free / (1024 ** 3), 1),
+    }
+
+
+def deploy_remote_mcp() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("deploy_remote_mcp is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "up", "-d", "--build"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=1200,
+    )
+
+
+def remote_mcp_status() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("remote_mcp_status is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "ps"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=120,
+    )
+
+
+ACTIONS = {
+    "health": health,
+    "ensure_github_runner_persistence": ensure_github_runner_persistence,
+    "probe_environment": probe_environment,
+    "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
+    "probe_ssh_config": probe_ssh_config,
+    "probe_nas_ssh_auth": probe_nas_ssh_auth,
+    "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
+    "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "probe_contour_mounts": probe_contour_mounts,
+    "probe_nas_cached_identity": probe_nas_cached_identity,
+    "request_local_mcp_deploy": request_local_mcp_deploy,
+    "probe_local_mcp_deploy": probe_local_mcp_deploy,
+    "probe_remote_commander_runtime": probe_remote_commander_runtime,
+    "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
+    "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
+    "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
+    "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
+    "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
+    "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
+    "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
+    "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
+    "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
+    "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
+    "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
+    "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "telegram_mcp_call": telegram_mcp_call,
+    "youtube_mcp_call": youtube_mcp_call,
+    "youtube_mcp_batch": youtube_mcp_batch,
+    "youtube_program_local_status": youtube_program_local_status,
+    "auto_edit_mcp_call": auto_edit_mcp_call,
+    "launch_auto_edit_studio": launch_auto_edit_studio,
+    "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
+    "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
+    "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
+    "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
+    "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
+    "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
+    "list_nas_project_roots": list_nas_project_roots,
+    "probe_nas_shares": probe_nas_shares,
+    "probe_nas_telegram_locations": probe_nas_telegram_locations,
+    "probe_telegram_production_layout": probe_telegram_production_layout,
+    "probe_nas_identity": probe_nas_identity,
+    "probe_nas_home_connection": probe_nas_home_connection,
+    "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
+    "probe_nas_command_bus": probe_nas_command_bus,
+    "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
+    "probe_command_bus_state": probe_command_bus_state,
+    "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
+    "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
+    "probe_scheduler_history": probe_scheduler_history,
+    "deploy_remote_mcp": deploy_remote_mcp,
+    "remote_mcp_status": remote_mcp_status,
+}
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    action = str(task.get("action") or "")
+    fn = ACTIONS.get(action)
+    if fn is None:
+        raise SystemExit(f"Unsupported action: {action}")
+    result = fn()
+    print(json.dumps({"action": action, "result": result}, ensure_ascii=False, indent=2))
+    if isinstance(result, dict) and int(result.get("exit_code", 0)) != 0:
+        return int(result["exit_code"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+) -and "
+                "($_.CommandLine -like '*rg_studio_main.py*' -or "
+                "$_.CommandLine -like '*rg_studio_ui.py*') }; "
+                "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            ),
+        ],
+        timeout=30,
+    )
+    running_text = (verify.get("stdout") or "").strip()
+    if not running_text or running_text in {"null", "[]"}:
+        raise RuntimeError("RG Auto Edit Studio process was not detected after launch")
+
+    return {
+        "launched": True,
+        "already_running": False,
+        "pid": proc.pid,
+        "python": str(exe),
+        "launcher": str(launcher),
+        "processes": running_text,
+    }
+
+
+def health() -> dict:
+    usage = shutil.disk_usage(Path.home())
+    return {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "cwd": str(Path.cwd()),
+        "disk_free_gb": round(usage.free / (1024 ** 3), 1),
+    }
+
+
+def deploy_remote_mcp() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("deploy_remote_mcp is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "up", "-d", "--build"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=1200,
+    )
+
+
+def remote_mcp_status() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("remote_mcp_status is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "ps"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=120,
+    )
+
+
+ACTIONS = {
+    "health": health,
+    "ensure_github_runner_persistence": ensure_github_runner_persistence,
+    "probe_environment": probe_environment,
+    "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
+    "probe_ssh_config": probe_ssh_config,
+    "probe_nas_ssh_auth": probe_nas_ssh_auth,
+    "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
+    "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "probe_contour_mounts": probe_contour_mounts,
+    "probe_nas_cached_identity": probe_nas_cached_identity,
+    "request_local_mcp_deploy": request_local_mcp_deploy,
+    "probe_local_mcp_deploy": probe_local_mcp_deploy,
+    "probe_remote_commander_runtime": probe_remote_commander_runtime,
+    "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
+    "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
+    "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
+    "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
+    "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
+    "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
+    "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
+    "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
+    "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
+    "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
+    "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
+    "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "telegram_mcp_call": telegram_mcp_call,
+    "youtube_mcp_call": youtube_mcp_call,
+    "youtube_mcp_batch": youtube_mcp_batch,
+    "youtube_program_local_status": youtube_program_local_status,
+    "auto_edit_mcp_call": auto_edit_mcp_call,
+    "launch_auto_edit_studio": launch_auto_edit_studio,
+    "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
+    "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
+    "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
+    "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
+    "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
+    "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
+    "list_nas_project_roots": list_nas_project_roots,
+    "probe_nas_shares": probe_nas_shares,
+    "probe_nas_telegram_locations": probe_nas_telegram_locations,
+    "probe_telegram_production_layout": probe_telegram_production_layout,
+    "probe_nas_identity": probe_nas_identity,
+    "probe_nas_home_connection": probe_nas_home_connection,
+    "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
+    "probe_nas_command_bus": probe_nas_command_bus,
+    "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
+    "probe_command_bus_state": probe_command_bus_state,
+    "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
+    "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
+    "probe_scheduler_history": probe_scheduler_history,
+    "deploy_remote_mcp": deploy_remote_mcp,
+    "remote_mcp_status": remote_mcp_status,
+}
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    action = str(task.get("action") or "")
+    fn = ACTIONS.get(action)
+    if fn is None:
+        raise SystemExit(f"Unsupported action: {action}")
+    result = fn()
+    print(json.dumps({"action": action, "result": result}, ensure_ascii=False, indent=2))
+    if isinstance(result, dict) and int(result.get("exit_code", 0)) != 0:
+        return int(result["exit_code"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+) -and "
+                "($_.CommandLine -like '*rg_studio_main.py*' -or "
+                "$_.CommandLine -like '*rg_studio_ui.py*') }; "
                 "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
             ),
         ],
