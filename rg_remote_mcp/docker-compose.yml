@@ -12,7 +12,7 @@ services:
       RG_WORKER_TELEGRAM_URL: http://telegram-worker:8780
       RG_WORKER_AUTO_EDIT_URL: http://auto-edit-worker:8780
     ports:
-      - "127.0.0.1:8765:8765"
+      - "${RG_MCP_BIND_HOST:-127.0.0.1}:8765:8765"
     depends_on:
       youtube-worker:
         condition: service_healthy
