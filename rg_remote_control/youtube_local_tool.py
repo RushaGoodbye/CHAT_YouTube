@@ -513,13 +513,67 @@ def runtime_status() -> dict:
     for candidate in candidate_paths:
         if not str(candidate):
             continue
+        pyproject_path = candidate / "pyproject.toml"
+        exe_path = candidate / "RG YouTube Control.exe"
+        source_version = ""
+        if pyproject_path.is_file():
+            try:
+                match = re.search(
+                    r'^version = "([^"]+)"',
+                    pyproject_path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    ),
+                    re.MULTILINE,
+                )
+                source_version = match.group(1) if match else ""
+            except Exception:
+                source_version = ""
         source_candidates.append({
             "path": str(candidate),
             "exists": candidate.exists(),
             "run_app": (candidate / "run_app.py").is_file(),
-            "pyproject": (candidate / "pyproject.toml").is_file(),
-            "exe": (candidate / "RG YouTube Control.exe").is_file(),
+            "pyproject": pyproject_path.is_file(),
+            "source_version": source_version,
+            "exe": exe_path.is_file(),
+            "exe_size": exe_path.stat().st_size if exe_path.is_file() else 0,
+            "exe_mtime": (
+                datetime.fromtimestamp(
+                    exe_path.stat().st_mtime,
+                    timezone.utc,
+                ).isoformat()
+                if exe_path.is_file()
+                else ""
+            ),
         })
+
+    exe_version = {}
+    installed_exe = Path(r"C:\Program Files\RG YouTube Control\RG YouTube Control.exe")
+    if installed_exe.is_file() and os.name == "nt":
+        proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$v=(Get-Item -LiteralPath '"
+                    + str(installed_exe).replace("'", "''")
+                    + "').VersionInfo; "
+                    "$v | Select-Object FileVersion,ProductVersion,ProductName | "
+                    "ConvertTo-Json -Compress"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        raw_version = (proc.stdout or "").strip()
+        if raw_version:
+            try:
+                exe_version = json.loads(raw_version)
+            except Exception:
+                exe_version = {"raw": raw_version}
 
     return {
         "youtube_api_calls": 0,
@@ -527,6 +581,7 @@ def runtime_status() -> dict:
         "running": running,
         "processes": process_text,
         "source_candidates": source_candidates,
+        "installed_exe_version": exe_version,
     }
 
 def main() -> int:
