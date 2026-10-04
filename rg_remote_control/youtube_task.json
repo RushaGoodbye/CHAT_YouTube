@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "runtime-status-20261005"
+    "nonce": "runtime-paths-20261005"
   }
 }
