@@ -1,6 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "probe_youtube_mcp_bridge",
+  "action": "ensure_github_runner_persistence",
   "args": {}
 }
