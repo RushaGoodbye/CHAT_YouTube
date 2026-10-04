@@ -37,7 +37,7 @@ services:
       RG_WORKER_ROOT: /workspace
       RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,find,grep,du,df
     volumes:
-      - /volume1/RG_AUTO_EDIT/YOUTUBE_CONTROL:/workspace:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/YOUTUBE_CONTROL:/workspace:rw
     tmpfs:
       - /tmp
     expose:
@@ -94,19 +94,19 @@ services:
       RG_WORKER_ROOT: /workspace
       RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,find,grep,du,df
     volumes:
-      - /volume1/RG_AUTO_EDIT/BACKUPS:/workspace/BACKUPS:rw
-      - /volume1/RG_AUTO_EDIT/CACHE:/workspace/CACHE:rw
-      - /volume1/RG_AUTO_EDIT/CONTROL:/workspace/CONTROL:rw
-      - /volume1/RG_AUTO_EDIT/DASHBOARD:/workspace/DASHBOARD:rw
-      - /volume1/RG_AUTO_EDIT/DATABASE:/workspace/DATABASE:rw
-      - /volume1/RG_AUTO_EDIT/DIAGNOSTICS:/workspace/DIAGNOSTICS:rw
-      - /volume1/RG_AUTO_EDIT/DISASTER_RECOVERY:/workspace/DISASTER_RECOVERY:rw
-      - /volume1/RG_AUTO_EDIT/LEARNING:/workspace/LEARNING:rw
-      - /volume1/RG_AUTO_EDIT/LOGS:/workspace/LOGS:rw
-      - /volume1/RG_AUTO_EDIT/PROJECTS:/workspace/PROJECTS:rw
-      - /volume1/RG_AUTO_EDIT/RUNS:/workspace/RUNS:rw
-      - /volume1/RG_AUTO_EDIT/THUMBNAIL_ASSETS:/workspace/THUMBNAIL_ASSETS:rw
-      - /volume1/RG_AUTO_EDIT/UPDATES:/workspace/UPDATES:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/BACKUPS:/workspace/BACKUPS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/CACHE:/workspace/CACHE:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/CONTROL:/workspace/CONTROL:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/DASHBOARD:/workspace/DASHBOARD:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/DATABASE:/workspace/DATABASE:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/DIAGNOSTICS:/workspace/DIAGNOSTICS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/DISASTER_RECOVERY:/workspace/DISASTER_RECOVERY:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/LEARNING:/workspace/LEARNING:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/LOGS:/workspace/LOGS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/PROJECTS:/workspace/PROJECTS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/RUNS:/workspace/RUNS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/THUMBNAIL_ASSETS:/workspace/THUMBNAIL_ASSETS:rw
+      - ${RG_AUTO_EDIT_HOST_ROOT:-/volume1/RG_AUTO_EDIT}/UPDATES:/workspace/UPDATES:rw
     tmpfs:
       - /tmp
     expose:
