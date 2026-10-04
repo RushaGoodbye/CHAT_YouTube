@@ -34,7 +34,11 @@ async def run_ssh(
     if not settings.ssh_known_hosts.is_file():
         raise RuntimeError("known_hosts is not mounted")
 
-    command = (\n        subprocess.list2cmdline(argv)\n        if alias.casefold() in settings.ssh_windows_aliases\n        else shlex.join(argv)\n    )
+    command = (
+        subprocess.list2cmdline(argv)
+        if alias.casefold() in settings.ssh_windows_aliases
+        else shlex.join(argv)
+    )
     async with asyncssh.connect(
         host,
         port=port,
