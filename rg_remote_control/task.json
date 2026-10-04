@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "sync_nas_scheduler_tick",
+  "action": "request_local_mcp_deploy",
   "args": {}
 }
