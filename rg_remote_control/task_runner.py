@@ -2114,6 +2114,24 @@ def auto_edit_mcp_call() -> dict:
         )
         os.replace(temp, request_file)
 
+        ssh = r"C:\WINDOWS\System32\OpenSSH\ssh.exe"
+        tick = run(
+            [
+                ssh,
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=8",
+                "-o", "StrictHostKeyChecking=yes",
+                "AlexLosServer",
+                "sh", "/volume1/docker/RG_NAS_MCP_TICK.sh",
+            ],
+            timeout=120,
+        )
+        if tick["exit_code"] != 0:
+            raise RuntimeError(
+                "RG NAS MCP Auto Edit tick failed: "
+                + (tick["stderr"] or tick["stdout"])[-12000:]
+            )
+
         started = time.time()
         timeout_seconds = 150
         while time.time() - started < timeout_seconds:
