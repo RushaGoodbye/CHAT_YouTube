@@ -22,11 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate target
-        shell: pwsh
+        shell: powershell
         run: |
           $task = Get-Content "rg_remote_control/task.json" -Raw | ConvertFrom-Json
           if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
           if ($task.action -notin @("health")) { throw "Action is not allowed on AlexPC" }
       - name: Run restricted task
-        shell: pwsh
+        shell: powershell
         run: python rg_remote_control/task_runner.py rg_remote_control/task.json
