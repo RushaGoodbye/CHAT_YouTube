@@ -1,6 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "pin_live_mcp_lan_bind",
-  "args": {}
+  "action": "probe_docker_root_mcp_deploy",
+  "args": {"after_live_pin": true}
 }
