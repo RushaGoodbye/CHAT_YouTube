@@ -575,6 +575,26 @@ def runtime_status() -> dict:
             except Exception:
                 exe_version = {"raw": raw_version}
 
+    gh_available = bool(shutil.which("gh"))
+    gh_authenticated = False
+    gh_account = ""
+    if gh_available:
+        auth = subprocess.run(
+            ["gh", "auth", "status", "--hostname", "github.com"],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        gh_authenticated = auth.returncode == 0
+        auth_text = (auth.stdout or "") + "\n" + (auth.stderr or "")
+        account_match = re.search(
+            r"Logged in to github\.com account ([^\s(]+)",
+            auth_text,
+            re.IGNORECASE,
+        )
+        if account_match:
+            gh_account = account_match.group(1)
+
     return {
         "youtube_api_calls": 0,
         "installs": installs,
@@ -582,6 +602,9 @@ def runtime_status() -> dict:
         "processes": process_text,
         "source_candidates": source_candidates,
         "installed_exe_version": exe_version,
+        "gh_available": gh_available,
+        "gh_authenticated": gh_authenticated,
+        "gh_account": gh_account,
     }
 
 def main() -> int:
