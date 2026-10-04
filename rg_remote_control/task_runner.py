@@ -683,6 +683,40 @@ def wait_for_mcp_command_bus() -> dict:
     }
 
 
+def probe_scheduler_history() -> dict:
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    files = [
+        "scheduler_last_check_at",
+        "scheduler_last_check_status",
+        "scheduler_dispatch_at",
+        "scheduler_dispatch_ok_at",
+        "scheduler_dispatch_error",
+        "failover_heartbeat_at",
+        "failover_mode",
+        "failover_takeover_at",
+        "failover_last_check_at",
+        "failover_last_check_status",
+        "last_deploy_status",
+        "deploy_stage",
+    ]
+    out = {}
+    for name in files:
+        p = state / name
+        if p.exists():
+            out[name] = {
+                "value": p.read_text(encoding="utf-8", errors="replace").strip()[-2000:]
+                if p.is_file() else None,
+                "mtime": p.stat().st_mtime,
+            }
+        else:
+            out[name] = None
+    log = state / "auto-deploy.log"
+    if log.is_file():
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        out["auto_deploy_tail"] = lines[-120:]
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -734,6 +768,7 @@ ACTIONS = {
     "probe_command_bus_state": probe_command_bus_state,
     "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
     "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
+    "probe_scheduler_history": probe_scheduler_history,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
