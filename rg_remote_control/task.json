@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "migrate_live_mcp_hook_to_docker_root",
+  "action": "stage_mcp_to_docker_root",
   "args": {}
 }
