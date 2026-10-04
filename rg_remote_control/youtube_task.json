@@ -2,5 +2,7 @@
   "target": "alexpc",
   "contour": "youtube",
   "action": "youtube_program_local_status",
-  "args": {}
+  "args": {
+    "mode": "zero_quota_plan"
+  }
 }
