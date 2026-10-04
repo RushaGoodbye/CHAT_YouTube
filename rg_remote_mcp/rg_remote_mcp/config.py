@@ -33,6 +33,7 @@ class Settings:
     roots: dict[str, Path]
     allowed_commands: frozenset[str]
     ssh_aliases: dict[str, str]
+    ssh_windows_aliases: frozenset[str]
     ssh_user: str
     ssh_key: Path
     ssh_known_hosts: Path
@@ -62,6 +63,7 @@ class Settings:
                 )
             ),
             ssh_aliases=aliases,
+            ssh_windows_aliases=_csv(os.getenv("RG_REMOTE_SSH_WINDOWS_ALIASES", "alexpc")),
             ssh_user=os.getenv("RG_REMOTE_SSH_USER", "rgremote"),
             ssh_key=Path(
                 os.getenv("RG_REMOTE_SSH_KEY", "/run/secrets/alexpc_ssh_key")
