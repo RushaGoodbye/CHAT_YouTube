@@ -1960,10 +1960,10 @@ def youtube_mcp_call() -> dict:
 
 
 def auto_edit_mcp_call() -> dict:
+    import asyncio
+    import importlib.util
     import tempfile
-
-    if os.name == "nt":
-        raise RuntimeError("auto_edit_mcp_call must run on NAS/Linux")
+    import uuid
 
     task_path = Path(
         sys.argv[1]
@@ -1980,12 +1980,49 @@ def auto_edit_mcp_call() -> dict:
     if not isinstance(tool_args, dict):
         raise RuntimeError("tool_args must be an object")
 
+    if os.name == "nt":
+        if importlib.util.find_spec("mcp") is None:
+            install = run(
+                [sys.executable, "-m", "pip", "install", "--user", "mcp==2.3.0"],
+                timeout=300,
+            )
+            if install["exit_code"] != 0:
+                raise RuntimeError(
+                    "Failed to install MCP client: " + install["stderr"]
+                )
+
+        from mcp import Client
+
+        async def _call():
+            url = os.getenv(
+                "RG_NAS_MCP_URL",
+                "http://192.168.50.32:8765/mcp",
+            )
+            async with Client(url) as client:
+                result = await client.call_tool(tool, tool_args)
+                content = []
+                for item in result.content or []:
+                    entry = {"type": getattr(item, "type", None)}
+                    text_value = getattr(item, "text", None)
+                    if text_value is not None:
+                        entry["text"] = text_value
+                    content.append(entry)
+                return {
+                    "transport": "RG NAS MCP Auto Edit LAN bridge",
+                    "tool": tool,
+                    "is_error": bool(result.is_error),
+                    "structured_content": result.structured_content,
+                    "content": content,
+                }
+
+        return asyncio.run(_call())
+
     helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_AUTO_EDIT_CALL.py"
     if not helper.is_file():
         raise RuntimeError("Auto Edit MCP helper is missing")
 
     request = {
-        "request_id": uuid.uuid4().hex if "uuid" in globals() else __import__("uuid").uuid4().hex,
+        "request_id": uuid.uuid4().hex,
         "tool": tool,
         "tool_args": tool_args,
     }
@@ -2052,97 +2089,8 @@ def auto_edit_mcp_call() -> dict:
         raise RuntimeError("RG NAS MCP Auto Edit response tool mismatch")
 
     return {
-        "transport": "RG NAS MCP Auto Edit bridge",
+        "transport": "RG NAS MCP Auto Edit local bridge",
         **payload,
-    }
-
-
-
-def ensure_github_runner_persistence() -> dict:
-    runner_dir = Path(r"C:\RG_GITHUB_RUNNER")
-    run_cmd = runner_dir / "run.cmd"
-    svc_cmd = runner_dir / "svc.cmd"
-
-    if not run_cmd.is_file():
-        raise RuntimeError(f"GitHub runner run.cmd not found: {run_cmd}")
-
-    service = {
-        "available": svc_cmd.is_file(),
-        "installed": False,
-        "install_attempted": False,
-        "install_exit_code": None,
-        "install_stdout": "",
-        "install_stderr": "",
-    }
-
-    if svc_cmd.is_file():
-        status = run(
-            [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"],
-            cwd=runner_dir,
-            timeout=30,
-        )
-        status_text = (status.get("stdout") or "") + "\n" + (status.get("stderr") or "")
-        service["status_before"] = status_text[-4000:]
-        service["installed"] = status["exit_code"] == 0
-
-        if not service["installed"]:
-            install = run(
-                [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "install"],
-                cwd=runner_dir,
-                timeout=60,
-            )
-            service["install_attempted"] = True
-            service["install_exit_code"] = install["exit_code"]
-            service["install_stdout"] = install["stdout"][-4000:]
-            service["install_stderr"] = install["stderr"][-4000:]
-
-            status = run(
-                [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"],
-                cwd=runner_dir,
-                timeout=30,
-            )
-            status_text = (status.get("stdout") or "") + "\n" + (status.get("stderr") or "")
-            service["status_after"] = status_text[-4000:]
-            service["installed"] = status["exit_code"] == 0
-
-    startup_file = None
-    fallback_enabled = False
-
-    if not service["installed"]:
-        appdata = os.environ.get("APPDATA")
-        if not appdata:
-            raise RuntimeError("APPDATA is unavailable; cannot install startup fallback")
-
-        startup_dir = (
-            Path(appdata)
-            / "Microsoft"
-            / "Windows"
-            / "Start Menu"
-            / "Programs"
-            / "Startup"
-        )
-        startup_dir.mkdir(parents=True, exist_ok=True)
-        startup_file = startup_dir / "RG_GITHUB_RUNNER.vbs"
-        vbs = (
-            'Set WshShell = CreateObject("WScript.Shell")\r\n'
-            'WshShell.Run "cmd.exe /c ""cd /d C:\\RG_GITHUB_RUNNER && call run.cmd""", 0, False\r\n'
-        )
-        startup_file.write_text(vbs, encoding="utf-8", newline="")
-        fallback_enabled = startup_file.is_file()
-
-    return {
-        "runner_dir": str(runner_dir),
-        "service": service,
-        "startup_fallback": {
-            "enabled": fallback_enabled,
-            "path": str(startup_file) if startup_file else None,
-        },
-        "persistent": bool(service["installed"] or fallback_enabled),
-        "note": (
-            "Service is installed and will start with Windows."
-            if service["installed"]
-            else "Hidden per-user startup fallback is installed and will start at next sign-in."
-        ),
     }
 
 
