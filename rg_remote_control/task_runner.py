@@ -1871,6 +1871,104 @@ def youtube_mcp_call() -> dict:
     )
 
 
+def auto_edit_mcp_call() -> dict:
+    import tempfile
+
+    if os.name == "nt":
+        raise RuntimeError("auto_edit_mcp_call must run on NAS/Linux")
+
+    task_path = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else ROOT / "rg_remote_control" / "auto_edit_task.json"
+    )
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    args = task.get("args") or {}
+    tool = str(args.get("tool") or "").strip()
+    tool_args = args.get("tool_args") or {}
+
+    if not tool.startswith("auto_edit_"):
+        raise RuntimeError("Only auto_edit_* RG NAS MCP tools are allowed")
+    if not isinstance(tool_args, dict):
+        raise RuntimeError("tool_args must be an object")
+
+    helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_AUTO_EDIT_CALL.py"
+    if not helper.is_file():
+        raise RuntimeError("Auto Edit MCP helper is missing")
+
+    request = {
+        "request_id": uuid.uuid4().hex if "uuid" in globals() else __import__("uuid").uuid4().hex,
+        "tool": tool,
+        "tool_args": tool_args,
+    }
+
+    with tempfile.TemporaryDirectory(prefix="rg_auto_edit_mcp_") as tmp:
+        request_path = Path(tmp) / "request.json"
+        request_path.write_text(
+            json.dumps(request, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        copy_helper = run(
+            ["docker", "cp", str(helper), "rg-nas-mcp-hub:/tmp/rg_auto_edit_call.py"],
+            timeout=60,
+        )
+        if copy_helper["exit_code"] != 0:
+            raise RuntimeError(
+                "Failed to copy Auto Edit MCP helper: " + copy_helper["stderr"]
+            )
+
+        copy_request = run(
+            ["docker", "cp", str(request_path), "rg-nas-mcp-hub:/tmp/rg_auto_edit_request.json"],
+            timeout=60,
+        )
+        if copy_request["exit_code"] != 0:
+            raise RuntimeError(
+                "Failed to copy Auto Edit MCP request: " + copy_request["stderr"]
+            )
+
+        try:
+            result = run(
+                [
+                    "docker", "exec", "rg-nas-mcp-hub",
+                    "python", "/tmp/rg_auto_edit_call.py",
+                    "/tmp/rg_auto_edit_request.json",
+                ],
+                timeout=180,
+            )
+        finally:
+            run(
+                [
+                    "docker", "exec", "rg-nas-mcp-hub",
+                    "rm", "-f",
+                    "/tmp/rg_auto_edit_call.py",
+                    "/tmp/rg_auto_edit_request.json",
+                ],
+                timeout=30,
+            )
+
+    if result["exit_code"] != 0:
+        raise RuntimeError(
+            "RG NAS MCP Auto Edit call failed: " + result["stderr"][-12000:]
+        )
+
+    try:
+        payload = json.loads(result["stdout"])
+    except Exception as exc:
+        raise RuntimeError(
+            "RG NAS MCP Auto Edit returned invalid JSON: "
+            + result["stdout"][-12000:]
+        ) from exc
+
+    if str(payload.get("tool") or "") != tool:
+        raise RuntimeError("RG NAS MCP Auto Edit response tool mismatch")
+
+    return {
+        "transport": "RG NAS MCP Auto Edit bridge",
+        **payload,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1930,6 +2028,7 @@ ACTIONS = {
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
+    "auto_edit_mcp_call": auto_edit_mcp_call,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
     "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
