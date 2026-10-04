@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_autodeploy_runtime",
+  "action": "migrate_live_mcp_hook_to_docker_root",
   "args": {}
 }
