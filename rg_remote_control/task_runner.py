@@ -28,6 +28,25 @@ def run(argv: list[str], cwd: Path | None = None, timeout: int = 600) -> dict:
     }
 
 
+def probe_environment() -> dict:
+    import socket
+
+    checks = {
+        "nas_share": Path(r"\\AlexLosServer\RG_AUTO_EDIT").exists(),
+        "youtube_share": Path(r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL").exists(),
+        "ssh_exe": shutil.which("ssh"),
+        "powershell_exe": shutil.which("powershell"),
+        "pwsh_exe": shutil.which("pwsh"),
+        "git_exe": shutil.which("git"),
+        "docker_exe": shutil.which("docker"),
+    }
+    try:
+        checks["nas_dns"] = socket.gethostbyname("AlexLosServer")
+    except Exception as exc:
+        checks["nas_dns_error"] = repr(exc)
+    return checks
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -61,6 +80,7 @@ def remote_mcp_status() -> dict:
 
 ACTIONS = {
     "health": health,
+    "probe_environment": probe_environment,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
