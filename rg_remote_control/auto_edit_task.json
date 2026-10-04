@@ -1,5 +1,5 @@
 {
-  "target": "nas",
+  "target": "alexpc",
   "contour": "auto_edit",
   "action": "auto_edit_mcp_call",
   "args": {
@@ -8,5 +8,5 @@
       "relative": ""
     }
   },
-  "nonce": "20261004-auto-edit-root-1"
+  "nonce": "20261004-auto-edit-root-2"
 }
