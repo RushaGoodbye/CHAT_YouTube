@@ -16,6 +16,7 @@ on:
       - "rg_remote_mcp/**"
       - "rg_remote_control/**"
       - ".github/workflows/rg-alexpc-control.yml"
+      - ".github/workflows/rg-auto-edit-control.yml"
       - ".github/workflows/rg-remote-control.yml"
       - ".github/workflows/rg-remote-mcp-ci.yml"
   push:
@@ -27,6 +28,7 @@ on:
       - "rg_remote_mcp/**"
       - "rg_remote_control/**"
       - ".github/workflows/rg-alexpc-control.yml"
+      - ".github/workflows/rg-auto-edit-control.yml"
       - ".github/workflows/rg-remote-control.yml"
       - ".github/workflows/rg-remote-mcp-ci.yml"
 
