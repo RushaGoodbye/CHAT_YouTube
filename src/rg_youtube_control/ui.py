@@ -867,6 +867,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         actions = QHBoxLayout()
+        zero_quota_btn = QPushButton("0-quota підготовка")
+        zero_quota_btn.clicked.connect(self.prepare_zero_quota_batch)
         planner_btn = QPushButton("Планувальник квоти")
         planner_btn.clicked.connect(self.show_quota_planner)
         scheduled_btn = QPushButton("Заплановані стріми")
@@ -880,7 +882,8 @@ class MainWindow(QMainWindow):
         settings_btn = QPushButton("Налаштування")
         settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
         for button in (
-            planner_btn, scheduled_btn, comments_btn, results_btn, log_btn, settings_btn
+            zero_quota_btn, planner_btn, scheduled_btn, comments_btn,
+            results_btn, log_btn, settings_btn
         ):
             actions.addWidget(button)
         actions.addStretch()
@@ -946,6 +949,197 @@ class MainWindow(QMainWindow):
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_quota.set_value(quota_value, quota_note)
         self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
+
+    def prepare_zero_quota_batch(self) -> None:
+        """Prepare up to 10 metadata drafts without YouTube Data API calls."""
+        profile = self.current_profile
+        metadata_issues = {
+            "thin_description",
+            "no_tags",
+            "old_links",
+            "missing_project_link",
+            "missing_donate_link",
+        }
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.title,v.views,v.audit_json,
+                      d.status AS draft_status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=? AND v.privacy_status='public'
+               ORDER BY v.views DESC""",
+            (profile,),
+        ).fetchall()
+
+        candidates = []
+        for row in rows:
+            if str(row["draft_status"] or "") in {"ready", "applied"}:
+                continue
+            try:
+                issues = set(
+                    json.loads(row["audit_json"] or "{}").get("issues", [])
+                )
+            except Exception:
+                issues = set()
+            if metadata_issues.intersection(issues):
+                candidates.append(str(row["video_id"]))
+            if len(candidates) >= 10:
+                break
+
+        if not candidates:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Для 0-quota підготовки немає нових відео з безпечними "
+                "проблемами опису, тегів або посилань.",
+            )
+            return
+
+        progress = QProgressDialog(
+            "0-quota підготовка метаданих...",
+            "Зупинити",
+            0,
+            len(candidates),
+            self,
+        )
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        prepared: list[str] = []
+        blocked: list[str] = []
+        for index, video_id in enumerate(candidates, start=1):
+            if progress.wasCanceled():
+                break
+            progress.setLabelText(
+                f"0-quota: {index}/{len(candidates)} · {video_id}"
+            )
+            QApplication.processEvents()
+            try:
+                meta = fetch_public_metadata(video_id)
+                title = _standard_hyphen(str(meta.get("title") or "").strip())
+                description = _standard_hyphen(
+                    str(meta.get("description") or "").strip()
+                )
+                current_tags = [
+                    _standard_hyphen(str(item).strip()).lstrip("#")
+                    for item in (meta.get("tags") or [])
+                    if str(item).strip()
+                ]
+
+                safe_fix = safe_description_fix(description, title)
+                description = safe_fix.after.strip()
+                if len(description) < 250:
+                    description = (
+                        description.rstrip()
+                        + "\n\nРАША ГУДБАЙ - розмови у форматі чат-рулетки. "
+                        "У цьому відео обговорюємо тему, зазначену в назві, "
+                        "та фіксуємо реальні діалоги без вигадування контексту."
+                    ).strip()
+
+                tags: list[str] = []
+                seen: set[str] = set()
+
+                def add_tag(value: str) -> None:
+                    clean = _standard_hyphen(value).strip().lstrip("#")
+                    key = clean.casefold()
+                    if clean and key not in seen and len(clean) <= 60:
+                        tags.append(clean)
+                        seen.add(key)
+
+                for item in current_tags:
+                    add_tag(item)
+                for item in ("РАША ГУДБАЙ", "чат рулетка", "Россия", "Украина"):
+                    add_tag(item)
+                stopwords = {
+                    "чат", "рулетка", "раша", "гудбай", "russia",
+                    "goodbye", "video", "стрим", "стрима", "стримов",
+                    "shorts",
+                }
+                for token in re.findall(
+                    r"[A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9]+",
+                    title,
+                ):
+                    if len(token) >= 4 and token.casefold() not in stopwords:
+                        add_tag(token)
+                tags = tags[:15]
+
+                check = validate_content_package(
+                    title,
+                    description,
+                    "",
+                    tags,
+                    [],
+                )
+                hard_errors = list(check.errors)
+                if len(tags) < 6:
+                    hard_errors.append("Потрібно щонайменше 6 тегів.")
+
+                status = "ready" if not hard_errors else "draft"
+                save_optimization_draft(
+                    self.conn,
+                    video_id,
+                    title,
+                    description,
+                    "",
+                    tags,
+                    status=status,
+                    title_variants=[],
+                )
+                if status == "ready":
+                    prepared.append(video_id)
+                else:
+                    blocked.append(video_id)
+            except Exception as exc:
+                blocked.append(video_id)
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="0-quota",
+                    action="Помилка підготовки",
+                    details=f"{video_id}: {exc}",
+                )
+            progress.setValue(index)
+
+        progress.close()
+
+        raw_queue = get_setting(
+            self.conn,
+            f"prepared_safe_queue_{profile}",
+            "[]",
+        )
+        try:
+            queue_ids = [
+                str(item) for item in (json.loads(raw_queue) or [])
+                if str(item).strip()
+            ]
+        except Exception:
+            queue_ids = []
+        for video_id in prepared:
+            if video_id not in queue_ids:
+                queue_ids.append(video_id)
+        set_setting(
+            self.conn,
+            f"prepared_safe_queue_{profile}",
+            json.dumps(queue_ids, ensure_ascii=False),
+        )
+        log_action(
+            self.conn,
+            profile=profile,
+            category="0-quota",
+            action="Підготовлено пакет",
+            details=(
+                f"готово {len(prepared)}; чернеток/помилок {len(blocked)}; "
+                "YouTube Data API: 0"
+            ),
+        )
+        self.reload_optimization_queue()
+        self.update_dashboard()
+        QMessageBox.information(
+            self,
+            "0-quota підготовка",
+            f"Готово до застосування: {len(prepared)}.\n"
+            f"Чернеток/помилок: {len(blocked)}.\n"
+            "YouTube Data API: 0 одиниць.",
+        )
 
     def show_quota_planner(self) -> None:
         profile = self.current_profile
