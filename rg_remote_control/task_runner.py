@@ -2062,11 +2062,25 @@ def youtube_mcp_batch() -> dict:
             error_file = item["error_file"]
             request_file = item["request_file"]
 
-            if result_file.is_file():
+            try:
+                result_ready = result_file.is_file()
+                error_ready = error_file.is_file()
+                request_exists = request_file.exists()
+            except OSError as exc:
+                # SMB shares can briefly return WinError 59 while the NAS is
+                # reachable. Treat that as a transient transport condition and
+                # retry on the next polling cycle instead of failing the batch.
+                item["last_fs_error"] = repr(exc)
+                continue
+
+            if result_ready:
                 try:
                     payload = json.loads(
                         result_file.read_text(encoding="utf-8", errors="replace")
                     )
+                except OSError as exc:
+                    item["last_fs_error"] = repr(exc)
+                    continue
                 except Exception as exc:
                     payload = {
                         "request_id": item["request_id"],
@@ -2081,10 +2095,14 @@ def youtube_mcp_batch() -> dict:
                 finished[index] = payload
                 continue
 
-            if error_file.is_file() and not request_file.exists():
-                error = error_file.read_text(
-                    encoding="utf-8", errors="replace"
-                )[-12000:]
+            if error_ready and not request_exists:
+                try:
+                    error = error_file.read_text(
+                        encoding="utf-8", errors="replace"
+                    )[-12000:]
+                except OSError as exc:
+                    item["last_fs_error"] = repr(exc)
+                    continue
                 try:
                     error_file.unlink()
                 except Exception:
@@ -2177,11 +2195,26 @@ def youtube_mcp_call() -> dict:
 
     started = time.time()
     timeout_seconds = 90
+    last_fs_error = None
     while time.time() - started < timeout_seconds:
-        if result_file.is_file():
-            result = json.loads(
-                result_file.read_text(encoding="utf-8", errors="replace")
-            )
+        try:
+            result_ready = result_file.is_file()
+            error_ready = error_file.is_file()
+            request_exists = request_file.exists()
+        except OSError as exc:
+            last_fs_error = repr(exc)
+            time.sleep(2)
+            continue
+
+        if result_ready:
+            try:
+                result = json.loads(
+                    result_file.read_text(encoding="utf-8", errors="replace")
+                )
+            except OSError as exc:
+                last_fs_error = repr(exc)
+                time.sleep(2)
+                continue
             try:
                 result_file.unlink()
             except Exception:
@@ -2191,10 +2224,15 @@ def youtube_mcp_call() -> dict:
                 "elapsed_seconds": int(time.time() - started),
                 **result,
             }
-        if error_file.is_file() and not request_file.exists():
-            error = error_file.read_text(
-                encoding="utf-8", errors="replace"
-            )[-12000:]
+        if error_ready and not request_exists:
+            try:
+                error = error_file.read_text(
+                    encoding="utf-8", errors="replace"
+                )[-12000:]
+            except OSError as exc:
+                last_fs_error = repr(exc)
+                time.sleep(2)
+                continue
             try:
                 error_file.unlink()
             except Exception:
