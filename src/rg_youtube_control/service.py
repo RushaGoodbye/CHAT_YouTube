@@ -271,6 +271,10 @@ def quota_exhausted(conn: sqlite3.Connection) -> bool:
     return get_setting(conn, _quota_key("exhausted"), "0") == "1"
 
 def mark_quota_exhausted(conn: sqlite3.Connection) -> None:
+    # A real quotaExceeded response from Google is authoritative. Keep the
+    # local counter consistent with the server state so the UI can never show
+    # a positive remainder after the API has already refused a request.
+    set_setting(conn, _quota_key("units"), str(YOUTUBE_DAILY_QUOTA_DEFAULT))
     set_setting(conn, _quota_key("exhausted"), "1")
 
 def _counter_key(name: str, profile: str | None = None) -> str:
@@ -344,7 +348,11 @@ def quota_budget_status(conn: sqlite3.Connection) -> dict[str, int | bool | str]
         get_setting(conn, "youtube_quota_reserve_units", str(QUOTA_RESERVE_DEFAULT))
         or QUOTA_RESERVE_DEFAULT
     )
-    remaining = max(0, YOUTUBE_DAILY_QUOTA_DEFAULT - used)
+    remaining = (
+        0
+        if exhausted
+        else max(0, YOUTUBE_DAILY_QUOTA_DEFAULT - used)
+    )
     spendable = max(0, remaining - reserve)
     try:
         now_pt = datetime.now(ZoneInfo("America/Los_Angeles"))
