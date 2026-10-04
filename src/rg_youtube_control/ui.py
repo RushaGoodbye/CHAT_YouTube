@@ -6875,8 +6875,10 @@ class MainWindow(QMainWindow):
             return 0
 
         refresh_reads = (len(video_ids) + 49) // 50
+        metadata_reads = refresh_reads if daily else len(video_ids)
         estimated = (
-            len(video_ids) * SAFE_METADATA_ITEM_COST
+            len(video_ids) * VIDEO_UPDATE_COST
+            + metadata_reads * READ_REQUEST_COST
             + refresh_reads * READ_REQUEST_COST
         )
         dialog_title = (
@@ -6925,6 +6927,33 @@ class MainWindow(QMainWindow):
         ):
             return 0
 
+        prefetched_metadata: dict[str, dict] = {}
+        if daily:
+            counted = getattr(
+                self.client,
+                "video_details_with_request_count",
+                None,
+            )
+            if callable(counted):
+                items, requests = counted(video_ids)
+                record_quota_units(
+                    self.conn,
+                    int(requests) * READ_REQUEST_COST,
+                )
+            else:
+                items = self.client.video_details(video_ids)
+                requests = (len(video_ids) + 49) // 50
+                record_quota_units(
+                    self.conn,
+                    requests * READ_REQUEST_COST,
+                )
+            prefetched_metadata = {
+                str(item.get("id") or ""): item
+                for item in items
+                if item.get("id")
+            }
+            self.refresh_youtube_quota_label()
+
         changed_ids: list[str] = []
         skipped_ids: list[str] = []
         error_text = ""
@@ -6961,10 +6990,29 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 try:
                     live_budget = quota_budget_status(self.conn)
-                    if int(live_budget["spendable"]) < SAFE_METADATA_ITEM_COST:
+                    required_cost = (
+                        VIDEO_UPDATE_COST
+                        if daily
+                        else SAFE_METADATA_ITEM_COST
+                    )
+                    if int(live_budget["spendable"]) < required_cost:
                         error_text = "reserve_reached"
                         break
-                    title, description, tags = self._current_video_metadata(video_id)
+                    if daily:
+                        item = prefetched_metadata.get(video_id)
+                        if item is None:
+                            skipped_ids.append(video_id)
+                            if progress is not None:
+                                progress.setValue(index)
+                            continue
+                        snippet = item.get("snippet", {})
+                        title = snippet.get("title", "")
+                        description = snippet.get("description", "")
+                        tags = snippet.get("tags", []) or []
+                    else:
+                        title, description, tags = self._current_video_metadata(
+                            video_id
+                        )
                     fix = safe_description_fix(description, title)
                     if not fix.changes or fix.after == description:
                         skipped_ids.append(video_id)
@@ -7278,6 +7326,29 @@ class MainWindow(QMainWindow):
     def background_scan_all_channels(self) -> None:
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
             return
+        if getattr(self, "_archive_campaign_autorun_running", False):
+            return
+        if archive_priority_enabled(self.conn):
+            now = datetime.now(timezone.utc)
+            raw = get_setting(
+                self.conn,
+                "archive_priority_comment_scan_last",
+                "",
+            )
+            if raw:
+                try:
+                    last = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    if (now - last).total_seconds() < 30 * 60:
+                        return
+                except ValueError:
+                    pass
+            set_setting(
+                self.conn,
+                "archive_priority_comment_scan_last",
+                now.isoformat(),
+            )
 
         summaries: list[str] = []
         for profile, target_id in PROFILE_TARGETS.items():
