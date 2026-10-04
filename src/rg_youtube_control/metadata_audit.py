@@ -51,10 +51,25 @@ def normalize_links(description: str) -> str:
         OLD_DONATE_LINK, DONATE_URL
     )
 
+def _duration_seconds(value: str | None) -> int:
+    match = re.fullmatch(
+        r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?",
+        str(value or ""),
+    )
+    if not match:
+        return 0
+    return (
+        int(match.group(1) or 0) * 3600
+        + int(match.group(2) or 0) * 60
+        + int(match.group(3) or 0)
+    )
+
+
 def audit(
     description: str,
     tags: list[str] | None,
     title: str = "",
+    duration: str | None = None,
 ) -> AuditResult:
     value = description or ""
     issues: list[str] = []
@@ -76,7 +91,13 @@ def audit(
     if len(value.strip()) < 250:
         issues.append("thin_description")
         score -= 15
-    if not CHAPTER_RE.search(value):
+    duration_seconds = _duration_seconds(duration)
+    short_by_duration = 0 < duration_seconds <= 60
+    short_by_label = (
+        0 < duration_seconds <= 180
+        and "#shorts" in (title or "").casefold()
+    )
+    if not CHAPTER_RE.search(value) and not (short_by_duration or short_by_label):
         issues.append("no_chapters")
         score -= 10
 
