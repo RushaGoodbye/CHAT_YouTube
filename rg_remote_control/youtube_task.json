@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_quota_plan_status",
+  "action": "health",
   "args": {
-    "nonce": "next-quota-plan-20261005"
+    "nonce": "runner-compile-after-dedupe"
   }
 }
