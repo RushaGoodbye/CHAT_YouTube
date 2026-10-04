@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_docker_root_mcp_deploy",
-  "args": {"retry": 1}
+  "action": "upgrade_live_mcp_hook_autodetect_volume",
+  "args": {}
 }
