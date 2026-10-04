@@ -3976,14 +3976,46 @@ class MainWindow(QMainWindow):
             for profile in PROFILE_TARGETS
         }
 
+    def _scheduled_ready_quota_reserve(self) -> tuple[int, int]:
+        rows = self.conn.execute(
+            """SELECT v.profile, COUNT(*) AS n
+               FROM videos v
+               JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.scheduled_publish_at IS NOT NULL
+                 AND d.status='ready'
+               GROUP BY v.profile"""
+        ).fetchall()
+        ready_count = 0
+        reserve_units = 0
+        for row in rows:
+            count = int(row["n"] or 0)
+            if count <= 0:
+                continue
+            ready_count += count
+            refresh_reads = (count + 49) // 50
+            reserve_units += (
+                count * SAFE_METADATA_ITEM_COST
+                + refresh_reads * READ_REQUEST_COST
+            )
+        return ready_count, reserve_units
+
     def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
         budget = quota_budget_status(self.conn)
+        scheduled_ready, scheduled_reserve = (
+            self._scheduled_ready_quota_reserve()
+        )
+        archive_spendable = max(
+            0,
+            int(budget["campaign_spendable"]) - scheduled_reserve,
+        )
         fresh_spendable = max(
             0,
-            YOUTUBE_DAILY_QUOTA_DEFAULT - int(budget["reserve"]),
+            YOUTUBE_DAILY_QUOTA_DEFAULT
+            - int(budget["reserve"])
+            - scheduled_reserve,
         )
         current_capacity = reserve_safe_daily_batch_capacity(
-            int(budget["spendable"]),
+            archive_spendable,
             500,
         )
         fresh_capacity = reserve_safe_daily_batch_capacity(
@@ -3992,6 +4024,10 @@ class MainWindow(QMainWindow):
         )
         return {
             **budget,
+            "spendable": archive_spendable,
+            "campaign_spendable": archive_spendable,
+            "scheduled_ready": scheduled_ready,
+            "scheduled_reserve": scheduled_reserve,
             "current_capacity": current_capacity,
             "fresh_capacity": fresh_capacity,
         }
@@ -6405,6 +6441,22 @@ class MainWindow(QMainWindow):
             )
             return
 
+        budget = quota_budget_status(self.conn)
+        batch_limit = reserve_safe_batch_capacity(
+            int(budget["campaign_spendable"]),
+            len(rows),
+            final_refresh_reads=1,
+        )
+        if batch_limit <= 0:
+            QMessageBox.information(
+                self,
+                "Резерв квоти",
+                "Готові заплановані стріми збережено, але зараз немає "
+                "безпечного бюджету вище резерву коментарів.",
+            )
+            return
+        rows = rows[:batch_limit]
+
         prepared_rows = []
         blocked: list[str] = []
         for row in rows:
@@ -6469,6 +6521,15 @@ class MainWindow(QMainWindow):
         for row, prepared in prepared_rows:
             video_id = str(row["video_id"])
             try:
+                live_budget = quota_budget_status(self.conn)
+                if (
+                    int(live_budget["campaign_spendable"])
+                    < SAFE_METADATA_ITEM_COST
+                ):
+                    errors.append(
+                        f"{video_id}: досягнуто резерву квоти"
+                    )
+                    break
                 current_title, current_description, current_tags = (
                     self._current_video_metadata(video_id)
                 )
@@ -6485,11 +6546,13 @@ class MainWindow(QMainWindow):
                     current_tags,
                     "before_scheduled_package_batch",
                 )
-                self._quota_update_video(
+                self._quota_update_video_with_client(
+                    self.client,
                     video_id,
                     title=new_title,
                     description=final_description,
                     tags=new_tags,
+                    respect_reserve=True,
                 )
                 record_optimization_event(
                     self.conn, history_id=history_id, video_id=video_id,
@@ -6799,7 +6862,7 @@ class MainWindow(QMainWindow):
         confirm: bool = True,
         notify: bool = True,
     ) -> int:
-        budget = quota_budget_status(self.conn)
+        budget = self._archive_campaign_budget()
         if daily and not archive_priority_enabled(self.conn):
             if notify:
                 QMessageBox.information(
@@ -6960,8 +7023,11 @@ class MainWindow(QMainWindow):
                 )
                 QApplication.processEvents()
                 try:
-                    live_budget = quota_budget_status(self.conn)
-                    if int(live_budget["spendable"]) < SAFE_METADATA_ITEM_COST:
+                    live_budget = self._archive_campaign_budget()
+                    if (
+                        int(live_budget["campaign_spendable"])
+                        < SAFE_METADATA_ITEM_COST
+                    ):
                         error_text = "reserve_reached"
                         break
                     title, description, tags = self._current_video_metadata(video_id)
