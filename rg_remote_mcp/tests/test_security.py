@@ -9,7 +9,7 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         host="127.0.0.1",port=8765,roots={"data":root},
         allowed_commands=frozenset({"python","git"}),ssh_aliases={"alexpc":"host:22"},
-        ssh_user="u",ssh_key=tmp_path/"key",ssh_known_hosts=tmp_path/"known",
+        ssh_windows_aliases=frozenset({"alexpc"}),ssh_user="u",ssh_key=tmp_path/"key",ssh_known_hosts=tmp_path/"known",
         max_read_bytes=1000,max_write_bytes=1000,
     )
 
