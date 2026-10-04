@@ -774,6 +774,42 @@ def probe_contour_mounts() -> dict:
     return result
 
 
+def probe_nas_cached_identity() -> dict:
+    result = run(
+        [r"C:\WINDOWS\System32\cmdkey.exe", "/list"],
+        timeout=30,
+    )
+    lines = result["stdout"].splitlines()
+    hits = []
+    current = []
+    for line in lines:
+        if line.strip().lower().startswith("target:"):
+            if current:
+                block = "\n".join(current)
+                if "alexlosserver" in block.casefold():
+                    hits.append(block)
+            current = [line.strip()]
+        elif current:
+            if line.strip():
+                current.append(line.strip())
+    if current:
+        block = "\n".join(current)
+        if "alexlosserver" in block.casefold():
+            hits.append(block)
+    safe = []
+    for block in hits:
+        keep = []
+        for line in block.splitlines():
+            low = line.casefold()
+            if low.startswith("target:") or low.startswith("user:") or low.startswith("username:"):
+                keep.append(line)
+        safe.append(keep)
+    return {
+        "exit_code": result["exit_code"],
+        "entries": safe,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -814,6 +850,7 @@ ACTIONS = {
     "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
     "probe_contour_mounts": probe_contour_mounts,
+    "probe_nas_cached_identity": probe_nas_cached_identity,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
