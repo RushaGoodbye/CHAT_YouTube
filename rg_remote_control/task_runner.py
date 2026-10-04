@@ -359,6 +359,23 @@ def probe_telegram_production_layout() -> dict:
     return out
 
 
+def probe_nas_identity() -> dict:
+    ps = r"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe"
+    cmd = (
+        "Get-SmbConnection | "
+        "Where-Object {$_.ServerName -ieq 'AlexLosServer'} | "
+        "Select-Object ServerName,ShareName,UserName,Dialect | "
+        "ConvertTo-Json -Depth 3 -Compress"
+    )
+    result = run([ps, "-NoProfile", "-Command", cmd], timeout=30)
+    return {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "home_share_exists": Path(r"\\AlexLosServer\home").is_dir(),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -402,6 +419,7 @@ ACTIONS = {
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
     "probe_telegram_production_layout": probe_telegram_production_layout,
+    "probe_nas_identity": probe_nas_identity,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
