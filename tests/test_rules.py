@@ -2364,6 +2364,17 @@ def test_archive_center_is_compact():
 
 
 
+def test_local_and_scheduled_paths_use_imported_description_sanitizer():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    local_source = inspect.getsource(MainWindow._save_local_seo_result)
+    scheduled_source = inspect.getsource(MainWindow._prepare_scheduled_package)
+
+    assert "sanitize_imported_package_description" in local_source
+    assert "sanitize_imported_package_description" in scheduled_source
+
+
 def test_imported_package_removes_explicit_english_duplicate():
     import re
     from rg_youtube_control.optimization import (

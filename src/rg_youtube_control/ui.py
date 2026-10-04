@@ -6571,7 +6571,10 @@ class MainWindow(QMainWindow):
                 chapters = detected_chapters
             changes.append("прибрано дубль розділів з опису")
 
-        safe_fix = safe_description_fix(description, new_title)
+        safe_fix = sanitize_imported_package_description(
+            description,
+            new_title,
+        )
         if safe_fix.after != description:
             description = safe_fix.after
             changes.extend(safe_fix.changes)
@@ -8246,7 +8249,10 @@ class MainWindow(QMainWindow):
 
         title = str(package.get("title") or "").strip()
         description = str(package.get("description") or "").strip()
-        description = safe_description_fix(description, title).after
+        description = sanitize_imported_package_description(
+            description,
+            title,
+        ).after
         tags = [
             str(item).strip()
             for item in package.get("tags", [])
