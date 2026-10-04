@@ -376,6 +376,18 @@ def probe_nas_identity() -> dict:
     }
 
 
+def probe_nas_home_connection() -> dict:
+    result = run(
+        [r"C:\WINDOWS\System32\net.exe", "use", r"\\AlexLosServer\home"],
+        timeout=30,
+    )
+    return {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -420,6 +432,7 @@ ACTIONS = {
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
     "probe_telegram_production_layout": probe_telegram_production_layout,
     "probe_nas_identity": probe_nas_identity,
+    "probe_nas_home_connection": probe_nas_home_connection,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
