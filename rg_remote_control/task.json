@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "wait_docker_root_mcp_deploy",
-  "args": {"attempt": 2}
+  "action": "probe_docker_root_mcp_deploy",
+  "args": {"after_tick":"22:30"}
 }
