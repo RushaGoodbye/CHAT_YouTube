@@ -309,16 +309,36 @@ SHORTS: {is_short}
                 "Обов'язково заповни title і description. chapters має бути рядком."
             )
         try:
+            attempt_prompt = prompt
+            if attempt:
+                attempt_prompt = f"""
+Поверни ТІЛЬКИ валідний JSON з ключами title, title_variants, description, tags, chapters.
+title: російською, до 100 символів.
+description: українською.
+tags: масив 6-15 рядків без #.
+chapters: рядок з підтвердженими таймкодами або порожній рядок.
+Не вигадуй фактів.
+
+ПОТОЧНА НАЗВА:
+{current_title}
+
+ТРАНСКРИПТ:
+{transcript[:8000]}
+""".strip()
             raw = ollama_chat(
                 [
                     {"role": "system", "content": system_text},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": attempt_prompt},
                 ],
                 model=model,
-                temperature=0.1 if attempt else 0.15,
+                temperature=0.05 if attempt else 0.15,
                 json_mode=True,
             )
             candidate = _extract_json_object(raw)
+            if not str(candidate.get("title") or "").strip():
+                variants_candidate = candidate.get("title_variants") or []
+                if isinstance(variants_candidate, list) and variants_candidate:
+                    candidate["title"] = str(variants_candidate[0]).strip()
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
