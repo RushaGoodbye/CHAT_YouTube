@@ -1,5 +1,5 @@
 #define MyAppName "RG YouTube Control"
-#define MyAppVersion "0.3.65"
+#define MyAppVersion "0.3.66"
 #define MyAppPublisher "RushaGoodbye"
 #define MyAppExeName "RG YouTube Control.exe"
 
