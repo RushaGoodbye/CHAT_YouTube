@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_command_bus",
+  "action": "probe_remote_commander_runtime",
   "args": {}
 }
