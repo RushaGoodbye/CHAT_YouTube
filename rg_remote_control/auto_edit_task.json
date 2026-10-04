@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_fs_list",
-    "tool_args": {
-      "relative": "CONTROL/NAS_SERVICE_V2"
-    }
-  },
-  "nonce": "20261005-auto-edit-check-nas-service-1"
+  "action": "stage_mcp_to_docker_root",
+  "args": {},
+  "nonce": "20261005-production100-stage-mcp-direct-api-1"
 }
