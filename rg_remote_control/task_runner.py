@@ -499,6 +499,65 @@ def probe_nas_command_bus() -> dict:
     return result
 
 
+def sync_nas_command_bus_mcp() -> dict:
+    import hashlib
+    import urllib.request
+    from datetime import datetime, timezone
+
+    expected_blob = "a0f5285547ac5653e9cc9b6844fe94032bd60633"
+    url = (
+        "https://raw.githubusercontent.com/"
+        "RushaGoodbye/rasha-goodbye-news-bot/main/nas/RG_NAS_COMMAND_BUS.sh"
+    )
+    with urllib.request.urlopen(url, timeout=30) as response:
+        payload = response.read()
+
+    actual_blob = hashlib.sha1(
+        f"blob {len(payload)}\0".encode("ascii") + payload
+    ).hexdigest()
+    if actual_blob != expected_blob:
+        raise RuntimeError(
+            f"Unexpected command bus blob: {actual_blob}; expected {expected_blob}"
+        )
+    if b"mcp-deploy)" not in payload or b"mcp-status)" not in payload:
+        raise RuntimeError("MCP actions missing from downloaded command bus")
+
+    target = Path(r"\\AlexLosServer\docker\RG_NAS_COMMAND_BUS.sh")
+    if not target.is_file():
+        raise RuntimeError(f"Live command bus missing: {target}")
+
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup = state / f"RG_NAS_COMMAND_BUS.before_mcp_{stamp}.sh"
+    shutil.copy2(target, backup)
+
+    # Overwrite the existing SMB file in-place so Synology keeps its executable
+    # mode/inode. Atomic replacement from Windows could create a non-executable
+    # file and make the scheduler silently skip the bus.
+    with target.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    written = target.read_bytes()
+    written_blob = hashlib.sha1(
+        f"blob {len(written)}\0".encode("ascii") + written
+    ).hexdigest()
+    if written_blob != expected_blob:
+        with target.open("wb") as handle:
+            handle.write(backup.read_bytes())
+        raise RuntimeError("Live command bus verification failed; backup restored")
+
+    return {
+        "updated": True,
+        "git_blob": written_blob,
+        "bytes": len(written),
+        "backup": str(backup),
+        "mcp_actions": ["mcp-deploy", "mcp-status"],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -546,6 +605,7 @@ ACTIONS = {
     "probe_nas_home_connection": probe_nas_home_connection,
     "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
     "probe_nas_command_bus": probe_nas_command_bus,
+    "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
