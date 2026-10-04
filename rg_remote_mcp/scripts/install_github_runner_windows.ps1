@@ -26,6 +26,6 @@ Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
     --labels "rg,alexpc,windows" `
     --work "_work"
 
-& .\svc install
-& .\svc start
+& .\svc.cmd install
+& .\svc.cmd start
 Write-Host "GITHUB_RUNNER_READY"
