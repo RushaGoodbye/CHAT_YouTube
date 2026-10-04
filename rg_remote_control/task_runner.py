@@ -575,6 +575,58 @@ def probe_command_bus_state() -> dict:
     return out
 
 
+def sync_nas_scheduler_tick() -> dict:
+    import hashlib
+    from datetime import datetime, timezone
+
+    expected_blob = "5fd7a9dc7f6434ca5bfedd3e82d687ff1388edb3"
+    source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_SCHEDULER_TICK.sh"
+    if not source.is_file():
+        raise RuntimeError(f"Vendored scheduler missing: {source}")
+    payload = source.read_bytes()
+    actual_blob = hashlib.sha1(
+        f"blob {len(payload)}\0".encode("ascii") + payload
+    ).hexdigest()
+    if actual_blob != expected_blob:
+        raise RuntimeError(
+            f"Unexpected scheduler blob: {actual_blob}; expected {expected_blob}"
+        )
+    if b'sh "$ROOT/RG_NAS_COMMAND_BUS.sh"' not in payload:
+        raise RuntimeError("Scheduler does not contain shell-based command bus launch")
+
+    target = Path(r"\\AlexLosServer\docker\RG_NAS_SCHEDULER_TICK.sh")
+    if not target.is_file():
+        raise RuntimeError(f"Live scheduler missing: {target}")
+
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup = state / f"RG_NAS_SCHEDULER_TICK.before_mcp_{stamp}.sh"
+    shutil.copy2(target, backup)
+
+    with target.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    written = target.read_bytes()
+    written_blob = hashlib.sha1(
+        f"blob {len(written)}\0".encode("ascii") + written
+    ).hexdigest()
+    if written_blob != expected_blob:
+        with target.open("wb") as handle:
+            handle.write(backup.read_bytes())
+        raise RuntimeError("Scheduler verification failed; backup restored")
+
+    return {
+        "updated": True,
+        "git_blob": written_blob,
+        "bytes": len(written),
+        "backup": str(backup),
+        "launch_mode": "sh",
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -624,6 +676,7 @@ ACTIONS = {
     "probe_nas_command_bus": probe_nas_command_bus,
     "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
     "probe_command_bus_state": probe_command_bus_state,
+    "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
