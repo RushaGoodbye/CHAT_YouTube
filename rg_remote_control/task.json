@@ -1,5 +1,7 @@
 {
   "target": "alexpc",
   "action": "sync_nas_command_bus_mcp",
-  "args": {}
+  "args": {
+    "nonce": "sync-v2"
+  }
 }
