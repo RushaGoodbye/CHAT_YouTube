@@ -1,7 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_command_bus_state",
-  "args": {
-    "nonce": "scheduler-state-v2"
-  }
+  "action": "probe_contour_mounts",
+  "args": {}
 }
