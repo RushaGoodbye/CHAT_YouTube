@@ -917,6 +917,36 @@ def probe_local_mcp_deploy() -> dict:
     }
 
 
+def probe_remote_commander_runtime() -> dict:
+    root = Path(r"\\AlexLosServer\docker\RG_REMOTE_COMMANDER")
+    targets = [
+        root / "compose.yaml",
+        root / "Dockerfile",
+        root / "home" / ".claude-server-commander" / "config.json",
+        root / "home" / ".desktop-commander-device" / "device.json",
+    ]
+    out = {}
+    for path in targets:
+        item = {"exists": path.exists()}
+        if path.is_file():
+            item["size"] = path.stat().st_size
+            if path.name in {"compose.yaml", "Dockerfile"} and path.stat().st_size <= 20000:
+                item["content"] = path.read_text(encoding="utf-8", errors="replace")
+            elif path.name == "config.json" and path.stat().st_size <= 20000:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                try:
+                    data = json.loads(text)
+                    safe = {
+                        k: v for k, v in data.items()
+                        if k.casefold() not in {"token","password","secret","apikey","api_key"}
+                    }
+                    item["safe_json"] = safe
+                except Exception:
+                    item["parse_error"] = True
+        out[str(path.relative_to(root))] = item
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -960,6 +990,7 @@ ACTIONS = {
     "probe_nas_cached_identity": probe_nas_cached_identity,
     "request_local_mcp_deploy": request_local_mcp_deploy,
     "probe_local_mcp_deploy": probe_local_mcp_deploy,
+    "probe_remote_commander_runtime": probe_remote_commander_runtime,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
