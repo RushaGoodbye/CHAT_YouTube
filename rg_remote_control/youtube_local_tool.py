@@ -607,6 +607,113 @@ def runtime_status() -> dict:
         "gh_account": gh_account,
     }
 
+
+def sync_and_launch_source() -> dict:
+    """Safely update the fixed local source checkout and launch it."""
+    import subprocess
+    import time
+
+    target = Path.home() / "CHAT_YouTube-main"
+    if not target.is_dir():
+        raise RuntimeError(f"Local source folder not found: {target}")
+    source_src = ROOT / "src"
+    if not source_src.is_dir():
+        raise RuntimeError(f"Fresh source folder not found: {source_src}")
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup = target / "BACKUPS" / f"source_before_sync_{stamp}"
+    backup.mkdir(parents=True, exist_ok=True)
+
+    target_src = target / "src"
+    if target_src.exists():
+        shutil.copytree(target_src, backup / "src")
+    for name in ("run_app.py", "pyproject.toml", "requirements.txt"):
+        src_file = target / name
+        if src_file.is_file():
+            shutil.copy2(src_file, backup / name)
+
+    if target_src.exists():
+        shutil.rmtree(target_src)
+    shutil.copytree(source_src, target_src)
+    for name in ("run_app.py", "pyproject.toml", "requirements.txt"):
+        src_file = ROOT / name
+        if src_file.is_file():
+            shutil.copy2(src_file, target / name)
+
+    version_match = re.search(
+        r'^version = "([^"]+)"',
+        (target / "pyproject.toml").read_text(
+            encoding="utf-8",
+            errors="replace",
+        ),
+        re.MULTILINE,
+    )
+    version = version_match.group(1) if version_match else ""
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    executable = pythonw if pythonw.is_file() else Path(sys.executable)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(target / "src")
+    env.pop("RUNNER_TRACKING_ID", None)
+
+    creationflags = 0
+    if os.name == "nt":
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    proc = subprocess.Popen(
+        [str(executable), str(target / "run_app.py")],
+        cwd=str(target),
+        env=env,
+        creationflags=creationflags,
+        close_fds=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+    time.sleep(5)
+    running = False
+    process_text = ""
+    if os.name == "nt":
+        verify = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$p=Get-CimInstance Win32_Process | Where-Object { "
+                    "$_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+                    "$p | Select-Object ProcessId,Name,CommandLine | "
+                    "ConvertTo-Json -Compress"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        process_text = (verify.stdout or "").strip()
+        running = bool(
+            process_text and process_text not in {"null", "[]"}
+        )
+
+    if not running:
+        raise RuntimeError(
+            "Source 0.3.73 was synced, but the GUI process was not detected."
+        )
+
+    return {
+        "youtube_api_calls": 0,
+        "target": str(target),
+        "backup": str(backup),
+        "version": version,
+        "python": str(executable),
+        "pid": proc.pid,
+        "running": running,
+        "processes": process_text,
+    }
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -624,6 +731,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_sync_and_launch_source":
+        result = sync_and_launch_source()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
