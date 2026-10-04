@@ -74,7 +74,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force installer | Out-Null
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging\installer.iss
 
       - name: Create SHA-256
         shell: pwsh

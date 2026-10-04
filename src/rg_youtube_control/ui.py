@@ -4736,6 +4736,97 @@ class MainWindow(QMainWindow):
         )
         return True
 
+
+    def _apply_scheduled_before_archive_for_quota_day(
+        self,
+        current_day: str,
+    ) -> bool:
+        """Apply ready scheduled packages before archive spends the daily budget."""
+        done_key = f"archive_campaign_scheduled_done_{current_day}"
+        if get_setting(self.conn, done_key, "0") == "1":
+            return True
+
+        total_ready = int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM videos v
+                   JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.scheduled_publish_at IS NOT NULL
+                     AND d.status='ready'"""
+            ).fetchone()[0]
+        )
+        if total_ready <= 0:
+            set_setting(self.conn, done_key, "1")
+            return True
+
+        changed_total = 0
+        for profile in PROFILE_TARGETS:
+            ready_before = int(
+                self.conn.execute(
+                    """SELECT COUNT(*)
+                       FROM videos v
+                       JOIN optimization_drafts d ON d.video_id=v.video_id
+                       WHERE v.profile=?
+                         AND v.scheduled_publish_at IS NOT NULL
+                         AND d.status='ready'""",
+                    (profile,),
+                ).fetchone()[0]
+            )
+            if ready_before <= 0:
+                continue
+
+            client = YouTubeClient(profile=profile)
+            client.credentials()
+            self.client = client
+            self.current_profile = profile
+
+            changed_total += self.apply_ready_scheduled_packages(
+                confirm=False,
+                notify=False,
+            )
+            ready_after = int(
+                self.conn.execute(
+                    """SELECT COUNT(*)
+                       FROM videos v
+                       JOIN optimization_drafts d ON d.video_id=v.video_id
+                       WHERE v.profile=?
+                         AND v.scheduled_publish_at IS NOT NULL
+                         AND d.status='ready'""",
+                    (profile,),
+                ).fetchone()[0]
+            )
+            if ready_after > 0:
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="кампанія архіву",
+                    action="Архів чекає заплановані",
+                    details=(
+                        f"квотний день {current_day}; "
+                        f"залишилось запланованих {ready_after}; "
+                        "архівний бюджет не витрачаємо"
+                    ),
+                )
+                self.reload_action_log()
+                return False
+
+            if quota_exhausted(self.conn):
+                return False
+
+        set_setting(self.conn, done_key, "1")
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="заплановані",
+            action="Пріоритет перед архівом виконано",
+            details=(
+                f"квотний день {current_day}; "
+                f"оновлено запланованих {changed_total}"
+            ),
+        )
+        self.reload_action_log()
+        return True
+
     def _run_archive_campaign_autorun(self) -> None:
         if not archive_priority_enabled(self.conn):
             return
@@ -4753,6 +4844,11 @@ class MainWindow(QMainWindow):
             current_day = current_quota_day()
             done_key = f"archive_campaign_autorun_done_{current_day}"
             if get_setting(self.conn, done_key, "0") == "1":
+                return
+
+            if not self._apply_scheduled_before_archive_for_quota_day(
+                current_day
+            ):
                 return
 
             stats = self._archive_campaign_stats()
@@ -4857,8 +4953,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
 
         hint = QLabel(
-            "Кампанія проходить автоматично: основний safe -> LIVE safe -> "
-            "основний deep -> LIVE deep. Deep-пакети лишаються чернетками "
+            "Кампанія проходить автоматично: спочатку готові заплановані "
+            "відео, потім основний safe -> LIVE safe -> основний deep -> "
+            "LIVE deep. Deep-пакети лишаються чернетками "
             "до ручного перегляду. Резерв коментарів архів не використовує."
         )
         hint.setWordWrap(True)

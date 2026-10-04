@@ -2350,6 +2350,40 @@ def test_archive_autorun_is_quota_day_guarded_and_silent():
     assert "respect_reserve=True" in batch_source
 
 
+def test_archive_autorun_prioritizes_scheduled_before_safe_archive():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    autorun = inspect.getsource(MainWindow._run_archive_campaign_autorun)
+    helper = inspect.getsource(
+        MainWindow._apply_scheduled_before_archive_for_quota_day
+    )
+
+    assert "_apply_scheduled_before_archive_for_quota_day" in autorun
+    assert "apply_ready_scheduled_packages" in helper
+    assert "confirm=False" in helper
+    assert "notify=False" in helper
+    assert "ready_after > 0" in helper
+    assert "архівний бюджет не витрачаємо" in helper
+
+
+def test_windows_installer_version_comes_from_project_version():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    installer = (root / "packaging" / "installer.iss").read_text(
+        encoding="utf-8"
+    )
+    workflow = (
+        root / ".github" / "workflows" / "windows-build.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "#ifndef MyAppVersion" in installer
+    assert '#define MyAppVersion "0.0.0"' in installer
+    assert '#define MyAppVersion "0.3.' not in installer
+    assert '"/DMyAppVersion=$version"' in workflow
+
+
 def test_archive_center_is_compact():
     import inspect
     from rg_youtube_control.ui import MainWindow
