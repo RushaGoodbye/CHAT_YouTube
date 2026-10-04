@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_repair_apply",
+  "action": "youtube_program_local_status",
   "args": {
-    "nonce": "apply-blocked-repair-1"
+    "mode": "post_repair_verify",
+    "nonce": "post-repair-1"
   }
 }
