@@ -1642,6 +1642,53 @@ def probe_cloudflare_mcp_gateway_options() -> dict:
     }
 
 
+def telegram_mcp_call() -> dict:
+    import asyncio
+    import importlib.util
+
+    task_path = ROOT / "rg_remote_control" / "task.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    args = task.get("args") or {}
+    tool = str(args.get("tool") or "").strip()
+    tool_args = args.get("tool_args") or {}
+
+    if not tool.startswith("telegram_"):
+        raise RuntimeError("Only telegram_* RG NAS MCP tools are allowed")
+    if not isinstance(tool_args, dict):
+        raise RuntimeError("tool_args must be an object")
+
+    if importlib.util.find_spec("mcp") is None:
+        install = run(
+            [sys.executable, "-m", "pip", "install", "--user", "mcp==2.3.0"],
+            timeout=300,
+        )
+        if install["exit_code"] != 0:
+            raise RuntimeError(
+                "Failed to install MCP client: " + install["stderr"]
+            )
+
+    from mcp import Client
+
+    async def _call():
+        async with Client("http://192.168.50.32:8765/mcp") as client:
+            result = await client.call_tool(tool, tool_args)
+            content = []
+            for item in result.content or []:
+                entry = {"type": getattr(item, "type", None)}
+                text_value = getattr(item, "text", None)
+                if text_value is not None:
+                    entry["text"] = text_value
+                content.append(entry)
+            return {
+                "tool": tool,
+                "is_error": bool(result.is_error),
+                "structured_content": result.structured_content,
+                "content": content,
+            }
+
+    return asyncio.run(_call())
+
+
 def youtube_mcp_call() -> dict:
     import asyncio
     import importlib.util
@@ -1746,6 +1793,7 @@ ACTIONS = {
     "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
     "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
