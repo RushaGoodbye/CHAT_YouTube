@@ -1,29 +1,53 @@
-# RG Remote MCP
+# RG NAS MCP Hub
 
-Restricted remote-control bridge intended for Synology NAS + AlexPC.
+One MCP server on Synology NAS with three isolated internal contours:
 
-## Security model
+- `youtube` - RG YouTube Control only
+- `telegram` - Telegram moderation/publishing stack only
+- `auto_edit` - RG Auto Edit only
 
-- only configured filesystem roots are exposed;
-- path traversal outside roots is rejected;
-- commands are executed without a local shell;
-- executable names must be in an allow-list;
-- SSH destinations are fixed aliases, not model-supplied hosts;
-- SSH host keys are verified with mounted known_hosts;
-- container binds to 127.0.0.1 by default and must not be exposed directly to the Internet.
+## Architecture
 
-## Synology quick start
+External client -> `rg-nas-mcp-hub:8765/mcp`
 
-1. Copy this folder to the NAS.
-2. Create `secrets/alexpc_ssh_key` and `secrets/known_hosts`.
-3. Copy `.env.example` to `.env` and adjust volume paths/commands.
-4. Run:
-   `docker compose up -d --build`
-5. Local MCP endpoint:
-   `http://127.0.0.1:8765/mcp`
+The hub exposes namespaced tools:
 
-For external ChatGPT access, put an authenticated HTTPS gateway in front of this local endpoint. Do not port-forward 8765 directly.
+- `youtube_*`
+- `telegram_*`
+- `auto_edit_*`
 
-## AlexPC SSH
+Internally the hub talks to three worker containers. Workers do not share a filesystem root or Docker network with each other.
 
-Use a dedicated Windows account such as `rgremote`, enable OpenSSH Server, install the NAS public key in that account's authorized_keys, and restrict firewall access to the NAS IP where possible.
+### youtube worker
+
+Mounted only to the YouTube Control data tree.
+
+### telegram worker
+
+Mounted only to Telegram deployment/monitoring/control directories.
+
+### auto_edit worker
+
+Mounted only to RG Auto Edit operational directories.
+
+## Isolation guarantees
+
+- each worker has its own Docker network;
+- each worker has its own filesystem mounts;
+- path traversal outside its worker root is rejected;
+- copy operations stay inside the same worker root;
+- commands are allow-listed per worker;
+- workers are not published to the host;
+- only the hub is bound to NAS localhost;
+- the hub does not mount project data directly;
+- no cross-contour copy/move API exists.
+
+## Local endpoint
+
+`http://127.0.0.1:8765/mcp`
+
+Do not expose TCP 8765 directly to the Internet. External ChatGPT access should be added later through authenticated HTTPS/OAuth.
+
+## Health
+
+The hub `health` tool reports all three worker states independently and returns `degraded` if any contour is unavailable.
