@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_ssh_config",
+  "action": "probe_nas_ssh_auth",
   "args": {}
 }
