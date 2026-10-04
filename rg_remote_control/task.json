@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "list_nas_project_roots",
+  "action": "probe_nas_shares",
   "args": {}
 }
