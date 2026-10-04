@@ -27,7 +27,7 @@ jobs:
           $task = Get-Content "rg_remote_control/youtube_task.json" -Raw | ConvertFrom-Json
           if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
           if ($task.contour -ne "youtube") { throw "Task contour must be youtube" }
-          if ($task.action -notin @("health","stage_mcp_to_docker_root","probe_docker_root_mcp_deploy","youtube_mcp_call","pin_live_mcp_lan_bind","enable_youtube_mcp_bridge")) {
+          if ($task.action -notin @("health","stage_mcp_to_docker_root","probe_docker_root_mcp_deploy","youtube_mcp_call","enable_youtube_mcp_bridge")) {
             throw "Action is not allowed in YouTube contour"
           }
       - name: Run YouTube contour task
