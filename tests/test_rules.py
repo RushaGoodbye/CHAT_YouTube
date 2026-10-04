@@ -2426,6 +2426,24 @@ def test_imported_package_removes_explicit_english_duplicate():
     assert check.ready is True
 
 
+def test_imported_package_removes_english_duplicate_without_flag():
+    from rg_youtube_control.optimization import sanitize_imported_package_description
+
+    ukrainian = (
+        "Український опис з достатнім контекстом для безпечного очищення. "
+    ) * 10
+    source = (
+        ukrainian
+        + "\n\nENGLISH SUMMARY:\n"
+        + ("This is duplicated English text. " * 30)
+        + "\n\n#чатрулетка #рашагудбай #росія"
+    )
+    fixed = sanitize_imported_package_description(source, "Тестове відео")
+
+    assert "ENGLISH SUMMARY:" not in fixed.after
+    assert "This is duplicated English text." not in fixed.after
+
+
 def test_imported_package_does_not_remove_only_english_body():
     from rg_youtube_control.optimization import (
         sanitize_imported_package_description,
