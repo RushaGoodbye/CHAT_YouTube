@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_command_bus",
+  "action": "sync_nas_command_bus_mcp",
   "args": {}
 }
