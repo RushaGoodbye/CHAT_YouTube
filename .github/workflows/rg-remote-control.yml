@@ -1,0 +1,59 @@
+name: RG Remote Control
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "rg_remote_control/task.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-remote-control
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.read.outputs.target }}
+      action: ${{ steps.read.outputs.action }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          task=json.load(open("rg_remote_control/task.json",encoding="utf-8"))
+          target=str(task.get("target") or "")
+          action=str(task.get("action") or "")
+          if target not in {"alexpc","nas"}:
+              raise SystemExit("invalid target")
+          if action not in {"health","deploy_remote_mcp","remote_mcp_status"}:
+              raise SystemExit("invalid action")
+          print(f"target={target}")
+          print(f"action={action}")
+          PY
+
+  alexpc:
+    needs: plan
+    if: needs.plan.outputs.target == 'alexpc'
+    runs-on: [self-hosted, rg, alexpc, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run restricted task
+        shell: pwsh
+        run: python rg_remote_control/task_runner.py rg_remote_control/task.json
+
+  nas:
+    needs: plan
+    if: needs.plan.outputs.target == 'nas'
+    runs-on: [self-hosted, rg, nas]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run restricted task
+        shell: bash
+        run: python3 rg_remote_control/task_runner.py rg_remote_control/task.json
