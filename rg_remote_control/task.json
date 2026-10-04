@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_command_bus_state",
+  "action": "install_and_probe_nas_ssh_key",
   "args": {}
 }
