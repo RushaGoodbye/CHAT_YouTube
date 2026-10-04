@@ -1204,6 +1204,68 @@ def probe_docker_root_mcp_deploy() -> dict:
     }
 
 
+def wait_docker_root_mcp_deploy() -> dict:
+    import time
+
+    remote_root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    request = remote_root / "DEPLOY_REQUEST"
+    status_file = state / "mcp_deploy_status"
+    log_file = state / "mcp-deploy.log"
+
+    started = time.time()
+    observations = []
+    while time.time() - started < 480:
+        request_exists = request.exists()
+        status = (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else ""
+        )
+        if (
+            not observations
+            or observations[-1]["request_exists"] != request_exists
+            or observations[-1]["status"] != (status or None)
+        ):
+            observations.append({
+                "elapsed": int(time.time() - started),
+                "request_exists": request_exists,
+                "status": status or None,
+            })
+
+        if not request_exists and status in {"OK", "ERROR"}:
+            log_tail = (
+                log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+                if log_file.is_file()
+                else []
+            )
+            return {
+                "processed": True,
+                "status": status,
+                "elapsed_seconds": int(time.time() - started),
+                "observations": observations,
+                "log_tail": log_tail,
+            }
+        time.sleep(10)
+
+    return {
+        "processed": False,
+        "request_exists": request.exists(),
+        "status": (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else None
+        ),
+        "elapsed_seconds": int(time.time() - started),
+        "observations": observations,
+        "log_tail": (
+            log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+            if log_file.is_file()
+            else []
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1254,6 +1316,7 @@ ACTIONS = {
     "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
     "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
     "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
+    "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
