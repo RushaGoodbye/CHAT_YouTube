@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_fs_list",
-    "tool_args": {
-      "relative": ""
-    }
-  },
-  "nonce": "20261004-auto-edit-root-e2e-1"
+  "action": "probe_auto_edit_mcp_bridge",
+  "args": {},
+  "nonce": "20261004-auto-edit-bridge-probe-1"
 }
