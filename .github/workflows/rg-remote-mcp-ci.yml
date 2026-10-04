@@ -40,6 +40,8 @@ jobs:
         run: pytest -q
       - name: Import smoke
         run: python -c "from rg_remote_mcp.server import mcp; print('MCP_IMPORT_OK')"
+      - name: Smoke module import
+        run: python -c "from rg_remote_mcp import smoke; print('MCP_SMOKE_IMPORT_OK')"
       - name: Compose validation
         run: docker compose config
       - name: Docker build hub
