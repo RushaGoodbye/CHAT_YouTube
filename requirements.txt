@@ -6,3 +6,5 @@ google-auth-httplib2>=0.2
 keyring>=25.4
 pytest>=8.3
 tzdata>=2025.2
+yt-dlp>=2026.8.19
+youtube-transcript-api>=1.2.4
