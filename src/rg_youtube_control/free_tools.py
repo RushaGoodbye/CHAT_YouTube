@@ -216,7 +216,7 @@ def ollama_chat(
     *,
     model: str = DEFAULT_OLLAMA_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
-    timeout: float = 120.0,
+    timeout: float = 300.0,
     temperature: float = 0.2,
     json_mode: bool = False,
 ) -> str:
@@ -283,34 +283,52 @@ SHORTS: {is_short}
 {current_title}
 
 ПОТОЧНИЙ ОПИС:
-{current_description}
+{current_description[:6000]}
 
 ПОТОЧНІ ТЕГИ:
 {json.dumps(current_tags or [], ensure_ascii=False)}
 
 ПУБЛІЧНИЙ КОНТЕКСТ yt-dlp:
-{json.dumps(context, ensure_ascii=False)[:12000]}
+{json.dumps(context, ensure_ascii=False)[:6000]}
 
 ТРАНСКРИПТ:
-{transcript[:24000]}
+{transcript[:12000]}
 """.strip()
 
-    raw = ollama_chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Працюй як точний редактор метаданих. "
-                    "Не вигадуй подій, людей, цитат або причин."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        model=model,
-        temperature=0.15,
-        json_mode=True,
-    )
-    payload = _extract_json_object(raw)
+    payload: dict[str, Any] = {}
+    last_error: Exception | None = None
+    for attempt in range(2):
+        system_text = (
+            "Працюй як точний редактор метаданих. "
+            "Не вигадуй подій, людей, цитат або причин. "
+            "Поверни рівно JSON-об'єкт з ключами title, title_variants, description, tags, chapters."
+        )
+        if attempt:
+            system_text += (
+                " Попередня відповідь не пройшла валідацію. "
+                "Обов'язково заповни title і description. chapters має бути рядком."
+            )
+        try:
+            raw = ollama_chat(
+                [
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": prompt},
+                ],
+                model=model,
+                temperature=0.1 if attempt else 0.15,
+                json_mode=True,
+            )
+            candidate = _extract_json_object(raw)
+            if not str(candidate.get("title") or "").strip():
+                raise ValueError("missing title")
+            if not str(candidate.get("description") or "").strip():
+                raise ValueError("missing description")
+            payload = candidate
+            break
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            last_error = exc
+    if not payload:
+        raise ValueError(f"Локальна SEO-генерація не пройшла валідацію після повтору: {last_error}")
 
     title = str(payload.get("title") or "").strip()
     variants = [
@@ -324,7 +342,21 @@ SHORTS: {is_short}
         for item in (payload.get("tags") or [])
         if str(item).strip()
     ]
-    chapters = str(payload.get("chapters") or "").strip()
+    chapters_value = payload.get("chapters")
+    if isinstance(chapters_value, str):
+        chapters = chapters_value.strip()
+    elif isinstance(chapters_value, list):
+        lines: list[str] = []
+        for item in chapters_value:
+            if not isinstance(item, dict):
+                continue
+            stamp = str(item.get("time") or item.get("timestamp") or item.get("start") or "").strip()
+            label = str(item.get("title") or item.get("name") or "").strip()
+            if stamp and label and re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", stamp):
+                lines.append(f"{stamp} {label}")
+        chapters = "\n".join(lines)
+    else:
+        chapters = ""
 
     if not title:
         raise ValueError("Локальна модель не створила назву.")
