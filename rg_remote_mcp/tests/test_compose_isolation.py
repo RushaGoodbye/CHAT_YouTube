@@ -2,8 +2,13 @@ from pathlib import Path
 
 
 def _service_block(text: str, service: str, next_service: str | None) -> str:
-    start = text.index(f"  {service}:")
-    end = text.index(f"  {next_service}:", start) if next_service else len(text)
+    marker = f"\n  {service}:\n"
+    start = text.index(marker) + 1
+    if next_service:
+        end_marker = f"\n  {next_service}:\n"
+        end = text.index(end_marker, start)
+    else:
+        end = text.index("\nnetworks:\n", start)
     return text[start:end]
 
 
