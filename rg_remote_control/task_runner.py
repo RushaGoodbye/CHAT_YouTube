@@ -1040,6 +1040,40 @@ def probe_live_mcp_hook() -> dict:
     }
 
 
+def probe_autodeploy_container_layout() -> dict:
+    root = Path(r"\\AlexLosServer\docker")
+    matches = []
+    names = {
+        "compose.yaml", "compose.yml",
+        "docker-compose.yaml", "docker-compose.yml"
+    }
+    queue = [(root, 0)]
+    seen = 0
+    while queue and seen < 400:
+        current, depth = queue.pop(0)
+        seen += 1
+        try:
+            entries = list(current.iterdir())
+        except Exception:
+            continue
+        for path in entries:
+            try:
+                if path.is_dir() and depth < 3:
+                    if path.name.casefold() not in {"rg_nas_work","rg_nas_state","rg_nas_backup","node_modules",".git"}:
+                        queue.append((path, depth + 1))
+                if path.is_file() and path.name.casefold() in names and path.stat().st_size <= 100000:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    low = text.casefold()
+                    if "rg-nas-autodeploy" in low or "rg_nas_auto_deploy" in low or "rg_nas_autodeploy" in low:
+                        matches.append({
+                            "path": str(path.relative_to(root)),
+                            "content": text,
+                        })
+            except Exception:
+                continue
+    return {"dirs_scanned": seen, "matches": matches[:20]}
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1086,6 +1120,7 @@ ACTIONS = {
     "probe_remote_commander_runtime": probe_remote_commander_runtime,
     "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
     "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
