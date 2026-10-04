@@ -62,9 +62,9 @@ def test_transcript_sample_text_covers_full_video():
         {"text": f"line {index}", "start": index * 60, "duration": 5}
         for index in range(60)
     ]
-    sampled = transcript_sample_text(rows, max_chars=1200, segments=6)
+    sampled = transcript_sample_text(rows, max_chars=300, segments=6)
 
     assert "[00:00]" in sampled
     assert "[59:00]" in sampled
     assert "[...]" in sampled
-    assert len(sampled) <= 1200
+    assert len(sampled) <= 300
