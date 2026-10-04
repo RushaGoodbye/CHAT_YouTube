@@ -2,112 +2,129 @@ from __future__ import annotations
 
 from mcp.server import MCPServer
 
-from .config import settings
-from .contours import CONTOURS
-from .execops import run_local
-from .fsops import copy_path, list_dir, make_dir, read_text, write_text
-from .sshops import run_ssh
+from .hubclient import WORKERS, worker_get, worker_post
 
 mcp = MCPServer("RG NAS MCP Hub")
 
 
 @mcp.tool()
-def health() -> dict:
-    """Return hub status and isolated contour capabilities."""
-    return {
-        "status": "ok",
-        "server": "RG NAS MCP Hub",
-        "contours": {
-            name: {
-                "root": str(contour.root),
-                "allowed_commands": sorted(contour.allowed_commands),
+async def health() -> dict:
+    """Return hub and worker health for all isolated contours."""
+    contours = {}
+    for name in ("youtube", "telegram", "auto_edit"):
+        try:
+            worker = await worker_get(name, "/health")
+            contours[name] = {
+                "status": "ok",
+                "worker": worker,
             }
-            for name, contour in CONTOURS.items()
-        },
-        "ssh_aliases": sorted(settings.ssh_aliases),
-        "max_read_bytes": settings.max_read_bytes,
-        "max_write_bytes": settings.max_write_bytes,
+        except Exception as exc:
+            contours[name] = {
+                "status": "error",
+                "error": str(exc),
+            }
+    return {
+        "status": (
+            "ok"
+            if all(item["status"] == "ok" for item in contours.values())
+            else "degraded"
+        ),
+        "server": "RG NAS MCP Hub",
+        "contours": contours,
     }
 
 
 def _register_contour(name: str) -> None:
-    async def command(
-        argv: list[str],
-        cwd_relative: str = "",
-        timeout_seconds: int = 120,
-    ) -> dict:
-        return await run_local(
-            settings,
-            name,
-            argv,
-            cwd_relative=cwd_relative,
-            timeout_seconds=timeout_seconds,
-        )
+    async def fs_list(relative: str = "") -> list[dict]:
+        result = await worker_post(name, "/fs/list", {"relative": relative})
+        return list(result.get("items") or [])
 
-    async def ssh_command(
-        alias: str,
-        argv: list[str],
-        timeout_seconds: int = 180,
-    ) -> dict:
-        return await run_ssh(
-            settings,
-            name,
-            alias,
-            argv,
-            timeout_seconds=timeout_seconds,
-        )
+    async def fs_read_text(relative: str) -> str:
+        result = await worker_post(name, "/fs/read", {"relative": relative})
+        return str(result.get("content") or "")
 
-    def fs_list(relative: str = "") -> list[dict]:
-        return list_dir(settings, name, relative)
-
-    def fs_read_text(relative: str) -> str:
-        return read_text(settings, name, relative)
-
-    def fs_write_text(
+    async def fs_write_text(
         relative: str,
         content: str,
         create_parents: bool = True,
     ) -> dict:
-        return write_text(
-            settings,
+        result = await worker_post(
             name,
-            relative,
-            content,
-            create_parents=create_parents,
+            "/fs/write",
+            {
+                "relative": relative,
+                "content": content,
+                "create_parents": create_parents,
+            },
         )
+        return {
+            "contour": name,
+            "bytes": int(result.get("bytes") or 0),
+        }
 
-    def fs_make_dir(relative: str) -> str:
-        return make_dir(settings, name, relative)
+    async def fs_make_dir(relative: str) -> dict:
+        await worker_post(name, "/fs/mkdir", {"relative": relative})
+        return {"contour": name, "created": relative}
 
-    def fs_copy(source: str, destination: str) -> str:
-        return copy_path(settings, name, source, destination)
+    async def fs_copy(source: str, destination: str) -> dict:
+        await worker_post(
+            name,
+            "/fs/copy",
+            {"source": source, "destination": destination},
+        )
+        return {
+            "contour": name,
+            "source": source,
+            "destination": destination,
+        }
 
-    command.__name__ = f"{name}_command_run"
-    ssh_command.__name__ = f"{name}_ssh_command_run"
+    async def command_run(
+        argv: list[str],
+        cwd_relative: str = "",
+        timeout_seconds: int = 120,
+    ) -> dict:
+        result = await worker_post(
+            name,
+            "/command",
+            {
+                "argv": argv,
+                "cwd_relative": cwd_relative,
+                "timeout_seconds": timeout_seconds,
+            },
+        )
+        return {
+            "contour": name,
+            "exit_code": int(result.get("exit_code") or 0),
+            "stdout": str(result.get("stdout") or ""),
+            "stderr": str(result.get("stderr") or ""),
+        }
+
     fs_list.__name__ = f"{name}_fs_list"
     fs_read_text.__name__ = f"{name}_fs_read_text"
     fs_write_text.__name__ = f"{name}_fs_write_text"
     fs_make_dir.__name__ = f"{name}_fs_make_dir"
     fs_copy.__name__ = f"{name}_fs_copy"
+    command_run.__name__ = f"{name}_command_run"
 
-    mcp.tool(name=f"{name}_command_run")(command)
-    mcp.tool(name=f"{name}_ssh_command_run")(ssh_command)
     mcp.tool(name=f"{name}_fs_list")(fs_list)
     mcp.tool(name=f"{name}_fs_read_text")(fs_read_text)
     mcp.tool(name=f"{name}_fs_write_text")(fs_write_text)
     mcp.tool(name=f"{name}_fs_make_dir")(fs_make_dir)
     mcp.tool(name=f"{name}_fs_copy")(fs_copy)
+    mcp.tool(name=f"{name}_command_run")(command_run)
 
 
-for _contour_name in ("youtube", "telegram", "auto_edit"):
+for _contour_name in WORKERS:
     _register_contour(_contour_name)
 
 
 def main() -> None:
+    import os
+
     mcp.run(
         transport="streamable-http",
-        host=settings.host,
-        port=settings.port,
+        host=os.getenv("RG_REMOTE_HOST", "0.0.0.0"),
+        port=int(os.getenv("RG_REMOTE_PORT", "8765")),
         stateless_http=True,
         json_response=True,
     )
