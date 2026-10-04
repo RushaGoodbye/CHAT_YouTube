@@ -294,6 +294,33 @@ def probe_nas_shares() -> dict:
     }
 
 
+def probe_nas_telegram_locations() -> dict:
+    roots = [
+        Path(r"\\AlexLosServer\RushaGoodbye"),
+        Path(r"\\AlexLosServer\docker"),
+    ]
+    result = {}
+    for root in roots:
+        items = []
+        if root.is_dir():
+            for p in sorted(root.iterdir(), key=lambda x: x.name.casefold())[:150]:
+                try:
+                    item = {"name": p.name, "type": "dir" if p.is_dir() else "file"}
+                    if p.is_dir():
+                        children = []
+                        for c in sorted(p.iterdir(), key=lambda x: x.name.casefold())[:80]:
+                            children.append({
+                                "name": c.name,
+                                "type": "dir" if c.is_dir() else "file",
+                            })
+                        item["children"] = children
+                    items.append(item)
+                except Exception as exc:
+                    items.append({"name": p.name, "error": repr(exc)})
+        result[str(root)] = items
+    return result
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -335,6 +362,7 @@ ACTIONS = {
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
+    "probe_nas_telegram_locations": probe_nas_telegram_locations,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
