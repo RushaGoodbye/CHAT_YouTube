@@ -1,0 +1,35 @@
+name: RG YouTube Control
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "rg_remote_control/youtube_task.json"
+      - ".github/workflows/rg-youtube-control.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-control
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate YouTube contour
+        shell: powershell
+        run: |
+          $task = Get-Content "rg_remote_control/youtube_task.json" -Raw | ConvertFrom-Json
+          if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
+          if ($task.contour -ne "youtube") { throw "Task contour must be youtube" }
+          if ($task.action -notin @("health","stage_mcp_to_docker_root","probe_docker_root_mcp_deploy","youtube_mcp_call")) {
+            throw "Action is not allowed in YouTube contour"
+          }
+      - name: Run YouTube contour task
+        shell: powershell
+        run: python rg_remote_control/task_runner.py rg_remote_control/youtube_task.json
