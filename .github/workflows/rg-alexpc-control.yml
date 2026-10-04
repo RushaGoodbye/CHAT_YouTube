@@ -28,8 +28,22 @@ jobs:
           if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
           if ($task.action -notin @("health","probe_environment","stage_remote_mcp_to_nas","probe_ssh_config","probe_nas_ssh_auth","probe_nas_mcp_inventory","probe_nas_telegram_mcp_fast","list_nas_project_roots","probe_nas_shares","probe_nas_telegram_locations","probe_telegram_production_layout","probe_nas_identity","probe_nas_home_connection","install_and_probe_nas_ssh_key","probe_nas_command_bus","sync_nas_command_bus_mcp","probe_command_bus_state","sync_nas_scheduler_tick","wait_for_mcp_command_bus","probe_scheduler_history","probe_contour_mounts","probe_nas_cached_identity","request_local_mcp_deploy","probe_local_mcp_deploy","probe_remote_commander_runtime","install_live_mcp_autodeploy_hook","probe_live_mcp_hook","probe_nas_autodeploy_runtime","stage_mcp_to_docker_root","migrate_live_mcp_hook_to_docker_root","probe_docker_root_mcp_deploy","wait_docker_root_mcp_deploy","upgrade_live_mcp_hook_autodetect_volume","install_mcp_protocol_smoke_hook","request_mcp_protocol_smoke","enable_one_minute_mcp_tick","probe_cloudflare_mcp_gateway_options","run_telegram_mcp_smoke","telegram_mcp_call","youtube_mcp_call")) { throw "Action is not allowed on AlexPC" }
       - name: Run restricted task
+        id: restricted
         shell: powershell
-        run: python rg_remote_control/task_runner.py rg_remote_control/task.json | Tee-Object -FilePath rg_remote_control/last_result.json
+        run: |
+          $started = (Get-Date).ToUniversalTime().ToString("o")
+          $lines = & python rg_remote_control/task_runner.py rg_remote_control/task.json 2>&1
+          $code = $LASTEXITCODE
+          $output = ($lines | Out-String)
+          $doc = [ordered]@{
+            started_at = $started
+            finished_at = (Get-Date).ToUniversalTime().ToString("o")
+            exit_code = $code
+            output = $output
+          }
+          $doc | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 rg_remote_control/last_result.json
+          "task_exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          exit 0
       - name: Persist restricted task result
         shell: powershell
         run: |
@@ -39,3 +53,7 @@ jobs:
           if (git diff --cached --quiet) { exit 0 }
           git commit -m "Record RG remote control result [skip ci]"
           git push
+      - name: Fail workflow when restricted task failed
+        if: steps.restricted.outputs.task_exit_code != '0'
+        shell: powershell
+        run: exit 1
