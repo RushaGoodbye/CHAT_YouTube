@@ -1,7 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_docker_root_mcp_deploy",
-  "args": {},
-  "nonce": "20261005-production100-probe-mcp-direct-api-1"
+  "action": "auto_edit_mcp_call",
+  "args": {
+    "tool": "auto_edit_status",
+    "tool_args": {}
+  },
+  "nonce": "20261005-production100-direct-status-smoke-1"
 }
