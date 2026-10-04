@@ -1,0 +1,12 @@
+services:
+  rg-remote-mcp:
+    build: .
+    container_name: rg-remote-mcp
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - /volume1/RG_AUTO_EDIT:/mnt/auto_edit:rw
+      - /volume1/RG_AUTO_EDIT/YOUTUBE_CONTROL:/mnt/youtube:rw
+      - ./secrets:/run/secrets:ro
