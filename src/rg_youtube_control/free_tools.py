@@ -217,12 +217,7 @@ def transcript_sample_text(
     max_chars: int = 12000,
     segments: int = 6,
 ) -> str:
-    """Build a timestamped transcript sample spread across the whole video.
-
-    Unlike transcript_text(), this does not spend the entire context budget on
-    the beginning of a long video. It takes compact windows from evenly spaced
-    positions so local SEO sees the start, middle and ending.
-    """
+    """Build a timestamped sample spread across the whole video."""
     prepared: list[tuple[int, str]] = []
     for item in rows:
         text = " ".join(str(item.get("text") or "").split())
@@ -240,16 +235,17 @@ def transcript_sample_text(
         return full
 
     segments = max(2, int(segments))
-    per_window = max(400, max_chars // segments)
+    separator = "\n[...]\n"
+    separator_budget = len(separator) * (segments - 1)
+    usable = max(200, max_chars - separator_budget)
+    per_window = max(80, usable // segments)
     last_start = prepared[-1][0]
-    selected_indexes: set[int] = set()
+
+    chunks: list[str] = []
+    globally_used: set[int] = set()
 
     for segment in range(segments):
-        target = (
-            last_start * segment / (segments - 1)
-            if segments > 1
-            else 0
-        )
+        target = last_start * segment / (segments - 1)
         center = min(
             range(len(prepared)),
             key=lambda index: abs(prepared[index][0] - target),
@@ -257,9 +253,9 @@ def transcript_sample_text(
 
         left = center
         right = center + 1
+        chosen: list[int] = []
         used = 0
-        local: list[int] = []
-        while (left >= 0 or right < len(prepared)) and used < per_window:
+        while left >= 0 or right < len(prepared):
             candidates: list[int] = []
             if left >= 0:
                 candidates.append(left)
@@ -271,33 +267,40 @@ def transcript_sample_text(
                 candidates,
                 key=lambda index: abs(prepared[index][0] - target),
             )
-            line_len = len(prepared[pick][1]) + 1
-            if used and used + line_len > per_window:
-                break
-            local.append(pick)
-            used += line_len
             if pick == left:
                 left -= 1
             else:
                 right += 1
-        selected_indexes.update(local)
+            if pick in globally_used:
+                continue
+            line_len = len(prepared[pick][1]) + (1 if chosen else 0)
+            if chosen and used + line_len > per_window:
+                break
+            if not chosen and line_len > per_window:
+                chosen.append(pick)
+                globally_used.add(pick)
+                break
+            chosen.append(pick)
+            globally_used.add(pick)
+            used += line_len
 
-    output: list[str] = []
-    used = 0
-    previous = -2
-    for index in sorted(selected_indexes):
-        if index > previous + 1 and output:
-            marker = "[...]"
-            if used + len(marker) + 1 <= max_chars:
-                output.append(marker)
-                used += len(marker) + 1
-        line = prepared[index][1]
-        if used + len(line) + 1 > max_chars:
-            break
-        output.append(line)
-        used += len(line) + 1
-        previous = index
-    return "\n".join(output)
+        if chosen:
+            chunk = "\n".join(prepared[index][1] for index in sorted(chosen))
+            chunks.append(chunk)
+
+    result = separator.join(chunks)
+    if len(result) <= max_chars:
+        return result
+
+    # The per-window budget should normally keep us below max_chars. If an
+    # unusually long single caption exceeds its window, trim only that caption
+    # while preserving the final segment and therefore end-of-video coverage.
+    overflow = len(result) - max_chars
+    if overflow > 0 and chunks:
+        first = chunks[0]
+        trim_to = max(0, len(first) - overflow)
+        chunks[0] = first[:trim_to].rstrip()
+    return separator.join(chunk for chunk in chunks if chunk)
 
 
 def ollama_chat(
