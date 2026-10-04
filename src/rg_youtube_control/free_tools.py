@@ -211,6 +211,95 @@ def transcript_text(
     return "\n".join(parts)
 
 
+def transcript_sample_text(
+    rows: Iterable[dict[str, Any]],
+    *,
+    max_chars: int = 12000,
+    segments: int = 6,
+) -> str:
+    """Build a timestamped transcript sample spread across the whole video.
+
+    Unlike transcript_text(), this does not spend the entire context budget on
+    the beginning of a long video. It takes compact windows from evenly spaced
+    positions so local SEO sees the start, middle and ending.
+    """
+    prepared: list[tuple[int, str]] = []
+    for item in rows:
+        text = " ".join(str(item.get("text") or "").split())
+        if not text:
+            continue
+        start = max(0, int(float(item.get("start") or 0)))
+        stamp = f"{start // 60:02d}:{start % 60:02d}"
+        prepared.append((start, f"[{stamp}] {text}"))
+
+    if not prepared:
+        return ""
+
+    full = "\n".join(line for _start, line in prepared)
+    if len(full) <= max_chars:
+        return full
+
+    segments = max(2, int(segments))
+    per_window = max(400, max_chars // segments)
+    last_start = prepared[-1][0]
+    selected_indexes: set[int] = set()
+
+    for segment in range(segments):
+        target = (
+            last_start * segment / (segments - 1)
+            if segments > 1
+            else 0
+        )
+        center = min(
+            range(len(prepared)),
+            key=lambda index: abs(prepared[index][0] - target),
+        )
+
+        left = center
+        right = center + 1
+        used = 0
+        local: list[int] = []
+        while (left >= 0 or right < len(prepared)) and used < per_window:
+            candidates: list[int] = []
+            if left >= 0:
+                candidates.append(left)
+            if right < len(prepared):
+                candidates.append(right)
+            if not candidates:
+                break
+            pick = min(
+                candidates,
+                key=lambda index: abs(prepared[index][0] - target),
+            )
+            line_len = len(prepared[pick][1]) + 1
+            if used and used + line_len > per_window:
+                break
+            local.append(pick)
+            used += line_len
+            if pick == left:
+                left -= 1
+            else:
+                right += 1
+        selected_indexes.update(local)
+
+    output: list[str] = []
+    used = 0
+    previous = -2
+    for index in sorted(selected_indexes):
+        if index > previous + 1 and output:
+            marker = "[...]"
+            if used + len(marker) + 1 <= max_chars:
+                output.append(marker)
+                used += len(marker) + 1
+        line = prepared[index][1]
+        if used + len(line) + 1 > max_chars:
+            break
+        output.append(line)
+        used += len(line) + 1
+        previous = index
+    return "\n".join(output)
+
+
 def ollama_chat(
     messages: list[dict[str, str]],
     *,
