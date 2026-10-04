@@ -124,6 +124,7 @@ from .optimization import (
     needs_deep_review,
     priority_label,
     safe_description_fix,
+    sanitize_imported_package_description,
     validate_chapters,
     validate_content_package,
 )
@@ -5849,6 +5850,11 @@ class MainWindow(QMainWindow):
         description = _standard_hyphen(
             str(payload.get("description") or "").strip()
         )
+        package_description_fix = sanitize_imported_package_description(
+            description,
+            title,
+        )
+        description = package_description_fix.after
         chapters = _standard_hyphen(
             str(payload.get("chapters") or "").strip()
         )

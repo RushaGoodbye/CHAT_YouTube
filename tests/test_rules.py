@@ -2362,3 +2362,69 @@ def test_archive_center_is_compact():
     assert "Глибока черга → NAS" not in source
     assert "Імпорт глибоких пакетів" not in source
 
+
+
+def test_imported_package_removes_explicit_english_duplicate():
+    import re
+    from rg_youtube_control.optimization import (
+        sanitize_imported_package_description,
+        validate_content_package,
+    )
+
+    ukrainian = (
+        "Це український опис реальної розмови у чат-рулетці. "
+        "Тут збережено контекст відео без вигадування фактів. "
+    ) * 8
+    english = (
+        "The English summary duplicates the same video context and should "
+        "not remain in the imported package. "
+    ) * 15
+    source = (
+        ukrainian
+        + "\n\n🇬🇧 ENGLISH SUMMARY:\n"
+        + english
+        + "\n\n#чатрулетка #рашагудбай #росія #україна #відео #стрім #новини\n\n"
+        + "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        + "https://links.rginfoua.pp.ua/\n\n"
+        + "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
+        + "https://donate.rginfoua.pp.ua/"
+    )
+
+    fixed = sanitize_imported_package_description(
+        source,
+        "Розмова з росіянином про бензин",
+    )
+
+    assert "🇬🇧 ENGLISH SUMMARY:" not in fixed.after
+    assert "The English summary duplicates" not in fixed.after
+    assert "https://links.rginfoua.pp.ua/" in fixed.after
+    assert "https://donate.rginfoua.pp.ua/" in fixed.after
+    hashtags = re.findall(
+        r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+",
+        fixed.after,
+    )
+    assert len(hashtags) == 3
+
+    check = validate_content_package(
+        "Розмова з росіянином про бензин",
+        fixed.after,
+        "",
+        ["РАША ГУДБАЙ", "чат рулетка", "Россия", "Украина", "бензин", "АЗС"],
+        [],
+    )
+    assert check.ready is True
+
+
+def test_imported_package_does_not_remove_only_english_body():
+    from rg_youtube_control.optimization import (
+        sanitize_imported_package_description,
+    )
+
+    source = (
+        "🇬🇧 ENGLISH SUMMARY:\n"
+        "The only meaningful description is English and there is no "
+        "substantial Ukrainian body before the marker."
+    )
+    fixed = sanitize_imported_package_description(source, "Тест")
+    assert fixed.after == source
+    assert fixed.changes == ()

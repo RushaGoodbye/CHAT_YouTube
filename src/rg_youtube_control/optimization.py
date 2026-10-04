@@ -254,6 +254,97 @@ def safe_description_fix(description: str, title: str = "") -> SafeFix:
 
     return SafeFix(before=before, after=after, changes=tuple(changes))
 
+
+ENGLISH_SUMMARY_MARKER_RE = re.compile(
+    r"^\s*🇬🇧\s*ENGLISH\s+SUMMARY\s*:\s*$",
+    re.IGNORECASE,
+)
+INLINE_HASHTAG_RE = re.compile(
+    r"(?<![\w/])#([\wА-Яа-яІіЇїЄєҐґ]+)",
+    re.UNICODE,
+)
+
+
+def _keep_only_canonical_hashtag_line(description: str) -> tuple[str, bool]:
+    lines = (description or "").splitlines()
+    canonical_seen = False
+    changed = False
+    output: list[str] = []
+    for line in lines:
+        if HASHTAG_ONLY_LINE_RE.fullmatch(line):
+            if not canonical_seen:
+                output.append(line)
+                canonical_seen = True
+            else:
+                changed = True
+            continue
+        cleaned = INLINE_HASHTAG_RE.sub(r"\1", line)
+        if cleaned != line:
+            changed = True
+        output.append(cleaned)
+    value = "\n".join(output).strip()
+    return value, changed
+
+
+def sanitize_imported_package_description(
+    description: str,
+    title: str = "",
+) -> SafeFix:
+    """Remove an explicit English duplicate when a Ukrainian body exists."""
+    before = (description or "").strip()
+    lines = before.splitlines()
+    start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if ENGLISH_SUMMARY_MARKER_RE.fullmatch(line)
+        ),
+        None,
+    )
+    if start is None:
+        return SafeFix(before=before, after=before, changes=())
+
+    prefix = "\n".join(lines[:start]).strip()
+    cyrillic_letters = len(
+        re.findall(r"[А-Яа-яІіЇїЄєҐґ]", prefix, re.UNICODE)
+    )
+    if len(prefix) < 250 or cyrillic_letters < 80:
+        return SafeFix(before=before, after=before, changes=())
+
+    end = len(lines)
+    service_markers = (
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:",
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:",
+    )
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if (
+            HASHTAG_ONLY_LINE_RE.fullmatch(lines[index])
+            or any(stripped.startswith(marker) for marker in service_markers)
+        ):
+            end = index
+            break
+
+    after = "\n".join(lines[:start] + lines[end:]).strip()
+    after = re.sub(r"\n{3,}", "\n\n", after)
+    changes: list[str] = ["видалено дубль англійського опису"]
+
+    safe_fix = safe_description_fix(after, title)
+    after = safe_fix.after
+    changes.extend(safe_fix.changes)
+
+    after, hashtags_changed = _keep_only_canonical_hashtag_line(after)
+    if hashtags_changed:
+        changes.append("прибрано зайві inline-хештеги")
+
+    after = re.sub(r"\n{3,}", "\n\n", after).strip()
+    return SafeFix(
+        before=before,
+        after=after,
+        changes=tuple(dict.fromkeys(changes)),
+    )
+
+
 def archive_potential_score(
     *,
     lifetime_views: int,
