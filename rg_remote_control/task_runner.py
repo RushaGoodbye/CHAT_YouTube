@@ -551,6 +551,30 @@ def sync_nas_command_bus_mcp() -> dict:
         "mcp_actions": ["mcp-deploy", "mcp-status"],
     }
 
+def probe_command_bus_state() -> dict:
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    names = [
+        "nas_command_bus_last_id",
+        "nas_command_bus_error",
+        "scheduler_last_check_at",
+        "scheduler_last_check_status",
+        "scheduler_dispatch_at",
+        "scheduler_dispatch_ok_at",
+    ]
+    out = {}
+    for name in names:
+        path = state / name
+        if path.is_file():
+            out[name] = path.read_text(encoding="utf-8", errors="replace").strip()[-2000:]
+        else:
+            out[name] = None
+    audit = state / "nas-command-bus.log"
+    if audit.is_file():
+        lines = audit.read_text(encoding="utf-8", errors="replace").splitlines()
+        out["audit_tail"] = lines[-30:]
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -599,6 +623,7 @@ ACTIONS = {
     "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
     "probe_nas_command_bus": probe_nas_command_bus,
     "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
+    "probe_command_bus_state": probe_command_bus_state,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
