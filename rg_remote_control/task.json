@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "stage_mcp_to_docker_root",
-  "args": {"protocol_smoke": true}
+  "action": "install_mcp_protocol_smoke_hook",
+  "args": {}
 }
