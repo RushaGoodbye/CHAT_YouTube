@@ -26,7 +26,7 @@ jobs:
         run: |
           $task = Get-Content "rg_remote_control/task.json" -Raw | ConvertFrom-Json
           if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
-          if ($task.action -notin @("health","probe_environment","stage_remote_mcp_to_nas","probe_ssh_config","probe_nas_ssh_auth","probe_nas_mcp_inventory","probe_nas_telegram_mcp_fast","list_nas_project_roots","probe_nas_shares","probe_nas_telegram_locations","probe_telegram_production_layout","probe_nas_identity","probe_nas_home_connection","install_and_probe_nas_ssh_key")) { throw "Action is not allowed on AlexPC" }
+          if ($task.action -notin @("health","probe_environment","stage_remote_mcp_to_nas","probe_ssh_config","probe_nas_ssh_auth","probe_nas_mcp_inventory","probe_nas_telegram_mcp_fast","list_nas_project_roots","probe_nas_shares","probe_nas_telegram_locations","probe_telegram_production_layout","probe_nas_identity","probe_nas_home_connection","install_and_probe_nas_ssh_key","probe_nas_command_bus")) { throw "Action is not allowed on AlexPC" }
       - name: Run restricted task
         shell: powershell
         run: python rg_remote_control/task_runner.py rg_remote_control/task.json
