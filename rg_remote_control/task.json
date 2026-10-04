@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_command_bus_state",
+  "action": "probe_nas_cached_identity",
   "args": {}
 }
