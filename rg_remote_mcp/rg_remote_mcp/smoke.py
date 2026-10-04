@@ -10,6 +10,26 @@ from mcp import Client
 EXPECTED = ("youtube", "telegram", "auto_edit")
 
 
+def _payload(result):
+    structured = result.structured_content or {}
+    if isinstance(structured, dict) and "result" in structured:
+        return structured["result"]
+    if structured:
+        return structured
+    for item in result.content or []:
+        value = getattr(item, "text", "")
+        if not value:
+            continue
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and "result" in parsed:
+            return parsed["result"]
+        return parsed
+    return {}
+
+
 async def main() -> None:
     url = os.getenv("RG_REMOTE_MCP_URL", "http://127.0.0.1:8765/mcp")
 
@@ -18,7 +38,7 @@ async def main() -> None:
         if health.is_error:
             raise SystemExit(f"MCP health failed: {health.content}")
 
-        payload = health.structured_content or {}
+        payload = _payload(health)
         contours = payload.get("contours") or {}
         missing = set(EXPECTED) - set(contours)
         if missing:
@@ -43,11 +63,18 @@ async def main() -> None:
                 raise SystemExit(
                     f"{tool} failed: {result.content}"
                 )
-            structured = result.structured_content or {}
+            structured = _payload(result)
+            if isinstance(structured, list):
+                item_count = len(structured)
+            elif isinstance(structured, dict):
+                items = structured.get("items") or structured.get("result") or []
+                item_count = len(items) if isinstance(items, list) else 0
+            else:
+                item_count = 0
             listings[contour] = {
                 "tool": tool,
                 "ok": True,
-                "items": len(structured.get("result") or structured.get("items") or []),
+                "items": item_count,
             }
 
         print("RG_NAS_MCP_PROTOCOL_PASS")
