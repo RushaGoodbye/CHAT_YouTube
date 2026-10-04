@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "stage_remote_mcp_to_nas",
+  "action": "install_and_probe_nas_ssh_key",
   "args": {}
 }
