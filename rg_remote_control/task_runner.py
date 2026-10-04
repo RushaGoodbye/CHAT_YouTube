@@ -1689,6 +1689,116 @@ def telegram_mcp_call() -> dict:
     return asyncio.run(_call())
 
 
+def enable_auto_edit_mcp_bridge() -> dict:
+    from datetime import datetime, timezone
+
+    source_tick = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_TICK.sh"
+    source_helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_AUTO_EDIT_CALL.py"
+    live_tick = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_TICK.sh")
+    live_helper = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_AUTO_EDIT_CALL.py")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+
+    if not source_tick.is_file() or not source_helper.is_file():
+        raise RuntimeError("Auto Edit MCP bridge sources are missing")
+
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    backups = {}
+    for live, source, label in (
+        (live_tick, source_tick, "tick"),
+        (live_helper, source_helper, "helper"),
+    ):
+        if live.is_file():
+            backup = state / f"{live.name}.before_auto_edit_bridge_{stamp}"
+            shutil.copy2(live, backup)
+            backups[label] = str(backup)
+        shutil.copy2(source, live)
+
+    tick_text = live_tick.read_text(encoding="utf-8", errors="replace")
+    helper_text = live_helper.read_text(encoding="utf-8", errors="replace")
+    if "AUTO_EDIT_CALL_ROOT" not in tick_text:
+        raise RuntimeError("Auto Edit call queue is missing from live MCP tick")
+    if 'tool.startswith("auto_edit_")' not in helper_text:
+        raise RuntimeError("Auto Edit-only tool guard is missing from live helper")
+    if "YOUTUBE_CALL_ROOT" not in tick_text:
+        raise RuntimeError("YouTube call queue disappeared from shared MCP tick")
+
+    return {
+        "enabled": True,
+        "interval_seconds": 60,
+        "tick": str(live_tick),
+        "helper": str(live_helper),
+        "backups": backups,
+        "youtube_queue_preserved": True,
+    }
+
+
+def probe_auto_edit_mcp_bridge() -> dict:
+    import time
+
+    root = Path(r"\\AlexLosServer\docker")
+    mcp_root = root / "RG_NAS_MCP"
+    state = root / "RG_NAS_STATE"
+    live_loop = root / "RG_NAS_AUTODEPLOY_LOOP.sh"
+    live_tick = root / "RG_NAS_MCP_TICK.sh"
+    live_helper = root / "RG_NAS_MCP_AUTO_EDIT_CALL.py"
+    tick_log = state / "mcp-tick.log"
+    heartbeat = state / "failover_heartbeat_at"
+    requests = mcp_root / "AUTO_EDIT_CALLS" / "requests"
+    results = mcp_root / "AUTO_EDIT_CALLS" / "results"
+    errors = mcp_root / "AUTO_EDIT_CALLS" / "errors"
+
+    def info(path: Path) -> dict:
+        if not path.exists():
+            return {"exists": False}
+        stat = path.stat()
+        return {
+            "exists": True,
+            "size": stat.st_size if path.is_file() else None,
+            "mtime_epoch": int(stat.st_mtime),
+            "age_seconds": max(0, int(time.time() - stat.st_mtime)),
+        }
+
+    loop_text = live_loop.read_text(encoding="utf-8", errors="replace") if live_loop.is_file() else ""
+    tick_text = live_tick.read_text(encoding="utf-8", errors="replace") if live_tick.is_file() else ""
+
+    return {
+        "loop": {
+            **info(live_loop),
+            "has_tick_call": "RG_NAS_MCP_TICK.sh" in loop_text,
+            "check_interval_60": "CHECK_INTERVAL=60" in loop_text,
+        },
+        "tick": {
+            **info(live_tick),
+            "has_auto_edit_queue": "AUTO_EDIT_CALL_ROOT" in tick_text,
+            "has_youtube_queue": "YOUTUBE_CALL_ROOT" in tick_text,
+        },
+        "helper": info(live_helper),
+        "tick_log": {
+            **info(tick_log),
+            "tail": (
+                tick_log.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+                if tick_log.is_file()
+                else []
+            ),
+        },
+        "failover_heartbeat": {
+            **info(heartbeat),
+            "value": (
+                heartbeat.read_text(encoding="utf-8", errors="replace").strip()
+                if heartbeat.is_file()
+                else None
+            ),
+        },
+        "queues": {
+            "requests": sorted(p.name for p in requests.glob("*.json")) if requests.is_dir() else [],
+            "results": sorted(p.name for p in results.glob("*.json")) if results.is_dir() else [],
+            "errors": sorted(p.name for p in errors.glob("*.log")) if errors.is_dir() else [],
+        },
+    }
+
+
 def enable_youtube_mcp_bridge() -> dict:
     from datetime import datetime, timezone
 
@@ -1960,9 +2070,7 @@ def youtube_mcp_call() -> dict:
 
 
 def auto_edit_mcp_call() -> dict:
-    import asyncio
-    import importlib.util
-    import tempfile
+    import time
     import uuid
 
     task_path = Path(
@@ -1981,41 +2089,65 @@ def auto_edit_mcp_call() -> dict:
         raise RuntimeError("tool_args must be an object")
 
     if os.name == "nt":
-        if importlib.util.find_spec("mcp") is None:
-            install = run(
-                [sys.executable, "-m", "pip", "install", "--user", "mcp==2.3.0"],
-                timeout=300,
-            )
-            if install["exit_code"] != 0:
-                raise RuntimeError(
-                    "Failed to install MCP client: " + install["stderr"]
+        root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP\AUTO_EDIT_CALLS")
+        requests = root / "requests"
+        results = root / "results"
+        errors = root / "errors"
+        requests.mkdir(parents=True, exist_ok=True)
+        results.mkdir(parents=True, exist_ok=True)
+        errors.mkdir(parents=True, exist_ok=True)
+
+        request_id = uuid.uuid4().hex
+        request_file = requests / f"{request_id}.json"
+        result_file = results / f"{request_id}.json"
+        error_file = errors / f"{request_id}.log"
+
+        payload = {
+            "request_id": request_id,
+            "tool": tool,
+            "tool_args": tool_args,
+        }
+        temp = request_file.with_suffix(".tmp")
+        temp.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temp, request_file)
+
+        started = time.time()
+        timeout_seconds = 150
+        while time.time() - started < timeout_seconds:
+            if result_file.is_file():
+                result = json.loads(
+                    result_file.read_text(encoding="utf-8", errors="replace")
                 )
-
-        from mcp import Client
-
-        async def _call():
-            url = os.getenv(
-                "RG_NAS_MCP_URL",
-                "http://192.168.50.32:8765/mcp",
-            )
-            async with Client(url) as client:
-                result = await client.call_tool(tool, tool_args)
-                content = []
-                for item in result.content or []:
-                    entry = {"type": getattr(item, "type", None)}
-                    text_value = getattr(item, "text", None)
-                    if text_value is not None:
-                        entry["text"] = text_value
-                    content.append(entry)
+                try:
+                    result_file.unlink()
+                except Exception:
+                    pass
                 return {
-                    "transport": "RG NAS MCP Auto Edit LAN bridge",
-                    "tool": tool,
-                    "is_error": bool(result.is_error),
-                    "structured_content": result.structured_content,
-                    "content": content,
+                    "transport": "RG NAS MCP Auto Edit queue bridge",
+                    "elapsed_seconds": int(time.time() - started),
+                    **result,
                 }
+            if error_file.is_file() and not request_file.exists():
+                error = error_file.read_text(
+                    encoding="utf-8", errors="replace"
+                )[-12000:]
+                try:
+                    error_file.unlink()
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    "RG NAS MCP Auto Edit call failed: " + error
+                )
+            time.sleep(2)
 
-        return asyncio.run(_call())
+        raise RuntimeError(
+            f"RG NAS MCP Auto Edit call timed out after {timeout_seconds}s"
+        )
+
+    import tempfile
 
     helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_AUTO_EDIT_CALL.py"
     if not helper.is_file():
@@ -2243,6 +2375,8 @@ ACTIONS = {
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "auto_edit_mcp_call": auto_edit_mcp_call,
+    "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
+    "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
     "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
     "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
