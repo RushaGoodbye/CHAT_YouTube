@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "wait_for_mcp_command_bus",
+  "action": "sync_nas_scheduler_tick",
   "args": {}
 }
