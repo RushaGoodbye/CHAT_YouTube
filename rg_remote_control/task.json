@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "request_local_mcp_deploy",
+  "action": "probe_nas_command_bus",
   "args": {}
 }
