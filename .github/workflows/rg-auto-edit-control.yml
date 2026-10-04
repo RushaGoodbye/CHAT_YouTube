@@ -26,23 +26,12 @@ jobs:
       - name: Validate Auto Edit contour
         shell: powershell
         run: |
-          python - <<'PY'
-          import json
-          task=json.load(open("rg_remote_control/auto_edit_task.json",encoding="utf-8"))
-          if task.get("target") != "alexpc":
-              raise SystemExit("Task target must be alexpc")
-          if task.get("contour") != "auto_edit":
-              raise SystemExit("Task contour must be auto_edit")
-          if task.get("action") not in {"auto_edit_mcp_call"}:
-              raise SystemExit("Action is not allowed in Auto Edit contour")
-          args=task.get("args") or {}
-          tool=str(args.get("tool") or "")
-          if not tool.startswith("auto_edit_"):
-              raise SystemExit("Only auto_edit_* RG NAS MCP tools are allowed")
-          if not isinstance(args.get("tool_args") or {}, dict):
-              raise SystemExit("tool_args must be an object")
-          print("AUTO_EDIT_TASK_VALID")
-          PY
+          $task = Get-Content "rg_remote_control/auto_edit_task.json" -Raw | ConvertFrom-Json
+          if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
+          if ($task.contour -ne "auto_edit") { throw "Task contour must be auto_edit" }
+          if ($task.action -ne "auto_edit_mcp_call") { throw "Action is not allowed in Auto Edit contour" }
+          if (-not ($task.args.tool -like "auto_edit_*")) { throw "Only auto_edit_* RG NAS MCP tools are allowed" }
+          Write-Host "AUTO_EDIT_TASK_VALID"
       - name: Run Auto Edit contour task
-        shell: bash
+        shell: powershell
         run: python rg_remote_control/task_runner.py rg_remote_control/auto_edit_task.json
