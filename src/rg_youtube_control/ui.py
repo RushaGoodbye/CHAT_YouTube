@@ -7191,11 +7191,17 @@ class MainWindow(QMainWindow):
                     if use_prepared
                     else "Черга автоматично відсортована за потенціалом оптимізації.\n"
                 )
-                + "Буде змінено лише старі або відсутні посилання "
-                "проєкту й донату та окремий рядок хештегів: "
-                "2 постійні + 1 тематичний. "
-                "Назви, теги YouTube, розділи та решта тексту залишаться "
-                "без змін. Для кожного запису зберігається точка відкату. "
+                + (
+                    "Буде застосовано підготовлені опис і теги. "
+                    "Назва відео та налаштування публікації не змінюються. "
+                    if use_prepared
+                    else
+                    "Буде змінено лише старі або відсутні посилання "
+                    "проєкту й донату та окремий рядок хештегів: "
+                    "2 постійні + 1 тематичний. Назва, теги YouTube, "
+                    "розділи та решта тексту залишаться без змін. "
+                )
+                + "Для кожного запису зберігається точка відкату. "
                 "Продовжити?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
@@ -7301,34 +7307,125 @@ class MainWindow(QMainWindow):
                         title, description, tags = self._current_video_metadata(
                             video_id
                         )
-                    fix = safe_description_fix(description, title)
-                    if not fix.changes or fix.after == description:
-                        skipped_ids.append(video_id)
-                        if progress is not None:
-                            progress.setValue(index)
-                        continue
 
-                    history_id = save_metadata_snapshot(
-                        self.conn,
-                        video_id,
-                        title,
-                        description,
-                        tags,
-                        "before_safe_archive_batch",
-                    )
-                    self._quota_update_video_with_client(
-                        self.client,
-                        video_id,
-                        description=fix.after,
-                        safe_mode=True,
-                        respect_reserve=True,
-                    )
-                    record_optimization_event(
-                        self.conn, history_id=history_id, video_id=video_id,
-                        profile=self.current_profile, reason="safe_archive_batch",
-                        changed_fields="посилання + хештеги",
-                    )
-                    self._store_local_safe_audit(video_id, fix.after, tags)
+                    if use_prepared:
+                        draft = get_optimization_draft(self.conn, video_id)
+                        if draft is None or str(draft["status"] or "") != "ready":
+                            skipped_ids.append(video_id)
+                            if progress is not None:
+                                progress.setValue(index)
+                            continue
+                        prepared_description = str(
+                            draft["description"] or ""
+                        ).strip()
+                        try:
+                            prepared_tags = [
+                                str(item).strip()
+                                for item in json.loads(
+                                    draft["tags_json"] or "[]"
+                                )
+                                if str(item).strip()
+                            ]
+                        except Exception:
+                            prepared_tags = []
+                        check = validate_content_package(
+                            title,
+                            prepared_description,
+                            "",
+                            prepared_tags,
+                            [],
+                        )
+                        if check.errors:
+                            error_text = (
+                                f"{video_id}: "
+                                + "; ".join(check.errors)
+                            )
+                            break
+                        same_description = prepared_description == description
+                        same_tags = (
+                            sorted(item.casefold() for item in prepared_tags)
+                            == sorted(str(item).casefold() for item in tags)
+                        )
+                        if same_description and same_tags:
+                            set_optimization_draft_status(
+                                self.conn,
+                                video_id,
+                                "applied",
+                            )
+                            skipped_ids.append(video_id)
+                            if progress is not None:
+                                progress.setValue(index)
+                            continue
+                        history_id = save_metadata_snapshot(
+                            self.conn,
+                            video_id,
+                            title,
+                            description,
+                            tags,
+                            "before_content_package",
+                        )
+                        self._quota_update_video_with_client(
+                            self.client,
+                            video_id,
+                            description=prepared_description,
+                            tags=prepared_tags,
+                            safe_mode=True,
+                            respect_reserve=True,
+                        )
+                        record_optimization_event(
+                            self.conn,
+                            history_id=history_id,
+                            video_id=video_id,
+                            profile=self.current_profile,
+                            reason="content_package",
+                            changed_fields="опис + теги · 0-quota prepared",
+                        )
+                        set_optimization_draft_status(
+                            self.conn,
+                            video_id,
+                            "applied",
+                        )
+                        self._store_local_safe_audit(
+                            video_id,
+                            prepared_description,
+                            prepared_tags,
+                        )
+                    else:
+                        fix = safe_description_fix(description, title)
+                        if not fix.changes or fix.after == description:
+                            skipped_ids.append(video_id)
+                            if progress is not None:
+                                progress.setValue(index)
+                            continue
+
+                        history_id = save_metadata_snapshot(
+                            self.conn,
+                            video_id,
+                            title,
+                            description,
+                            tags,
+                            "before_safe_archive_batch",
+                        )
+                        self._quota_update_video_with_client(
+                            self.client,
+                            video_id,
+                            description=fix.after,
+                            safe_mode=True,
+                            respect_reserve=True,
+                        )
+                        record_optimization_event(
+                            self.conn,
+                            history_id=history_id,
+                            video_id=video_id,
+                            profile=self.current_profile,
+                            reason="safe_archive_batch",
+                            changed_fields="посилання + хештеги",
+                        )
+                        self._store_local_safe_audit(
+                            video_id,
+                            fix.after,
+                            tags,
+                        )
                     changed_ids.append(video_id)
                     if progress is not None:
                         progress.setValue(index)
