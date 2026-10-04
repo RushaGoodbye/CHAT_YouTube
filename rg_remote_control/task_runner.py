@@ -1731,6 +1731,70 @@ def enable_youtube_mcp_bridge() -> dict:
     }
 
 
+def probe_youtube_mcp_bridge() -> dict:
+    import time
+
+    root = Path(r"\\AlexLosServer\docker")
+    mcp_root = root / "RG_NAS_MCP"
+    state = root / "RG_NAS_STATE"
+    live_loop = root / "RG_NAS_AUTODEPLOY_LOOP.sh"
+    live_tick = root / "RG_NAS_MCP_TICK.sh"
+    live_helper = root / "RG_NAS_MCP_YOUTUBE_CALL.py"
+    tick_log = state / "mcp-tick.log"
+    heartbeat = state / "failover_heartbeat_at"
+    requests = mcp_root / "YOUTUBE_CALLS" / "requests"
+    results = mcp_root / "YOUTUBE_CALLS" / "results"
+    errors = mcp_root / "YOUTUBE_CALLS" / "errors"
+
+    def info(path: Path) -> dict:
+        if not path.exists():
+            return {"exists": False}
+        stat = path.stat()
+        return {
+            "exists": True,
+            "size": stat.st_size if path.is_file() else None,
+            "mtime_epoch": int(stat.st_mtime),
+            "age_seconds": max(0, int(time.time() - stat.st_mtime)),
+        }
+
+    loop_text = live_loop.read_text(encoding="utf-8", errors="replace") if live_loop.is_file() else ""
+    tick_text = live_tick.read_text(encoding="utf-8", errors="replace") if live_tick.is_file() else ""
+
+    return {
+        "loop": {
+            **info(live_loop),
+            "has_tick_call": "RG_NAS_MCP_TICK.sh" in loop_text,
+            "check_interval_60": "CHECK_INTERVAL=60" in loop_text,
+        },
+        "tick": {
+            **info(live_tick),
+            "has_youtube_queue": "YOUTUBE_CALL_ROOT" in tick_text,
+        },
+        "helper": info(live_helper),
+        "tick_log": {
+            **info(tick_log),
+            "tail": (
+                tick_log.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+                if tick_log.is_file()
+                else []
+            ),
+        },
+        "failover_heartbeat": {
+            **info(heartbeat),
+            "value": (
+                heartbeat.read_text(encoding="utf-8", errors="replace").strip()
+                if heartbeat.is_file()
+                else None
+            ),
+        },
+        "queues": {
+            "requests": sorted(p.name for p in requests.glob("*.json")) if requests.is_dir() else [],
+            "results": sorted(p.name for p in results.glob("*.json")) if results.is_dir() else [],
+            "errors": sorted(p.name for p in errors.glob("*.log")) if errors.is_dir() else [],
+        },
+    }
+
+
 def youtube_mcp_call() -> dict:
     import time
     import uuid
@@ -1867,6 +1931,7 @@ ACTIONS = {
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
+    "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
