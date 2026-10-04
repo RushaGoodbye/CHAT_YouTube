@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run(argv: list[str], cwd: Path | None = None, timeout: int = 600) -> dict:
+    proc = subprocess.run(
+        argv,
+        cwd=str(cwd) if cwd else None,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        shell=False,
+    )
+    return {
+        "exit_code": proc.returncode,
+        "stdout": proc.stdout[-20000:],
+        "stderr": proc.stderr[-20000:],
+    }
+
+
+def health() -> dict:
+    usage = shutil.disk_usage(Path.home())
+    return {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "cwd": str(Path.cwd()),
+        "disk_free_gb": round(usage.free / (1024 ** 3), 1),
+    }
+
+
+def deploy_remote_mcp() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("deploy_remote_mcp is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "up", "-d", "--build"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=1200,
+    )
+
+
+def remote_mcp_status() -> dict:
+    if os.name == "nt":
+        raise RuntimeError("remote_mcp_status is a NAS/Linux task")
+    return run(
+        ["docker", "compose", "ps"],
+        cwd=ROOT / "rg_remote_mcp",
+        timeout=120,
+    )
+
+
+ACTIONS = {
+    "health": health,
+    "deploy_remote_mcp": deploy_remote_mcp,
+    "remote_mcp_status": remote_mcp_status,
+}
+
+
+def main() -> int:
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    action = str(task.get("action") or "")
+    fn = ACTIONS.get(action)
+    if fn is None:
+        raise SystemExit(f"Unsupported action: {action}")
+    result = fn()
+    print(json.dumps({"action": action, "result": result}, ensure_ascii=False, indent=2))
+    if isinstance(result, dict) and int(result.get("exit_code", 0)) != 0:
+        return int(result["exit_code"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
