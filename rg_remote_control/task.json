@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "wait_docker_root_mcp_deploy",
+  "action": "probe_docker_root_mcp_deploy",
   "args": {}
 }
