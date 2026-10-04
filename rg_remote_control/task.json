@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
   "action": "stage_mcp_to_docker_root",
-  "args": {"lan_bind": true}
+  "args": {}
 }
