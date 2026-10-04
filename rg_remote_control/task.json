@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_scheduler_history",
+  "action": "probe_live_mcp_hook",
   "args": {}
 }
