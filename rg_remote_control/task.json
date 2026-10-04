@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_remote_commander_runtime",
+  "action": "install_live_mcp_autodeploy_hook",
   "args": {}
 }
