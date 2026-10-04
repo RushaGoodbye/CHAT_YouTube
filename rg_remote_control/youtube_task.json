@@ -3,66 +3,33 @@
   "contour": "youtube",
   "action": "youtube_mcp_batch",
   "args": {
-    "timeout_seconds": 150,
+    "timeout_seconds": 120,
     "calls": [
       {
-        "tool": "youtube_fs_read_text",
+        "tool": "youtube_fs_list",
         "tool_args": {
-          "relative": "PACKAGES/-rt5lhV_u4U.json"
+          "relative": ""
         }
       },
       {
-        "tool": "youtube_fs_read_text",
+        "tool": "youtube_fs_list",
         "tool_args": {
-          "relative": "PACKAGES/aMY3YTeVo5A.json"
+          "relative": "PACKAGES"
         }
       },
       {
-        "tool": "youtube_fs_read_text",
+        "tool": "youtube_command_run",
         "tool_args": {
-          "relative": "PACKAGES/GQL6N4jQpI8.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/LM0vkW9YoKg.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/MClldsur_0s.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/pUWdQ8k6e4g.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/title_review_main.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/u9y_f4HtEbQ.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/WrbwSelOmok.json"
-        }
-      },
-      {
-        "tool": "youtube_fs_read_text",
-        "tool_args": {
-          "relative": "PACKAGES/ZstT-QQyacA.json"
+          "argv": [
+            "find",
+            ".",
+            "-maxdepth",
+            "2",
+            "-type",
+            "f"
+          ],
+          "cwd_relative": "",
+          "timeout_seconds": 60
         }
       }
     ]
