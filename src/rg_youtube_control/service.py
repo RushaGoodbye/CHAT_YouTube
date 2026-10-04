@@ -78,7 +78,12 @@ def reconcile_local_video_title(
     description: str,
     tags: list[str] | None,
 ) -> None:
-    result = audit(description, tags or [], title)
+    row = conn.execute(
+        "SELECT duration FROM videos WHERE video_id=?",
+        (video_id,),
+    ).fetchone()
+    duration = str(row["duration"] or "") if row else ""
+    result = audit(description, tags or [], title, duration)
     conn.execute(
         """UPDATE videos
            SET title=?, audit_json=?, last_synced_at=?
