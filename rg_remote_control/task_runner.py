@@ -47,6 +47,41 @@ def probe_environment() -> dict:
     return checks
 
 
+def stage_remote_mcp_to_nas() -> dict:
+    import socket
+
+    source = ROOT / "rg_remote_mcp"
+    destination = Path(r"\\AlexLosServer\RG_AUTO_EDIT\REMOTE_MCP\SOURCE")
+    if not source.is_dir():
+        raise RuntimeError(f"Source not found: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns(".env", "secrets", "__pycache__", ".pytest_cache"),
+    )
+    marker = destination.parent / "STAGED_FROM_GITHUB.txt"
+    marker.write_text(
+        "RG Remote MCP source staged via AlexPC GitHub runner.\n",
+        encoding="utf-8",
+    )
+    ssh_open = False
+    ssh_error = None
+    try:
+        with socket.create_connection(("192.168.50.32", 22), timeout=3):
+            ssh_open = True
+    except Exception as exc:
+        ssh_error = repr(exc)
+    return {
+        "destination": str(destination),
+        "files_staged": sum(1 for p in destination.rglob("*") if p.is_file()),
+        "nas_ssh_port_22": ssh_open,
+        "nas_ssh_error": ssh_error,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -81,6 +116,7 @@ def remote_mcp_status() -> dict:
 ACTIONS = {
     "health": health,
     "probe_environment": probe_environment,
+    "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
