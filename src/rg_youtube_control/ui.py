@@ -2078,20 +2078,27 @@ class MainWindow(QMainWindow):
         return imported
 
     def load_optimization_results(self) -> None:
-        try:
-            imported = self._import_historical_optimization_events()
-        except Exception as exc:
+        if quota_exhausted(self.conn):
             imported = 0
-            error_text = str(exc)
-            if "403" in error_text or "quota" in error_text.casefold():
-                self.statusBar().showMessage(
-                    "Імпорт історії: YouTube API тимчасово недоступний "
-                    "(квота або доступ). Локальні дані не пошкоджені."
-                )
-            else:
-                self.statusBar().showMessage(
-                    "Імпорт історії не виконано. Локальні дані не пошкоджені."
-                )
+            self.statusBar().showMessage(
+                "YouTube API вичерпано. Показуємо лише локально збережені "
+                "результати без мережевого імпорту."
+            )
+        else:
+            try:
+                imported = self._import_historical_optimization_events()
+            except Exception as exc:
+                imported = 0
+                error_text = str(exc)
+                if "403" in error_text or "quota" in error_text.casefold():
+                    self.statusBar().showMessage(
+                        "Імпорт історії: YouTube API тимчасово недоступний "
+                        "(квота або доступ). Локальні дані не пошкоджені."
+                    )
+                else:
+                    self.statusBar().showMessage(
+                        "Імпорт історії не виконано. Локальні дані не пошкоджені."
+                    )
 
         days = int(self.results_period_combo.currentData() or 7)
         events = optimization_events(self.conn, self.current_profile, limit=100)
@@ -6218,6 +6225,13 @@ class MainWindow(QMainWindow):
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def apply_content_package(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Застосування пакета заблоковано до наступного квотного дня.",
+            )
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -6662,6 +6676,14 @@ class MainWindow(QMainWindow):
         )
 
     def apply_ready_scheduled_packages(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Застосування пакетів запланованих стрімів заблоковано "
+                "до наступного квотного дня.",
+            )
+            return
         rows = self.conn.execute(
             """SELECT v.video_id,v.title,v.scheduled_publish_at,
                       d.new_title,d.description,d.chapters,d.tags_json,
@@ -7615,6 +7637,14 @@ class MainWindow(QMainWindow):
             self._error("Помилка безпечної оптимізації", exc)
 
     def rollback_selected_metadata(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Відкат метаданих через YouTube API заблоковано до "
+                "наступного квотного дня.",
+            )
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
