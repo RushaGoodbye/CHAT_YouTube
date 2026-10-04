@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_fs_list",
-    "tool_args": {
-      "relative": ""
-    }
-  },
-  "nonce": "20261004-auto-edit-root-e2e-2"
+  "action": "stage_mcp_to_docker_root",
+  "args": {},
+  "nonce": "20261004-auto-edit-stage-mcp-1"
 }
