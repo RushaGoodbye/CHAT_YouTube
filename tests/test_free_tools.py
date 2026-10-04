@@ -6,6 +6,7 @@ from rg_youtube_control.free_tools import (
     _extract_json_object,
     _video_id,
     parse_google_trends_csv_text,
+    summarize_google_trends,
     transcript_text,
 )
 
@@ -41,3 +42,14 @@ def test_parse_google_trends_csv() -> None:
         "Категорія: Усі категорії\n\nДата,бензин,Путін\n2026-10-01,65,40\n"
     )
     assert rows == [{"Дата": "2026-10-01", "бензин": "65", "Путін": "40"}]
+
+
+def test_summarize_google_trends_orders_by_latest_interest() -> None:
+    rows = [
+        {"Дата": "2026-10-01", "бензин": "40", "Путін": "60"},
+        {"Дата": "2026-10-02", "бензин": "90", "Путін": "50"},
+    ]
+    summary = summarize_google_trends(rows)
+    assert summary[0]["term"] == "бензин"
+    assert summary[0]["latest"] == 90.0
+    assert summary[0]["average"] == 65.0
