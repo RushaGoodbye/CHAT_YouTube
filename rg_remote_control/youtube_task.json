@@ -1,6 +1,11 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "probe_youtube_mcp_bridge",
-  "args": {}
+  "action": "youtube_mcp_call",
+  "args": {
+    "tool": "youtube_fs_list",
+    "tool_args": {
+      "relative": ""
+    }
+  }
 }
