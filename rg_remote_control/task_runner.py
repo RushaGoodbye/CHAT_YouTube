@@ -560,18 +560,35 @@ def probe_command_bus_state() -> dict:
         "scheduler_last_check_status",
         "scheduler_dispatch_at",
         "scheduler_dispatch_ok_at",
+        "scheduler_dispatch_error",
+        "failover_heartbeat_at",
+        "failover_mode",
+        "failover_takeover_at",
+        "failover_last_check_at",
+        "failover_last_check_status",
+        "last_deploy_status",
+        "deploy_stage",
     ]
     out = {}
     for name in names:
         path = state / name
         if path.is_file():
-            out[name] = path.read_text(encoding="utf-8", errors="replace").strip()[-2000:]
+            out[name] = {
+                "value": path.read_text(
+                    encoding="utf-8", errors="replace"
+                ).strip()[-2000:],
+                "mtime": path.stat().st_mtime,
+            }
         else:
             out[name] = None
     audit = state / "nas-command-bus.log"
     if audit.is_file():
         lines = audit.read_text(encoding="utf-8", errors="replace").splitlines()
-        out["audit_tail"] = lines[-30:]
+        out["audit_tail"] = lines[-40:]
+    log = state / "auto-deploy.log"
+    if log.is_file():
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        out["auto_deploy_tail"] = lines[-100:]
     return out
 
 
