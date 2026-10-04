@@ -1266,6 +1266,127 @@ def wait_docker_root_mcp_deploy() -> dict:
     }
 
 
+def upgrade_live_mcp_hook_autodetect_volume() -> dict:
+    from datetime import datetime, timezone
+
+    live = Path(r"\\AlexLosServer\docker\RG_NAS_AUTO_DEPLOY.sh")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    if not live.is_file():
+        raise RuntimeError(f"Live auto-deploy missing: {live}")
+
+    text = live.read_text(encoding="utf-8", errors="replace")
+    begin = "# RG_NAS_MCP_LOCAL_HOOK_BEGIN"
+    end = "# RG_NAS_MCP_LOCAL_HOOK_END"
+    start = text.find(begin)
+    finish = text.find(end)
+    if start < 0 or finish < 0 or finish < start:
+        raise RuntimeError("Existing MCP hook block not found")
+    finish += len(end)
+
+    hook = r'''# RG_NAS_MCP_LOCAL_HOOK_BEGIN
+MCP_LOCAL_DIR="/volume1/docker/RG_NAS_MCP/SOURCE"
+MCP_LOCAL_REQUEST="/volume1/docker/RG_NAS_MCP/DEPLOY_REQUEST"
+MCP_LOCAL_STATUS="$STATE_DIR/mcp_deploy_status"
+MCP_LOCAL_LOG="$STATE_DIR/mcp-deploy.log"
+MCP_AUTO_ROOT_FILE="$STATE_DIR/mcp_auto_edit_host_root"
+
+if [ -f "$MCP_LOCAL_REQUEST" ]; then
+  printf '%s\n' "RUNNING" > "$MCP_LOCAL_STATUS"
+  : > "$MCP_LOCAL_LOG"
+
+  MCP_AUTO_ROOT=""
+  for MCP_CANDIDATE in \
+    /volume1/RG_AUTO_EDIT \
+    /volume2/RG_AUTO_EDIT \
+    /volume3/RG_AUTO_EDIT \
+    /volume4/RG_AUTO_EDIT \
+    /volume5/RG_AUTO_EDIT \
+    /volume6/RG_AUTO_EDIT \
+    /volume7/RG_AUTO_EDIT \
+    /volume8/RG_AUTO_EDIT
+  do
+    if docker run --rm \
+      --mount "type=bind,src=$MCP_CANDIDATE,dst=/probe,readonly" \
+      node:22-bookworm-slim \
+      sh -c 'test -d /probe/YOUTUBE_CONTROL' \
+      >/dev/null 2>&1
+    then
+      MCP_AUTO_ROOT="$MCP_CANDIDATE"
+      break
+    fi
+  done
+
+  if [ -z "$MCP_AUTO_ROOT" ]; then
+    printf '%s\n' "RG_AUTO_EDIT host root was not found on /volume1..8" >> "$MCP_LOCAL_LOG"
+    printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+  elif [ ! -f "$MCP_LOCAL_DIR/docker-compose.yml" ]; then
+    printf '%s\n' "Missing $MCP_LOCAL_DIR/docker-compose.yml" >> "$MCP_LOCAL_LOG"
+    printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+  else
+    printf '%s\n' "$MCP_AUTO_ROOT" > "$MCP_AUTO_ROOT_FILE"
+    printf 'RG_AUTO_EDIT_HOST_ROOT=%s\n' "$MCP_AUTO_ROOT" >> "$MCP_LOCAL_LOG"
+
+    if docker compose version >/dev/null 2>&1; then
+      if RG_AUTO_EDIT_HOST_ROOT="$MCP_AUTO_ROOT" \
+        docker compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" \
+        up -d --build >> "$MCP_LOCAL_LOG" 2>&1
+      then
+        RG_AUTO_EDIT_HOST_ROOT="$MCP_AUTO_ROOT" \
+          docker compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" \
+          ps >> "$MCP_LOCAL_LOG" 2>&1 || true
+        printf '%s\n' "OK" > "$MCP_LOCAL_STATUS"
+      else
+        printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+      fi
+    elif command -v docker-compose >/dev/null 2>&1; then
+      if RG_AUTO_EDIT_HOST_ROOT="$MCP_AUTO_ROOT" \
+        docker-compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" \
+        up -d --build >> "$MCP_LOCAL_LOG" 2>&1
+      then
+        RG_AUTO_EDIT_HOST_ROOT="$MCP_AUTO_ROOT" \
+          docker-compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" \
+          ps >> "$MCP_LOCAL_LOG" 2>&1 || true
+        printf '%s\n' "OK" > "$MCP_LOCAL_STATUS"
+      else
+        printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+      fi
+    else
+      printf '%s\n' "Docker Compose unavailable" >> "$MCP_LOCAL_LOG"
+      printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+    fi
+  fi
+
+  rm -f "$MCP_LOCAL_REQUEST" 2>/dev/null || true
+fi
+# RG_NAS_MCP_LOCAL_HOOK_END'''
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    state.mkdir(parents=True, exist_ok=True)
+    backup = state / f"RG_NAS_AUTO_DEPLOY.before_mcp_autodetect_{stamp}.sh"
+    shutil.copy2(live, backup)
+
+    updated = text[:start] + hook + text[finish:]
+    temp = live.with_name(live.name + ".mcp-autodetect.tmp")
+    temp.write_text(updated, encoding="utf-8", newline="\n")
+    os.replace(temp, live)
+
+    verify = live.read_text(encoding="utf-8", errors="replace")
+    if (
+        "MCP_AUTO_ROOT_FILE" not in verify
+        or "/volume8/RG_AUTO_EDIT" not in verify
+        or 'RG_AUTO_EDIT_HOST_ROOT="$MCP_AUTO_ROOT"' not in verify
+    ):
+        shutil.copy2(backup, live)
+        raise RuntimeError("Autodetect hook verification failed; backup restored")
+
+    return {
+        "updated": True,
+        "backup": str(backup),
+        "probe_range": ["/volume1/RG_AUTO_EDIT", "/volume8/RG_AUTO_EDIT"],
+        "request_path": "/volume1/docker/RG_NAS_MCP/DEPLOY_REQUEST",
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1317,6 +1438,7 @@ ACTIONS = {
     "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
     "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
     "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
+    "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
