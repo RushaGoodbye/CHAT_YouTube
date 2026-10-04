@@ -1,0 +1,7 @@
+{
+  "project": "CHAT_YouTube",
+  "rg_nas_mcp_contour": "youtube",
+  "allowed_tool_prefixes": ["youtube_"],
+  "denied_tool_prefixes": ["telegram_", "auto_edit_"],
+  "root": "YOUTUBE_CONTROL"
+}
