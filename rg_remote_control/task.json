@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_cloudflare_mcp_gateway_options",
-  "args": {}
+  "action": "stage_mcp_to_docker_root",
+  "args": {"lan_bind": true}
 }
