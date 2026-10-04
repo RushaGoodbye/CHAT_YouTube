@@ -1074,6 +1074,43 @@ def probe_autodeploy_container_layout() -> dict:
     return {"dirs_scanned": seen, "matches": matches[:20]}
 
 
+def probe_nas_autodeploy_runtime() -> dict:
+    root = Path(r"\\AlexLosServer\docker")
+    candidates = []
+    for base in [
+        root / "RG_NAS_AUTODEPLOY",
+        root / "RG_NAS_CONTROL",
+        root,
+    ]:
+        if not base.exists():
+            continue
+        for name in ("compose.yaml","compose.yml","docker-compose.yml","docker-compose.yaml"):
+            path = base / name
+            if path.is_file() and path.stat().st_size <= 50000:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if "rg-nas-autodeploy" in text.casefold() or "RG_NAS_AUTO_DEPLOY.sh" in text:
+                    candidates.append({
+                        "path": str(path),
+                        "content": text,
+                    })
+    dockerfiles = []
+    for path in root.glob("RG_NAS*/Dockerfile"):
+        try:
+            if path.stat().st_size <= 50000:
+                dockerfiles.append({
+                    "path": str(path),
+                    "content": path.read_text(encoding="utf-8", errors="replace"),
+                })
+        except Exception:
+            pass
+    return {
+        "compose_candidates": candidates,
+        "dockerfiles": dockerfiles,
+        "docker_root_marker": (root / "RG_NAS_STATE").exists(),
+        "remote_mcp_under_docker": (root / "RG_NAS_MCP").exists(),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1120,6 +1157,7 @@ ACTIONS = {
     "probe_remote_commander_runtime": probe_remote_commander_runtime,
     "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
     "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
