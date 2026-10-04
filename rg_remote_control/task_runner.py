@@ -1795,6 +1795,94 @@ def probe_youtube_mcp_bridge() -> dict:
     }
 
 
+
+def probe_youtube_tick_runtime() -> dict:
+    import time
+
+    root = Path(r"\\AlexLosServer\docker")
+    state = root / "RG_NAS_STATE"
+    mcp_root = root / "RG_NAS_MCP"
+    live_loop = root / "RG_NAS_AUTODEPLOY_LOOP.sh"
+    live_tick = root / "RG_NAS_MCP_TICK.sh"
+    requests = mcp_root / "YOUTUBE_CALLS" / "requests"
+    results = mcp_root / "YOUTUBE_CALLS" / "results"
+    errors = mcp_root / "YOUTUBE_CALLS" / "errors"
+
+    loop_text = live_loop.read_text(encoding="utf-8", errors="replace") if live_loop.is_file() else ""
+    loop_lines = loop_text.splitlines()
+    tick_context = []
+    for i, line in enumerate(loop_lines):
+        if "RG_NAS_MCP_TICK.sh" in line:
+            start = max(0, i - 8)
+            end = min(len(loop_lines), i + 12)
+            for n in range(start, end):
+                text_line = loop_lines[n]
+                low = text_line.casefold()
+                if any(key in low for key in ("token", "password", "secret", "api_key", "apikey")):
+                    text_line = text_line.split("=", 1)[0] + "=<redacted>"
+                tick_context.append({"line": n + 1, "text": text_line})
+            break
+
+    request_details = []
+    if requests.is_dir():
+        for path in sorted(requests.glob("*.json"))[:20]:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+                request_details.append({
+                    "name": path.name,
+                    "age_seconds": max(0, int(time.time() - path.stat().st_mtime)),
+                    "request_id": str(payload.get("request_id") or ""),
+                    "tool": str(payload.get("tool") or ""),
+                    "tool_args_keys": sorted((payload.get("tool_args") or {}).keys())
+                        if isinstance(payload.get("tool_args") or {}, dict)
+                        else [],
+                })
+            except Exception as exc:
+                request_details.append({"name": path.name, "error": repr(exc)})
+
+    ssh = r"C:\WINDOWS\System32\OpenSSH\ssh.exe"
+    ssh_result = run(
+        [
+            ssh,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=yes",
+            "AlexLosServer",
+            "sh", "/volume1/docker/RG_NAS_MCP_TICK.sh",
+        ],
+        timeout=90,
+    )
+
+    def names(path: Path, pattern: str) -> list[str]:
+        return sorted(p.name for p in path.glob(pattern)) if path.is_dir() else []
+
+    tick_log = state / "mcp-tick.log"
+    return {
+        "loop_exists": live_loop.is_file(),
+        "tick_exists": live_tick.is_file(),
+        "tick_context": tick_context,
+        "requests_before_manual_tick": request_details,
+        "manual_tick": {
+            "exit_code": ssh_result["exit_code"],
+            "stdout": ssh_result["stdout"][-8000:],
+            "stderr": ssh_result["stderr"][-8000:],
+        },
+        "queues_after_manual_tick": {
+            "requests": names(requests, "*.json"),
+            "results": names(results, "*.json"),
+            "errors": names(errors, "*.log"),
+        },
+        "tick_log": {
+            "exists": tick_log.is_file(),
+            "tail": (
+                tick_log.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+                if tick_log.is_file()
+                else []
+            ),
+        },
+    }
+
+
 def youtube_mcp_call() -> dict:
     import time
     import uuid
@@ -2121,6 +2209,7 @@ ACTIONS = {
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
     "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
+    "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
