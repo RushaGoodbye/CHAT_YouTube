@@ -734,6 +734,46 @@ def probe_scheduler_history() -> dict:
     return out
 
 
+def probe_contour_mounts() -> dict:
+    paths = {
+        "youtube": [
+            r"\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL",
+        ],
+        "telegram": [
+            r"\\AlexLosServer\docker\RG_DEPLOY\cloudflare-video-moderation",
+            r"\\AlexLosServer\docker\RG_MONITOR\app",
+            r"\\AlexLosServer\docker\RG_MONITOR\public_monitor",
+            r"\\AlexLosServer\docker\RG_MONITOR\data",
+            r"\\AlexLosServer\docker\RG_MONITOR\logs",
+            r"\\AlexLosServer\docker\RG_NAS_WORK",
+            r"\\AlexLosServer\docker\RG_NAS_STATE",
+            r"\\AlexLosServer\docker\RG_NAS_CONTROL",
+        ],
+        "auto_edit": [
+            r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\CACHE",
+            r"\\AlexLosServer\RG_AUTO_EDIT\CONTROL",
+            r"\\AlexLosServer\RG_AUTO_EDIT\DASHBOARD",
+            r"\\AlexLosServer\RG_AUTO_EDIT\DATABASE",
+            r"\\AlexLosServer\RG_AUTO_EDIT\DIAGNOSTICS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\DISASTER_RECOVERY",
+            r"\\AlexLosServer\RG_AUTO_EDIT\LEARNING",
+            r"\\AlexLosServer\RG_AUTO_EDIT\LOGS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\PROJECTS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\RUNS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\THUMBNAIL_ASSETS",
+            r"\\AlexLosServer\RG_AUTO_EDIT\UPDATES",
+        ],
+    }
+    result = {}
+    for contour, contour_paths in paths.items():
+        result[contour] = [
+            {"path": path, "exists": Path(path).exists()}
+            for path in contour_paths
+        ]
+    return result
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -773,6 +813,7 @@ ACTIONS = {
     "probe_nas_ssh_auth": probe_nas_ssh_auth,
     "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "probe_contour_mounts": probe_contour_mounts,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
