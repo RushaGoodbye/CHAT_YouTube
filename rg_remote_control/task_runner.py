@@ -282,6 +282,18 @@ def list_nas_project_roots() -> dict:
     return {"root_exists": True, "entries": entries}
 
 
+def probe_nas_shares() -> dict:
+    result = run(
+        [r"C:\WINDOWS\System32\net.exe", "view", r"\\AlexLosServer"],
+        timeout=30,
+    )
+    return {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -322,6 +334,7 @@ ACTIONS = {
     "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
     "list_nas_project_roots": list_nas_project_roots,
+    "probe_nas_shares": probe_nas_shares,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
