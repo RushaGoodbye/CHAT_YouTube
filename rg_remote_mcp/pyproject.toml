@@ -1,0 +1,16 @@
+[project]
+name = "rg-remote-mcp"
+version = "0.1.0"
+description = "Restricted MCP bridge for RG NAS and AlexPC"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=2,<3",
+  "asyncssh>=2.21,<3",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
