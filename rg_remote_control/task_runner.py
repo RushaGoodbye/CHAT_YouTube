@@ -198,6 +198,68 @@ def probe_nas_mcp_inventory() -> dict:
     }
 
 
+def probe_nas_telegram_mcp_fast() -> dict:
+    root = Path(r"\\AlexLosServer\RG_AUTO_EDIT")
+    if not root.is_dir():
+        return {"root_exists": False, "matches": []}
+
+    terms = ("telegram", "mcp", "bot")
+    queue = [(root, 0)]
+    seen_dirs = 0
+    matches = []
+    compose = []
+
+    while queue and seen_dirs < 500:
+        current, depth = queue.pop(0)
+        seen_dirs += 1
+        try:
+            entries = list(current.iterdir())
+        except Exception:
+            continue
+
+        for path in entries:
+            try:
+                rel = path.relative_to(root)
+                low = path.name.casefold()
+                if any(term in low for term in terms):
+                    matches.append({
+                        "path": str(rel),
+                        "type": "dir" if path.is_dir() else "file",
+                        "size": path.stat().st_size if path.is_file() else None,
+                    })
+                if (
+                    path.is_file()
+                    and path.name.casefold() in {
+                        "docker-compose.yml", "docker-compose.yaml",
+                        "compose.yml", "compose.yaml",
+                    }
+                    and path.stat().st_size <= 200000
+                ):
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    if any(term in text.casefold() for term in terms):
+                        compose.append({
+                            "path": str(rel),
+                            "hits": [
+                                line.strip()
+                                for line in text.splitlines()
+                                if any(term in line.casefold() for term in terms)
+                            ][:40],
+                        })
+                if path.is_dir() and depth < 3:
+                    name = path.name.casefold()
+                    if name not in {"backups", "cache", "runtime", "__pycache__", ".git"}:
+                        queue.append((path, depth + 1))
+            except Exception:
+                continue
+
+    return {
+        "root_exists": True,
+        "dirs_scanned": seen_dirs,
+        "matches": matches[:200],
+        "compose_candidates": compose[:50],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -236,6 +298,7 @@ ACTIONS = {
     "probe_ssh_config": probe_ssh_config,
     "probe_nas_ssh_auth": probe_nas_ssh_auth,
     "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
+    "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
