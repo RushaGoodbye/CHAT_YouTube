@@ -4,6 +4,7 @@
   "action": "youtube_mcp_call",
   "args": {
     "tool": "youtube_fs_list",
-    "tool_args": {"relative": ""}
+    "tool_args": {"relative": ""},
+    "retry": 1
   }
 }
