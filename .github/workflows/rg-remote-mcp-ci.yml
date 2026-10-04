@@ -38,5 +38,9 @@ jobs:
         run: pytest -q
       - name: Import smoke
         run: python -c "from rg_remote_mcp.server import mcp; print('MCP_IMPORT_OK')"
-      - name: Docker build
-        run: docker build -t rg-remote-mcp:test .
+      - name: Compose validation
+        run: docker compose config
+      - name: Docker build hub
+        run: docker build -t rg-nas-mcp-hub:test .
+      - name: Docker build worker
+        run: docker build -f Dockerfile.worker -t rg-nas-mcp-worker:test .
