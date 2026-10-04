@@ -260,6 +260,28 @@ def probe_nas_telegram_mcp_fast() -> dict:
     }
 
 
+def list_nas_project_roots() -> dict:
+    root = Path(r"\\AlexLosServer\RG_AUTO_EDIT")
+    if not root.is_dir():
+        return {"root_exists": False, "entries": []}
+    entries = []
+    for p in sorted(root.iterdir(), key=lambda x: x.name.casefold()):
+        try:
+            item = {"name": p.name, "type": "dir" if p.is_dir() else "file"}
+            if p.is_dir():
+                children = []
+                for c in sorted(p.iterdir(), key=lambda x: x.name.casefold())[:80]:
+                    children.append({
+                        "name": c.name,
+                        "type": "dir" if c.is_dir() else "file",
+                    })
+                item["children"] = children
+            entries.append(item)
+        except Exception as exc:
+            entries.append({"name": p.name, "error": repr(exc)})
+    return {"root_exists": True, "entries": entries}
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -299,6 +321,7 @@ ACTIONS = {
     "probe_nas_ssh_auth": probe_nas_ssh_auth,
     "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
     "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "list_nas_project_roots": list_nas_project_roots,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
