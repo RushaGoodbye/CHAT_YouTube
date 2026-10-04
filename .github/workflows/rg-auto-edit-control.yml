@@ -20,17 +20,17 @@ concurrency:
 
 jobs:
   run:
-    runs-on: [self-hosted, rg, nas]
+    runs-on: [self-hosted, rg, alexpc, windows]
     steps:
       - uses: actions/checkout@v4
       - name: Validate Auto Edit contour
-        shell: bash
+        shell: powershell
         run: |
-          python3 - <<'PY'
+          python - <<'PY'
           import json
           task=json.load(open("rg_remote_control/auto_edit_task.json",encoding="utf-8"))
-          if task.get("target") != "nas":
-              raise SystemExit("Task target must be nas")
+          if task.get("target") != "alexpc":
+              raise SystemExit("Task target must be alexpc")
           if task.get("contour") != "auto_edit":
               raise SystemExit("Task contour must be auto_edit")
           if task.get("action") not in {"auto_edit_mcp_call"}:
@@ -45,4 +45,4 @@ jobs:
           PY
       - name: Run Auto Edit contour task
         shell: bash
-        run: python3 rg_remote_control/task_runner.py rg_remote_control/auto_edit_task.json
+        run: python rg_remote_control/task_runner.py rg_remote_control/auto_edit_task.json
