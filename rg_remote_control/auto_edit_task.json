@@ -3,16 +3,10 @@
   "contour": "auto_edit",
   "action": "auto_edit_mcp_call",
   "args": {
-    "tool": "auto_edit_command_run",
+    "tool": "auto_edit_fs_list",
     "tool_args": {
-      "argv": [
-        "python3",
-        "-c",
-        "import os,json\nrun='RUNS/892/2026-10-04_20-44-36'\nout={'run_files':[],'json':{},'control_state':{}}\nfor dp,ds,fs in os.walk(run):\n    for n in fs:\n        p=os.path.join(dp,n)\n        out['run_files'].append(p.replace('\\\\','/'))\nfor p in [\n    run+'/RUN_MANIFEST.json',\n    run+'/QA/RG_POSTRUN_QA.json',\n    run+'/QA/DIALOGUE_TABLE.json',\n    run+'/QA/RG_PERFORMANCE_PROFILE.json'\n]:\n    try:\n        out['json'][p]=json.load(open(p,encoding='utf-8'))\n    except Exception as e:\n        out['json'][p]={'error':repr(e)}\nif os.path.isdir('CONTROL/STATE'):\n    for n in sorted(os.listdir('CONTROL/STATE')):\n        p='CONTROL/STATE/'+n\n        try:\n            if os.path.isfile(p) and os.path.getsize(p)<=200000:\n                txt=open(p,encoding='utf-8',errors='replace').read()\n                try: val=json.loads(txt)\n                except Exception: val=txt[-12000:]\n                out['control_state'][n]=val\n            elif os.path.isdir(p):\n                out['control_state'][n]={'type':'dir','items':sorted(os.listdir(p))[:100]}\n        except Exception as e:\n            out['control_state'][n]={'error':repr(e)}\nprint(json.dumps(out,ensure_ascii=False))"
-      ],
-      "cwd_relative": "",
-      "timeout_seconds": 120
+      "relative": "CONTROL/NAS_SERVICE_V2"
     }
   },
-  "nonce": "20261005-auto-edit-check-892-details-1"
+  "nonce": "20261005-auto-edit-check-nas-service-1"
 }
