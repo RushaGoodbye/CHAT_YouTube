@@ -107,6 +107,21 @@ def _drop_english_duplicate(description: str) -> tuple[str, bool, str]:
     return result, True, removed[:500]
 
 
+def _canonicalize_hashtags(description: str) -> str:
+    """Keep the canonical hashtag-only line; de-hash inline mentions elsewhere."""
+    value = (description or "").strip()
+    match = HASHTAG_LINE_RE.search(value)
+    if not match:
+        return value
+    before = value[:match.start()]
+    canonical = match.group(0).strip()
+    after = value[match.end():]
+    inline_re = re.compile(r"(?<!\w)#([\wА-Яа-яІіЇїЄєҐґ]+)", re.UNICODE)
+    before = inline_re.sub(r"\1", before)
+    after = inline_re.sub(r"\1", after)
+    return (before.rstrip() + "\n\n" + canonical + "\n" + after.lstrip()).strip()
+
+
 def _repair_candidate(row: sqlite3.Row) -> dict:
     title = str(row["new_title"] or row["current_title"] or "").strip()
     before = str(row["description"] or "").strip()
@@ -122,6 +137,7 @@ def _repair_candidate(row: sqlite3.Row) -> dict:
 
     without_english, removed_english, removed_preview = _drop_english_duplicate(before)
     fixed = safe_description_fix(without_english, title).after.strip()
+    fixed = _canonicalize_hashtags(fixed)
     fixed = re.sub(r"\n{3,}", "\n\n", fixed)
 
     check = validate_content_package(
