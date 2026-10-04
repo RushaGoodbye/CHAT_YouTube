@@ -218,14 +218,19 @@ def ollama_chat(
     ollama_url: str = DEFAULT_OLLAMA_URL,
     timeout: float = 120.0,
     temperature: float = 0.2,
+    json_mode: bool = False,
 ) -> str:
+    request_payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+        "options": {"temperature": temperature},
+    }
+    if json_mode:
+        request_payload["format"] = "json"
     body = json.dumps(
-        {
-            "model": model,
-            "messages": messages,
-            "stream": False,
-            "options": {"temperature": temperature},
-        },
+        request_payload,
         ensure_ascii=False,
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -303,6 +308,7 @@ SHORTS: {is_short}
         ],
         model=model,
         temperature=0.15,
+        json_mode=True,
     )
     payload = _extract_json_object(raw)
 
