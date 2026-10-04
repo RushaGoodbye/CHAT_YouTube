@@ -1,6 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "probe_youtube_tick_runtime",
+  "action": "probe_youtube_mcp_bridge",
   "args": {}
 }
