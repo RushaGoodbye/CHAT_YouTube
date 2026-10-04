@@ -501,16 +501,13 @@ def probe_nas_command_bus() -> dict:
 
 def sync_nas_command_bus_mcp() -> dict:
     import hashlib
-    import urllib.request
     from datetime import datetime, timezone
 
     expected_blob = "a0f5285547ac5653e9cc9b6844fe94032bd60633"
-    url = (
-        "https://raw.githubusercontent.com/"
-        "RushaGoodbye/rasha-goodbye-news-bot/main/nas/RG_NAS_COMMAND_BUS.sh"
-    )
-    with urllib.request.urlopen(url, timeout=30) as response:
-        payload = response.read()
+    source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_COMMAND_BUS.sh"
+    if not source.is_file():
+        raise RuntimeError(f"Vendored command bus missing: {source}")
+    payload = source.read_bytes()
 
     actual_blob = hashlib.sha1(
         f"blob {len(payload)}\0".encode("ascii") + payload
@@ -520,7 +517,7 @@ def sync_nas_command_bus_mcp() -> dict:
             f"Unexpected command bus blob: {actual_blob}; expected {expected_blob}"
         )
     if b"mcp-deploy)" not in payload or b"mcp-status)" not in payload:
-        raise RuntimeError("MCP actions missing from downloaded command bus")
+        raise RuntimeError("MCP actions missing from vendored command bus")
 
     target = Path(r"\\AlexLosServer\docker\RG_NAS_COMMAND_BUS.sh")
     if not target.is_file():
@@ -532,9 +529,6 @@ def sync_nas_command_bus_mcp() -> dict:
     backup = state / f"RG_NAS_COMMAND_BUS.before_mcp_{stamp}.sh"
     shutil.copy2(target, backup)
 
-    # Overwrite the existing SMB file in-place so Synology keeps its executable
-    # mode/inode. Atomic replacement from Windows could create a non-executable
-    # file and make the scheduler silently skip the bus.
     with target.open("wb") as handle:
         handle.write(payload)
         handle.flush()
@@ -556,7 +550,6 @@ def sync_nas_command_bus_mcp() -> dict:
         "backup": str(backup),
         "mcp_actions": ["mcp-deploy", "mcp-status"],
     }
-
 
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
