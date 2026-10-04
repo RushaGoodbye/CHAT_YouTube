@@ -1824,7 +1824,6 @@ ACTIONS = {
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
-    "pin_live_mcp_lan_bind": pin_live_mcp_lan_bind,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
