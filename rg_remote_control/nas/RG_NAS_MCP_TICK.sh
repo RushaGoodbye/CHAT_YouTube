@@ -120,3 +120,35 @@ if [ -f "$YOUTUBE_CALL_HELPER" ] && docker inspect rg-nas-mcp-hub >/dev/null 2>&
     docker exec rg-nas-mcp-hub rm -f /tmp/rg_youtube_call.py /tmp/rg_youtube_request.json >/dev/null 2>&1 || true
   done
 fi
+
+
+AUTO_EDIT_CALL_ROOT="$MCP_ROOT/AUTO_EDIT_CALLS"
+AUTO_EDIT_CALL_REQUESTS="$AUTO_EDIT_CALL_ROOT/requests"
+AUTO_EDIT_CALL_RESULTS="$AUTO_EDIT_CALL_ROOT/results"
+AUTO_EDIT_CALL_ERRORS="$AUTO_EDIT_CALL_ROOT/errors"
+AUTO_EDIT_CALL_HELPER="$ROOT/RG_NAS_MCP_AUTO_EDIT_CALL.py"
+
+mkdir -p "$AUTO_EDIT_CALL_REQUESTS" "$AUTO_EDIT_CALL_RESULTS" "$AUTO_EDIT_CALL_ERRORS"
+
+if [ -f "$AUTO_EDIT_CALL_HELPER" ] && docker inspect rg-nas-mcp-hub >/dev/null 2>&1; then
+  for REQ in "$AUTO_EDIT_CALL_REQUESTS"/*.json; do
+    [ -e "$REQ" ] || break
+    BASE="$(basename "$REQ" .json)"
+    RESULT="$AUTO_EDIT_CALL_RESULTS/$BASE.json"
+    ERROR="$AUTO_EDIT_CALL_ERRORS/$BASE.log"
+    TMP_RESULT="$AUTO_EDIT_CALL_RESULTS/$BASE.tmp"
+
+    if docker cp "$AUTO_EDIT_CALL_HELPER" rg-nas-mcp-hub:/tmp/rg_auto_edit_call.py >/dev/null 2>&1 \
+      && docker cp "$REQ" rg-nas-mcp-hub:/tmp/rg_auto_edit_request.json >/dev/null 2>&1 \
+      && docker exec rg-nas-mcp-hub python /tmp/rg_auto_edit_call.py /tmp/rg_auto_edit_request.json > "$TMP_RESULT" 2> "$ERROR"
+    then
+      mv -f "$TMP_RESULT" "$RESULT"
+      rm -f "$ERROR" 2>/dev/null || true
+    else
+      rm -f "$TMP_RESULT" 2>/dev/null || true
+    fi
+
+    rm -f "$REQ" 2>/dev/null || true
+    docker exec rg-nas-mcp-hub rm -f /tmp/rg_auto_edit_call.py /tmp/rg_auto_edit_request.json >/dev/null 2>&1 || true
+  done
+fi
