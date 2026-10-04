@@ -117,6 +117,27 @@ def probe_ssh_config() -> dict:
     }
 
 
+def probe_nas_ssh_auth() -> dict:
+    ssh = r"C:\WINDOWS\System32\OpenSSH\ssh.exe"
+    result = run(
+        [
+            ssh,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5",
+            "-o", "StrictHostKeyChecking=yes",
+            "AlexLosServer",
+            "echo", "RG_NAS_SSH_OK",
+        ],
+        timeout=15,
+    )
+    return {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "authenticated": "RG_NAS_SSH_OK" in result["stdout"],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -153,6 +174,7 @@ ACTIONS = {
     "probe_environment": probe_environment,
     "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
     "probe_ssh_config": probe_ssh_config,
+    "probe_nas_ssh_auth": probe_nas_ssh_auth,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
