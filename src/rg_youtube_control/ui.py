@@ -107,6 +107,7 @@ from .free_tools import (
     load_google_trends_csv,
     load_google_trends_summary,
     probe_free_tools,
+    transcript_sample_text,
     transcript_text,
 )
 from .recovery import (
@@ -8203,7 +8204,11 @@ class MainWindow(QMainWindow):
                     context["google_trends"] = []
             try:
                 transcript_rows = fetch_transcript(video_id)
-                transcript = transcript_text(transcript_rows)
+                transcript = transcript_sample_text(
+                    transcript_rows,
+                    max_chars=12000,
+                    segments=6,
+                )
             except Exception:
                 transcript_rows = []
                 transcript = ""
