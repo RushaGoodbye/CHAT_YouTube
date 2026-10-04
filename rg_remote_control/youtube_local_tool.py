@@ -275,6 +275,11 @@ def run(mode: str) -> dict:
 
 
 def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     task_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "rg_remote_control" / "youtube_task.json"
     task = json.loads(task_path.read_text(encoding="utf-8"))
     action = str(task.get("action") or "")
