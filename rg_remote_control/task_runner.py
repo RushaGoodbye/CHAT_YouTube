@@ -2275,6 +2275,14 @@ def ensure_github_runner_persistence() -> dict:
 
     startup_file = None
     fallback_enabled = False
+    watchdog = {
+        "script": None,
+        "task_name": "RG_GITHUB_RUNNER_WATCHDOG",
+        "task_created": False,
+        "exit_code": None,
+        "stdout": "",
+        "stderr": "",
+    }
 
     if not service["installed"]:
         appdata = os.environ.get("APPDATA")
@@ -2298,6 +2306,46 @@ def ensure_github_runner_persistence() -> dict:
         startup_file.write_text(vbs, encoding="utf-8", newline="")
         fallback_enabled = startup_file.is_file()
 
+        watchdog_script = runner_dir / "runner_watchdog.ps1"
+        watchdog_script.write_text(
+            (
+                "$ErrorActionPreference = 'SilentlyContinue'\n"
+                "$root = 'C:\\RG_GITHUB_RUNNER'\n"
+                "$listener = Get-CimInstance Win32_Process -Filter \"Name='Runner.Listener.exe'\" | "
+                "Where-Object { $_.CommandLine -like '*C:\\RG_GITHUB_RUNNER*' }\n"
+                "if (-not $listener) {\n"
+                "  Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','cd /d C:\\RG_GITHUB_RUNNER && call run.cmd' -WindowStyle Hidden\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        watchdog["script"] = str(watchdog_script)
+        task_command = (
+            'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+            '-File "C:\\RG_GITHUB_RUNNER\\runner_watchdog.ps1"'
+        )
+        task = run(
+            [
+                r"C:\WINDOWS\System32\schtasks.exe",
+                "/Create",
+                "/SC", "MINUTE",
+                "/MO", "1",
+                "/TN", watchdog["task_name"],
+                "/TR", task_command,
+                "/F",
+            ],
+            timeout=30,
+        )
+        watchdog["exit_code"] = task["exit_code"]
+        watchdog["stdout"] = task["stdout"][-4000:]
+        watchdog["stderr"] = task["stderr"][-4000:]
+        watchdog["task_created"] = task["exit_code"] == 0
+
+    persistent = bool(
+        service["installed"]
+        or fallback_enabled
+        or watchdog["task_created"]
+    )
     return {
         "runner_dir": str(runner_dir),
         "service": service,
@@ -2305,11 +2353,16 @@ def ensure_github_runner_persistence() -> dict:
             "enabled": fallback_enabled,
             "path": str(startup_file) if startup_file else None,
         },
-        "persistent": bool(service["installed"] or fallback_enabled),
+        "watchdog": watchdog,
+        "persistent": persistent,
         "note": (
             "Service is installed and will start with Windows."
             if service["installed"]
-            else "Hidden per-user startup fallback is installed and will start at next sign-in."
+            else (
+                "Per-user startup fallback and one-minute watchdog are installed."
+                if watchdog["task_created"]
+                else "Hidden per-user startup fallback is installed and will start at next sign-in."
+            )
         ),
     }
 
