@@ -1387,6 +1387,139 @@ fi
     }
 
 
+def install_mcp_protocol_smoke_hook() -> dict:
+    from datetime import datetime, timezone
+
+    live = Path(r"\\AlexLosServer\docker\RG_NAS_AUTO_DEPLOY.sh")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    if not live.is_file():
+        raise RuntimeError(f"Live auto-deploy missing: {live}")
+
+    text = live.read_text(encoding="utf-8", errors="replace")
+    marker = "# RG_NAS_MCP_PROTOCOL_SMOKE_HOOK"
+    if marker in text:
+        return {"updated": False, "reason": "already_installed"}
+
+    anchor = "# RG_NAS_MCP_LOCAL_HOOK_END"
+    pos = text.find(anchor)
+    if pos < 0:
+        raise RuntimeError("MCP deploy hook end marker not found")
+    pos += len(anchor)
+
+    hook = r'''
+
+# RG_NAS_MCP_PROTOCOL_SMOKE_HOOK
+MCP_SMOKE_REQUEST="/volume1/docker/RG_NAS_MCP/SMOKE_REQUEST"
+MCP_SMOKE_STATUS="$STATE_DIR/mcp_smoke_status"
+MCP_SMOKE_LOG="$STATE_DIR/mcp-smoke.log"
+
+if [ -f "$MCP_SMOKE_REQUEST" ]; then
+  printf '%s\n' "RUNNING" > "$MCP_SMOKE_STATUS"
+  if docker inspect rg-nas-mcp-hub >/dev/null 2>&1; then
+    if docker exec rg-nas-mcp-hub python -m rg_remote_mcp.smoke > "$MCP_SMOKE_LOG" 2>&1; then
+      printf '%s\n' "OK" > "$MCP_SMOKE_STATUS"
+    else
+      printf '%s\n' "ERROR" > "$MCP_SMOKE_STATUS"
+    fi
+  else
+    printf '%s\n' "rg-nas-mcp-hub missing" > "$MCP_SMOKE_LOG"
+    printf '%s\n' "ERROR" > "$MCP_SMOKE_STATUS"
+  fi
+  rm -f "$MCP_SMOKE_REQUEST" 2>/dev/null || true
+fi
+'''
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    state.mkdir(parents=True, exist_ok=True)
+    backup = state / f"RG_NAS_AUTO_DEPLOY.before_mcp_smoke_{stamp}.sh"
+    shutil.copy2(live, backup)
+
+    updated = text[:pos] + hook + text[pos:]
+    temp = live.with_name(live.name + ".mcp-smoke.tmp")
+    temp.write_text(updated, encoding="utf-8", newline="\n")
+    os.replace(temp, live)
+
+    verify = live.read_text(encoding="utf-8", errors="replace")
+    if marker not in verify or "rg_remote_mcp.smoke" not in verify:
+        shutil.copy2(backup, live)
+        raise RuntimeError("MCP smoke hook verification failed; backup restored")
+
+    return {
+        "updated": True,
+        "backup": str(backup),
+        "request_path": "/volume1/docker/RG_NAS_MCP/SMOKE_REQUEST",
+    }
+
+
+def request_mcp_protocol_smoke() -> dict:
+    import time
+    from datetime import datetime, timezone
+
+    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    request = root / "SMOKE_REQUEST"
+    status_file = state / "mcp_smoke_status"
+    log_file = state / "mcp-smoke.log"
+
+    before = status_file.stat().st_mtime if status_file.is_file() else 0
+    request.write_text(
+        datetime.now(timezone.utc).isoformat() + "\n",
+        encoding="utf-8",
+    )
+    request_mtime = request.stat().st_mtime
+
+    started = time.time()
+    observations = []
+    while time.time() - started < 420:
+        status = (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else ""
+        )
+        mtime = status_file.stat().st_mtime if status_file.is_file() else 0
+        exists = request.exists()
+        if (
+            not observations
+            or observations[-1]["status"] != (status or None)
+            or observations[-1]["request_exists"] != exists
+        ):
+            observations.append({
+                "elapsed": int(time.time() - started),
+                "status": status or None,
+                "request_exists": exists,
+            })
+        fresh = mtime >= request_mtime and mtime > before
+        if fresh and not exists and status in {"OK", "ERROR"}:
+            return {
+                "processed": True,
+                "status": status,
+                "elapsed_seconds": int(time.time() - started),
+                "observations": observations,
+                "log": (
+                    log_file.read_text(encoding="utf-8", errors="replace")[-20000:]
+                    if log_file.is_file()
+                    else ""
+                ),
+            }
+        time.sleep(10)
+
+    return {
+        "processed": False,
+        "status": (
+            status_file.read_text(encoding="utf-8", errors="replace").strip()
+            if status_file.is_file()
+            else None
+        ),
+        "request_exists": request.exists(),
+        "observations": observations,
+        "log": (
+            log_file.read_text(encoding="utf-8", errors="replace")[-20000:]
+            if log_file.is_file()
+            else ""
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1439,6 +1572,8 @@ ACTIONS = {
     "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
     "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
     "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
+    "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
+    "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
