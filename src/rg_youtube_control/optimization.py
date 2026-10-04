@@ -256,7 +256,7 @@ def safe_description_fix(description: str, title: str = "") -> SafeFix:
 
 
 ENGLISH_SUMMARY_MARKER_RE = re.compile(
-    r"^\s*🇬🇧\s*ENGLISH\s+SUMMARY\s*:\s*$",
+    r"^\s*(?:🇬🇧\s*)?ENGLISH\s+SUMMARY\s*:\s*$",
     re.IGNORECASE,
 )
 INLINE_HASHTAG_RE = re.compile(
