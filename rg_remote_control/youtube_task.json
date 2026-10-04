@@ -1,8 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
-  "args": {
-    "mode": "inspect_blocked_overflow"
-  }
+  "action": "youtube_local_repair_preview",
+  "args": {}
 }
