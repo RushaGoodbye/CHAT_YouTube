@@ -1,10 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_status",
-    "tool_args": {}
-  },
-  "nonce": "20261005-production100-direct-status-smoke-1"
+  "action": "launch_auto_edit_studio",
+  "args": {},
+  "nonce": "20261005-launch-auto-edit-studio-1"
 }
