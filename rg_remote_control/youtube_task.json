@@ -2,5 +2,7 @@
   "target": "alexpc",
   "contour": "youtube",
   "action": "youtube_local_repair_preview",
-  "args": {}
+  "args": {
+    "nonce": "preview-utf8-2"
+  }
 }
