@@ -52,6 +52,7 @@ def sync_videos(
             snippet.get("description", ""),
             snippet.get("tags", []),
             snippet.get("title", ""),
+            content.get("duration"),
         )
         row = {
             "video_id": video_id,
@@ -116,6 +117,7 @@ def sync_specific_videos(
             snippet.get("description", ""),
             snippet.get("tags", []),
             snippet.get("title", ""),
+            content.get("duration"),
         )
         row = {
             "video_id": item["id"],
