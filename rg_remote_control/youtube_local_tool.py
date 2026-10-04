@@ -411,6 +411,104 @@ def quota_plan_status() -> dict:
     finally:
         conn.close()
 
+
+def runtime_status() -> dict:
+    """Read the installed RG YouTube Control version from Windows registry."""
+    import subprocess
+
+    installs: list[dict] = []
+    if os.name == "nt":
+        import winreg
+
+        roots = [
+            ("HKLM", winreg.HKEY_LOCAL_MACHINE),
+            ("HKCU", winreg.HKEY_CURRENT_USER),
+        ]
+        views = [
+            ("64", winreg.KEY_WOW64_64KEY),
+            ("32", winreg.KEY_WOW64_32KEY),
+        ]
+        base = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+        for root_name, root in roots:
+            for view_name, view_flag in views:
+                try:
+                    key = winreg.OpenKey(
+                        root,
+                        base,
+                        0,
+                        winreg.KEY_READ | view_flag,
+                    )
+                except OSError:
+                    continue
+                try:
+                    count = winreg.QueryInfoKey(key)[0]
+                    for index in range(count):
+                        try:
+                            sub_name = winreg.EnumKey(key, index)
+                            sub = winreg.OpenKey(key, sub_name)
+                            try:
+                                name = str(
+                                    winreg.QueryValueEx(
+                                        sub, "DisplayName"
+                                    )[0]
+                                )
+                            except OSError:
+                                name = ""
+                            if name.casefold() != "rg youtube control":
+                                sub.Close()
+                                continue
+                            def value(field: str) -> str:
+                                try:
+                                    return str(
+                                        winreg.QueryValueEx(sub, field)[0]
+                                    )
+                                except OSError:
+                                    return ""
+                            installs.append({
+                                "root": root_name,
+                                "view": view_name,
+                                "key": sub_name,
+                                "display_name": name,
+                                "display_version": value("DisplayVersion"),
+                                "install_location": value("InstallLocation"),
+                                "uninstall_string": value("UninstallString"),
+                            })
+                            sub.Close()
+                        except OSError:
+                            continue
+                finally:
+                    key.Close()
+
+    running = False
+    process_text = ""
+    if os.name == "nt":
+        proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$p=Get-Process | Where-Object { "
+                    "$_.ProcessName -like 'RG YouTube Control*' }; "
+                    "$p | Select-Object Id,ProcessName,Path | "
+                    "ConvertTo-Json -Compress"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        process_text = (proc.stdout or "").strip()
+        running = bool(process_text and process_text not in {"null", "[]"})
+
+    return {
+        "youtube_api_calls": 0,
+        "installs": installs,
+        "running": running,
+        "processes": process_text,
+    }
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -426,6 +524,8 @@ def main() -> int:
         result = run("apply")
     elif action == "youtube_local_quota_plan_status":
         result = quota_plan_status()
+    elif action == "youtube_local_runtime_status":
+        result = runtime_status()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
