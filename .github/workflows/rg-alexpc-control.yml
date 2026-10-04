@@ -1,0 +1,32 @@
+name: RG AlexPC Control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "rg_remote_control/task.json"
+      - ".github/workflows/rg-alexpc-control.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-alexpc-control
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate target
+        shell: pwsh
+        run: |
+          $task = Get-Content "rg_remote_control/task.json" -Raw | ConvertFrom-Json
+          if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
+          if ($task.action -notin @("health")) { throw "Action is not allowed on AlexPC" }
+      - name: Run restricted task
+        shell: pwsh
+        run: python rg_remote_control/task_runner.py rg_remote_control/task.json
