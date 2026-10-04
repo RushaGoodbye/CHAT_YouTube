@@ -1,12 +1,122 @@
 services:
-  rg-remote-mcp:
-    build: .
-    container_name: rg-remote-mcp
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rg-nas-mcp-hub
     restart: unless-stopped
-    env_file: .env
+    environment:
+      RG_REMOTE_HOST: 0.0.0.0
+      RG_REMOTE_PORT: 8765
+      RG_WORKER_YOUTUBE_URL: http://youtube-worker:8780
+      RG_WORKER_TELEGRAM_URL: http://telegram-worker:8780
+      RG_WORKER_AUTO_EDIT_URL: http://auto-edit-worker:8780
     ports:
       - "127.0.0.1:8765:8765"
+    depends_on:
+      youtube-worker:
+        condition: service_healthy
+      telegram-worker:
+        condition: service_healthy
+      auto-edit-worker:
+        condition: service_healthy
+    networks:
+      - rg_mcp_internal
+
+  youtube-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: rg-mcp-youtube
+    restart: unless-stopped
+    read_only: true
+    environment:
+      RG_WORKER_CONTOUR: youtube
+      RG_WORKER_ROOT: /workspace
+      RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,cat,find,grep,du,df
     volumes:
-      - /volume1/RG_AUTO_EDIT:/mnt/auto_edit:rw
-      - /volume1/RG_AUTO_EDIT/YOUTUBE_CONTROL:/mnt/youtube:rw
-      - ./secrets:/run/secrets:ro
+      - /volume1/RG_AUTO_EDIT/YOUTUBE_CONTROL:/workspace:rw
+    tmpfs:
+      - /tmp
+    expose:
+      - "8780"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8780/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rg_mcp_internal
+
+  telegram-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: rg-mcp-telegram
+    restart: unless-stopped
+    read_only: true
+    environment:
+      RG_WORKER_CONTOUR: telegram
+      RG_WORKER_ROOT: /workspace
+      RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,cat,find,grep,du,df
+    volumes:
+      - /volume1/docker/RG_DEPLOY:/workspace/RG_DEPLOY:rw
+      - /volume1/docker/RG_MONITOR:/workspace/RG_MONITOR:rw
+      - /volume1/docker/RG_NAS_WORK:/workspace/RG_NAS_WORK:rw
+      - /volume1/docker/RG_NAS_STATE:/workspace/RG_NAS_STATE:rw
+      - /volume1/docker/RG_NAS_CONTROL:/workspace/RG_NAS_CONTROL:rw
+      - /volume1/docker/RG_ALERTS_DEPLOY:/workspace/RG_ALERTS_DEPLOY:rw
+      - /volume1/docker/RG_CONTENT_DEPLOY:/workspace/RG_CONTENT_DEPLOY:rw
+      - /volume1/docker/RG_ADMIN_CONTROL_DEPLOY:/workspace/RG_ADMIN_CONTROL_DEPLOY:rw
+    tmpfs:
+      - /tmp
+    expose:
+      - "8780"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8780/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rg_mcp_internal
+
+  auto-edit-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: rg-mcp-auto-edit
+    restart: unless-stopped
+    read_only: true
+    environment:
+      RG_WORKER_CONTOUR: auto_edit
+      RG_WORKER_ROOT: /workspace
+      RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,cat,find,grep,du,df
+    volumes:
+      - /volume1/RG_AUTO_EDIT/BACKUPS:/workspace/BACKUPS:rw
+      - /volume1/RG_AUTO_EDIT/CACHE:/workspace/CACHE:rw
+      - /volume1/RG_AUTO_EDIT/CONTROL:/workspace/CONTROL:rw
+      - /volume1/RG_AUTO_EDIT/DASHBOARD:/workspace/DASHBOARD:rw
+      - /volume1/RG_AUTO_EDIT/DATABASE:/workspace/DATABASE:rw
+      - /volume1/RG_AUTO_EDIT/DIAGNOSTICS:/workspace/DIAGNOSTICS:rw
+      - /volume1/RG_AUTO_EDIT/DISASTER_RECOVERY:/workspace/DISASTER_RECOVERY:rw
+      - /volume1/RG_AUTO_EDIT/LEARNING:/workspace/LEARNING:rw
+      - /volume1/RG_AUTO_EDIT/LOGS:/workspace/LOGS:rw
+      - /volume1/RG_AUTO_EDIT/PROJECTS:/workspace/PROJECTS:rw
+      - /volume1/RG_AUTO_EDIT/RUNS:/workspace/RUNS:rw
+      - /volume1/RG_AUTO_EDIT/THUMBNAIL_ASSETS:/workspace/THUMBNAIL_ASSETS:rw
+      - /volume1/RG_AUTO_EDIT/UPDATES:/workspace/UPDATES:rw
+    tmpfs:
+      - /tmp
+    expose:
+      - "8780"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8780/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rg_mcp_internal
+
+networks:
+  rg_mcp_internal:
+    internal: true
