@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "enable_one_minute_mcp_tick",
+  "action": "probe_cloudflare_mcp_gateway_options",
   "args": {}
 }
