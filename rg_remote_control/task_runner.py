@@ -388,6 +388,82 @@ def probe_nas_home_connection() -> dict:
     }
 
 
+def install_and_probe_nas_ssh_key() -> dict:
+    key_dir = Path(r"C:\RG_GITHUB_RUNNER\keys")
+    key_dir.mkdir(parents=True, exist_ok=True)
+    key = key_dir / "rg_nas_mcp_ed25519"
+    pub = Path(str(key) + ".pub")
+    keygen = r"C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe"
+    ssh = r"C:\WINDOWS\System32\OpenSSH\ssh.exe"
+
+    if not key.is_file() or not pub.is_file():
+        generated = run(
+            [
+                keygen,
+                "-t", "ed25519",
+                "-N", "",
+                "-C", "rg-nas-mcp-alexpc",
+                "-f", str(key),
+            ],
+            timeout=30,
+        )
+        if generated["exit_code"] != 0:
+            raise RuntimeError("ssh-keygen failed: " + generated["stderr"][-1000:])
+
+    public_line = pub.read_text(encoding="utf-8").strip()
+    if not public_line.startswith("ssh-ed25519 "):
+        raise RuntimeError("Unexpected public key format")
+
+    nas_ssh = Path(r"\\AlexLosServer\home\.ssh")
+    nas_ssh.mkdir(parents=True, exist_ok=True)
+    authorized = nas_ssh / "authorized_keys"
+    existing = authorized.read_text(encoding="utf-8", errors="replace") if authorized.exists() else ""
+    if public_line not in existing.splitlines():
+        with authorized.open("a", encoding="utf-8", newline="\n") as handle:
+            if existing and not existing.endswith("\n"):
+                handle.write("\n")
+            handle.write(public_line + "\n")
+
+    fp = run([keygen, "-lf", str(pub)], timeout=15)
+    fingerprint = fp["stdout"].strip()
+
+    attempts = []
+    success_user = None
+    for user in ("Alex Los", "AlexLos", "alexlos", "fauto"):
+        result = run(
+            [
+                ssh,
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                "-o", "StrictHostKeyChecking=yes",
+                "-i", str(key),
+                "-l", user,
+                "AlexLosServer",
+                "echo", "RG_NAS_SSH_OK",
+            ],
+            timeout=15,
+        )
+        ok = "RG_NAS_SSH_OK" in result["stdout"]
+        attempts.append({
+            "user": user,
+            "exit_code": result["exit_code"],
+            "ok": ok,
+            "stderr": result["stderr"][-500:],
+        })
+        if ok:
+            success_user = user
+            break
+
+    return {
+        "public_key_installed": True,
+        "authorized_keys_path": str(authorized),
+        "fingerprint": fingerprint,
+        "success_user": success_user,
+        "attempts": attempts,
+        "private_key_path": str(key),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -433,6 +509,7 @@ ACTIONS = {
     "probe_telegram_production_layout": probe_telegram_production_layout,
     "probe_nas_identity": probe_nas_identity,
     "probe_nas_home_connection": probe_nas_home_connection,
+    "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
