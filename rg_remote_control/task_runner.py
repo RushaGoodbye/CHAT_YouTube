@@ -1580,6 +1580,28 @@ def enable_one_minute_mcp_tick() -> dict:
     }
 
 
+def run_telegram_mcp_smoke() -> dict:
+    ssh = r"C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+    result = run(
+        [
+            ssh,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=yes",
+            "AlexLosServer",
+            "docker", "exec", "rg-nas-mcp-hub",
+            "python", "-m", "rg_remote_mcp.telegram_smoke",
+        ],
+        timeout=120,
+    )
+    return {
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "telegram_only": True,
+    }
+
+
 def probe_cloudflare_mcp_gateway_options() -> dict:
     roots = [
         Path(r"\\AlexLosServer\docker"),
@@ -1723,6 +1745,7 @@ ACTIONS = {
     "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
     "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
     "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
+    "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
     "youtube_mcp_call": youtube_mcp_call,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
