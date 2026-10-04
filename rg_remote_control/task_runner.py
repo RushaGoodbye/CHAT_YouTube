@@ -464,6 +464,41 @@ def install_and_probe_nas_ssh_key() -> dict:
     }
 
 
+def probe_nas_command_bus() -> dict:
+    root = Path(r"\\AlexLosServer\docker")
+    targets = [
+        root / "RG_NAS_COMMAND_BUS.sh",
+        root / "RG_NAS_CONTROL.sh",
+        root / "RG_NAS_AUTO_DEPLOY.sh",
+    ]
+    result = {}
+    for path in targets:
+        if path.is_file() and path.stat().st_size <= 100000:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            result[path.name] = text
+        else:
+            result[path.name] = None
+
+    rc = root / "RG_REMOTE_COMMANDER"
+    items = []
+    if rc.is_dir():
+        for p in sorted(rc.rglob("*"), key=lambda x: str(x).casefold()):
+            try:
+                rel = p.relative_to(rc)
+                if len(rel.parts) <= 3:
+                    items.append({
+                        "path": str(rel),
+                        "type": "dir" if p.is_dir() else "file",
+                        "size": p.stat().st_size if p.is_file() else None,
+                    })
+                if len(items) >= 200:
+                    break
+            except Exception:
+                continue
+    result["RG_REMOTE_COMMANDER"] = items
+    return result
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -510,6 +545,7 @@ ACTIONS = {
     "probe_nas_identity": probe_nas_identity,
     "probe_nas_home_connection": probe_nas_home_connection,
     "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
+    "probe_nas_command_bus": probe_nas_command_bus,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
