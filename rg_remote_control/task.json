@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_telegram_mcp_fast",
+  "action": "list_nas_project_roots",
   "args": {}
 }
