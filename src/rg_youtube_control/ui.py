@@ -7126,10 +7126,15 @@ class MainWindow(QMainWindow):
             valid_ids = []
             for video_id in prepared_ids:
                 row = self.conn.execute(
-                    "SELECT audit_json FROM videos WHERE video_id=? AND profile=?",
+                    """SELECT v.audit_json,d.status
+                       FROM videos v
+                       JOIN optimization_drafts d ON d.video_id=v.video_id
+                       WHERE v.video_id=? AND v.profile=?
+                         AND v.privacy_status='public'
+                         AND v.scheduled_publish_at IS NULL""",
                     (video_id, self.current_profile),
                 ).fetchone()
-                if row is None:
+                if row is None or str(row["status"] or "") != "ready":
                     continue
                 try:
                     issues = json.loads(row["audit_json"] or "{}").get(
@@ -7137,8 +7142,9 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     issues = []
-                if is_safe_archive_candidate(issues):
-                    valid_ids.append(video_id)
+                if "latin_title_review" in issues:
+                    continue
+                valid_ids.append(video_id)
             video_ids = valid_ids[:batch_limit]
             total_candidates = len(valid_ids)
         else:
