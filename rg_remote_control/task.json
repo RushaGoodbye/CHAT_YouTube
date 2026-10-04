@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_nas_shares",
+  "action": "probe_nas_telegram_locations",
   "args": {}
 }
