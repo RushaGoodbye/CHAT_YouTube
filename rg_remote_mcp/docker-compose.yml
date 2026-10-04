@@ -63,6 +63,9 @@ services:
       RG_WORKER_COMMANDS: python3,git,node,npm,npx,ls,find,grep,du,df
     volumes:
       - /volume1/docker/RG_DEPLOY/cloudflare-video-moderation:/workspace/deploy/cloudflare-video-moderation:rw
+      - /volume1/docker/RG_ALERTS_DEPLOY/cloudflare-alerts:/workspace/deploy/cloudflare-alerts:rw
+      - /volume1/docker/RG_CONTENT_DEPLOY/cloudflare-content-hub:/workspace/deploy/cloudflare-content-hub:rw
+      - /volume1/docker/RG_ADMIN_CONTROL_DEPLOY/cloudflare-admin-control:/workspace/deploy/cloudflare-admin-control:rw
       - /volume1/docker/RG_MONITOR/app:/workspace/monitor/app:rw
       - /volume1/docker/RG_MONITOR/public_monitor:/workspace/monitor/public_monitor:rw
       - /volume1/docker/RG_MONITOR/data:/workspace/monitor/data:rw
