@@ -34,6 +34,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
+      - name: Compile smoke
+        run: python -m compileall -q rg_remote_mcp
       - name: Tests
         run: pytest -q
       - name: Import smoke
