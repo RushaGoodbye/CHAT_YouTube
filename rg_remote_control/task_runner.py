@@ -2638,6 +2638,137 @@ def youtube_program_local_status() -> dict:
             "created_at": row["created_at"],
         })
 
+    scheduled_details = []
+    for row in conn.execute(
+        """
+        SELECT
+          v.video_id, v.profile, v.title, v.views,
+          v.scheduled_publish_at, v.privacy_status, v.audit_json,
+          d.status AS draft_status, d.new_title AS draft_title,
+          d.description AS draft_description, d.chapters AS draft_chapters,
+          d.tags_json AS draft_tags
+        FROM videos v
+        LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+        WHERE COALESCE(v.scheduled_publish_at,'') <> ''
+        ORDER BY v.scheduled_publish_at
+        """
+    ).fetchall():
+        try:
+            audit_payload = json.loads(str(row["audit_json"] or "{}"))
+        except Exception:
+            audit_payload = {}
+        try:
+            draft_tags = json.loads(str(row["draft_tags"] or "[]"))
+        except Exception:
+            draft_tags = []
+        scheduled_details.append({
+            "video_id": row["video_id"],
+            "profile": row["profile"],
+            "title": row["title"],
+            "views": int(row["views"] or 0),
+            "scheduled_publish_at": row["scheduled_publish_at"],
+            "privacy_status": row["privacy_status"],
+            "audit_issues": audit_payload.get("issues") or [],
+            "draft_status": row["draft_status"],
+            "draft_title": row["draft_title"],
+            "draft_description_chars": len(str(row["draft_description"] or "")),
+            "draft_chapters_lines": len([
+                line for line in str(row["draft_chapters"] or "").splitlines()
+                if line.strip()
+            ]),
+            "draft_tags_count": len(draft_tags) if isinstance(draft_tags, list) else 0,
+        })
+
+    blocked_details = []
+    for row in conn.execute(
+        """
+        SELECT
+          d.video_id, d.new_title, d.description, d.chapters,
+          d.tags_json, d.title_variants_json, d.updated_at,
+          v.profile, v.title, v.views, v.audit_json
+        FROM optimization_drafts d
+        LEFT JOIN videos v ON v.video_id=d.video_id
+        WHERE d.status='blocked'
+        ORDER BY d.updated_at DESC
+        """
+    ).fetchall():
+        try:
+            tags = json.loads(str(row["tags_json"] or "[]"))
+        except Exception:
+            tags = []
+        try:
+            variants = json.loads(str(row["title_variants_json"] or "[]"))
+        except Exception:
+            variants = []
+        try:
+            audit_payload = json.loads(str(row["audit_json"] or "{}"))
+        except Exception:
+            audit_payload = {}
+        reasons = []
+        title_value = str(row["new_title"] or "").strip()
+        description_value = str(row["description"] or "").strip()
+        chapters_value = str(row["chapters"] or "").strip()
+        if not title_value:
+            reasons.append("empty_title")
+        if len(title_value) > 100:
+            reasons.append("title_over_100")
+        if not description_value:
+            reasons.append("empty_description")
+        if len(description_value) > 5000:
+            reasons.append("description_over_5000")
+        chapter_lines = [line for line in chapters_value.splitlines() if line.strip()]
+        if chapters_value and len(chapter_lines) < 3:
+            reasons.append("chapters_under_3")
+        if not isinstance(tags, list) or not tags:
+            reasons.append("no_tags")
+        if isinstance(tags, list) and len(", ".join(str(x) for x in tags)) > 500:
+            reasons.append("tags_over_500")
+        blocked_details.append({
+            "video_id": row["video_id"],
+            "profile": row["profile"],
+            "current_title": row["title"],
+            "new_title": row["new_title"],
+            "views": int(row["views"] or 0),
+            "audit_issues": audit_payload.get("issues") or [],
+            "description_chars": len(description_value),
+            "chapters_lines": len(chapter_lines),
+            "tags_count": len(tags) if isinstance(tags, list) else 0,
+            "title_variants_count": len(variants) if isinstance(variants, list) else 0,
+            "likely_block_reasons": reasons,
+            "updated_at": row["updated_at"],
+        })
+
+    top_ready = []
+    for row in conn.execute(
+        """
+        SELECT
+          d.video_id, d.new_title, d.updated_at,
+          v.profile, v.title, v.views, v.scheduled_publish_at, v.audit_json
+        FROM optimization_drafts d
+        LEFT JOIN videos v ON v.video_id=d.video_id
+        WHERE d.status='ready'
+        ORDER BY
+          CASE WHEN COALESCE(v.scheduled_publish_at,'') <> '' THEN 0 ELSE 1 END,
+          COALESCE(v.views,0) DESC,
+          d.updated_at ASC
+        LIMIT 30
+        """
+    ).fetchall():
+        try:
+            audit_payload = json.loads(str(row["audit_json"] or "{}"))
+        except Exception:
+            audit_payload = {}
+        top_ready.append({
+            "video_id": row["video_id"],
+            "profile": row["profile"],
+            "current_title": row["title"],
+            "new_title": row["new_title"],
+            "views": int(row["views"] or 0),
+            "scheduled_publish_at": row["scheduled_publish_at"],
+            "audit_issues": audit_payload.get("issues") or [],
+            "updated_at": row["updated_at"],
+        })
+
     result = {
         "database_exists": True,
         "data_dir": str(data_dir),
@@ -2688,6 +2819,9 @@ def youtube_program_local_status() -> dict:
             "SELECT COUNT(*) FROM comments WHERE status='moderation_locked'"
         ),
         "audit_issues": dict(sorted(audit_issues.items(), key=lambda item: (-item[1], item[0]))),
+        "scheduled_details": scheduled_details,
+        "blocked_details": blocked_details,
+        "top_ready": top_ready,
         "recent_actions": recent_actions,
         "youtube_api_calls": 0,
     }
