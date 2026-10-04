@@ -1520,6 +1520,66 @@ def request_mcp_protocol_smoke() -> dict:
     }
 
 
+def enable_one_minute_mcp_tick() -> dict:
+    from datetime import datetime, timezone
+
+    source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_TICK.sh"
+    live_tick = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_TICK.sh")
+    live_loop = Path(r"\\AlexLosServer\docker\RG_NAS_AUTODEPLOY_LOOP.sh")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+
+    if not source.is_file():
+        raise RuntimeError(f"Tick source missing: {source}")
+    if not live_loop.is_file():
+        raise RuntimeError(f"Live loop missing: {live_loop}")
+
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    tick_backup = None
+    if live_tick.is_file():
+        tick_backup = state / f"RG_NAS_MCP_TICK.before_1min_{stamp}.sh"
+        shutil.copy2(live_tick, tick_backup)
+    shutil.copy2(source, live_tick)
+
+    loop_text = live_loop.read_text(encoding="utf-8", errors="replace")
+    loop_backup = state / f"RG_NAS_AUTODEPLOY_LOOP.before_mcp_1min_{stamp}.sh"
+    shutil.copy2(live_loop, loop_backup)
+
+    block = (
+        '  if [ -f "$ROOT/RG_NAS_MCP_TICK.sh" ]; then\n'
+        '    sh "$ROOT/RG_NAS_MCP_TICK.sh" >> "$STATE/mcp-tick.log" 2>&1 || true\n'
+        '  fi\n\n'
+    )
+    if "RG_NAS_MCP_TICK.sh" not in loop_text:
+        anchor = '  SCHED_AGE="$(heartbeat_age "$SCHEDULER_HEARTBEAT")"\n\n'
+        if anchor not in loop_text:
+            raise RuntimeError("Live loop insertion anchor not found")
+        loop_text = loop_text.replace(anchor, anchor + block, 1)
+        temp = live_loop.with_name(live_loop.name + ".mcp-1min.tmp")
+        temp.write_text(loop_text, encoding="utf-8", newline="\n")
+        os.replace(temp, live_loop)
+
+    verify_loop = live_loop.read_text(encoding="utf-8", errors="replace")
+    verify_tick = live_tick.read_text(encoding="utf-8", errors="replace")
+    if 'CHECK_INTERVAL=60' not in verify_loop:
+        raise RuntimeError("Live loop is not configured for 60-second checks")
+    if "RG_NAS_MCP_TICK.sh" not in verify_loop:
+        raise RuntimeError("MCP tick invocation was not installed")
+    if 'SMOKE_REQUEST' not in verify_tick or 'DEPLOY_REQUEST' not in verify_tick:
+        raise RuntimeError("MCP tick script verification failed")
+
+    return {
+        "enabled": True,
+        "interval_seconds": 60,
+        "tick_path": str(live_tick),
+        "loop_path": str(live_loop),
+        "loop_backup": str(loop_backup),
+        "tick_backup": str(tick_backup) if tick_backup else None,
+        "production_autodeploy_interval_unchanged": True,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1574,6 +1634,7 @@ ACTIONS = {
     "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
     "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
     "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
+    "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
