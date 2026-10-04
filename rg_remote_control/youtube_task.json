@@ -3,15 +3,9 @@
   "contour": "youtube",
   "action": "youtube_mcp_call",
   "args": {
-    "tool": "youtube_command_run",
+    "tool": "youtube_fs_list",
     "tool_args": {
-      "argv": [
-        "python",
-        "-c",
-        "from pathlib import Path\nfrom datetime import datetime\nroot=Path('PACKAGES')\nrows=[]\nfor p in root.rglob('*'):\n    try:\n        rel=p.relative_to(root)\n        if len(rel.parts)>3: continue\n        st=p.stat()\n        rows.append((st.st_mtime,str(rel),p.is_dir(),st.st_size if p.is_file() else 0))\n    except Exception: pass\nrows.sort(reverse=True)\nprint('PACKAGES_EXISTS',root.is_dir())\nprint('ITEMS',len(rows))\nfor m,rel,isdir,size in rows[:500]:\n    print(('DIR ' if isdir else 'FILE'),datetime.fromtimestamp(m).isoformat(timespec='seconds'),size,rel)"
-      ],
-      "cwd_relative": "",
-      "timeout_seconds": 120
+      "relative": "PACKAGES"
     }
   }
 }
