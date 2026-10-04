@@ -1,6 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "stage_mcp_to_docker_root",
-  "args": {"lan_bind": true}
+  "action": "youtube_mcp_call",
+  "args": {
+    "tool": "youtube_fs_list",
+    "tool_args": {"relative": ""}
+  }
 }
