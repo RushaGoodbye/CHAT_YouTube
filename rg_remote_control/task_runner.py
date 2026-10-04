@@ -82,6 +82,41 @@ def stage_remote_mcp_to_nas() -> dict:
     }
 
 
+def probe_ssh_config() -> dict:
+    home = Path.home()
+    ssh_dir = home / ".ssh"
+    files = []
+    if ssh_dir.is_dir():
+        for p in sorted(ssh_dir.iterdir(), key=lambda x: x.name.casefold()):
+            try:
+                files.append({
+                    "name": p.name,
+                    "type": "dir" if p.is_dir() else "file",
+                    "size": p.stat().st_size if p.is_file() else None,
+                })
+            except Exception:
+                pass
+
+    resolved = run(
+        [r"C:\WINDOWS\System32\OpenSSH\ssh.exe", "-G", "AlexLosServer"],
+        timeout=30,
+    )
+    safe_lines = []
+    for line in str(resolved.get("stdout") or "").splitlines():
+        key = line.split(" ", 1)[0].casefold() if line else ""
+        if key in {
+            "hostname", "user", "port", "identityfile",
+            "identitiesonly", "stricthostkeychecking",
+            "userknownhostsfile",
+        }:
+            safe_lines.append(line)
+    return {
+        "ssh_dir_exists": ssh_dir.is_dir(),
+        "ssh_files": files,
+        "resolved_config": safe_lines,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -117,6 +152,7 @@ ACTIONS = {
     "health": health,
     "probe_environment": probe_environment,
     "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
+    "probe_ssh_config": probe_ssh_config,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
