@@ -1,7 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_command_bus_state",
-  "args": {
-    "nonce": "after-scheduler-sync"
-  }
+  "action": "wait_for_mcp_command_bus",
+  "args": {}
 }
