@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_docker_root_mcp_deploy",
+  "action": "probe_auto_edit_mcp_bridge",
   "args": {},
-  "nonce": "20261004-auto-edit-deploy-probe-1"
+  "nonce": "20261004-auto-edit-postdeploy-probe-1"
 }
