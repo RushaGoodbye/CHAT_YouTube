@@ -65,15 +65,17 @@ def test_automatic_cyrillic_to_latin_title_change_is_blocked():
     )
 
 
-def test_safe_metadata_mode_allows_description_only():
+def test_safe_metadata_mode_allows_description_and_tags_only():
     from rg_youtube_control.ui import _validate_safe_update_fields
 
     _validate_safe_update_fields({"description"})
+    _validate_safe_update_fields({"tags"})
+    _validate_safe_update_fields({"description", "tags"})
 
     for fields in (
         {"title"},
-        {"tags"},
         {"description", "title"},
+        {"tags", "title"},
         {"privacy_status"},
     ):
         try:
