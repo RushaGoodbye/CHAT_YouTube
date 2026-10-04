@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "install_live_mcp_autodeploy_hook",
+  "action": "probe_local_mcp_deploy",
   "args": {}
 }
