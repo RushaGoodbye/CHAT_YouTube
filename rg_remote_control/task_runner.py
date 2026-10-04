@@ -1969,6 +1969,95 @@ def auto_edit_mcp_call() -> dict:
     }
 
 
+
+def ensure_github_runner_persistence() -> dict:
+    runner_dir = Path(r"C:\RG_GITHUB_RUNNER")
+    run_cmd = runner_dir / "run.cmd"
+    svc_cmd = runner_dir / "svc.cmd"
+
+    if not run_cmd.is_file():
+        raise RuntimeError(f"GitHub runner run.cmd not found: {run_cmd}")
+
+    service = {
+        "available": svc_cmd.is_file(),
+        "installed": False,
+        "install_attempted": False,
+        "install_exit_code": None,
+        "install_stdout": "",
+        "install_stderr": "",
+    }
+
+    if svc_cmd.is_file():
+        status = run(
+            [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"],
+            cwd=runner_dir,
+            timeout=30,
+        )
+        status_text = (status.get("stdout") or "") + "\n" + (status.get("stderr") or "")
+        service["status_before"] = status_text[-4000:]
+        service["installed"] = status["exit_code"] == 0
+
+        if not service["installed"]:
+            install = run(
+                [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "install"],
+                cwd=runner_dir,
+                timeout=60,
+            )
+            service["install_attempted"] = True
+            service["install_exit_code"] = install["exit_code"]
+            service["install_stdout"] = install["stdout"][-4000:]
+            service["install_stderr"] = install["stderr"][-4000:]
+
+            status = run(
+                [r"C:\WINDOWS\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"],
+                cwd=runner_dir,
+                timeout=30,
+            )
+            status_text = (status.get("stdout") or "") + "\n" + (status.get("stderr") or "")
+            service["status_after"] = status_text[-4000:]
+            service["installed"] = status["exit_code"] == 0
+
+    startup_file = None
+    fallback_enabled = False
+
+    if not service["installed"]:
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            raise RuntimeError("APPDATA is unavailable; cannot install startup fallback")
+
+        startup_dir = (
+            Path(appdata)
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
+        )
+        startup_dir.mkdir(parents=True, exist_ok=True)
+        startup_file = startup_dir / "RG_GITHUB_RUNNER.vbs"
+        vbs = (
+            'Set WshShell = CreateObject("WScript.Shell")\r\n'
+            'WshShell.Run "cmd.exe /c ""cd /d C:\\RG_GITHUB_RUNNER && call run.cmd""", 0, False\r\n'
+        )
+        startup_file.write_text(vbs, encoding="utf-8", newline="")
+        fallback_enabled = startup_file.is_file()
+
+    return {
+        "runner_dir": str(runner_dir),
+        "service": service,
+        "startup_fallback": {
+            "enabled": fallback_enabled,
+            "path": str(startup_file) if startup_file else None,
+        },
+        "persistent": bool(service["installed"] or fallback_enabled),
+        "note": (
+            "Service is installed and will start with Windows."
+            if service["installed"]
+            else "Hidden per-user startup fallback is installed and will start at next sign-in."
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -2002,6 +2091,7 @@ def remote_mcp_status() -> dict:
 
 ACTIONS = {
     "health": health,
+    "ensure_github_runner_persistence": ensure_github_runner_persistence,
     "probe_environment": probe_environment,
     "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
     "probe_ssh_config": probe_ssh_config,
