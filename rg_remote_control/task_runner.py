@@ -1693,7 +1693,7 @@ def youtube_mcp_call() -> dict:
     import asyncio
     import importlib.util
 
-    task_path = ROOT / "rg_remote_control" / "task.json"
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "rg_remote_control" / "youtube_task.json")
     task = json.loads(task_path.read_text(encoding="utf-8"))
     args = task.get("args") or {}
     tool = str(args.get("tool") or "").strip()
