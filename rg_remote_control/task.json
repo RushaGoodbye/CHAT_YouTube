@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_live_mcp_hook",
+  "action": "probe_nas_autodeploy_runtime",
   "args": {}
 }
