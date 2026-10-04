@@ -1111,6 +1111,77 @@ def probe_nas_autodeploy_runtime() -> dict:
     }
 
 
+def stage_mcp_to_docker_root() -> dict:
+    source = ROOT / "rg_remote_mcp"
+    destination = Path(r"\\AlexLosServer\docker\RG_NAS_MCP\SOURCE")
+    request = destination.parent / "DEPLOY_REQUEST"
+    if not source.is_dir():
+        raise RuntimeError(f"Source not found: {source}")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns(
+            ".env", "secrets", "__pycache__", ".pytest_cache"
+        ),
+    )
+    request.write_text(
+        "RG NAS MCP deploy request from AlexPC runner\n",
+        encoding="utf-8",
+    )
+    return {
+        "destination": str(destination),
+        "files_staged": sum(1 for p in destination.rglob("*") if p.is_file()),
+        "request": str(request),
+        "request_exists": request.exists(),
+    }
+
+
+def migrate_live_mcp_hook_to_docker_root() -> dict:
+    from datetime import datetime, timezone
+
+    live = Path(r"\\AlexLosServer\docker\RG_NAS_AUTO_DEPLOY.sh")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    if not live.is_file():
+        raise RuntimeError(f"Live auto-deploy missing: {live}")
+
+    text = live.read_text(encoding="utf-8", errors="replace")
+    old_dir = 'MCP_LOCAL_DIR="/volume1/RG_AUTO_EDIT/REMOTE_MCP/SOURCE"'
+    old_req = 'MCP_LOCAL_REQUEST="/volume1/RG_AUTO_EDIT/REMOTE_MCP/DEPLOY_REQUEST"'
+    new_dir = 'MCP_LOCAL_DIR="/volume1/docker/RG_NAS_MCP/SOURCE"'
+    new_req = 'MCP_LOCAL_REQUEST="/volume1/docker/RG_NAS_MCP/DEPLOY_REQUEST"'
+
+    if new_dir in text and new_req in text:
+        return {"updated": False, "reason": "already_migrated"}
+    if old_dir not in text or old_req not in text:
+        raise RuntimeError("Expected MCP hook paths not found")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    state.mkdir(parents=True, exist_ok=True)
+    backup = state / f"RG_NAS_AUTO_DEPLOY.before_mcp_docker_root_{stamp}.sh"
+    shutil.copy2(live, backup)
+
+    updated = text.replace(old_dir, new_dir).replace(old_req, new_req)
+    temp = live.with_name(live.name + ".mcp-docker-root.tmp")
+    temp.write_text(updated, encoding="utf-8", newline="\n")
+    os.replace(temp, live)
+
+    verify = live.read_text(encoding="utf-8", errors="replace")
+    if new_dir not in verify or new_req not in verify:
+        shutil.copy2(backup, live)
+        raise RuntimeError("MCP hook migration failed; backup restored")
+
+    return {
+        "updated": True,
+        "backup": str(backup),
+        "source_root": "/volume1/docker/RG_NAS_MCP/SOURCE",
+        "request_path": "/volume1/docker/RG_NAS_MCP/DEPLOY_REQUEST",
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1158,6 +1229,8 @@ ACTIONS = {
     "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
     "probe_live_mcp_hook": probe_live_mcp_hook,
     "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
+    "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
+    "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
