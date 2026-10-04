@@ -3,10 +3,16 @@
   "contour": "auto_edit",
   "action": "auto_edit_mcp_call",
   "args": {
-    "tool": "auto_edit_fs_list",
+    "tool": "auto_edit_command_run",
     "tool_args": {
-      "relative": ""
+      "argv": [
+        "python3",
+        "-c",
+        "import os,json\nroot='.'\nout={'top':{},'matches':[]}\nfor d in ['CONTROL','RUNS','DIAGNOSTICS','LOGS']:\n    try:\n        out['top'][d]=sorted(os.listdir(d))[:200]\n    except Exception as e:\n        out['top'][d]={'error':repr(e)}\nfor base in ['CONTROL','RUNS','DIAGNOSTICS','LOGS']:\n    if not os.path.isdir(base): continue\n    for dp,ds,fs in os.walk(base):\n        rel=os.path.relpath(dp,'.')\n        depth=rel.count(os.sep)\n        if depth>5:\n            ds[:]=[]\n            continue\n        for n in fs:\n            p=os.path.join(dp,n)\n            low=p.lower()\n            if ('892' in low or 'queue' in low or 'run_state' in low or 'postrun' in low or 'premiere_validation' in low or 'regression' in low or 'timeline_audit' in low or 'censor' in low):\n                try:\n                    st=os.stat(p)\n                    out['matches'].append({'path':p.replace('\\\\','/'),'size':st.st_size,'mtime':st.st_mtime})\n                except Exception as e:\n                    out['matches'].append({'path':p.replace('\\\\','/'),'error':repr(e)})\nprint(json.dumps(out,ensure_ascii=False))"
+      ],
+      "cwd_relative": "",
+      "timeout_seconds": 120
     }
   },
-  "nonce": "20261005-auto-edit-root-e2e-3"
+  "nonce": "20261005-auto-edit-check-status-1"
 }
