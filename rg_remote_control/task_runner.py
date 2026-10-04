@@ -1690,10 +1690,14 @@ def telegram_mcp_call() -> dict:
 
 
 def youtube_mcp_call() -> dict:
-    import asyncio
-    import importlib.util
+    import time
+    import uuid
 
-    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "rg_remote_control" / "youtube_task.json")
+    task_path = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else ROOT / "rg_remote_control" / "youtube_task.json"
+    )
     task = json.loads(task_path.read_text(encoding="utf-8"))
     args = task.get("args") or {}
     tool = str(args.get("tool") or "").strip()
@@ -1704,91 +1708,61 @@ def youtube_mcp_call() -> dict:
     if not isinstance(tool_args, dict):
         raise RuntimeError("tool_args must be an object")
 
-    if importlib.util.find_spec("mcp") is None:
-        install = run(
-            [sys.executable, "-m", "pip", "install", "--user", "mcp==2.3.0"],
-            timeout=300,
-        )
-        if install["exit_code"] != 0:
-            raise RuntimeError(
-                "Failed to install MCP client: " + install["stderr"]
-            )
+    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP\YOUTUBE_CALLS")
+    requests = root / "requests"
+    results = root / "results"
+    errors = root / "errors"
+    requests.mkdir(parents=True, exist_ok=True)
+    results.mkdir(parents=True, exist_ok=True)
+    errors.mkdir(parents=True, exist_ok=True)
 
-    from mcp import Client
+    request_id = uuid.uuid4().hex
+    request_file = requests / f"{request_id}.json"
+    result_file = results / f"{request_id}.json"
+    error_file = errors / f"{request_id}.log"
 
-    async def _call():
-        async with Client("http://192.168.50.32:8765/mcp") as client:
-            result = await client.call_tool(tool, tool_args)
-            content = []
-            for item in result.content or []:
-                entry = {"type": getattr(item, "type", None)}
-                text_value = getattr(item, "text", None)
-                if text_value is not None:
-                    entry["text"] = text_value
-                content.append(entry)
-            return {
-                "tool": tool,
-                "is_error": bool(result.is_error),
-                "structured_content": result.structured_content,
-                "content": content,
-            }
-
-    return asyncio.run(_call())
-
-
-def pin_live_mcp_lan_bind() -> dict:
-    from datetime import datetime, timezone
-
-    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP")
-    compose = root / "SOURCE" / "docker-compose.yml"
-    request = root / "DEPLOY_REQUEST"
-    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
-
-    if not compose.is_file():
-        raise RuntimeError(f"Live MCP compose missing: {compose}")
-
-    text = compose.read_text(encoding="utf-8", errors="replace")
-    lines = text.splitlines()
-    changed = False
-    out = []
-    for line in lines:
-        if "8765:8765" in line and line.lstrip().startswith("- "):
-            indent = line[: len(line) - len(line.lstrip())]
-            out.append(indent + '- "192.168.50.32:8765:8765"')
-            changed = True
-        else:
-            out.append(line)
-
-    if not changed and "192.168.50.32:8765:8765" not in text:
-        raise RuntimeError("Hub port mapping not found in live compose")
-
-    state.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    backup = state / f"RG_NAS_MCP.compose.before_lan_{stamp}.yml"
-    shutil.copy2(compose, backup)
-
-    updated = "\n".join(out) + "\n"
-    temp = compose.with_name(compose.name + ".lan.tmp")
-    temp.write_text(updated, encoding="utf-8", newline="\n")
-    os.replace(temp, compose)
-
-    verify = compose.read_text(encoding="utf-8", errors="replace")
-    if '"192.168.50.32:8765:8765"' not in verify:
-        shutil.copy2(backup, compose)
-        raise RuntimeError("LAN bind verification failed; backup restored")
-
-    request.write_text(
-        "Pin RG NAS MCP to NAS LAN address\n",
+    payload = {
+        "request_id": request_id,
+        "tool": tool,
+        "tool_args": tool_args,
+    }
+    temp = request_file.with_suffix(".tmp")
+    temp.write_text(
+        json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
     )
+    os.replace(temp, request_file)
 
-    return {
-        "updated": True,
-        "bind": "192.168.50.32:8765",
-        "compose": str(compose),
-        "backup": str(backup),
-        "deploy_request": str(request),
-    }
+    started = time.time()
+    timeout_seconds = 90
+    while time.time() - started < timeout_seconds:
+        if result_file.is_file():
+            result = json.loads(
+                result_file.read_text(encoding="utf-8", errors="replace")
+            )
+            try:
+                result_file.unlink()
+            except Exception:
+                pass
+            return {
+                "transport": "RG NAS MCP YouTube bridge",
+                "elapsed_seconds": int(time.time() - started),
+                **result,
+            }
+        if error_file.is_file() and not request_file.exists():
+            error = error_file.read_text(
+                encoding="utf-8", errors="replace"
+            )[-12000:]
+            try:
+                error_file.unlink()
+            except Exception:
+                pass
+            raise RuntimeError("RG NAS MCP YouTube call failed: " + error)
+        time.sleep(2)
+
+    raise RuntimeError(
+        f"RG NAS MCP YouTube call timed out after {timeout_seconds}s"
+    )
 
 
 def health() -> dict:
@@ -1851,6 +1825,7 @@ ACTIONS = {
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "pin_live_mcp_lan_bind": pin_live_mcp_lan_bind,
+    "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
