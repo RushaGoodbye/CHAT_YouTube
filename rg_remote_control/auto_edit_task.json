@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "stage_mcp_to_docker_root",
+  "action": "probe_docker_root_mcp_deploy",
   "args": {},
-  "nonce": "20261005-production100-stage-mcp-direct-api-1"
+  "nonce": "20261005-production100-probe-mcp-direct-api-1"
 }
