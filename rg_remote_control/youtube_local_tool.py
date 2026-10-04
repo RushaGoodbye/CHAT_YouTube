@@ -502,11 +502,31 @@ def runtime_status() -> dict:
         process_text = (proc.stdout or "").strip()
         running = bool(process_text and process_text not in {"null", "[]"})
 
+    source_candidates = []
+    candidate_paths = [
+        Path.home() / "CHAT_YouTube-main",
+        Path.home() / "CHAT_YouTube",
+        Path(r"C:\RG_YOUTUBE_CONTROL"),
+        Path(r"C:\Program Files\RG YouTube Control"),
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "RG YouTube Control",
+    ]
+    for candidate in candidate_paths:
+        if not str(candidate):
+            continue
+        source_candidates.append({
+            "path": str(candidate),
+            "exists": candidate.exists(),
+            "run_app": (candidate / "run_app.py").is_file(),
+            "pyproject": (candidate / "pyproject.toml").is_file(),
+            "exe": (candidate / "RG YouTube Control.exe").is_file(),
+        })
+
     return {
         "youtube_api_calls": 0,
         "installs": installs,
         "running": running,
         "processes": process_text,
+        "source_candidates": source_candidates,
     }
 
 def main() -> int:
