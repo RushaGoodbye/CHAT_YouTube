@@ -15,6 +15,7 @@ on:
     paths-ignore:
       - "rg_remote_mcp/**"
       - "rg_remote_control/**"
+      - ".github/workflows/rg-*.yml"
       - ".github/workflows/rg-alexpc-control.yml"
       - ".github/workflows/rg-auto-edit-control.yml"
       - ".github/workflows/rg-remote-control.yml"
@@ -27,6 +28,7 @@ on:
     paths-ignore:
       - "rg_remote_mcp/**"
       - "rg_remote_control/**"
+      - ".github/workflows/rg-*.yml"
       - ".github/workflows/rg-alexpc-control.yml"
       - ".github/workflows/rg-auto-edit-control.yml"
       - ".github/workflows/rg-remote-control.yml"
