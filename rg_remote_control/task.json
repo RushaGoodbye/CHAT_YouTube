@@ -1,5 +1,7 @@
 {
   "target": "alexpc",
-  "action": "sync_nas_scheduler_tick",
-  "args": {}
+  "action": "probe_command_bus_state",
+  "args": {
+    "nonce": "after-scheduler-sync"
+  }
 }
