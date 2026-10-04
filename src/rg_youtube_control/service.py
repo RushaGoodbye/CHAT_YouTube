@@ -34,7 +34,7 @@ def sync_videos(
     counted = getattr(client, "recent_videos_with_request_count", None)
     if callable(counted):
         items, requests = counted(limit=limit)
-        record_quota_units(conn, int(requests) * READ_REQUEST_COST)
+        record_quota_units(conn, int(requests) * READ_REQUEST_COST, purpose="service")
     else:
         items = client.recent_videos(limit=limit)
     rows: list[dict[str, Any]] = []
@@ -229,10 +229,41 @@ def _quota_key(name: str) -> str:
 def today_quota_units(conn: sqlite3.Connection) -> int:
     return int(get_setting(conn, _quota_key("units"), "0") or 0)
 
-def record_quota_units(conn: sqlite3.Connection, units: int) -> int:
-    total = today_quota_units(conn) + max(0, int(units))
+def record_quota_units(
+    conn: sqlite3.Connection,
+    units: int,
+    *,
+    purpose: str = "service",
+) -> int:
+    amount = max(0, int(units))
+    total = today_quota_units(conn) + amount
     set_setting(conn, _quota_key("units"), str(total))
+    bucket = purpose if purpose in {"video", "comments", "service"} else "service"
+    purpose_key = _quota_key(f"purpose_{bucket}")
+    current = int(get_setting(conn, purpose_key, "0") or 0)
+    set_setting(conn, purpose_key, str(current + amount))
     return total
+
+
+def today_quota_breakdown(conn: sqlite3.Connection) -> dict[str, int]:
+    used = today_quota_units(conn)
+    video = int(get_setting(conn, _quota_key("purpose_video"), "0") or 0)
+    comments = int(
+        get_setting(conn, _quota_key("purpose_comments"), "0") or 0
+    )
+    service = int(
+        get_setting(conn, _quota_key("purpose_service"), "0") or 0
+    )
+    tracked = video + comments + service
+    legacy = max(0, used - tracked)
+    return {
+        "video": video,
+        "comments": comments,
+        "service": service,
+        "legacy": legacy,
+        "tracked": tracked,
+        "used": used,
+    }
 
 def quota_exhausted(conn: sqlite3.Connection) -> bool:
     return get_setting(conn, _quota_key("exhausted"), "0") == "1"
@@ -342,7 +373,7 @@ def _record_reply(
 ) -> None:
     total = today_reply_count(conn, profile) + 1
     set_setting(conn, _counter_key("replies", profile), str(total))
-    record_quota_units(conn, COMMENT_REPLY_COST)
+    record_quota_units(conn, COMMENT_REPLY_COST, purpose="comments")
     if auto:
         auto_total = today_auto_reply_count(conn, profile) + 1
         set_setting(conn, _counter_key("auto_replies", profile), str(auto_total))
@@ -467,7 +498,7 @@ def scan_channel_comments(
             stop_before=stop_before,
             max_pages=5,
         )
-        record_quota_units(conn, requests * READ_REQUEST_COST)
+        record_quota_units(conn, requests * READ_REQUEST_COST, purpose="comments")
         stats["api_reads"] += requests
     except Exception as exc:
         if _is_quota_error(exc):
@@ -540,7 +571,7 @@ def scan_channel_comments(
 
         try:
             if _thread_needs_remote_reply_lookup(thread):
-                record_quota_units(conn, READ_REQUEST_COST)
+                record_quota_units(conn, READ_REQUEST_COST, purpose="comments")
                 stats["api_reads"] += 1
             has_reply = _own_reply_exists(client, thread, channel_id)
         except Exception as exc:
