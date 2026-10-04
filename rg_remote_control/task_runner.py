@@ -627,6 +627,62 @@ def sync_nas_scheduler_tick() -> dict:
     }
 
 
+def wait_for_mcp_command_bus() -> dict:
+    import time
+
+    target_id = "mcp-deploy-20261004-01"
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    last_file = state / "nas_command_bus_last_id"
+    error_file = state / "nas_command_bus_error"
+    audit_file = state / "nas-command-bus.log"
+
+    started = time.time()
+    observations = []
+    while time.time() - started < 240:
+        last_id = (
+            last_file.read_text(encoding="utf-8", errors="replace").strip()
+            if last_file.is_file()
+            else ""
+        )
+        error = (
+            error_file.read_text(encoding="utf-8", errors="replace").strip()
+            if error_file.is_file()
+            else ""
+        )
+        if not observations or observations[-1].get("last_id") != last_id:
+            observations.append({
+                "elapsed": int(time.time() - started),
+                "last_id": last_id or None,
+                "error": error or None,
+            })
+        if last_id == target_id:
+            tail = []
+            if audit_file.is_file():
+                tail = audit_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()[-40:]
+            return {
+                "processed": True,
+                "target_id": target_id,
+                "elapsed_seconds": int(time.time() - started),
+                "observations": observations,
+                "audit_tail": tail,
+            }
+        time.sleep(10)
+
+    return {
+        "processed": False,
+        "target_id": target_id,
+        "elapsed_seconds": int(time.time() - started),
+        "observations": observations,
+        "current_error": (
+            error_file.read_text(encoding="utf-8", errors="replace").strip()
+            if error_file.is_file()
+            else None
+        ),
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -677,6 +733,7 @@ ACTIONS = {
     "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
     "probe_command_bus_state": probe_command_bus_state,
     "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
+    "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
