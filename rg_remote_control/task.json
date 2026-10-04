@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "probe_contour_mounts",
+  "action": "stage_remote_mcp_to_nas",
   "args": {}
 }
