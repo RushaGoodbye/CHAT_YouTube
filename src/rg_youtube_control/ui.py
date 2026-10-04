@@ -5009,7 +5009,18 @@ class MainWindow(QMainWindow):
             return []
         if not isinstance(value, list):
             return []
-        return [str(item) for item in value if str(item)]
+        requested = [str(item) for item in value if str(item)]
+        if not requested:
+            return []
+        ready_rows = self.conn.execute(
+            """SELECT d.video_id
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE v.profile=? AND d.status='ready'""",
+            (self.current_profile,),
+        ).fetchall()
+        ready = {str(row["video_id"]) for row in ready_rows}
+        return [video_id for video_id in requested if video_id in ready]
 
     def prepare_safe_queue(self) -> None:
         rows = self.conn.execute(
@@ -5058,7 +5069,23 @@ class MainWindow(QMainWindow):
             ))
 
         ranked.sort(reverse=True)
-        queue = [item[-1] for item in ranked[:DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT]]
+
+        ready_rows = self.conn.execute(
+            """SELECT d.video_id,v.views
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE v.profile=? AND v.privacy_status='public'
+                 AND v.scheduled_publish_at IS NULL
+                 AND d.status='ready'
+               ORDER BY v.views DESC""",
+            (self.current_profile,),
+        ).fetchall()
+        queue = [str(row["video_id"]) for row in ready_rows]
+        for item in ranked:
+            video_id = item[-1]
+            if video_id not in queue:
+                queue.append(video_id)
+
         set_setting(
             self.conn,
             f"prepared_safe_queue_{self.current_profile}",
