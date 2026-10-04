@@ -425,3 +425,69 @@ def load_google_trends_csv(path: str | Path) -> list[dict[str, Any]]:
     return parse_google_trends_csv_text(
         Path(path).read_text(encoding="utf-8-sig", errors="replace")
     )
+
+
+def summarize_google_trends(
+    rows: list[dict[str, Any]],
+    *,
+    max_terms: int = 12,
+) -> list[dict[str, Any]]:
+    """Summarize imported Google Trends rows for local SEO prompting."""
+    if not rows:
+        return []
+
+    keys: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in keys:
+                keys.append(key)
+
+    series: list[dict[str, Any]] = []
+    for key in keys:
+        values: list[float] = []
+        latest: float | None = None
+        for row in rows:
+            raw = str(row.get(key) or "").strip().replace(",", ".")
+            if not raw:
+                continue
+            raw = re.sub(r"[^0-9.\-]", "", raw)
+            try:
+                value = float(raw)
+            except ValueError:
+                continue
+            values.append(value)
+            latest = value
+        if not values:
+            continue
+        series.append(
+            {
+                "term": key,
+                "latest": latest,
+                "average": round(sum(values) / len(values), 2),
+                "peak": max(values),
+                "samples": len(values),
+            }
+        )
+
+    series.sort(
+        key=lambda item: (
+            float(item.get("latest") or 0),
+            float(item.get("average") or 0),
+            float(item.get("peak") or 0),
+        ),
+        reverse=True,
+    )
+    return series[:max_terms]
+
+
+def load_google_trends_summary(
+    path: str | Path,
+    *,
+    max_terms: int = 12,
+) -> list[dict[str, Any]]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = payload.get("rows", []) if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return []
+    clean_rows = [row for row in rows if isinstance(row, dict)]
+    return summarize_google_trends(clean_rows, max_terms=max_terms)
