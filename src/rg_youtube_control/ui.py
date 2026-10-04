@@ -97,6 +97,16 @@ from .metadata_audit import (
     title_script_profile,
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
+from .free_tools import (
+    DEFAULT_OLLAMA_MODEL,
+    fetch_public_metadata,
+    fetch_transcript,
+    generate_comment_reply_local,
+    generate_seo_package_local,
+    load_google_trends_csv,
+    probe_free_tools,
+    transcript_text,
+)
 from .recovery import (
     create_recovery_backup,
     prune_recovery_backups,
@@ -480,6 +490,21 @@ class MetricCard(QFrame):
         self.note_label.setText(note)
 
 
+class LocalToolWorker(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, func, parent=None) -> None:
+        super().__init__(parent)
+        self.func = func
+
+    def run(self) -> None:
+        try:
+            self.succeeded.emit(self.func())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -531,6 +556,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
         QTimer.singleShot(8000, self.check_quota_plan_ready)
         QTimer.singleShot(10000, self.run_background_maintenance)
+        QTimer.singleShot(1500, self.refresh_free_tools_status)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -1167,6 +1193,13 @@ class MainWindow(QMainWindow):
         )
         package_btn = QPushButton("Пакет контенту")
         package_btn.clicked.connect(self.edit_content_package)
+        local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
+        local_seo_btn.setProperty("role", "success")
+        local_seo_btn.clicked.connect(self.local_seo_selected)
+        trends_btn = QPushButton("Google Trends CSV")
+        trends_btn.clicked.connect(self.import_google_trends_file)
+        probe_tools_btn = QPushButton("0-quota статус")
+        probe_tools_btn.clicked.connect(self.refresh_free_tools_status)
         transcript_btn = QPushButton("Транскрипт → NAS")
         transcript_btn.clicked.connect(self.export_selected_transcript_to_nas)
         batch_transcript_btn = QPushButton("Транскрипти запланованих → NAS")
@@ -1236,6 +1269,9 @@ class MainWindow(QMainWindow):
 
         content_row.addWidget(QLabel("Контент:"))
         content_row.addWidget(package_btn)
+        content_row.addWidget(local_seo_btn)
+        content_row.addWidget(trends_btn)
+        content_row.addWidget(probe_tools_btn)
         content_row.addWidget(transcript_btn)
         content_row.addWidget(batch_transcript_btn)
         content_row.addWidget(nas_test_btn)
@@ -1255,6 +1291,10 @@ class MainWindow(QMainWindow):
         self.archive_campaign_summary.setProperty("muted", True)
         self.archive_campaign_summary.setWordWrap(True)
         self._refresh_archive_campaign_summary()
+
+        self.free_tools_status_label = QLabel("0-quota: перевірка локальних інструментів...")
+        self.free_tools_status_label.setProperty("muted", True)
+        self.free_tools_status_label.setWordWrap(True)
 
         self.optimization_table = QTableWidget(0, 12)
         self.optimization_table.setHorizontalHeaderLabels(
@@ -1301,6 +1341,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(content_row)
         layout.addLayout(title_row)
         layout.addWidget(self.archive_campaign_summary)
+        layout.addWidget(self.free_tools_status_label)
         layout.addWidget(self.optimization_table)
         self.tabs.addTab(page, "Оптимізація")
 
@@ -1315,6 +1356,9 @@ class MainWindow(QMainWindow):
         test_auto_btn.clicked.connect(self.test_one_auto_reply)
         reply_btn = QPushButton("Відповісти на вибраний")
         reply_btn.clicked.connect(self.reply_selected)
+        local_reply_btn = QPushButton("Локальна чернетка · 0 квоти")
+        local_reply_btn.setProperty("role", "success")
+        local_reply_btn.clicked.connect(self.local_comment_reply_selected)
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
         queue_btn = QPushButton("Повернути в чергу")
@@ -1341,6 +1385,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(scan_btn)
         controls.addWidget(test_auto_btn)
         controls.addWidget(reply_btn)
+        controls.addWidget(local_reply_btn)
         controls.addWidget(ignore_btn)
         controls.addWidget(queue_btn)
         controls.addWidget(self.comment_status_filter)
@@ -7701,6 +7746,273 @@ class MainWindow(QMainWindow):
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 self.video_table.setItem(index, column, item)
         self.update_dashboard()
+
+    def _run_local_tool(self, label: str, func, on_success) -> None:
+        worker = getattr(self, "_local_tool_worker", None)
+        if worker is not None and worker.isRunning():
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Локальний інструмент уже виконує інше завдання.",
+            )
+            return
+
+        self.statusBar().showMessage(f"{label}...")
+        worker = LocalToolWorker(func, self)
+        self._local_tool_worker = worker
+
+        def success(result) -> None:
+            try:
+                on_success(result)
+            except Exception as exc:
+                self._error("Помилка локального інструмента", exc)
+
+        def failed(message: str) -> None:
+            QMessageBox.warning(self, APP_NAME, message)
+            self.statusBar().showMessage("Локальний інструмент: помилка")
+
+        def cleanup() -> None:
+            self._local_tool_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(cleanup)
+        worker.start()
+
+    def refresh_free_tools_status(self) -> None:
+        try:
+            probes = probe_free_tools()
+            yt = probes.get("yt_dlp", {})
+            tr = probes.get("transcript", {})
+            ol = probes.get("ollama", {})
+            model = probes.get("ollama_model", {})
+            text = (
+                "0-quota · yt-dlp: "
+                + ("OK" if yt.get("available") else "—")
+                + " · transcript: "
+                + ("OK" if tr.get("available") else "—")
+                + " · Ollama: "
+                + ("OK" if ol.get("available") else "—")
+                + " · "
+                + DEFAULT_OLLAMA_MODEL
+                + ": "
+                + ("OK" if model.get("available") else "не готова")
+            )
+            if hasattr(self, "free_tools_status_label"):
+                self.free_tools_status_label.setText(text)
+            self.statusBar().showMessage(text)
+        except Exception as exc:
+            if hasattr(self, "free_tools_status_label"):
+                self.free_tools_status_label.setText(f"0-quota: {exc}")
+
+    def local_seo_selected(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Для локального SEO виберіть рівно одне відео.",
+            )
+            return
+        video_id = video_ids[0]
+
+        def task():
+            context = fetch_public_metadata(video_id)
+            try:
+                transcript_rows = fetch_transcript(video_id)
+                transcript = transcript_text(transcript_rows)
+            except Exception:
+                transcript_rows = []
+                transcript = ""
+            package = generate_seo_package_local(
+                current_title=str(context.get("title") or ""),
+                current_description=str(context.get("description") or ""),
+                current_tags=list(context.get("tags") or []),
+                transcript=transcript,
+                public_context=context,
+                is_short=int(context.get("duration") or 0) <= 70,
+            )
+            return {
+                "video_id": video_id,
+                "context": context,
+                "transcript_rows": transcript_rows,
+                "package": package,
+            }
+
+        self._run_local_tool(
+            "Локальна SEO-оптимізація (0 квоти)",
+            task,
+            self._save_local_seo_result,
+        )
+
+    def _save_local_seo_result(self, result: dict) -> None:
+        video_id = str(result["video_id"])
+        package = dict(result["package"])
+        context = dict(result["context"])
+
+        title = str(package.get("title") or "").strip()
+        description = str(package.get("description") or "").strip()
+        description = safe_description_fix(description, title).after
+        tags = [
+            str(item).strip()
+            for item in package.get("tags", [])
+            if str(item).strip()
+        ]
+        chapters = str(package.get("chapters") or "").strip()
+        if chapters:
+            chapters_ok, _ = validate_chapters(chapters)
+            if not chapters_ok:
+                chapters = ""
+        variants = [
+            str(item).strip()
+            for item in package.get("title_variants", [])
+            if str(item).strip()
+        ]
+        if title not in variants:
+            variants.insert(0, title)
+        variants = variants[:3]
+
+        check = validate_content_package(
+            title,
+            description,
+            chapters,
+            tags,
+            variants,
+        )
+        if not check.ready:
+            raise RuntimeError("\n".join(check.errors))
+
+        before_title = str(context.get("title") or "")
+        before_description = str(context.get("description") or "")
+        before_tags = list(context.get("tags") or [])
+        if not self._preview_deep_content_package(
+            video_id=video_id,
+            current_title=before_title,
+            current_description=before_description,
+            current_tags=before_tags,
+            new_title=title,
+            new_description=compose_description(description, chapters),
+            new_tags=tags,
+        ):
+            self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
+            return
+
+        save_optimization_draft(
+            self.conn,
+            video_id,
+            title,
+            description,
+            chapters,
+            tags,
+            "draft",
+            variants,
+        )
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="SEO-чернетка · 0 квоти",
+            details=f"{video_id}: {package.get('provider', DEFAULT_OLLAMA_MODEL)}",
+        )
+        self.reload_optimization_queue()
+        self.reload_action_log()
+        self.statusBar().showMessage(
+            "Локальну SEO-чернетку збережено · YouTube API квота: 0"
+        )
+        QMessageBox.information(
+            self,
+            APP_NAME,
+            "SEO-чернетку збережено локально.\n"
+            "В YouTube нічого не відправлено. Квота YouTube API: 0.",
+        )
+
+    def local_comment_reply_selected(self) -> None:
+        row = self.comment_table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self, APP_NAME, "Виберіть опублікований коментар."
+            )
+            return
+        key_item = self.comment_table.item(row, 0)
+        comment_item = self.comment_table.item(row, 3)
+        video_item = self.comment_table.item(row, 1)
+        comment_id = key_item.data(Qt.ItemDataRole.UserRole)
+        comment_text = comment_item.text() if comment_item else ""
+        video_title = video_item.text() if video_item else ""
+        if not comment_id or not comment_text.strip():
+            return
+
+        def task():
+            return generate_comment_reply_local(
+                comment_text=comment_text,
+                video_title=video_title,
+            )
+
+        self._run_local_tool(
+            "Локальна чернетка відповіді (0 квоти)",
+            task,
+            lambda text: self._save_local_comment_reply(
+                str(comment_id), str(text)
+            ),
+        )
+
+    def _save_local_comment_reply(self, comment_id: str, reply: str) -> None:
+        text = (reply or "").strip()
+        if not text:
+            raise RuntimeError("Локальна модель повернула порожню відповідь.")
+        self.conn.execute(
+            "UPDATE comments SET reply_text=? WHERE comment_id=?",
+            (text, comment_id),
+        )
+        self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="Чернетка відповіді · 0 квоти",
+            details=f"{comment_id}: збережено локально, не відправлено",
+        )
+        self.reload_comments()
+        self.reload_action_log()
+        self.statusBar().showMessage(
+            "Чернетку відповіді збережено · не опубліковано · 0 квоти"
+        )
+
+    def import_google_trends_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Імпорт Google Trends CSV",
+            "",
+            "CSV (*.csv);;Усі файли (*.*)",
+        )
+        if not path:
+            return
+        try:
+            rows = load_google_trends_csv(path)
+            target = self.data_dir / "google_trends_latest.json"
+            target.write_text(
+                json.dumps(
+                    {
+                        "source_file": path,
+                        "imported_at": datetime.now(timezone.utc).isoformat(),
+                        "rows": rows,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            columns = list(rows[0].keys()) if rows else []
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"Google Trends імпортовано локально.\n"
+                f"Рядків: {len(rows)}. Полів: {len(columns)}.\n"
+                "YouTube API квота: 0.",
+            )
+            self.statusBar().showMessage("Google Trends CSV імпортовано · 0 квоти")
+        except Exception as exc:
+            self._error("Помилка імпорту Google Trends", exc)
 
     def reload_comments(self, _index: int = -1) -> None:
         profile = self.current_profile
