@@ -321,6 +321,44 @@ def probe_nas_telegram_locations() -> dict:
     return result
 
 
+def probe_telegram_production_layout() -> dict:
+    root = Path(r"\\AlexLosServer\docker\RG_DEPLOY")
+    monitor = Path(r"\\AlexLosServer\docker\RG_MONITOR")
+    work = Path(r"\\AlexLosServer\docker\RG_NAS_WORK")
+    out = {}
+    for name, path in (("RG_DEPLOY", root), ("RG_MONITOR", monitor), ("RG_NAS_WORK", work)):
+        items = []
+        if path.is_dir():
+            for p in sorted(path.rglob("*"), key=lambda x: str(x).casefold()):
+                try:
+                    rel = p.relative_to(path)
+                    if len(rel.parts) > 3:
+                        continue
+                    items.append({
+                        "path": str(rel),
+                        "type": "dir" if p.is_dir() else "file",
+                        "size": p.stat().st_size if p.is_file() else None,
+                    })
+                    if len(items) >= 250:
+                        break
+                except Exception:
+                    continue
+        out[name] = items
+
+    compose = root / "compose.yaml"
+    if compose.is_file() and compose.stat().st_size <= 200000:
+        text = compose.read_text(encoding="utf-8", errors="replace")
+        safe = []
+        for line in text.splitlines():
+            low = line.casefold()
+            if any(secret in low for secret in ("token", "password", "secret", "api_key", "apikey")):
+                safe.append(line.split(":", 1)[0] + ": <redacted>")
+            else:
+                safe.append(line)
+        out["compose"] = "\n".join(safe)
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -363,6 +401,7 @@ ACTIONS = {
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
+    "probe_telegram_production_layout": probe_telegram_production_layout,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
