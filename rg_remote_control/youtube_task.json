@@ -1,6 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "probe_docker_root_mcp_deploy",
-  "args": {"after_live_pin": true}
+  "action": "enable_youtube_mcp_bridge",
+  "args": {}
 }
