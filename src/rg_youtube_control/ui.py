@@ -104,6 +104,7 @@ from .free_tools import (
     generate_comment_reply_local,
     generate_seo_package_local,
     load_google_trends_csv,
+    load_google_trends_summary,
     probe_free_tools,
     transcript_text,
 )
@@ -1359,6 +1360,8 @@ class MainWindow(QMainWindow):
         local_reply_btn = QPushButton("Локальна чернетка · 0 квоти")
         local_reply_btn.setProperty("role", "success")
         local_reply_btn.clicked.connect(self.local_comment_reply_selected)
+        local_reply_batch_btn = QPushButton("Чернетки нових x20 · 0 квоти")
+        local_reply_batch_btn.clicked.connect(self.local_comment_reply_batch)
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
         queue_btn = QPushButton("Повернути в чергу")
@@ -1386,6 +1389,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(test_auto_btn)
         controls.addWidget(reply_btn)
         controls.addWidget(local_reply_btn)
+        controls.addWidget(local_reply_batch_btn)
         controls.addWidget(ignore_btn)
         controls.addWidget(queue_btn)
         controls.addWidget(self.comment_status_filter)
@@ -7818,6 +7822,15 @@ class MainWindow(QMainWindow):
 
         def task():
             context = fetch_public_metadata(video_id)
+            trends_path = self.data_dir / "google_trends_latest.json"
+            if trends_path.exists():
+                try:
+                    context["google_trends"] = load_google_trends_summary(
+                        trends_path,
+                        max_terms=12,
+                    )
+                except Exception:
+                    context["google_trends"] = []
             try:
                 transcript_rows = fetch_transcript(video_id)
                 transcript = transcript_text(transcript_rows)
@@ -7954,6 +7967,88 @@ class MainWindow(QMainWindow):
             lambda text: self._save_local_comment_reply(
                 str(comment_id), str(text)
             ),
+        )
+
+    def local_comment_reply_batch(self) -> None:
+        rows = self.conn.execute(
+            """SELECT c.comment_id,c.text,v.title AS video_title
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=?
+                 AND c.status='new'
+                 AND COALESCE(TRIM(c.reply_text),'')=''
+               ORDER BY c.published_at DESC
+               LIMIT 20""",
+            (self.current_profile,),
+        ).fetchall()
+        items = [
+            {
+                "comment_id": str(row["comment_id"]),
+                "comment_text": str(row["text"] or ""),
+                "video_title": str(row["video_title"] or ""),
+            }
+            for row in rows
+            if str(row["text"] or "").strip()
+        ]
+        if not items:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "У локальній базі немає нових коментарів без чернетки.",
+            )
+            return
+
+        def task():
+            result = []
+            for item in items:
+                reply = generate_comment_reply_local(
+                    comment_text=item["comment_text"],
+                    video_title=item["video_title"],
+                )
+                result.append(
+                    {
+                        "comment_id": item["comment_id"],
+                        "reply": reply,
+                    }
+                )
+            return result
+
+        self._run_local_tool(
+            f"Локальні чернетки для {len(items)} коментарів (0 квоти)",
+            task,
+            self._save_local_comment_reply_batch,
+        )
+
+    def _save_local_comment_reply_batch(self, items: list[dict]) -> None:
+        saved = 0
+        for item in items:
+            comment_id = str(item.get("comment_id") or "")
+            reply = str(item.get("reply") or "").strip()
+            if not comment_id or not reply:
+                continue
+            self.conn.execute(
+                "UPDATE comments SET reply_text=? WHERE comment_id=? AND status='new'",
+                (reply, comment_id),
+            )
+            saved += 1
+        self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="Пакет чернеток відповідей · 0 квоти",
+            details=f"збережено {saved}; нічого не відправлено в YouTube",
+        )
+        self.reload_comments()
+        self.reload_action_log()
+        self.statusBar().showMessage(
+            f"Локальні чернетки: {saved} · не опубліковано · 0 квоти"
+        )
+        QMessageBox.information(
+            self,
+            APP_NAME,
+            f"Створено локальних чернеток: {saved}.\n"
+            "У YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
 
     def _save_local_comment_reply(self, comment_id: str, reply: str) -> None:
