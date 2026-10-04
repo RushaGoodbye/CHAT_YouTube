@@ -49,13 +49,24 @@ def test_compose_has_three_isolated_workers():
 
 def test_workers_are_not_published_to_host():
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
-    worker_blocks = [
-        compose.split("youtube-worker:", 1)[1].split("telegram-worker:", 1)[0],
-        compose.split("telegram-worker:", 1)[1].split("auto-edit-worker:", 1)[0],
-        compose.split("auto-edit-worker:", 1)[1].split("networks:", 1)[0],
-    ]
-    for block in worker_blocks:
-        assert "ports:" not in block
+
+    # Only the hub may publish a host port. Workers use Docker-internal expose.
+    assert compose.count("\n    ports:\n") == 1
+    assert compose.count('127.0.0.1:8765:8765') == 1
+
+    youtube = compose.split("\n  youtube-worker:", 1)[1].split(
+        "\n  telegram-worker:", 1
+    )[0]
+    telegram = compose.split("\n  telegram-worker:", 1)[1].split(
+        "\n  auto-edit-worker:", 1
+    )[0]
+    auto_edit = compose.split("\n  auto-edit-worker:", 1)[1].split(
+        "\nnetworks:", 1
+    )[0]
+
+    for block in (youtube, telegram, auto_edit):
+        assert "\n    ports:\n" not in block
+        assert "\n    expose:\n" in block
 
 
 def test_no_cross_contour_copy_tool_exists():
