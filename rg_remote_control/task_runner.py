@@ -1580,6 +1580,46 @@ def enable_one_minute_mcp_tick() -> dict:
     }
 
 
+def probe_cloudflare_mcp_gateway_options() -> dict:
+    roots = [
+        Path(r"\\AlexLosServer\docker"),
+        Path(r"\\AlexLosServer\RG_AUTO_EDIT"),
+    ]
+    terms = ("cloudflared", "cloudflare", "tunnel")
+    matches = []
+    max_files = 3000
+    seen = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        queue = [(root, 0)]
+        while queue and seen < max_files:
+            current, depth = queue.pop(0)
+            try:
+                entries = list(current.iterdir())
+            except Exception:
+                continue
+            for path in entries:
+                seen += 1
+                try:
+                    low = path.name.casefold()
+                    if any(term in low for term in terms):
+                        matches.append({
+                            "path": str(path),
+                            "type": "dir" if path.is_dir() else "file",
+                            "size": path.stat().st_size if path.is_file() else None,
+                        })
+                    if path.is_dir() and depth < 3:
+                        if low not in {"backups","cache","logs",".git","runtime"}:
+                            queue.append((path, depth+1))
+                except Exception:
+                    continue
+    return {
+        "matches": matches[:200],
+        "scanned": seen,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1635,6 +1675,7 @@ ACTIONS = {
     "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
     "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
     "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
+    "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
     "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
