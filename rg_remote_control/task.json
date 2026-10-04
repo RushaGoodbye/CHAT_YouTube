@@ -1,5 +1,5 @@
 {
   "target": "alexpc",
-  "action": "stage_mcp_to_docker_root",
-  "args": {"autodetect": true}
+  "action": "wait_docker_root_mcp_deploy",
+  "args": {"attempt": 2}
 }
