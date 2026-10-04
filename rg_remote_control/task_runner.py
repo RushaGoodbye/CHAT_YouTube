@@ -138,6 +138,66 @@ def probe_nas_ssh_auth() -> dict:
     }
 
 
+def probe_nas_mcp_inventory() -> dict:
+    root = Path(r"\\AlexLosServer\RG_AUTO_EDIT")
+    if not root.is_dir():
+        return {"root_exists": False, "matches": []}
+
+    terms = ("telegram", "tg", "mcp", "bot")
+    matches = []
+    max_depth = 5
+
+    for path in root.rglob("*"):
+        try:
+            rel = path.relative_to(root)
+            if len(rel.parts) > max_depth:
+                continue
+            name = path.name.casefold()
+            if any(term in name for term in terms):
+                item = {
+                    "path": str(rel),
+                    "type": "dir" if path.is_dir() else "file",
+                }
+                if path.is_file():
+                    item["size"] = path.stat().st_size
+                matches.append(item)
+                if len(matches) >= 250:
+                    break
+        except Exception:
+            continue
+
+    compose_candidates = []
+    for path in root.rglob("*"):
+        try:
+            rel = path.relative_to(root)
+            if len(rel.parts) > max_depth or not path.is_file():
+                continue
+            if path.name.casefold() in {
+                "docker-compose.yml",
+                "docker-compose.yaml",
+                "compose.yml",
+                "compose.yaml",
+            }:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                low = text.casefold()
+                if any(term in low for term in ("telegram", "mcp", "bot")):
+                    compose_candidates.append({
+                        "path": str(rel),
+                        "snippet": "\n".join(
+                            line for line in text.splitlines()
+                            if any(term in line.casefold() for term in ("telegram", "mcp", "bot"))
+                        )[:4000],
+                    })
+        except Exception:
+            continue
+
+    return {
+        "root_exists": True,
+        "matches": matches,
+        "compose_candidates": compose_candidates,
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -175,6 +235,7 @@ ACTIONS = {
     "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
     "probe_ssh_config": probe_ssh_config,
     "probe_nas_ssh_auth": probe_nas_ssh_auth,
+    "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
     "deploy_remote_mcp": deploy_remote_mcp,
     "remote_mcp_status": remote_mcp_status,
 }
