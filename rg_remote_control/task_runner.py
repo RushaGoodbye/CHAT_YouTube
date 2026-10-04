@@ -2543,6 +2543,158 @@ def ensure_github_runner_persistence() -> dict:
     }
 
 
+def youtube_program_local_status() -> dict:
+    """Read RG YouTube Control local SQLite state without calling YouTube API."""
+    import sqlite3
+    from datetime import datetime, timezone
+
+    base = Path(
+        os.environ.get(
+            "LOCALAPPDATA",
+            str(Path.home() / "AppData" / "Local"),
+        )
+    )
+    data_dir = base / "RGYouTubeControl"
+    db_path = data_dir / "rg_youtube_control.db"
+    if not db_path.is_file():
+        return {
+            "database_exists": False,
+            "data_dir": str(data_dir),
+            "db_path": str(db_path),
+            "youtube_api_calls": 0,
+        }
+
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+
+    def scalar(sql: str, params: tuple = ()) -> int:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    def grouped(sql: str, params: tuple = ()) -> dict:
+        return {
+            str(row[0] or "unknown"): int(row[1] or 0)
+            for row in conn.execute(sql, params).fetchall()
+        }
+
+    settings = {
+        str(row["key"]): str(row["value"])
+        for row in conn.execute(
+            """
+            SELECT key, value
+            FROM settings
+            WHERE key IN (
+              'current_profile',
+              'archive_priority_mode',
+              'safe_metadata_autopilot_main',
+              'safe_metadata_autopilot_live',
+              'youtube_quota_reserve_units'
+            )
+            ORDER BY key
+            """
+        ).fetchall()
+    }
+
+    try:
+        from zoneinfo import ZoneInfo
+        quota_day = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        quota_day = datetime.now(timezone.utc).date().isoformat()
+
+    quota_prefix = f"youtube_quota_%_{quota_day}"
+    quota = {
+        str(row["key"]): str(row["value"])
+        for row in conn.execute(
+            "SELECT key, value FROM settings WHERE key LIKE ? ORDER BY key",
+            (quota_prefix,),
+        ).fetchall()
+    }
+
+    audit_issues: dict[str, int] = {}
+    for row in conn.execute("SELECT audit_json FROM videos").fetchall():
+        try:
+            payload = json.loads(str(row["audit_json"] or "{}"))
+        except Exception:
+            payload = {}
+        for issue in payload.get("issues") or []:
+            key = str(issue)
+            audit_issues[key] = audit_issues.get(key, 0) + 1
+
+    recent_actions = []
+    for row in conn.execute(
+        """
+        SELECT profile, category, action, details, created_at
+        FROM action_log
+        ORDER BY log_id DESC
+        LIMIT 12
+        """
+    ).fetchall():
+        recent_actions.append({
+            "profile": row["profile"],
+            "category": row["category"],
+            "action": row["action"],
+            "details": str(row["details"] or "")[-1000:],
+            "created_at": row["created_at"],
+        })
+
+    result = {
+        "database_exists": True,
+        "data_dir": str(data_dir),
+        "db_path": str(db_path),
+        "db_size_bytes": db_path.stat().st_size,
+        "current_profile": settings.get("current_profile", "main"),
+        "settings": settings,
+        "quota_day_pt": quota_day,
+        "quota": quota,
+        "videos_total": scalar("SELECT COUNT(*) FROM videos"),
+        "videos_by_profile": grouped(
+            "SELECT COALESCE(profile,'unknown'), COUNT(*) FROM videos GROUP BY COALESCE(profile,'unknown')"
+        ),
+        "scheduled_by_profile": grouped(
+            """
+            SELECT COALESCE(profile,'unknown'), COUNT(*)
+            FROM videos
+            WHERE COALESCE(scheduled_publish_at,'') <> ''
+            GROUP BY COALESCE(profile,'unknown')
+            """
+        ),
+        "drafts_by_status": grouped(
+            "SELECT COALESCE(status,'unknown'), COUNT(*) FROM optimization_drafts GROUP BY COALESCE(status,'unknown')"
+        ),
+        "drafts_by_profile": grouped(
+            """
+            SELECT COALESCE(v.profile,'unknown'), COUNT(*)
+            FROM optimization_drafts d
+            LEFT JOIN videos v ON v.video_id=d.video_id
+            GROUP BY COALESCE(v.profile,'unknown')
+            """
+        ),
+        "deep_review_by_status": grouped(
+            "SELECT COALESCE(status,'unknown'), COUNT(*) FROM deep_review_state GROUP BY COALESCE(status,'unknown')"
+        ),
+        "comments_by_status": grouped(
+            "SELECT COALESCE(status,'unknown'), COUNT(*) FROM comments GROUP BY COALESCE(status,'unknown')"
+        ),
+        "new_comments_by_category": grouped(
+            """
+            SELECT COALESCE(category,'unknown'), COUNT(*)
+            FROM comments
+            WHERE status='new'
+            GROUP BY COALESCE(category,'unknown')
+            """
+        ),
+        "moderation_locked_comments": scalar(
+            "SELECT COUNT(*) FROM comments WHERE status='moderation_locked'"
+        ),
+        "audit_issues": dict(sorted(audit_issues.items(), key=lambda item: (-item[1], item[0]))),
+        "recent_actions": recent_actions,
+        "youtube_api_calls": 0,
+    }
+    conn.close()
+    return result
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -2604,6 +2756,7 @@ ACTIONS = {
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "youtube_mcp_batch": youtube_mcp_batch,
+    "youtube_program_local_status": youtube_program_local_status,
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,

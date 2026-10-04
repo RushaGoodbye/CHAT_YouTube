@@ -1,37 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_mcp_batch",
-  "args": {
-    "timeout_seconds": 120,
-    "calls": [
-      {
-        "tool": "youtube_fs_list",
-        "tool_args": {
-          "relative": ""
-        }
-      },
-      {
-        "tool": "youtube_fs_list",
-        "tool_args": {
-          "relative": "PACKAGES"
-        }
-      },
-      {
-        "tool": "youtube_command_run",
-        "tool_args": {
-          "argv": [
-            "find",
-            ".",
-            "-maxdepth",
-            "2",
-            "-type",
-            "f"
-          ],
-          "cwd_relative": "",
-          "timeout_seconds": 60
-        }
-      }
-    ]
-  }
+  "action": "youtube_program_local_status",
+  "args": {}
 }
