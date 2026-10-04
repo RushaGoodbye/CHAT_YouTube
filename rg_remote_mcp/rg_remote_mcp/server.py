@@ -118,6 +118,143 @@ for _contour_name in WORKERS:
     _register_contour(_contour_name)
 
 
+async def _auto_read_json(relative: str) -> dict:
+    import json
+    try:
+        result = await worker_post("auto_edit", "/fs/read", {"relative": relative})
+        text = str(result.get("content") or "")
+        return json.loads(text) if text.strip() else {}
+    except Exception:
+        return {}
+
+
+async def _auto_list(relative: str) -> list[dict]:
+    try:
+        result = await worker_post("auto_edit", "/fs/list", {"relative": relative})
+        return list(result.get("items") or [])
+    except Exception:
+        return []
+
+
+@mcp.tool(name="auto_edit_status")
+async def auto_edit_status() -> dict:
+    """Return canonical RG Auto Edit production status exported by Studio."""
+    status = await _auto_read_json("CONTROL/STATE/PRODUCTION_STATUS.json")
+    generated = float(status.get("generated_at") or 0)
+    age = max(0.0, __import__("time").time() - generated) if generated else None
+    return {
+        "contour": "auto_edit",
+        "status": status,
+        "stale": age is None or age > 30,
+        "age_seconds": round(age, 1) if age is not None else None,
+    }
+
+
+@mcp.tool(name="auto_edit_queue")
+async def auto_edit_queue() -> dict:
+    """Return canonical live RG Auto Edit queue. Never falls back to legacy batch state."""
+    queue = await _auto_read_json("CONTROL/STATE/PRODUCTION_QUEUE.json")
+    generated = float(queue.get("generated_at") or 0)
+    age = max(0.0, __import__("time").time() - generated) if generated else None
+    return {
+        "contour": "auto_edit",
+        "queue": queue,
+        "stale": age is None or age > 30,
+        "age_seconds": round(age, 1) if age is not None else None,
+    }
+
+
+@mcp.tool(name="auto_edit_run")
+async def auto_edit_run(stream: str) -> dict:
+    """Return latest archived run manifest and QA for one stream."""
+    stream = str(stream).strip()
+    if not stream.isdigit():
+        raise ValueError("stream must be numeric")
+    items = await _auto_list(f"RUNS/{stream}")
+    dirs = sorted(
+        [x.get("name") for x in items if x.get("type") == "dir" and x.get("name")],
+        reverse=True,
+    )
+    if not dirs:
+        return {"contour": "auto_edit", "stream": stream, "found": False}
+    latest = dirs[0]
+    base = f"RUNS/{stream}/{latest}"
+    return {
+        "contour": "auto_edit",
+        "stream": stream,
+        "found": True,
+        "run": latest,
+        "manifest": await _auto_read_json(f"{base}/RUN_MANIFEST.json"),
+        "qa": await _auto_read_json(f"{base}/QA/RG_POSTRUN_QA.json"),
+        "censor_items": await _auto_list(f"{base}/CENSOR"),
+    }
+
+
+@mcp.tool(name="auto_edit_qa")
+async def auto_edit_qa(stream: str) -> dict:
+    """Return latest RG Auto Edit QA only."""
+    data = await auto_edit_run(stream)
+    return {
+        "contour": "auto_edit",
+        "stream": str(stream),
+        "found": bool(data.get("found")),
+        "run": data.get("run"),
+        "qa": data.get("qa") or {},
+    }
+
+
+@mcp.tool(name="auto_edit_batch")
+async def auto_edit_batch(parts: list[str] | None = None, stream: str = "") -> dict:
+    """Return several common Auto Edit status surfaces in one read-only call."""
+    wanted = list(parts or ["status", "queue"])
+    out = {"contour": "auto_edit"}
+    if "status" in wanted:
+        out["status"] = await auto_edit_status()
+    if "queue" in wanted:
+        out["queue"] = await auto_edit_queue()
+    if "run" in wanted and stream:
+        out["run"] = await auto_edit_run(stream)
+    if "qa" in wanted and stream:
+        out["qa"] = await auto_edit_qa(stream)
+    return out
+
+
+@mcp.tool(name="auto_edit_event_stream")
+async def auto_edit_event_stream(limit: int = 100) -> dict:
+    """Return recent Studio-published Auto Edit events if available."""
+    limit = max(1, min(int(limit), 500))
+    try:
+        result = await worker_post(
+            "auto_edit", "/fs/read", {"relative": "CONTROL/STATE/MCP_EVENTS.jsonl"}
+        )
+        text = str(result.get("content") or "")
+    except Exception:
+        text = ""
+    lines = [x for x in text.splitlines() if x.strip()][-limit:]
+    events = []
+    import json
+    for line in lines:
+        try:
+            events.append(json.loads(line))
+        except Exception:
+            continue
+    return {"contour": "auto_edit", "events": events, "count": len(events)}
+
+
+@mcp.tool(name="auto_edit_diagnostics_snapshot")
+async def auto_edit_diagnostics_snapshot(stream: str) -> dict:
+    """Return read-only diagnostic inventory for one stream."""
+    stream = str(stream).strip()
+    if not stream.isdigit():
+        raise ValueError("stream must be numeric")
+    return {
+        "contour": "auto_edit",
+        "stream": stream,
+        "diagnostics": await _auto_list(f"DIAGNOSTICS/{stream}"),
+        "run": await auto_edit_run(stream),
+    }
+
+
 def main() -> None:
     import os
 
