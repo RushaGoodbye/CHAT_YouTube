@@ -2364,6 +2364,19 @@ def test_archive_center_is_compact():
 
 
 
+def test_scheduled_package_apply_has_quota_guard_and_automation_mode():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.apply_ready_scheduled_packages)
+    assert "batch_limit = reserve_safe_batch_capacity" in source
+    assert "respect_reserve=True" in source
+    assert "confirm: bool = True" in source
+    assert "notify: bool = True" in source
+    assert "SAFE_METADATA_ITEM_COST" in source
+    assert "return len(changed_ids)" in source
+
+
 def test_local_and_scheduled_paths_use_imported_description_sanitizer():
     import inspect
     from rg_youtube_control.ui import MainWindow

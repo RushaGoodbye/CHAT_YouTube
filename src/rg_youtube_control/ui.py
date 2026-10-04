@@ -6704,15 +6704,23 @@ class MainWindow(QMainWindow):
             "\n".join(lines),
         )
 
-    def apply_ready_scheduled_packages(self) -> None:
+
+    def apply_ready_scheduled_packages(
+        self,
+        *,
+        confirm: bool = True,
+        notify: bool = True,
+    ) -> int:
         if quota_exhausted(self.conn):
-            QMessageBox.information(
-                self,
-                "Квоту YouTube вичерпано",
-                "Застосування пакетів запланованих стрімів заблоковано "
-                "до наступного квотного дня.",
-            )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Квоту YouTube вичерпано",
+                    "Застосування пакетів запланованих стрімів заблоковано "
+                    "до наступного квотного дня.",
+                )
+            return 0
+
         rows = self.conn.execute(
             """SELECT v.video_id,v.title,v.scheduled_publish_at,
                       d.new_title,d.description,d.chapters,d.tags_json,
@@ -6728,13 +6736,31 @@ class MainWindow(QMainWindow):
         ).fetchall()
 
         if not rows:
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "Немає запланованих стрімів із пакетом «Готово до застосування».",
-            )
-            return
+            if notify:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Немає запланованих стрімів із пакетом «Готово до застосування».",
+                )
+            return 0
 
+        budget = quota_budget_status(self.conn)
+        batch_limit = reserve_safe_batch_capacity(
+            int(budget["spendable"]),
+            len(rows),
+            final_refresh_reads=1,
+        )
+        if batch_limit <= 0:
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Резерв квоти",
+                    "Для запланованих стрімів недостатньо квоти вище "
+                    f"захищеного резерву {budget['reserve']} од.",
+                )
+            return 0
+
+        rows = rows[:batch_limit]
         prepared_rows = []
         blocked: list[str] = []
         for row in rows:
@@ -6748,15 +6774,22 @@ class MainWindow(QMainWindow):
             prepared_rows.append((row, prepared))
 
         if blocked:
-            QMessageBox.warning(
-                self,
-                "Заплановані стріми потребують виправлення",
-                "Критичні помилки знайдено до запису в YouTube. "
-                "Нічого не змінено.\n\n" + "\n".join(blocked[:10]),
-            )
-            return
+            if notify:
+                QMessageBox.warning(
+                    self,
+                    "Заплановані стріми потребують виправлення",
+                    "Критичні помилки знайдено до запису в YouTube. "
+                    "Нічого не змінено.\n\n" + "\n".join(blocked[:10]),
+                )
+            return 0
 
-        estimated = len(prepared_rows) * VIDEO_UPDATE_COST
+        if not prepared_rows:
+            return 0
+
+        estimated = (
+            len(prepared_rows) * SAFE_METADATA_ITEM_COST
+            + READ_REQUEST_COST
+        )
         preview_lines = []
         for row, prepared in prepared_rows[:10]:
             new_title, description, chapters, tags, check, prep_changes = prepared
@@ -6771,28 +6804,29 @@ class MainWindow(QMainWindow):
         if len(prepared_rows) > 10:
             preview_lines.append(f"...ще {len(prepared_rows) - 10}")
 
-        answer = QMessageBox.question(
-            self,
-            "Оптимізація запланованих стрімів",
-            f"Перевірено й готово: {len(prepared_rows)}.\n"
-            f"Безпечний ліміт на цю партію: {batch_limit}.\n"
-            f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
-            f"Резерв після партії не буде використано.\n\n"
-            + "\n".join(preview_lines)
-            + "\n\nБуде змінено лише назву, опис і теги. "
-            "Дата й час публікації, видимість, параметри трансляції та "
-            "налаштування розкладу залишаться без змін. Продовжити?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        if not self._prechange_backup_or_warn(
-            f"перед пакетом запланованих · {self.current_profile}"
-        ):
-            return
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                "Оптимізація запланованих стрімів",
+                f"Перевірено й готово: {len(prepared_rows)}.\n"
+                f"Безпечний ліміт на цю партію: {batch_limit}.\n"
+                f"Максимальна фактична витрата: ≈{estimated} од. квоти.\n"
+                f"Резерв {budget['reserve']} од. не буде використано.\n\n"
+                + "\n".join(preview_lines)
+                + "\n\nБуде змінено лише назву, опис і теги. "
+                "Дата й час публікації, видимість, параметри трансляції та "
+                "налаштування розкладу залишаться без змін. Продовжити?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
 
-        import json
+        if not self._prechange_backup_or_warn(
+            f"перед пакетом запланованих · {self.current_profile}",
+            notify=notify,
+        ):
+            return 0
 
         changed_ids: list[str] = []
         errors: list[str] = []
@@ -6802,9 +6836,17 @@ class MainWindow(QMainWindow):
                 current_title, current_description, current_tags = (
                     self._current_video_metadata(video_id)
                 )
-                new_title, prepared_description, chapters, new_tags, check, prep_changes = prepared
+                (
+                    new_title,
+                    prepared_description,
+                    chapters,
+                    new_tags,
+                    check,
+                    prep_changes,
+                ) = prepared
                 final_description = compose_description(
-                    prepared_description, chapters
+                    prepared_description,
+                    chapters,
                 )
 
                 history_id = save_metadata_snapshot(
@@ -6815,39 +6857,65 @@ class MainWindow(QMainWindow):
                     current_tags,
                     "before_scheduled_package_batch",
                 )
-                self._quota_update_video(
+                self._quota_update_video_with_client(
+                    self.client,
                     video_id,
                     title=new_title,
                     description=final_description,
                     tags=new_tags,
+                    respect_reserve=True,
                 )
                 record_optimization_event(
-                    self.conn, history_id=history_id, video_id=video_id,
-                    profile=self.current_profile, reason="scheduled_package_batch",
+                    self.conn,
+                    history_id=history_id,
+                    video_id=video_id,
+                    profile=self.current_profile,
+                    reason="scheduled_package_batch",
                     changed_fields="назва + опис + теги",
                 )
                 save_optimization_draft(
-                    self.conn, video_id, new_title, prepared_description, chapters,
-                    new_tags, "applied",
+                    self.conn,
+                    video_id,
+                    new_title,
+                    prepared_description,
+                    chapters,
+                    new_tags,
+                    "applied",
                     json.loads(row["title_variants_json"] or "[]"),
                 )
-                set_optimization_draft_status(self.conn, video_id, "applied")
                 changed_ids.append(video_id)
             except Exception as exc:
                 errors.append(f"{video_id}: {exc}")
+                if quota_exhausted(self.conn):
+                    break
 
         if changed_ids:
             sync_specific_videos(self.client, self.conn, changed_ids)
+
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="заплановані",
+            action="Пакет застосовано",
+            details=(
+                f"оновлено {len(changed_ids)} з {len(prepared_rows)}; "
+                f"помилок {len(errors)}; резерв {budget['reserve']}"
+            ),
+        )
         self.reload_videos()
         self.reload_optimization_queue()
+        self.reload_action_log()
+        self.update_dashboard()
 
-        message = (
-            f"Готово. Оптимізовано запланованих стрімів: {len(changed_ids)}."
-        )
-        if errors:
-            preview = "\n".join(errors[:5])
-            message += f"\nПомилок: {len(errors)}.\n\n{preview}"
-        QMessageBox.information(self, APP_NAME, message)
+        if notify:
+            message = (
+                f"Готово. Оптимізовано запланованих стрімів: {len(changed_ids)}."
+            )
+            if errors:
+                preview = "\n".join(errors[:5])
+                message += f"\nПомилок: {len(errors)}.\n\n{preview}"
+            QMessageBox.information(self, APP_NAME, message)
+        return len(changed_ids)
 
     def _safe_archive_candidates_for_profile(
         self,
