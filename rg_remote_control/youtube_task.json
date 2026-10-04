@@ -1,10 +1,6 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_mcp_call",
-  "args": {
-    "tool": "youtube_fs_list",
-    "tool_args": {"relative": ""},
-    "retry": 1
-  }
+  "action": "probe_docker_root_mcp_deploy",
+  "args": {"reason":"check_lan_bind"}
 }
