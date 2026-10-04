@@ -3446,6 +3446,15 @@ class MainWindow(QMainWindow):
 
     def sync_video_list(self) -> None:
         try:
+            if quota_exhausted(self.conn):
+                QMessageBox.information(
+                    self,
+                    "Квоту YouTube вичерпано",
+                    "Синхронізацію через YouTube Data API заблоковано до "
+                    "наступного квотного дня. Локальна 0-quota підготовка "
+                    "залишається доступною.",
+                )
+                return
             before_units = today_quota_units(self.conn)
             rows = sync_videos(self.client, self.conn, limit=50)
             consumed = max(0, today_quota_units(self.conn) - before_units)
@@ -3459,6 +3468,14 @@ class MainWindow(QMainWindow):
             self._error("Помилка синхронізації", exc)
 
     def sync_both_channels(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Синхронізацію двох каналів через YouTube Data API "
+                "заблоковано до наступного квотного дня.",
+            )
+            return
         answer = QMessageBox.question(
             self,
             "Синхронізація двох каналів",
@@ -6844,11 +6861,12 @@ class MainWindow(QMainWindow):
         self, video_id: str, description: str, tags: list[str]
     ) -> None:
         row = self.conn.execute(
-            "SELECT title FROM videos WHERE video_id=?",
+            "SELECT title,duration FROM videos WHERE video_id=?",
             (video_id,),
         ).fetchone()
         title = str(row["title"] or "") if row else ""
-        result = audit(description, tags, title)
+        duration = str(row["duration"] or "") if row else ""
+        result = audit(description, tags, title, duration)
         payload = json.dumps(
             {"score": result.score, "issues": list(result.issues)},
             ensure_ascii=False,
