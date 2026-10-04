@@ -947,6 +947,82 @@ def probe_remote_commander_runtime() -> dict:
     return out
 
 
+def install_live_mcp_autodeploy_hook() -> dict:
+    from datetime import datetime, timezone
+
+    live = Path(r"\\AlexLosServer\docker\RG_NAS_AUTO_DEPLOY.sh")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    if not live.is_file():
+        raise RuntimeError(f"Live auto-deploy missing: {live}")
+
+    text = live.read_text(encoding="utf-8", errors="replace")
+    begin = "# RG_NAS_MCP_LOCAL_HOOK_BEGIN"
+    end = "# RG_NAS_MCP_LOCAL_HOOK_END"
+    if begin in text and end in text:
+        return {"updated": False, "reason": "already_installed"}
+
+    anchor = 'mkdir -p "$STATE_DIR" "$WORK_DIR"\n'
+    if anchor not in text:
+        raise RuntimeError("Safe insertion anchor not found")
+
+    hook = r'''
+# RG_NAS_MCP_LOCAL_HOOK_BEGIN
+MCP_LOCAL_DIR="/volume1/RG_AUTO_EDIT/REMOTE_MCP/SOURCE"
+MCP_LOCAL_REQUEST="/volume1/RG_AUTO_EDIT/REMOTE_MCP/DEPLOY_REQUEST"
+MCP_LOCAL_STATUS="$STATE_DIR/mcp_deploy_status"
+MCP_LOCAL_LOG="$STATE_DIR/mcp-deploy.log"
+
+if [ -f "$MCP_LOCAL_REQUEST" ]; then
+  printf '%s\n' "RUNNING" > "$MCP_LOCAL_STATUS"
+  if [ ! -f "$MCP_LOCAL_DIR/docker-compose.yml" ]; then
+    printf '%s\n' "Missing $MCP_LOCAL_DIR/docker-compose.yml" > "$MCP_LOCAL_LOG"
+    printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+  elif docker compose version >/dev/null 2>&1; then
+    if docker compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" up -d --build > "$MCP_LOCAL_LOG" 2>&1; then
+      docker compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" ps >> "$MCP_LOCAL_LOG" 2>&1 || true
+      printf '%s\n' "OK" > "$MCP_LOCAL_STATUS"
+    else
+      printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+    fi
+  elif command -v docker-compose >/dev/null 2>&1; then
+    if docker-compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" up -d --build > "$MCP_LOCAL_LOG" 2>&1; then
+      docker-compose -p rg-nas-mcp -f "$MCP_LOCAL_DIR/docker-compose.yml" ps >> "$MCP_LOCAL_LOG" 2>&1 || true
+      printf '%s\n' "OK" > "$MCP_LOCAL_STATUS"
+    else
+      printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+    fi
+  else
+    printf '%s\n' "Docker Compose unavailable" > "$MCP_LOCAL_LOG"
+    printf '%s\n' "ERROR" > "$MCP_LOCAL_STATUS"
+  fi
+  rm -f "$MCP_LOCAL_REQUEST" 2>/dev/null || true
+fi
+# RG_NAS_MCP_LOCAL_HOOK_END
+'''
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    state.mkdir(parents=True, exist_ok=True)
+    backup = state / f"RG_NAS_AUTO_DEPLOY.before_mcp_hook_{stamp}.sh"
+    shutil.copy2(live, backup)
+
+    updated = text.replace(anchor, anchor + hook + "\n", 1)
+    temp = live.with_name(live.name + ".mcp-hook.tmp")
+    temp.write_text(updated, encoding="utf-8", newline="\n")
+    os.replace(temp, live)
+
+    verify = live.read_text(encoding="utf-8", errors="replace")
+    if begin not in verify or end not in verify:
+        shutil.copy2(backup, live)
+        raise RuntimeError("Hook verification failed; backup restored")
+
+    return {
+        "updated": True,
+        "backup": str(backup),
+        "bytes": live.stat().st_size,
+        "hook": "RG_NAS_MCP_LOCAL_HOOK",
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -991,6 +1067,7 @@ ACTIONS = {
     "request_local_mcp_deploy": request_local_mcp_deploy,
     "probe_local_mcp_deploy": probe_local_mcp_deploy,
     "probe_remote_commander_runtime": probe_remote_commander_runtime,
+    "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
