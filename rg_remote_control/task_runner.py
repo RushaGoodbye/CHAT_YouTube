@@ -1023,6 +1023,23 @@ fi
     }
 
 
+def probe_live_mcp_hook() -> dict:
+    live = Path(r"\\AlexLosServer\docker\RG_NAS_AUTO_DEPLOY.sh")
+    remote_root = Path(r"\\AlexLosServer\RG_AUTO_EDIT\REMOTE_MCP")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    text = live.read_text(encoding="utf-8", errors="replace") if live.is_file() else ""
+    status_file = state / "mcp_deploy_status"
+    log_file = state / "mcp-deploy.log"
+    return {
+        "live_exists": live.is_file(),
+        "hook_present": "# RG_NAS_MCP_LOCAL_HOOK_BEGIN" in text and "# RG_NAS_MCP_LOCAL_HOOK_END" in text,
+        "request_exists": (remote_root / "DEPLOY_REQUEST").exists(),
+        "status": status_file.read_text(encoding="utf-8", errors="replace").strip() if status_file.is_file() else None,
+        "log_exists": log_file.is_file(),
+        "log_tail": log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-80:] if log_file.is_file() else [],
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -1068,6 +1085,7 @@ ACTIONS = {
     "probe_local_mcp_deploy": probe_local_mcp_deploy,
     "probe_remote_commander_runtime": probe_remote_commander_runtime,
     "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
+    "probe_live_mcp_hook": probe_live_mcp_hook,
     "list_nas_project_roots": list_nas_project_roots,
     "probe_nas_shares": probe_nas_shares,
     "probe_nas_telegram_locations": probe_nas_telegram_locations,
