@@ -170,11 +170,11 @@ def _is_quota_exceeded_error(exc: Exception) -> bool:
 
 
 def _validate_safe_update_fields(fields: set[str]) -> None:
-    forbidden = sorted(set(fields) - {"description"})
+    forbidden = sorted(set(fields) - {"description", "tags"})
     if forbidden:
         raise RuntimeError(
-            "Безпечний режим може змінювати лише опис відео. "
-            "Назва, теги YouTube та налаштування публікації заблоковані: "
+            "Безпечний режим може змінювати лише опис і теги відео. "
+            "Назва та налаштування публікації заблоковані: "
             + ", ".join(forbidden)
         )
 
