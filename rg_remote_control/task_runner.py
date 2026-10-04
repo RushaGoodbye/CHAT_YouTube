@@ -2846,18 +2846,18 @@ def launch_auto_edit_studio() -> dict:
     if not launcher.is_file():
         raise RuntimeError(f"RG Auto Edit launcher not found: {launcher}")
 
-    # Avoid launching a duplicate Studio instance.
+    ps_query = (
+        "$p=Get-CimInstance Win32_Process | "
+        "Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_studio_main.py*') -or "
+        "($_.CommandLine -like '*rg_studio_ui.py*')) "
+        "}; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    )
+
     probe = run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            (
-                "$p=Get-CimInstance Win32_Process | "
-                "Where-Object { ($_.Name -match '^(python|pythonw)\\.exe
-            ),
-        ],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_query],
         timeout=30,
     )
     existing_text = (probe.get("stdout") or "").strip()
@@ -2873,7 +2873,6 @@ def launch_auto_edit_studio() -> dict:
     exe = pythonw if pythonw.is_file() else Path(sys.executable)
 
     env = os.environ.copy()
-    # Prevent GitHub Actions post-job cleanup from killing the detached GUI.
     env.pop("RUNNER_TRACKING_ID", None)
 
     creationflags = 0
@@ -2891,19 +2890,10 @@ def launch_auto_edit_studio() -> dict:
         stdin=subprocess.DEVNULL,
     )
 
-    time.sleep(4)
+    time.sleep(5)
 
     verify = run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            (
-                "$p=Get-CimInstance Win32_Process | "
-                "Where-Object { ($_.Name -match '^(python|pythonw)\\.exe
-            ),
-        ],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_query],
         timeout=30,
     )
     running_text = (verify.get("stdout") or "").strip()
