@@ -290,6 +290,127 @@ def run(mode: str) -> dict:
         conn.close()
 
 
+
+def quota_plan_status() -> dict:
+    """Calculate the next fresh quota-day plan from local SQLite only."""
+    from zoneinfo import ZoneInfo
+
+    from rg_youtube_control.optimization import is_safe_archive_candidate
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        SAFE_METADATA_ITEM_COST,
+        VIDEO_UPDATE_COST,
+        YOUTUBE_DAILY_QUOTA_DEFAULT,
+        reserve_safe_daily_batch_capacity,
+    )
+
+    db_path = _db_path()
+    if not db_path.is_file():
+        raise RuntimeError(f"RG YouTube Control DB not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        settings = {
+            str(row["key"]): str(row["value"])
+            for row in conn.execute(
+                "SELECT key,value FROM settings"
+            ).fetchall()
+        }
+        reserve = int(settings.get("youtube_quota_reserve_units", "500") or 500)
+        fresh_spendable = max(0, YOUTUBE_DAILY_QUOTA_DEFAULT - reserve)
+
+        scheduled_by_profile: dict[str, int] = {}
+        ready_drafts_by_profile: dict[str, int] = {}
+        safe_by_profile: dict[str, int] = {}
+
+        for profile in ("main", "live"):
+            scheduled_by_profile[profile] = int(
+                conn.execute(
+                    """SELECT COUNT(*)
+                       FROM videos v
+                       JOIN optimization_drafts d ON d.video_id=v.video_id
+                       WHERE v.profile=?
+                         AND v.scheduled_publish_at IS NOT NULL
+                         AND d.status='ready'""",
+                    (profile,),
+                ).fetchone()[0]
+            )
+            ready_drafts_by_profile[profile] = int(
+                conn.execute(
+                    """SELECT COUNT(*)
+                       FROM optimization_drafts d
+                       JOIN videos v ON v.video_id=d.video_id
+                       WHERE v.profile=? AND d.status='ready'""",
+                    (profile,),
+                ).fetchone()[0]
+            )
+
+            safe_count = 0
+            for row in conn.execute(
+                """SELECT audit_json
+                   FROM videos
+                   WHERE profile=?
+                     AND privacy_status='public'
+                     AND scheduled_publish_at IS NULL""",
+                (profile,),
+            ).fetchall():
+                try:
+                    issues = list(
+                        json.loads(str(row["audit_json"] or "{}")).get(
+                            "issues", []
+                        )
+                    )
+                except Exception:
+                    issues = []
+                if is_safe_archive_candidate(issues):
+                    safe_count += 1
+            safe_by_profile[profile] = safe_count
+
+        scheduled_total = sum(scheduled_by_profile.values())
+        scheduled_cost = (
+            scheduled_total * SAFE_METADATA_ITEM_COST
+            + (READ_REQUEST_COST if scheduled_total else 0)
+        )
+        remaining_after_scheduled = max(
+            0,
+            fresh_spendable - scheduled_cost,
+        )
+        archive_capacity = reserve_safe_daily_batch_capacity(
+            remaining_after_scheduled,
+            500,
+        )
+
+        main_archive = min(safe_by_profile["main"], archive_capacity)
+        left = max(0, archive_capacity - main_archive)
+        live_archive = min(safe_by_profile["live"], left)
+
+        pt_day = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+        return {
+            "quota_day_pt": pt_day,
+            "youtube_api_calls": 0,
+            "daily_quota": YOUTUBE_DAILY_QUOTA_DEFAULT,
+            "reserve": reserve,
+            "fresh_spendable": fresh_spendable,
+            "scheduled_ready_by_profile": scheduled_by_profile,
+            "scheduled_total": scheduled_total,
+            "scheduled_estimated_cost": scheduled_cost,
+            "remaining_after_scheduled": remaining_after_scheduled,
+            "safe_archive_candidates_by_profile": safe_by_profile,
+            "ready_drafts_by_profile": ready_drafts_by_profile,
+            "safe_archive_capacity_after_scheduled": archive_capacity,
+            "recommended_first_day": {
+                "scheduled": scheduled_total,
+                "archive_main": main_archive,
+                "archive_live": live_archive,
+                "estimated_total_videos": (
+                    scheduled_total + main_archive + live_archive
+                ),
+            },
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -300,14 +421,16 @@ def main() -> int:
     task = json.loads(task_path.read_text(encoding="utf-8"))
     action = str(task.get("action") or "")
     if action == "youtube_local_repair_preview":
-        mode = "preview"
+        result = run("preview")
     elif action == "youtube_local_repair_apply":
-        mode = "apply"
+        result = run("apply")
+    elif action == "youtube_local_quota_plan_status":
+        result = quota_plan_status()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
     print(json.dumps(
-        {"action": action, "result": run(mode)},
+        {"action": action, "result": result},
         ensure_ascii=False,
         indent=2,
     ))
