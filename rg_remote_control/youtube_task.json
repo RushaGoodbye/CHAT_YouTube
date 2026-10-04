@@ -3,7 +3,7 @@
   "contour": "youtube",
   "action": "youtube_mcp_batch",
   "args": {
-    "timeout_seconds": 120,
+    "timeout_seconds": 150,
     "calls": [
       {
         "tool": "youtube_fs_read_text",
