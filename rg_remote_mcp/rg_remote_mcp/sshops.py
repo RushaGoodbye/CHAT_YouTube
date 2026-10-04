@@ -22,12 +22,13 @@ def _target(settings: Settings, alias: str) -> tuple[str, int]:
 
 async def run_ssh(
     settings: Settings,
+    contour_name: str,
     alias: str,
     argv: list[str],
     *,
     timeout_seconds: int = 180,
 ) -> dict:
-    argv = _validate_argv(settings, argv)
+    argv = _validate_argv(contour_name, argv)
     host, port = _target(settings, alias)
     if not settings.ssh_key.is_file():
         raise RuntimeError("SSH private key is not mounted")
@@ -52,6 +53,7 @@ async def run_ssh(
             timeout=max(1, min(int(timeout_seconds), 900)),
         )
     return {
+        "contour": contour_name,
         "host_alias": alias,
         "exit_code": int(result.exit_status),
         "stdout": str(result.stdout)[-200000:],
