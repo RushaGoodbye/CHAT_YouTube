@@ -166,7 +166,7 @@ COMMENT_REPLY_COST = 50
 READ_REQUEST_COST = 1
 CAPTION_TRANSCRIPT_COST = 250
 SAFE_METADATA_ITEM_COST = VIDEO_UPDATE_COST + READ_REQUEST_COST
-QUOTA_RESERVE_DEFAULT = 2500
+QUOTA_RESERVE_DEFAULT = 500
 
 
 def reserve_safe_daily_batch_capacity(
@@ -175,21 +175,21 @@ def reserve_safe_daily_batch_capacity(
 ) -> int:
     """Largest daily archive batch that fits above reserve.
 
-    Each item costs one metadata read plus videos.update. The final refresh
-    reads videos in chunks of 50, so large batches need more than one final
-    read request.
+    Daily archive runs prefetch metadata in batches of 50 and do one batched
+    refresh after updates. This avoids one metadata request per video.
     """
     requested = max(0, int(requested))
     spendable = max(0, int(spendable))
-    if requested <= 0 or spendable < SAFE_METADATA_ITEM_COST:
+    minimum_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
+    if requested <= 0 or spendable < minimum_cost:
         return 0
 
-    upper = min(requested, spendable // SAFE_METADATA_ITEM_COST)
+    upper = min(requested, spendable // VIDEO_UPDATE_COST)
     for count in range(upper, 0, -1):
-        refresh_reads = (count + 49) // 50
+        batch_reads = (count + 49) // 50
         total_cost = (
-            count * SAFE_METADATA_ITEM_COST
-            + refresh_reads * READ_REQUEST_COST
+            count * VIDEO_UPDATE_COST
+            + (2 * batch_reads * READ_REQUEST_COST)
         )
         if total_cost <= spendable:
             return count

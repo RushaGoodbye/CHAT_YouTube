@@ -1372,8 +1372,8 @@ def test_deep_stage_runs_queue_and_transcripts_without_manual_dialogs():
 def test_daily_archive_capacity_uses_full_safe_budget():
     from rg_youtube_control.service import reserve_safe_daily_batch_capacity
 
-    assert reserve_safe_daily_batch_capacity(7500, 500) == 144
-    assert reserve_safe_daily_batch_capacity(728, 500) == 13
+    assert reserve_safe_daily_batch_capacity(7500, 500) == 146
+    assert reserve_safe_daily_batch_capacity(728, 500) == 14
     assert reserve_safe_daily_batch_capacity(365, 500) == 7
     assert reserve_safe_daily_batch_capacity(51, 500) == 0
 

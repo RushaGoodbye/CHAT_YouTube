@@ -21,9 +21,11 @@ def test_archive_autorun_has_reentrancy_guard():
 def test_safe_archive_checks_full_item_budget_before_metadata_read():
     source = inspect.getsource(MainWindow.apply_next_safe_archive_batch)
 
-    check = 'int(live_budget["spendable"]) < SAFE_METADATA_ITEM_COST'
+    check = 'int(live_budget["spendable"]) < required_cost'
     assert check in source
+    assert "VIDEO_UPDATE_COST" in source
+    assert "SAFE_METADATA_ITEM_COST" in source
     assert 'error_text = "reserve_reached"' in source
     assert source.index(check) < source.index(
-        "self._current_video_metadata(video_id)"
+        "self._current_video_metadata("
     )
