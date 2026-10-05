@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QTabWidget,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -509,6 +510,77 @@ class MetricCard(QFrame):
     def set_value(self, value: str, note: str = "") -> None:
         self.value_label.setText(value)
         self.note_label.setText(note)
+
+
+class FrozenColumnsTable(QTableWidget):
+    """QTableWidget with a small frozen mirror for key identity columns."""
+
+    def __init__(
+        self,
+        rows: int,
+        columns: int,
+        *,
+        frozen_columns: tuple[int, ...],
+        parent=None,
+    ) -> None:
+        super().__init__(rows, columns, parent)
+        self._frozen_columns = tuple(sorted(set(int(x) for x in frozen_columns)))
+        self.frozen_view = QTableView(self)
+        self.frozen_view.setModel(self.model())
+        self.frozen_view.setSelectionModel(self.selectionModel())
+        self.frozen_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.frozen_view.verticalHeader().setVisible(False)
+        self.frozen_view.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.frozen_view.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.frozen_view.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.frozen_view.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.frozen_view.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
+        for column in range(columns):
+            self.frozen_view.setColumnHidden(
+                column,
+                column not in self._frozen_columns,
+            )
+        self.verticalScrollBar().valueChanged.connect(
+            self.frozen_view.verticalScrollBar().setValue
+        )
+        self.frozen_view.verticalScrollBar().valueChanged.connect(
+            self.verticalScrollBar().setValue
+        )
+        self.horizontalHeader().sectionResized.connect(
+            lambda *_args: self.sync_frozen_columns()
+        )
+        self.frozen_view.show()
+
+    def sync_frozen_columns(self) -> None:
+        width = self.frameWidth()
+        for column in self._frozen_columns:
+            column_width = self.columnWidth(column)
+            self.frozen_view.setColumnWidth(column, column_width)
+            width += column_width
+        self.frozen_view.verticalHeader().setDefaultSectionSize(
+            self.verticalHeader().defaultSectionSize()
+        )
+        self.frozen_view.setGeometry(
+            self.frameWidth(),
+            self.frameWidth(),
+            width,
+            self.viewport().height() + self.horizontalHeader().height(),
+        )
+        self.frozen_view.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.sync_frozen_columns()
 
 
 class ProgressMetricCard(QFrame):
@@ -1875,7 +1947,11 @@ class MainWindow(QMainWindow):
         controls.addWidget(QLabel("Щільність:"))
         controls.addWidget(self.video_density)
 
-        self.video_table = QTableWidget(0, 5)
+        self.video_table = FrozenColumnsTable(
+            0,
+            5,
+            frozen_columns=(0, 1),
+        )
         self.video_table.setHorizontalHeaderLabels(
             ["Відео", "Назва", "Перегляди", "Аудит", "Проблеми"]
         )
@@ -1923,6 +1999,9 @@ class MainWindow(QMainWindow):
         table.verticalHeader().setDefaultSectionSize(value)
         for row in range(table.rowCount()):
             table.setRowHeight(row, value)
+        sync_frozen = getattr(table, "sync_frozen_columns", None)
+        if callable(sync_frozen):
+            sync_frozen()
 
     def _selected_video_row_id(self) -> str:
         if not hasattr(self, "video_table"):
@@ -2136,7 +2215,11 @@ class MainWindow(QMainWindow):
         self.free_tools_status_label.setProperty("muted", True)
         self.free_tools_status_label.setWordWrap(True)
 
-        self.optimization_table = QTableWidget(0, 12)
+        self.optimization_table = FrozenColumnsTable(
+            0,
+            12,
+            frozen_columns=(3, 4),
+        )
         self.optimization_table.setHorizontalHeaderLabels(
             [
                 "Пріоритет",
