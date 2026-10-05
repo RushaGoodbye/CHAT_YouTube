@@ -6182,6 +6182,20 @@ def inspect_auto_edit_visual_targets() -> dict:
         out[term]=hits
     return out
 
+
+def inspect_auto_edit_montage_visual_block() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    out={}
+    for term in ["def _montage_tab","def _on_backend_line","def _poll_backend","def _read_backend","def _set_stage","def _refresh_performance_tab"]:
+        for i,line in enumerate(rows):
+            if term in line:
+                b=min(len(rows),i+320)
+                out[term]="\n".join(f"{k+1}: {rows[k]}" for k in range(i,b))
+                break
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6230,6 +6244,7 @@ ACTIONS = {
     "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
     "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
     "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
+    "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
