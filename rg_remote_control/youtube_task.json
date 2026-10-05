@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_prepare_source_runtime",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "tags-label-fix-0.3.91-20261005"
+    "nonce": "sync091"
   }
 }
