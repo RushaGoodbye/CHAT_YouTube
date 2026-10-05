@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_launch_diagnostic",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "diagnose-0.3.89-source-exit-20261005"
+    "nonce": "post-diagnostic-runtime-check-20261005"
   }
 }
