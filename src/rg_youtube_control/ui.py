@@ -3087,7 +3087,7 @@ class MainWindow(QMainWindow):
         self.vidiq_reserve_spin.valueChanged.connect(self.save_vidiq_budget)
 
         self.vidiq_used_spin = QSpinBox()
-        self.vidiq_used_spin.setRange(0, max(vidiq_status.limit, 100000))
+        self.vidiq_used_spin.setRange(0, vidiq_status.limit)
         self.vidiq_used_spin.setSingleStep(10)
         self.vidiq_used_spin.setSuffix(" кредитів")
         self.vidiq_used_spin.setValue(vidiq_status.used)
@@ -3613,11 +3613,13 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "vidiq_quota_label"):
             return
         status = vidiq_budget_status(self.conn)
+        reset_text = status.reset_at or "не синхронізовано"
         self.vidiq_quota_label.setText(
-            f"{status.plan} · період {status.period} · "
+            f"{status.plan} · {status.period} · "
             f"зафіксовано {status.used}/{status.limit} · "
             f"залишок {status.remaining} · резерв {status.reserve} · "
-            f"доступно для неприоритетних запитів {status.spendable}"
+            f"доступно поза пріоритетом {status.spendable} · "
+            f"наступне поповнення {reset_text}"
         )
 
     def _quota_update_video_with_client(
@@ -9016,7 +9018,7 @@ class MainWindow(QMainWindow):
             reserve=reserve,
         )
         self.vidiq_used_spin.blockSignals(True)
-        self.vidiq_used_spin.setMaximum(max(status.limit, 100000))
+        self.vidiq_used_spin.setMaximum(status.limit)
         self.vidiq_used_spin.setValue(status.used)
         self.vidiq_used_spin.blockSignals(False)
         self.refresh_vidiq_quota_label()
