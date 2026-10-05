@@ -5117,12 +5117,21 @@ class MainWindow(QMainWindow):
                 details=str(exc),
             )
 
-    def _archive_campaign_stats(self) -> dict[str, dict[str, int]]:
+    def _archive_campaign_stats(
+        self,
+        *,
+        force: bool = False,
+    ) -> dict[str, dict[str, int]]:
+        now = time.monotonic()
+        cached = getattr(self, "_archive_stats_cache", None)
+        cached_at = float(getattr(self, "_archive_stats_cache_at", 0.0) or 0.0)
+        if not force and cached is not None and now - cached_at < 30.0:
+            return cached
         transcript_dir = self._nas_path(
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        return {
+        value = {
             profile: archive_profile_stats(
                 self.conn,
                 profile,
@@ -5130,6 +5139,9 @@ class MainWindow(QMainWindow):
             )
             for profile in PROFILE_TARGETS
         }
+        self._archive_stats_cache = value
+        self._archive_stats_cache_at = now
+        return value
 
     def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
         budget = quota_budget_status(self.conn)
