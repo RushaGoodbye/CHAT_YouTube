@@ -9148,6 +9148,36 @@ raise SystemExit(0 if ok else 7)
       "policy":"MONOTONIC_SCREENSHOT_ORDER_WITH_NEIGHBOR_BOUNDED_VISUAL_RESCUE_V1"
     }
 
+def inspect_auto_edit_chatgpt_browser_automation() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import ast
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for name in ["rg_internal_browser.py","rg_chatgpt_browser_automation.py"]:
+        p=root/name
+        if not p.is_file():
+            out[name]={"missing":True};continue
+        src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        funcs={}
+        classes={}
+        try:
+            tree=ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                    a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                    body="\n".join(rows[a:b])
+                    if any(k.lower() in body.lower() for k in ("chatgpt","upload","prompt","file","page","download","send","attach","branch","browser")):
+                        funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+                elif isinstance(node,ast.ClassDef):
+                    a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                    body="\n".join(rows[a:b])
+                    if any(k.lower() in body.lower() for k in ("chatgpt","upload","choosefiles","webengine","browser")):
+                        classes[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+        except Exception as exc:
+            funcs={"parse_error":repr(exc)}
+        out[name]={"path":str(p),"functions":funcs,"classes":classes,"head":"\n".join(f"{i+1}: {rows[i]}" for i in range(min(180,len(rows))))}
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9236,6 +9266,7 @@ ACTIONS = {
     "inspect_auto_edit_backend_path_identity": inspect_auto_edit_backend_path_identity,
     "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "inspect_auto_edit_chatgpt_collage_flow": inspect_auto_edit_chatgpt_collage_flow,
+    "inspect_auto_edit_chatgpt_browser_automation": inspect_auto_edit_chatgpt_browser_automation,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
