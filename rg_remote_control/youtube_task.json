@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
+  "action": "youtube_local_enable_archive_priority",
   "args": {
-    "mode": "autopilot_preflight_0376",
-    "nonce": "autopilot-preflight-20261005"
+    "nonce": "enable-safe-archive-priority-20261005"
   }
 }
