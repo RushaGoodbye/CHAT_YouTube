@@ -7061,6 +7061,50 @@ def verify_auto_edit_preview_hotfix_state() -> dict:
     }
 
 
+def cleanup_auto_edit_duplicate_studio() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    ps=r'''
+$p=Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'pythonw.exe' -and
+  $_.CommandLine -and
+  $_.CommandLine -like '*rg_studio_main.py*'
+}
+$killed=@()
+foreach($x in $p){
+  $cmd=[string]$x.CommandLine
+  if($cmd -like '*AppData\Local\Python\pythoncore-*'){
+    Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue
+    $killed += $x.ProcessId
+  }
+}
+Start-Sleep -Milliseconds 600
+$r=Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'pythonw.exe' -and
+  $_.CommandLine -and
+  $_.CommandLine -like '*rg_studio_main.py*'
+} | Select-Object ProcessId,Name,CommandLine
+[PSCustomObject]@{killed=$killed;remaining=@($r)} | ConvertTo-Json -Compress -Depth 4
+'''
+    cp=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],timeout=30)
+    raw=(cp.get("stdout") or "").strip()
+    try:
+        data=json.loads(raw) if raw else {}
+    except Exception:
+        data={"raw":raw}
+    remaining=data.get("remaining") if isinstance(data,dict) else None
+    if isinstance(remaining,dict):remaining=[remaining]
+    if not isinstance(remaining,list):remaining=[]
+    good=[x for x in remaining if "F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime" in str(x.get("CommandLine") or "")]
+    return {
+        "cleanup":"PASS" if len(good)>=1 else "CHECK",
+        "killed":data.get("killed") if isinstance(data,dict) else None,
+        "remaining":remaining,
+        "runtime_instance_present":bool(good),
+        "remaining_count":len(remaining),
+    }
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7131,6 +7175,7 @@ ACTIONS = {
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
+    "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
