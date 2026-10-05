@@ -1,11 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "start_auto_edit_recovery_queue",
-  "args": {
-    "streams": [
-      "901"
-    ]
-  },
-  "nonce": "restart-901-after-anchor-fix-20261006-9"
+  "action": "inspect_auto_edit_recovery_queue",
+  "args": {},
+  "nonce": "check-901-recovery-after-anchor-fix-20261006-10"
 }
