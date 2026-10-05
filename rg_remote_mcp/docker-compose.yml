@@ -73,6 +73,7 @@ services:
       - /volume1/docker/RG_NAS_WORK:/workspace/nas_work:rw
       - /volume1/docker/RG_NAS_STATE:/workspace/nas_state:rw
       - /volume1/docker/RG_NAS_CONTROL:/workspace/nas_control:rw
+      - /volume1/docker/RG_TELEGRAM:/workspace/rg_telegram:rw
     tmpfs:
       - /tmp
     expose:
