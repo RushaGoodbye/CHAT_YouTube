@@ -555,6 +555,7 @@ class ProgressMetricCard(QFrame):
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
+    progress = Signal(str)
 
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
@@ -9480,7 +9481,13 @@ class MainWindow(QMainWindow):
                     )
                     if not transient or attempt >= 3:
                         raise
-                    time.sleep(2 * attempt)
+                    delay = 2 * attempt
+                    worker_ref = getattr(self, "_local_tool_worker", None)
+                    if worker_ref is not None:
+                        worker_ref.progress.emit(
+                            f"Спроба {attempt + 1}/3 через {delay} с"
+                        )
+                    time.sleep(delay)
             if last_exc is not None:
                 raise last_exc
 
@@ -9517,6 +9524,14 @@ class MainWindow(QMainWindow):
         def cleanup() -> None:
             self._local_tool_worker = None
 
+        worker.progress.connect(
+            lambda message: self._set_process(
+                label,
+                message,
+                percent=None,
+                eta="автоматичний retry",
+            )
+        )
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
         worker.finished.connect(cleanup)
