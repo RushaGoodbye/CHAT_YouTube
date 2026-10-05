@@ -306,6 +306,53 @@ def _append_canonical_service_block(value: str) -> str:
     return f"{body}\n\n{service}".strip() if body else service
 
 
+
+def safe_description_needs_content_package(
+    description: str,
+    title: str = "",
+    *,
+    min_body_chars: int = 160,
+    min_body_letters: int = 80,
+) -> bool:
+    """Return True when a cleaned safe description has no meaningful video body.
+
+    Old RG descriptions can consist almost entirely of donation/social boilerplate,
+    followed by the title and hashtags. After replacing that boilerplate with the
+    canonical links, such a description is technically clean but still too thin
+    to publish as an SEO result. Those videos must go through transcript/content
+    review instead of the safe-link batch.
+    """
+    value = (description or "").strip()
+    if not value:
+        return True
+
+    cut = len(value)
+    for marker in CANONICAL_SERVICE_MARKERS:
+        pos = value.find(marker)
+        if pos >= 0:
+            cut = min(cut, pos)
+    body = value[:cut].strip()
+
+    clean_title = (title or "").strip().casefold()
+    kept: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if HASHTAG_ONLY_LINE_RE.fullmatch(stripped):
+            continue
+        if clean_title and stripped.casefold() == clean_title:
+            continue
+        kept.append(stripped)
+
+    meaningful = "\n".join(kept).strip()
+    letters = len(re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё]", meaningful))
+    return (
+        len(meaningful) < max(1, int(min_body_chars))
+        or letters < max(1, int(min_body_letters))
+    )
+
+
 def safe_description_fix(description: str, title: str = "") -> SafeFix:
     before = description or ""
     after = normalize_links(before)
