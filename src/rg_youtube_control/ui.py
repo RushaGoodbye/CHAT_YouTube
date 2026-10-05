@@ -1956,6 +1956,8 @@ class MainWindow(QMainWindow):
             ["Відео", "Назва", "Перегляди", "Аудит", "Проблеми"]
         )
         self.video_table.horizontalHeader().setStretchLastSection(True)
+        for column, width in {0: 120, 1: 420, 2: 105, 3: 80, 4: 320}.items():
+            self.video_table.setColumnWidth(column, width)
         self.video_table.setHorizontalScrollMode(
             QAbstractItemView.ScrollMode.ScrollPerPixel
         )
