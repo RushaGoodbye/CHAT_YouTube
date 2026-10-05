@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_ensure_gui_startup",
   "args": {
-    "nonce": "post-diagnostic-runtime-check-20261005"
+    "nonce": "shell-launch-0.3.89-20261005"
   }
 }
