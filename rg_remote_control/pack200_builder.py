@@ -512,7 +512,7 @@ def patch_version():
     atomic(p,s)
 
 def write_selftest():
-    code=r'''from __future__ import annotations
+    code=r"""from __future__ import annotations
 import json,py_compile,time
 from pathlib import Path
 APP=Path(__file__).resolve().parent
@@ -534,7 +534,7 @@ def main():
     print("RG_PACK200_SELFTEST|"+json.dumps(out,ensure_ascii=False))
     return 0 if passed else 3
 if __name__=="__main__": raise SystemExit(main())
-'''
+"""
     atomic(APP/"rg_pack200_selftest.py",code)
 
 def main():
