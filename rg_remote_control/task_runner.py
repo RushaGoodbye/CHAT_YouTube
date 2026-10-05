@@ -7680,6 +7680,19 @@ print(json.dumps({"passed":True,"count":2,"roles":["HOST","GUEST_01"]},ensure_as
                 shutil.copy2(bp,p)
         raise
 
+def inspect_auto_edit_thumbnail_mix_main() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_thumbnail_mix_prep.py")
+    src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines();tree=ast.parse(src)
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {"prepare_mix","main","refresh_role"}:
+            a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    return {"path":str(p),"functions":out}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7757,6 +7770,7 @@ ACTIONS = {
     "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
     "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
     "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
+    "inspect_auto_edit_thumbnail_mix_main": inspect_auto_edit_thumbnail_mix_main,
     "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
