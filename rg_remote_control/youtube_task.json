@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_find_today_upcoming_live_broadcasts",
   "args": {
-    "nonce": "today-upcoming-live-20261005"
+    "nonce": "today-upcoming-live-20261005-retry2"
   }
 }
