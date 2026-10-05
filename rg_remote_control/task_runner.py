@@ -4353,6 +4353,30 @@ Archived by user: 889, 890
     return out
 
 
+
+def inspect_auto_edit_update_format() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    terms=["scan_local_updates","pick_update_zip","install_selected_update","open_backup_history","update_package_safety"]
+    out={}
+    for term in terms:
+        for i,line in enumerate(rows):
+            if f"def {term}" in line:
+                a=max(0,i-8);b=min(len(rows),i+120)
+                out[term]="\n".join(f"{k+1}: {rows[k]}" for k in range(a,b))
+                break
+    hard=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_production_hardening.py")
+    hrows=hard.read_text(encoding="utf-8",errors="replace").splitlines()
+    for term in ["update_package_safety","recovery_plan"]:
+        for i,line in enumerate(hrows):
+            if f"def {term}" in line:
+                a=max(0,i-8);b=min(len(hrows),i+100)
+                out["hardening_"+term]="\n".join(f"{k+1}: {hrows[k]}" for k in range(a,b))
+                break
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4391,6 +4415,7 @@ ACTIONS = {
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
+    "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
