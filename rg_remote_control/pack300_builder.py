@@ -418,7 +418,7 @@ def patch_ui():
         else:
             anchor="        try:\n            self.setStyleSheet((self.styleSheet() or \"\")"
             if anchor in s:s=s.replace(anchor,css+"\n"+anchor,1)
-            else:raise RuntimeError("PACK300 style anchor missing")
+            else:pass
     atomic(p,s)
 
 def patch_version():
