@@ -244,6 +244,17 @@ CANONICAL_SERVICE_MARKERS = (
 )
 
 
+TRAILING_SECTION_LABEL_RE = re.compile(
+    r"(?im)\\n{0,2}\\s*(?:ТЕГИ|ТЕГИ:|TAGS|TAGS:)\\s*$"
+)
+
+
+def _strip_trailing_section_label(value: str) -> tuple[str, bool]:
+    before = (value or "").rstrip()
+    after = TRAILING_SECTION_LABEL_RE.sub("", before).rstrip()
+    return after, after != before
+
+
 def _looks_like_legacy_service_prefix(value: str) -> bool:
     upper = (value or "").upper()
     return any(hint in upper for hint in LEGACY_SERVICE_HINTS)
@@ -374,6 +385,10 @@ def safe_description_fix(description: str, title: str = "") -> SafeFix:
     if hashtags_changed:
         changes.append("оновлено хештеги")
 
+    after, label_removed = _strip_trailing_section_label(after)
+    if label_removed:
+        changes.append("прибрано службовий підпис тегів")
+
     return SafeFix(
         before=before,
         after=after,
@@ -462,6 +477,10 @@ def sanitize_imported_package_description(
     after, hashtags_changed = _keep_only_canonical_hashtag_line(after)
     if hashtags_changed:
         changes.append("прибрано зайві inline-хештеги")
+
+    after, label_removed = _strip_trailing_section_label(after)
+    if label_removed:
+        changes.append("прибрано службовий підпис тегів")
 
     after = re.sub(r"\n{3,}", "\n\n", after).strip()
     return SafeFix(
