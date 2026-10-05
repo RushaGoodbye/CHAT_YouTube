@@ -2074,7 +2074,7 @@ class MainWindow(QMainWindow):
                     f"Наступні safe {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
                     self.apply_next_safe_archive_batch,
                 ),
-                ("Денний пакет", lambda: self.apply_next_safe_archive_batch(daily=True)),
+                ("Архів: денний пакет", lambda: self.apply_next_safe_archive_batch(daily=True)),
             ],
         )
 
@@ -2103,7 +2103,7 @@ class MainWindow(QMainWindow):
             ],
         )
 
-        self.daily_archive_btn = QPushButton("Денний пакет")
+        self.daily_archive_btn = QPushButton("Архів: денний пакет")
         self.daily_archive_btn.setVisible(False)
         self.daily_archive_btn.setEnabled(archive_priority_enabled(self.conn))
         self.daily_archive_btn.clicked.connect(
