@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_chatgpt_collage_flow",
+  "action": "inspect_auto_edit_chatgpt_browser_automation",
   "args": {},
-  "nonce": "inspect-chatgpt-collage-after-runner-recovery-20261006-15"
+  "nonce": "inspect-chatgpt-browser-automation-20261006-16"
 }
