@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_final_compilation_retirement_hotfix",
+  "action": "inspect_auto_edit_topaz_flow",
   "args": {},
-  "nonce": "apply-final-used-dialogues-20261005-3"
+  "nonce": "inspect-topaz-flow-20261005-1"
 }
