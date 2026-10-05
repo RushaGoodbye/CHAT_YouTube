@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_montage_visual_block",
+  "action": "inspect_auto_edit_progress_pipeline",
   "args": {},
-  "nonce": "20261005-inspect-live-progress-parser-3"
+  "nonce": "20261005-progress-pipeline-4"
 }
