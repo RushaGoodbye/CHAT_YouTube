@@ -1,7 +1,7 @@
 {
   "target":"alexpc",
   "contour":"auto_edit",
-  "action":"inspect_auto_edit_montage_visual_block",
+  "action":"build_auto_edit_pack170_update",
   "args":{},
-  "nonce":"20261005-pack170-montage-block"
+  "nonce":"20261005-pack170-build-1"
 }
