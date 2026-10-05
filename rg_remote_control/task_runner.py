@@ -4377,6 +4377,19 @@ def inspect_auto_edit_update_format() -> dict:
     return out
 
 
+
+def inspect_auto_edit_update_worker() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for name in ["rg_studio_update_worker.py","rg_studio_restart.py"]:
+        p=app/name
+        if not p.is_file(): out[name]={"missing":True};continue
+        txt=p.read_text(encoding="utf-8",errors="replace")
+        out[name]={"size":p.stat().st_size,"content":txt[:50000]}
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4416,6 +4429,7 @@ ACTIONS = {
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
+    "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
