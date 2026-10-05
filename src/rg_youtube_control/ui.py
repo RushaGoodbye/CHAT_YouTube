@@ -1138,8 +1138,11 @@ class MainWindow(QMainWindow):
         activity_label.setObjectName("SectionTitle")
         activity_title.addWidget(activity_label)
         activity_title.addStretch()
+        undo_btn = QPushButton("Відкотити останнє")
+        undo_btn.clicked.connect(self.rollback_last_optimized_metadata)
         retry_btn = QPushButton("Повторити останню помилку")
         retry_btn.clicked.connect(self.retry_last_local_task)
+        activity_title.addWidget(undo_btn)
         activity_title.addWidget(retry_btn)
         activity_layout.addLayout(activity_title)
         self.activity_list = QListWidget()
@@ -2153,6 +2156,30 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.optimization_density)
         layout.addLayout(toolbar)
 
+        quick_filters = QHBoxLayout()
+        quick_filters.setSpacing(6)
+        quick_label = QLabel("Швидкі фільтри:")
+        quick_label.setProperty("muted", True)
+        quick_filters.addWidget(quick_label)
+        for label, key in (
+            ("Потрібна увага", "needs"),
+            ("Чернетки", "draft"),
+            ("Готово", "ready"),
+            ("Без тегів", "no_tags"),
+            ("Низький CTR", "low_ctr"),
+            ("Застосовано", "applied"),
+        ):
+            chip = QPushButton(label)
+            chip.setCheckable(False)
+            chip.setProperty("role", "chip")
+            chip.clicked.connect(
+                lambda _checked=False, k=key:
+                self._set_optimization_status_filter(k)
+            )
+            quick_filters.addWidget(chip)
+        quick_filters.addStretch()
+        layout.addLayout(quick_filters)
+
         actions = QHBoxLayout()
         local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
         local_seo_btn.setProperty("role", "success")
@@ -2336,6 +2363,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
 
+
+    def _set_optimization_status_filter(self, key: str) -> None:
+        if not hasattr(self, "optimization_status_filter"):
+            return
+        index = self.optimization_status_filter.findData(str(key))
+        if index >= 0:
+            self.optimization_status_filter.setCurrentIndex(index)
+        self.reload_optimization_queue()
 
     def _selected_optimization_video_id(self) -> str:
         if not hasattr(self, "optimization_table"):
@@ -9087,6 +9122,77 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:
             self._error("Помилка безпечної оптимізації", exc)
+
+    def rollback_last_optimized_metadata(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Відкат заблоковано до наступного квотного дня.",
+            )
+            return
+        row = self.conn.execute(
+            """SELECT video_id,optimized_at
+               FROM optimization_events
+               WHERE profile=?
+               ORDER BY optimized_at DESC,event_id DESC
+               LIMIT 1""",
+            (self.current_profile,),
+        ).fetchone()
+        if row is None:
+            self._toast("Немає останньої оптимізації для відкату")
+            return
+        video_id = str(row["video_id"] or "")
+        snapshot = latest_metadata_snapshot(self.conn, video_id)
+        if snapshot is None:
+            self._toast("Для останньої оптимізації немає точки відкату")
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Відкотити останню зміну",
+            f"Відео: {video_id}\n"
+            f"Оптимізація: {str(row['optimized_at'] or '')[:19]}\n\n"
+            f"Повернути попередні назву, опис і теги? "
+            f"Це використає ≈{VIDEO_UPDATE_COST + READ_REQUEST_COST} од. квоти.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        import json
+        try:
+            current_title, current_description, current_tags = (
+                self._current_video_metadata(video_id)
+            )
+            save_metadata_snapshot(
+                self.conn,
+                video_id,
+                current_title,
+                current_description,
+                current_tags,
+                "before_quick_undo",
+            )
+            self._set_process(
+                f"Відкат · {video_id}",
+                "videos.update",
+                percent=None,
+                eta=f"≈{VIDEO_UPDATE_COST + READ_REQUEST_COST} од. квоти",
+            )
+            self._quota_update_video(
+                video_id,
+                title=snapshot["title"],
+                description=snapshot["description"],
+                tags=json.loads(snapshot["tags_json"] or "[]"),
+            )
+            sync_specific_videos(self.client, self.conn, [video_id])
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self._set_process_idle("Останню зміну відкотили")
+            self._toast("✓ Попередні метадані відновлено")
+        except Exception as exc:
+            self._error("Помилка швидкого відкату", exc)
 
     def rollback_selected_metadata(self) -> None:
         if quota_exhausted(self.conn):
