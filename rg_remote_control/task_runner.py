@@ -7428,6 +7428,19 @@ def inspect_auto_edit_thumbnail_candidate_writers() -> dict:
             out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
     return {"path":str(p),"functions":out}
 
+def inspect_auto_edit_thumbnail_mix_source() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_thumbnail_mix_prep.py")
+    src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+    keys=["write_candidate","host_window","face","crop","candidate_record","sample_candidates"]
+    hits=[]
+    for i,row in enumerate(rows):
+        if any(k.lower() in row.lower() for k in keys):
+            a=max(0,i-5);b=min(len(rows),i+16)
+            hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+    return {"path":str(p),"hits":hits[:120]}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7503,6 +7516,7 @@ ACTIONS = {
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
     "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
     "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
+    "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
