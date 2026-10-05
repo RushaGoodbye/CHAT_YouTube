@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "search_auto_edit_901_anchor_artifacts",
+  "action": "inspect_auto_edit_901_anchor_sequence",
   "args": {},
-  "nonce": "search-901-anchor-artifacts-20261006-6"
+  "nonce": "inspect-901-anchor-sequence-20261006-7"
 }
