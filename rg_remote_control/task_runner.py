@@ -8567,6 +8567,37 @@ def inspect_auto_edit_thumbnail_paths() -> dict:
             const.append(f"{i+1}: {row}")
     return {"constants":const,"functions":out}
 
+def inspect_auto_edit_backend_path_identity() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+    ]
+    out=[]
+    for root in roots:
+        row={"root":str(root),"exists":root.exists()}
+        try:
+            row["resolve"]=str(root.resolve())
+            row["is_symlink"]=root.is_symlink()
+            row["ui_exists"]=(root/"rg_studio_ui.py").is_file()
+            jobs=[]
+            for p in root.glob("MIX_*/THUMBNAIL"):
+                try:
+                    files=[str(x) for x in p.rglob("*.png")]
+                    mf=p/"RG_THUMBNAIL_PREP.json"
+                    jobs.append({"thumb":str(p),"mtime":p.stat().st_mtime,"png_count":len(files),"png_sample":files[:10],"manifest":str(mf),"manifest_exists":mf.is_file()})
+                except Exception as exc:
+                    jobs.append({"thumb":str(p),"error":repr(exc)})
+            jobs.sort(key=lambda x:x.get("mtime",0),reverse=True)
+            row["jobs"]=jobs[:5]
+        except Exception as exc:
+            row["error"]=repr(exc)
+        out.append(row)
+    ps=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",
+      "$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*' }; $p | Select ProcessId,CommandLine | ConvertTo-Json -Compress"],timeout=30)
+    return {"roots":out,"studio_processes":(ps.get("stdout") or "").strip()}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8651,6 +8682,7 @@ ACTIONS = {
     "inspect_auto_edit_thumbnail_mix_main": inspect_auto_edit_thumbnail_mix_main,
     "inspect_auto_edit_latest_thumbnail_state": inspect_auto_edit_latest_thumbnail_state,
     "inspect_auto_edit_thumbnail_paths": inspect_auto_edit_thumbnail_paths,
+    "inspect_auto_edit_backend_path_identity": inspect_auto_edit_backend_path_identity,
     "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
