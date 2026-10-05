@@ -393,15 +393,20 @@ def _recover_missing_description(
     public_context: dict[str, Any],
     model: str,
 ) -> str:
-    """Focused zero-quota recovery when the local model omitted description."""
+    """Focused zero-quota recovery for missing or too-thin descriptions."""
     if not transcript.strip():
         return ""
-    prompt = f"""
+
+    last = ""
+    for attempt in range(2):
+        prompt = f"""
 Створи ЛИШЕ український опис YouTube-відео за транскриптом.
 Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
-Довжина: 350-900 символів.
+Довжина: 450-850 символів. Потрібно щонайменше 320 символів.
 Перші 1-2 речення конкретно пояснюють, що відбувається у відео.
-Не додавай посилання, хештеги, ENGLISH SUMMARY або заголовок.
+Далі коротко назви 2-4 реальні теми або тези, які прямо є в транскрипті.
+Не додавай посилання, хештеги, ENGLISH SUMMARY, заголовок чи службові фрази.
+Не пиши загальні фрази типу "обговорюються важливі теми".
 Поверни JSON рівно такого формату:
 {{"description":"..."}}
 
@@ -409,28 +414,36 @@ def _recover_missing_description(
 {current_title}
 
 ПУБЛІЧНИЙ КОНТЕКСТ:
-{json.dumps(public_context or {}, ensure_ascii=False)[:3500]}
+{json.dumps(public_context or {}, ensure_ascii=False)[:2500]}
 
 ТРАНСКРИПТ:
-{transcript[:10000]}
+{transcript[:12000]}
 """.strip()
-    raw = ollama_chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Ти точний редактор YouTube. "
-                    "Поверни тільки JSON з одним ключем description."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        model=model,
-        temperature=0.05,
-        json_mode=True,
-    )
-    recovered = _normalize_seo_candidate(_extract_json_object(raw))
-    return str(recovered.get("description") or "").strip()
+        if attempt:
+            prompt += (
+                "\n\nПОПЕРЕДНЯ ВІДПОВІДЬ БУЛА ЗАКОРОТКОЮ. "
+                "Напиши повний змістовний опис 450-850 символів."
+            )
+        raw = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ти точний редактор YouTube. "
+                        "Поверни тільки JSON з одним ключем description."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            model=model,
+            temperature=0.05,
+            json_mode=True,
+        )
+        recovered = _normalize_seo_candidate(_extract_json_object(raw))
+        last = str(recovered.get("description") or "").strip()
+        if len(last) >= 320:
+            return last
+    return last
 
 
 def _recover_title_variants(
@@ -603,7 +616,17 @@ chapters: рядок з підтвердженими таймкодами або
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
             description_candidate = str(candidate.get("description") or "").strip()
-            if transcript.strip() and len(description_candidate) < 280:
+            if transcript.strip() and len(description_candidate) < 320:
+                recovered_description = _recover_missing_description(
+                    current_title=current_title,
+                    transcript=transcript,
+                    public_context=context,
+                    model=model,
+                )
+                if recovered_description:
+                    candidate["description"] = recovered_description
+                    description_candidate = recovered_description
+            if transcript.strip() and len(description_candidate) < 320:
                 raise ValueError("description too thin for transcript-backed SEO")
             payload = candidate
             break
