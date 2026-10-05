@@ -514,6 +514,209 @@ def live_archive_audit() -> dict:
         conn.close()
 
 
+
+def apply_live_archive_safe_batch(task: dict) -> dict:
+    """Use remaining quota on safe metadata fixes for published LIVE videos only."""
+    from rg_youtube_control.db import (
+        connect,
+        log_action,
+        record_optimization_event,
+        save_metadata_snapshot,
+    )
+    from rg_youtube_control.optimization import (
+        archive_potential_score,
+        is_safe_archive_candidate,
+        safe_description_fix,
+        safe_description_needs_content_package,
+    )
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        SAFE_METADATA_ITEM_COST,
+        VIDEO_UPDATE_COST,
+        mark_quota_exhausted,
+        quota_budget_status,
+        record_quota_units,
+        reserve_safe_batch_capacity,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+    from statistics import median
+
+    args = task.get("args") or {}
+    requested = max(1, min(int(args.get("max_items") or 20), 50))
+
+    conn = connect(_db_path())
+    try:
+        budget = quota_budget_status(conn)
+        if bool(budget["exhausted"]):
+            return {
+                "profile": "live",
+                "scheduled_excluded": True,
+                "changed": 0,
+                "reason": "quota_exhausted",
+                "quota_before": budget,
+            }
+
+        rows = conn.execute(
+            """SELECT v.video_id,v.title,v.views,v.audit_json,
+                      a.analytics_views,a.impressions,a.ctr_percent
+               FROM videos v
+               LEFT JOIN video_analytics_cache a
+                 ON a.video_id=v.video_id AND a.profile=v.profile
+               WHERE v.profile='live'
+                 AND v.privacy_status='public'
+                 AND v.scheduled_publish_at IS NULL"""
+        ).fetchall()
+
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
+
+        ranked = []
+        for row in rows:
+            try:
+                issues = list(json.loads(row["audit_json"] or "{}").get("issues", []))
+            except Exception:
+                issues = []
+            if not is_safe_archive_candidate(issues):
+                continue
+            potential = archive_potential_score(
+                lifetime_views=int(row["views"] or 0),
+                analytics_views=int(row["analytics_views"] or 0),
+                impressions=int(row["impressions"] or 0),
+                ctr_percent=float(row["ctr_percent"] or 0),
+                median_ctr_percent=float(channel_median_ctr),
+                issues=issues,
+            )
+            ranked.append((int(potential), int(row["views"] or 0), str(row["video_id"])))
+
+        ranked.sort(reverse=True)
+        candidate_ids = [item[2] for item in ranked]
+        allowed = reserve_safe_batch_capacity(
+            int(budget["spendable"]),
+            min(requested, len(candidate_ids)),
+            final_refresh_reads=1,
+        )
+        candidate_ids = candidate_ids[:allowed]
+        if not candidate_ids:
+            return {
+                "profile": "live",
+                "scheduled_excluded": True,
+                "changed": 0,
+                "safe_candidates": len(ranked),
+                "quota_before": budget,
+                "reason": "no_affordable_safe_candidates",
+            }
+
+        backup_path = _backup_database(conn)
+        client = YouTubeClient(profile="live")
+        client.credentials()
+        before_units = today_quota_units(conn)
+
+        items, requests = client.video_details_with_request_count(candidate_ids)
+        record_quota_units(
+            conn,
+            int(requests) * READ_REQUEST_COST,
+            purpose="service",
+        )
+        current = {str(item.get("id") or ""): item for item in items}
+
+        changed = []
+        skipped = []
+        errors = []
+        for video_id in candidate_ids:
+            item = current.get(video_id)
+            if not item:
+                skipped.append({"video_id": video_id, "reason": "metadata_missing"})
+                continue
+            snippet = item.get("snippet", {}) or {}
+            title = str(snippet.get("title") or "")
+            description = str(snippet.get("description") or "")
+            tags = list(snippet.get("tags") or [])
+            fix = safe_description_fix(description, title)
+            if safe_description_needs_content_package(fix.after, title):
+                skipped.append({"video_id": video_id, "reason": "needs_content_package"})
+                continue
+            if not fix.changes or fix.after == description:
+                skipped.append({"video_id": video_id, "reason": "already_safe"})
+                continue
+
+            fresh = quota_budget_status(conn)
+            if int(fresh["spendable"]) < VIDEO_UPDATE_COST:
+                break
+            try:
+                history_id = save_metadata_snapshot(
+                    conn,
+                    video_id,
+                    title,
+                    description,
+                    tags,
+                    "before_live_archive_safe_batch",
+                )
+                client.update_video(
+                    video_id,
+                    description=fix.after,
+                )
+                record_quota_units(
+                    conn,
+                    VIDEO_UPDATE_COST,
+                    purpose="video",
+                )
+                record_optimization_event(
+                    conn,
+                    history_id=history_id,
+                    video_id=video_id,
+                    profile="live",
+                    reason="safe_optimization",
+                    changed_fields="посилання + хештеги",
+                )
+                changed.append({
+                    "video_id": video_id,
+                    "title": title,
+                    "changes": list(fix.changes),
+                })
+            except Exception as exc:
+                if "quotaexceeded" in str(exc).casefold():
+                    mark_quota_exhausted(conn)
+                errors.append({"video_id": video_id, "error": str(exc)})
+                if "quota" in str(exc).casefold():
+                    break
+
+        after = quota_budget_status(conn)
+        log_action(
+            conn,
+            profile="live",
+            category="архів",
+            action="Безпечний LIVE-пакет",
+            details=(
+                f"опубліковані тільки; заплановані виключено; "
+                f"оновлено {len(changed)}; пропущено {len(skipped)}; "
+                f"помилок {len(errors)}"
+            ),
+        )
+        return {
+            "profile": "live",
+            "scheduled_excluded": True,
+            "requested": requested,
+            "safe_candidates": len(ranked),
+            "selected": len(candidate_ids),
+            "changed": len(changed),
+            "changed_items": changed,
+            "skipped": skipped,
+            "errors": errors,
+            "backup": str(backup_path),
+            "youtube_api_units_tracked": max(0, today_quota_units(conn) - before_units),
+            "quota_before": budget,
+            "quota_after": after,
+        }
+    finally:
+        conn.close()
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -2708,6 +2911,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_apply_live_archive_safe_batch":
+        result = apply_live_archive_safe_batch(task)
     elif action == "youtube_local_live_archive_audit":
         result = live_archive_audit()
     elif action == "youtube_local_stop_legacy_gui":
