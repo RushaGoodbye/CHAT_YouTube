@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_completeness_hotfix",
-  "args": {},
-  "nonce": "20261005-completeness-v2-apply"
+  "action": "start_auto_edit_recovery_queue",
+  "args": {
+    "streams": [
+      "892"
+    ]
+  },
+  "nonce": "20261005-recheck-892-completeness-v2"
 }
