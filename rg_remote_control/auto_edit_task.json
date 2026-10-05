@@ -1,7 +1,7 @@
 {
   "target":"alexpc",
   "contour":"auto_edit",
-  "action":"build_auto_edit_pack160_update",
+  "action":"inspect_auto_edit_visual_targets",
   "args":{},
-  "nonce":"20261005-pack160-build-1"
+  "nonce":"20261005-pack170-visual-targets"
 }
