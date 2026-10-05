@@ -8868,6 +8868,39 @@ def inspect_auto_edit_clock_boundary_code() -> dict:
         out.append({"path":str(p),"functions":funcs})
     return {"items":out}
 
+def inspect_auto_edit_901_temp_artifacts() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import time
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"RG_AUTO_EDIT",
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+      Path(os.getenv("TEMP") or r"C:\Windows\Temp"),
+    ]
+    now=time.time(); rows=[]
+    for root in roots:
+        if not root.exists(): continue
+        try:
+            for p in root.rglob("*901*"):
+                try:
+                    if not p.is_file(): continue
+                    st=p.stat()
+                    if now-st.st_mtime > 3*24*3600: continue
+                    row={"path":str(p),"size":st.st_size,"mtime":st.st_mtime}
+                    if p.suffix.lower() in {".json",".txt",".log",".trace"} and st.st_size<=2_000_000:
+                        try:
+                            txt=p.read_text(encoding="utf-8",errors="replace")
+                            row["text"]=txt[-50000:]
+                        except Exception as exc:
+                            row["read_error"]=repr(exc)
+                    rows.append(row)
+                except Exception:
+                    pass
+        except Exception as exc:
+            rows.append({"root":str(root),"scan_error":repr(exc)})
+    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
+    return {"items":rows[:250]}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8962,6 +8995,7 @@ ACTIONS = {
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
+    "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
