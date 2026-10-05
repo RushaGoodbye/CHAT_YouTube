@@ -1269,12 +1269,17 @@ class MainWindow(QMainWindow):
             bool(probes.get("transcript", {}).get("available")),
             "Transcript",
         )
-        self._set_health_state("vidiq", vidiq.remaining >= 0, "vidIQ")
+        self._set_health_state(
+            "vidiq",
+            vidiq.remaining > 0,
+            "vidIQ",
+            warning=vidiq.remaining <= vidiq.reserve,
+        )
         self._set_health_state(
             "api",
             not bool(budget["exhausted"]),
             "API",
-            working=quota_percent >= 75 and not bool(budget["exhausted"]),
+            warning=quota_percent >= 75 and not bool(budget["exhausted"]),
         )
 
         if hasattr(self, "activity_list"):
@@ -1711,13 +1716,29 @@ class MainWindow(QMainWindow):
         label: str,
         *,
         working: bool = False,
+        warning: bool = False,
     ) -> None:
         if not hasattr(self, "health_labels") or key not in self.health_labels:
             return
         widget = self.health_labels[key]
-        widget.setText(f"{label} · {'BUSY' if working else 'OK' if ok else '—'}")
+        state_text = (
+            "BUSY"
+            if working
+            else "LOW"
+            if warning
+            else "OK"
+            if ok
+            else "—"
+        )
+        widget.setText(f"{label} · {state_text}")
         widget.setObjectName(
-            "StatusWork" if working else "StatusGood" if ok else "StatusBad"
+            "StatusWork"
+            if working
+            else "StatusWarn"
+            if warning
+            else "StatusGood"
+            if ok
+            else "StatusBad"
         )
         widget.style().unpolish(widget)
         widget.style().polish(widget)
