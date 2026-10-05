@@ -2496,6 +2496,54 @@ def inspect_ready_scheduled_mismatches() -> dict:
     finally:
         conn.close()
 
+def promote_reviewed_draft(task: dict) -> dict:
+    """Promote one already-reviewed local SEO draft from draft to ready."""
+    from rg_youtube_control.db import connect, get_optimization_draft, set_optimization_draft_status
+
+    args = task.get("args") or {}
+    video_id = str(args.get("video_id") or "").strip()
+    if not video_id:
+        raise RuntimeError("video_id is required")
+
+    conn = connect(_db_path())
+    try:
+        draft = get_optimization_draft(conn, video_id)
+        if draft is None:
+            raise RuntimeError(f"No optimization draft for {video_id}")
+
+        try:
+            tags = json.loads(draft["tags_json"] or "[]")
+        except Exception:
+            tags = []
+        try:
+            variants = json.loads(draft["title_variants_json"] or "[]")
+        except Exception:
+            variants = []
+
+        check = validate_content_package(
+            str(draft["new_title"] or "").strip(),
+            str(draft["description"] or "").strip(),
+            str(draft["chapters"] or "").strip(),
+            tags if isinstance(tags, list) else [],
+            variants if isinstance(variants, list) else [],
+        )
+        if not check.ready:
+            raise RuntimeError("Draft validation failed: " + "; ".join(check.errors))
+
+        old_status = str(draft["status"] or "")
+        set_optimization_draft_status(conn, video_id, "ready")
+        return {
+            "youtube_api_calls": 0,
+            "video_id": video_id,
+            "old_status": old_status,
+            "new_status": "ready",
+            "tags": len(tags) if isinstance(tags, list) else 0,
+            "variants": len(variants) if isinstance(variants, list) else 0,
+        }
+    finally:
+        conn.close()
+
+
 def set_vidiq_budget_state(task: dict) -> dict:
     """Sync the local shared vidIQ counter from an external balance check."""
     from rg_youtube_control.db import connect, log_action
@@ -2592,6 +2640,8 @@ def main() -> int:
         result = inspect_ready_scheduled_mismatches()
     elif action == "youtube_local_set_vidiq_budget_state":
         result = set_vidiq_budget_state(task)
+    elif action == "youtube_local_promote_reviewed_draft":
+        result = promote_reviewed_draft(task)
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
