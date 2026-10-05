@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_recovery_queue",
+  "action": "locate_auto_edit_missing_screens",
   "args": {},
-  "nonce": "20261005-inspect-recovery-progress-3"
+  "nonce": "20261005-locate-missing-screens-nas-1"
 }
