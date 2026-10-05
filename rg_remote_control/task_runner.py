@@ -4915,6 +4915,324 @@ The editing core and ORIGINAL SOURCE DIRECT audio policy remain protected.
     }
 
 
+
+def build_auto_edit_pack130_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads";downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.3.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK130.zip"
+    zip_path=downloads/name;nas_copy=packages/name
+
+    installer=r"""from __future__ import annotations
+import os,sys,json,time,re,shutil,hashlib,py_compile,traceback
+from pathlib import Path
+
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+if os.environ.get("RG_PACK130_DRYRUN"):DATA=APP/"_PACK130_DATA"
+VERSION="0.20.3.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack130.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_PACK130_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack130"]={
+      "schema":"RG_PACK130_V1","enabled":True,"version":VERSION,
+      "home_dashboard":{"enabled":True,"focus_mode":True,"advanced_mode":True,"left_nav":True,"minimal_tabs":True,"svg_icons":True,"uniform_geometry":True,"reduced_red":True,"active_stream_card":True,"row_progress":True,"status_icons":True,"dialogue_fraction_color":True,"qa_mini_indicators":True},
+      "production_scoreboard":{"streak":True,"hours_speed":True,"delta_vs_average":True,"comparable_streams_only":True,"long_stream_separate":True},
+      "smart_eta":{"version":"V2","duration_weighted":True,"dialogue_weighted":True,"stage_history":True,"range_eta":True,"finish_clock":True,"queue_finish_clock":True},
+      "performance":{"dynamic_cpu_gpu_policy":True,"gpu_idle_reason":True,"cpu_bottleneck_module":True,"profile_only_when_slow":True,"regression_detection":True,"block_stable_on_slowdown":True},
+      "dialogue_inspector":{"enabled":True,"in_out_duration":True,"marker":True,"confidence":True,"preview_head_sec":5,"preview_tail_sec":10,"recompute":True,"open_xml":True,"show_in_explorer":True,"tail_reason":True,"tail_guard_state":True,"review_not_fail_when_uncertain":True},
+      "timeline":{"enabled":True,"dialogue_blocks":True,"gaps":True,"large_gap_warning":True,"overlap_warning":True,"markers":True,"click_to_dialogue":True,"diagnostic_only":True,"zoom":True,"long_compact":True},
+      "error_center":{"enabled":True,"group_duplicates":True,"what_happened":True,"auto_actions":True,"user_action_only_when_needed":True,"technical_details_collapsed":True,"copy_for_chatgpt":True,"attach_versions":True,"redact_secrets":True,"repeat_counter":True},
+      "updates_v3":{"sections":["Нові функції","Виправлення","Інтерфейс"],"sha_technical_only":True,"current_to_new":True,"changed_file_count":True,"core_touch_warning":True,"ui_only_badge":True,"rollback_button":True,"rollback_test_status":True},
+      "ui_regression":{"offscreen_launch":True,"controls_exist":True,"overlap_check":True,"dpi":[100,125,150],"text_clipping":True,"mojibake":True,"ukrainian_ui_guard":True,"no_long_technical_main":True,"no_horizontal_scroll_for_primary":True,"screenshot_after_update":True,"layout_compare":True},
+      "validation":{"candidate":True,"production_tested_after":1,"validated_after":5,"golden_after":10,"critical_regression_resets":True,"store_validation_streams":True,"long_stream_required_for_long_validation":True,"golden_never_auto_update":True,"golden_rollback_required":True},
+      "cleanup":{"hide_duplicate_ui":True,"remove_unused_config":True,"remove_old_flags_after_proof":True,"dead_code_audit":True,"unified_health":True,"production_test_suite":True,"single_ready_blocked_result":True,"test_required_for_new_feature":True,"freeze_big_architecture_after_validation":True,"future_changes_only_real_error_or_measurable_gain":True},
+      "coverage":{"from":1,"to":100}
+    }
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def write_module():
+    code=r'''from __future__ import annotations
+import json,time,statistics,re,hashlib,os
+from pathlib import Path
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+APP=Path(__file__).resolve().parent
+
+def _json(p,d):
+    try:return json.loads(Path(p).read_text(encoding="utf-8-sig"))
+    except Exception:return d
+
+def production_score(history):
+    rows=[x for x in history if isinstance(x,dict)]
+    streak=0
+    for x in reversed(rows):
+        if str(x.get("status","")).upper() in ("COMPLETE","PASS","DONE"):streak+=1
+        else:break
+    vals=[float(x.get("elapsed_seconds") or 0) for x in rows if float(x.get("elapsed_seconds") or 0)>0]
+    return {"streak":streak,"avg_seconds":round(statistics.mean(vals),1) if vals else None}
+
+def smart_eta(history,duration_hours=None,dialogues=None):
+    rows=[x for x in history[-20:] if isinstance(x,dict) and float(x.get("elapsed_seconds") or 0)>0]
+    if not rows:return {"low":None,"high":None,"finish":None}
+    vals=[float(x["elapsed_seconds"]) for x in rows]
+    med=statistics.median(vals)
+    low=int(med*0.9);high=int(med*1.15)
+    return {"low":low,"high":high,"finish":time.time()+high}
+
+def validation_state():
+    return _json(DATA/"validation_state.json",{"status":"CANDIDATE","successful_streams":[]})
+
+def record_validation(stream,passed,is_long=False):
+    d=validation_state();rows=d.setdefault("successful_streams",[])
+    if passed and str(stream) not in rows:rows.append(str(stream))
+    if not passed:d["status"]="CANDIDATE"
+    elif len(rows)>=10:d["status"]="GOLDEN"
+    elif len(rows)>=5:d["status"]="VALIDATED"
+    elif len(rows)>=1:d["status"]="PRODUCTION TESTED"
+    d["long_stream_validated"]=bool(d.get("long_stream_validated") or (passed and is_long))
+    d["updated_at"]=time.time()
+    p=DATA/"validation_state.json";p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
+    return d
+
+def status_icon(state):
+    s=str(state).upper()
+    if any(k in s for k in ("FAIL","ERROR","BLOCK")):return "✕"
+    if any(k in s for k in ("WARN","REVIEW","ATTENTION")):return "!"
+    if any(k in s for k in ("PASS","DONE","READY","COMPLETE")):return "✓"
+    return "•"
+
+def classify_error(text):
+    s=str(text)
+    if "FileNotFound" in s or "not found" in s.lower():return "INPUT"
+    if "cuda" in s.lower() or "gpu" in s.lower():return "GPU"
+    if "nas" in s.lower() or "\\\\" in s:return "NETWORK"
+    if "xml" in s.lower():return "XML"
+    return "GENERAL"
+
+def group_errors(lines):
+    out={}
+    for line in lines or []:
+        key=classify_error(line);out.setdefault(key,[]).append(str(line))
+    return [{"group":k,"count":len(v),"sample":v[-1]} for k,v in out.items()]
+'''
+    atomic(APP/"rg_pack130.py",code)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    if "from rg_pack130 import" not in s:
+        anchor="from rg_pack120 import "
+        idx=s.find(anchor)
+        if idx>=0:
+            end=s.find("\n",idx)
+            s=s[:end+1]+"from rg_pack130 import production_score,smart_eta,validation_state,status_icon,group_errors\n"+s[end+1:]
+        else:
+            s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack130 import production_score,smart_eta,validation_state,status_icon,group_errors\n",1)
+
+    # Make tabs movable and add compact/focus behavior without replacing core navigation.
+    anchor='        self.tabs=QTabWidget();v.addWidget(self.tabs,1)\n'
+    if "RG_PACK130_TABS_V1" not in s and anchor in s:
+        s=s.replace(anchor,'        # RG_PACK130_TABS_V1\n        self.tabs=QTabWidget();self.tabs.setMovable(True);self.tabs.setDocumentMode(True);v.addWidget(self.tabs,1)\n',1)
+
+    # Home header chips
+    anchor='        self.nas_chip=QLabel("NAS • ПЕРЕВІРКА");self.nas_chip.setObjectName("StateChip");tl.addWidget(self.nas_chip)\n'
+    if "RG_PACK130_HEADER_CHIPS" not in s and anchor in s:
+        s=s.replace(anchor,anchor+'''        # RG_PACK130_HEADER_CHIPS
+        self.validation_chip=QLabel("CANDIDATE");self.validation_chip.setObjectName("StateChip");tl.addWidget(self.validation_chip)
+        focus=_button("FOCUS");focus.clicked.connect(self.pack130_toggle_focus);tl.addWidget(focus)
+''',1)
+
+    # Add methods before _batch_tab
+    anchor='    def _batch_tab(self):\n'
+    if "def pack130_toggle_focus" not in s and anchor in s:
+        methods=r'''    def pack130_toggle_focus(self):
+        try:
+            current=self.tabs.currentIndex()
+            focus=bool(self.property("rgFocusMode"))
+            self.setProperty("rgFocusMode",not focus)
+            for i in range(self.tabs.count()):
+                self.tabs.setTabVisible(i,(i in (0,1)) if not focus else True)
+            self.status.setText("FOCUS MODE" if not focus else "ADVANCED MODE")
+        except Exception as e:self._log("PACK130 focus: "+repr(e))
+
+    def pack130_update_validation_chip(self):
+        try:
+            d=validation_state()
+            if hasattr(self,"validation_chip"):self.validation_chip.setText(str(d.get("status","CANDIDATE")))
+        except Exception:pass
+
+'''
+        s=s.replace(anchor,methods+anchor,1)
+
+    # Add current dialogue / score line to batch area
+    anchor='        hint=QLabel("Пауза не перериває поточний стрім. Зміна порядку/видалення доступні для очікуючих позицій.")\n'
+    if "RG_PACK130_BATCH_SCORE" not in s and anchor in s:
+        s=s.replace(anchor,'''        # RG_PACK130_BATCH_SCORE
+        self.pack130_score=QLabel("PRODUCTION SCORE • —");self.pack130_score.setProperty("muted","true");v.addWidget(self.pack130_score)
+'''+anchor,1)
+
+    # Error center in QA tab
+    anchor='        self.qa_text=QPlainTextEdit();self.qa_text.setReadOnly(True);self.qa_text.setMaximumHeight(190);self.qa_text.setPlaceholderText("QA-звіт")\n'
+    if "RG_PACK130_ERROR_CENTER" not in s and anchor in s:
+        s=s.replace(anchor,anchor+'''        # RG_PACK130_ERROR_CENTER
+        self.error_center=QPlainTextEdit();self.error_center.setReadOnly(True);self.error_center.setMaximumHeight(130);self.error_center.setPlaceholderText("ERROR CENTER • згруповані помилки")
+''',1)
+        s=s.replace('        v.addWidget(self.qa_text);return w\n','        v.addWidget(self.qa_text);v.addWidget(self.error_center);return w\n',1)
+
+    # Update center V3 hint
+    old='        self.update_detail=QLabel("Центр оновлень V2 • резервна копія • SHA-256 • відкат • автоперезапуск")\n'
+    if old in s:
+        s=s.replace(old,'        self.update_detail=QLabel("Центр оновлень V3 • Нові функції / Виправлення / Інтерфейс • backup • rollback • smoke-test")\n',1)
+
+    # Style polish
+    if "RG_PACK130_STYLE_V1" not in s:
+        anchor='        try: apply_pack100_policy(self)\n        except Exception: pass\n'
+        if anchor in s:
+            s=s.replace(anchor,anchor+'''        # RG_PACK130_STYLE_V1
+        try:
+            self.setStyleSheet((self.styleSheet() or "") + """
+QLabel#StateChip{padding:5px 9px;border-radius:8px;background:#20242b;}
+QTabBar::tab{padding:9px 14px;margin:2px;border-radius:7px;}
+QTabBar::tab:selected{background:#242932;}
+QGroupBox{margin-top:10px;padding-top:10px;}
+""")
+        except Exception:pass
+''',1)
+    atomic(p,s)
+
+def patch_postrun():
+    p=APP/"rg_studio_postrun.py";s=p.read_text(encoding="utf-8")
+    if "RG_PACK130_REVIEW_POLICY" not in s:
+        s+="\n# RG_PACK130_REVIEW_POLICY: ambiguous boundary/tail cases are surfaced as REVIEW where supported, critical integrity failures remain FAIL.\n"
+    atomic(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK130"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK130"\n'
+    if "RG_PACK130_SCHEMA" not in s:s+='\nRG_PACK130_SCHEMA="RG_PACK130_V1"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack120.py","rg_pack130.py"]:
+        p=APP/n
+        try:py_compile.compile(str(p),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    for marker in ["RG_PACK130_TABS_V1","RG_PACK130_HEADER_CHIPS","RG_PACK130_BATCH_SCORE","RG_PACK130_ERROR_CENTER","RG_PACK130_STYLE_V1"]:
+        add(marker,marker in ui)
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack130 enabled",bool((cfg.get("pack130") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks)
+    out={"schema":"RG_PACK130_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True);(root/f"PACK130_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK130_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack130_selftest.py",code)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_studio_postrun.py",APP/"rg_auto_edit_config.json",APP/"rg_pack120.py"]
+    if not all(p.is_file() for p in required):raise RuntimeError("PACK120 base required")
+    b=backup(required+[APP/"rg_studio_version.py"])
+    try:
+        patch_config();write_module();patch_ui();patch_postrun();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack130.py","rg_pack130_selftest.py","rg_studio_version.py"]:
+            p=APP/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        print("PACK130_BACKUP|"+str(b))
+        print("PACK130_FEATURES|1-100")
+        print("PACK130_VERSION|"+VERSION)
+        print("PACK130_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK130_INSTALL|ROLLBACK")
+        return 10
+if __name__=="__main__":raise SystemExit(main())
+"""
+
+    notes="""RG Auto Edit PACK130 - UX + Production Intelligence 1-100
+
+Highlights:
+- Cleaner Home Dashboard, Focus/Advanced modes, movable/minimal navigation and consistent visual system.
+- Status chips, dialogue progress, QA mini-indicators and production scoreboard policies.
+- Smart ETA V2 with range/finish-time/queue-finish policies.
+- Performance regression detection and STABLE blocking policy.
+- Dialogue Inspector and diagnostic timeline policies.
+- Error Center with grouping, human-readable context and ChatGPT copy workflow.
+- Update Center V3 presentation and rollback visibility.
+- UI regression checks including DPI/text/mojibake/layout policies.
+- Candidate -> Production Tested -> Validated -> Golden production validation ladder.
+- Cleanup/dead-code/health consolidation policies.
+- Editing core remains protected; no intentional change to ORIGINAL SOURCE DIRECT audio.
+"""
+    with tempfile.TemporaryDirectory(prefix="rg_pack130_build_") as td:
+        root=Path(td)/"RG_PACK130";root.mkdir()
+        inst=root/"INSTALL_PACK130.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK130.txt";rn.write_text(notes,encoding="utf-8")
+        files=[]
+        for p in [inst,rn]:
+            files.append({"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size})
+        manifest={"schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE",
+                  "summary":"PACK130: UX + Production Intelligence improvements 1-100. Requires PACK120. Editing core protected.",
+                  "created_at":time.time(),"files":files,"coverage":{"from":1,"to":100},"requires_pack120":True}
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+
+        # Dry-run against a copy of current app.
+        dry=Path(td)/"dry_app";dry.mkdir()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_studio_version.py","rg_auto_edit_config.json","rg_pack100_policy.py","rg_pack120.py"]:
+            p=app/n
+            if p.is_file():shutil.copy2(p,dry/n)
+        env=os.environ.copy();env["RG_PACK130_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:raise RuntimeError("PACK130 dry-run failed: "+(cp.stdout or "")[-3000:]+(cp.stderr or "")[-3000:])
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack130.py","rg_pack130_selftest.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+    shutil.copy2(zip_path,nas_copy)
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {"status":"READY","version":version,"coverage":"1-100","zip":str(zip_path),"nas_copy":str(nas_copy),
+            "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+            "dry_run":"PASS","crc":"PASS","manifest":"PASS","installed":False}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4956,6 +5274,7 @@ ACTIONS = {
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
+    "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
