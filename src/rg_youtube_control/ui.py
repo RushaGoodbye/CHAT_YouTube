@@ -3071,6 +3071,28 @@ class MainWindow(QMainWindow):
         )
         self.quota_reserve_spin.valueChanged.connect(self.save_quota_reserve)
 
+        vidiq_status = vidiq_budget_status(self.conn)
+        self.vidiq_monthly_limit_spin = QSpinBox()
+        self.vidiq_monthly_limit_spin.setRange(100, 100000)
+        self.vidiq_monthly_limit_spin.setSingleStep(100)
+        self.vidiq_monthly_limit_spin.setSuffix(" кредитів")
+        self.vidiq_monthly_limit_spin.setValue(vidiq_status.limit)
+        self.vidiq_monthly_limit_spin.valueChanged.connect(self.save_vidiq_budget)
+
+        self.vidiq_reserve_spin = QSpinBox()
+        self.vidiq_reserve_spin.setRange(0, 100000)
+        self.vidiq_reserve_spin.setSingleStep(50)
+        self.vidiq_reserve_spin.setSuffix(" кредитів")
+        self.vidiq_reserve_spin.setValue(vidiq_status.reserve)
+        self.vidiq_reserve_spin.valueChanged.connect(self.save_vidiq_budget)
+
+        self.vidiq_used_spin = QSpinBox()
+        self.vidiq_used_spin.setRange(0, max(vidiq_status.limit, 100000))
+        self.vidiq_used_spin.setSingleStep(10)
+        self.vidiq_used_spin.setSuffix(" кредитів")
+        self.vidiq_used_spin.setValue(vidiq_status.used)
+        self.vidiq_used_spin.valueChanged.connect(self.save_vidiq_usage)
+
         for spin in (
             self.daily_limit_spin,
             self.scan_limit_spin,
@@ -3078,12 +3100,17 @@ class MainWindow(QMainWindow):
             self.autopilot_interval_spin,
             self.autopilot_daily_spin,
             self.quota_reserve_spin,
+            self.vidiq_monthly_limit_spin,
+            self.vidiq_reserve_spin,
+            self.vidiq_used_spin,
         ):
             spin.setMinimumWidth(120)
             spin.setMaximumWidth(180)
 
         self.youtube_quota_label = QLabel()
         self.refresh_youtube_quota_label()
+        self.vidiq_quota_label = QLabel()
+        self.refresh_vidiq_quota_label()
         self.version_label = QLabel(f"Версія: {__version__}")
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
@@ -3247,6 +3274,24 @@ class MainWindow(QMainWindow):
         planner_settings_btn = QPushButton("Відкрити планувальник квоти")
         planner_settings_btn.clicked.connect(self.show_quota_planner)
         quota_card.addWidget(planner_settings_btn)
+
+        vidiq_card = settings_card(
+            archive_layout,
+            "vidIQ · AIR Boost",
+            "Один спільний ліміт для обох каналів: 2000 кредитів на акаунт "
+            "щомісяця. Enterprise у vidIQ був лише помилковою назвою тарифу. "
+            "Пріоритет: заплановані та нові публікації, ТОП архіву і фінальна "
+            "перевірка назв. Масові описи, теги, коментарі та архів - локально.",
+        )
+        self.vidiq_quota_label.setWordWrap(True)
+        self.vidiq_quota_label.setObjectName("QuotaSummary")
+        vidiq_card.addWidget(self.vidiq_quota_label)
+        vidiq_form = compact_form()
+        vidiq_form.addRow("Місячний ліміт", self.vidiq_monthly_limit_spin)
+        vidiq_form.addRow("Захищений резерв", self.vidiq_reserve_spin)
+        vidiq_form.addRow("Використано цього місяця", self.vidiq_used_spin)
+        vidiq_card.addLayout(vidiq_form)
+        vidiq_card.addWidget(settings_hint(vidiq_policy_summary()))
 
         self._refresh_archive_priority_controls()
         archive_layout.addStretch()
@@ -3563,6 +3608,17 @@ class MainWindow(QMainWindow):
                 f"резерв {budget['reserve']}"
             )
         self.youtube_quota_label.setText(text)
+
+    def refresh_vidiq_quota_label(self) -> None:
+        if not hasattr(self, "vidiq_quota_label"):
+            return
+        status = vidiq_budget_status(self.conn)
+        self.vidiq_quota_label.setText(
+            f"{status.plan} · період {status.period} · "
+            f"зафіксовано {status.used}/{status.limit} · "
+            f"залишок {status.remaining} · резерв {status.reserve} · "
+            f"доступно для неприоритетних запитів {status.spendable}"
+        )
 
     def _quota_update_video_with_client(
         self,
@@ -8945,6 +9001,36 @@ class MainWindow(QMainWindow):
             str(self.quota_reserve_spin.value()),
         )
         self.refresh_youtube_quota_label()
+        self.update_task_center()
+
+    def save_vidiq_budget(self, _value: int = 0) -> None:
+        limit = int(self.vidiq_monthly_limit_spin.value())
+        reserve = min(int(self.vidiq_reserve_spin.value()), limit)
+        if reserve != self.vidiq_reserve_spin.value():
+            self.vidiq_reserve_spin.blockSignals(True)
+            self.vidiq_reserve_spin.setValue(reserve)
+            self.vidiq_reserve_spin.blockSignals(False)
+        status = set_vidiq_limits(
+            self.conn,
+            limit=limit,
+            reserve=reserve,
+        )
+        self.vidiq_used_spin.blockSignals(True)
+        self.vidiq_used_spin.setMaximum(max(status.limit, 100000))
+        self.vidiq_used_spin.setValue(status.used)
+        self.vidiq_used_spin.blockSignals(False)
+        self.refresh_vidiq_quota_label()
+        self.update_task_center()
+
+    def save_vidiq_usage(self, _value: int = 0) -> None:
+        status = set_vidiq_manual_usage(
+            self.conn,
+            int(self.vidiq_used_spin.value()),
+        )
+        self.vidiq_used_spin.blockSignals(True)
+        self.vidiq_used_spin.setValue(status.used)
+        self.vidiq_used_spin.blockSignals(False)
+        self.refresh_vidiq_quota_label()
         self.update_task_center()
 
     def save_auto_setting(self, _state: int) -> None:
