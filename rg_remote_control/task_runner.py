@@ -3131,6 +3131,28 @@ def apply_auto_edit_completeness_hotfix() -> dict:
     }
 
 
+def inspect_auto_edit_execution_functions() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_execution_functions must run on AlexPC/Windows")
+    import ast
+    path = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    source = path.read_text(encoding="utf-8", errors="replace")
+    rows = source.splitlines()
+    tree = ast.parse(source)
+    wanted = {
+        "_start_stream","start","start_process","on_finished",
+        "_save_batch_ui_state","_load_batch_ui_state","_batch_next",
+        "_run_postrun","_archive_run","_finish_run","_start_process",
+    }
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in wanted:
+            a=max(0,int(node.lineno)-1)
+            b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            out[node.name]="\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -3199,6 +3221,7 @@ ACTIONS = {
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
+    "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
