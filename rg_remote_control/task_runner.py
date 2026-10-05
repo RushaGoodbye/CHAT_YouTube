@@ -3199,12 +3199,18 @@ def apply_auto_edit_completeness_hotfix() -> dict:
     if marker not in source:
         raise RuntimeError("Postrun insertion marker not found")
 
+    # Repair V1 if the embedded regex was over-escaped in the generated live file.
+    bad_regex = 'r"(?:_(\\\\d+))?(?:_SHORTS|_UNCENSORED)?\\\\.xml$"'
+    good_regex = 'r"(?:_(\\d+))?(?:_SHORTS|_UNCENSORED)?\\.xml$"'
+    if bad_regex in source:
+        source = source.replace(bad_regex, good_regex)
+
     if "RG_EXPECTED_DIALOGUE_COMPLETENESS_V1" not in source:
         patch = marker + '''    # RG_EXPECTED_DIALOGUE_COMPLETENESS_V1
     def _dialogue_key(p):
         import re
         n=Path(p).name
-        m=re.match(r"^RG_EDITED_"+re.escape(str(a.stream))+r"(?:_(\\\\d+))?(?:_SHORTS|_UNCENSORED)?\\\\.xml$",n,re.I)
+        m=re.match(r"^RG_EDITED_"+re.escape(str(a.stream))+r"(?:_(\\d+))?(?:_SHORTS|_UNCENSORED)?\\.xml$",n,re.I)
         if not m:return None
         return m.group(1) or "MAIN"
     primary_ids={x for x in (_dialogue_key(p) for p in outs) if x}
