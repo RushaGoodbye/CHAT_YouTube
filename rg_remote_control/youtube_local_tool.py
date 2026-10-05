@@ -786,6 +786,61 @@ def launch_diagnostic() -> dict:
         "stderr": (err or "")[-8000:],
     }
 
+
+def sync_recent_live_for_today() -> dict:
+    """Sync only recent LIVE-channel videos and return scheduled candidates."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import sync_videos, today_quota_units
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    conn = connect()
+    try:
+        before = today_quota_units(conn)
+        client = YouTubeClient(profile="live")
+        client.credentials()
+        rows = sync_videos(client, conn, limit=20)
+        after = today_quota_units(conn)
+
+        kyiv_today = datetime.now(ZoneInfo("Europe/Kyiv")).date()
+        scheduled = []
+        for row in rows:
+            raw = str(row.get("scheduled_publish_at") or "")
+            if not raw:
+                continue
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                kyiv_dt = dt.astimezone(ZoneInfo("Europe/Kyiv"))
+                is_today = kyiv_dt.date() == kyiv_today
+                kyiv_iso = kyiv_dt.isoformat()
+            except Exception:
+                is_today = False
+                kyiv_iso = ""
+            scheduled.append({
+                "video_id": row.get("video_id"),
+                "profile": row.get("profile"),
+                "title": row.get("title"),
+                "scheduled_publish_at": raw,
+                "scheduled_kyiv": kyiv_iso,
+                "is_today_kyiv": is_today,
+                "privacy_status": row.get("privacy_status"),
+                "audit": row.get("audit"),
+            })
+
+        return {
+            "youtube_api_calls": max(0, after - before),
+            "synced": len(rows),
+            "today_kyiv": kyiv_today.isoformat(),
+            "scheduled": scheduled,
+            "today_scheduled": [
+                item for item in scheduled if item["is_today_kyiv"]
+            ],
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -807,6 +862,8 @@ def main() -> int:
         result = sync_and_launch_source()
     elif action == "youtube_local_launch_diagnostic":
         result = launch_diagnostic()
+    elif action == "youtube_local_sync_recent_live_for_today":
+        result = sync_recent_live_for_today()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
