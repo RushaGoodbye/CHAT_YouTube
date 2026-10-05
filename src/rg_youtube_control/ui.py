@@ -2032,7 +2032,9 @@ class MainWindow(QMainWindow):
             menu = QMenu(button)
             for text_value, callback in items:
                 action = QAction(text_value, menu)
-                action.triggered.connect(callback)
+                action.triggered.connect(
+                    lambda _checked=False, cb=callback: cb()
+                )
                 menu.addAction(action)
             button.setMenu(menu)
             return button
