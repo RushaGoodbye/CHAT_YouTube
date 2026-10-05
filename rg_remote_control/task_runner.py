@@ -5880,6 +5880,19 @@ def probe_auto_edit_studio_startup() -> dict:
         return {"alive":True,"returncode":None,"stdout":out[-4000:],"stderr":err[-4000:]}
 
 
+
+def inspect_auto_edit_ui_class() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    out=[]
+    for i,line in enumerate(rows):
+        if line.startswith("class ") or "addTab(" in line or "QTabWidget()" in line or "def main(" in line:
+            a=max(0,i-3);b=min(len(rows),i+8)
+            out.append("\n".join(f"{k+1}: {rows[k]}" for k in range(a,b)))
+            if len(out)>=60:break
+    return {"snippets":out}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5926,6 +5939,7 @@ ACTIONS = {
     "build_auto_edit_pack150_update": build_auto_edit_pack150_update,
     "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
     "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
+    "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
