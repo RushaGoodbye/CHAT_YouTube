@@ -4404,7 +4404,7 @@ def build_auto_edit_pack120_update() -> dict:
     zip_path=downloads/name
     nas_copy=packages/name
 
-    installer = r'''from __future__ import annotations
+    installer = r"""from __future__ import annotations
 import os,sys,json,time,re,shutil,hashlib,py_compile,traceback
 from pathlib import Path
 
@@ -4441,7 +4441,7 @@ def patch_once(text,marker,anchor,repl):
     return text.replace(anchor,repl,1)
 
 def write_pack120_module():
-    mod=r"""from __future__ import annotations
+    mod=r'''from __future__ import annotations
 import os,json,time,hashlib,re,shutil,subprocess,zipfile
 from pathlib import Path
 DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
@@ -4621,7 +4621,7 @@ def status_chip(state):
     if "WARN" in s or "CHECK" in s or "ATTENTION" in s:return "WARNING"
     if "ERROR" in s or "FAIL" in s or "BLOCK" in s:return "BLOCK"
     return "INFO"
-"""
+'''
     atomic_text(APP/"rg_pack120.py",mod)
 
 def patch_config():
@@ -4788,7 +4788,7 @@ def patch_version():
     atomic_text(p,s)
 
 def write_selftest():
-    code=r"""from __future__ import annotations
+    code=r'''from __future__ import annotations
 import json,py_compile,time
 from pathlib import Path
 from rg_pack120 import runtime_integrity,nas_latency_ms,verify_integrity,load_expected_inventory
@@ -4810,7 +4810,7 @@ def main():
     print("RG_PACK120_SELFTEST|"+json.dumps(out,ensure_ascii=False))
     return 0 if passed else 3
 if __name__=="__main__":raise SystemExit(main())
-"""
+'''
     atomic_text(APP/"rg_pack120_selftest.py",code)
 
 def compile_gate():
@@ -4840,7 +4840,7 @@ def main():
         print("PACK120_INSTALL|ROLLBACK")
         return 10
 if __name__=="__main__":raise SystemExit(main())
-'''
+"""
 
     notes = """RG Auto Edit PACK120 - 1-100 polish/control update
 
