@@ -397,32 +397,39 @@ def _recover_missing_description(
     if not transcript.strip():
         return ""
 
+    target_min = 320
+    hard_min = 260
     last = ""
-    for attempt in range(2):
-        prompt = f"""
-Створи ЛИШЕ український опис YouTube-відео за транскриптом.
+
+    base_prompt = f"""
+Створи український опис YouTube-відео ВИКЛЮЧНО за транскриптом.
 Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
-Довжина: 450-850 символів. Потрібно щонайменше 320 символів.
+Напиши 5-7 повних речень, приблизно 450-850 символів.
 Перші 1-2 речення конкретно пояснюють, що відбувається у відео.
-Далі коротко назви 2-4 реальні теми або тези, які прямо є в транскрипті.
+Далі назви 2-4 реальні теми, тези або позиції співрозмовника з транскрипту.
 Не додавай посилання, хештеги, ENGLISH SUMMARY, заголовок чи службові фрази.
 Не пиши загальні фрази типу "обговорюються важливі теми".
-Поверни JSON рівно такого формату:
-{{"description":"..."}}
 
 ПОТОЧНА НАЗВА:
 {current_title}
 
 ПУБЛІЧНИЙ КОНТЕКСТ:
-{json.dumps(public_context or {}, ensure_ascii=False)[:2500]}
+{json.dumps(public_context or {}, ensure_ascii=False)[:2200]}
 
 ТРАНСКРИПТ:
 {transcript[:12000]}
 """.strip()
+
+    for attempt in range(2):
+        prompt = (
+            base_prompt
+            + "\n\nПоверни JSON рівно такого формату: "
+            + '{"description":"..."}'
+        )
         if attempt:
             prompt += (
-                "\n\nПОПЕРЕДНЯ ВІДПОВІДЬ БУЛА ЗАКОРОТКОЮ. "
-                "Напиши повний змістовний опис 450-850 символів."
+                "\nПОПЕРЕДНІЙ ТЕКСТ БУВ ЗАКОРОТКИМ. "
+                "Перепиши повністю у 5-7 реченнях."
             )
         raw = ollama_chat(
             [
@@ -441,9 +448,53 @@ def _recover_missing_description(
         )
         recovered = _normalize_seo_candidate(_extract_json_object(raw))
         last = str(recovered.get("description") or "").strip()
-        if len(last) >= 320:
+        if len(last) >= target_min:
             return last
-    return last
+
+    for attempt in range(2):
+        prompt = (
+            base_prompt
+            + "\n\nПоверни ТІЛЬКИ готовий опис суцільним текстом, "
+              "без JSON, без лапок і без пояснень."
+        )
+        if attempt:
+            prompt += (
+                "\nПопередня версія була закороткою. "
+                "Напиши 6-8 змістовних речень, не менше 320 символів."
+            )
+        raw = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Напиши лише готовий український опис відео. "
+                        "Не додавай службових пояснень."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            model=model,
+            temperature=0.08,
+            json_mode=False,
+        )
+        value = str(raw or "").strip()
+        fence = chr(96) * 3
+        if value.startswith(fence):
+            value = value[len(fence):].lstrip()
+            if value.lower().startswith("text"):
+                value = value[4:].lstrip()
+            elif value.lower().startswith("markdown"):
+                value = value[8:].lstrip()
+        if value.endswith(fence):
+            value = value[:-len(fence)].rstrip()
+        value = re.sub(r"^\s*(?:Опис|Описание)\s*:\s*", "", value, flags=re.I)
+        value = value.strip().strip('"').strip()
+        if len(value) > len(last):
+            last = value
+        if len(last) >= target_min:
+            return last
+
+    return last if len(last) >= hard_min else last
 
 
 def _recover_title_variants(
@@ -616,7 +667,7 @@ chapters: рядок з підтвердженими таймкодами або
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
             description_candidate = str(candidate.get("description") or "").strip()
-            if transcript.strip() and len(description_candidate) < 320:
+            if transcript.strip() and len(description_candidate) < 260:
                 recovered_description = _recover_missing_description(
                     current_title=current_title,
                     transcript=transcript,
@@ -626,8 +677,8 @@ chapters: рядок з підтвердженими таймкодами або
                 if recovered_description:
                     candidate["description"] = recovered_description
                     description_candidate = recovered_description
-            if transcript.strip() and len(description_candidate) < 320:
-                raise ValueError("description too thin for transcript-backed SEO")
+            if transcript.strip() and len(description_candidate) < 260:
+                raise ValueError("description too thin for transcript-backed SEO (<260 chars)")
             payload = candidate
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
