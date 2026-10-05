@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_chatgpt_collage_flow",
+  "action": "inspect_auto_edit_recovery_queue",
   "args": {},
-  "nonce": "inspect-chatgpt-collage-flow-20261005-1"
+  "nonce": "check-recovery-RECOVERY_20261005_122034_2f3e5558-20261005T1939"
 }
