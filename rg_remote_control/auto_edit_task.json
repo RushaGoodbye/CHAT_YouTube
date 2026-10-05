@@ -1,14 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "start_auto_edit_recovery_queue",
-  "args": {
-    "streams": [
-      "889",
-      "890",
-      "891",
-      "892"
-    ]
-  },
-  "nonce": "20261005-start-recovery-queue-889-892-1"
+  "action": "inspect_auto_edit_recovery_queue",
+  "args": {},
+  "nonce": "20261005-inspect-recovery-after-launch-error-1"
 }
