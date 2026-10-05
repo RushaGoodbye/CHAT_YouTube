@@ -7441,6 +7441,31 @@ def inspect_auto_edit_thumbnail_mix_source() -> dict:
             hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
     return {"path":str(p),"hits":hits[:120]}
 
+def inspect_auto_edit_topaz_automation_and_prep() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for name in ["rg_topaz_automation.py","rg_thumbnail_prep.py"]:
+        p=root/name
+        if not p.is_file():
+            out[name]={"missing":True};continue
+        src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        funcs={}
+        try:
+            tree=ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                    a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                    body="\n".join(rows[a:b])
+                    if any(k.lower() in body.lower() for k in ("topaz","write_candidate","host_window","crop","face","input","ready","process","close","kill")):
+                        funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+        except Exception as exc:
+            funcs={"parse_error":repr(exc)}
+        out[name]={"path":str(p),"functions":funcs}
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7517,6 +7542,7 @@ ACTIONS = {
     "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
     "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
     "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
+    "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
