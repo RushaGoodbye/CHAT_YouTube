@@ -1,7 +1,7 @@
 {
   "target":"alexpc",
   "contour":"auto_edit",
-  "action":"launch_auto_edit_studio",
+  "action":"inspect_auto_edit_runtime_state",
   "args":{},
-  "nonce":"20261005-pack150-hotfix-launch"
+  "nonce":"20261005-pack150-startup-fail-inspect"
 }
