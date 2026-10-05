@@ -6764,6 +6764,26 @@ def inspect_auto_edit_progress_functions() -> dict:
     return {"path":str(p),"functions":out}
 
 
+def inspect_auto_edit_run_log() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    task_path=Path(sys.argv[1] if len(sys.argv)>1 else "rg_remote_control/auto_edit_task.json")
+    task=json.loads(task_path.read_text(encoding="utf-8"))
+    stream=str(((task.get("args") or {}).get("stream") or "")).strip()
+    if not stream.isdigit(): raise RuntimeError("stream must be numeric")
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\run_manifests")/stream
+    p=root/"STUDIO_RUN.log"
+    out={"stream":stream,"path":str(p),"exists":p.is_file()}
+    if not p.is_file(): return out
+    lines=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    prog=[x for x in lines if "RGPROGRESS|" in x]
+    hb=[x for x in lines if "RGHEARTBEAT|" in x]
+    eta=[x for x in lines if "RGETA|" in x]
+    out.update({"lines":len(lines),"progress_count":len(prog),"heartbeat_count":len(hb),"eta_count":len(eta),
+                "progress_first":prog[:12],"progress_last":prog[-20:],"eta_last":eta[-10:],"tail":lines[-80:]})
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6815,6 +6835,7 @@ ACTIONS = {
     "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
     "inspect_auto_edit_progress_pipeline": inspect_auto_edit_progress_pipeline,
     "inspect_auto_edit_progress_functions": inspect_auto_edit_progress_functions,
+    "inspect_auto_edit_run_log": inspect_auto_edit_run_log,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
