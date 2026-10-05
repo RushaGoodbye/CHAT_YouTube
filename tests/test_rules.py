@@ -2775,3 +2775,22 @@ def test_package_version_matches_pyproject() -> None:
     match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
     assert match is not None
     assert __version__ == match.group(1)
+
+
+def test_safe_description_strips_trailing_tags_label() -> None:
+    from rg_youtube_control.optimization import safe_description_fix
+
+    source = (
+        "Нормальний опис відео українською мовою.\n\n"
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        "https://links.rginfoua.pp.ua/\n\n"
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
+        "https://donate.rginfoua.pp.ua/\n\n"
+        "#рашагудбай #чатрулетка #економікаросії\n\n"
+        "ТЕГИ"
+    )
+
+    fixed = safe_description_fix(source, "Тестове відео")
+
+    assert not fixed.after.rstrip().endswith("ТЕГИ")
+    assert "прибрано службовий підпис тегів" in fixed.changes
