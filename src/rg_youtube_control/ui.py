@@ -1074,6 +1074,48 @@ class MainWindow(QMainWindow):
         process_layout.addWidget(self.process_progress)
         layout.addWidget(process)
 
+        today_stream = QFrame()
+        today_stream.setObjectName("QueueCard")
+        today_stream_layout = QVBoxLayout(today_stream)
+        today_stream_layout.setContentsMargins(14, 11, 14, 11)
+        today_stream_layout.setSpacing(7)
+
+        today_stream_head = QHBoxLayout()
+        today_stream_caption = QLabel("Сьогоднішній стрім")
+        today_stream_caption.setObjectName("SectionTitle")
+        self.today_stream_state = QLabel("пошук...")
+        self.today_stream_state.setObjectName("StatusWork")
+        today_stream_head.addWidget(today_stream_caption)
+        today_stream_head.addWidget(self.today_stream_state)
+        today_stream_head.addStretch()
+        today_stream_layout.addLayout(today_stream_head)
+
+        self.today_stream_title = QLabel("Перевіряю заплановані ефіри...")
+        self.today_stream_title.setWordWrap(True)
+        self.today_stream_title.setObjectName("MetricValue")
+        self.today_stream_meta = QLabel("")
+        self.today_stream_meta.setWordWrap(True)
+        self.today_stream_meta.setProperty("muted", True)
+        today_stream_layout.addWidget(self.today_stream_title)
+        today_stream_layout.addWidget(self.today_stream_meta)
+
+        today_stream_actions = QHBoxLayout()
+        self.today_stream_optimize_btn = QPushButton("Оптимізувати")
+        self.today_stream_optimize_btn.setProperty("role", "primary")
+        self.today_stream_optimize_btn.clicked.connect(
+            self.open_today_stream_optimization
+        )
+        today_stream_sync_btn = QPushButton("Синхронізувати")
+        today_stream_sync_btn.clicked.connect(self.sync_upcoming_streams_startup)
+        today_stream_all_btn = QPushButton("Усі заплановані")
+        today_stream_all_btn.clicked.connect(self.show_scheduled_center)
+        today_stream_actions.addWidget(self.today_stream_optimize_btn)
+        today_stream_actions.addWidget(today_stream_sync_btn)
+        today_stream_actions.addWidget(today_stream_all_btn)
+        today_stream_actions.addStretch()
+        today_stream_layout.addLayout(today_stream_actions)
+        layout.addWidget(today_stream)
+
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
@@ -1167,6 +1209,121 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(page, "Сьогодні")
 
 
+    def _today_scheduled_row(self):
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.title,v.scheduled_publish_at,v.privacy_status,
+                      d.status AS draft_status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=?
+                 AND v.scheduled_publish_at IS NOT NULL
+               ORDER BY v.scheduled_publish_at ASC""",
+            (self.current_profile,),
+        ).fetchall()
+        local_today = datetime.now().astimezone().date()
+        today_rows = []
+        for row in rows:
+            raw = str(row["scheduled_publish_at"] or "").strip()
+            if not raw:
+                continue
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone()
+                if dt.date() == local_today:
+                    today_rows.append((dt, row))
+            except Exception:
+                if raw[:10] == local_today.isoformat():
+                    today_rows.append((datetime.max.replace(tzinfo=None), row))
+        if not today_rows:
+            return None
+        today_rows.sort(key=lambda item: item[0].replace(tzinfo=None))
+        return today_rows[0][1]
+
+    def _refresh_today_stream_card(self) -> None:
+        if not hasattr(self, "today_stream_title"):
+            return
+        row = self._today_scheduled_row()
+        if row is None:
+            self.today_stream_state.setText("НЕ ЗНАЙДЕНО")
+            self.today_stream_state.setObjectName("StatusWarn")
+            self.today_stream_title.setText("На сьогодні запланований стрім не знайдено")
+            self.today_stream_meta.setText(
+                "Натисніть «Синхронізувати», якщо ефір уже створений у YouTube Studio."
+            )
+            self.today_stream_optimize_btn.setEnabled(False)
+        else:
+            status = str(row["draft_status"] or "")
+            status_text = {
+                "ready": "ГОТОВО",
+                "applied": "ЗАСТОСОВАНО",
+                "draft": "ЧЕРНЕТКА",
+            }.get(status, "ПОТРІБЕН ПАКЕТ")
+            self.today_stream_state.setText(status_text)
+            self.today_stream_state.setObjectName(
+                "StatusGood" if status in {"ready", "applied"} else "StatusWarn"
+            )
+            self.today_stream_title.setText(str(row["title"] or "(без назви)"))
+            when = str(row["scheduled_publish_at"] or "")[:16].replace("T", " ")
+            privacy = PRIVACY_LABELS.get(
+                str(row["privacy_status"] or ""),
+                str(row["privacy_status"] or ""),
+            )
+            self.today_stream_meta.setText(
+                f"{when} · {privacy} · ID {row['video_id']}"
+            )
+            self.today_stream_optimize_btn.setEnabled(True)
+        self.today_stream_state.style().unpolish(self.today_stream_state)
+        self.today_stream_state.style().polish(self.today_stream_state)
+
+    def open_today_stream_optimization(self) -> None:
+        row = self._today_scheduled_row()
+        if row is None:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "На сьогодні запланований стрім не знайдено. "
+                "Синхронізуйте заплановані ефіри та повторіть.",
+            )
+            return
+
+        video_id = str(row["video_id"])
+        if hasattr(self, "optimization_filter"):
+            index = self.optimization_filter.findData("scheduled")
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+        self.reload_optimization_queue()
+        self.tabs.setCurrentIndex(2)
+
+        target_row = -1
+        for table_row in range(self.optimization_table.rowCount()):
+            item = self.optimization_table.item(table_row, 3)
+            if item is None:
+                continue
+            item_video_id = (
+                item.data(Qt.ItemDataRole.UserRole)
+                or item.data(Qt.ItemDataRole.DisplayRole)
+            )
+            if str(item_video_id or "") == video_id:
+                target_row = table_row
+                break
+
+        if target_row >= 0:
+            self.optimization_table.selectRow(target_row)
+            self.optimization_table.scrollToItem(
+                self.optimization_table.item(target_row, 3)
+            )
+            self.edit_content_package()
+            return
+
+        QMessageBox.warning(
+            self,
+            APP_NAME,
+            "Стрім знайдено, але його рядок не відображається в оптимізації. "
+            "Відкрийте «Усі заплановані» та оновіть список.",
+        )
+
+
     def update_task_center(self) -> None:
         if not hasattr(self, "center_scheduled"):
             return
@@ -1232,6 +1389,7 @@ class MainWindow(QMainWindow):
             role="warning" if vidiq_used_pct >= 75 else "",
         )
 
+        self._refresh_today_stream_card()
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
         self.center_prepared.set_value(str(ready), "перевірені та готові")
         self.center_comments.set_value(str(queued), "нові / не оброблені")
