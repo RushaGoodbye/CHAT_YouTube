@@ -1782,8 +1782,8 @@ class MainWindow(QMainWindow):
         pct = round(done / max(1, total) * 100)
         budget = quota_budget_status(self.conn)
         capacity = reserve_safe_daily_batch_capacity(
-            int(budget["remaining"]),
-            int(budget["reserve"]),
+            int(budget["spendable"]),
+            max(0, safe + deep),
         )
         days = math.ceil((safe + deep) / max(1, capacity)) if safe + deep else 0
         phase, target = next_campaign_phase(stats)
