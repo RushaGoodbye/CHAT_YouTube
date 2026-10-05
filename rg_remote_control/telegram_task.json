@@ -1,41 +1,9 @@
 {
   "target": "alexpc",
   "contour": "telegram",
-  "action": "telegram_mcp_batch",
+  "action": "run_telegram_mcp_smoke",
   "args": {
-    "timeout_seconds": 120,
-    "calls": [
-      {
-        "tool": "telegram_fs_read_text",
-        "tool_args": {
-          "relative": "nas_state/minute_silence_watchdog_date"
-        }
-      },
-      {
-        "tool": "telegram_fs_read_text",
-        "tool_args": {
-          "relative": "nas_state/telegram-watchdog-incidents.log"
-        }
-      },
-      {
-        "tool": "telegram_fs_read_text",
-        "tool_args": {
-          "relative": "nas_state/selftest_details"
-        }
-      },
-      {
-        "tool": "telegram_fs_read_text",
-        "tool_args": {
-          "relative": "nas_state/last-live-smoke.json"
-        }
-      },
-      {
-        "tool": "telegram_fs_read_text",
-        "tool_args": {
-          "relative": "nas_state/telegram-watchdog-status.json"
-        }
-      }
-    ]
+    "timeout_seconds": 120
   },
-  "nonce": "telegram-audit-batch-20261005-01"
+  "nonce": "telegram-nas-migration-smoke-20261005-1743"
 }
