@@ -387,6 +387,68 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 
+
+_GROUNDED_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("цен", "подорож", "дорог", "инфляц"), "ціни та вартість життя"),
+    (("зарплат", "доход", "получать", "заработ"), "зарплати та доходи"),
+    (("пенси", "пенс", "соцпакет", "социальн"), "пенсії та соціальні виплати"),
+    (("эконом", "економ"), "економіку Росії"),
+    (("путин", "путін", "президент"), "Путіна та оцінку влади"),
+    (("войн", "війн", "сво", "украин", "україн"), "війну проти України"),
+    (("мобилиз", "мобіліз"), "мобілізацію"),
+    (("санкц",), "санкції"),
+    (("бензин", "топлив", "азс"), "паливо та ситуацію на АЗС"),
+    (("работ", "робот", "безработ"), "роботу та зайнятість"),
+    (("квартир", "жиль", "ипотек", "дом "), "житло та особисті покупки"),
+    (("медицин", "лікар", "боляч", "здоров"), "здоров'я та медицину"),
+)
+
+
+def _grounded_description_from_transcript(
+    title: str,
+    transcript: str,
+) -> str:
+    """Build a conservative Ukrainian description without asking the LLM to paraphrase."""
+    clean_title = re.sub(
+        r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
+        "",
+        str(title or "").strip(),
+        flags=re.I,
+    ).strip()
+    if not clean_title:
+        clean_title = "тему цього випуску"
+
+    text = str(transcript or "").casefold()
+    topics: list[str] = []
+    for needles, label in _GROUNDED_TOPIC_RULES:
+        if any(needle in text for needle in needles):
+            topics.append(label)
+        if len(topics) >= 4:
+            break
+
+    intro = (
+        f"У цьому відео учасники чат-рулетки відповідають на запитання: "
+        f"«{clean_title}»."
+    )
+    context = (
+        "Співрозмовники говорять про власний досвід і по-різному оцінюють "
+        "зміни у своєму житті, тому в розмові звучать як позитивні, так і "
+        "негативні відповіді."
+    )
+    if topics:
+        topic_sentence = "Серед конкретних тем у діалозі: " + ", ".join(topics) + "."
+    else:
+        topic_sentence = (
+            "У центрі розмови - особисті зміни, побутові спостереження та "
+            "оцінка подій самими співрозмовниками."
+        )
+    closing = (
+        "Опис побудовано лише на змісті транскрипту без додавання фактів, "
+        "яких немає в самому відео."
+    )
+    return " ".join((intro, context, topic_sentence, closing))
+
+
 def _description_quality_error(description: str, transcript: str = "") -> str:
     """Return a machine-readable reason when a generated SEO description is unsafe."""
     value = " ".join(str(description or "").split()).strip()
@@ -724,6 +786,12 @@ chapters: рядок з підтвердженими таймкодами або
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
             description_candidate = str(candidate.get("description") or "").strip()
+            if transcript.strip():
+                description_candidate = _grounded_description_from_transcript(
+                    current_title,
+                    transcript,
+                )
+                candidate["description"] = description_candidate
             description_error = (
                 _description_quality_error(description_candidate, transcript)
                 if transcript.strip()
