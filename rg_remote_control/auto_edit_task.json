@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_completeness_hotfix",
+  "action": "inspect_auto_edit_execution_functions",
   "args": {},
-  "nonce": "20261005-apply-completeness-hotfix-1"
+  "nonce": "20261005-inspect-exec-functions-1"
 }
