@@ -1,7 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_strict_guest_face_v2",
-  "args": {},
-  "nonce": "apply-strict-guest-face-v2-20261005-12"
+  "action": "inspect_auto_edit_recovery_queue",
+  "args": {
+    "session_id": "RECOVERY_20261005_122034_2f3e5558"
+  },
+  "nonce": "check-recovery-20261005-1735"
 }
