@@ -3858,7 +3858,7 @@ def inspect_auto_edit_pack100_targets() -> dict:
 def apply_auto_edit_pack100() -> dict:
     if os.name != "nt":
         raise RuntimeError("apply_auto_edit_pack100 must run on AlexPC/Windows")
-    import datetime, py_compile
+    import datetime, py_compile, time
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
     if not app.is_dir(): raise RuntimeError(f"App dir missing: {app}")
