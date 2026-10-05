@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "mode": "pre_scheduled_batch_20261005",
-    "nonce": "scheduled-before-archive"
+    "nonce": "hot-update-0376-final-20261005"
   }
 }
