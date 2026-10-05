@@ -4170,6 +4170,143 @@ def inspect_auto_edit_pack100_missing_targets() -> dict:
     return out
 
 
+
+def apply_auto_edit_pack100_ui_completion() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import datetime,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py"
+    source=ui.read_text(encoding="utf-8")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_PACK100_UI_COMPLETE_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True);shutil.copy2(ui,backup/ui.name)
+
+    # Notification storage is initialized after existing state fields.
+    anchor='        self._watchdog_retry_pending=False\n'
+    if "RG_PACK100_NOTIFICATIONS_INIT_V1" not in source:
+        if anchor not in source: raise RuntimeError("notification init anchor missing")
+        source=source.replace(anchor,anchor+'        # RG_PACK100_NOTIFICATIONS_INIT_V1\n        self._notifications=[]\n',1)
+
+    # Top-bar notification center.
+    anchor='        update=_button("ОНОВЛЕННЯ","primary");update.clicked.connect(self.open_update_center);tl.addWidget(update)\n'
+    if "RG_PACK100_NOTIFICATIONS_BUTTON_V1" not in source:
+        if anchor not in source: raise RuntimeError("topbar update anchor missing")
+        repl='''        # RG_PACK100_NOTIFICATIONS_BUTTON_V1
+        self.notice_btn=_button("СПОВІЩЕННЯ")
+        self.notice_btn.clicked.connect(self.open_notifications_center);tl.addWidget(self.notice_btn)
+'''+anchor
+        source=source.replace(anchor,repl,1)
+
+    # Batch drag/drop and run-first control.
+    anchor='        down=_button("↓ НИЖЧЕ");down.clicked.connect(lambda:self.batch_move_selected(1));tools.addWidget(down)\n'
+    if "RG_PACK100_RUN_FIRST_V1" not in source:
+        if anchor not in source: raise RuntimeError("batch tools anchor missing")
+        source=source.replace(anchor,anchor+'''        # RG_PACK100_RUN_FIRST_V1
+        first=_button("⇧ ЗРОБИТИ ПЕРШИМ");first.clicked.connect(self.batch_run_selected_first);tools.addWidget(first)
+''',1)
+    anchor='        self.batch_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)\n'
+    if "RG_PACK100_DRAG_DROP_V1" not in source:
+        if anchor not in source: raise RuntimeError("batch table selection anchor missing")
+        source=source.replace(anchor,anchor+'''        # RG_PACK100_DRAG_DROP_V1
+        self.batch_table.setDragEnabled(True)
+        self.batch_table.setAcceptDrops(True)
+        self.batch_table.setDropIndicatorShown(True)
+        self.batch_table.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.batch_table.model().rowsMoved.connect(self._batch_sync_from_table)
+''',1)
+
+    # Diagnostic copy button.
+    anchor='        diag=_button("СТВОРИТИ ДІАГНОСТИКУ");diag.clicked.connect(lambda:self._create_auto_diagnostic("manual_support_package"));top.addWidget(diag)\n'
+    if "RG_PACK100_COPY_DIAGNOSTIC_V1" not in source:
+        if anchor not in source: raise RuntimeError("diagnostic button anchor missing")
+        source=source.replace(anchor,anchor+'''        # RG_PACK100_COPY_DIAGNOSTIC_V1
+        copydiag=_button("СКОПІЮВАТИ ДІАГНОСТИКУ");copydiag.clicked.connect(self.copy_diagnostics_to_clipboard);top.addWidget(copydiag)
+''',1)
+
+    # New methods before _qa_tab, safely inside class.
+    method_anchor='    def _qa_tab(self):\n'
+    if "def batch_run_selected_first" not in source:
+        methods=r'''    def _batch_sync_from_table(self,*_):
+        try:
+            if self.batch_running:
+                return
+            q=[]
+            for r in range(self.batch_table.rowCount()):
+                it=self.batch_table.item(r,0)
+                s=(it.text().strip() if it else "")
+                if s.isdigit() and s not in q:q.append(s)
+            if q:
+                self.batch_queue=q
+                self.batch_input.setText(", ".join(q))
+                self._save_batch_ui_state()
+        except Exception as e:
+            self._log("PACK100 drag sync warning: "+repr(e))
+
+    def batch_run_selected_first(self):
+        if self.batch_running:
+            self.status.setText("ЧЕРГА • ЗМІНА ПОРЯДКУ ПІСЛЯ ПОТОЧНОГО СТРІМУ")
+            return
+        r=self.batch_table.currentRow()
+        if r<0 or r>=len(self.batch_queue):return
+        stream=self.batch_queue.pop(r);self.batch_queue.insert(0,stream)
+        self._batch_refresh();self.batch_table.selectRow(0)
+        self.batch_input.setText(", ".join(self.batch_queue));self._save_batch_ui_state()
+        self.status.setText(f"ЧЕРГА • {stream} ТЕПЕР ПЕРШИЙ")
+
+    def _notify_pack100(self,title,detail=""):
+        try:
+            row={"ts":time.time(),"title":str(title),"detail":str(detail)}
+            self._notifications.append(row);self._notifications=self._notifications[-100:]
+            if hasattr(self,"notice_btn"):self.notice_btn.setText(f"СПОВІЩЕННЯ • {len(self._notifications)}")
+        except Exception:pass
+
+    def open_notifications_center(self):
+        dlg=QDialog(self);dlg.setWindowTitle("ЦЕНТР СПОВІЩЕНЬ");dlg.resize(720,480)
+        v=QVBoxLayout(dlg);box=QPlainTextEdit();box.setReadOnly(True)
+        rows=[]
+        for x in reversed(getattr(self,"_notifications",[])):
+            stamp=time.strftime("%H:%M:%S",time.localtime(float(x.get("ts") or time.time())))
+            rows.append(f"[{stamp}] {x.get('title','')}\\n{x.get('detail','')}".strip())
+        box.setPlainText("\\n\\n".join(rows) if rows else "Нових сповіщень немає.")
+        v.addWidget(box,1);b=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);b.rejected.connect(dlg.reject);v.addWidget(b)
+        dlg.exec()
+
+    def copy_diagnostics_to_clipboard(self):
+        parts=[pack100_summary()]
+        try:parts.append("STATUS: "+self.status.text())
+        except Exception:pass
+        try:parts.append("RUN: "+self.run_summary.text())
+        except Exception:pass
+        try:parts.append("SYSTEM:\\n"+self.system_text.toPlainText())
+        except Exception:pass
+        try:
+            if self._backend_tail:parts.append("BACKEND TAIL:\\n" + "\\n".join(self._backend_tail[-30:]))
+        except Exception:pass
+        text="\\n\\n".join(parts)
+        QApplication.clipboard().setText(text)
+        self.status.setText("ДІАГНОСТИКУ СКОПІЙОВАНО")
+        self._notify_pack100("Діагностику скопійовано","Звіт готовий для вставки у ChatGPT.")
+
+'''
+        if method_anchor not in source: raise RuntimeError("method anchor missing")
+        source=source.replace(method_anchor,methods+method_anchor,1)
+
+    # Emit notifications for final QA outcomes.
+    pass_anchor='            self.metric_state.setText("ГОТОВО");self.status.setText(f"СТРІМ {self.metric_stream.text()} • POST-RUN QA PASS")\n'
+    if "RG_PACK100_QA_NOTICE_PASS_V1" not in source:
+        if pass_anchor in source:
+            source=source.replace(pass_anchor,pass_anchor+'            # RG_PACK100_QA_NOTICE_PASS_V1\n            self._notify_pack100(f"Стрім {self.metric_stream.text()} готовий","POST-RUN QA PASS")\n',1)
+    fail_anchor='            self.metric_state.setText("ПЕРЕВІРКА");self.status.setText("POST-RUN QA • ПОТРІБНА ПЕРЕВІРКА")\n'
+    if "RG_PACK100_QA_NOTICE_FAIL_V1" not in source:
+        if fail_anchor in source:
+            source=source.replace(fail_anchor,fail_anchor+'            # RG_PACK100_QA_NOTICE_FAIL_V1\n            self._notify_pack100(f"Стрім {self.metric_stream.text()} потребує уваги","POST-RUN QA FAIL/CHECK")\n',1)
+
+    temp=ui.with_suffix(".py.pack100ui.tmp");temp.write_text(source,encoding="utf-8")
+    py_compile.compile(str(temp),doraise=True);os.replace(temp,ui);py_compile.compile(str(ui),doraise=True)
+    return {"status":"INSTALLED","backup":str(backup),"features":["queue_drag_drop","run_first","notifications_center","diagnostics_copy"],"compiled":True}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4212,6 +4349,7 @@ ACTIONS = {
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
     "inspect_auto_edit_pack100_missing_targets": inspect_auto_edit_pack100_missing_targets,
+    "apply_auto_edit_pack100_ui_completion": apply_auto_edit_pack100_ui_completion,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
