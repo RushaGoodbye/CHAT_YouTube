@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_launch_diagnostic",
   "args": {
-    "nonce": "check091"
+    "nonce": "diag-launch-source-091"
   }
 }
