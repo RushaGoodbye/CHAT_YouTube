@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
+  "action": "youtube_local_sync_recent_live_for_today",
   "args": {
-    "mode": "today_scheduled_priority",
-    "nonce": "today-stream-20261005"
+    "nonce": "today-live-minimal-20261005"
   }
 }
