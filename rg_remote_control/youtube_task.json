@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "seo-thin-recovery-0.3.82-20261005"
+    "nonce": "seo-plain-fallback-0.3.83-20261005"
   }
 }
