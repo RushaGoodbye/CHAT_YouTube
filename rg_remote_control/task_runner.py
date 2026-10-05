@@ -7389,6 +7389,31 @@ print(json.dumps({"passed":True,"name":m.compilation_output_stem([Path("890-5.mp
         raise
 
 
+def inspect_auto_edit_topaz_flow() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for name in ["rg_studio_ui.py","rg_thumbnail_mix_prep.py","rg_topaz_batch.py","rg_thumbnail_topaz.py"]:
+        p=root/name
+        if not p.is_file():
+            out[name]={"missing":True};continue
+        src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        funcs={}
+        try:
+            tree=ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                    a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                    body="\n".join(rows[a:b])
+                    if any(k.lower() in body.lower() for k in ("topaz","candidate","portrait","host","speaker","face","frame","process")):
+                        funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+        except Exception as exc:
+            funcs={"parse_error":repr(exc)}
+        out[name]={"path":str(p),"functions":funcs}
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7462,6 +7487,7 @@ ACTIONS = {
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
+    "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
