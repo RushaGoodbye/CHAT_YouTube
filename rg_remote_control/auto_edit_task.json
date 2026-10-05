@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_run_log",
-  "args": {
-    "stream": "901"
-  },
-  "nonce": "inspect-runlog-901-boundary-20261006-4"
+  "action": "inspect_auto_edit_901_temp_artifacts",
+  "args": {},
+  "nonce": "inspect-901-temp-artifacts-20261006-5"
 }
