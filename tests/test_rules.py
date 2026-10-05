@@ -2582,6 +2582,22 @@ def test_sync_upcoming_live_broadcasts_tracks_ready_and_clears_complete(tmp_path
     upsert_video(
         conn,
         {
+            "video_id": "stale-regular",
+            "profile": "main",
+            "channel_id": "channel-main",
+            "title": "Старе заплановане відео",
+            "published_at": None,
+            "scheduled_publish_at": "2025-01-20T18:53:42Z",
+            "privacy_status": "unlisted",
+            "duration": "PT5M",
+            "views": 0,
+            "audit": {},
+        },
+    )
+
+    upsert_video(
+        conn,
+        {
             "video_id": "done-live",
             "profile": "live",
             "channel_id": "channel-live",
@@ -2604,8 +2620,12 @@ def test_sync_upcoming_live_broadcasts_tracks_ready_and_clears_complete(tmp_path
     done = conn.execute(
         "SELECT scheduled_publish_at FROM videos WHERE video_id='done-live'"
     ).fetchone()
+    stale = conn.execute(
+        "SELECT scheduled_publish_at FROM videos WHERE video_id='stale-regular'"
+    ).fetchone()
     assert ready["scheduled_publish_at"] == "2026-10-05T17:00:00Z"
     assert done["scheduled_publish_at"] is None
+    assert stale["scheduled_publish_at"] is None
     assert today_quota_units(conn) == 2
     conn.close()
 

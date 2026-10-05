@@ -83,6 +83,18 @@ def sync_upcoming_live_broadcasts(
     if not callable(counted):
         return []
 
+    stale_cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=12)
+    ).isoformat().replace("+00:00", "Z")
+    conn.execute(
+        """UPDATE videos
+           SET scheduled_publish_at=NULL
+           WHERE scheduled_publish_at IS NOT NULL
+             AND scheduled_publish_at < ?""",
+        (stale_cutoff,),
+    )
+    conn.commit()
+
     items, requests = counted()
     record_quota_units(
         conn,
