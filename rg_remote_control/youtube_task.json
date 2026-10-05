@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_launch_diagnostic",
+  "action": "youtube_program_local_status",
   "args": {
-    "nonce": "launch-diagnostic-20261005"
+    "mode": "today_scheduled_priority",
+    "nonce": "today-stream-20261005"
   }
 }
