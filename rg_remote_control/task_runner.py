@@ -6165,6 +6165,23 @@ raise SystemExit(0 if ok else 7)
             "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
             "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","ui_regression":"PASS","ui_screenshot":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
+
+def inspect_auto_edit_visual_targets() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    terms=["def _montage_tab","def _batch_tab","def _qa_tab","def _refresh_system","def _poll_backend","def _update_progress","def _set_stage","def _refresh_performance_tab","from PySide6"]
+    out={}
+    for term in terms:
+        hits=[]
+        for i,line in enumerate(rows):
+            if term.lower() in line.lower():
+                a=max(0,i-12);b=min(len(rows),i+180)
+                hits.append("\n".join(f"{k+1}: {rows[k]}" for k in range(a,b)))
+                if len(hits)>=2:break
+        out[term]=hits
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6212,6 +6229,7 @@ ACTIONS = {
     "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
     "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
     "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
+    "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
