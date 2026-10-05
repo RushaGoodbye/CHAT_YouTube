@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "verify_auto_edit_preview_hotfix_state",
+  "action": "inspect_auto_edit_thumbnail_final_render",
   "args": {},
-  "nonce": "verify-preview-hotfix-state-20261005-2"
+  "nonce": "inspect-final-assembly-used-dialogues-20261005-1"
 }
