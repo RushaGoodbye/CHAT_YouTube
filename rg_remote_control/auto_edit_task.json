@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_pack312_update",
+  "action": "apply_auto_edit_preview_sort_hotfix",
   "args": {},
-  "nonce": "build-pack312-preview-20261005-1"
+  "nonce": "apply-preview-sort-hotfix-20261005-1"
 }
