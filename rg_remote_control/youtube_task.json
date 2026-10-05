@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_promote_reviewed_draft",
+  "action": "youtube_local_sync_source_only",
   "args": {
-    "nonce": "promote-reviewed-0cSbxGS3O2c",
-    "video_id": "0cSbxGS3O2c"
+    "nonce": "sync095"
   }
 }
