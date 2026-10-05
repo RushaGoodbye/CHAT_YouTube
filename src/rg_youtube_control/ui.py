@@ -1755,7 +1755,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message, timeout_ms)
 
     def retry_last_local_task(self) -> None:
-        task = getattr(self, "_last_local_task", None)
+        task = getattr(self, "_last_failed_local_task", None)
         if not task:
             self._toast("Немає локальної помилки для повтору")
             return
@@ -9582,6 +9582,7 @@ class MainWindow(QMainWindow):
         def success(result) -> None:
             try:
                 on_success(result)
+                self._last_failed_local_task = None
                 self._set_process_idle(f"{label} · готово")
                 self._toast(f"✓ {label} · готово")
                 self.update_task_center()
@@ -9595,6 +9596,7 @@ class MainWindow(QMainWindow):
                 self._error("Помилка локального інструмента", exc)
 
         def failed(message: str) -> None:
+            self._last_failed_local_task = (label, func, on_success)
             self._set_process(label, "помилка", percent=100, error=True)
             self.statusBar().showMessage("Локальний інструмент: помилка")
             log_action(
