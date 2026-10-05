@@ -104,6 +104,7 @@ jobs:
 
       - name: Publish release
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -119,6 +120,7 @@ jobs:
           }
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: RG-YouTube-Control-Windows
           path: |
