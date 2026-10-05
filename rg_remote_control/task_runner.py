@@ -3745,6 +3745,39 @@ publish()
     }
 
 
+
+def inspect_auto_edit_stream_result() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_stream_result must run on AlexPC/Windows")
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/auto_edit_task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    stream = str(((task.get("args") or {}).get("stream") or "")).strip()
+    if not stream.isdigit():
+        raise RuntimeError("stream must be numeric")
+    app = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    folder = app / stream
+    out = {
+        "stream": stream,
+        "folder": str(folder),
+        "exists": folder.is_dir(),
+        "files": [],
+        "postrun": None,
+    }
+    if folder.is_dir():
+        for p in sorted(folder.iterdir(), key=lambda x: x.name.casefold()):
+            try:
+                if p.is_file() and (p.suffix.lower() in {".xml",".json",".txt",".log"}):
+                    out["files"].append({"name":p.name,"size":p.stat().st_size,"mtime":p.stat().st_mtime})
+            except Exception:
+                pass
+        qa = folder / "RG_POSTRUN_QA.json"
+        if qa.is_file():
+            try:
+                out["postrun"] = json.loads(qa.read_text(encoding="utf-8-sig"))
+            except Exception as exc:
+                out["postrun_error"] = repr(exc)
+    return out
+
 def inspect_auto_edit_recovery_queue() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_recovery_queue must run on AlexPC/Windows")
@@ -3839,7 +3872,7 @@ ACTIONS = {
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
-    "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
+    "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,\n    "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
