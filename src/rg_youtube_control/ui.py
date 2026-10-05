@@ -7262,6 +7262,33 @@ class MainWindow(QMainWindow):
         note.setProperty("muted", True)
         layout.addWidget(note)
 
+        change_map = QFrame()
+        change_map.setObjectName("QueueCard")
+        map_layout = QHBoxLayout(change_map)
+        map_layout.setContentsMargins(12, 8, 12, 8)
+        title_changed = current_title.strip() != new_title.strip()
+        desc_delta = len(new_description) - len(current_description)
+        tags_delta = len(new_tags) - len(current_tags)
+        title_state = QLabel(
+            "НАЗВА · " + ("ЗМІНА" if title_changed else "БЕЗ ЗМІН")
+        )
+        title_state.setObjectName("StatusWarn" if title_changed else "StatusGood")
+        desc_state = QLabel(
+            f"ОПИС · {len(current_description)} → {len(new_description)} "
+            f"({desc_delta:+d})"
+        )
+        desc_state.setObjectName("StatusWork")
+        tags_state = QLabel(
+            f"ТЕГИ · {len(current_tags)} → {len(new_tags)} ({tags_delta:+d})"
+        )
+        tags_state.setObjectName("StatusWork")
+        locked = QLabel("THUMBNAIL · VISIBILITY · ДАТА · 🔒")
+        locked.setObjectName("StatusGood")
+        for widget in (title_state, desc_state, tags_state, locked):
+            map_layout.addWidget(widget)
+        map_layout.addStretch()
+        layout.addWidget(change_map)
+
         columns = QHBoxLayout()
         before_box = QVBoxLayout()
         after_box = QVBoxLayout()
@@ -7413,6 +7440,12 @@ class MainWindow(QMainWindow):
                 current_tags,
                 "before_content_package",
             )
+            self._set_process(
+                f"Запис у YouTube · {video_id}",
+                "videos.update",
+                percent=None,
+                eta=f"≈{VIDEO_UPDATE_COST + READ_REQUEST_COST} од. квоти",
+            )
             self._quota_update_video(
                 video_id,
                 title=new_title,
@@ -7441,10 +7474,11 @@ class MainWindow(QMainWindow):
             self.reload_videos()
             self.reload_optimization_queue()
             self._advance_archive_campaign()
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "Пакет застосовано. Перед зміною збережено точку відкату.",
+            self._set_process_idle("YouTube оновлено · точка відкату збережена")
+            self._toast(
+                "✓ Пакет застосовано · точка відкату збережена · "
+                "кнопка «Відкотити» доступна для вибраного відео",
+                7000,
             )
         except Exception as exc:
             self._error("Помилка застосування пакета", exc)
