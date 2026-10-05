@@ -160,6 +160,8 @@ def test_grounded_description_uses_detected_topics_without_transcript_dump() -> 
     assert "ціни та вартість життя" in description
     assert "зарплати та доходи" in description
     assert "пенсії та соціальні виплати" in description
-    assert "економіку Росії" in description
+    assert "економіка Росії" in description
     assert "цены поднялись" not in description
+    assert "Опис побудовано" not in description
+    assert "Дивіться повну розмову" in description
     assert _description_quality_error(description, transcript) == ""
