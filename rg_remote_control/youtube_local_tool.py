@@ -1571,6 +1571,67 @@ def cleanup_gui_processes() -> dict:
         "result": payload,
     }
 
+
+def enable_archive_priority_campaign() -> dict:
+    """Enable the safe archive campaign without spending YouTube quota."""
+    from rg_youtube_control.db import connect, get_setting
+    from rg_youtube_control.service import (
+        quota_budget_status,
+        set_archive_priority_mode,
+    )
+
+    conn = connect(_db_path())
+    try:
+        before = {
+            "archive_priority_mode": get_setting(
+                conn, "archive_priority_mode", "0"
+            ),
+            "safe_metadata_autopilot_main": get_setting(
+                conn, "safe_metadata_autopilot_main", "0"
+            ),
+            "safe_metadata_autopilot_live": get_setting(
+                conn, "safe_metadata_autopilot_live", "0"
+            ),
+        }
+        set_archive_priority_mode(
+            conn,
+            True,
+            profiles=("main", "live"),
+        )
+        after = {
+            "archive_priority_mode": get_setting(
+                conn, "archive_priority_mode", "0"
+            ),
+            "safe_metadata_autopilot_main": get_setting(
+                conn, "safe_metadata_autopilot_main", "0"
+            ),
+            "safe_metadata_autopilot_live": get_setting(
+                conn, "safe_metadata_autopilot_live", "0"
+            ),
+        }
+        scheduled_ready = int(
+            conn.execute(
+                """SELECT COUNT(*)
+                   FROM videos v
+                   JOIN optimization_drafts d ON d.video_id=v.video_id
+                   WHERE v.scheduled_publish_at IS NOT NULL
+                     AND d.status='ready'"""
+            ).fetchone()[0]
+        )
+        return {
+            "youtube_api_calls": 0,
+            "before": before,
+            "after": after,
+            "scheduled_ready": scheduled_ready,
+            "quota_budget": quota_budget_status(conn),
+            "note": (
+                "Archive priority mode owns quota spending; "
+                "scheduled ready packages are applied first."
+            ),
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1608,6 +1669,8 @@ def main() -> int:
         result = prepare_source_runtime()
     elif action == "youtube_local_cleanup_gui_processes":
         result = cleanup_gui_processes()
+    elif action == "youtube_local_enable_archive_priority":
+        result = enable_archive_priority_campaign()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
