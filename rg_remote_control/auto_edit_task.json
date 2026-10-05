@@ -1,7 +1,7 @@
 {
   "target":"alexpc",
   "contour":"auto_edit",
-  "action":"probe_auto_edit_studio_startup",
+  "action":"inspect_auto_edit_ui_class",
   "args":{},
-  "nonce":"20261005-pack150-startup-probe-2"
+  "nonce":"20261005-pack160-ui-class"
 }
