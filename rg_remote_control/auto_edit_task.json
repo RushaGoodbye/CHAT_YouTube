@@ -3,16 +3,10 @@
   "contour": "auto_edit",
   "action": "auto_edit_mcp_call",
   "args": {
-    "tool": "auto_edit_command_run",
+    "tool": "auto_edit_fs_read_text",
     "tool_args": {
-      "argv": [
-        "python3",
-        "-c",
-        "import os,json\nout={}\np='LOGS/RG_RUN_HISTORY.json'\ntry:\n    data=json.load(open(p,encoding='utf-8'))\n    if isinstance(data,dict):\n        rows=data.get('runs') or data.get('items') or data.get('history') or []\n        out['schema_keys']=list(data.keys())\n    else:\n        rows=data\n    wanted={'886','889','890','891','892','893','898','899'}\n    filt=[]\n    for x in rows[-1000:]:\n        if not isinstance(x,dict): continue\n        blob=json.dumps(x,ensure_ascii=False)\n        if any(s in blob for s in wanted):\n            filt.append(x)\n    out['matches']=filt[-120:]\nexcept Exception as e:\n    out['error']=repr(e)\nprint(json.dumps(out,ensure_ascii=False))"
-      ],
-      "cwd_relative": "",
-      "timeout_seconds": 120
+      "relative": "LOGS/RG_RUN_HISTORY.json"
     }
   },
-  "nonce": "20261005-inspect-run-history-queue-1"
+  "nonce": "20261005-read-run-history-json-1"
 }
