@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_worker",
+  "action": "build_auto_edit_pack120_update",
   "args": {},
-  "nonce": "20261005-pack120-worker"
+  "nonce": "20261005-pack120-build"
 }
