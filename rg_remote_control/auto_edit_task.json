@@ -1,7 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_recovery_queue",
-  "args": {},
-  "nonce": "check-recovery-RECOVERY_20261005_122034_2f3e5558-20261005T1939"
+  "action": "inspect_auto_edit_stream_result",
+  "args": {
+    "stream": "901"
+  },
+  "nonce": "inspect-stream-901-error-20261006-1"
 }
