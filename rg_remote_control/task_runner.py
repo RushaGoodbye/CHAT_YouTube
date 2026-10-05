@@ -6787,6 +6787,229 @@ def inspect_auto_edit_run_log() -> dict:
     return out
 
 
+def apply_auto_edit_preview_sort_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, re, shutil, subprocess, time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py"
+    ver=app/"rg_studio_version.py"
+    if not ui.is_file():
+        raise RuntimeError(f"UI not found: {ui}")
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_PREVIEW_SORT_HOTFIX_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in [ui,ver,app/"rg_pack313_preview.py"]:
+        if p.is_file():
+            shutil.copy2(p,backup/p.name)
+
+    helper = r'''from __future__ import annotations
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QTableWidgetItem,QHeaderView
+
+class DurationItem(QTableWidgetItem):
+    def __lt__(self,other):
+        try:
+            a=self.data(Qt.ItemDataRole.UserRole)
+            b=other.data(Qt.ItemDataRole.UserRole)
+            if a is not None and b is not None:
+                return float(a)<float(b)
+        except Exception:
+            pass
+        return super().__lt__(other)
+
+def _seconds(text):
+    try:
+        parts=[int(x) for x in str(text or "").strip().split(":")]
+        if len(parts)==3:return parts[0]*3600+parts[1]*60+parts[2]
+        if len(parts)==2:return parts[0]*60+parts[1]
+        if len(parts)==1:return parts[0]
+    except Exception:
+        pass
+    return 0
+
+def _convert(table):
+    for row in range(table.rowCount()):
+        old=table.item(row,2)
+        if old is None:
+            continue
+        if isinstance(old,DurationItem):
+            old.setData(Qt.ItemDataRole.UserRole,_seconds(old.text()))
+            continue
+        it=DurationItem(old.text())
+        it.setData(Qt.ItemDataRole.UserRole,_seconds(old.text()))
+        it.setFlags(old.flags())
+        it.setTextAlignment(old.textAlignment())
+        tt=old.data(Qt.ItemDataRole.ToolTipRole)
+        if tt is not None:it.setData(Qt.ItemDataRole.ToolTipRole,tt)
+        table.setItem(row,2,it)
+
+def sort_duration(host,table):
+    current_id=""
+    try:
+        row=table.currentRow()
+        if row>=0 and table.item(row,1):current_id=table.item(row,1).text()
+    except Exception:
+        pass
+    table.blockSignals(True)
+    try:
+        table.setSortingEnabled(False)
+        _convert(table)
+        order=getattr(host,"_thumb_duration_sort_order",Qt.SortOrder.DescendingOrder)
+        table.setSortingEnabled(True)
+        table.sortItems(2,order)
+        table.setSortingEnabled(False)
+        table.horizontalHeader().setSortIndicator(2,order)
+        host._thumb_duration_sort_order=(Qt.SortOrder.AscendingOrder if order==Qt.SortOrder.DescendingOrder else Qt.SortOrder.DescendingOrder)
+        if current_id:
+            for row in range(table.rowCount()):
+                it=table.item(row,1)
+                if it and it.text()==current_id:
+                    table.selectRow(row);break
+    finally:
+        table.blockSignals(False)
+
+def install_preview_table(host,table):
+    table.setColumnHidden(3,True)
+    hdr=table.horizontalHeader()
+    hdr.setSectionsClickable(True)
+    hdr.setSortIndicatorShown(True)
+    hdr.setSortIndicator(2,Qt.SortOrder.DescendingOrder)
+    hdr.setSectionResizeMode(0,QHeaderView.ResizeToContents)
+    hdr.setSectionResizeMode(1,QHeaderView.Stretch)
+    hdr.setSectionResizeMode(2,QHeaderView.ResizeToContents)
+    host._thumb_duration_sort_order=Qt.SortOrder.DescendingOrder
+    table.setToolTip("Клік по «ТРИВАЛІСТЬ» - сортування за реальною тривалістю.")
+    hdr.sectionClicked.connect(lambda section: sort_duration(host,table) if int(section)==2 else None)
+'''
+    helper_path=app/"rg_pack313_preview.py"
+    helper_path.write_text(helper,encoding="utf-8")
+
+    src=ui.read_text(encoding="utf-8")
+    if "from rg_pack313_preview import install_preview_table" not in src:
+        anchor="from rg_internal_browser import RGInternalBrowser\n"
+        if anchor not in src:
+            raise RuntimeError("preview import anchor missing")
+        src=src.replace(anchor,anchor+"from rg_pack313_preview import install_preview_table\n",1)
+
+    table_anchor='self.thumb_table.horizontalHeader().setSectionResizeMode(3,QHeaderView.Stretch)'
+    if table_anchor not in src:
+        raise RuntimeError("thumbnail header anchor missing")
+    if "RG_PACK313_PREVIEW_TABLE" not in src:
+        src=src.replace(
+            table_anchor,
+            table_anchor+'\n        # RG_PACK313_PREVIEW_TABLE\n        install_preview_table(self,self.thumb_table)',
+            1
+        )
+
+    if "media_row.addWidget(self.thumb_table,3)" in src:
+        src=src.replace("media_row.addWidget(self.thumb_table,3)","media_row.addWidget(self.thumb_table,2)",1)
+    elif "media_row.addWidget(self.thumb_table,2)" not in src:
+        raise RuntimeError("thumbnail table stretch anchor missing")
+
+    src,n=re.subn(r'media_row\.addWidget\(pg,\s*\d+\)',"media_row.addWidget(pg,4)",src,count=1)
+    if n!=1:
+        raise RuntimeError("preview player stretch anchor missing")
+
+    src,n=re.subn(
+        r'self\.thumb_video\.setMinimumHeight\(\d+\);self\.thumb_video\.setMaximumHeight\(\d+\)',
+        "self.thumb_video.setMinimumHeight(260);self.thumb_video.setMaximumHeight(360)",
+        src,count=1
+    )
+    if n!=1:
+        raise RuntimeError("preview player height anchor missing")
+
+    tmp=ui.with_suffix(".py.pack313.tmp")
+    tmp.write_text(src,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True)
+    os.replace(tmp,ui)
+    py_compile.compile(str(helper_path),doraise=True)
+
+    if ver.is_file():
+        vs=ver.read_text(encoding="utf-8")
+        if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+            vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.3"',vs,count=1)
+        else:
+            vs='STUDIO_VERSION="0.20.7.3"\n'+vs
+        ver.write_text(vs,encoding="utf-8")
+        py_compile.compile(str(ver),doraise=True)
+
+    # Mirror to legacy local backend only if it is a distinct physical file.
+    local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit"
+    mirrored=False
+    try:
+        if local.is_dir() and local.resolve()!=app.resolve():
+            for name in ["rg_studio_ui.py","rg_pack313_preview.py","rg_studio_version.py"]:
+                sp=app/name
+                if sp.is_file():
+                    shutil.copy2(sp,local/name)
+            mirrored=True
+    except Exception:
+        pass
+
+    # UI smoke test on active backend.
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    py=str(runtime if runtime.is_file() else Path(sys.executable))
+    env=os.environ.copy()
+    env["QT_QPA_PLATFORM"]="offscreen"
+    env["RG_AUTO_EDIT_BACKEND"]=str(app)
+    probe = r'''
+import os,json
+from PySide6.QtWidgets import QApplication,QTableWidgetItem
+from PySide6.QtCore import Qt
+from rg_studio_ui import StudioWindow
+app=QApplication([])
+w=StudioWindow();w.resize(1920,1080);w.show()
+try:w.tabs.setCurrentIndex(6)
+except Exception:pass
+for _ in range(5):app.processEvents()
+t=w.thumb_table
+t.setRowCount(3)
+for r,(did,dur,path) in enumerate([("A","03:18","1"),("B","11:14","2"),("C","02:54","3")]):
+    chk=QTableWidgetItem("");chk.setCheckState(Qt.CheckState.Unchecked);t.setItem(r,0,chk)
+    t.setItem(r,1,QTableWidgetItem(did));t.setItem(r,2,QTableWidgetItem(dur));t.setItem(r,3,QTableWidgetItem(path))
+t.horizontalHeader().sectionClicked.emit(2)
+for _ in range(3):app.processEvents()
+desc=[t.item(r,2).text() for r in range(3)]
+hidden=t.isColumnHidden(3)
+ok=hidden and desc==["11:14","03:18","02:54"] and w.thumb_video.minimumHeight()>=260
+print(json.dumps({"ok":ok,"hidden":hidden,"desc":desc,"video_min":w.thumb_video.minimumHeight(),"table_w":t.width(),"player_w":w.thumb_video.parentWidget().width()}))
+raise SystemExit(0 if ok else 7)
+'''
+    cp=subprocess.run([py,"-X","utf8","-c",probe],cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=90)
+    if cp.returncode!=0:
+        raise RuntimeError("UI smoke failed: "+(cp.stdout or "")[-5000:]+(cp.stderr or "")[-5000:])
+
+    # Restart Studio so the hotfix becomes visible immediately.
+    ps=r'''$x=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'rg_studio_main\.py' }; foreach($p in $x){ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }'''
+    subprocess.run(["powershell.exe","-NoProfile","-Command",ps],capture_output=True,text=True,timeout=20)
+    time.sleep(1.0)
+    main=app/"rg_studio_main.py"
+    pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+    flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+    subprocess.Popen([exe,"-X","utf8",str(main)],cwd=str(app),creationflags=flags,close_fds=True)
+
+    return {
+        "status":"APPLIED",
+        "version":"0.20.7.3",
+        "backup":str(backup),
+        "ui":str(ui),
+        "helper":str(helper_path),
+        "mirrored_local_backend":mirrored,
+        "ui_smoke":"PASS",
+        "studio_restarted":True,
+        "changes":{
+            "duration_sort":True,
+            "file_column_hidden":True,
+            "table_player_ratio":"2:4",
+            "player_height":"260-360"
+        }
+    }
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6855,6 +7078,7 @@ ACTIONS = {
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
+    "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
