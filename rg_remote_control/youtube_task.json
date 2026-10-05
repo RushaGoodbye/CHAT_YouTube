@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "hot-update-0375-20261005"
+    "nonce": "verify-runtime-0375-20261005"
   }
 }
