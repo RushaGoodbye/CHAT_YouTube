@@ -36,7 +36,5 @@ jobs:
           $code = $LASTEXITCODE
           "## RG Telegram MCP" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "exit_code=$code" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "```text" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           ($lines | Select-Object -Last 120) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           exit $code
