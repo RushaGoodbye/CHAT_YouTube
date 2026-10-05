@@ -1281,6 +1281,12 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self._set_process(
+            "0-quota підготовка",
+            "аналіз метаданих",
+            percent=0,
+            eta=f"{len(candidates)} відео · 0 квоти",
+        )
         progress = QProgressDialog(
             "0-quota підготовка метаданих...",
             "Зупинити",
@@ -1298,6 +1304,12 @@ class MainWindow(QMainWindow):
                 break
             progress.setLabelText(
                 f"0-quota: {index}/{len(candidates)} · {video_id}"
+            )
+            self._set_process(
+                "0-quota підготовка",
+                f"{index}/{len(candidates)} · {video_id}",
+                percent=round((index - 1) / max(1, len(candidates)) * 100),
+                eta="локально · 0 квоти",
             )
             QApplication.processEvents()
             try:
@@ -1334,7 +1346,16 @@ class MainWindow(QMainWindow):
 
                 for item in current_tags:
                     add_tag(item)
-                for item in ("РАША ГУДБАЙ", "чат рулетка", "Россия", "Украина"):
+                for item in (
+                    "РАША ГУДБАЙ",
+                    "чат рулетка",
+                    "Россия",
+                    "Украина",
+                    "россияне",
+                    "мнение россиян",
+                    "опрос россиян",
+                    "разговор с россиянами",
+                ):
                     add_tag(item)
                 stopwords = {
                     "чат", "рулетка", "раша", "гудбай", "russia",
@@ -1357,8 +1378,8 @@ class MainWindow(QMainWindow):
                     [],
                 )
                 hard_errors = list(check.errors)
-                if len(tags) < 6:
-                    hard_errors.append("Потрібно щонайменше 6 тегів.")
+                if len(tags) < 8:
+                    hard_errors.append("Потрібно щонайменше 8 тегів.")
 
                 status = "ready" if not hard_errors else "draft"
                 save_optimization_draft(
@@ -1420,12 +1441,11 @@ class MainWindow(QMainWindow):
         )
         self.reload_optimization_queue()
         self.update_dashboard()
-        QMessageBox.information(
-            self,
-            "0-quota підготовка",
-            f"Готово до застосування: {len(prepared)}.\n"
-            f"Чернеток/помилок: {len(blocked)}.\n"
-            "YouTube Data API: 0 одиниць.",
+        self._set_process_idle("0-quota підготовка завершена")
+        self._toast(
+            f"✓ 0-quota: готово {len(prepared)} · "
+            f"чернеток/помилок {len(blocked)} · API 0",
+            7000,
         )
 
     def show_quota_planner(self) -> None:
@@ -8509,8 +8529,20 @@ class MainWindow(QMainWindow):
             progress.setAutoReset(False)
             progress.show()
 
+        self._set_process(
+            dialog_title,
+            "підготовка",
+            percent=0,
+            eta=f"{len(video_ids)} відео · ≈{estimated} од. максимум",
+        )
         try:
             for index, video_id in enumerate(video_ids, start=1):
+                self._set_process(
+                    dialog_title,
+                    f"{index}/{len(video_ids)} · {video_id}",
+                    percent=round((index - 1) / max(1, len(video_ids)) * 100),
+                    eta=f"залишок ≈{len(video_ids) - index + 1} відео",
+                )
                 if progress is not None:
                     if progress.wasCanceled():
                         error_text = "cancelled"
@@ -8739,7 +8771,8 @@ class MainWindow(QMainWindow):
                         message + f"\n\nОбробку зупинено через помилку:\n{error_text}",
                     )
                 else:
-                    QMessageBox.information(self, APP_NAME, message)
+                    self._set_process_idle("Архівний пакет завершено")
+                    self._toast("✓ " + message.replace("\n", " · "), 8000)
             return len(changed_ids)
         except Exception as exc:
             if progress is not None:
@@ -8814,8 +8847,20 @@ class MainWindow(QMainWindow):
         changed = 0
         skipped = 0
         changed_ids: list[str] = []
+        self._set_process(
+            "Безпечна оптимізація",
+            "запис у YouTube",
+            percent=0,
+            eta=f"{len(video_ids)} відео",
+        )
         try:
-            for video_id in video_ids:
+            for index, video_id in enumerate(video_ids, start=1):
+                self._set_process(
+                    "Безпечна оптимізація",
+                    f"{index}/{len(video_ids)} · {video_id}",
+                    percent=round((index - 1) / max(1, len(video_ids)) * 100),
+                    eta=f"≈{estimated} од. квоти максимум",
+                )
                 title, description, tags = self._current_video_metadata(video_id)
                 fix = safe_description_fix(description, title)
                 if safe_description_needs_content_package(fix.after, title):
@@ -8861,10 +8906,11 @@ class MainWindow(QMainWindow):
                 sync_specific_videos(self.client, self.conn, changed_ids)
             self.reload_videos()
             self.reload_optimization_queue()
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Готово. Змінено: {changed}. Без змін: {skipped}.",
+            self._set_process_idle("Безпечна оптимізація завершена")
+            self._toast(
+                f"✓ Безпечна оптимізація: змінено {changed} · "
+                f"без змін {skipped}",
+                7000,
             )
         except Exception as exc:
             self._error("Помилка безпечної оптимізації", exc)
