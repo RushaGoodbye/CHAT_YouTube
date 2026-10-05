@@ -124,6 +124,7 @@ from .optimization import (
     needs_deep_review,
     priority_label,
     safe_description_fix,
+    safe_description_needs_content_package,
     sanitize_imported_package_description,
     validate_chapters,
     validate_content_package,
@@ -5582,6 +5583,10 @@ class MainWindow(QMainWindow):
         try:
             title, description, _tags = self._current_video_metadata(video_id)
             fix = safe_description_fix(description, title)
+            needs_content = safe_description_needs_content_package(
+                fix.after,
+                title,
+            )
 
             dialog = QDialog(self)
             dialog.setWindowTitle(f"Попередній перегляд · {title}")
@@ -5589,6 +5594,15 @@ class MainWindow(QMainWindow):
             layout = QVBoxLayout(dialog)
             changes = ", ".join(fix.changes) if fix.changes else "змін немає"
             layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
+            if needs_content:
+                warning = QLabel(
+                    "УВАГА: після очищення старого службового блоку змістовного "
+                    "опису недостатньо. Це відео не можна застосовувати через "
+                    "безпечний пакет. Потрібен контент-пакет/транскрипт."
+                )
+                warning.setWordWrap(True)
+                warning.setObjectName("warningLabel")
+                layout.addWidget(warning)
 
             columns = QHBoxLayout()
             before = QPlainTextEdit(fix.before)
@@ -7248,6 +7262,9 @@ class MainWindow(QMainWindow):
                 description = str(snippet.get("description") or "")
                 tags = list(snippet.get("tags") or [])
                 fix = safe_description_fix(description, title)
+                if safe_description_needs_content_package(fix.after, title):
+                    self._store_local_safe_audit(video_id, description, tags)
+                    continue
                 if not fix.changes or fix.after == description:
                     self._store_local_safe_audit(video_id, description, tags)
                     continue
@@ -7841,6 +7858,19 @@ class MainWindow(QMainWindow):
             for video_id in video_ids:
                 title, description, tags = self._current_video_metadata(video_id)
                 fix = safe_description_fix(description, title)
+                if safe_description_needs_content_package(fix.after, title):
+                    skipped += 1
+                    log_action(
+                        self.conn,
+                        profile=self.current_profile,
+                        category="безпечна оптимізація",
+                        action="Пропущено",
+                        details=(
+                            f"{video_id}: після очищення немає достатнього "
+                            "змістовного опису; потрібен контент-пакет"
+                        ),
+                    )
+                    continue
                 if not fix.changes or fix.after == description:
                     skipped += 1
                     continue
