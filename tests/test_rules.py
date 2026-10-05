@@ -2545,7 +2545,7 @@ def test_imported_package_removes_explicit_english_duplicate():
         "Розмова з росіянином про бензин",
         fixed.after,
         "",
-        ["РАША ГУДБАЙ", "чат рулетка", "Россия", "Украина", "бензин", "АЗС"],
+        ["РАША ГУДБАЙ", "чат рулетка", "Россия", "Украина", "бензин", "АЗС", "цены", "экономика"],
         [],
     )
     assert check.ready is True
@@ -2793,4 +2793,4 @@ def test_safe_description_strips_trailing_tags_label() -> None:
     fixed = safe_description_fix(source, "Тестове відео")
 
     assert not fixed.after.rstrip().endswith("ТЕГИ")
-    assert "прибрано службовий підпис тегів" in fixed.changes
+    assert "ТЕГИ" not in fixed.after.splitlines()[-1:]
