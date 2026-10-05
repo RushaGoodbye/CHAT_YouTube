@@ -598,6 +598,7 @@ class MainWindow(QMainWindow):
         self._build_results_tab()
         self._build_log_tab()
         self._build_settings_tab()
+        self._build_archive_dashboard_tab()
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.background_scan_all_channels)
@@ -1599,6 +1600,215 @@ class MainWindow(QMainWindow):
             elif scheduled_flag:
                 self.show_scheduled_center()
             break
+
+    def _set_health_state(
+        self,
+        key: str,
+        ok: bool,
+        label: str,
+        *,
+        working: bool = False,
+    ) -> None:
+        if not hasattr(self, "health_labels") or key not in self.health_labels:
+            return
+        widget = self.health_labels[key]
+        widget.setText(f"{label} · {'BUSY' if working else 'OK' if ok else '—'}")
+        widget.setObjectName(
+            "StatusWork" if working else "StatusGood" if ok else "StatusBad"
+        )
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _set_process(
+        self,
+        title: str,
+        stage: str = "",
+        *,
+        percent: int | None = None,
+        eta: str = "",
+        error: bool = False,
+    ) -> None:
+        if not hasattr(self, "process_title"):
+            return
+        self.process_title.setText(title)
+        self.process_stage.setText(stage or "очікування")
+        self.process_stage.setObjectName(
+            "StatusBad" if error else "StatusWork" if stage else "StatusGood"
+        )
+        self.process_stage.style().unpolish(self.process_stage)
+        self.process_stage.style().polish(self.process_stage)
+        self.process_eta.setText(eta)
+        if percent is None:
+            self.process_progress.setRange(0, 0)
+        else:
+            self.process_progress.setRange(0, 100)
+            self.process_progress.setValue(max(0, min(100, int(percent))))
+
+    def _set_process_idle(self, message: str = "Система готова") -> None:
+        if not hasattr(self, "process_progress"):
+            return
+        self.process_progress.setRange(0, 100)
+        self.process_progress.setValue(0)
+        self._set_process(message, "", percent=0)
+
+    def _toast(self, message: str, timeout_ms: int = 5500) -> None:
+        self.statusBar().showMessage(message, timeout_ms)
+
+    def retry_last_local_task(self) -> None:
+        task = getattr(self, "_last_local_task", None)
+        if not task:
+            self._toast("Немає локальної помилки для повтору")
+            return
+        label, func, on_success = task
+        self._run_local_tool(label, func, on_success)
+
+    def _open_archive_mode(self) -> None:
+        if hasattr(self, "archive_page"):
+            self.tabs.setCurrentWidget(self.archive_page)
+            self.refresh_archive_dashboard()
+            return
+        if hasattr(self, "optimization_filter"):
+            idx = self.optimization_filter.findData("archive_top")
+            if idx >= 0:
+                self.optimization_filter.setCurrentIndex(idx)
+        self.tabs.setCurrentIndex(2)
+
+    def _build_archive_dashboard_tab(self) -> None:
+        page = QWidget()
+        self.archive_page = page
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(12)
+
+        head = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title = QLabel("Архів")
+        title.setObjectName("AppTitle")
+        subtitle = QLabel(
+            "Пріоритетна кампанія старих опублікованих відео. "
+            "Спочатку локальна підготовка, потім контрольована запис у YouTube."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setProperty("muted", True)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        head.addLayout(title_box)
+        head.addStretch()
+        campaign_btn = QPushButton("Центр кампанії")
+        campaign_btn.setProperty("role", "primary")
+        campaign_btn.clicked.connect(self.show_archive_campaign_center)
+        top_btn = QPushButton("ТОП потенціал")
+        top_btn.clicked.connect(self.refresh_archive_potential)
+        head.addWidget(campaign_btn)
+        head.addWidget(top_btn)
+        layout.addLayout(head)
+
+        grid = QGridLayout()
+        self.archive_total_card = MetricCard("Всього в архіві")
+        self.archive_done_card = MetricCard("Опрацьовано")
+        self.archive_safe_card = MetricCard("Safe залишилось")
+        self.archive_deep_card = MetricCard("Deep залишилось")
+        self.archive_ready_card = MetricCard("Готові пакети")
+        self.archive_eta_card = MetricCard("Прогноз")
+        for idx, card in enumerate((
+            self.archive_total_card,
+            self.archive_done_card,
+            self.archive_safe_card,
+            self.archive_deep_card,
+            self.archive_ready_card,
+            self.archive_eta_card,
+        )):
+            grid.addWidget(card, idx // 3, idx % 3)
+        layout.addLayout(grid)
+
+        progress_card = QFrame()
+        progress_card.setObjectName("ArchiveCard")
+        pc = QVBoxLayout(progress_card)
+        self.archive_main_progress = QProgressBar()
+        self.archive_main_progress.setRange(0, 100)
+        self.archive_main_progress.setProperty("role", "success")
+        self.archive_main_progress_label = QLabel("")
+        self.archive_main_progress_label.setObjectName("SectionTitle")
+        self.archive_phase_label = QLabel("")
+        self.archive_phase_label.setWordWrap(True)
+        self.archive_phase_label.setProperty("muted", True)
+        pc.addWidget(self.archive_main_progress_label)
+        pc.addWidget(self.archive_main_progress)
+        pc.addWidget(self.archive_phase_label)
+        layout.addWidget(progress_card)
+
+        priority_card = QFrame()
+        priority_card.setObjectName("QueueCard")
+        pl = QVBoxLayout(priority_card)
+        pt = QLabel("Пріоритети")
+        pt.setObjectName("SectionTitle")
+        pl.addWidget(pt)
+        pl.addWidget(QLabel(
+            "A · високий потенціал - перші в черзі   |   "
+            "B · середній - після A   |   C · низький - тільки коли є запас квоти"
+        ))
+        buttons = QHBoxLayout()
+        for label, minimum in (("A · високий", 80), ("B · середній", 55), ("C · низький", 0)):
+            btn = QPushButton(label)
+            btn.clicked.connect(
+                lambda _checked=False, m=minimum: self._open_archive_priority(m)
+            )
+            buttons.addWidget(btn)
+        buttons.addStretch()
+        pl.addLayout(buttons)
+        layout.addWidget(priority_card)
+        layout.addStretch()
+        self.tabs.addTab(page, "Архів")
+        self.refresh_archive_dashboard()
+
+    def _open_archive_priority(self, minimum: int) -> None:
+        set_setting(self.conn, "archive_ui_min_potential", str(int(minimum)))
+        idx = self.optimization_filter.findData("archive_top")
+        if idx >= 0:
+            self.optimization_filter.setCurrentIndex(idx)
+        self.tabs.setCurrentIndex(2)
+        self.reload_optimization_queue()
+
+    def refresh_archive_dashboard(self) -> None:
+        if not hasattr(self, "archive_total_card"):
+            return
+        stats = self._archive_campaign_stats()
+        total = sum(int(v.get("archive_total", 0)) for v in stats.values())
+        safe = sum(int(v.get("safe_remaining", 0)) for v in stats.values())
+        deep = sum(int(v.get("deep_remaining", 0)) for v in stats.values())
+        ready = sum(int(v.get("ready_packages", 0)) for v in stats.values())
+        applied = sum(int(v.get("applied_packages", 0)) for v in stats.values())
+        done = max(0, total - safe - deep)
+        pct = round(done / max(1, total) * 100)
+        budget = quota_budget_status(self.conn)
+        capacity = reserve_safe_daily_batch_capacity(
+            int(budget["remaining"]),
+            int(budget["reserve"]),
+        )
+        days = math.ceil((safe + deep) / max(1, capacity)) if safe + deep else 0
+        phase, target = next_campaign_phase(stats)
+        self.archive_total_card.set_value(f"{total:,}", "обидва канали")
+        self.archive_done_card.set_value(f"{done:,}", f"{pct}% каталогу")
+        self.archive_safe_card.set_value(f"{safe:,}", "лише безпечні зміни")
+        self.archive_deep_card.set_value(f"{deep:,}", "ручний перегляд")
+        self.archive_ready_card.set_value(f"{ready:,}", f"застосовано {applied:,}")
+        self.archive_eta_card.set_value(
+            f"≈{days} дн.",
+            f"сьогодні ≈{capacity} відео без резерву",
+        )
+        self.archive_main_progress.setValue(pct)
+        self.archive_main_progress_label.setText(
+            f"Прогрес архівної кампанії · {pct}%"
+        )
+        phase_names = {
+            "safe": "SAFE",
+            "deep": "DEEP",
+            "complete": "ЗАВЕРШЕНО",
+        }
+        self.archive_phase_label.setText(
+            f"Поточний етап: {phase_names.get(phase, phase)} · "
+            f"{PROFILE_LABELS.get(target, 'обидва канали') if target else 'обидва канали'}"
+        )
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
