@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_stop_legacy_gui",
+  "action": "youtube_local_promote_reviewed_draft",
   "args": {
-    "nonce": "switch-to-source094"
+    "nonce": "promote-reviewed-0cSbxGS3O2c",
+    "video_id": "0cSbxGS3O2c"
   }
 }
