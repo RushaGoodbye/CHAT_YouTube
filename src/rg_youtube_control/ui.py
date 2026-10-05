@@ -1947,132 +1947,153 @@ class MainWindow(QMainWindow):
     def _build_optimization_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
-        sync_row = QHBoxLayout()
-        safe_row = QHBoxLayout()
-        content_row = QHBoxLayout()
-        title_row = QHBoxLayout()
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(9)
 
-        sync_all_btn = QPushButton("Синхронізувати архів")
+        toolbar = QHBoxLayout()
+        sync_all_btn = QPushButton("Синхронізувати")
         sync_all_btn.clicked.connect(self.sync_full_archive)
-        refresh_btn = QPushButton("Оновити чергу")
+        refresh_btn = QPushButton("Оновити")
         refresh_btn.clicked.connect(self.reload_optimization_queue)
-        potential_btn = QPushButton("ТОП потенціал")
-        potential_btn.clicked.connect(self.refresh_archive_potential)
-        campaign_btn = QPushButton("Центр кампанії")
-        campaign_btn.setProperty("role", "success")
-        campaign_btn.clicked.connect(self.show_archive_campaign_center)
-        prepare_queue_btn = QPushButton(f"Підготувати {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
-        prepare_queue_btn.clicked.connect(self.prepare_safe_queue)
-        preview_btn = QPushButton("Перегляд безпечних правок")
-        preview_btn.clicked.connect(self.preview_safe_optimization)
-        apply_btn = QPushButton("Застосувати безпечні")
-        apply_btn.clicked.connect(self.apply_safe_optimization)
-        next_safe_btn = QPushButton(f"Архів: безпечні {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}")
-        next_safe_btn.clicked.connect(self.apply_next_safe_archive_batch)
-        self.daily_archive_btn = QPushButton("Архів: денний пакет")
-        self.daily_archive_btn.setProperty("role", "success")
-        self.daily_archive_btn.setEnabled(archive_priority_enabled(self.conn))
-        self.daily_archive_btn.setToolTip(
-            "Обробити максимально можливу безпечну кількість відео "
-            "за поточною квотою, не використовуючи резерв."
-        )
-        self.daily_archive_btn.clicked.connect(
-            lambda: self.apply_next_safe_archive_batch(daily=True)
-        )
-        package_btn = QPushButton("Пакет контенту")
-        package_btn.clicked.connect(self.edit_content_package)
-        local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
-        local_seo_btn.setProperty("role", "success")
-        local_seo_btn.clicked.connect(self.local_seo_selected)
-        trends_btn = QPushButton("Google Trends CSV")
-        trends_btn.clicked.connect(self.import_google_trends_file)
-        probe_tools_btn = QPushButton("0-quota статус")
-        probe_tools_btn.clicked.connect(self.refresh_free_tools_status)
-        transcript_btn = QPushButton("Транскрипт → NAS")
-        transcript_btn.clicked.connect(self.export_selected_transcript_to_nas)
-        batch_transcript_btn = QPushButton("Транскрипти запланованих → NAS")
-        batch_transcript_btn.clicked.connect(
-            self.export_scheduled_transcripts_to_nas
-        )
-        nas_test_btn = QPushButton("Перевірити сховища")
-        nas_test_btn.clicked.connect(self.test_nas_transcript_path)
-        import_btn = QPushButton("Імпорт пакета")
-        import_btn.clicked.connect(self.import_selected_package_from_nas)
-        apply_package_btn = QPushButton("Застосувати пакет")
-        apply_package_btn.setProperty("role", "primary")
-        apply_package_btn.clicked.connect(self.apply_content_package)
-        rollback_btn = QPushButton("Відкотити останнє")
-        rollback_btn.clicked.connect(self.rollback_selected_metadata)
 
-        export_titles_btn = QPushButton("Англомовні назви → NAS")
-        export_titles_btn.clicked.connect(self.export_latin_title_review_to_nas)
-        preview_titles_btn = QPushButton("Перегляд виправлень назв")
-        preview_titles_btn.clicked.connect(self.preview_title_corrections)
-        apply_titles_btn = QPushButton("Застосувати назви (до 20)")
-        apply_titles_btn.setProperty("role", "primary")
-        apply_titles_btn.clicked.connect(self.apply_title_corrections)
+        self.optimization_search = QLineEdit()
+        self.optimization_search.setPlaceholderText("Пошук: назва, Video ID, проблема")
+        self.optimization_search.setClearButtonEnabled(True)
+        self.optimization_search.setMinimumWidth(260)
+        self.optimization_search.textChanged.connect(self.reload_optimization_queue)
 
         self.optimization_filter = QComboBox()
         self.optimization_filter.addItem("Усі відео", "all")
         self.optimization_filter.addItem("Лише заплановані", "scheduled")
         self.optimization_filter.addItem("Архів", "archive")
-        self.optimization_filter.addItem(
-            "Архів: ТОП потенціал",
-            "archive_top",
-        )
-        self.optimization_filter.addItem(
-            "Підготовлена черга",
-            "prepared",
-        )
-        self.optimization_filter.addItem(
-            "Англомовні назви",
-            "latin_titles",
-        )
-        self.optimization_filter.addItem(
-            "Глибока оптимізація",
-            "deep_review",
-        )
+        self.optimization_filter.addItem("Архів: ТОП потенціал", "archive_top")
+        self.optimization_filter.addItem("Підготовлена черга", "prepared")
+        self.optimization_filter.addItem("Англомовні назви", "latin_titles")
+        self.optimization_filter.addItem("Глибока оптимізація", "deep_review")
         self.optimization_filter.currentIndexChanged.connect(
             self.reload_optimization_queue
         )
-        scheduled_center_btn = QPushButton("Центр запланованих")
-        scheduled_center_btn.clicked.connect(self.show_scheduled_center)
-        sync_row.addWidget(sync_all_btn)
-        sync_row.addWidget(refresh_btn)
-        sync_row.addWidget(potential_btn)
-        sync_row.addWidget(campaign_btn)
-        sync_row.addWidget(prepare_queue_btn)
-        sync_row.addSpacing(12)
-        sync_row.addWidget(QLabel("Фільтр:"))
-        sync_row.addWidget(self.optimization_filter)
-        sync_row.addWidget(scheduled_center_btn)
-        sync_row.addStretch()
 
-        safe_row.addWidget(QLabel("Безпечні правки:"))
-        safe_row.addWidget(preview_btn)
-        safe_row.addWidget(apply_btn)
-        safe_row.addWidget(next_safe_btn)
-        safe_row.addWidget(self.daily_archive_btn)
-        safe_row.addStretch()
+        self.optimization_status_filter = QComboBox()
+        self.optimization_status_filter.addItem("Усі статуси", "all")
+        self.optimization_status_filter.addItem("Потрібна увага", "needs")
+        self.optimization_status_filter.addItem("Чернетки", "draft")
+        self.optimization_status_filter.addItem("Готово", "ready")
+        self.optimization_status_filter.addItem("Застосовано", "applied")
+        self.optimization_status_filter.addItem("Без тегів", "no_tags")
+        self.optimization_status_filter.addItem("Низький CTR", "low_ctr")
+        self.optimization_status_filter.currentIndexChanged.connect(
+            self.reload_optimization_queue
+        )
 
-        content_row.addWidget(QLabel("Контент:"))
-        content_row.addWidget(package_btn)
-        content_row.addWidget(local_seo_btn)
-        content_row.addWidget(trends_btn)
-        content_row.addWidget(probe_tools_btn)
-        content_row.addWidget(transcript_btn)
-        content_row.addWidget(batch_transcript_btn)
-        content_row.addWidget(nas_test_btn)
-        content_row.addWidget(import_btn)
-        content_row.addWidget(apply_package_btn)
-        content_row.addWidget(rollback_btn)
-        content_row.addStretch()
+        self.optimization_density = QComboBox()
+        self.optimization_density.addItem("Компактно", 28)
+        self.optimization_density.addItem("Комфортно", 34)
+        self.optimization_density.addItem("Крупно", 42)
+        self.optimization_density.setCurrentIndex(1)
+        self.optimization_density.currentIndexChanged.connect(
+            lambda _i: self._apply_table_density(
+                self.optimization_table,
+                self.optimization_density,
+            )
+        )
 
-        title_row.addWidget(QLabel("Назви:"))
-        title_row.addWidget(export_titles_btn)
-        title_row.addWidget(preview_titles_btn)
-        title_row.addWidget(apply_titles_btn)
-        title_row.addStretch()
+        toolbar.addWidget(sync_all_btn)
+        toolbar.addWidget(refresh_btn)
+        toolbar.addSpacing(8)
+        toolbar.addWidget(self.optimization_search, 1)
+        toolbar.addWidget(self.optimization_filter)
+        toolbar.addWidget(self.optimization_status_filter)
+        toolbar.addWidget(self.optimization_density)
+        layout.addLayout(toolbar)
+
+        actions = QHBoxLayout()
+        local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
+        local_seo_btn.setProperty("role", "success")
+        local_seo_btn.clicked.connect(self.local_seo_selected)
+        apply_package_btn = QPushButton("Застосувати пакет")
+        apply_package_btn.setProperty("role", "primary")
+        apply_package_btn.clicked.connect(self.apply_content_package)
+        package_btn = QPushButton("Редагувати пакет")
+        package_btn.clicked.connect(self.edit_content_package)
+        rollback_btn = QPushButton("Відкотити")
+        rollback_btn.clicked.connect(self.rollback_selected_metadata)
+
+        def make_menu_button(label: str, items: list[tuple[str, object]]) -> QToolButton:
+            button = QToolButton()
+            button.setText(label)
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            menu = QMenu(button)
+            for text_value, callback in items:
+                action = QAction(text_value, menu)
+                action.triggered.connect(callback)
+                menu.addAction(action)
+            button.setMenu(menu)
+            return button
+
+        archive_menu = make_menu_button(
+            "Архів ▾",
+            [
+                ("Центр кампанії", self.show_archive_campaign_center),
+                ("ТОП потенціал", self.refresh_archive_potential),
+                (
+                    f"Підготувати {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
+                    self.prepare_safe_queue,
+                ),
+                ("Перегляд безпечних правок", self.preview_safe_optimization),
+                ("Застосувати безпечні", self.apply_safe_optimization),
+                (
+                    f"Наступні safe {DEFAULT_ARCHIVE_SAFE_BATCH_LIMIT}",
+                    self.apply_next_safe_archive_batch,
+                ),
+                ("Денний пакет", lambda: self.apply_next_safe_archive_batch(daily=True)),
+            ],
+        )
+
+        content_menu = make_menu_button(
+            "Інструменти ▾",
+            [
+                ("Google Trends CSV", self.import_google_trends_file),
+                ("0-quota статус", self.refresh_free_tools_status),
+                ("Транскрипт → NAS", self.export_selected_transcript_to_nas),
+                (
+                    "Транскрипти запланованих → NAS",
+                    self.export_scheduled_transcripts_to_nas,
+                ),
+                ("Перевірити сховища", self.test_nas_transcript_path),
+                ("Імпорт пакета", self.import_selected_package_from_nas),
+                ("Центр запланованих", self.show_scheduled_center),
+            ],
+        )
+
+        titles_menu = make_menu_button(
+            "Назви ▾",
+            [
+                ("Англомовні назви → NAS", self.export_latin_title_review_to_nas),
+                ("Перегляд виправлень назв", self.preview_title_corrections),
+                ("Застосувати назви (до 20)", self.apply_title_corrections),
+            ],
+        )
+
+        self.daily_archive_btn = QPushButton("Денний пакет")
+        self.daily_archive_btn.setVisible(False)
+        self.daily_archive_btn.setEnabled(archive_priority_enabled(self.conn))
+        self.daily_archive_btn.clicked.connect(
+            lambda: self.apply_next_safe_archive_batch(daily=True)
+        )
+
+        for button in (
+            local_seo_btn,
+            apply_package_btn,
+            package_btn,
+            rollback_btn,
+            archive_menu,
+            content_menu,
+            titles_menu,
+        ):
+            actions.addWidget(button)
+        actions.addStretch()
+        layout.addLayout(actions)
 
         self.archive_campaign_summary = QLabel()
         self.archive_campaign_summary.setObjectName("ArchiveCampaignSummary")
@@ -2080,7 +2101,9 @@ class MainWindow(QMainWindow):
         self.archive_campaign_summary.setWordWrap(True)
         self._refresh_archive_campaign_summary()
 
-        self.free_tools_status_label = QLabel("0-quota: перевірка локальних інструментів...")
+        self.free_tools_status_label = QLabel(
+            "0-quota: перевірка локальних інструментів..."
+        )
         self.free_tools_status_label.setProperty("muted", True)
         self.free_tools_status_label.setWordWrap(True)
 
@@ -2112,8 +2135,8 @@ class MainWindow(QMainWindow):
         opt_header.setStretchLastSection(True)
         opt_header.setMinimumSectionSize(72)
         for column, width in {
-            0: 110, 1: 110, 2: 90, 3: 115, 4: 260, 5: 95,
-            6: 75, 7: 105, 8: 100, 9: 135, 10: 190, 11: 260,
+            0: 105, 1: 105, 2: 90, 3: 115, 4: 300, 5: 95,
+            6: 75, 7: 105, 8: 100, 9: 135, 10: 190, 11: 280,
         }.items():
             self.optimization_table.setColumnWidth(column, width)
         self.optimization_table.setHorizontalScrollMode(
@@ -2123,15 +2146,44 @@ class MainWindow(QMainWindow):
         self.optimization_table.doubleClicked.connect(
             lambda _index: self.edit_content_package()
         )
+        self.optimization_table.itemSelectionChanged.connect(
+            self._update_optimization_context_card
+        )
 
-        layout.addLayout(sync_row)
-        layout.addLayout(safe_row)
-        layout.addLayout(content_row)
-        layout.addLayout(title_row)
+        context = QFrame()
+        context.setObjectName("ContextCard")
+        cx = QHBoxLayout(context)
+        cx.setContentsMargins(14, 10, 14, 10)
+        text_box = QVBoxLayout()
+        self.optimization_context_title = QLabel("Виберіть відео")
+        self.optimization_context_title.setObjectName("StickyVideoTitle")
+        self.optimization_context_title.setWordWrap(True)
+        self.optimization_context_pipeline = QLabel(
+            "Аналіз → Транскрипт → SEO → Перевірка → Готово → YouTube → Контроль"
+        )
+        self.optimization_context_pipeline.setWordWrap(True)
+        self.optimization_context_pipeline.setProperty("muted", True)
+        self.optimization_context_note = QLabel("")
+        self.optimization_context_note.setWordWrap(True)
+        self.optimization_context_note.setProperty("muted", True)
+        text_box.addWidget(self.optimization_context_title)
+        text_box.addWidget(self.optimization_context_pipeline)
+        text_box.addWidget(self.optimization_context_note)
+        cx.addLayout(text_box, 1)
+        self.context_primary_btn = QPushButton("Локальний SEO")
+        self.context_primary_btn.setProperty("role", "primary")
+        self.context_primary_btn.clicked.connect(self._run_context_primary_action)
+        context_rollback = QPushButton("Відкотити")
+        context_rollback.clicked.connect(self.rollback_selected_metadata)
+        cx.addWidget(self.context_primary_btn)
+        cx.addWidget(context_rollback)
+
         layout.addWidget(self.archive_campaign_summary)
         layout.addWidget(self.free_tools_status_label)
-        layout.addWidget(self.optimization_table)
+        layout.addWidget(self.optimization_table, 1)
+        layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
+
 
     def _build_comments_tab(self) -> None:
         page = QWidget()
