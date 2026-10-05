@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_program_local_status",
   "args": {
-    "nonce": "verify-runtime-0375-20261005"
+    "mode": "verify_upcoming_sync_0375",
+    "nonce": "verify-stream901-in-scheduled-center"
   }
 }
