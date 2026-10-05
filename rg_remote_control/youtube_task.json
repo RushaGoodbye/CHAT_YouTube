@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_launch_diagnostic",
+  "action": "youtube_local_prepare_source_runtime",
   "args": {
-    "nonce": "diag-gui-0374-20261005"
+    "nonce": "prepare-venv-0374-20261005"
   }
 }
