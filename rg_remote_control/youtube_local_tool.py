@@ -800,6 +800,73 @@ def _stop_non_private_source_gui_processes(target: Path) -> dict:
     return {"removed": removed, "windows": True}
 
 
+def stop_legacy_installed_gui() -> dict:
+    """Stop only the obsolete Program Files EXE so the source shortcut can be used."""
+    import subprocess
+
+    if os.name != "nt":
+        return {"youtube_api_calls": 0, "stopped": [], "windows": False}
+
+    command = (
+        "$items=Get-CimInstance Win32_Process | Where-Object { "
+        "$_.Name -eq 'RG YouTube Control.exe' -and "
+        "$_.ExecutablePath -like 'C:\\Program Files\\RG YouTube Control\\*' }; "
+        "$stopped=@(); "
+        "foreach($p in $items){ "
+        "$stopped += [pscustomobject]@{id=[int]$p.ProcessId;path=$p.ExecutablePath}; "
+        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
+        "}; "
+        "$stopped | ConvertTo-Json -Compress"
+    )
+    proc = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Could not stop legacy installed GUI: "
+            + ((proc.stderr or proc.stdout) or "")[-3000:]
+        )
+    raw = (proc.stdout or "").strip()
+    try:
+        stopped = json.loads(raw) if raw else []
+    except Exception:
+        stopped = raw
+    return {
+        "youtube_api_calls": 0,
+        "stopped": stopped,
+        "desktop_shortcut": str(Path.home() / "Desktop" / "RG YouTube Control.lnk"),
+        "source_version": (
+            re.search(
+                r'^version = "([^"]+)"',
+                (Path.home() / "CHAT_YouTube-main" / "pyproject.toml").read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                ),
+                re.MULTILINE,
+            ).group(1)
+            if (Path.home() / "CHAT_YouTube-main" / "pyproject.toml").is_file()
+            and re.search(
+                r'^version = "([^"]+)"',
+                (Path.home() / "CHAT_YouTube-main" / "pyproject.toml").read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                ),
+                re.MULTILINE,
+            )
+            else ""
+        ),
+    }
+
+
 def _source_python(target: Path, *, windowed: bool = False) -> Path:
     scripts = target / ".venv" / "Scripts"
     candidate = scripts / ("pythonw.exe" if windowed else "python.exe")
@@ -2219,6 +2286,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_stop_legacy_gui":
+        result = stop_legacy_installed_gui()
     elif action == "youtube_local_sync_and_launch_source":
         result = sync_and_launch_source()
     elif action == "youtube_local_launch_diagnostic":
