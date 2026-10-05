@@ -6707,6 +6707,44 @@ raise SystemExit(0 if ok else 7)
             "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","ui_regression":"PASS","blank_viewport_guard":"PASS",
             "ui_preview":"IN_ZIP","selftest":"READY FOR PRODUCTION","crc":"PASS","manifest":"PASS","installed":False}
 
+def inspect_auto_edit_progress_pipeline() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    targets=["rg_studio_ui.py","rg_multi_dialogue.py","rg_production_wrapper.py","rg_pack170_visual.py","rg_pack200_visual.py","rg_pack300_visual.py","rg_auto_edit_config.json","rg_studio_version.py"]
+    keys=["progress","percent","eta","elapsed","started_at","heartbeat","RGPROGRESS","RGSTAGE","RGHEART","RGDIALOG","RGPOS","RGSTATUS","setValue","setText","stdout","readAllStandardOutput","readyReadStandardOutput"]
+    out={}
+    for name in targets:
+        p=root/name
+        if not p.is_file():
+            out[name]={"missing":True}
+            continue
+        text0=p.read_text(encoding="utf-8",errors="replace")
+        rows=text0.splitlines()
+        hits=[]
+        for i,row in enumerate(rows):
+            if any(k.lower() in row.lower() for k in keys):
+                a=max(0,i-4);b=min(len(rows),i+8)
+                hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+                if len(hits)>=80:break
+        funcs={}
+        if p.suffix==".py":
+            try:
+                tree=ast.parse(text0)
+                for node in ast.walk(tree):
+                    if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                        a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                        body="\n".join(rows[a:b])
+                        if any(k.lower() in body.lower() for k in keys):
+                            funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+                            if len(funcs)>=30:break
+            except Exception as exc:
+                funcs={"parse_error":repr(exc)}
+        out[name]={"size":p.stat().st_size,"mtime":p.stat().st_mtime,"hits":hits,"functions":funcs}
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6756,6 +6794,7 @@ ACTIONS = {
     "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
     "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
     "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
+    "inspect_auto_edit_progress_pipeline": inspect_auto_edit_progress_pipeline,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
