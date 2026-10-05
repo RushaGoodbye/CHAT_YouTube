@@ -2959,6 +2959,78 @@ def inspect_auto_edit_live_code() -> dict:
     return out
 
 
+def inspect_auto_edit_runtime_state() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_runtime_state must run on AlexPC/Windows")
+
+    import ast
+
+    backend = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    local = Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    queue_file = local / "RG_Auto_Edit" / "studio_batch_queue.json"
+    screens = Path(r"\\Desktop-v7gg0en\record\Screens")
+    video_root = Path(r"\\Desktop-v7gg0en\record")
+    audio_root = video_root / "sound"
+
+    out = {"inputs": {}, "queue_state": None, "functions": {}}
+
+    for stream in ("889","890","891","892"):
+        shot_names = []
+        try:
+            shot_names = sorted(
+                p.name for p in screens.glob(f"{stream}-*.jpg")
+                if p.is_file()
+            )
+        except Exception as exc:
+            shot_names = [f"ERROR:{exc}"]
+        out["inputs"][stream] = {
+            "video": (video_root / f"{stream}.mp4").is_file(),
+            "audio": (audio_root / f"{stream}.mp3").is_file(),
+            "screenshots": shot_names,
+        }
+
+    if queue_file.is_file():
+        try:
+            out["queue_state"] = json.loads(
+                queue_file.read_text(encoding="utf-8-sig", errors="replace")
+            )
+        except Exception as exc:
+            out["queue_state"] = {"error": repr(exc), "path": str(queue_file)}
+    else:
+        out["queue_state"] = {"missing": True, "path": str(queue_file)}
+
+    for filename in ("rg_studio_ui.py", "rg_studio_postrun.py"):
+        path = backend / filename
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8", errors="replace")
+        rows = source.splitlines()
+        try:
+            tree = ast.parse(source)
+        except Exception as exc:
+            out["functions"][filename] = {"parse_error": repr(exc)}
+            continue
+        found = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = node.name
+                want = (
+                    filename == "rg_studio_ui.py"
+                    and (name.startswith("batch_") or name.startswith("_batch") or name in {"on_finished"})
+                ) or (
+                    filename == "rg_studio_postrun.py"
+                    and name in {"main","run","postrun","build_postrun_qa","verify_outputs"}
+                )
+                if want:
+                    a = max(0, int(node.lineno)-1)
+                    b = min(len(rows), int(getattr(node,"end_lineno",node.lineno)))
+                    found[name] = "\n".join(
+                        f"{i+1}: {rows[i]}" for i in range(a,b)
+                    )
+        out["functions"][filename] = found
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -3024,6 +3096,7 @@ ACTIONS = {
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
+    "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
