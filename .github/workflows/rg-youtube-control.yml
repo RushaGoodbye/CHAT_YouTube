@@ -53,4 +53,15 @@ jobs:
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { exit 0 }
           git commit -m "Record latest YouTube task result [skip ci]"
-          git push origin HEAD:main
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            git fetch origin main
+            git rebase origin/main
+            if ($LASTEXITCODE -ne 0) {
+              git rebase --abort 2>$null
+              throw "Could not rebase YouTube task result onto origin/main"
+            }
+            git push origin HEAD:main
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep -Seconds (2 * $attempt)
+          }
+          throw "Could not publish YouTube task result after retries"
