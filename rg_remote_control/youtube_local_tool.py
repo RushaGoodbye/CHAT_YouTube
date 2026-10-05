@@ -1632,6 +1632,291 @@ def enable_archive_priority_campaign() -> dict:
     finally:
         conn.close()
 
+
+def apply_ready_scheduled_batch() -> dict:
+    """Apply ready scheduled packages before archive work, preserving reserve."""
+    from rg_youtube_control.db import (
+        connect,
+        log_action,
+        record_optimization_event,
+        save_metadata_snapshot,
+        set_optimization_draft_status,
+    )
+    from rg_youtube_control.optimization import (
+        compose_description,
+        sanitize_imported_package_description,
+        validate_content_package,
+    )
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        VIDEO_UPDATE_COST,
+        mark_quota_exhausted,
+        quota_budget_status,
+        record_quota_units,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    conn = connect(_db_path())
+    try:
+        rows = conn.execute(
+            """SELECT v.video_id,v.profile,v.title,v.scheduled_publish_at,
+                      d.new_title,d.description,d.chapters,d.tags_json,
+                      d.title_variants_json
+               FROM videos v
+               JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.scheduled_publish_at IS NOT NULL
+                 AND d.status='ready'
+               ORDER BY v.scheduled_publish_at ASC"""
+        ).fetchall()
+        if not rows:
+            return {
+                "youtube_api_calls": 0,
+                "ready_found": 0,
+                "changed": 0,
+                "verified": 0,
+                "errors": [],
+            }
+
+        budget = quota_budget_status(conn)
+        if bool(budget["exhausted"]):
+            raise RuntimeError("YouTube quota is exhausted")
+
+        # Worst case per item: update_video contains one read + one write (51),
+        # plus one shared preflight read and one shared final verification read.
+        affordable = max(
+            0,
+            (int(budget["spendable"]) - 2 * READ_REQUEST_COST)
+            // VIDEO_UPDATE_COST,
+        )
+        rows = rows[:affordable]
+        if not rows:
+            raise RuntimeError(
+                "No scheduled item fits above the protected quota reserve"
+            )
+
+        backup_path = _backup_database(conn)
+        before_units = today_quota_units(conn)
+
+        by_profile: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            by_profile.setdefault(str(row["profile"] or "main"), []).append(row)
+
+        changed_ids: list[str] = []
+        prepared_by_id: dict[str, dict] = {}
+        errors: list[str] = []
+
+        for profile, profile_rows in by_profile.items():
+            client = YouTubeClient(profile=profile)
+            client.credentials()
+            ids = [str(row["video_id"]) for row in profile_rows]
+
+            current_items, requests = client.video_details_with_request_count(ids)
+            record_quota_units(
+                conn,
+                int(requests) * READ_REQUEST_COST,
+                purpose="service",
+            )
+            current_by_id = {
+                str(item.get("id") or ""): item
+                for item in current_items
+            }
+
+            for row in profile_rows:
+                video_id = str(row["video_id"])
+                try:
+                    current = current_by_id.get(video_id)
+                    if not current:
+                        raise RuntimeError("video metadata not found")
+
+                    new_title = str(row["new_title"] or "").strip()
+                    description = str(row["description"] or "").strip()
+                    chapters = str(row["chapters"] or "").strip()
+                    tags = [
+                        str(item).strip()
+                        for item in json.loads(row["tags_json"] or "[]")
+                        if str(item).strip()
+                    ]
+                    variants = [
+                        str(item).strip()
+                        for item in json.loads(
+                            row["title_variants_json"] or "[]"
+                        )
+                        if str(item).strip()
+                    ]
+
+                    sanitized = sanitize_imported_package_description(
+                        description,
+                        new_title,
+                    )
+                    description = sanitized.after
+                    check = validate_content_package(
+                        new_title,
+                        description,
+                        chapters,
+                        tags,
+                        variants,
+                    )
+                    if check.errors:
+                        raise RuntimeError(
+                            "package validation: " + "; ".join(check.errors)
+                        )
+                    final_description = compose_description(
+                        description,
+                        chapters,
+                    )
+                    if len(final_description) > 5000:
+                        raise RuntimeError(
+                            f"final description is {len(final_description)} chars"
+                        )
+
+                    snippet = current.get("snippet", {}) or {}
+                    current_title = str(snippet.get("title") or "")
+                    current_description = str(
+                        snippet.get("description") or ""
+                    )
+                    current_tags = list(snippet.get("tags") or [])
+
+                    history_id = save_metadata_snapshot(
+                        conn,
+                        video_id,
+                        current_title,
+                        current_description,
+                        current_tags,
+                        "before_scheduled_package_batch",
+                    )
+
+                    fresh_budget = quota_budget_status(conn)
+                    if int(fresh_budget["spendable"]) < VIDEO_UPDATE_COST:
+                        raise RuntimeError(
+                            "protected quota reserve reached"
+                        )
+
+                    client.update_video(
+                        video_id,
+                        title=new_title,
+                        description=final_description,
+                        tags=tags,
+                    )
+                    record_quota_units(
+                        conn,
+                        VIDEO_UPDATE_COST,
+                        purpose="video",
+                    )
+                    prepared_by_id[video_id] = {
+                        "profile": profile,
+                        "title": new_title,
+                        "description": final_description,
+                        "tags": tags,
+                        "history_id": history_id,
+                    }
+                    changed_ids.append(video_id)
+                except Exception as exc:
+                    if "quotaexceeded" in str(exc).casefold():
+                        mark_quota_exhausted(conn)
+                    errors.append(f"{video_id}: {exc}")
+                    if "quota" in str(exc).casefold():
+                        break
+
+        verified = 0
+        verified_ids: list[str] = []
+        for profile in sorted(
+            {item["profile"] for item in prepared_by_id.values()}
+        ):
+            ids = [
+                video_id
+                for video_id, item in prepared_by_id.items()
+                if item["profile"] == profile
+            ]
+            client = YouTubeClient(profile=profile)
+            client.credentials()
+            items, requests = client.video_details_with_request_count(ids)
+            record_quota_units(
+                conn,
+                int(requests) * READ_REQUEST_COST,
+                purpose="service",
+            )
+            actual = {
+                str(item.get("id") or ""): item
+                for item in items
+            }
+            for video_id in ids:
+                expected = prepared_by_id[video_id]
+                item = actual.get(video_id)
+                if not item:
+                    errors.append(
+                        f"{video_id}: final verification missing video"
+                    )
+                    continue
+                snippet = item.get("snippet", {}) or {}
+                title_ok = (
+                    str(snippet.get("title") or "") == expected["title"]
+                )
+                description_ok = (
+                    str(snippet.get("description") or "")
+                    == expected["description"]
+                )
+                returned_tags = list(snippet.get("tags") or [])
+                expected_tags = list(expected["tags"])
+                tags_ok = sorted(
+                    returned_tags,
+                    key=str.casefold,
+                ) == sorted(
+                    expected_tags,
+                    key=str.casefold,
+                )
+                if not (title_ok and description_ok and tags_ok):
+                    errors.append(
+                        f"{video_id}: verification mismatch "
+                        f"title={title_ok} description={description_ok} "
+                        f"tags={tags_ok}"
+                    )
+                    continue
+
+                set_optimization_draft_status(
+                    conn,
+                    video_id,
+                    "applied",
+                )
+                record_optimization_event(
+                    conn,
+                    history_id=expected["history_id"],
+                    video_id=video_id,
+                    profile=profile,
+                    reason="scheduled_package_batch",
+                    changed_fields="назва + опис + теги",
+                )
+                verified += 1
+                verified_ids.append(video_id)
+
+        log_action(
+            conn,
+            profile="main",
+            category="заплановані",
+            action="Пакет застосовано",
+            details=(
+                f"готових {len(rows)}; записано {len(changed_ids)}; "
+                f"перевірено {verified}; помилок {len(errors)}; "
+                f"резерв {budget['reserve']}"
+            ),
+        )
+        after_units = today_quota_units(conn)
+        return {
+            "ready_found": len(rows),
+            "changed": len(changed_ids),
+            "verified": verified,
+            "verified_ids": verified_ids,
+            "errors": errors,
+            "backup": str(backup_path),
+            "youtube_api_units_tracked": max(
+                0,
+                after_units - before_units,
+            ),
+            "quota_after": quota_budget_status(conn),
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1671,6 +1956,8 @@ def main() -> int:
         result = cleanup_gui_processes()
     elif action == "youtube_local_enable_archive_priority":
         result = enable_archive_priority_campaign()
+    elif action == "youtube_local_apply_ready_scheduled_batch":
+        result = apply_ready_scheduled_batch()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
