@@ -5853,6 +5853,33 @@ def apply_auto_edit_pack150_ui_hotfix() -> dict:
     return {"status":"PASS","backup":str(backup),"ui":str(ui),"tab_position":"North","custom_tabbar_removed":True,"compile":"PASS","restarted":True}
 
 
+
+def probe_auto_edit_studio_startup() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import subprocess,os,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    py=str(runtime if runtime.is_file() else sys.executable)
+    env=os.environ.copy()
+    env["PYTHONUTF8"]="1"
+    env["QT_QPA_PLATFORM"]="offscreen"
+    env["RG_AUTO_EDIT_BACKEND"]=str(app)
+    lock=Path(os.getenv("TEMP") or ".")/"RG_Auto_Edit_Studio.lock"
+    try: lock.unlink(missing_ok=True)
+    except Exception: pass
+    p=subprocess.Popen([py,"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),env=env,
+                       stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",errors="replace")
+    try:
+        out,err=p.communicate(timeout=8)
+        return {"alive":False,"returncode":p.returncode,"stdout":out[-8000:],"stderr":err[-8000:]}
+    except subprocess.TimeoutExpired:
+        p.terminate()
+        try: out,err=p.communicate(timeout=3)
+        except Exception:
+            p.kill();out,err=p.communicate()
+        return {"alive":True,"returncode":None,"stdout":out[-4000:],"stderr":err[-4000:]}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5898,6 +5925,7 @@ ACTIONS = {
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
     "build_auto_edit_pack150_update": build_auto_edit_pack150_update,
     "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
+    "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
