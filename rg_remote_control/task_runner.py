@@ -8802,6 +8802,46 @@ def inspect_auto_edit_chatgpt_collage_flow() -> dict:
         out[name]={"path":str(p),"functions":funcs}
     return out
 
+def inspect_auto_edit_901_diagnostic() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import zipfile,hashlib
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+    ]
+    out={"diagnostics":[],"code":[]}
+    for root in roots:
+        if not root.exists(): continue
+        for z in root.glob("RG_DIAGNOSTIC_MULTI_901*.zip"):
+            row={"path":str(z),"size":z.stat().st_size,"mtime":z.stat().st_mtime,"sha256":hashlib.sha256(z.read_bytes()).hexdigest()}
+            try:
+                with zipfile.ZipFile(z) as zz:
+                    row["names"]=zz.namelist()
+                    texts={}
+                    for n in zz.namelist():
+                        if n.lower().endswith((".txt",".log",".json",".trace",".md")):
+                            try:
+                                b=zz.read(n)
+                                texts[n]=b.decode("utf-8",errors="replace")[-20000:]
+                            except Exception as exc:
+                                texts[n]="READ_ERROR "+repr(exc)
+                    row["texts"]=texts
+            except Exception as exc:
+                row["zip_error"]=repr(exc)
+            out["diagnostics"].append(row)
+        p=root/"rg_multi_dialogue.py"
+        if p.is_file():
+            rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+            spans={}
+            for line in (635,893):
+                a=max(0,line-18);b=min(len(rows),line+18)
+                spans[str(line)]="\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))
+            out["code"].append({
+              "path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime,
+              "sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"spans":spans
+            })
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8894,6 +8934,7 @@ ACTIONS = {
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
+    "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
