@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_ensure_gui_startup",
   "args": {
-    "nonce": "fix-update-loop-shortcuts-0.3.89-20261005"
+    "nonce": "dedupe-source-gui-0.3.89-20261005"
   }
 }
