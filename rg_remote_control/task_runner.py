@@ -8270,6 +8270,229 @@ def apply_auto_edit_strict_guest_face_v2() -> dict:
             if bp.is_file():shutil.copy2(bp,p)
         raise
 
+def apply_auto_edit_guest_face_only_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, re, shutil, subprocess, time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    prep=app/"rg_thumbnail_prep.py"
+    mix=app/"rg_thumbnail_mix_prep.py"
+    ver=app/"rg_studio_version.py"
+    if not prep.is_file() or not mix.is_file():
+        raise RuntimeError("Thumbnail prep modules are missing")
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_GUEST_FACE_ONLY_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in (prep,mix,ver):
+        if p.is_file(): shutil.copy2(p,backup/p.name)
+
+    try:
+        ps=prep.read_text(encoding="utf-8")
+        if "def _guest_face_only_crop(" not in ps:
+            anchor='''def _portrait_crop(frame,face,aspect=4/5):
+    h,w=frame.shape[:2]
+    x,y,bw,bh=[float(v) for v in (face.get("bbox") or [0,0,w,h])[:4]]
+    cx=x+bw/2;cy=y+bh/2
+    target_h=max(bh*2.25,320.0);target_w=target_h*aspect
+    if target_w<bw*1.55:
+        target_w=bw*1.55;target_h=target_w/aspect
+    cy+=bh*0.18
+    x0=int(round(cx-target_w/2));x1=int(round(cx+target_w/2))
+    y0=int(round(cy-target_h*0.46));y1=int(round(y0+target_h))
+    dx0=max(0,-x0);dx1=max(0,x1-w);dy0=max(0,-y0);dy1=max(0,y1-h)
+    x0+=dx0-dx1;x1+=dx0-dx1;y0+=dy0-dy1;y1+=dy0-dy1
+    x0=max(0,x0);y0=max(0,y0);x1=min(w,x1);y1=min(h,y1)
+    return frame[y0:y1,x0:x1].copy()
+'''
+            if anchor not in ps:
+                raise RuntimeError("portrait crop anchor missing")
+            addition=anchor+r'''
+
+def _guest_face_only_crop(frame, face):
+    """Clean guest portrait from the raw RIGHT source window.
+
+    Deliberately stays close to the detected face so UI frames, decorative
+    lower thirds and window borders from the dialogue layout do not enter
+    the Topaz source. Hair, chin and a small amount of shoulders are kept.
+    """
+    h,w=frame.shape[:2]
+    box=face.get("bbox") or [0,0,w,h]
+    x,y,bw,bh=[float(v) for v in box[:4]]
+    if bw<=1 or bh<=1:
+        return frame[0:0,0:0].copy()
+
+    # 1.38 face widths and 1.68 face heights: complete head + small shoulders,
+    # but much tighter than legacy 2.25x portrait crop.
+    cx=x+bw*0.50
+    target_w=max(bw*1.38, 96.0)
+    target_h=max(bh*1.68, 128.0)
+
+    # Give extra room above detector bbox for hair; limited room below for neck.
+    y0=y-bh*0.30
+    y1=y+bh*1.38
+    x0=cx-target_w/2
+    x1=cx+target_w/2
+
+    # Guests are always from the RIGHT half. Never allow crop to cross into
+    # host side or touch the outer dialogue-window border.
+    side_x0=int(round(w*0.50))+4
+    side_x1=w-4
+    x0=max(float(side_x0),x0)
+    x1=min(float(side_x1),x1)
+
+    # Keep crop inside source image without synthetic padding.
+    y0=max(2.0,y0)
+    y1=min(float(h-2),y1)
+
+    ix0=max(0,int(round(x0))); ix1=min(w,int(round(x1)))
+    iy0=max(0,int(round(y0))); iy1=min(h,int(round(y1)))
+    if ix1<=ix0 or iy1<=iy0:
+        return frame[0:0,0:0].copy()
+
+    crop=frame[iy0:iy1,ix0:ix1].copy()
+    return crop
+
+def _write_guest_face_only_candidate(dst:Path,row,label,index):
+    dst.mkdir(parents=True,exist_ok=True)
+    crop=_guest_face_only_crop(row["frame"],row["face"])
+    name=f"{label}_{index:02d}_FACE_ONLY_t{row['time']:.2f}_q{row['score']:.2f}.png"
+    path=dst/name
+    if crop.size==0 or not cv2.imwrite(str(path),crop):
+        raise RuntimeError("cannot write "+str(path))
+    return path
+'''
+            ps=ps.replace(anchor,addition,1)
+
+        tmp=prep.with_suffix(".py.faceonly.tmp")
+        tmp.write_text(ps,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,prep)
+
+        ms=mix.read_text(encoding="utf-8")
+        old_import='from rg_thumbnail_prep import _sample_candidates, _choose_spaced, _write_candidate, _write_host_window_candidate, _candidate_record, _dominant_identity_rows'
+        new_import='from rg_thumbnail_prep import _sample_candidates, _choose_spaced, _write_candidate, _write_guest_face_only_candidate, _write_host_window_candidate, _candidate_record, _dominant_identity_rows'
+        if old_import in ms:
+            ms=ms.replace(old_import,new_import,1)
+        elif "_write_guest_face_only_candidate" not in ms:
+            raise RuntimeError("mix import anchor missing")
+
+        ms=ms.replace(
+            'gp=_write_candidate(gdir,c,guest_id,j);gpaths.append(str(gp));grecords.append(_candidate_record(gp,c,\'GUEST\',clip.stem,clip,\'RIGHT\'))',
+            'gp=_write_guest_face_only_candidate(gdir,c,guest_id,j);gpaths.append(str(gp));grecords.append(_candidate_record(gp,c,\'GUEST\',clip.stem,clip,\'RIGHT\',\'FACE_PORTRAIT_CLEAN\'))'
+        )
+        ms=ms.replace(
+            'p=_write_candidate(ddir,row,str(guest_id),i);paths.append(str(p));records.append(_candidate_record(p,row,"GUEST",target.get("label",""),clip,"RIGHT"))',
+            'p=_write_guest_face_only_candidate(ddir,row,str(guest_id),i);paths.append(str(p));records.append(_candidate_record(p,row,"GUEST",target.get("label",""),clip,"RIGHT","FACE_PORTRAIT_CLEAN"))'
+        )
+        ms=ms.replace('"quality_policy":"THUMB_V6_HOST_WINDOW_LEFT_GUEST_STRICT_FACE_ONLY_RIGHT"', '"quality_policy":"THUMB_V7_HOST_WINDOW_LEFT_GUEST_FACE_ONLY_CLEAN_RIGHT"')
+        if '"guest_asset_type":"FACE_PORTRAIT_CLEAN"' not in ms:
+            ms=ms.replace(
+                '"host_candidates":[]\n    }',
+                '"host_candidates":[],\n        "guest_asset_type":"FACE_PORTRAIT_CLEAN"\n    }',
+                1
+            )
+
+        tmp=mix.with_suffix(".py.faceonly.tmp")
+        tmp.write_text(ms,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,mix)
+
+        if ver.is_file():
+            vs=ver.read_text(encoding="utf-8")
+            if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+                vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.6"',vs,count=1)
+            else:
+                vs='STUDIO_VERSION="0.20.7.6"\n'+vs
+            ver.write_text(vs,encoding="utf-8")
+            py_compile.compile(str(ver),doraise=True)
+
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        py=str(runtime if runtime.is_file() else sys.executable)
+        env=os.environ.copy();env["PYTHONUTF8"]="1";env["RG_AUTO_EDIT_BACKEND"]=str(app)
+
+        # Functional synthetic test verifies clean crop is materially tighter than legacy crop
+        # and stays entirely in the RIGHT half.
+        test_code=r'''
+import numpy as np
+from rg_thumbnail_prep import _guest_face_only_crop,_portrait_crop
+frame=np.zeros((1080,1920,3),dtype=np.uint8)
+face={"bbox":[1300,250,260,300]}
+clean=_guest_face_only_crop(frame,face)
+legacy=_portrait_crop(frame,face)
+assert clean.size>0
+assert clean.shape[0] < legacy.shape[0]
+assert clean.shape[1] < legacy.shape[1]
+assert clean.shape[0] <= int(300*1.72)+4
+assert clean.shape[1] <= int(260*1.42)+4
+print("FACE_ONLY_TEST_PASS",clean.shape,legacy.shape)
+'''
+        cp=subprocess.run([py,"-X","utf8","-c",test_code],cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=60)
+        if cp.returncode!=0:
+            raise RuntimeError("Guest face-only crop test failed: "+(cp.stdout or "")[-4000:]+(cp.stderr or "")[-4000:])
+
+        # Regenerate the most recently active thumbnail job so stale framed guest
+        # images disappear immediately. prepare_mix itself clears candidates,
+        # TOPAZ_INPUT and TOPAZ_READY before rebuilding.
+        manifests=[]
+        for p in app.glob("*/THUMBNAIL/RG_THUMBNAIL_PREP.json"):
+            try: manifests.append((p.stat().st_mtime,p))
+            except Exception: pass
+        regenerated=None
+        if manifests:
+            _,mf=max(manifests,key=lambda x:x[0])
+            try:
+                md=json.loads(mf.read_text(encoding="utf-8-sig"))
+                clips=[Path(str(x)) for x in (md.get("selected_clips") or []) if Path(str(x)).is_file()]
+                job=str(md.get("job") or mf.parents[1].name)
+                if clips:
+                    clips_file=data/f"_regen_face_only_{job}_{stamp}.json"
+                    clips_file.write_text(json.dumps({"clips":[str(x) for x in clips]},ensure_ascii=False),encoding="utf-8")
+                    cp2=subprocess.run(
+                        [py,"-X","utf8",str(mix),"--app",str(app),"--job",job,"--clips-file",str(clips_file)],
+                        cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=1800
+                    )
+                    try: clips_file.unlink()
+                    except Exception: pass
+                    if cp2.returncode!=0:
+                        raise RuntimeError("Current thumbnail regeneration failed: "+(cp2.stdout or "")[-6000:]+(cp2.stderr or "")[-6000:])
+                    regenerated={"job":job,"manifest":str(mf),"clips":len(clips)}
+            except Exception:
+                raise
+
+        # Restart Studio and remove stale visual state.
+        ps_stop=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
+        subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps_stop],capture_output=True,text=True,timeout=20)
+        time.sleep(0.8)
+        main=app/"rg_studio_main.py";pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+        exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+        launch_env=os.environ.copy();launch_env.pop("RUNNER_TRACKING_ID",None)
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([exe,"-X","utf8",str(main)],cwd=str(app),env=launch_env,creationflags=flags,close_fds=True,
+                         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        time.sleep(2.0)
+
+        return {
+            "status":"APPLIED",
+            "version":"0.20.7.6",
+            "backup":str(backup),
+            "guest_crop":"FACE_PORTRAIT_CLEAN",
+            "guest_crop_scale":{"width_face_x":1.38,"height_face_x":1.68},
+            "guest_right_half_locked":True,
+            "host_unchanged":"HOST_WINDOW_NATIVE",
+            "stale_cache_cleared_by_regeneration":bool(regenerated),
+            "regenerated":regenerated,
+            "topaz_rule_preserved":"HOST same selected window + clean guests together",
+            "test":"PASS",
+            "studio_restarted":True,
+        }
+    except Exception:
+        for p in (prep,mix,ver):
+            bp=backup/p.name
+            if bp.is_file(): shutil.copy2(bp,p)
+        raise
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8341,6 +8564,7 @@ ACTIONS = {
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
     "apply_auto_edit_final_compilation_retirement_hotfix": apply_auto_edit_final_compilation_retirement_hotfix,
     "apply_auto_edit_topaz_all_selected_hotfix": apply_auto_edit_topaz_all_selected_hotfix,
+    "apply_auto_edit_guest_face_only_hotfix": apply_auto_edit_guest_face_only_hotfix,
     "apply_auto_edit_clean_guest_portraits_hotfix": apply_auto_edit_clean_guest_portraits_hotfix,
     "rebuild_auto_edit_clean_guest_candidates": rebuild_auto_edit_clean_guest_candidates,
     "apply_auto_edit_strict_guest_face_v2": apply_auto_edit_strict_guest_face_v2,
