@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_fs_read_text",
-    "tool_args": {
-      "relative": "LOGS/RG_RUN_HISTORY.json"
-    }
-  },
-  "nonce": "20261005-read-run-history-json-1"
+  "action": "inspect_auto_edit_live_code",
+  "args": {},
+  "nonce": "20261005-inspect-live-code-1"
 }
