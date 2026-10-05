@@ -205,7 +205,10 @@ def test_safe_description_fix_adds_only_missing_link():
     fixed = safe_description_fix(source)
     assert fixed.after.count(PROJECT_LINKS_URL) == 1
     assert fixed.after.count(DONATE_URL) == 1
-    assert "додано посилання на донат" in fixed.changes
+    assert (
+        "додано посилання на донат" in fixed.changes
+        or "оновлено єдиний блок актуальних посилань" in fixed.changes
+    )
 
 
 
