@@ -168,6 +168,14 @@ from .updater import (
     download_update,
     prune_cached_updates,
 )
+from .vidiq_budget import (
+    VIDIQ_MONTHLY_CREDITS_DEFAULT,
+    VIDIQ_RESERVE_CREDITS_DEFAULT,
+    budget_status as vidiq_budget_status,
+    policy_summary as vidiq_policy_summary,
+    set_limits as set_vidiq_limits,
+    set_manual_usage as set_vidiq_manual_usage,
+)
 
 def _is_quota_exceeded_error(exc: Exception) -> bool:
     text = str(exc).casefold()
@@ -865,12 +873,14 @@ class MainWindow(QMainWindow):
         self.center_prepared = MetricCard("Підготовлена черга")
         self.center_comments = MetricCard("Коментарі")
         self.center_quota = MetricCard("YouTube API")
+        self.center_vidiq = MetricCard("vidIQ")
         self.center_results = MetricCard("Контроль результатів")
         grid.addWidget(self.center_scheduled, 0, 0)
         grid.addWidget(self.center_prepared, 0, 1)
         grid.addWidget(self.center_comments, 0, 2)
         grid.addWidget(self.center_quota, 1, 0)
-        grid.addWidget(self.center_results, 1, 1)
+        grid.addWidget(self.center_vidiq, 1, 1)
+        grid.addWidget(self.center_results, 1, 2)
         layout.addLayout(grid)
 
         actions = QHBoxLayout()
@@ -949,6 +959,11 @@ class MainWindow(QMainWindow):
         self.center_prepared.set_value(str(prepared), "відео готові до безпечних правок")
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_quota.set_value(quota_value, quota_note)
+        vidiq = vidiq_budget_status(self.conn)
+        self.center_vidiq.set_value(
+            f"{vidiq.remaining} / {vidiq.limit}",
+            f"{vidiq.plan} · використано {vidiq.used} · резерв {vidiq.reserve}",
+        )
         self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
 
     def prepare_zero_quota_batch(self) -> None:
