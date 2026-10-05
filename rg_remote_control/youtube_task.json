@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_ensure_gui_startup",
+  "action": "youtube_local_launch_diagnostic",
   "args": {
-    "nonce": "dedupe-source-gui-0.3.89-20261005"
+    "nonce": "diagnose-0.3.89-source-exit-20261005"
   }
 }
