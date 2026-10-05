@@ -510,6 +510,47 @@ class MetricCard(QFrame):
         self.note_label.setText(note)
 
 
+class ProgressMetricCard(QFrame):
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("QueueCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 11, 14, 11)
+        layout.setSpacing(5)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("MetricTitle")
+        self.value_label = QLabel("—")
+        self.value_label.setObjectName("MetricValue")
+        self.note_label = QLabel("")
+        self.note_label.setProperty("muted", True)
+        self.note_label.setWordWrap(True)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.bar)
+        layout.addWidget(self.note_label)
+
+    def set_value(
+        self,
+        value: str,
+        *,
+        percent: int = 0,
+        note: str = "",
+        role: str = "",
+    ) -> None:
+        self.value_label.setText(value)
+        self.bar.setValue(max(0, min(100, int(percent))))
+        self.bar.setProperty("role", role)
+        self.bar.style().unpolish(self.bar)
+        self.bar.style().polish(self.bar)
+        self.note_label.setText(note)
+
+
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
