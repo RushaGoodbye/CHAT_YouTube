@@ -6435,7 +6435,14 @@ class MainWindow(QMainWindow):
                         "Контрольні точки аналізу після останньої оптимізації"
                     )
                 self.optimization_table.setItem(index, column, item)
+        if hasattr(self, "optimization_density"):
+            self._apply_table_density(
+                self.optimization_table,
+                self.optimization_density,
+            )
+        self._update_optimization_context_card()
         self.update_dashboard()
+        self.refresh_archive_dashboard()
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
