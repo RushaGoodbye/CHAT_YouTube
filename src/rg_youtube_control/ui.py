@@ -1220,7 +1220,7 @@ class MainWindow(QMainWindow):
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_results.set_value(str(waiting), "очікують контрольних точок")
 
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
         total_archive = sum(
             int(item.get("archive_total", 0)) for item in stats.values()
         )
@@ -1875,7 +1875,7 @@ class MainWindow(QMainWindow):
     def refresh_archive_dashboard(self) -> None:
         if not hasattr(self, "archive_total_card"):
             return
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
         total = sum(int(v.get("archive_total", 0)) for v in stats.values())
         safe = sum(int(v.get("safe_remaining", 0)) for v in stats.values())
         deep = sum(int(v.get("deep_remaining", 0)) for v in stats.values())
@@ -5268,21 +5268,12 @@ class MainWindow(QMainWindow):
                 details=str(exc),
             )
 
-    def _archive_campaign_stats(
-        self,
-        *,
-        force: bool = False,
-    ) -> dict[str, dict[str, int]]:
-        now = time.monotonic()
-        cached = getattr(self, "_archive_stats_cache", None)
-        cached_at = float(getattr(self, "_archive_stats_cache_at", 0.0) or 0.0)
-        if not force and cached is not None and now - cached_at < 30.0:
-            return cached
+    def _archive_campaign_stats(self) -> dict[str, dict[str, int]]:
         transcript_dir = self._nas_path(
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        value = {
+        return {
             profile: archive_profile_stats(
                 self.conn,
                 profile,
@@ -5290,8 +5281,22 @@ class MainWindow(QMainWindow):
             )
             for profile in PROFILE_TARGETS
         }
-        self._archive_stats_cache = value
-        self._archive_stats_cache_at = now
+
+    def _archive_campaign_stats_cached(
+        self,
+        *,
+        max_age_seconds: float = 300.0,
+    ) -> dict[str, dict[str, int]]:
+        now = time.monotonic()
+        cached = getattr(self, "_dashboard_archive_stats_cache", None)
+        cached_at = float(
+            getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
+        )
+        if cached is not None and now - cached_at < max_age_seconds:
+            return cached
+        value = self._archive_campaign_stats()
+        self._dashboard_archive_stats_cache = value
+        self._dashboard_archive_stats_cache_at = now
         return value
 
     def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
