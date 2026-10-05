@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_topaz_automation_and_prep",
+  "action": "rebuild_auto_edit_clean_guest_candidates",
   "args": {},
-  "nonce": "inspect-current-portrait-crop-20261005-10"
+  "nonce": "rebuild-clean-guests-20261005-11"
 }
