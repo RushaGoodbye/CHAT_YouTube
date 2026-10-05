@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_inspect_scheduled_mismatches",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "inspect-scheduled-mismatch-20261005"
+    "nonce": "archive-description-fix-0.3.77-20261005"
   }
 }
