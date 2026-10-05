@@ -6533,15 +6533,7 @@ def patch_ui():
             e=s.find("        except Exception:pass\n",idx)
             if e>=0:
                 e+=len("        except Exception:pass\n")
-                css='''        # RG_PACK170_VISUAL_STYLE_V1
-        try:
-            self.setStyleSheet((self.styleSheet() or "") + """
-QFrame#VisualProductionPanel{background:#14161A;border:1px solid #252A31;border-radius:12px;}
-QGroupBox{border:0;background:#17191E;border-radius:10px;margin-top:8px;padding-top:8px;}
-QTabBar::tab:selected{border-bottom:2px solid #ff0033;}
-""")
-        except Exception:pass
-'''
+                css='        # RG_PACK170_VISUAL_STYLE_V1\n        try:\n            _rg170_css="QFrame#VisualProductionPanel{background:#14161A;border:1px solid #252A31;border-radius:12px;}\\nQGroupBox{border:0;background:#17191E;border-radius:10px;margin-top:8px;padding-top:8px;}\\nQTabBar::tab:selected{border-bottom:2px solid #ff0033;}\\n"\n            self.setStyleSheet((self.styleSheet() or "") + _rg170_css)\n        except Exception:pass\n'
                 s=s[:e]+css+s[e:]
 
     if "setTabBar(HorizontalSidebarTabBar" in s:raise RuntimeError("Forbidden tabbar replacement detected")
