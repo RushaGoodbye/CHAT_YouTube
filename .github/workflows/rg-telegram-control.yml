@@ -26,7 +26,7 @@ jobs:
           $task = Get-Content "rg_remote_control/telegram_task.json" -Raw | ConvertFrom-Json
           if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
           if ($task.contour -ne "telegram") { throw "Task contour must be telegram" }
-          if ($task.action -notin @("enable_telegram_mcp_bridge","probe_telegram_mcp_bridge","telegram_mcp_call","run_telegram_mcp_smoke")) { throw "Action not allowed" }
+          if ($task.action -notin @("enable_telegram_mcp_bridge","probe_telegram_mcp_bridge","telegram_mcp_batch","telegram_mcp_call","run_telegram_mcp_smoke")) { throw "Action not allowed" }
           if ($task.action -eq "telegram_mcp_call" -and -not ($task.args.tool -like "telegram_*")) { throw "Only telegram_* tools allowed" }
       - name: Run Telegram MCP
         shell: powershell
