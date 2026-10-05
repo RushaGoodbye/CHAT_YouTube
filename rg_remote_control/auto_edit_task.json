@@ -1,9 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
+  "action": "start_auto_edit_recovery_queue",
   "args": {
-    "stream": "891"
+    "streams": [
+      "891"
+    ]
   },
-  "nonce": "20261005-inspect-891-final-2"
+  "nonce": "20261005-recheck-891-completeness-v2"
 }
