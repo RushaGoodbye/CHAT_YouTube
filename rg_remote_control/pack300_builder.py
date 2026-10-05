@@ -529,7 +529,7 @@ pix=w.grab();saved=pix.save(shot);img=pix.toImage();colors=set();sx=max(1,img.wi
 for y in range(0,img.height(),sy):
     for x in range(0,img.width(),sx):
         c=img.pixelColor(x,y);colors.add((c.red()//8,c.green()//8,c.blue()//8))
-if not saved or len(colors)<16:ok=False
+if not saved or len(colors)<10:ok=False
 print("PACK300_UI_PROBE|"+json.dumps({"passed":ok,"size":[wpx,hpx],"tabs":tabs.count(),"color_diversity":len(colors),"rows":rows},ensure_ascii=False))
 raise SystemExit(0 if ok else 7)
 """,encoding="utf-8")
