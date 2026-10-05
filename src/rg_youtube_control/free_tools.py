@@ -358,6 +358,121 @@ def ollama_chat(
     return text
 
 
+
+def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Accept common local-model key aliases, then normalize to our schema."""
+    normalized = dict(candidate or {})
+    aliases = {
+        "title": ("title", "new_title", "назва", "name"),
+        "description": (
+            "description", "full_description", "description_uk",
+            "опис", "повний_опис", "summary",
+        ),
+        "tags": ("tags", "теги", "keywords", "key_words"),
+        "chapters": ("chapters", "розділи", "sections", "timestamps"),
+        "title_variants": (
+            "title_variants", "titleVariants", "variants",
+            "варіанти_назви", "назви",
+        ),
+    }
+    for canonical, keys in aliases.items():
+        if normalized.get(canonical) not in (None, "", []):
+            continue
+        for key in keys:
+            value = candidate.get(key)
+            if value not in (None, "", []):
+                normalized[canonical] = value
+                break
+    return normalized
+
+
+def _recover_missing_description(
+    *,
+    current_title: str,
+    transcript: str,
+    public_context: dict[str, Any],
+    model: str,
+) -> str:
+    """Focused zero-quota recovery when the local model omitted description."""
+    if not transcript.strip():
+        return ""
+    prompt = f"""
+Створи ЛИШЕ український опис YouTube-відео за транскриптом.
+Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
+Довжина: 350-900 символів.
+Перші 1-2 речення конкретно пояснюють, що відбувається у відео.
+Не додавай посилання, хештеги, ENGLISH SUMMARY або заголовок.
+Поверни JSON рівно такого формату:
+{{"description":"..."}}
+
+ПОТОЧНА НАЗВА:
+{current_title}
+
+ПУБЛІЧНИЙ КОНТЕКСТ:
+{json.dumps(public_context or {}, ensure_ascii=False)[:3500]}
+
+ТРАНСКРИПТ:
+{transcript[:10000]}
+""".strip()
+    raw = ollama_chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Ти точний редактор YouTube. "
+                    "Поверни тільки JSON з одним ключем description."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        model=model,
+        temperature=0.05,
+        json_mode=True,
+    )
+    recovered = _normalize_seo_candidate(_extract_json_object(raw))
+    return str(recovered.get("description") or "").strip()
+
+
+def _recover_title_variants(
+    *,
+    current_title: str,
+    transcript: str,
+    model: str,
+) -> list[str]:
+    """Focused recovery of exactly three distinct Russian title variants."""
+    prompt = f"""
+Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
+Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
+Без вигаданих цитат і без непідтвердженого клікбейту.
+Поверни JSON:
+{{"title_variants":["...","...","..."]}}
+
+ПОТОЧНА НАЗВА:
+{current_title}
+
+ТРАНСКРИПТ:
+{transcript[:8000]}
+""".strip()
+    raw = ollama_chat(
+        [
+            {
+                "role": "system",
+                "content": "Поверни тільки JSON з ключем title_variants.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        model=model,
+        temperature=0.08,
+        json_mode=True,
+    )
+    recovered = _normalize_seo_candidate(_extract_json_object(raw))
+    return [
+        str(item).strip()
+        for item in (recovered.get("title_variants") or [])
+        if str(item).strip()
+    ][:3]
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -412,7 +527,7 @@ SHORTS: {is_short}
 
     payload: dict[str, Any] = {}
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -450,7 +565,7 @@ chapters: рядок з підтвердженими таймкодами або
                 temperature=0.05 if attempt else 0.15,
                 json_mode=True,
             )
-            candidate = _extract_json_object(raw)
+            candidate = _normalize_seo_candidate(_extract_json_object(raw))
             if not str(candidate.get("title") or "").strip():
                 variants_candidate = candidate.get("title_variants") or []
                 if isinstance(variants_candidate, list) and variants_candidate:
@@ -458,12 +573,31 @@ chapters: рядок з підтвердженими таймкодами або
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
+                recovered_description = _recover_missing_description(
+                    current_title=current_title,
+                    transcript=transcript,
+                    public_context=context,
+                    model=model,
+                )
+                if recovered_description:
+                    candidate["description"] = recovered_description
+            if not str(candidate.get("description") or "").strip():
                 raise ValueError("missing description")
             variants_candidate = [
                 str(item).strip()
                 for item in (candidate.get("title_variants") or [])
                 if str(item).strip()
             ]
+            if (
+                len(variants_candidate) < 3
+                or len({item.casefold() for item in variants_candidate[:3]}) < 3
+            ):
+                variants_candidate = _recover_title_variants(
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+                candidate["title_variants"] = variants_candidate
             if len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 title variants")
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
