@@ -8184,7 +8184,7 @@ def apply_auto_edit_strict_guest_face_v2() -> dict:
             raise RuntimeError("Could not structurally replace _portrait_crop")
         src=src2
         # Make filenames explicitly V2 so stale V1 files are obvious.
-        src=src.replace('_CLEAN_FACE_t{row[\\'time\\']:.2f}', '_CLEAN_FACE_V2_t{row[\\'time\\']:.2f}')
+        src=src.replace("_CLEAN_FACE_t{row['time']:.2f}", "_CLEAN_FACE_V2_t{row['time']:.2f}")
         tmp=prep.with_suffix(".py.strictv2.tmp")
         tmp.write_text(src,encoding="utf-8")
         py_compile.compile(str(tmp),doraise=True)
