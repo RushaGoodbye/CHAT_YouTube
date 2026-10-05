@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "grounded-description-polish-0.3.88-20261005"
+    "nonce": "diagnose-update-loop-20261005"
   }
 }
