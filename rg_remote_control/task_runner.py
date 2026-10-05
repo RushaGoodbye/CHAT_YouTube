@@ -5105,12 +5105,8 @@ def patch_ui():
         if anchor in s:
             s=s.replace(anchor,anchor+'''        # RG_PACK130_STYLE_V1
         try:
-            self.setStyleSheet((self.styleSheet() or "") + """
-QLabel#StateChip{padding:5px 9px;border-radius:8px;background:#20242b;}
-QTabBar::tab{padding:9px 14px;margin:2px;border-radius:7px;}
-QTabBar::tab:selected{background:#242932;}
-QGroupBox{margin-top:10px;padding-top:10px;}
-""")
+            _rg130_css="QLabel#StateChip{padding:5px 9px;border-radius:8px;background:#20242b;}\\nQTabBar::tab{padding:9px 14px;margin:2px;border-radius:7px;}\\nQTabBar::tab:selected{background:#242932;}\\nQGroupBox{margin-top:10px;padding-top:10px;}\\n"
+            self.setStyleSheet((self.styleSheet() or "") + _rg130_css)
         except Exception:pass
 ''',1)
     atomic(p,s)
