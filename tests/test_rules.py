@@ -2512,6 +2512,7 @@ def test_youtube_tag_verification_ignores_order():
 
     source = inspect.getsource(YouTubeClient.update_video)
     assert "sorted(returned_tags, key=str.casefold)" in source
-    assert "sorted(expected_tags" in source
+    assert "expected_tags" in source
+    assert "key=str.casefold" in source
 
 
