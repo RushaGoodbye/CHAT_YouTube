@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_brand_shortcuts",
+  "action": "youtube_local_sync_source_only",
   "args": {
-    "nonce": "brand-shortcut-20261005"
+    "nonce": "seo-tags-092"
   }
 }
