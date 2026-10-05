@@ -903,56 +903,168 @@ class MainWindow(QMainWindow):
     def _build_task_center_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = QLabel("Центр задач")
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title = QLabel("Сьогодні")
         title.setObjectName("AppTitle")
         subtitle = QLabel(
-            "Що потребує уваги зараз. Підготовчі дії виконуються локально, "
-            "запис у YouTube контролюється квотою."
+            "Один екран: що відбувається зараз, що потребує рішення і що буде далі."
         )
         subtitle.setWordWrap(True)
         subtitle.setProperty("muted", True)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addLayout(title_box)
+        header.addStretch()
+
+        zero_quota_btn = QPushButton("Підготувати · 0 квоти")
+        zero_quota_btn.clicked.connect(self.prepare_zero_quota_batch)
+        planner_btn = QPushButton("План квоти")
+        planner_btn.clicked.connect(self.show_quota_planner)
+        scheduled_btn = QPushButton("Заплановані")
+        scheduled_btn.clicked.connect(self.show_scheduled_center)
+        archive_btn = QPushButton("Архів")
+        archive_btn.clicked.connect(self._open_archive_mode)
+        for button in (zero_quota_btn, planner_btn, scheduled_btn, archive_btn):
+            header.addWidget(button)
+        layout.addLayout(header)
+
+        health = QFrame()
+        health.setObjectName("HealthStrip")
+        health_layout = QHBoxLayout(health)
+        health_layout.setContentsMargins(12, 8, 12, 8)
+        health_layout.setSpacing(8)
+        self.health_labels = {}
+        for key, label in (
+            ("youtube", "YouTube"),
+            ("nas", "NAS"),
+            ("ollama", "Ollama"),
+            ("transcript", "Transcript"),
+            ("vidiq", "vidIQ"),
+            ("api", "API"),
+        ):
+            pill = QLabel(f"{label} · —")
+            pill.setObjectName("StatusWork")
+            self.health_labels[key] = pill
+            health_layout.addWidget(pill)
+        health_layout.addStretch()
+        layout.addWidget(health)
+
+        process = QFrame()
+        process.setObjectName("ProcessStrip")
+        process_layout = QVBoxLayout(process)
+        process_layout.setContentsMargins(14, 10, 14, 10)
+        process_top = QHBoxLayout()
+        self.process_title = QLabel("Система готова")
+        self.process_title.setObjectName("SectionTitle")
+        self.process_stage = QLabel("очікування")
+        self.process_stage.setObjectName("StatusGood")
+        self.process_eta = QLabel("")
+        self.process_eta.setProperty("muted", True)
+        process_top.addWidget(self.process_title)
+        process_top.addWidget(self.process_stage)
+        process_top.addStretch()
+        process_top.addWidget(self.process_eta)
+        self.process_progress = QProgressBar()
+        self.process_progress.setRange(0, 100)
+        self.process_progress.setValue(0)
+        self.process_progress.setTextVisible(False)
+        process_layout.addLayout(process_top)
+        process_layout.addWidget(self.process_progress)
+        layout.addWidget(process)
 
         grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
         self.center_scheduled = MetricCard("Заплановані")
-        self.center_prepared = MetricCard("Підготовлена черга")
+        self.center_prepared = MetricCard("Готові пакети")
         self.center_comments = MetricCard("Коментарі")
-        self.center_quota = MetricCard("YouTube API")
-        self.center_vidiq = MetricCard("vidIQ")
-        self.center_results = MetricCard("Контроль результатів")
+        self.center_results = MetricCard("Контроль 7/28/90")
+        self.center_quota = ProgressMetricCard("YouTube API")
+        self.center_vidiq = ProgressMetricCard("vidIQ · AIR Boost")
         grid.addWidget(self.center_scheduled, 0, 0)
         grid.addWidget(self.center_prepared, 0, 1)
         grid.addWidget(self.center_comments, 0, 2)
-        grid.addWidget(self.center_quota, 1, 0)
-        grid.addWidget(self.center_vidiq, 1, 1)
-        grid.addWidget(self.center_results, 1, 2)
+        grid.addWidget(self.center_results, 0, 3)
+        grid.addWidget(self.center_quota, 1, 0, 1, 2)
+        grid.addWidget(self.center_vidiq, 1, 2, 1, 2)
         layout.addLayout(grid)
 
-        actions = QHBoxLayout()
-        zero_quota_btn = QPushButton("0-quota підготовка")
-        zero_quota_btn.clicked.connect(self.prepare_zero_quota_batch)
-        planner_btn = QPushButton("Планувальник квоти")
-        planner_btn.clicked.connect(self.show_quota_planner)
-        scheduled_btn = QPushButton("Заплановані стріми")
-        scheduled_btn.clicked.connect(self.show_scheduled_center)
-        comments_btn = QPushButton("Коментарі")
-        comments_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
-        results_btn = QPushButton("Результати")
-        results_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
-        log_btn = QPushButton("Журнал")
-        log_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(6))
-        settings_btn = QPushButton("Налаштування")
-        settings_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(7))
-        for button in (
-            zero_quota_btn, planner_btn, scheduled_btn, comments_btn,
-            results_btn, log_btn, settings_btn
-        ):
-            actions.addWidget(button)
-        actions.addStretch()
-        layout.addLayout(actions)
-        layout.addStretch()
-        self.tabs.addTab(page, "Центр")
+        pipeline = QFrame()
+        pipeline.setObjectName("QueueCard")
+        pipeline_layout = QVBoxLayout(pipeline)
+        pipeline_title = QLabel("Конвеєр вибраного відео")
+        pipeline_title.setObjectName("SectionTitle")
+        self.pipeline_label = QLabel(
+            "Аналіз  →  Транскрипт  →  SEO  →  Перевірка  →  Готово  →  YouTube  →  Контроль"
+        )
+        self.pipeline_label.setWordWrap(True)
+        self.pipeline_label.setProperty("muted", True)
+        pipeline_layout.addWidget(pipeline_title)
+        pipeline_layout.addWidget(self.pipeline_label)
+        layout.addWidget(pipeline)
+
+        lower = QHBoxLayout()
+
+        archive_card = QFrame()
+        archive_card.setObjectName("ArchiveCard")
+        archive_layout = QVBoxLayout(archive_card)
+        archive_title = QLabel("Архівна кампанія")
+        archive_title.setObjectName("SectionTitle")
+        self.archive_today_value = QLabel("—")
+        self.archive_today_value.setObjectName("MetricValue")
+        self.archive_today_bar = QProgressBar()
+        self.archive_today_bar.setRange(0, 100)
+        self.archive_today_bar.setValue(0)
+        self.archive_today_bar.setProperty("role", "success")
+        self.archive_today_note = QLabel("")
+        self.archive_today_note.setWordWrap(True)
+        self.archive_today_note.setProperty("muted", True)
+        archive_layout.addWidget(archive_title)
+        archive_layout.addWidget(self.archive_today_value)
+        archive_layout.addWidget(self.archive_today_bar)
+        archive_layout.addWidget(self.archive_today_note)
+        open_archive = QPushButton("Відкрити кампанію")
+        open_archive.clicked.connect(self.show_archive_campaign_center)
+        archive_layout.addWidget(open_archive)
+        lower.addWidget(archive_card, 1)
+
+        activity_card = QFrame()
+        activity_card.setObjectName("ActivityCard")
+        activity_layout = QVBoxLayout(activity_card)
+        activity_title = QHBoxLayout()
+        activity_label = QLabel("Активність")
+        activity_label.setObjectName("SectionTitle")
+        activity_title.addWidget(activity_label)
+        activity_title.addStretch()
+        retry_btn = QPushButton("Повторити останню помилку")
+        retry_btn.clicked.connect(self.retry_last_local_task)
+        activity_title.addWidget(retry_btn)
+        activity_layout.addLayout(activity_title)
+        self.activity_list = QListWidget()
+        self.activity_list.setObjectName("ActivityList")
+        self.activity_list.setMaximumHeight(165)
+        activity_layout.addWidget(self.activity_list)
+        lower.addWidget(activity_card, 2)
+
+        issues_card = QFrame()
+        issues_card.setObjectName("ActivityCard")
+        issues_layout = QVBoxLayout(issues_card)
+        issues_title = QLabel("Проблеми")
+        issues_title.setObjectName("SectionTitle")
+        self.issue_list = QListWidget()
+        self.issue_list.setObjectName("ActivityList")
+        self.issue_list.setMaximumHeight(165)
+        issues_layout.addWidget(issues_title)
+        issues_layout.addWidget(self.issue_list)
+        lower.addWidget(issues_card, 1)
+        layout.addLayout(lower)
+
+        self.tabs.addTab(page, "Сьогодні")
+
 
     def update_task_center(self) -> None:
         if not hasattr(self, "center_scheduled"):
@@ -969,8 +1081,12 @@ class MainWindow(QMainWindow):
                WHERE v.profile=? AND c.status='new'""",
             (profile,),
         ).fetchone()[0])
-
-        prepared = len(self._prepared_queue_ids())
+        ready = int(self.conn.execute(
+            """SELECT COUNT(*) FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE v.profile=? AND d.status='ready'""",
+            (profile,),
+        ).fetchone()[0])
 
         events = optimization_events(self.conn, profile, limit=100)
         today = datetime.now(timezone.utc).date()
@@ -986,31 +1102,132 @@ class MainWindow(QMainWindow):
                 waiting += 1
 
         budget = quota_budget_status(self.conn)
-        if bool(budget["exhausted"]):
-            quota_value = "ВИЧЕРПАНО"
-            quota_note = (
-                f"використано {budget['used']} / 10000 · залишок 0 · "
-                f"скидання: {budget['reset']}"
-            )
-        else:
-            quota_value = f"{budget['remaining']} од. залишилось"
-            quota_note = (
-                f"використано {budget['used']} / 10000 · "
-                f"резерв {budget['reserve']} · автовідповідей ≈{budget['reply_capacity']}"
-            )
-            if archive_priority_enabled(self.conn):
-                quota_note += " · ПРІОРИТЕТ АРХІВУ"
+        used = int(budget["used"])
+        remaining = int(budget["remaining"])
+        reserve = int(budget["reserve"])
+        quota_percent = round(used / max(1, YOUTUBE_DAILY_QUOTA_DEFAULT) * 100)
+        safe_capacity = max(0, (remaining - reserve) // max(1, SAFE_METADATA_ITEM_COST))
+        self.center_quota.set_value(
+            f"{remaining:,} / {YOUTUBE_DAILY_QUOTA_DEFAULT:,}",
+            percent=quota_percent,
+            note=(
+                f"використано {used:,} · резерв {reserve:,} · "
+                f"≈{safe_capacity} безпечних оновлень"
+            ),
+            role="danger" if bool(budget["exhausted"]) else "warning" if quota_percent >= 75 else "",
+        )
+
+        vidiq = vidiq_budget_status(self.conn)
+        vidiq_used_pct = round(
+            int(vidiq.used) / max(1, int(vidiq.limit)) * 100
+        )
+        self.center_vidiq.set_value(
+            f"{vidiq.remaining:,} / {vidiq.limit:,}",
+            percent=vidiq_used_pct,
+            note=(
+                f"використано {vidiq.used:,} · резерв {vidiq.reserve:,} · "
+                f"поповнення {vidiq.reset_at or '—'}"
+            ),
+            role="warning" if vidiq_used_pct >= 75 else "",
+        )
 
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
-        self.center_prepared.set_value(str(prepared), "відео готові до безпечних правок")
+        self.center_prepared.set_value(str(ready), "перевірені та готові")
         self.center_comments.set_value(str(queued), "нові / не оброблені")
-        self.center_quota.set_value(quota_value, quota_note)
-        vidiq = vidiq_budget_status(self.conn)
-        self.center_vidiq.set_value(
-            f"{vidiq.remaining} / {vidiq.limit}",
-            f"{vidiq.plan} · використано {vidiq.used} · резерв {vidiq.reserve}",
+        self.center_results.set_value(str(waiting), "очікують контрольних точок")
+
+        stats = self._archive_campaign_stats()
+        total_archive = sum(
+            int(item.get("archive_total", 0)) for item in stats.values()
         )
-        self.center_results.set_value(str(waiting), "очікують контролю 7/28/90")
+        safe_remaining = sum(
+            int(item.get("safe_remaining", 0)) for item in stats.values()
+        )
+        deep_remaining = sum(
+            int(item.get("deep_remaining", 0)) for item in stats.values()
+        )
+        applied = sum(
+            int(item.get("applied_packages", 0)) for item in stats.values()
+        )
+        completed = max(0, total_archive - safe_remaining - deep_remaining)
+        archive_pct = round(completed / max(1, total_archive) * 100)
+        self.archive_today_value.setText(
+            f"{completed:,} / {total_archive:,} · {archive_pct}%"
+        )
+        self.archive_today_bar.setValue(archive_pct)
+        daily_capacity = max(1, safe_capacity)
+        remaining_total = safe_remaining + deep_remaining
+        days = math.ceil(remaining_total / daily_capacity) if remaining_total else 0
+        self.archive_today_note.setText(
+            f"safe: {safe_remaining:,} · deep: {deep_remaining:,} · "
+            f"застосовано: {applied:,} · прогноз ≈{days} дн."
+        )
+
+        channel_id = get_setting(self.conn, f"channel_id_{profile}", "")
+        self._set_health_state("youtube", bool(channel_id), "YouTube")
+        try:
+            nas_ok = self._nas_path(
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            ).parent.exists()
+        except Exception:
+            nas_ok = False
+        self._set_health_state("nas", nas_ok, "NAS")
+
+        probes = getattr(self, "_free_tools_last_probe", {}) or {}
+        self._set_health_state(
+            "ollama",
+            bool(probes.get("ollama", {}).get("available")),
+            "Ollama",
+        )
+        self._set_health_state(
+            "transcript",
+            bool(probes.get("transcript", {}).get("available")),
+            "Transcript",
+        )
+        self._set_health_state("vidiq", vidiq.remaining >= 0, "vidIQ")
+        self._set_health_state(
+            "api",
+            not bool(budget["exhausted"]),
+            "API",
+            working=quota_percent >= 75 and not bool(budget["exhausted"]),
+        )
+
+        if hasattr(self, "activity_list"):
+            self.activity_list.clear()
+            rows = recent_action_log(self.conn, profile=profile, limit=8)
+            if not rows:
+                self.activity_list.addItem("Поки немає подій")
+            else:
+                for row in rows:
+                    created = str(row["created_at"] or "")[11:16]
+                    action = str(row["action"] or "")
+                    details = str(row["details"] or "")
+                    text = f"{created}  {action}"
+                    if details:
+                        text += f" · {details[:90]}"
+                    self.activity_list.addItem(text)
+
+        if hasattr(self, "issue_list"):
+            self.issue_list.clear()
+            rows = recent_action_log(self.conn, profile=profile, limit=80)
+            bad = []
+            for row in rows:
+                hay = (
+                    str(row["action"] or "") + " " + str(row["details"] or "")
+                ).casefold()
+                if any(key in hay for key in ("помил", "error", "failed", "403", "timeout")):
+                    bad.append(row)
+                if len(bad) >= 5:
+                    break
+            if not bad:
+                self.issue_list.addItem("✓ Критичних проблем немає")
+            else:
+                for row in bad:
+                    self.issue_list.addItem(
+                        "⚠ " + str(row["action"] or "")[:55]
+                    )
+
 
     def prepare_zero_quota_batch(self) -> None:
         """Prepare up to 10 metadata drafts without YouTube Data API calls."""
