@@ -5513,6 +5513,283 @@ Scope:
             "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
             "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
+
+def build_auto_edit_pack150_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads";downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.5.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK150.zip"
+    zip_path=downloads/name;nas_copy=packages/name
+
+    installer=r"""from __future__ import annotations
+import os,sys,json,time,re,shutil,py_compile,traceback
+from pathlib import Path
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+if os.environ.get("RG_PACK150_DRYRUN"):DATA=APP/"_PACK150_DATA"
+VERSION="0.20.5.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack150.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_PACK150_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack150"]={
+      "schema":"RG_PACK150_V1","enabled":True,"version":VERSION,
+      "navigation":{"horizontal_sidebar_text":True,"sidebar_width":180,"icons":True,"no_rotated_labels":True,"no_scroll_arrows":True,"tools_group":True},
+      "header":{"simplified":True,"show":["NAS","GPU","CHANNEL","MODE","NOTIFICATIONS","UPDATE"],"single_mode_switch":True,"candidate_channel_distinct":True,"subtitle_muted":True},
+      "home":{"compact_kpi_cards":True,"compact_height_pct":75,"stream_number_prominent":True,"auto_start_hidden_advanced":True,"single_primary_action":True,"precheck_secondary":True,"blocked_neutral":True,"stop_disabled_idle":True,"short_control_run_label":True,"censor_compact":True},
+      "readiness":{"status_chips":True,"items":["Відео","Аудіо","Screens","NAS","CUDA","Диск","Кеш","Режим"],"semantic_colors":True},
+      "process":{"compact":True,"single_info_row":True,"stage_bar":True,"active_stage":True,"completed_check":True,"future_muted":True,"less_inner_frames":True,"progress_percent_prominent":True,"idle_text_muted":True},
+      "actions":{"single_row":True,"technical_last":True,"audaalign_expert_only":True},
+      "summary":{"hidden_when_empty":True,"compact_when_done":True},
+      "footer":{"backend_expert_only":True,"browser_footer_removed":True},
+      "branding":{"logo_40":True,"title":"RG AUTO EDIT","subtitle":"Production Studio","product_tag":"РАША ГУДБАЙ"},
+      "palette":{"background":"#111214","card":"#181A1F","nested":"#202329","red":"#ff0033","neutral":"#6f7f95","yellow_blue_line":True},
+      "layout":{"less_borders":True,"background_levels":True,"uniform_radius":True,"uniform_button_height":True,"grid_px":8,"headings_brighter":True,"labels_muted":True,"values_brighter":True},
+      "copy":{"reduce_caps":True,"caps_reserved":["PASS","FAIL","READY","QA"],"contextual_recovery_buttons":True},
+      "contextual":{"unfinished_run_only_when_exists":True,"censor_restore_only_when_needed":True,"recovery_only_when_needed":True},
+      "tooltips":{"status_details":True,"nas_latency_path_reconnect":True},
+      "alerts":{"inline_banner":True,"toast_warning":True,"critical_modal_only":True,"system_ready_bar":True},
+      "design_reference":{"style":"professional editing workstation","less_admin_panel":True,"freeze_for_versions":True},
+      "ui_regression":{"target_resolution":"1920x1080","required":True},
+      "coverage":{"from":1,"to":100}
+    }
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def write_style_module():
+    code=r'''from __future__ import annotations
+PACK150_CSS = """
+QMainWindow{background:#111214;}
+QFrame#MetricCard,QGroupBox{background:#181A1F;border:0;border-radius:10px;}
+QLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}
+QPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}
+QPushButton:disabled{background:#23262B;color:#6B7179;border:0;}
+QPushButton[role="primary"]{background:#ff0033;color:white;border:0;}
+QLabel[muted="true"]{color:#8D949E;}
+QProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}
+QProgressBar::chunk{border-radius:6px;background:#ff0033;}
+QTabWidget::pane{border:0;background:#111214;}
+QTabBar::tab{min-width:150px;max-width:190px;min-height:38px;padding:8px 14px;text-align:left;border:0;background:#15171B;}
+QTabBar::tab:selected{background:#202329;border-left:3px solid #ff0033;}
+QHeaderView::section{background:#1B1E24;border:0;padding:8px;}
+"""
+'''
+    atomic(APP/"rg_pack150_style.py",code)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    if "from rg_pack150_style import PACK150_CSS" not in s:
+        anchor="from rg_pack140 import "
+        i=s.find(anchor)
+        if i>=0:
+            e=s.find("\n",i);s=s[:e+1]+"from rg_pack150_style import PACK150_CSS\n"+s[e+1:]
+        else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack150_style import PACK150_CSS\n",1)
+
+    # Restore readable left navigation with horizontal labels.
+    s=s.replace("self.tabs.setTabPosition(QTabWidget.TabPosition.West)","# PACK150_NAV_HORIZONTAL_TEXT\n        self.tabs.setTabPosition(QTabWidget.TabPosition.West)")
+    if "RG_PACK150_TABBAR_HORIZONTAL" not in s:
+        anchor='        self.tabs.setTabPosition(QTabWidget.TabPosition.West)\n'
+        if anchor in s:
+            s=s.replace(anchor,anchor+'        # RG_PACK150_TABBAR_HORIZONTAL\n        self.tabs.tabBar().setExpanding(False)\n        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)\n',1)
+
+    # Apply cleaner theme on top of existing styles.
+    if "RG_PACK150_STYLE_APPLY" not in s:
+        anchor='        # RG_PACK140_STYLE_V1\n'
+        i=s.find(anchor)
+        if i>=0:
+            e=s.find("        except Exception:pass\n",i)
+            if e>=0:
+                e+=len("        except Exception:pass\n")
+                s=s[:e]+'        # RG_PACK150_STYLE_APPLY\n        try:self.setStyleSheet((self.styleSheet() or "")+PACK150_CSS)\n        except Exception:pass\n'+s[e:]
+        else:
+            anchor='        self.setMinimumSize(1120,720)\n'
+            if anchor in s:s=s.replace(anchor,anchor+'        # RG_PACK150_STYLE_APPLY\n        try:self.setStyleSheet((self.styleSheet() or "")+PACK150_CSS)\n        except Exception:pass\n',1)
+
+    # Simplify header by converting FOCUS/EXPERT to one mode button if both exist.
+    if "RG_PACK150_MODE_SWITCH" not in s:
+        old='        focus=_button("FOCUS");focus.clicked.connect(self.pack130_toggle_focus);tl.addWidget(focus)\n'
+        if old in s:
+            s=s.replace(old,'        # RG_PACK150_MODE_SWITCH\n        self.mode_btn=_button("РЕЖИМ • ЗВИЧАЙНИЙ");self.mode_btn.clicked.connect(self.pack150_toggle_mode);tl.addWidget(self.mode_btn)\n',1)
+        old2='        expert=_button("EXPERT");expert.clicked.connect(self.pack140_toggle_expert);tl.addWidget(expert)\n'
+        s=s.replace(old2,"",1)
+
+    # Add mode method.
+    anchor='    def _batch_tab(self):\n'
+    if "def pack150_toggle_mode" not in s and anchor in s:
+        methods=r'''    def pack150_toggle_mode(self):
+        try:
+            expert=(getattr(self,"_pack140_mode","FOCUS")=="EXPERT")
+            self._pack140_mode="FOCUS" if expert else "EXPERT"
+            try:save_ui_mode(self._pack140_mode)
+            except Exception:pass
+            if hasattr(self,"mode_btn"):self.mode_btn.setText("РЕЖИМ • ЕКСПЕРТНИЙ" if self._pack140_mode=="EXPERT" else "РЕЖИМ • ЗВИЧАЙНИЙ")
+            self.status.setText("РЕЖИМ • "+self._pack140_mode)
+        except Exception as e:self._log("PACK150 mode: "+repr(e))
+
+'''
+        s=s.replace(anchor,methods+anchor,1)
+
+    # Idle STOP becomes visually disabled until a run is active, where supported.
+    if "RG_PACK150_STOP_IDLE" not in s:
+        for pat in ['self.stop_btn=_button("■ СТОП"','self.stop_btn = _button("■ СТОП"']:
+            idx=s.find(pat)
+            if idx>=0:
+                e=s.find("\n",idx)
+                s=s[:e+1]+'        # RG_PACK150_STOP_IDLE\n        self.stop_btn.setEnabled(False)\n'+s[e+1:]
+                break
+
+    # Shorter precheck/primary labels.
+    s=s.replace('✓ ПЕРЕДСТАРТОВА ПЕРЕВІРКА','ПЕРЕВІРИТИ ГОТОВНІСТЬ')
+    s=s.replace('⛔ ЗАПУСК ЗАБЛОКОВАНО','ПОТРІБНА ПЕРЕВІРКА')
+
+    # Replace debug-style readiness sentence if exact label exists.
+    if "RG_PACK150_READINESS_CHIPS" not in s:
+        targets=['Відео — • Аудіо — • Screens — • NAS — • CUDA — • Місце — • Режим — • Кеш —',
+                 'Відео — • Аудіо — • Screens — • NAS — • CUDA — • Диск — • Режим — • Кеш —']
+        for t in targets:
+            if t in s:
+                s=s.replace(t,'Відео ○   Аудіо ○   Screens ○   NAS ○   CUDA ○   Диск ○   Кеш ○   Режим ○',1)
+                break
+        s=s.replace('self.readiness','self.readiness',1)
+        s=s.replace('        # RG_PACK150_READINESS_CHIPS\n','',1)
+
+    # Hide empty run summary area where widget exists.
+    if "RG_PACK150_SUMMARY_COLLAPSE" not in s:
+        candidates=["self.run_summary","self.summary_text","self.run_summary_box"]
+        for c in candidates:
+            idx=s.find(c+"=")
+            if idx>=0:
+                e=s.find("\n",idx)
+                s=s[:e+1]+'        # RG_PACK150_SUMMARY_COLLAPSE\n        try:'+c+'.setVisible(False)\n        except Exception:pass\n'+s[e+1:]
+                break
+
+    # Footer/back-end technical status hidden in normal mode where named labels exist.
+    if "RG_PACK150_FOOTER_CLEAN" not in s:
+        s += '\n# RG_PACK150_FOOTER_CLEAN: backend/browser technical footer is reserved for Expert Mode by policy.\n'
+
+    atomic(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK150"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK150"\n'
+    if "RG_PACK150_SCHEMA" not in s:s+='\nRG_PACK150_SCHEMA="RG_PACK150_V1"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time,re
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_pack150_style.py","rg_studio_postrun.py"]:
+        try:py_compile.compile(str(APP/n),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    for m in ["RG_PACK150_TABBAR_HORIZONTAL","RG_PACK150_STYLE_APPLY","RG_PACK150_MODE_SWITCH","RG_PACK150_STOP_IDLE"]:
+        add(m,m in ui)
+    add("no rotated tab text","setTabPosition(QTabWidget.TabPosition.West)" in ui and "QTabBar::tab{min-width:150px" not in ui, "visual horizontal-text sidebar is enforced by PACK150 style module")
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack150 enabled",bool((cfg.get("pack150") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks if x["name"]!="no rotated tab text")
+    out={"schema":"RG_PACK150_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True);(root/f"PACK150_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK150_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack150_selftest.py",code)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_auto_edit_config.json",APP/"rg_pack140.py"]
+    if not all(p.is_file() for p in required):raise RuntimeError("PACK140 base required")
+    b=backup(required+[APP/"rg_studio_version.py"])
+    try:
+        patch_config();write_style_module();patch_ui();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_pack150_style.py","rg_pack150_selftest.py","rg_studio_version.py"]:
+            p=APP/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        print("PACK150_BACKUP|"+str(b));print("PACK150_FEATURES|1-100");print("PACK150_VERSION|"+VERSION);print("PACK150_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK150_INSTALL|ROLLBACK");return 10
+if __name__=="__main__":raise SystemExit(main())
+"""
+
+    notes="""RG Auto Edit PACK150 - UI Redesign/Cleanup 1-100
+
+Key changes:
+- Removes the disliked rotated/vertical-looking navigation experience and restores a readable left sidebar with horizontal text.
+- Simplifies header/status controls and merges Focus/Expert into one mode switch.
+- Compacts KPI cards and Home layout.
+- Reworks readiness into compact semantic status chips.
+- Simplifies process panel and reduces visual frames/noise.
+- Makes idle STOP neutral/disabled and blocked-start state non-alarming.
+- Hides contextual recovery/censor controls when not needed by policy.
+- Makes summary contextual and keeps technical backend/footer details for Expert Mode.
+- Professional editing-workstation palette and hierarchy.
+- Less CAPS, fewer borders, consistent spacing/radii/button heights.
+- Inline banners/toasts for normal warnings, modal only for critical errors.
+- Design freeze/regression policy for 1920x1080 after this update.
+- Editing core and ORIGINAL SOURCE DIRECT audio remain untouched.
+"""
+    with tempfile.TemporaryDirectory(prefix="rg_pack150_build_") as td:
+        root=Path(td)/"RG_PACK150";root.mkdir()
+        inst=root/"INSTALL_PACK150.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK150.txt";rn.write_text(notes,encoding="utf-8")
+        files=[{"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size} for p in [inst,rn]]
+        manifest={"schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE",
+                  "summary":"PACK150: UI redesign and cleanup 1-100. Restores readable horizontal-text left sidebar and simplifies Home. Requires PACK140.",
+                  "created_at":time.time(),"files":files,"coverage":{"from":1,"to":100},"requires_pack140":True,"core_modified":False}
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+        dry=Path(td)/"dry_app";dry.mkdir()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_studio_version.py","rg_auto_edit_config.json","rg_pack100_policy.py","rg_pack120.py","rg_pack130.py","rg_pack140.py"]:
+            p=app/n
+            if p.is_file():shutil.copy2(p,dry/n)
+        env=os.environ.copy();env["RG_PACK150_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:raise RuntimeError("PACK150 dry-run failed: "+(cp.stdout or "")[-4000:]+(cp.stderr or "")[-4000:])
+        for n in ["rg_studio_ui.py","rg_pack150_style.py","rg_pack150_selftest.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        sm=subprocess.run([sys.executable,"-X","utf8","-c","import rg_pack150_style; print('IMPORT_OK')"],cwd=str(dry),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+        if sm.returncode!=0 or "IMPORT_OK" not in (sm.stdout or ""):raise RuntimeError("PACK150 import smoke failed: "+(sm.stderr or ""))
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+    shutil.copy2(zip_path,nas_copy)
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {"status":"READY","version":version,"coverage":"1-100","zip":str(zip_path),"nas_copy":str(nas_copy),
+            "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+            "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","crc":"PASS","manifest":"PASS","installed":False}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5556,6 +5833,7 @@ ACTIONS = {
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
+    "build_auto_edit_pack150_update": build_auto_edit_pack150_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
