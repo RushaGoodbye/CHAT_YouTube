@@ -5571,8 +5571,25 @@ def patch_config():
     atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
 
 def write_style_module():
-    css="QMainWindow{background:#111214;}\nQFrame#MetricCard,QGroupBox{background:#181A1F;border:0;border-radius:10px;}\nQLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}\nQPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}\nQPushButton:disabled{background:#23262B;color:#6B7179;border:0;}\nQPushButton[role=\\"primary\\"]{background:#ff0033;color:white;border:0;}\nQLabel[muted=\\"true\\"]{color:#8D949E;}\nQProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}\nQProgressBar::chunk{border-radius:6px;background:#ff0033;}\nQTabWidget::pane{border:0;background:#111214;}\nQTabBar::tab{min-width:150px;max-width:190px;min-height:38px;padding:8px 14px;text-align:left;border:0;background:#15171B;}\nQTabBar::tab:selected{background:#202329;border-left:3px solid #ff0033;}\nQHeaderView::section{background:#1B1E24;border:0;padding:8px;}\n"
-    code="from __future__ import annotations\nPACK150_CSS = "+repr(css)+"\n"
+    css="QMainWindow{background:#111214;}\nQFrame#MetricCard,QGroupBox{background:#181A1F;border:0;border-radius:10px;}\nQLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}\nQPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}\nQPushButton:disabled{background:#23262B;color:#6B7179;border:0;}\nQPushButton[role=primary]{background:#ff0033;color:white;border:0;}\nQLabel[muted=true]{color:#8D949E;}\nQProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}\nQProgressBar::chunk{border-radius:6px;background:#ff0033;}\nQTabWidget::pane{border:0;background:#111214;}\nQTabBar::tab{min-width:150px;max-width:190px;min-height:38px;padding:8px 14px;text-align:left;border:0;background:#15171B;}\nQTabBar::tab:selected{background:#202329;border-left:3px solid #ff0033;}\nQHeaderView::section{background:#1B1E24;border:0;padding:8px;}\n"
+    helper=r'''from PySide6.QtCore import QSize,Qt
+from PySide6.QtWidgets import QTabBar,QStylePainter,QStyleOptionTab,QStyle
+class HorizontalSidebarTabBar(QTabBar):
+    def tabSizeHint(self,index):
+        base=super().tabSizeHint(index)
+        return QSize(max(170,base.height()+48),40)
+    def minimumTabSizeHint(self,index):
+        return self.tabSizeHint(index)
+    def paintEvent(self,event):
+        painter=QStylePainter(self)
+        for i in range(self.count()):
+            opt=QStyleOptionTab()
+            self.initStyleOption(opt,i)
+            opt.rect=self.tabRect(i)
+            painter.drawControl(QStyle.ControlElement.CE_TabBarTabShape,opt)
+            painter.drawText(opt.rect.adjusted(14,0,-8,0),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignLeft,self.tabText(i))
+'''
+    code="from __future__ import annotations\nPACK150_CSS = "+repr(css)+"\n"+helper
     atomic(APP/"rg_pack150_style.py",code)
 
 def patch_ui():
@@ -5581,7 +5598,7 @@ def patch_ui():
         anchor="from rg_pack140 import "
         i=s.find(anchor)
         if i>=0:
-            e=s.find("\n",i);s=s[:e+1]+"from rg_pack150_style import PACK150_CSS\n"+s[e+1:]
+            e=s.find("\n",i);s=s[:e+1]+"from rg_pack150_style import PACK150_CSS, HorizontalSidebarTabBar\n"+s[e+1:]
         else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack150_style import PACK150_CSS\n",1)
 
     # Restore readable left navigation with horizontal labels.
@@ -5589,7 +5606,7 @@ def patch_ui():
     if "RG_PACK150_TABBAR_HORIZONTAL" not in s:
         anchor='        self.tabs.setTabPosition(QTabWidget.TabPosition.West)\n'
         if anchor in s:
-            s=s.replace(anchor,anchor+'        # RG_PACK150_TABBAR_HORIZONTAL\n        self.tabs.tabBar().setExpanding(False)\n        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)\n',1)
+            s=s.replace(anchor,anchor+'        # RG_PACK150_TABBAR_HORIZONTAL\n        self.tabs.setTabBar(HorizontalSidebarTabBar(self.tabs))\n        self.tabs.tabBar().setExpanding(False)\n        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)\n',1)
 
     # Apply cleaner theme on top of existing styles.
     if "RG_PACK150_STYLE_APPLY" not in s:
