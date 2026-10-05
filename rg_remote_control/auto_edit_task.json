@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_worker",
+  "action": "inspect_auto_edit_live_code",
   "args": {},
-  "nonce": "inspect-updater-pack311-20261005-1"
+  "nonce": "inspect-live-preview-pack311-20261005-2"
 }
