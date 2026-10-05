@@ -1,7 +1,18 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "launch_auto_edit_studio",
-  "args": {},
-  "nonce": "20261005-launch-auto-edit-studio-2"
+  "action": "auto_edit_mcp_call",
+  "args": {
+    "tool": "auto_edit_command_run",
+    "tool_args": {
+      "argv": [
+        "python3",
+        "-c",
+        "import os,json,time\nstreams=['886','889','890','891','892','893','898','899']\nout={'now':time.time(),'streams':{},'state':{}}\nfor s in streams:\n    base=os.path.join('RUNS',s)\n    info={'exists':os.path.isdir(base),'runs':[]}\n    if os.path.isdir(base):\n        dirs=sorted([d for d in os.listdir(base) if os.path.isdir(os.path.join(base,d))], reverse=True)\n        for d in dirs[:5]:\n            rb=os.path.join(base,d)\n            item={'run':d}\n            for rel,key in [('RUN_MANIFEST.json','manifest'),('QA/RG_POSTRUN_QA.json','qa'),('LOGS/STUDIO_RUN.log','log')]:\n                p=os.path.join(rb,*rel.split('/'))\n                if os.path.isfile(p):\n                    item[key+'_mtime']=os.path.getmtime(p)\n                    item[key+'_size']=os.path.getsize(p)\n                    if key in ('manifest','qa'):\n                        try:\n                            j=json.load(open(p,encoding='utf-8'))\n                            if key=='manifest':\n                                item[key]={k:j.get(k) for k in ['stream','ok','mode','duration_seconds','audio_policy','algorithm_version']}\n                            else:\n                                item[key]={k:j.get(k) for k in ['passed','dialogues','xml_count','elapsed_seconds','audio_policy']}\n                                item[key]['failed_checks']=[{'name':x.get('name'),'detail':str(x.get('detail'))[:300]} for x in (j.get('checks') or []) if not x.get('ok')]\n                        except Exception as e:item[key]={'parse_error':repr(e)}\n                    else:\n                        try:\n                            lines=open(p,encoding='utf-8',errors='replace').read().splitlines()\n                            item['log_tail']=lines[-60:]\n                        except Exception as e:item['log_error']=repr(e)\n            item['files']=[]\n            for root,ds,fs in os.walk(rb):\n                for n in fs:\n                    if n.lower().endswith(('.xml','.json','.zip','.log')):\n                        item['files'].append(os.path.relpath(os.path.join(root,n),rb).replace('\\\\','/'))\n                if len(item['files'])>200: break\n            info['runs'].append(item)\n    out['streams'][s]=info\nstate='CONTROL/STATE'\nif os.path.isdir(state):\n    for n in sorted(os.listdir(state)):\n        p=os.path.join(state,n)\n        try:\n            if os.path.isfile(p):\n                st=os.stat(p)\n                rec={'mtime':st.st_mtime,'size':st.st_size}\n                if st.st_size<=1000000:\n                    txt=open(p,encoding='utf-8',errors='replace').read()\n                    try: rec['json']=json.loads(txt)\n                    except Exception: rec['tail']=txt[-12000:]\n                out['state'][n]=rec\n        except Exception as e: out['state'][n]={'error':repr(e)}\nprint(json.dumps(out,ensure_ascii=False))"
+      ],
+      "cwd_relative": "",
+      "timeout_seconds": 120
+    }
+  },
+  "nonce": "20261005-inspect-overnight-auto-edit-runs-1"
 }
