@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "archive-description-fix-0.3.77-20261005"
+    "nonce": "archive-thin-description-guard-0.3.78-20261005"
   }
 }
