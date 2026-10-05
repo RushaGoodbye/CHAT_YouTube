@@ -1,7 +1,18 @@
 {
   "target": "alexpc",
   "contour": "telegram",
-  "action": "probe_telegram_mcp_bridge",
-  "args": {},
-  "nonce": "telegram-bridge-probe-20261005-01"
+  "action": "telegram_mcp_call",
+  "args": {
+    "tool": "telegram_command_run",
+    "tool_args": {
+      "argv": [
+        "python3",
+        "-c",
+        "import json,pathlib\nroot=pathlib.Path('.')\nnames=['last_deployed_sha','last_deploy_status','deploy_stage','live_smoke_status','live_smoke_sha','live_smoke_checked_at','last_backup','selftest_ok','telegram_watchdog_status']\nout={}\nfor n in names:\n p=root/'nas_state'/n\n out[n]=p.read_text(encoding='utf-8',errors='replace').strip() if p.is_file() else None\nfor n in ['production_baseline.json','telegram-watchdog-status.json']:\n p=root/'nas_state'/n\n try: out[n]=json.loads(p.read_text(encoding='utf-8',errors='replace')) if p.is_file() else None\n except Exception as e: out[n]={'parse_error':str(e)}\nprint(json.dumps(out,ensure_ascii=False))"
+      ],
+      "cwd_relative": "",
+      "timeout_seconds": 30
+    }
+  },
+  "nonce": "telegram-production-state-20261005-01"
 }
