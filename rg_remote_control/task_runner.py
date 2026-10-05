@@ -1690,6 +1690,157 @@ def enable_telegram_mcp_bridge() -> dict:
     }
 
 
+def telegram_mcp_batch() -> dict:
+    import time
+    import uuid
+
+    task_path = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else ROOT / "rg_remote_control" / "telegram_task.json"
+    )
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    args = task.get("args") or {}
+    calls = args.get("calls") or []
+    if not isinstance(calls, list) or not calls:
+        raise RuntimeError("calls must be a non-empty array")
+    if len(calls) > 30:
+        raise RuntimeError("telegram_mcp_batch supports at most 30 calls")
+
+    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP\TELEGRAM_CALLS")
+    requests = root / "requests"
+    results = root / "results"
+    errors = root / "errors"
+    requests.mkdir(parents=True, exist_ok=True)
+    results.mkdir(parents=True, exist_ok=True)
+    errors.mkdir(parents=True, exist_ok=True)
+
+    pending = []
+    for index, call in enumerate(calls):
+        if not isinstance(call, dict):
+            raise RuntimeError(f"call {index} must be an object")
+        tool = str(call.get("tool") or "").strip()
+        tool_args = call.get("tool_args") or {}
+        if not tool.startswith("telegram_"):
+            raise RuntimeError(f"call {index}: only telegram_* tools are allowed")
+        if not isinstance(tool_args, dict):
+            raise RuntimeError(f"call {index}: tool_args must be an object")
+
+        request_id = uuid.uuid4().hex
+        request_file = requests / f"{request_id}.json"
+        payload = {
+            "request_id": request_id,
+            "tool": tool,
+            "tool_args": tool_args,
+        }
+        temp = request_file.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, request_file)
+        pending.append({
+            "index": index,
+            "request_id": request_id,
+            "tool": tool,
+            "request_file": request_file,
+            "result_file": results / f"{request_id}.json",
+            "error_file": errors / f"{request_id}.log",
+        })
+
+    started = time.time()
+    timeout_seconds = max(90, min(180, int(args.get("timeout_seconds") or 120)))
+    finished = {}
+
+    while time.time() - started < timeout_seconds and len(finished) < len(pending):
+        for item in pending:
+            index = item["index"]
+            if index in finished:
+                continue
+            result_file = item["result_file"]
+            error_file = item["error_file"]
+            request_file = item["request_file"]
+            try:
+                result_ready = result_file.is_file()
+                error_ready = error_file.is_file()
+                request_exists = request_file.exists()
+            except OSError as exc:
+                item["last_fs_error"] = repr(exc)
+                continue
+
+            if result_ready:
+                try:
+                    payload = json.loads(
+                        result_file.read_text(encoding="utf-8", errors="replace")
+                    )
+                except OSError as exc:
+                    item["last_fs_error"] = repr(exc)
+                    continue
+                except Exception as exc:
+                    payload = {
+                        "request_id": item["request_id"],
+                        "tool": item["tool"],
+                        "is_error": True,
+                        "error": f"invalid result JSON: {exc!r}",
+                    }
+                try:
+                    result_file.unlink()
+                except Exception:
+                    pass
+                finished[index] = payload
+                continue
+
+            if error_ready and not request_exists:
+                try:
+                    error = error_file.read_text(
+                        encoding="utf-8", errors="replace"
+                    )[-12000:]
+                except OSError as exc:
+                    item["last_fs_error"] = repr(exc)
+                    continue
+                try:
+                    error_file.unlink()
+                except Exception:
+                    pass
+                finished[index] = {
+                    "request_id": item["request_id"],
+                    "tool": item["tool"],
+                    "is_error": True,
+                    "error": error,
+                }
+
+        if len(finished) < len(pending):
+            time.sleep(2)
+
+    timed_out = []
+    for item in pending:
+        if item["index"] not in finished:
+            timed_out.append({
+                "index": item["index"],
+                "request_id": item["request_id"],
+                "tool": item["tool"],
+            })
+
+    ordered = []
+    for item in pending:
+        index = item["index"]
+        ordered.append({
+            "index": index,
+            **finished.get(index, {
+                "request_id": item["request_id"],
+                "tool": item["tool"],
+                "is_error": True,
+                "error": "timeout",
+            }),
+        })
+
+    return {
+        "transport": "RG NAS MCP Telegram queue bridge batch",
+        "elapsed_seconds": int(time.time() - started),
+        "count": len(pending),
+        "completed": len(finished),
+        "timed_out": timed_out,
+        "results": ordered,
+    }
+
+
 def telegram_mcp_call() -> dict:
     import time
     import uuid
@@ -3675,6 +3826,7 @@ ACTIONS = {
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
     "enable_telegram_mcp_bridge": enable_telegram_mcp_bridge,
     "probe_telegram_mcp_bridge": probe_telegram_mcp_bridge,
+    "telegram_mcp_batch": telegram_mcp_batch,
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "youtube_mcp_batch": youtube_mcp_batch,
