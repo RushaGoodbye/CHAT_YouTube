@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_sync_recent_live_for_today",
   "args": {
-    "nonce": "today-live-minimal-20261005"
+    "nonce": "today-live-minimal-20261005-retry2"
   }
 }
