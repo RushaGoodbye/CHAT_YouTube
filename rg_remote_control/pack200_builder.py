@@ -493,28 +493,8 @@ def patch_ui():
     if "RG_PACK200_STYLE_V1" not in s:
         marker="        # RG_PACK170_VISUAL_STYLE_V1\n"
         idx=s.find(marker)
-        css='''        # RG_PACK200_STYLE_V1
-        try:
-            _rg200_css="""
-QFrame#VisualProductionPanel{background:#101216;border:0;border-radius:12px;}
-QFrame#Pack200Card{background:#171A20;border:1px solid #282E37;border-radius:10px;}
-QLabel#Pack200Stream{font-size:18pt;font-weight:800;color:#EEF2F6;}
-QLabel#Pack200Current{font-size:13pt;font-weight:700;color:#EEF2F6;}
-QLabel#Pack200Progress{font-size:20pt;font-weight:800;color:#6F8FB8;}
-QLabel#Pack200Big{font-size:12pt;font-weight:700;color:#EEF2F6;}
-QLabel#Pack200Dialogue{font-size:15pt;font-weight:800;color:#EEF2F6;}
-QLabel#Pack200SectionTitle{font-size:8pt;font-weight:800;color:#89919B;letter-spacing:1px;}
-QLabel#Pack200Muted{color:#89919B;}
-QLabel#Pack200Status{background:#14171C;color:#89919B;border-radius:7px;padding:6px 9px;font-family:Consolas;}
-QLabel#Pack200QueueRow{background:#1D2128;border-radius:6px;padding:4px 7px;color:#DDE3EA;}
-QGroupBox{border:0;background:#171A20;border-radius:10px;margin-top:8px;padding-top:8px;}
-QProgressBar{border:0;background:#252A31;border-radius:5px;text-align:center;min-height:10px;}
-QProgressBar::chunk{background:#6F8FB8;border-radius:5px;}
-QTabBar::tab:selected{border-bottom:2px solid #6F8FB8;}
-"""
-            self.setStyleSheet((self.styleSheet() or "")+_rg200_css)
-        except Exception: pass
-'''
+        css='        # RG_PACK200_STYLE_V1\\n        try:\\n            _rg200_css="QFrame#VisualProductionPanel{background:#101216;border:0;border-radius:12px;}\\nQFrame#Pack200Card{background:#171A20;border:1px solid #282E37;border-radius:10px;}\\nQLabel#Pack200Stream{font-size:18pt;font-weight:800;color:#EEF2F6;}\\nQLabel#Pack200Current{font-size:13pt;font-weight:700;color:#EEF2F6;}\\nQLabel#Pack200Progress{font-size:20pt;font-weight:800;color:#6F8FB8;}\\nQLabel#Pack200Big{font-size:12pt;font-weight:700;color:#EEF2F6;}\\nQLabel#Pack200Dialogue{font-size:15pt;font-weight:800;color:#EEF2F6;}\\nQLabel#Pack200SectionTitle{font-size:8pt;font-weight:800;color:#89919B;letter-spacing:1px;}\\nQLabel#Pack200Muted{color:#89919B;}\\nQLabel#Pack200Status{background:#14171C;color:#89919B;border-radius:7px;padding:6px 9px;font-family:Consolas;}\\nQLabel#Pack200QueueRow{background:#1D2128;border-radius:6px;padding:4px 7px;color:#DDE3EA;}\\nQGroupBox{border:0;background:#171A20;border-radius:10px;margin-top:8px;padding-top:8px;}\\nQProgressBar{border:0;background:#252A31;border-radius:5px;text-align:center;min-height:10px;}\\nQProgressBar::chunk{background:#6F8FB8;border-radius:5px;}\\nQTabBar::tab:selected{border-bottom:2px solid #6F8FB8;}\\n"\\n            self.setStyleSheet((self.styleSheet() or \\\"\\\")+_rg200_css)\\n        except Exception: pass\\n'
+
         if idx>=0: s=s[:idx]+css+s[idx:]
         else:
             anchor="        try:\n            self.setStyleSheet((self.styleSheet() or \"\")"
