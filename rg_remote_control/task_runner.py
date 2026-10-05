@@ -8493,6 +8493,63 @@ print("FACE_ONLY_TEST_PASS",clean.shape,legacy.shape)
             if bp.is_file(): shutil.copy2(bp,p)
         raise
 
+def inspect_auto_edit_latest_thumbnail_state() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    rows=[]
+    for mf in app.glob("*/THUMBNAIL/RG_THUMBNAIL_PREP.json"):
+        try:
+            st=mf.stat()
+            data=json.loads(mf.read_text(encoding="utf-8-sig"))
+            thumb=mf.parent
+            cand=thumb/"CANDIDATES"
+            entry={
+                "mtime":st.st_mtime,
+                "manifest":str(mf),
+                "job":str(data.get("job") or mf.parents[1].name),
+                "schema":data.get("schema"),
+                "quality_policy":data.get("quality_policy"),
+                "selected_clips":data.get("selected_clips") or [],
+                "host_candidates":data.get("host_candidates") or [],
+                "dialogues":[],
+                "topaz_input_files":[],
+                "topaz_ready_files":[],
+            }
+            for d in data.get("dialogues",[]):
+                paths=[str(x) for x in (d.get("guest_candidates") or [])]
+                entry["dialogues"].append({
+                    "guest_id":d.get("guest_id"),
+                    "label":d.get("label"),
+                    "count":len(paths),
+                    "existing":sum(1 for x in paths if Path(x).is_file()),
+                    "paths":paths,
+                    "records":d.get("guest_candidate_records") or [],
+                })
+            if cand.is_dir():
+                entry["candidate_files"]=[str(p) for p in cand.rglob("*") if p.is_file()]
+            else:
+                entry["candidate_files"]=[]
+            for name,key in [("TOPAZ_INPUT","topaz_input_files"),("TOPAZ_READY","topaz_ready_files")]:
+                p=thumb/name
+                if p.is_dir():
+                    entry[key]=[str(x) for x in p.rglob("*") if x.is_file()]
+            rows.append(entry)
+        except Exception as exc:
+            rows.append({"manifest":str(mf),"error":repr(exc)})
+    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
+    ui=app/"rg_studio_ui.py"
+    uis=ui.read_text(encoding="utf-8",errors="replace") if ui.is_file() else ""
+    needles=["guest_candidates","host_candidates","QPixmap","QImage","candidate_records","thumbnail_prepare","_thumbnail_prepare_finished"]
+    snippets=[]
+    lines=uis.splitlines()
+    for i,row in enumerate(lines):
+        if any(n in row for n in needles):
+            a=max(0,i-4);b=min(len(lines),i+10)
+            snippets.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {lines[j]}" for j in range(a,b))})
+            if len(snippets)>=80:break
+    return {"latest":rows[:3],"ui_snippets":snippets}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8575,6 +8632,7 @@ ACTIONS = {
     "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
     "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
     "inspect_auto_edit_thumbnail_mix_main": inspect_auto_edit_thumbnail_mix_main,
+    "inspect_auto_edit_latest_thumbnail_state": inspect_auto_edit_latest_thumbnail_state,
     "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
