@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_cleanup_gui_processes",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "cleanup-gui-0374-20261005"
+    "nonce": "verify-single-gui-0374-20261005"
   }
 }
