@@ -621,6 +621,75 @@ def runtime_status() -> dict:
         if account_match:
             gh_account = account_match.group(1)
 
+    shortcut_targets = []
+    startup_matches = []
+    if os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA", ""))
+        shortcut_paths = [
+            Path.home() / "Desktop" / "RG YouTube Control.lnk",
+            appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "RG YouTube Control.lnk",
+            appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "RG YouTube Control.lnk",
+        ]
+        for path in shortcut_paths:
+            if not path.is_file():
+                shortcut_targets.append({"path": str(path), "exists": False})
+                continue
+            command = (
+                "$ws=New-Object -ComObject WScript.Shell; "
+                "$s=$ws.CreateShortcut('"
+                + str(path).replace("'", "''")
+                + "'); "
+                "[pscustomobject]@{TargetPath=$s.TargetPath;Arguments=$s.Arguments;"
+                "WorkingDirectory=$s.WorkingDirectory} | ConvertTo-Json -Compress"
+            )
+            proc = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ],
+                text=True,
+                capture_output=True,
+                timeout=20,
+            )
+            raw = (proc.stdout or "").strip()
+            try:
+                info = json.loads(raw) if raw else {}
+            except Exception:
+                info = {"raw": raw}
+            shortcut_targets.append(
+                {"path": str(path), "exists": True, "target": info}
+            )
+
+        task_cmd = (
+            "$items=Get-ScheduledTask -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.TaskName -match 'RG|YouTube|CHAT_YouTube' -or "
+            "(($_.Actions | Out-String) -match 'RG YouTube|CHAT_YouTube|run_app.py') }; "
+            "$items | ForEach-Object { "
+            "[pscustomobject]@{TaskName=$_.TaskName;TaskPath=$_.TaskPath;"
+            "State=$_.State;Actions=($_.Actions | Out-String).Trim()} "
+            "} | ConvertTo-Json -Compress"
+        )
+        proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                task_cmd,
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        raw = (proc.stdout or "").strip()
+        try:
+            startup_matches = json.loads(raw) if raw else []
+        except Exception:
+            startup_matches = {"raw": raw}
+
     return {
         "youtube_api_calls": 0,
         "installs": installs,
@@ -629,6 +698,8 @@ def runtime_status() -> dict:
         "source_running": source_running,
         "source_processes": source_processes,
         "source_candidates": source_candidates,
+        "shortcut_targets": shortcut_targets,
+        "scheduled_task_matches": startup_matches,
         "installed_exe_version": exe_version,
         "gh_available": gh_available,
         "gh_authenticated": gh_authenticated,
