@@ -2763,3 +2763,15 @@ def test_startup_cleans_stale_schedules_before_quota_guard():
 
     source = inspect.getsource(MainWindow.sync_upcoming_streams_startup)
     assert source.index("cleanup_stale_scheduled_rows") < source.index("quota_exhausted")
+
+
+def test_package_version_matches_pyproject() -> None:
+    import re
+    from pathlib import Path
+    from rg_youtube_control import __version__
+
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+    assert match is not None
+    assert __version__ == match.group(1)
