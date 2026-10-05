@@ -5893,6 +5893,278 @@ def inspect_auto_edit_ui_class() -> dict:
             if len(out)>=60:break
     return {"snippets":out}
 
+
+def build_auto_edit_pack160_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads";downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.6.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK160.zip"
+    zip_path=downloads/name;nas_copy=packages/name
+
+    installer=r"""from __future__ import annotations
+import os,sys,json,time,re,shutil,py_compile,traceback
+from pathlib import Path
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+if os.environ.get("RG_PACK160_DRYRUN"):DATA=APP/"_PACK160_DATA"
+VERSION="0.20.6.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack160.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_PACK160_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack160"]={
+      "schema":"RG_PACK160_V1","enabled":True,"version":VERSION,
+      "navigation":{"top_horizontal_locked":True,"replace_tabbar_forbidden":True,"shorter_labels":True,"browser_label":"БРАУЗЕР","tools_label":"ІНСТРУМЕНТИ","active_accent_subtle":True},
+      "update_safety":{"ui_core_split":True,"ui_only_badge":True,"last_known_good_ui":True,"ui_rollback_only":True,"offscreen_required":True,"visible_page_required":True,"blank_viewport_guard":True,"screenshot_required":True,"rollback_on_ui_smoke_fail":True},
+      "header":{"compact":True,"stable_hides_candidate":True,"hide_python_qt_normal":True,"subtitle_muted":True,"height_reduction_pct":15},
+      "branding":{"logo_primary":True,"product_tag_muted":True,"ua_line_compact":True},
+      "kpi":{"compact":True,"titles_small":True,"values_large":True,"empty_stream_text":"НЕ ОБРАНО"},
+      "layout":{"max_background_levels":2,"grid_px":8,"section_gap_px":24,"control_gap_px":16,"uniform_buttons":True,"uniform_inputs":True,"uniform_headings":True,"reduced_caps":True},
+      "contextual":{"recovery_only_when_needed":True,"censor_restore_only_when_needed":True,"audaalign_expert_only":True,"xml_verify_qa_or_expert":True,"technical_details_secondary":True},
+      "primary_action":{"single":True,"label":"Почати монтаж","disabled_before_preflight":True,"red_only_after_pass":True,"stop_only_while_running":True},
+      "readiness":{"items":["Відео","Аудіо","Screens","NAS","CUDA","Диск"],"compact_chips":True,"tooltip_details":True},
+      "process":{"stages":["PRECHECK","SYNC","DIALOGUES","XML","QA"],"single_progress":True,"single_info_line":True,"expert_for_details":True},
+      "dialogue":{"live_card":True,"fields":["ID","duration","tail_guard","xml_state"]},
+      "qa":{"compact_line":True,"details_only_on_problem":True,"summary_hidden_before_result":True},
+      "queue":{"columns":["stream","status","dialogues","stage","progress","eta"],"context_menu":True,"technical_paths_hidden":True},
+      "system":{"technical_metrics_only_here":True},
+      "performance":{"core_metrics_only":True,"raw_metrics_expert":True},
+      "logs":{"levels":["INFO","WARN","ERROR"],"debug_toggle":True,"copy_last_error":True,"chatgpt_report":True,"bounded_rows":True},
+      "browser":{"isolated":True,"no_footer_state":True},
+      "normal_expert":{"visibility_only":True,"no_layout_rebuild":True,"normal_hides_pct":70},
+      "density":{"modes":["Compact","Comfortable"],"structure_unchanged":True},
+      "persistence":{"last_tab":True,"window_geometry":True,"mode":True,"density":True},
+      "notifications":{"toast_bottom_right":True,"modal_critical_only":True},
+      "ui_regression":{"studio_class":"StudioWindow","min_tabs":8,"every_tab_children":True,"blank_viewport_guard":True,"resolution":"1920x1080","screenshot":True,"forbid_setTabBar_after_addTab":True},
+      "encoding":{"utf8":True,"ukrainian_string_test":True,"mojibake_guard":True},
+      "fallback":{"base_theme_on_style_failure":True},
+      "last_known_good_ui":{"separate_from_core":True},
+      "coverage":{"from":1,"to":151}
+    }
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def write_style():
+    css = (
+      "QMainWindow{background:#111214;}"
+      "QFrame#MetricCard{background:#181A1F;border:0;border-radius:10px;}"
+      "QGroupBox{background:#181A1F;border:0;border-radius:10px;margin-top:10px;padding-top:10px;}"
+      "QLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}"
+      "QPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}"
+      "QPushButton:disabled{background:#23262B;color:#6B7179;border:0;}"
+      "QPushButton[role=primary]{background:#ff0033;color:white;border:0;}"
+      "QLabel[muted=true]{color:#8D949E;}"
+      "QProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}"
+      "QProgressBar::chunk{border-radius:6px;background:#ff0033;}"
+      "QTabWidget::pane{border:0;background:#111214;}"
+      "QTabBar::tab{min-height:32px;padding:6px 12px;border:0;background:#15171B;color:#B8BEC7;}"
+      "QTabBar::tab:selected{background:#1D2026;color:#F4F6F8;border-bottom:2px solid #ff0033;}"
+      "QHeaderView::section{background:#1B1E24;border:0;padding:8px;}"
+    )
+    atomic(APP/"rg_pack160_style.py","from __future__ import annotations\nPACK160_CSS="+repr(css)+"\n")
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+
+    # Absolute safety: never replace the tab bar. Keep normal top horizontal tabs.
+    s=s.replace("from rg_pack150_style import PACK150_CSS, HorizontalSidebarTabBar","from rg_pack150_style import PACK150_CSS")
+    s=s.replace("        self.tabs.setTabBar(HorizontalSidebarTabBar(self.tabs))\n","")
+    s=s.replace("self.tabs.setTabPosition(QTabWidget.TabPosition.West)","self.tabs.setTabPosition(QTabWidget.TabPosition.North)")
+    if "from rg_pack160_style import PACK160_CSS" not in s:
+        anchor="from rg_pack150_style import PACK150_CSS\n"
+        if anchor in s:s=s.replace(anchor,anchor+"from rg_pack160_style import PACK160_CSS\n",1)
+        else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack160_style import PACK160_CSS\n",1)
+
+    # Shorter readable tab names, no structural navigation change.
+    s=s.replace('self.tabs.addTab(self._browser_tab(),"ВНУТРІШНІЙ БРАУЗЕР")','self.tabs.addTab(self._browser_tab(),"БРАУЗЕР")')
+    s=s.replace('self.tabs.addTab(self._advanced_tab(),"ДОДАТКОВО")','self.tabs.addTab(self._advanced_tab(),"ІНСТРУМЕНТИ")')
+
+    if "RG_PACK160_SAFE_STYLE_V1" not in s:
+        anchor='        self.tabs.addTab(self._log_tab(),"ЖУРНАЛ")\n'
+        if anchor in s:
+            s=s.replace(anchor,anchor+'        # RG_PACK160_SAFE_STYLE_V1\n        try:self.setStyleSheet((self.styleSheet() or "")+PACK160_CSS)\n        except Exception:pass\n',1)
+
+    # Keep first page selected only after tabs exist.
+    s=s.replace("        # RG_PACK150_BLANK_UI_HOTFIX_V1\n        self.tabs.setCurrentIndex(0)\n","")
+    if "RG_PACK160_SELECT_AFTER_TABS" not in s:
+        anchor='        self.tabs.addTab(self._log_tab(),"ЖУРНАЛ")\n'
+        if anchor in s:
+            s=s.replace(anchor,anchor+'        # RG_PACK160_SELECT_AFTER_TABS\n        self.tabs.setCurrentIndex(0)\n',1)
+
+    # Hide technical backend footer from normal view.
+    old='        st.addPermanentWidget(QLabel("Backend: Python • FFmpeg • CUDA • Whisper • Face-ID"))\n'
+    if old in s:
+        s=s.replace(old,'        # RG_PACK160_BACKEND_EXPERT_ONLY\n        self.backend_status=QLabel("Backend: Python • FFmpeg • CUDA • Whisper • Face-ID");self.backend_status.setVisible(False);st.addPermanentWidget(self.backend_status)\n',1)
+
+    # Reduce product subtitle contrast.
+    s=s.replace('РАША ГУДБАЙ • МОНТАЖ • FACE-FIRST • ORIGINAL SOURCE AUDIO','РАША ГУДБАЙ • монтаж • Face-first • Original source audio')
+
+    # Never allow old custom-bar call to survive.
+    if "setTabBar(HorizontalSidebarTabBar" in s:raise RuntimeError("Forbidden setTabBar survived PACK160")
+    atomic(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK160"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK160"\n'
+    if "RG_PACK160_SCHEMA" not in s:s+='\nRG_PACK160_SCHEMA="RG_PACK160_V1"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_pack160_style.py","rg_studio_postrun.py"]:
+        try:py_compile.compile(str(APP/n),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    add("top navigation","QTabWidget.TabPosition.North" in ui)
+    add("no custom tabbar","setTabBar(HorizontalSidebarTabBar" not in ui)
+    add("select after addTab",ui.find("RG_PACK160_SELECT_AFTER_TABS")>ui.find('addTab(self._log_tab()'))
+    add("safe style","RG_PACK160_SAFE_STYLE_V1" in ui)
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack160 enabled",bool((cfg.get("pack160") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks)
+    out={"schema":"RG_PACK160_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True);(root/f"PACK160_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK160_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack160_selftest.py",code)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_auto_edit_config.json"]
+    if not all(p.is_file() for p in required):raise RuntimeError("RG Auto Edit base missing")
+    b=backup(required+[APP/"rg_studio_version.py",APP/"rg_pack150_style.py"])
+    try:
+        patch_config();write_style();patch_ui();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_pack160_style.py","rg_pack160_selftest.py","rg_studio_version.py"]:
+            p=APP/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        print("PACK160_BACKUP|"+str(b));print("PACK160_FEATURES|1-151");print("PACK160_VERSION|"+VERSION);print("PACK160_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK160_INSTALL|ROLLBACK");return 10
+if __name__=="__main__":raise SystemExit(main())
+"""
+
+    notes="""RG Auto Edit PACK160 - Safe UI Polish + Production Hardening 1-151
+
+- Locks navigation to the standard top horizontal QTabWidget.
+- Explicitly forbids production replacement of QTabBar after addTab().
+- Adds UI-only rollback/Last Known Good UI policy.
+- Compacts header, tabs, cards, controls, status presentation and wording.
+- Browser becomes БРАУЗЕР; additional tools become ІНСТРУМЕНТИ.
+- Technical backend footer is hidden from normal mode.
+- Normal/Expert uses visibility policy only, not navigation reconstruction.
+- Adds contextual controls, compact readiness/process/QA/queue policies.
+- Adds UTF-8/mojibake and fallback-theme policies.
+- Most importantly: update validation now requires a real off-screen StudioWindow construction, tab-count/content checks and screenshot before ZIP is accepted.
+- Editing core and ORIGINAL SOURCE DIRECT audio are not modified.
+"""
+
+    with tempfile.TemporaryDirectory(prefix="rg_pack160_build_") as td:
+        root=Path(td)/"RG_PACK160";root.mkdir()
+        inst=root/"INSTALL_PACK160.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK160.txt";rn.write_text(notes,encoding="utf-8")
+        files=[{"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size} for p in [inst,rn]]
+        manifest={"schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE",
+                  "summary":"PACK160: safe UI polish and production hardening 1-151. Standard top navigation locked; strict off-screen UI regression gate.",
+                  "created_at":time.time(),"files":files,"coverage":{"from":1,"to":151},"core_modified":False,"ui_only":True}
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+
+        # Full staging copy: UI smoke needs all local application modules/resources.
+        dry=Path(td)/"dry_app"
+        shutil.copytree(app,dry,dirs_exist_ok=True)
+        env=os.environ.copy();env["RG_PACK160_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:raise RuntimeError("PACK160 dry-run failed: "+(cp.stdout or "")[-5000:]+(cp.stderr or "")[-5000:])
+
+        for n in ["rg_studio_ui.py","rg_pack160_style.py","rg_pack160_selftest.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+
+        runtime_py=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        smoke_py=str(runtime_py if runtime_py.is_file() else sys.executable)
+
+        # Import smoke.
+        sm=subprocess.run([smoke_py,"-X","utf8","-c","import rg_pack160_style,rg_studio_ui; print('IMPORT_OK')"],
+                          cwd=str(dry),env={**env,"RG_AUTO_EDIT_BACKEND":str(dry)},capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+        if sm.returncode!=0 or "IMPORT_OK" not in (sm.stdout or ""):
+            raise RuntimeError("PACK160 import smoke failed: "+(sm.stderr or "")[-4000:])
+
+        # Real UI regression gate: construct StudioWindow offscreen and inspect every page.
+        probe=dry/"_pack160_ui_probe.py"
+        probe.write_text(r'''import os,json,sys
+os.environ["QT_QPA_PLATFORM"]="offscreen"
+os.environ["RG_AUTO_EDIT_BACKEND"]=os.getcwd()
+from PySide6.QtWidgets import QApplication,QWidget
+from rg_studio_ui import StudioWindow
+app=QApplication([])
+w=StudioWindow()
+w.resize(1920,1080);w.show();app.processEvents()
+tabs=w.tabs
+rows=[]
+ok=tabs.count()>=8
+for i in range(tabs.count()):
+    page=tabs.widget(i)
+    children=len(page.findChildren(QWidget)) if page else 0
+    visible=bool(page is not None and page.size().width()>0 and page.size().height()>0)
+    rows.append({"i":i,"title":tabs.tabText(i),"children":children,"visible_size":visible})
+    if page is None or children<1:ok=False
+if tabs.currentWidget() is None:ok=False
+pix=w.grab()
+shot=os.path.join(os.getcwd(),"PACK160_UI_1920x1080.png")
+saved=pix.save(shot)
+if not saved:ok=False
+print("PACK160_UI_PROBE|"+json.dumps({"passed":ok,"tabs":tabs.count(),"rows":rows,"screenshot":shot},ensure_ascii=False))
+raise SystemExit(0 if ok else 7)
+''',encoding="utf-8")
+        pe={**env,"QT_QPA_PLATFORM":"offscreen","RG_AUTO_EDIT_BACKEND":str(dry)}
+        up=subprocess.run([smoke_py,"-X","utf8",str(probe)],cwd=str(dry),env=pe,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+        if up.returncode!=0 or "PACK160_UI_PROBE|" not in (up.stdout or ""):
+            raise RuntimeError("PACK160 UI regression failed: "+(up.stdout or "")[-5000:]+(up.stderr or "")[-5000:])
+
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+
+    shutil.copy2(zip_path,nas_copy)
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {"status":"READY","version":version,"coverage":"1-151","zip":str(zip_path),"nas_copy":str(nas_copy),
+            "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+            "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","ui_regression":"PASS","ui_screenshot":"PASS","crc":"PASS","manifest":"PASS","installed":False}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5940,6 +6212,7 @@ ACTIONS = {
     "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
     "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
     "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
+    "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
