@@ -6990,7 +6990,18 @@ raise SystemExit(0 if ok else 7)
     pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
     exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
     flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
-    subprocess.Popen([exe,"-X","utf8",str(main)],cwd=str(app),creationflags=flags,close_fds=True)
+    launch_env=os.environ.copy()
+    launch_env.pop("RUNNER_TRACKING_ID",None)
+    subprocess.Popen(
+        [exe,"-X","utf8",str(main)],
+        cwd=str(app),
+        env=launch_env,
+        creationflags=flags,
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
     return {
         "status":"APPLIED",
