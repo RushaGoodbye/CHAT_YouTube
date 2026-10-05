@@ -4,6 +4,6 @@
   "action": "youtube_program_local_status",
   "args": {
     "mode": "campaign_progress_check",
-    "nonce": "campaign-progress-1"
+    "nonce": "campaign-progress-2"
   }
 }
