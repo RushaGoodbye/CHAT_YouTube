@@ -4152,6 +4152,24 @@ def audit_auto_edit_pack100_features() -> dict:
     return {"schema":"RG_PACK100_FEATURE_AUDIT_V1","checks":checks,"missing":missing,"passed":not missing}
 
 
+
+def inspect_auto_edit_pack100_missing_targets() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    terms=["self.batch_table=","batch_table =","_create_auto_diagnostic","tech_toggle","clipboard","batch_run","batch_pause","QTableWidget("]
+    out={}
+    for term in terms:
+        hits=[]
+        for i,line in enumerate(rows):
+            if term.lower() in line.lower():
+                a=max(0,i-14);b=min(len(rows),i+24)
+                hits.append("\n".join(f"{k+1}: {rows[k]}" for k in range(a,b)))
+                if len(hits)>=4:break
+        out[term]=hits
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4193,6 +4211,7 @@ ACTIONS = {
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
+    "inspect_auto_edit_pack100_missing_targets": inspect_auto_edit_pack100_missing_targets,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
