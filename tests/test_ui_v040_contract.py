@@ -37,3 +37,16 @@ def test_v040_quick_filters_and_context_actions_contract() -> None:
         'THUMBNAIL · VISIBILITY · ДАТА',
     ):
         assert marker in source
+
+
+def test_today_stream_card_contract() -> None:
+    source = _ui_source()
+    for marker in (
+        'today_stream_caption = QLabel("Сьогоднішній стрім")',
+        'self.today_stream_optimize_btn = QPushButton("Оптимізувати")',
+        'def _today_scheduled_row',
+        'def _refresh_today_stream_card',
+        'def open_today_stream_optimization',
+        'self._refresh_today_stream_card()',
+    ):
+        assert marker in source
