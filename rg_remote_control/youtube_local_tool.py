@@ -637,6 +637,50 @@ def runtime_status() -> dict:
 
 
 
+def _stop_all_rg_youtube_gui_processes() -> dict:
+    """Stop both legacy installed EXE and source GUI before relaunch."""
+    import subprocess
+
+    if os.name != "nt":
+        return {"stopped": [], "windows": False}
+
+    command = (
+        "$items=Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'RG YouTube Control.exe') -or "
+        "(($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*') }; "
+        "$stopped=@(); "
+        "foreach($p in $items){ "
+        "$stopped += [pscustomobject]@{id=[int]$p.ProcessId;name=$p.Name;path=$p.ExecutablePath}; "
+        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
+        "}; "
+        "$stopped | ConvertTo-Json -Compress"
+    )
+    proc = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Could not stop existing RG YouTube Control GUI processes: "
+            + ((proc.stderr or proc.stdout) or "")[-3000:]
+        )
+    raw = (proc.stdout or "").strip()
+    try:
+        stopped = json.loads(raw) if raw else []
+    except Exception:
+        stopped = raw
+    return {"stopped": stopped, "windows": True}
+
+
 def _source_python(target: Path, *, windowed: bool = False) -> Path:
     scripts = target / ".venv" / "Scripts"
     candidate = scripts / ("pythonw.exe" if windowed else "python.exe")
@@ -775,32 +819,8 @@ def sync_and_launch_source() -> dict:
     )
     version = version_match.group(1) if version_match else ""
 
-    if os.name == "nt":
-        stop_existing = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                (
-                    "$p=Get-CimInstance Win32_Process | Where-Object { "
-                    "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
-                    "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-                    "$p | ForEach-Object { "
-                    "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue "
-                    "}"
-                ),
-            ],
-            text=True,
-            capture_output=True,
-            timeout=30,
-        )
-        if stop_existing.returncode != 0:
-            raise RuntimeError(
-                "Could not stop the previous RG YouTube Control GUI: "
-                + ((stop_existing.stderr or stop_existing.stdout) or "")[-2000:]
-            )
-        time.sleep(1)
+    stopped = _stop_all_rg_youtube_gui_processes()
+    time.sleep(1)
 
     executable = _source_python(target, windowed=True)
     env = os.environ.copy()
@@ -864,6 +884,7 @@ def sync_and_launch_source() -> dict:
         "pid": proc.pid,
         "running": running,
         "processes": process_text,
+        "stopped_before_launch": stopped,
     }
 
 
@@ -1452,6 +1473,9 @@ def ensure_gui_startup() -> dict:
     create_shortcut(desktop_shortcut)
     create_shortcut(startup_shortcut)
 
+    stopped = _stop_all_rg_youtube_gui_processes()
+    time.sleep(1)
+
     env = os.environ.copy()
     env["PYTHONPATH"] = str(target / "src")
     env.pop("RUNNER_TRACKING_ID", None)
@@ -1510,6 +1534,7 @@ def ensure_gui_startup() -> dict:
         "pid": proc.pid,
         "running": running,
         "processes": process_text,
+        "stopped_before_launch": stopped,
     }
 
 
