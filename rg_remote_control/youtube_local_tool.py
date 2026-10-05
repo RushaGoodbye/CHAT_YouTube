@@ -775,6 +775,33 @@ def sync_and_launch_source() -> dict:
     )
     version = version_match.group(1) if version_match else ""
 
+    if os.name == "nt":
+        stop_existing = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$p=Get-CimInstance Win32_Process | Where-Object { "
+                    "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                    "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+                    "$p | ForEach-Object { "
+                    "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue "
+                    "}"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if stop_existing.returncode != 0:
+            raise RuntimeError(
+                "Could not stop the previous RG YouTube Control GUI: "
+                + ((stop_existing.stderr or stop_existing.stdout) or "")[-2000:]
+            )
+        time.sleep(1)
+
     executable = _source_python(target, windowed=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(target / "src")
@@ -808,8 +835,9 @@ def sync_and_launch_source() -> dict:
                 "-Command",
                 (
                     "$p=Get-CimInstance Win32_Process | Where-Object { "
-                    "$_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-                    "$p | Select-Object ProcessId,Name,CommandLine | "
+                    "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                    "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+                    "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
                     "ConvertTo-Json -Compress"
                 ),
             ],
@@ -824,7 +852,7 @@ def sync_and_launch_source() -> dict:
 
     if not running:
         raise RuntimeError(
-            "Source 0.3.73 was synced, but the GUI process was not detected."
+            f"Source {version or 'current'} was synced, but the GUI process was not detected."
         )
 
     return {
