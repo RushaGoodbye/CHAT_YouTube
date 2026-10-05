@@ -796,7 +796,7 @@ def sync_recent_live_for_today() -> dict:
     from rg_youtube_control.service import sync_videos, today_quota_units
     from rg_youtube_control.youtube_api import YouTubeClient
 
-    conn = connect()
+    conn = connect(_db_path())
     try:
         before = today_quota_units(conn)
         client = YouTubeClient(profile="live")
