@@ -742,6 +742,50 @@ def sync_and_launch_source() -> dict:
         "processes": process_text,
     }
 
+
+def launch_diagnostic() -> dict:
+    """Run the updated source briefly and report why it exits."""
+    import subprocess
+    import time
+
+    target = Path.home() / "CHAT_YouTube-main"
+    python = Path(sys.executable)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(target / "src")
+    proc = subprocess.Popen(
+        [str(python), str(target / "run_app.py")],
+        cwd=str(target),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(6)
+    code = proc.poll()
+    if code is None:
+        proc.terminate()
+        try:
+            out, err = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        return {
+            "youtube_api_calls": 0,
+            "stayed_alive": True,
+            "exit_code": None,
+            "stdout": (out or "")[-4000:],
+            "stderr": (err or "")[-8000:],
+        }
+
+    out, err = proc.communicate(timeout=5)
+    return {
+        "youtube_api_calls": 0,
+        "stayed_alive": False,
+        "exit_code": int(code),
+        "stdout": (out or "")[-4000:],
+        "stderr": (err or "")[-8000:],
+    }
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -761,6 +805,8 @@ def main() -> int:
         result = runtime_status()
     elif action == "youtube_local_sync_and_launch_source":
         result = sync_and_launch_source()
+    elif action == "youtube_local_launch_diagnostic":
+        result = launch_diagnostic()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
