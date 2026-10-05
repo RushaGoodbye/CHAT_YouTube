@@ -2910,6 +2910,55 @@ def launch_auto_edit_studio() -> dict:
     }
 
 
+def inspect_auto_edit_live_code() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_live_code must run on AlexPC/Windows")
+
+    roots = [
+        Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+        Path(r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit"),
+    ]
+    targets = [
+        "rg_studio_ui.py",
+        "rg_studio_postrun.py",
+        "rg_multi_dialogue.py",
+        "rg_production_wrapper.py",
+        "rg_auto_edit_config.json",
+    ]
+    patterns = [
+        "POSTRUN", "dialogue", "expected", "xml_count", "batch",
+        "_batch_next", "queue", "RUN_STATE", "screenshot", "RG_BATCH_STATE",
+    ]
+    out = {}
+    for root in roots:
+        if not root.exists():
+            continue
+        for name in targets:
+            path = root / name
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            rows = text.splitlines()
+            hits = []
+            for idx, row in enumerate(rows):
+                low = row.lower()
+                if any(p.lower() in low for p in patterns):
+                    a = max(0, idx - 8)
+                    b = min(len(rows), idx + 18)
+                    hits.append({
+                        "line": idx + 1,
+                        "snippet": "\n".join(f"{i+1}: {rows[i]}" for i in range(a, b)),
+                    })
+                    if len(hits) >= 40:
+                        break
+            out[str(path)] = {
+                "size": path.stat().st_size,
+                "mtime": path.stat().st_mtime,
+                "hits": hits,
+            }
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -2974,6 +3023,7 @@ ACTIONS = {
     "youtube_program_local_status": youtube_program_local_status,
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "launch_auto_edit_studio": launch_auto_edit_studio,
+    "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
