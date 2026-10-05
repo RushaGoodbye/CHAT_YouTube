@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "rebuild_auto_edit_clean_guest_candidates",
+  "action": "apply_auto_edit_strict_guest_face_v2",
   "args": {},
-  "nonce": "rebuild-clean-guests-20261005-11"
+  "nonce": "apply-strict-guest-face-v2-20261005-12"
 }
