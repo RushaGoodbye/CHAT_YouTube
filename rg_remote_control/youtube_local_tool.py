@@ -1423,15 +1423,16 @@ def ensure_gui_startup() -> dict:
         )
     )
     desktop = Path.home() / "Desktop"
-    startup = (
+    programs = (
         appdata
         / "Microsoft"
         / "Windows"
         / "Start Menu"
         / "Programs"
-        / "Startup"
     )
+    startup = programs / "Startup"
     desktop.mkdir(parents=True, exist_ok=True)
+    programs.mkdir(parents=True, exist_ok=True)
     startup.mkdir(parents=True, exist_ok=True)
 
     def _ps_quote(value: str) -> str:
@@ -1469,8 +1470,10 @@ def ensure_gui_startup() -> dict:
             )
 
     desktop_shortcut = desktop / "RG YouTube Control.lnk"
+    programs_shortcut = programs / "RG YouTube Control.lnk"
     startup_shortcut = startup / "RG YouTube Control.lnk"
     create_shortcut(desktop_shortcut)
+    create_shortcut(programs_shortcut)
     create_shortcut(startup_shortcut)
 
     stopped = _stop_all_rg_youtube_gui_processes()
@@ -1529,6 +1532,8 @@ def ensure_gui_startup() -> dict:
         "target": str(target),
         "desktop_shortcut": str(desktop_shortcut),
         "desktop_shortcut_exists": desktop_shortcut.is_file(),
+        "programs_shortcut": str(programs_shortcut),
+        "programs_shortcut_exists": programs_shortcut.is_file(),
         "startup_shortcut": str(startup_shortcut),
         "startup_shortcut_exists": startup_shortcut.is_file(),
         "pid": proc.pid,
