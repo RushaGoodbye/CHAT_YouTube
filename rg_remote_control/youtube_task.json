@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_ensure_gui_startup",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "launch-with-venv-0374-20261005"
+    "nonce": "post-cleanup-runtime-0374-20261005"
   }
 }
