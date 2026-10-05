@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_launch_diagnostic",
+  "action": "youtube_local_brand_shortcuts",
   "args": {
-    "nonce": "diag-launch-source-091"
+    "nonce": "brand-shortcut-20261005"
   }
 }
