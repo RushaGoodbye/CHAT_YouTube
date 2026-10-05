@@ -185,3 +185,37 @@ def test_grounded_tags_fill_local_seo_package() -> None:
     assert "зарплаты в России" in tags
     assert "пенсии в России" in tags
     assert "экономика России" in tags
+
+
+def test_preserve_current_title_when_candidate_only_strips_brand() -> None:
+    from rg_youtube_control.free_tools import (
+        _preserve_current_title_when_candidate_is_not_stronger,
+    )
+
+    current = "Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ"
+    candidate = "Как улучшилась жизнь россиян за прошедший 2023 год"
+
+    assert (
+        _preserve_current_title_when_candidate_is_not_stronger(
+            current,
+            candidate,
+        )
+        == current
+    )
+
+
+def test_accept_stronger_candidate_title_with_new_meaningful_words() -> None:
+    from rg_youtube_control.free_tools import (
+        _preserve_current_title_when_candidate_is_not_stronger,
+    )
+
+    current = "Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ"
+    candidate = "Россияне о ценах и зарплатах: как изменилась жизнь за 2023 год?"
+
+    assert (
+        _preserve_current_title_when_candidate_is_not_stronger(
+            current,
+            candidate,
+        )
+        == candidate
+    )
