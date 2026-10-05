@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from pack200_builder import build_auto_edit_pack200_update
+from pack300_builder import build_auto_edit_pack300_update
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -6757,6 +6758,7 @@ ACTIONS = {
     "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
+    "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
