@@ -70,6 +70,27 @@ def sync_videos(
         rows.append(row)
     return rows
 
+def cleanup_stale_scheduled_rows(
+    conn: sqlite3.Connection,
+    *,
+    grace_hours: int = 12,
+) -> int:
+    """Clear stale schedule timestamps locally without calling YouTube."""
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(hours=max(0, int(grace_hours)))
+    ).isoformat().replace("+00:00", "Z")
+    cursor = conn.execute(
+        """UPDATE videos
+           SET scheduled_publish_at=NULL
+           WHERE scheduled_publish_at IS NOT NULL
+             AND scheduled_publish_at < ?""",
+        (cutoff,),
+    )
+    conn.commit()
+    return int(cursor.rowcount or 0)
+
+
 def sync_upcoming_live_broadcasts(
     client: YouTubeClient,
     conn: sqlite3.Connection,
@@ -83,17 +104,7 @@ def sync_upcoming_live_broadcasts(
     if not callable(counted):
         return []
 
-    stale_cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=12)
-    ).isoformat().replace("+00:00", "Z")
-    conn.execute(
-        """UPDATE videos
-           SET scheduled_publish_at=NULL
-           WHERE scheduled_publish_at IS NOT NULL
-             AND scheduled_publish_at < ?""",
-        (stale_cutoff,),
-    )
-    conn.commit()
+    cleanup_stale_scheduled_rows(conn)
 
     items, requests = counted()
     record_quota_units(

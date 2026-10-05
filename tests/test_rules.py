@@ -2640,3 +2640,48 @@ def test_startup_schedules_upcoming_broadcast_refresh():
     assert "sync_upcoming_streams_startup" in init_source
     assert "PROFILE_TARGETS" in sync_source
     assert "sync_upcoming_live_broadcasts" in sync_source
+
+
+def test_stale_scheduled_cleanup_is_zero_quota_local(tmp_path):
+    from rg_youtube_control.db import connect, upsert_video
+    from rg_youtube_control.service import (
+        cleanup_stale_scheduled_rows,
+        today_quota_units,
+    )
+
+    conn = connect(tmp_path / "youtube.db")
+    upsert_video(
+        conn,
+        {
+            "video_id": "very-old",
+            "profile": "main",
+            "channel_id": "main-channel",
+            "title": "Старий запис",
+            "published_at": None,
+            "scheduled_publish_at": "2025-01-20T18:53:42Z",
+            "privacy_status": "unlisted",
+            "duration": "PT5M",
+            "views": 0,
+            "audit": {},
+        },
+    )
+    before = today_quota_units(conn)
+    cleaned = cleanup_stale_scheduled_rows(conn)
+    after = today_quota_units(conn)
+    row = conn.execute(
+        "SELECT scheduled_publish_at FROM videos WHERE video_id='very-old'"
+    ).fetchone()
+    assert cleaned == 1
+    assert row["scheduled_publish_at"] is None
+    assert after == before == 0
+    conn.close()
+
+
+
+
+def test_startup_cleans_stale_schedules_before_quota_guard():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.sync_upcoming_streams_startup)
+    assert source.index("cleanup_stale_scheduled_rows") < source.index("quota_exhausted")

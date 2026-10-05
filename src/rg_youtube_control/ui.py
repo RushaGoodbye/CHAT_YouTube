@@ -130,6 +130,7 @@ from .optimization import (
 )
 from .service import (
     archive_priority_enabled,
+    cleanup_stale_scheduled_rows,
     current_quota_day,
     manual_reply,
     quota_budget_status,
@@ -3644,6 +3645,11 @@ class MainWindow(QMainWindow):
 
     def sync_upcoming_streams_startup(self) -> None:
         """Refresh upcoming broadcasts on both channels once after startup."""
+        cleaned = cleanup_stale_scheduled_rows(self.conn)
+        if cleaned:
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.update_dashboard()
         if quota_exhausted(self.conn):
             return
 
