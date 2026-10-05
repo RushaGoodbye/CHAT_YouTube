@@ -2319,6 +2319,19 @@ class MainWindow(QMainWindow):
         quick_label = QLabel("Швидкі фільтри:")
         quick_label.setProperty("muted", True)
         quick_filters.addWidget(quick_label)
+
+        self.scheduled_quick_btn = QPushButton("Заплановані")
+        self.scheduled_quick_btn.setProperty("role", "primary")
+        self.scheduled_quick_btn.clicked.connect(
+            lambda: self._set_optimization_queue_filter("scheduled")
+        )
+        quick_filters.addWidget(self.scheduled_quick_btn)
+
+        today_quick_btn = QPushButton("Сьогоднішній стрім")
+        today_quick_btn.setProperty("role", "chip")
+        today_quick_btn.clicked.connect(self.open_today_stream_optimization)
+        quick_filters.addWidget(today_quick_btn)
+
         for label, key in (
             ("Потрібна увага", "needs"),
             ("Чернетки", "draft"),
@@ -2339,6 +2352,9 @@ class MainWindow(QMainWindow):
         layout.addLayout(quick_filters)
 
         actions = QHBoxLayout()
+        scheduled_center_btn = QPushButton("Заплановані стріми")
+        scheduled_center_btn.setProperty("role", "primary")
+        scheduled_center_btn.clicked.connect(self.show_scheduled_center)
         local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
         local_seo_btn.setProperty("role", "success")
         local_seo_btn.clicked.connect(self.local_seo_selected)
@@ -2416,6 +2432,7 @@ class MainWindow(QMainWindow):
         )
 
         for button in (
+            scheduled_center_btn,
             local_seo_btn,
             apply_package_btn,
             package_btn,
@@ -2521,6 +2538,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
 
+
+    def _set_optimization_queue_filter(self, key: str) -> None:
+        if not hasattr(self, "optimization_filter"):
+            return
+        index = self.optimization_filter.findData(str(key))
+        if index >= 0:
+            self.optimization_filter.setCurrentIndex(index)
+        self.reload_optimization_queue()
 
     def _set_optimization_status_filter(self, key: str) -> None:
         if not hasattr(self, "optimization_status_filter"):
@@ -6478,6 +6503,23 @@ class MainWindow(QMainWindow):
 
         profile = self.current_profile
         self._refresh_archive_campaign_summary()
+        scheduled_total = int(
+            self.conn.execute(
+                """SELECT COUNT(*) FROM videos
+                   WHERE profile=? AND scheduled_publish_at IS NOT NULL""",
+                (profile,),
+            ).fetchone()[0]
+        )
+        scheduled_index = self.optimization_filter.findData("scheduled")
+        if scheduled_index >= 0:
+            self.optimization_filter.setItemText(
+                scheduled_index,
+                f"Лише заплановані ({scheduled_total})",
+            )
+        if hasattr(self, "scheduled_quick_btn"):
+            self.scheduled_quick_btn.setText(
+                f"Заплановані · {scheduled_total}"
+            )
         latin_index = self.optimization_filter.findData("latin_titles")
         if latin_index >= 0:
             self.optimization_filter.setItemText(
@@ -6709,6 +6751,13 @@ class MainWindow(QMainWindow):
             prepared.sort(
                 key=lambda item: prepared_order.get(
                     str(item[3]["video_id"]), 10**9
+                )
+            )
+        elif queue_filter == "scheduled":
+            prepared.sort(
+                key=lambda item: (
+                    item[1] or "9999",
+                    str(item[3]["title"] or "").casefold(),
                 )
             )
         elif queue_filter in {"archive_top", "deep_review"}:
