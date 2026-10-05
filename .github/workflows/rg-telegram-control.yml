@@ -32,9 +32,11 @@ jobs:
         shell: powershell
         run: |
           Copy-Item "rg_remote_control/telegram_task.json" "rg_remote_control/task.json" -Force
-          $lines = & python rg_remote_control/task_runner.py rg_remote_control/task.json 2>&1
+          cmd /c "python rg_remote_control\task_runner.py rg_remote_control\task.json > rg_remote_control\telegram_task_output.txt 2>&1"
           $code = $LASTEXITCODE
+          $lines = Get-Content "rg_remote_control/telegram_task_output.txt" -ErrorAction SilentlyContinue
           "## RG Telegram MCP" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "exit_code=$code" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          ($lines | Select-Object -Last 120) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($lines | Select-Object -Last 160) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          Write-Host ($lines | Select-Object -Last 160 | Out-String)
           exit $code
