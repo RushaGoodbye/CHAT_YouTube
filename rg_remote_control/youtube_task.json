@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_enable_archive_priority",
+  "action": "youtube_program_local_status",
   "args": {
-    "nonce": "enable-safe-archive-priority-20261005"
+    "mode": "campaign_progress_check",
+    "nonce": "campaign-progress-1"
   }
 }
