@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_program_local_status",
+  "action": "youtube_local_apply_ready_scheduled_batch",
   "args": {
-    "mode": "campaign_progress_check",
-    "nonce": "campaign-progress-2"
+    "nonce": "apply-ready-scheduled-20261005"
   }
 }
