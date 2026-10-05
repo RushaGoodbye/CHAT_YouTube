@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_thumbnail_final_render",
+  "action": "inspect_auto_edit_final_compilation_code",
   "args": {},
-  "nonce": "inspect-final-assembly-used-dialogues-20261005-1"
+  "nonce": "inspect-final-compilation-code-20261005-2"
 }
