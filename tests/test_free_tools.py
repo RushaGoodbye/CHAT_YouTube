@@ -68,3 +68,35 @@ def test_transcript_sample_text_covers_full_video():
     assert "[59:00]" in sampled
     assert "[...]" in sampled
     assert len(sampled) <= 300
+
+
+def test_recover_missing_description_uses_plain_text_fallback(monkeypatch) -> None:
+    import rg_youtube_control.free_tools as ft
+
+    long_text = (
+        "У відео співрозмовник відповідає на запитання про зміни у своєму житті "
+        "та оцінює події через власний досвід. Він пояснює, які проблеми помічає "
+        "у повсякденності, що вважає важливим і з чим не погоджується. "
+        "Розмова переходить до конкретних прикладів, реакцій на запитання ведучого "
+        "та аргументів самого співрозмовника. Окремо звучать оцінки ситуації в Росії "
+        "і ставлення до подій, які обговорюються під час діалогу."
+    )
+    replies = iter([
+        '{"description":"Коротко."}',
+        '{"description":"Ще надто коротко."}',
+        long_text,
+    ])
+
+    def fake_chat(*_args, **_kwargs):
+        return next(replies)
+
+    monkeypatch.setattr(ft, "ollama_chat", fake_chat)
+    result = ft._recover_missing_description(
+        current_title="Тестова назва",
+        transcript="[00:00] тест " * 200,
+        public_context={},
+        model="qwen3:8b",
+    )
+
+    assert len(result) >= 320
+    assert result.startswith("У відео")
