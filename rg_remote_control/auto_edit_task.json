@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_thumbnail_paths",
+  "action": "inspect_auto_edit_backend_path_identity",
   "args": {},
-  "nonce": "inspect-thumb-paths-20261005-2"
+  "nonce": "inspect-backend-path-identity-20261005-3"
 }
