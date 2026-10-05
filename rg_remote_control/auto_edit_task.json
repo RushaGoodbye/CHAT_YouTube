@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_ui_class",
+  "action": "inspect_auto_edit_update_worker",
   "args": {},
-  "nonce": "thumb-ui-inspect-20261005-1"
+  "nonce": "inspect-updater-pack311-20261005-1"
 }
