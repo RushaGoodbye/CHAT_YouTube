@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_thumbnail_mix_source",
+  "action": "inspect_auto_edit_topaz_automation_and_prep",
   "args": {},
-  "nonce": "inspect-thumb-mix-source-20261005-3"
+  "nonce": "inspect-topaz-automation-prep-20261005-4"
 }
