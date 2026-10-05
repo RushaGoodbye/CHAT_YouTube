@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_topaz_automation_and_prep",
+  "action": "apply_auto_edit_topaz_all_selected_hotfix",
   "args": {},
-  "nonce": "inspect-topaz-automation-prep-20261005-4"
+  "nonce": "apply-topaz-all-selected-20261005-5"
 }
