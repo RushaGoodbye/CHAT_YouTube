@@ -3,7 +3,7 @@
   "contour": "youtube",
   "action": "youtube_program_local_status",
   "args": {
-    "mode": "verify_upcoming_sync_0375",
-    "nonce": "verify-stream901-in-scheduled-center"
+    "mode": "pre_scheduled_batch_20261005",
+    "nonce": "scheduled-before-archive"
   }
 }
