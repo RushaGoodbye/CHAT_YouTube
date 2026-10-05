@@ -165,3 +165,23 @@ def test_grounded_description_uses_detected_topics_without_transcript_dump() -> 
     assert "Опис побудовано" not in description
     assert "Дивіться повну розмову" in description
     assert _description_quality_error(description, transcript) == ""
+
+
+def test_grounded_tags_fill_local_seo_package() -> None:
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+
+    tags = _grounded_tags_from_transcript(
+        "Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ",
+        (
+            "Цены выросли. Зарплата изменилась. Мне добавили пенсию. "
+            "Экономика улучшается. 90 процентов будут голосовать за Путина. "
+        ) * 20,
+    )
+
+    assert 8 <= len(tags) <= 15
+    assert "РАША ГУДБАЙ" in tags
+    assert "чат рулетка" in tags
+    assert "цены в России" in tags
+    assert "зарплаты в России" in tags
+    assert "пенсии в России" in tags
+    assert "экономика России" in tags
