@@ -963,6 +963,163 @@ def find_today_upcoming_live_broadcasts() -> dict:
     finally:
         conn.close()
 
+
+def optimize_scheduled_stream(task: dict) -> dict:
+    """Apply a metadata-only package to one scheduled stream safely."""
+    from rg_youtube_control.db import (
+        connect,
+        log_action,
+        record_optimization_event,
+        save_metadata_snapshot,
+        save_optimization_draft,
+    )
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        VIDEO_UPDATE_COST,
+        quota_budget_status,
+        record_quota_units,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    args = task.get("args") or {}
+    video_id = str(args.get("video_id") or "").strip()
+    profile = str(args.get("profile") or "live").strip()
+    description = str(args.get("description") or "").strip()
+    tags = [str(x).strip() for x in (args.get("tags") or []) if str(x).strip()]
+    if not video_id:
+        raise RuntimeError("video_id is required")
+    if not description or len(description) > 5000:
+        raise RuntimeError("description must be 1..5000 chars")
+    if not tags or len(", ".join(tags)) > 500:
+        raise RuntimeError("tags are empty or exceed 500 chars")
+
+    conn = connect(_db_path())
+    try:
+        budget = quota_budget_status(conn)
+        # update_video = 1 read + videos.update; final verify = 1 read.
+        required = VIDEO_UPDATE_COST + READ_REQUEST_COST
+        if int(budget["spendable"]) < required:
+            raise RuntimeError(
+                f"Not enough quota above reserve: need {required}, "
+                f"spendable {budget['spendable']}"
+            )
+
+        client = YouTubeClient(profile=profile)
+        client.credentials()
+        before_units = today_quota_units(conn)
+
+        items, requests = client.video_details_with_request_count([video_id])
+        record_quota_units(
+            conn,
+            int(requests) * READ_REQUEST_COST,
+            purpose="service",
+        )
+        if not items:
+            raise RuntimeError(f"Video not found: {video_id}")
+
+        current = items[0]
+        snippet = current.get("snippet", {}) or {}
+        current_title = str(snippet.get("title") or "")
+        current_description = str(snippet.get("description") or "")
+        current_tags = list(snippet.get("tags") or [])
+
+        history_id = save_metadata_snapshot(
+            conn,
+            video_id,
+            current_title,
+            current_description,
+            current_tags,
+            "before_today_scheduled_stream_optimization",
+        )
+        save_optimization_draft(
+            conn,
+            video_id,
+            current_title,
+            description,
+            "",
+            tags,
+            "ready",
+            [current_title],
+        )
+
+        client.update_video(
+            video_id,
+            title=current_title,
+            description=description,
+            tags=tags,
+        )
+        record_quota_units(
+            conn,
+            VIDEO_UPDATE_COST,
+            purpose="video",
+        )
+
+        verified, verify_requests = client.video_details_with_request_count(
+            [video_id]
+        )
+        record_quota_units(
+            conn,
+            int(verify_requests) * READ_REQUEST_COST,
+            purpose="service",
+        )
+        if not verified:
+            raise RuntimeError("Final verification returned no video")
+        verified_snippet = verified[0].get("snippet", {}) or {}
+        if str(verified_snippet.get("title") or "") != current_title:
+            raise RuntimeError("Title changed unexpectedly")
+        if str(verified_snippet.get("description") or "") != description:
+            raise RuntimeError("Description verification failed")
+        if list(verified_snippet.get("tags") or []) != tags:
+            raise RuntimeError("Tags verification failed")
+
+        save_optimization_draft(
+            conn,
+            video_id,
+            current_title,
+            description,
+            "",
+            tags,
+            "applied",
+            [current_title],
+        )
+        record_optimization_event(
+            conn,
+            history_id=history_id,
+            video_id=video_id,
+            profile=profile,
+            reason="today_scheduled_stream_priority",
+            changed_fields="опис + теги",
+        )
+        log_action(
+            conn,
+            profile=profile,
+            category="заплановані",
+            action="Сьогоднішній стрім оптимізовано",
+            details=(
+                f"{video_id}; title unchanged; "
+                f"description {len(current_description)}->{len(description)}; "
+                f"tags {len(current_tags)}->{len(tags)}"
+            ),
+        )
+        after_units = today_quota_units(conn)
+        return {
+            "video_id": video_id,
+            "profile": profile,
+            "title": current_title,
+            "title_changed": False,
+            "description_before_chars": len(current_description),
+            "description_after_chars": len(description),
+            "tags_before": len(current_tags),
+            "tags_after": len(tags),
+            "draft_status": "applied",
+            "verified": True,
+            "youtube_api_units_tracked": max(0, after_units - before_units),
+            "reserve": budget["reserve"],
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -988,6 +1145,8 @@ def main() -> int:
         result = sync_recent_live_for_today()
     elif action == "youtube_local_find_today_upcoming_live_broadcasts":
         result = find_today_upcoming_live_broadcasts()
+    elif action == "youtube_local_optimize_scheduled_stream":
+        result = optimize_scheduled_stream(task)
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
