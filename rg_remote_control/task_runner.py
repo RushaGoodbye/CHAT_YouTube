@@ -7904,8 +7904,10 @@ print(json.dumps({"passed":True,"shape":list(crop.shape[:2])},ensure_ascii=False
         if cp.returncode!=0:
             raise RuntimeError("Clean guest crop unit test failed: "+(cp.stdout or "")[-4000:]+(cp.stderr or "")[-4000:])
 
-        # Regenerate the latest active thumbnail job so the user immediately sees
-        # clean guest portraits instead of cached decorated candidates.
+        # Regenerate the latest active thumbnail job from scratch using the same
+        # selected dialogue clips. This deliberately does NOT use refresh_role(),
+        # because refresh_role excludes previous timestamps/hashes and can fail to
+        # collect a fresh set even when many valid faces exist.
         manifests=sorted(
             app.glob("*/THUMBNAIL/RG_THUMBNAIL_PREP.json"),
             key=lambda p:p.stat().st_mtime if p.is_file() else 0,
@@ -7915,29 +7917,31 @@ print(json.dumps({"passed":True,"shape":list(crop.shape[:2])},ensure_ascii=False
         regenerated_guests=[]
         if manifests:
             mf=manifests[0]
-            try:
-                md=json.loads(mf.read_text(encoding="utf-8-sig"))
-                job=str(md.get("job") or mf.parents[1].name)
-                for d in md.get("dialogues",[]):
-                    gid=str(d.get("guest_id") or "").strip()
-                    if not gid:continue
-                    cp=subprocess.run(
-                        [py,"-X","utf8",str(mix),"--app",str(app),"--job",job,"--refresh-role","GUEST","--guest-id",gid],
-                        cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=240
-                    )
-                    if cp.returncode!=0:
-                        raise RuntimeError(f"Guest regeneration failed {gid}: "+(cp.stdout or "")[-2500:]+(cp.stderr or "")[-2500:])
-                    regenerated_guests.append(gid)
-                thumb=mf.parent
-                for stale in ["RG_THUMBNAIL_SELECTION.json","RG_THUMBNAIL_BUILD.json","RG_TOPAZ_PREF_BACKUP.json"]:
-                    p=thumb/stale
-                    if p.exists():p.unlink()
-                for folder in [thumb/"TOPAZ_INPUT",thumb/"TOPAZ_READY"]:
-                    if folder.exists():shutil.rmtree(folder)
-                    folder.mkdir(parents=True,exist_ok=True)
-                regenerated_job=job
-            except Exception:
-                raise
+            md=json.loads(mf.read_text(encoding="utf-8-sig"))
+            job=str(md.get("job") or mf.parents[1].name)
+            clips=[Path(str(x)) for x in (md.get("selected_clips") or []) if Path(str(x)).is_file()]
+            if not clips:
+                raise RuntimeError("Current thumbnail job has no valid selected clips")
+            clips_file=backup/"CURRENT_SELECTED_CLIPS.json"
+            clips_file.write_text(json.dumps({"clips":[str(x) for x in clips]},ensure_ascii=False,indent=2),encoding="utf-8")
+            cp=subprocess.run(
+                [py,"-X","utf8",str(mix),"--app",str(app),"--job",job,"--clips-file",str(clips_file)],
+                cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=900
+            )
+            if cp.returncode!=0:
+                raise RuntimeError("Full guest candidate regeneration failed: "+(cp.stdout or "")[-5000:]+(cp.stderr or "")[-5000:])
+            new_mf=app/job/"THUMBNAIL"/"RG_THUMBNAIL_PREP.json"
+            fresh=json.loads(new_mf.read_text(encoding="utf-8-sig"))
+            regenerated_guests=[str(d.get("guest_id")) for d in fresh.get("dialogues",[]) if d.get("guest_id")]
+            thumb=new_mf.parent
+            # A new candidate set invalidates all previous selections and Topaz files.
+            for stale in ["RG_THUMBNAIL_SELECTION.json","RG_THUMBNAIL_BUILD.json","RG_TOPAZ_PREF_BACKUP.json"]:
+                p=thumb/stale
+                if p.exists():p.unlink()
+            for folder in [thumb/"TOPAZ_INPUT",thumb/"TOPAZ_READY"]:
+                if folder.exists():shutil.rmtree(folder)
+                folder.mkdir(parents=True,exist_ok=True)
+            regenerated_job=job
 
         # Restart Studio, preserving F: runtime only.
         ps=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
