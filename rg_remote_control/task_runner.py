@@ -5571,23 +5571,8 @@ def patch_config():
     atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
 
 def write_style_module():
-    code=r'''from __future__ import annotations
-PACK150_CSS = """
-QMainWindow{background:#111214;}
-QFrame#MetricCard,QGroupBox{background:#181A1F;border:0;border-radius:10px;}
-QLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}
-QPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}
-QPushButton:disabled{background:#23262B;color:#6B7179;border:0;}
-QPushButton[role="primary"]{background:#ff0033;color:white;border:0;}
-QLabel[muted="true"]{color:#8D949E;}
-QProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}
-QProgressBar::chunk{border-radius:6px;background:#ff0033;}
-QTabWidget::pane{border:0;background:#111214;}
-QTabBar::tab{min-width:150px;max-width:190px;min-height:38px;padding:8px 14px;text-align:left;border:0;background:#15171B;}
-QTabBar::tab:selected{background:#202329;border-left:3px solid #ff0033;}
-QHeaderView::section{background:#1B1E24;border:0;padding:8px;}
-"""
-'''
+    css="QMainWindow{background:#111214;}\nQFrame#MetricCard,QGroupBox{background:#181A1F;border:0;border-radius:10px;}\nQLineEdit,QPlainTextEdit,QTableWidget{background:#15171B;border:1px solid #252A31;border-radius:8px;}\nQPushButton{min-height:34px;border-radius:8px;padding:6px 12px;}\nQPushButton:disabled{background:#23262B;color:#6B7179;border:0;}\nQPushButton[role=\\"primary\\"]{background:#ff0033;color:white;border:0;}\nQLabel[muted=\\"true\\"]{color:#8D949E;}\nQProgressBar{border:0;border-radius:6px;background:#202329;min-height:12px;}\nQProgressBar::chunk{border-radius:6px;background:#ff0033;}\nQTabWidget::pane{border:0;background:#111214;}\nQTabBar::tab{min-width:150px;max-width:190px;min-height:38px;padding:8px 14px;text-align:left;border:0;background:#15171B;}\nQTabBar::tab:selected{background:#202329;border-left:3px solid #ff0033;}\nQHeaderView::section{background:#1B1E24;border:0;padding:8px;}\n"
+    code="from __future__ import annotations\nPACK150_CSS = "+repr(css)+"\n"
     atomic(APP/"rg_pack150_style.py",code)
 
 def patch_ui():
