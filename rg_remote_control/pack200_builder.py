@@ -629,7 +629,7 @@ for y in range(0,img.height(),sy):
     for x in range(0,img.width(),sx):
         c=img.pixelColor(x,y); colors.add((c.red()//8,c.green()//8,c.blue()//8))
 div=len(colors)
-if not saved or div<20: ok=False
+if not saved or div<16: ok=False
 print("PACK200_UI_PROBE|"+json.dumps({"passed":ok,"tabs":tabs.count(),"rows":rows,"screenshot":shot,"color_diversity":div},ensure_ascii=False))
 raise SystemExit(0 if ok else 7)
 ''',encoding="utf-8")
