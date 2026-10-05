@@ -1583,6 +1583,238 @@ def finalize_stream_901_local_state() -> dict:
         conn.close()
 
 
+def _write_rg_youtube_icon(path: Path) -> None:
+    """Create a clean RG/YouTube-style 256px icon using only stdlib."""
+    import binascii
+    import struct
+    import zlib
+
+    size = 256
+    radius = 54
+    pixels = bytearray()
+
+    def inside_round_rect(x: int, y: int) -> bool:
+        if radius <= x < size - radius:
+            return True
+        if radius <= y < size - radius:
+            return True
+        cx = radius if x < radius else size - radius - 1
+        cy = radius if y < radius else size - radius - 1
+        return (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2
+
+    # 5x7 bitmap letters. Intentionally geometric to stay legible at 16-32px.
+    glyphs = {
+        "R": (
+            "11110",
+            "10001",
+            "10001",
+            "11110",
+            "10100",
+            "10010",
+            "10001",
+        ),
+        "G": (
+            "01111",
+            "10000",
+            "10000",
+            "10111",
+            "10001",
+            "10001",
+            "01110",
+        ),
+    }
+    scale = 14
+    glyph_w = 5 * scale
+    glyph_h = 7 * scale
+    gap = 14
+    total_w = glyph_w * 2 + gap
+    start_x = (size - total_w) // 2
+    start_y = (size - glyph_h) // 2 + 2
+
+    def glyph_pixel(x: int, y: int) -> bool:
+        for index, letter in enumerate(("R", "G")):
+            gx = start_x + index * (glyph_w + gap)
+            gy = start_y
+            if gx <= x < gx + glyph_w and gy <= y < gy + glyph_h:
+                col = (x - gx) // scale
+                row = (y - gy) // scale
+                return glyphs[letter][row][col] == "1"
+        return False
+
+    for y in range(size):
+        pixels.append(0)  # PNG filter byte
+        for x in range(size):
+            if not inside_round_rect(x, y):
+                pixels.extend((0, 0, 0, 0))
+                continue
+
+            # Deep YouTube red with a subtle vertical gradient.
+            red = max(205, 255 - int(34 * y / (size - 1)))
+            green = 0
+            blue = 46 if y < size // 2 else 34
+
+            # Soft inner border.
+            edge = min(x, y, size - 1 - x, size - 1 - y)
+            if edge < 5:
+                red = max(170, red - 28)
+                blue = max(18, blue - 10)
+
+            if glyph_pixel(x, y):
+                pixels.extend((255, 255, 255, 255))
+            else:
+                pixels.extend((red, green, blue, 255))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(
+            b"IHDR",
+            struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0),
+        )
+        + chunk(b"IDAT", zlib.compress(bytes(pixels), 9))
+        + chunk(b"IEND", b"")
+    )
+
+    # ICO containing the PNG image.
+    ico = (
+        struct.pack("<HHH", 0, 1, 1)
+        + struct.pack(
+            "<BBBBHHII",
+            0,  # 256 width
+            0,  # 256 height
+            0,
+            0,
+            1,
+            32,
+            len(png),
+            22,
+        )
+        + png
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(ico)
+
+
+def brand_shortcuts() -> dict:
+    """Create polished desktop/Start Menu shortcuts for the source runtime."""
+    import subprocess
+
+    target = Path.home() / "CHAT_YouTube-main"
+    run_app = target / "run_app.py"
+    executable = target / ".venv" / "Scripts" / "pythonw.exe"
+    if not run_app.is_file():
+        raise RuntimeError(f"run_app.py not found: {run_app}")
+    if not executable.is_file():
+        raise RuntimeError(f"pythonw.exe not found: {executable}")
+
+    appdata = Path(
+        os.environ.get(
+            "APPDATA",
+            str(Path.home() / "AppData" / "Roaming"),
+        )
+    )
+    desktop = Path.home() / "Desktop"
+    programs = (
+        appdata
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+    )
+    startup = programs / "Startup"
+    icon_path = target / "assets" / "RG YouTube Control.ico"
+    _write_rg_youtube_icon(icon_path)
+
+    shortcuts = (
+        desktop / "RG YouTube Control.lnk",
+        programs / "RG YouTube Control.lnk",
+        startup / "RG YouTube Control.lnk",
+    )
+
+    def ps_quote(value: str) -> str:
+        return value.replace("'", "''")
+
+    for path in shortcuts:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        command = (
+            "$ws=New-Object -ComObject WScript.Shell; "
+            "$s=$ws.CreateShortcut('"
+            + ps_quote(str(path))
+            + "'); "
+            "$s.TargetPath='"
+            + ps_quote(str(executable))
+            + "'; "
+            "$s.Arguments='\""
+            + ps_quote(str(run_app))
+            + "\"'; "
+            "$s.WorkingDirectory='"
+            + ps_quote(str(target))
+            + "'; "
+            "$s.IconLocation='"
+            + ps_quote(str(icon_path))
+            + ",0'; "
+            "$s.Description='RG YouTube Control - YouTube management and SEO'; "
+            "$s.Save()"
+        )
+        proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                command,
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "Shortcut create failed: "
+                + ((proc.stderr or proc.stdout) or "")[-3000:]
+            )
+
+    # Refresh Explorer icon cache/view.
+    subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$shell=New-Object -ComObject Shell.Application; "
+                "$shell.Windows() | ForEach-Object { try { $_.Refresh() } catch {} }"
+            ),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    return {
+        "youtube_api_calls": 0,
+        "target": str(target),
+        "executable": str(executable),
+        "arguments": f'"{run_app}"',
+        "working_directory": str(target),
+        "icon": str(icon_path),
+        "icon_exists": icon_path.is_file(),
+        "desktop_shortcut": str(shortcuts[0]),
+        "desktop_shortcut_exists": shortcuts[0].is_file(),
+        "start_menu_shortcut": str(shortcuts[1]),
+        "start_menu_shortcut_exists": shortcuts[1].is_file(),
+        "startup_shortcut": str(shortcuts[2]),
+        "startup_shortcut_exists": shortcuts[2].is_file(),
+    }
+
+
 def ensure_gui_startup() -> dict:
     """Create desktop/startup launchers and start the GUI in user context."""
     import subprocess
@@ -2304,6 +2536,8 @@ def main() -> int:
         result = finalize_stream_901_local_state()
     elif action == "youtube_local_ensure_gui_startup":
         result = ensure_gui_startup()
+    elif action == "youtube_local_brand_shortcuts":
+        result = brand_shortcuts()
     elif action == "youtube_local_prepare_source_runtime":
         result = prepare_source_runtime()
     elif action == "youtube_local_cleanup_gui_processes":
