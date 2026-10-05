@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_progress_pipeline",
+  "action": "inspect_auto_edit_progress_functions",
   "args": {},
-  "nonce": "20261005-progress-pipeline-4"
+  "nonce": "20261005-progress-functions-5"
 }
