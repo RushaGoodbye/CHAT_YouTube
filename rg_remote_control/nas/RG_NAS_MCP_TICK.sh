@@ -90,6 +90,38 @@ if [ -f "$SMOKE_REQUEST" ]; then
 fi
 
 
+
+TELEGRAM_CALL_ROOT="$MCP_ROOT/TELEGRAM_CALLS"
+TELEGRAM_CALL_REQUESTS="$TELEGRAM_CALL_ROOT/requests"
+TELEGRAM_CALL_RESULTS="$TELEGRAM_CALL_ROOT/results"
+TELEGRAM_CALL_ERRORS="$TELEGRAM_CALL_ROOT/errors"
+TELEGRAM_CALL_HELPER="$ROOT/RG_NAS_MCP_TELEGRAM_CALL.py"
+
+mkdir -p "$TELEGRAM_CALL_REQUESTS" "$TELEGRAM_CALL_RESULTS" "$TELEGRAM_CALL_ERRORS"
+
+if [ -f "$TELEGRAM_CALL_HELPER" ] && docker inspect rg-nas-mcp-hub >/dev/null 2>&1; then
+  for REQ in "$TELEGRAM_CALL_REQUESTS"/*.json; do
+    [ -e "$REQ" ] || break
+    BASE="$(basename "$REQ" .json)"
+    RESULT="$TELEGRAM_CALL_RESULTS/$BASE.json"
+    ERROR="$TELEGRAM_CALL_ERRORS/$BASE.log"
+    TMP_RESULT="$TELEGRAM_CALL_RESULTS/$BASE.tmp"
+
+    if docker cp "$TELEGRAM_CALL_HELPER" rg-nas-mcp-hub:/tmp/rg_telegram_call.py >/dev/null 2>&1 \
+      && docker cp "$REQ" rg-nas-mcp-hub:/tmp/rg_telegram_request.json >/dev/null 2>&1 \
+      && docker exec rg-nas-mcp-hub python /tmp/rg_telegram_call.py /tmp/rg_telegram_request.json > "$TMP_RESULT" 2> "$ERROR"
+    then
+      mv -f "$TMP_RESULT" "$RESULT"
+      rm -f "$ERROR" 2>/dev/null || true
+    else
+      rm -f "$TMP_RESULT" 2>/dev/null || true
+    fi
+
+    rm -f "$REQ" 2>/dev/null || true
+    docker exec rg-nas-mcp-hub rm -f /tmp/rg_telegram_call.py /tmp/rg_telegram_request.json >/dev/null 2>&1 || true
+  done
+fi
+
 YOUTUBE_CALL_ROOT="$MCP_ROOT/YOUTUBE_CALLS"
 YOUTUBE_CALL_REQUESTS="$YOUTUBE_CALL_ROOT/requests"
 YOUTUBE_CALL_RESULTS="$YOUTUBE_CALL_ROOT/results"
