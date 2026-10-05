@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_prepare_source_runtime",
   "args": {
-    "nonce": "diagnose-update-loop-20261005"
+    "nonce": "fix-update-loop-prepare-runtime-20261005"
   }
 }
