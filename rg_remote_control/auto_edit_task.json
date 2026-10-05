@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_runtime_state",
+  "action": "locate_auto_edit_missing_screens",
   "args": {},
-  "nonce": "20261005-inspect-runtime-state-1"
+  "nonce": "20261005-locate-missing-screens-1"
 }
