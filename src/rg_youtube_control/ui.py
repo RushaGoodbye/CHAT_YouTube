@@ -8940,26 +8940,69 @@ class MainWindow(QMainWindow):
     def _run_local_tool(self, label: str, func, on_success) -> None:
         worker = getattr(self, "_local_tool_worker", None)
         if worker is not None and worker.isRunning():
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "Локальний інструмент уже виконує інше завдання.",
-            )
+            self._toast("Локальний інструмент уже виконує інше завдання")
             return
 
+        self._last_local_task = (label, func, on_success)
+        self._set_process(label, "виконується", percent=None, eta="локально · 0 квоти")
         self.statusBar().showMessage(f"{label}...")
-        worker = LocalToolWorker(func, self)
+
+        def resilient_task():
+            last_exc = None
+            for attempt in range(1, 4):
+                try:
+                    return func()
+                except Exception as exc:
+                    last_exc = exc
+                    text = str(exc).casefold()
+                    transient = any(
+                        token in text
+                        for token in (
+                            "timeout",
+                            "timed out",
+                            "connection",
+                            "tempor",
+                            "reset by peer",
+                            "503",
+                            "502",
+                            "429",
+                        )
+                    )
+                    if not transient or attempt >= 3:
+                        raise
+                    time.sleep(2 * attempt)
+            if last_exc is not None:
+                raise last_exc
+
+        worker = LocalToolWorker(resilient_task, self)
         self._local_tool_worker = worker
 
         def success(result) -> None:
             try:
                 on_success(result)
+                self._set_process_idle(f"{label} · готово")
+                self._toast(f"✓ {label} · готово")
+                self.update_task_center()
             except Exception as exc:
+                self._set_process(
+                    label,
+                    "помилка",
+                    percent=100,
+                    error=True,
+                )
                 self._error("Помилка локального інструмента", exc)
 
         def failed(message: str) -> None:
-            QMessageBox.warning(self, APP_NAME, message)
+            self._set_process(label, "помилка", percent=100, error=True)
             self.statusBar().showMessage("Локальний інструмент: помилка")
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="локально",
+                action="Помилка локального інструмента",
+                details=f"{label}: {message[:400]}",
+            )
+            self.update_task_center()
 
         def cleanup() -> None:
             self._local_tool_worker = None
@@ -8969,9 +9012,11 @@ class MainWindow(QMainWindow):
         worker.finished.connect(cleanup)
         worker.start()
 
+
     def refresh_free_tools_status(self) -> None:
         try:
             probes = probe_free_tools()
+            self._free_tools_last_probe = probes
             yt = probes.get("yt_dlp", {})
             tr = probes.get("transcript", {})
             ol = probes.get("ollama", {})
@@ -8990,10 +9035,25 @@ class MainWindow(QMainWindow):
             )
             if hasattr(self, "free_tools_status_label"):
                 self.free_tools_status_label.setText(text)
-            self.statusBar().showMessage(text)
+            self._set_health_state(
+                "ollama",
+                bool(ol.get("available") and model.get("available")),
+                "Ollama",
+            )
+            self._set_health_state(
+                "transcript",
+                bool(tr.get("available")),
+                "Transcript",
+            )
+            self._toast(text, 3500)
+            self.update_task_center()
         except Exception as exc:
+            self._free_tools_last_probe = {}
             if hasattr(self, "free_tools_status_label"):
                 self.free_tools_status_label.setText(f"0-quota: {exc}")
+            self._set_health_state("ollama", False, "Ollama")
+            self._set_health_state("transcript", False, "Transcript")
+
 
     def local_seo_selected(self) -> None:
         video_ids = self._selected_optimization_video_ids()
