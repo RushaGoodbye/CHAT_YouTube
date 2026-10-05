@@ -8598,6 +8598,186 @@ def inspect_auto_edit_backend_path_identity() -> dict:
       "$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*' }; $p | Select ProcessId,CommandLine | ConvertTo-Json -Compress"],timeout=30)
     return {"roots":out,"studio_processes":(ps.get("stdout") or "").strip()}
 
+def apply_auto_edit_thumbnail_v6_visibility_hotfix() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py";mix=app/"rg_thumbnail_mix_prep.py";ver=app/"rg_studio_version.py"
+    if not ui.is_file() or not mix.is_file():
+        raise RuntimeError("Required thumbnail files missing")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_THUMB_V6_VISIBILITY_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in (ui,mix,ver):
+        if p.is_file():shutil.copy2(p,backup/p.name)
+    try:
+        src=ui.read_text(encoding="utf-8")
+
+        # New algorithms are compatible as long as they preserve HOST_WINDOW_LEFT_GUEST semantics.
+        old='''        if data.get("quality_policy")!="THUMB_V4_HOST_WINDOW_LEFT_GUEST_FACE_RIGHT":
+            self._thumb_candidates_stale=True
+            self._thumbnail_clear_candidate_grid()
+            if hasattr(self,"thumb_candidate_title"):self.thumb_candidate_title.setText("Кандидати зібрані старим алгоритмом. Натисни «ПІДГОТУВАТИ КАДРИ»: ВЕДУЧИЙ буде повним лівим вікном без збільшення, СПІВРОЗМОВНИКИ - портрети з RIGHT.")
+            return
+        self._thumb_candidates_stale=False
+'''
+        if old not in src:
+            raise RuntimeError("quality policy compatibility anchor missing")
+        new='''        policy=str(data.get("quality_policy") or "")
+        compatible=(
+            policy=="THUMB_V4_HOST_WINDOW_LEFT_GUEST_FACE_RIGHT"
+            or policy.startswith("THUMB_V5_HOST_WINDOW_LEFT_GUEST_")
+            or policy.startswith("THUMB_V6_HOST_WINDOW_LEFT_GUEST_")
+            or policy.startswith("THUMB_V7_HOST_WINDOW_LEFT_GUEST_")
+        )
+        if not compatible:
+            self._thumb_candidates_stale=True
+            self._thumbnail_clear_candidate_grid()
+            if hasattr(self,"thumb_candidate_title"):
+                self.thumb_candidate_title.setText(f"Непідтримуваний алгоритм кандидатів: {policy}. Натисни «ПІДГОТУВАТИ КАДРИ».")
+            return
+        self._thumb_candidates_stale=False
+'''
+        src=src.replace(old,new,1)
+
+        # Every child service must inherit the canonical backend on F:.
+        old='''        env=QProcessEnvironment.systemEnvironment();env.insert("PYTHONUTF8","1");env.insert("PYTHONIOENCODING","utf-8")
+        p.setProcessEnvironment(env)
+'''
+        if old not in src:
+            raise RuntimeError("service environment anchor missing")
+        new='''        env=QProcessEnvironment.systemEnvironment();env.insert("PYTHONUTF8","1");env.insert("PYTHONIOENCODING","utf-8")
+        env.insert("RG_AUTO_EDIT_BACKEND",str(BACKEND_DIR))
+        p.setProcessEnvironment(env)
+'''
+        src=src.replace(old,new,1)
+
+        # Make prepare success self-validating: never announce success with missing files.
+        old='''        if code==0 and result and result.get("passed"):
+            if hasattr(self,"_thumb_prep_bar"):self._thumb_prep_bar.setValue(100);self._thumb_prep_bar.setFormat("100%")
+            self._thumbnail_close_progress_dialog()
+            self._thumbnail_load_candidates()
+'''
+        if old not in src:
+            raise RuntimeError("prepare success anchor missing")
+        new='''        if code==0 and result and result.get("passed"):
+            # Validate actual files before telling the user that preparation succeeded.
+            try:
+                mf=self._thumbnail_root()/"RG_THUMBNAIL_PREP.json"
+                md=json.loads(mf.read_text(encoding="utf-8-sig"))
+                expected=[str(x) for x in (md.get("host_candidates") or [])]
+                for d in md.get("dialogues",[]):expected.extend(str(x) for x in (d.get("guest_candidates") or []))
+                missing=[x for x in expected if not Path(x).is_file()]
+                if not expected or missing:
+                    raise RuntimeError(f"Thumbnail files missing: {len(missing)}/{len(expected)}")
+            except Exception as exc:
+                self._thumbnail_close_progress_dialog()
+                self.thumb_status.setText("ПОМИЛКА THUMBNAIL PREP • файли кандидатів не створені\\n"+str(exc))
+                QMessageBox.warning(self,"Thumbnail Prep","Процес завершився, але файли кандидатів відсутні.\\n\\n"+str(exc))
+                return
+            if hasattr(self,"_thumb_prep_bar"):self._thumb_prep_bar.setValue(100);self._thumb_prep_bar.setFormat("100%")
+            self._thumbnail_close_progress_dialog()
+            self._thumbnail_load_candidates()
+'''
+        src=src.replace(old,new,1)
+
+        tmp=ui.with_suffix(".py.v6visible.tmp");tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True);os.replace(tmp,ui)
+
+        if ver.is_file():
+            vs=ver.read_text(encoding="utf-8")
+            if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+                vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.8"',vs,count=1)
+            else:vs='STUDIO_VERSION="0.20.7.8"\n'+vs
+            ver.write_text(vs,encoding="utf-8");py_compile.compile(str(ver),doraise=True)
+
+        # Rebuild the latest job on canonical F: backend.
+        manifests=sorted(app.glob("MIX_*/THUMBNAIL/RG_THUMBNAIL_PREP.json"),key=lambda p:p.stat().st_mtime if p.is_file() else 0,reverse=True)
+        if not manifests:raise RuntimeError("No thumbnail manifest found")
+        old_mf=manifests[0];md=json.loads(old_mf.read_text(encoding="utf-8-sig"))
+        job=str(md.get("job") or old_mf.parents[1].name)
+        clips=[Path(str(x)) for x in (md.get("selected_clips") or []) if Path(str(x)).is_file()]
+        if not clips:raise RuntimeError("Latest thumbnail job has no valid clips")
+        cf=backup/"SELECTED_CLIPS.json";cf.write_text(json.dumps({"clips":[str(x) for x in clips]},ensure_ascii=False,indent=2),encoding="utf-8")
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        py=str(runtime if runtime.is_file() else sys.executable)
+        env=os.environ.copy();env["PYTHONUTF8"]="1";env["RG_AUTO_EDIT_BACKEND"]=str(app)
+        cp=subprocess.run([py,"-X","utf8",str(mix),"--app",str(app),"--job",job,"--clips-file",str(cf)],
+                          cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=1200)
+        if cp.returncode!=0:
+            raise RuntimeError("Thumbnail rebuild failed: "+(cp.stdout or "")[-7000:]+(cp.stderr or "")[-7000:])
+
+        mf=app/job/"THUMBNAIL"/"RG_THUMBNAIL_PREP.json"
+        fresh=json.loads(mf.read_text(encoding="utf-8-sig"))
+        guest_paths=[]
+        for d in fresh.get("dialogues",[]):guest_paths.extend(Path(str(x)) for x in (d.get("guest_candidates") or []))
+        host_paths=[Path(str(x)) for x in (fresh.get("host_candidates") or [])]
+        missing=[str(x) for x in guest_paths+host_paths if not x.is_file()]
+        if missing:
+            raise RuntimeError(f"Rebuild produced manifest but missing {len(missing)} files: "+str(missing[:5]))
+        if len(guest_paths)<len(clips)*5:
+            raise RuntimeError(f"Expected at least {len(clips)*5} guest candidates, got {len(guest_paths)}")
+        if len(host_paths)<5:
+            raise RuntimeError(f"Expected 5 host candidates, got {len(host_paths)}")
+
+        # Offscreen UI integration test: load the exact job and ensure table + gallery see files.
+        probe=r'''
+import os,json
+os.environ["QT_QPA_PLATFORM"]="offscreen"
+os.environ["RG_AUTO_EDIT_BACKEND"]=r"F:\RG_AUTO_EDIT\RG Auto Edit App"
+from PySide6.QtWidgets import QApplication
+from rg_studio_ui import StudioWindow
+app=QApplication([])
+w=StudioWindow();w.resize(1920,1080)
+job=os.environ["RG_TEST_THUMB_JOB"]
+w.thumb_stream.setText(job)
+w._thumbnail_load_candidates()
+rows=w.thumb_selection_table.rowCount()
+counts=[]
+for r in range(rows):
+    it=w.thumb_selection_table.item(r,0)
+    meta=it.data(0x0100) if it else {}
+    counts.append(len((meta or {}).get("candidates",[])))
+if rows:
+    w._thumbnail_show_candidate_gallery(min(1,rows-1))
+print(json.dumps({"rows":rows,"counts":counts,"stale":getattr(w,"_thumb_candidates_stale",None)},ensure_ascii=False))
+assert rows>=5,(rows,counts)
+assert all(x>=5 for x in counts[:5]),counts
+assert getattr(w,"_thumb_candidates_stale",False) is False
+'''
+        pe=env.copy();pe["QT_QPA_PLATFORM"]="offscreen";pe["RG_TEST_THUMB_JOB"]=job
+        pr=subprocess.run([py,"-X","utf8","-c",probe],cwd=str(app),env=pe,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=90)
+        if pr.returncode!=0:
+            raise RuntimeError("Thumbnail UI integration test failed: "+(pr.stdout or "")[-5000:]+(pr.stderr or "")[-5000:])
+
+        # Restart one Studio instance with explicit canonical backend.
+        stop=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
+        subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",stop],capture_output=True,text=True,timeout=20)
+        time.sleep(.8)
+        pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+        exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+        le=os.environ.copy();le.pop("RUNNER_TRACKING_ID",None);le["RG_AUTO_EDIT_BACKEND"]=str(app)
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([exe,"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),env=le,creationflags=flags,close_fds=True,
+                         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        time.sleep(2)
+
+        return {
+          "status":"APPLIED","version":"0.20.7.8","job":job,
+          "guest_candidates":len(guest_paths),"host_candidates":len(host_paths),
+          "all_files_exist":True,"quality_policy":fresh.get("quality_policy"),
+          "backend":str(app),"child_backend_env":"LOCKED_TO_F",
+          "ui_integration_test":"PASS","probe":(pr.stdout or "").strip(),
+          "backup":str(backup),"studio_restarted":True
+        }
+    except Exception:
+        for p in (ui,mix,ver):
+            bp=backup/p.name
+            if bp.is_file():shutil.copy2(bp,p)
+        raise
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8673,6 +8853,7 @@ ACTIONS = {
     "apply_auto_edit_clean_guest_portraits_hotfix": apply_auto_edit_clean_guest_portraits_hotfix,
     "rebuild_auto_edit_clean_guest_candidates": rebuild_auto_edit_clean_guest_candidates,
     "apply_auto_edit_strict_guest_face_v2": apply_auto_edit_strict_guest_face_v2,
+    "apply_auto_edit_thumbnail_v6_visibility_hotfix": apply_auto_edit_thumbnail_v6_visibility_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
