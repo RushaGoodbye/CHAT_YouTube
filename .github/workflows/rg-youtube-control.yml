@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: rg-youtube-control
@@ -34,8 +34,23 @@ jobs:
         shell: powershell
         run: |
           $task = Get-Content "rg_remote_control/youtube_task.json" -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Force "rg_remote_control/results" | Out-Null
+          $resultPath = "rg_remote_control/results/youtube_task_result.json"
           if ($task.action -in @("youtube_local_repair_preview","youtube_local_repair_apply","youtube_local_quota_plan_status","youtube_local_runtime_status","youtube_local_stop_legacy_gui","youtube_local_sync_source_only","youtube_local_sync_and_launch_source","youtube_local_launch_diagnostic","youtube_local_sync_recent_live_for_today","youtube_local_find_today_upcoming_live_broadcasts","youtube_local_optimize_scheduled_stream","youtube_local_verify_stream901_partial_update","youtube_local_finalize_stream901","youtube_local_ensure_gui_startup","youtube_local_brand_shortcuts","youtube_local_prepare_source_runtime","youtube_local_enable_archive_priority","youtube_local_apply_ready_scheduled_batch","youtube_local_inspect_scheduled_mismatches","youtube_local_set_vidiq_budget_state","youtube_local_promote_reviewed_draft")) {
-            python rg_remote_control/youtube_local_tool.py rg_remote_control/youtube_task.json
+            python rg_remote_control/youtube_local_tool.py rg_remote_control/youtube_task.json | Tee-Object -FilePath $resultPath
           } else {
-            python rg_remote_control/task_runner.py rg_remote_control/youtube_task.json
+            python rg_remote_control/task_runner.py rg_remote_control/youtube_task.json | Tee-Object -FilePath $resultPath
           }
+
+      - name: Publish latest task result
+        if: always()
+        shell: powershell
+        run: |
+          if (-not (Test-Path "rg_remote_control/results/youtube_task_result.json")) { exit 0 }
+          git config user.name "rg-youtube-runner"
+          git config user.email "actions@users.noreply.github.com"
+          git add "rg_remote_control/results/youtube_task_result.json"
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m "Record latest YouTube task result [skip ci]"
+          git push origin HEAD:main
