@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "telegram",
-  "action": "telegram_mcp_call",
-  "args": {
-    "tool": "telegram_fs_list",
-    "tool_args": {
-      "relative": ""
-    }
-  },
-  "nonce": "telegram-root-queue-20261005-01"
+  "action": "probe_telegram_mcp_bridge",
+  "args": {},
+  "nonce": "telegram-bridge-probe-20261005-01"
 }
