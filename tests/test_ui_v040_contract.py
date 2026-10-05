@@ -50,3 +50,16 @@ def test_today_stream_card_contract() -> None:
         'self._refresh_today_stream_card()',
     ):
         assert marker in source
+
+
+def test_scheduled_stream_shortcuts_contract() -> None:
+    source = _ui_source()
+    for marker in (
+        'self.scheduled_quick_btn = QPushButton("Заплановані")',
+        'today_quick_btn = QPushButton("Сьогоднішній стрім")',
+        'scheduled_center_btn = QPushButton("Заплановані стріми")',
+        'def _set_optimization_queue_filter',
+        'f"Лише заплановані ({scheduled_total})"',
+        'elif queue_filter == "scheduled":',
+    ):
+        assert marker in source
