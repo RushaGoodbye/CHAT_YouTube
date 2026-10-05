@@ -7024,6 +7024,7 @@ raise SystemExit(0 if ok else 7)
 def verify_auto_edit_preview_hotfix_state() -> dict:
     if os.name != "nt":
         raise RuntimeError("Windows only")
+    import re
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     ui=app/"rg_studio_ui.py"
     ver=app/"rg_studio_version.py"
