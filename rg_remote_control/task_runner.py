@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from rg_remote_control.pack200_builder import build_auto_edit_pack200_update
+from pack200_builder import build_auto_edit_pack200_update
 
 
 ROOT = Path(__file__).resolve().parents[1]
