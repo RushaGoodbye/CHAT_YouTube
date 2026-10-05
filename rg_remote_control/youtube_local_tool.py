@@ -1530,29 +1530,24 @@ def ensure_gui_startup() -> dict:
     stopped = _stop_all_rg_youtube_gui_processes()
     time.sleep(1)
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(target / "src")
-    env.pop("RUNNER_TRACKING_ID", None)
-
-    flags = 0
-    if os.name == "nt":
-        flags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(subprocess, "DETACHED_PROCESS", 0)
+    # Launch through the interactive Windows shell instead of as a child of
+    # the GitHub runner. The runner cleans up child processes at job end.
+    shell_launch = subprocess.run(
+        [
+            "explorer.exe",
+            str(desktop_shortcut),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if shell_launch.returncode not in (0, 1):
+        raise RuntimeError(
+            "Windows shell launch failed: "
+            + ((shell_launch.stderr or shell_launch.stdout) or "")[-3000:]
         )
 
-    proc = subprocess.Popen(
-        [str(executable), str(run_app)],
-        cwd=str(target),
-        env=env,
-        creationflags=flags,
-        close_fds=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-    )
-
-    time.sleep(6)
+    time.sleep(8)
     stale_cleanup = _stop_non_private_source_gui_processes(target)
     time.sleep(1)
     verify = subprocess.run(
@@ -1589,7 +1584,8 @@ def ensure_gui_startup() -> dict:
         "programs_shortcut_exists": programs_shortcut.is_file(),
         "startup_shortcut": str(startup_shortcut),
         "startup_shortcut_exists": startup_shortcut.is_file(),
-        "pid": proc.pid,
+        "pid": None,
+        "launch_via": "explorer-shortcut",
         "running": running,
         "processes": process_text,
         "stopped_before_launch": stopped,
