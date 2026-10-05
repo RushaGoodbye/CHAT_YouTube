@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_monotonic_anchor_hotfix",
-  "args": {},
-  "nonce": "apply-monotonic-anchor-rescue-20261006-8"
+  "action": "start_auto_edit_recovery_queue",
+  "args": {
+    "streams": [
+      "901"
+    ]
+  },
+  "nonce": "restart-901-after-anchor-fix-20261006-9"
 }
