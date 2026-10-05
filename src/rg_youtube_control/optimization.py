@@ -654,7 +654,11 @@ def validate_content_package(
         warnings.append("Розділи не заповнені.")
 
     if not clean_tags:
-        warnings.append("Теги не заповнені.")
+        errors.append("Теги не заповнені. Пакет не можна застосувати.")
+    elif len(clean_tags) < 8:
+        errors.append("Потрібно щонайменше 8 релевантних тегів.")
+    elif len(clean_tags) > 15:
+        errors.append("Потрібно не більше 15 релевантних тегів.")
     else:
         normalized_tags = [item.casefold() for item in clean_tags]
         if len(normalized_tags) != len(set(normalized_tags)):
