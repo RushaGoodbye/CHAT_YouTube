@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_runtime_state",
+  "action": "inspect_auto_edit_visual_targets",
   "args": {},
-  "nonce": "20261005-inspect-891-visual-1"
+  "nonce": "20261005-visual-progress-inspect-2"
 }
