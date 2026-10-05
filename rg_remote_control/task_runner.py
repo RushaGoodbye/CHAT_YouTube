@@ -7021,6 +7021,45 @@ raise SystemExit(0 if ok else 7)
     }
 
 
+def verify_auto_edit_preview_hotfix_state() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    ui=app/"rg_studio_ui.py"
+    ver=app/"rg_studio_version.py"
+    helper=app/"rg_pack313_preview.py"
+    src=ui.read_text(encoding="utf-8",errors="replace") if ui.is_file() else ""
+    vs=ver.read_text(encoding="utf-8",errors="replace") if ver.is_file() else ""
+    m=re.search(r'STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',vs)
+    version=m.group(1) if m else None
+    checks={
+        "helper_exists":helper.is_file(),
+        "helper_imported":"from rg_pack313_preview import install_preview_table" in src,
+        "install_hook":"RG_PACK313_PREVIEW_TABLE" in src,
+        "file_column_hidden_runtime_hook":"install_preview_table(self,self.thumb_table)" in src,
+        "table_ratio_2":"media_row.addWidget(self.thumb_table,2)" in src,
+        "player_ratio_4":"media_row.addWidget(pg,4)" in src,
+        "player_height_260_360":"self.thumb_video.setMinimumHeight(260);self.thumb_video.setMaximumHeight(360)" in src,
+        "version_02073":version=="0.20.7.3",
+    }
+    ps=(
+        "$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
+        "(($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    )
+    proc=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],timeout=30)
+    running=(proc.get("stdout") or "").strip()
+    checks["studio_running"]=bool(running and running not in {"null","[]"})
+    return {
+        "version":version,
+        "checks":checks,
+        "passed":all(checks.values()),
+        "processes":running,
+        "ui_mtime":ui.stat().st_mtime if ui.is_file() else None,
+        "helper":str(helper),
+    }
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7090,6 +7129,7 @@ ACTIONS = {
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
+    "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
