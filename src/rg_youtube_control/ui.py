@@ -8667,7 +8667,7 @@ class MainWindow(QMainWindow):
             description,
             chapters,
             tags,
-            "draft",
+            "ready",
             variants,
         )
         log_action(
@@ -8680,12 +8680,12 @@ class MainWindow(QMainWindow):
         self.reload_optimization_queue()
         self.reload_action_log()
         self.statusBar().showMessage(
-            "Локальну SEO-чернетку збережено · YouTube API квота: 0"
+            "SEO-пакет перевірено та готовий до застосування · YouTube API квота: 0"
         )
         QMessageBox.information(
             self,
             APP_NAME,
-            "SEO-чернетку збережено локально.\n"
+            "SEO-пакет перевірено та збережено зі статусом «Готово до застосування».\n"
             "В YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
 
