@@ -8936,6 +8936,23 @@ def search_auto_edit_901_anchor_artifacts() -> dict:
     out.sort(key=lambda x:x.get("mtime",0),reverse=True)
     return {"items":out[:120]}
 
+def inspect_auto_edit_901_anchor_sequence() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\run_manifests\901\RG_PERFORMANCE_EVENTS.jsonl")
+    if not p.is_file(): return {"exists":False,"path":str(p)}
+    rows=[]
+    for line in p.read_text(encoding="utf-8",errors="replace").splitlines():
+        try:
+            d=json.loads(line)
+        except Exception:
+            continue
+        msg=str(d.get("message") or "")
+        if not any(f"901-{i}.jpg" in msg for i in range(1,7)):
+            continue
+        if any(k in msg for k in ("ЯКОРЬ НАЙДЕН","ГРАНИЦЫ / ЯКОРЬ","boundary-start","anchor confirmed","УТОЧНЕНИЕ 84%","QA 98%")):
+            rows.append(d)
+    return {"exists":True,"path":str(p),"events":rows}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9032,6 +9049,7 @@ ACTIONS = {
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
     "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
+    "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
