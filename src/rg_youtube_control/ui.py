@@ -6447,32 +6447,38 @@ class MainWindow(QMainWindow):
         before_box.addWidget(QLabel("ДО"))
         after_box.addWidget(QLabel("ПІСЛЯ"))
 
-        before = QPlainTextEdit()
-        before.setReadOnly(True)
-        before_text = (
-            f"НАЗВА\n{current_title}\n\n"
-            f"ОПИС\n{current_description}"
-        )
-        if current_tags:
-            before_text += (
-                "\n\nОКРЕМЕ ПОЛЕ YOUTUBE - ТЕГИ\n"
-                + ", ".join(current_tags)
-            )
-        before.setPlainText(before_text)
-        after = QPlainTextEdit()
-        after.setReadOnly(True)
-        after_text = (
-            f"НАЗВА\n{new_title}\n\n"
-            f"ОПИС\n{new_description}"
-        )
-        if new_tags:
-            after_text += (
-                "\n\nОКРЕМЕ ПОЛЕ YOUTUBE - ТЕГИ\n"
-                + ", ".join(new_tags)
-            )
-        after.setPlainText(after_text)
-        before_box.addWidget(before)
-        after_box.addWidget(after)
+        before_title = QLabel(f"НАЗВА\n{current_title}")
+        before_title.setWordWrap(True)
+        after_title = QLabel(f"НАЗВА\n{new_title}")
+        after_title.setWordWrap(True)
+
+        before_description = QPlainTextEdit()
+        before_description.setReadOnly(True)
+        before_description.setPlainText(current_description)
+        after_description = QPlainTextEdit()
+        after_description.setReadOnly(True)
+        after_description.setPlainText(new_description)
+
+        before_tags = QPlainTextEdit()
+        before_tags.setReadOnly(True)
+        before_tags.setMaximumHeight(105)
+        before_tags.setPlainText(", ".join(current_tags) if current_tags else "—")
+        after_tags = QPlainTextEdit()
+        after_tags.setReadOnly(True)
+        after_tags.setMaximumHeight(105)
+        after_tags.setPlainText(", ".join(new_tags) if new_tags else "—")
+
+        before_box.addWidget(before_title)
+        before_box.addWidget(QLabel("ОПИС"))
+        before_box.addWidget(before_description, 1)
+        before_box.addWidget(QLabel("ТЕГИ YOUTUBE · окреме поле, не частина опису"))
+        before_box.addWidget(before_tags)
+
+        after_box.addWidget(after_title)
+        after_box.addWidget(QLabel("ОПИС"))
+        after_box.addWidget(after_description, 1)
+        after_box.addWidget(QLabel("ТЕГИ YOUTUBE · окреме поле, не частина опису"))
+        after_box.addWidget(after_tags)
         columns.addLayout(before_box, 1)
         columns.addLayout(after_box, 1)
         layout.addLayout(columns, 1)
