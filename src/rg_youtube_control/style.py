@@ -87,6 +87,19 @@ QPushButton[role="success"] {
     border-color: #2ba640;
     color: white;
 }
+QPushButton[role="chip"] {
+    background: #1b1b1b;
+    border: 1px solid #383838;
+    border-radius: 12px;
+    padding: 4px 10px;
+    min-height: 18px;
+    color: #d7d7d7;
+}
+QPushButton[role="chip"]:hover {
+    background: #272727;
+    border-color: #555555;
+    color: #ffffff;
+}
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {
     background: #212121;
     color: #f1f1f1;
