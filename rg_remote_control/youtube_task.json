@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "launch043-no-timings"
+    "nonce": "launch044-stream-timing-rule"
   }
 }
