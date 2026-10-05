@@ -2006,6 +2006,51 @@ def inspect_ready_scheduled_mismatches() -> dict:
     finally:
         conn.close()
 
+def set_vidiq_budget_state(task: dict) -> dict:
+    """Sync the local shared vidIQ counter from an external balance check."""
+    from rg_youtube_control.db import connect, log_action
+    from rg_youtube_control.vidiq_budget import sync_external_balance
+
+    args = task.get("args") or {}
+    limit = int(args.get("max_renewable_credits") or 2000)
+    renewable = int(args.get("renewable_credits") or 0)
+    add_on = int(args.get("add_on_credits") or 0)
+    reset_at = str(args.get("reset_at") or "").strip()
+    plan = str(args.get("plan") or "AIR Boost").strip()
+
+    conn = connect(_db_path())
+    try:
+        status = sync_external_balance(
+            conn,
+            max_renewable_credits=limit,
+            renewable_credits=renewable,
+            reset_at=reset_at,
+            add_on_credits=add_on,
+            plan=plan,
+        )
+        log_action(
+            conn,
+            profile="main",
+            category="vidIQ",
+            action="Синхронізація балансу",
+            details=(
+                f"{status.used}/{status.limit} використано; "
+                f"залишок {status.remaining}; reset {status.reset_at}"
+            ),
+        )
+        return {
+            "youtube_api_calls": 0,
+            "plan": status.plan,
+            "limit": status.limit,
+            "used": status.used,
+            "remaining": status.remaining,
+            "reserve": status.reserve,
+            "reset_at": status.reset_at,
+        }
+    finally:
+        conn.close()
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -2049,6 +2094,8 @@ def main() -> int:
         result = apply_ready_scheduled_batch()
     elif action == "youtube_local_inspect_scheduled_mismatches":
         result = inspect_ready_scheduled_mismatches()
+    elif action == "youtube_local_set_vidiq_budget_state":
+        result = set_vidiq_budget_state(task)
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
