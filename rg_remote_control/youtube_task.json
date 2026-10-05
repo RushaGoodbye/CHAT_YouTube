@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "vidiq-budget-0.3.86-20261005"
+    "nonce": "vidiq-billing-cycle-0.3.87-20261005"
   }
 }
