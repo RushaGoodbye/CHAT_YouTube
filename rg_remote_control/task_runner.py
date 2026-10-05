@@ -7139,6 +7139,256 @@ def inspect_auto_edit_final_compilation_code() -> dict:
                 out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
     return {"path":str(p),"functions":out,"head":"\n".join(f"{i+1}: {rows[i]}" for i in range(min(220,len(rows))))}
 
+def apply_auto_edit_final_compilation_retirement_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, re, shutil, subprocess, tempfile, time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py"
+    comp=app/"rg_final_compilation.py"
+    ver=app/"rg_studio_version.py"
+    if not ui.is_file() or not comp.is_file():
+        raise RuntimeError("Required Auto Edit files are missing")
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_FINAL_USED_DIALOGUES_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in (ui,comp,ver):
+        if p.is_file():
+            shutil.copy2(p,backup/p.name)
+
+    try:
+        src=comp.read_text(encoding="utf-8")
+
+        if "RG_USED_DIALOGUES_REGISTRY" not in src:
+            anchor='DEFAULT_PRESET = Path(r"C:\\Program Files\\Adobe\\Premiere Pro\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\3F3F3F3F_4D6F6F56\\H264 Match Source - High bitrate.epr")\n'
+            if anchor not in src:
+                raise RuntimeError("final compilation constants anchor missing")
+            addition=anchor + r'''
+RG_USED_DIALOGUES_REGISTRY = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\final_compilation_used_dialogues.json")
+'''
+            src=src.replace(anchor,addition,1)
+
+        if "def compilation_output_stem(" not in src:
+            anchor='def natural_key(name):\n    m = re.match(r"^(\\d+)[-_](\\d+)", Path(name).stem)\n    return (0, int(m.group(1)), int(m.group(2)), name.lower()) if m else (1, 0, 0, name.lower())\n'
+            if anchor not in src:
+                raise RuntimeError("natural_key anchor missing")
+            block=anchor+r'''
+
+def _strip_retired_suffix(stem):
+    return re.sub(r"(?:[_\-\s]+БЫЛО)$", "", str(stem or ""), flags=re.IGNORECASE)
+
+def dialogue_output_id(path):
+    stem=_strip_retired_suffix(Path(path).stem)
+    stem=re.sub(r"[-\s]+","_",stem)
+    stem=re.sub(r"_+","_",stem).strip("_")
+    return stem or "dialogue"
+
+def compilation_output_stem(clips):
+    ids=[dialogue_output_id(x) for x in clips]
+    return "_".join(x for x in ids if x) or ("FINAL_"+time.strftime("%Y%m%d_%H%M%S"))
+
+def is_retired_dialogue(path):
+    return bool(re.search(r"(?:[_\-\s]+БЫЛО)$", Path(path).stem, flags=re.IGNORECASE))
+
+def _load_used_registry(registry_path=RG_USED_DIALOGUES_REGISTRY):
+    p=Path(registry_path)
+    try:
+        data=json.loads(p.read_text(encoding="utf-8-sig"))
+        vals=data.get("used") if isinstance(data,dict) else []
+        return {str(Path(x)).lower() for x in (vals or [])}
+    except Exception:
+        return set()
+
+def _save_used_registry(paths, registry_path=RG_USED_DIALOGUES_REGISTRY):
+    p=Path(registry_path);p.parent.mkdir(parents=True,exist_ok=True)
+    used=_load_used_registry(p)
+    used.update(str(Path(x).resolve()).lower() for x in paths)
+    payload={"schema":"RG_USED_DIALOGUES_V1","updated_at":time.time(),"used":sorted(used)}
+    tmp=p.with_suffix(p.suffix+".tmp");tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8");tmp.replace(p)
+    return payload
+
+def retire_dialogue_sources(clips, registry_path=RG_USED_DIALOGUES_REGISTRY, retries=8, delay_sec=1.0):
+    clips=[Path(x) for x in clips]
+    _save_used_registry(clips,registry_path)
+    retired=[];errors=[]
+    for src_path in clips:
+        if not src_path.exists():
+            retired.append({"from":str(src_path),"to":None,"state":"already_missing"})
+            continue
+        if is_retired_dialogue(src_path):
+            retired.append({"from":str(src_path),"to":str(src_path),"state":"already_retired"})
+            continue
+        dst=src_path.with_name(src_path.stem+"_БЫЛО"+src_path.suffix)
+        if dst.exists():
+            errors.append({"from":str(src_path),"to":str(dst),"error":"destination_exists"})
+            continue
+        last=""
+        for attempt in range(max(1,int(retries))):
+            try:
+                src_path.rename(dst)
+                retired.append({"from":str(src_path),"to":str(dst),"state":"renamed"})
+                last=""
+                break
+            except Exception as exc:
+                last=repr(exc)
+                if attempt+1<max(1,int(retries)):
+                    time.sleep(max(0.0,float(delay_sec)))
+        if last:
+            errors.append({"from":str(src_path),"to":str(dst),"error":last})
+    return {"passed":not errors,"retired":retired,"errors":errors,"registry":str(registry_path)}
+'''
+            src=src.replace(anchor,block,1)
+
+        old='files = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS],\n                   key=lambda p: natural_key(p.name))'
+        if old not in src:
+            raise RuntimeError("scan_library files anchor missing")
+        new='used=_load_used_registry()\n    files = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS and not is_retired_dialogue(p) and str(p.resolve()).lower() not in used],\n                   key=lambda p: natural_key(p.name))'
+        src=src.replace(old,new,1)
+
+        old_run='''    job=str(data.get("job") or ("FINAL_"+time.strftime("%Y%m%d_%H%M%S")))
+    work=Path(app)/"FINAL_COMPILATIONS"/job;work.mkdir(parents=True,exist_ok=True)
+    render_dir=Path(render_dir);render_dir.mkdir(parents=True,exist_ok=True)
+    xml=work/f"{job}.xml";manifest=build_compilation_xml(xml,clips,Path(app),job,-9.0)
+    output=render_dir/f"{job}.mp4"
+    result=dict(passed=True,schema=VERSION,job=job,xml=str(xml),render_output=str(output),dialogue_count=len(clips),
+                duration_sec=manifest["duration_sec"],grenade_count=manifest["grenade_count"],grenade_gain_db=-9.0,render_requested=bool(do_render),rendered=False)
+'''
+        if old_run not in src:
+            raise RuntimeError("run_job naming anchor missing")
+        new_run='''    job=str(data.get("job") or ("FINAL_"+time.strftime("%Y%m%d_%H%M%S")))
+    output_stem=compilation_output_stem(clips)
+    work=Path(app)/"FINAL_COMPILATIONS"/job;work.mkdir(parents=True,exist_ok=True)
+    render_dir=Path(render_dir);render_dir.mkdir(parents=True,exist_ok=True)
+    xml=work/f"{output_stem}.xml";manifest=build_compilation_xml(xml,clips,Path(app),output_stem,-9.0)
+    output=render_dir/f"{output_stem}.mp4"
+    result=dict(passed=True,schema=VERSION,job=job,output_stem=output_stem,source_clips=[str(x) for x in clips],xml=str(xml),render_output=str(output),dialogue_count=len(clips),
+                duration_sec=manifest["duration_sec"],grenade_count=manifest["grenade_count"],grenade_gain_db=-9.0,render_requested=bool(do_render),rendered=False)
+'''
+        src=src.replace(old_run,new_run,1)
+
+        old_tail='''        wait_render(output,status,expected_bytes=expected_bytes);result["rendered"]=output.is_file()
+    emit(100,"DONE",str(output if do_render else xml));print("RGFINALRESULT|"+json.dumps(result,ensure_ascii=False),flush=True);return result
+'''
+        if old_tail not in src:
+            raise RuntimeError("render completion anchor missing")
+        new_tail='''        wait_render(output,status,expected_bytes=expected_bytes);result["rendered"]=output.is_file()
+        if result["rendered"]:
+            retirement=retire_dialogue_sources(clips)
+            result["retirement"]=retirement
+            result["retired_count"]=len(retirement.get("retired") or [])
+            result["retirement_errors"]=len(retirement.get("errors") or [])
+    emit(100,"DONE",str(output if do_render else xml));print("RGFINALRESULT|"+json.dumps(result,ensure_ascii=False),flush=True);return result
+'''
+        src=src.replace(old_tail,new_tail,1)
+
+        tmp=comp.with_suffix(".py.hotfix.tmp")
+        tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,comp)
+
+        uis=ui.read_text(encoding="utf-8")
+        if "RG_FINAL_USED_DIALOGUES_REFRESH" not in uis:
+            anchor='''        if code==0 and result and result.get("passed") and result.get("rendered"):
+            if hasattr(self,"thumb_final_progress"):self.thumb_final_progress.setValue(100);self.thumb_final_progress.setFormat("100%")
+'''
+            if anchor not in uis:
+                raise RuntimeError("final render success UI anchor missing")
+            repl='''        if code==0 and result and result.get("passed") and result.get("rendered"):
+            # RG_FINAL_USED_DIALOGUES_REFRESH
+            try:
+                self.thumbnail_refresh_dialogues()
+            except Exception:
+                pass
+            if hasattr(self,"thumb_final_progress"):self.thumb_final_progress.setValue(100);self.thumb_final_progress.setFormat("100%")
+'''
+            uis=uis.replace(anchor,repl,1)
+
+            old_status='''            self.thumb_status.setText(f"ФІНАЛЬНЕ ВІДЕО ГОТОВО ✓ • діалогів: {result.get('dialogue_count',0)} • перебивок ГРАНАТА: {result.get('grenade_count',0)} • Gain -9 dB\\n{result.get('render_output','')}{golden_msg}")
+            QMessageBox.information(self,"Фінальна збірка",f"Рендер завершено.\\n\\n{result.get('render_output','')}{golden_msg}")
+'''
+            if old_status not in uis:
+                raise RuntimeError("final render status UI anchor missing")
+            new_status='''            retired=int(result.get("retired_count") or 0);retire_err=int(result.get("retirement_errors") or 0)
+            used_msg=f" • використано/БЫЛО: {retired}"
+            if retire_err:used_msg+=f" • помилок перейменування: {retire_err}"
+            self.thumb_status.setText(f"ФІНАЛЬНЕ ВІДЕО ГОТОВО ✓ • діалогів: {result.get('dialogue_count',0)} • перебивок ГРАНАТА: {result.get('grenade_count',0)} • Gain -9 dB{used_msg}\\n{result.get('render_output','')}{golden_msg}")
+            QMessageBox.information(self,"Фінальна збірка",f"Рендер завершено.\\n\\n{result.get('render_output','')}\\n\\nВикористані діалоги позначено БЫЛО: {retired}{golden_msg}")
+'''
+            uis=uis.replace(old_status,new_status,1)
+
+        tmp=ui.with_suffix(".py.hotfix.tmp")
+        tmp.write_text(uis,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,ui)
+
+        if ver.is_file():
+            vs=ver.read_text(encoding="utf-8")
+            if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+                vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.4"',vs,count=1)
+            else:
+                vs='STUDIO_VERSION="0.20.7.4"\n'+vs
+            ver.write_text(vs,encoding="utf-8")
+            py_compile.compile(str(ver),doraise=True)
+
+        # Functional test without touching real dialogue files.
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        py=str(runtime if runtime.is_file() else sys.executable)
+        test_code=r'''
+import json,tempfile
+from pathlib import Path
+import rg_final_compilation as m
+assert m.compilation_output_stem([Path("890-5.mp4"),Path("890-6.mp4"),Path("891-4.mp4")])=="890_5_890_6_891_4"
+with tempfile.TemporaryDirectory() as td:
+    d=Path(td);reg=d/"used.json"
+    a=d/"890-5.mp4";b=d/"890-6.mp4";a.write_bytes(b"x");b.write_bytes(b"y")
+    r=m.retire_dialogue_sources([a,b],registry_path=reg,retries=1,delay_sec=0)
+    assert r["passed"],r
+    assert (d/"890-5_БЫЛО.mp4").is_file()
+    assert (d/"890-6_БЫЛО.mp4").is_file()
+    assert m.is_retired_dialogue(d/"890-5_БЫЛО.mp4")
+print(json.dumps({"passed":True,"name":m.compilation_output_stem([Path("890-5.mp4"),Path("890-6.mp4"),Path("891-4.mp4")])},ensure_ascii=False))
+'''
+        env=os.environ.copy();env["PYTHONUTF8"]="1";env["RG_AUTO_EDIT_BACKEND"]=str(app)
+        cp=subprocess.run([py,"-X","utf8","-c",test_code],cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=60)
+        if cp.returncode!=0:
+            raise RuntimeError("Final compilation retirement test failed: "+(cp.stdout or "")[-4000:]+(cp.stderr or "")[-4000:])
+
+        # Restart Studio with only the F: runtime instance.
+        ps=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
+        subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],capture_output=True,text=True,timeout=20)
+        time.sleep(0.8)
+        main=app/"rg_studio_main.py"
+        pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+        exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+        launch_env=os.environ.copy();launch_env.pop("RUNNER_TRACKING_ID",None)
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([exe,"-X","utf8",str(main)],cwd=str(app),env=launch_env,creationflags=flags,close_fds=True,
+                         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        time.sleep(2.5)
+
+        return {
+            "status":"APPLIED",
+            "version":"0.20.7.4",
+            "backup":str(backup),
+            "test":"PASS",
+            "output_name_example":"890_5_890_6_891_4.mp4",
+            "used_suffix":"_БЫЛО",
+            "used_registry":str(Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\final_compilation_used_dialogues.json")),
+            "exclude_used_from_scan":True,
+            "retire_only_after_successful_render":True,
+            "studio_restarted":True,
+        }
+    except Exception:
+        # rollback files
+        for p in (ui,comp,ver):
+            bp=backup/p.name
+            if bp.is_file():
+                shutil.copy2(bp,p)
+        raise
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7208,6 +7458,7 @@ ACTIONS = {
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
+    "apply_auto_edit_final_compilation_retirement_hotfix": apply_auto_edit_final_compilation_retirement_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
