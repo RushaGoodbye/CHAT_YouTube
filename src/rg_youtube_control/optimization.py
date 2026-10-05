@@ -216,6 +216,96 @@ def is_safe_archive_candidate(issues: list[str] | tuple[str, ...]) -> bool:
     )
 
 
+
+LEGACY_SERVICE_HINTS = (
+    "КАНАЛ ДЛЯ СТРИМІВ",
+    "КАНАЛ ДЛЯ СТРИМОВ",
+    "СТАТИ ПАРТНЕРОМ ПРОЕКТУ",
+    "СТАТИ ПАРТНЕРОМ ПРОЄКТУ",
+    "ПІДТРИМАТИ АВТОРА",
+    "ПОДДЕРЖАТЬ АВТОРА",
+    "ЗБІР ТРИВАЄ",
+    "СБОР ПРОДОЛЖАЕТСЯ",
+    "ДЛЯ ЗСУ",
+    "НА РОЗВИТОК ПРОЕКТУ",
+    "НА РОЗВИТОК ПРОЄКТУ",
+    "КРИПТОГАМАНЕЦЬ",
+    "КРИПТОКОШЕЛЕК",
+    "ТЕЛЕГРАМ КАНАЛ ПРОЕКТУ",
+    "ТЕЛЕГРАМ КАНАЛ ПРОЄКТУ",
+    "TIKTOK КАНАЛ",
+    "ПРОЕКТ «ХОЧУ ЖИТЬ»",
+    'ПРОЕКТ "ХОЧУ ЖИТЬ"',
+)
+
+CANONICAL_SERVICE_MARKERS = (
+    "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:",
+    "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:",
+)
+
+
+def _looks_like_legacy_service_prefix(value: str) -> bool:
+    upper = (value or "").upper()
+    return any(hint in upper for hint in LEGACY_SERVICE_HINTS)
+
+
+def _strip_existing_canonical_service_blocks(value: str) -> str:
+    """Remove previously generated canonical service blocks before rebuilding them."""
+    lines = (value or "").splitlines()
+    output: list[str] = []
+    skip_next_url = False
+    for line in lines:
+        stripped = line.strip()
+        upper = stripped.upper()
+        if any(upper == marker.upper() for marker in CANONICAL_SERVICE_MARKERS):
+            skip_next_url = True
+            continue
+        if skip_next_url:
+            if stripped in {PROJECT_LINKS_URL, DONATE_URL}:
+                skip_next_url = False
+                continue
+            if stripped:
+                skip_next_url = False
+        output.append(line)
+    return "\n".join(output).strip()
+
+
+def _strip_legacy_service_prefix(description: str, title: str) -> tuple[str, bool]:
+    """Drop the old donation/social boilerplate when the real video body follows it.
+
+    Older RG descriptions often start with a large service block and then repeat
+    the exact video title. When that pattern is present, everything before the
+    title is legacy boilerplate and is safe to replace with the canonical links.
+    """
+    value = (description or "").strip()
+    clean_title = (title or "").strip()
+    if not value or not clean_title or not _looks_like_legacy_service_prefix(value):
+        return value, False
+
+    lines = value.splitlines()
+    title_cf = clean_title.casefold()
+    for index, line in enumerate(lines):
+        candidate = line.strip()
+        if not candidate:
+            continue
+        if candidate.casefold() == title_cf:
+            trimmed = "\n".join(lines[index:]).strip()
+            return trimmed, trimmed != value
+
+    return value, False
+
+
+def _append_canonical_service_block(value: str) -> str:
+    body = _strip_existing_canonical_service_blocks(value).rstrip()
+    service = (
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        f"{PROJECT_LINKS_URL}\n\n"
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
+        f"{DONATE_URL}"
+    )
+    return f"{body}\n\n{service}".strip() if body else service
+
+
 def safe_description_fix(description: str, title: str = "") -> SafeFix:
     before = description or ""
     after = normalize_links(before)
@@ -224,35 +314,24 @@ def safe_description_fix(description: str, title: str = "") -> SafeFix:
     if after != before:
         changes.append("замінено старі посилання")
 
+    after, legacy_removed = _strip_legacy_service_prefix(after, title)
+    if legacy_removed:
+        changes.append("прибрано застарілий блок посилань і реквізитів")
 
-    missing_project = PROJECT_LINKS_URL not in after
-    missing_donate = DONATE_URL not in after
-
-    additions: list[str] = []
-    if missing_project:
-        additions.append(
-            "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
-            f"{PROJECT_LINKS_URL}"
-        )
-        changes.append("додано посилання проєкту")
-    if missing_donate:
-        additions.append(
-            "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
-            f"{DONATE_URL}"
-        )
-        changes.append("додано посилання на донат")
-
-    if additions:
-        after = after.rstrip()
-        if after:
-            after += "\n\n"
-        after += "\n\n".join(additions)
+    before_service = after
+    after = _append_canonical_service_block(after)
+    if after != before_service:
+        changes.append("оновлено єдиний блок актуальних посилань")
 
     after, hashtags_changed = _optimize_hashtag_lines(after, title)
     if hashtags_changed:
         changes.append("оновлено хештеги")
 
-    return SafeFix(before=before, after=after, changes=tuple(changes))
+    return SafeFix(
+        before=before,
+        after=after,
+        changes=tuple(dict.fromkeys(changes)),
+    )
 
 
 ENGLISH_SUMMARY_MARKER_RE = re.compile(
