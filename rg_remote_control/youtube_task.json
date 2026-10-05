@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_ensure_gui_startup",
+  "action": "youtube_local_launch_diagnostic",
   "args": {
-    "nonce": "ensure-gui-startup-0374-20261005"
+    "nonce": "diag-gui-0374-20261005"
   }
 }
