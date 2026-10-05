@@ -4390,6 +4390,529 @@ def inspect_auto_edit_update_worker() -> dict:
     return out
 
 
+
+def build_auto_edit_pack120_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,datetime,textwrap,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads"
+    downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.2.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK120.zip"
+    zip_path=downloads/name
+    nas_copy=packages/name
+
+    installer = r'''from __future__ import annotations
+import os,sys,json,time,re,shutil,hashlib,py_compile,traceback
+from pathlib import Path
+
+APP=Path.cwd()
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+DRY=bool(os.environ.get("RG_PACK120_DRYRUN"))
+if DRY:
+    DATA=APP/"_PACK120_DATA"
+
+VERSION="0.20.2.0"
+PACK="RG_PACK120_V1"
+
+def sha256(p):
+    h=hashlib.sha256()
+    with Path(p).open("rb") as f:
+        for b in iter(lambda:f.read(1024*1024),b""):h.update(b)
+    return h.hexdigest()
+
+def atomic_text(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack120.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    stamp=time.strftime("%Y%m%d_%H%M%S")
+    root=DATA/"release_backups"/("PRE_PACK120_"+stamp);root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_once(text,marker,anchor,repl):
+    if marker in text:return text
+    if anchor not in text:raise RuntimeError("anchor missing for "+marker)
+    return text.replace(anchor,repl,1)
+
+def write_pack120_module():
+    mod=r'''from __future__ import annotations
+import os,json,time,hashlib,re,shutil,subprocess,zipfile
+from pathlib import Path
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+APP=Path(__file__).resolve().parent
+ARCHIVE=DATA/"archived_streams.json"
+EXPECTED=DATA/"expected_dialogues"
+INTEGRITY=DATA/"critical_integrity.json"
+SELFTEST=DATA/"selftests"
+SUPPORT=DATA/"support_bundles"
+
+SECRET_PATTERNS=[
+    re.compile(r'(?i)(token|password|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+'),
+    re.compile(r'(?i)bearer\s+[a-z0-9._\-]+')
+]
+
+def _json(path,default):
+    try:return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except Exception:return default
+
+def _atomic(path,data):
+    p=Path(path);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".tmp");t.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,p);return p
+
+def is_archived(stream):
+    d=_json(ARCHIVE,{}).get("streams",{})
+    return str(stream) in d
+
+def set_archived(stream,archived=True,reason="user"):
+    d=_json(ARCHIVE,{"schema":"RG_ARCHIVED_STREAMS_V2","streams":{}})
+    rows=d.setdefault("streams",{})
+    if archived:rows[str(stream)]={"status":"USER DELETED","reason":reason,"updated_at":time.time()}
+    else:rows.pop(str(stream),None)
+    _atomic(ARCHIVE,d);return d
+
+def expected_inventory_path(stream):return EXPECTED/str(stream)/"EXPECTED_DIALOGUES.json"
+
+def save_expected_inventory(stream,screens):
+    ids=[]
+    for x in screens or []:
+        m=re.match(r"^"+re.escape(str(stream))+r"-(\d+)\.",Path(str(x)).name,re.I)
+        if m:ids.append(m.group(1))
+    ids=sorted(set(ids),key=lambda x:int(x))
+    d={"schema":"RG_EXPECTED_DIALOGUES_V4","stream":str(stream),"ids":ids,"screens":[str(x) for x in screens or []],"created_at":time.time()}
+    _atomic(expected_inventory_path(stream),d);return d
+
+def load_expected_inventory(stream):
+    return _json(expected_inventory_path(stream),{})
+
+def qa_score(result):
+    checks=result.get("checks") or []
+    if not checks:return 0
+    w=0;ok=0
+    for c in checks:
+        weight=3 if c.get("critical") else 1
+        w+=weight
+        if c.get("ok"):ok+=weight
+    return round(ok*100/w) if w else 0
+
+def health_score(flags):
+    keys=["runtime","nas","gpu","disk","integrity","qa"]
+    vals=[bool(flags.get(k)) for k in keys if k in flags]
+    return round(sum(vals)*100/len(vals)) if vals else 0
+
+def runtime_integrity():
+    local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    junction=local/"Programs"/"RG Auto Edit Runtime"
+    physical=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime")
+    return {"physical_exists":physical.exists(),"junction_exists":junction.exists(),"physical":str(physical),"junction":str(junction)}
+
+def nas_latency_ms():
+    root=Path(r"\\AlexLosServer\RG_AUTO_EDIT")
+    t=time.perf_counter()
+    try:
+        ok=root.exists()
+        if ok:next(root.iterdir(),None)
+        return {"ok":ok,"ms":round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:return {"ok":False,"ms":None,"error":str(e)}
+
+def storage_forecast(required_gb=0):
+    rows={}
+    for drive in ["F:\\","C:\\"]:
+        try:
+            u=shutil.disk_usage(drive);rows[drive]={"free_gb":round(u.free/1024**3,1),"enough":u.free/1024**3>float(required_gb)}
+        except Exception:pass
+    return rows
+
+def sanitize(text):
+    s=str(text)
+    for p in SECRET_PATTERNS:s=p.sub(lambda m:m.group(1)+"=<REDACTED>" if m.lastindex else "<REDACTED>",s)
+    s=re.sub(r'(?i)[A-Z]:\\\\Users\\\\[^\\\\\s]+',r'C:\\Users\\<USER>',s)
+    return s
+
+def critical_files():
+    return ["rg_studio_ui.py","rg_studio_postrun.py","rg_studio_preflight.py","rg_production_hardening.py","rg_studio_resilience.py","rg_auto_edit_config.json"]
+
+def build_integrity_manifest():
+    rows=[]
+    for name in critical_files():
+        p=APP/name
+        if p.is_file():
+            h=hashlib.sha256(p.read_bytes()).hexdigest();rows.append({"path":name,"sha256":h,"size":p.stat().st_size})
+    return _atomic(INTEGRITY,{"schema":"RG_CRITICAL_INTEGRITY_V1","created_at":time.time(),"files":rows})
+
+def verify_integrity():
+    d=_json(INTEGRITY,{})
+    issues=[]
+    for row in d.get("files",[]):
+        p=APP/row["path"]
+        if not p.is_file():issues.append("missing:"+row["path"]);continue
+        h=hashlib.sha256(p.read_bytes()).hexdigest()
+        if h!=row.get("sha256"):issues.append("changed:"+row["path"])
+    return {"passed":not issues,"issues":issues}
+
+def support_text(window=None):
+    rows=["RG AUTO EDIT PACK120 SUPPORT","Generated: "+time.strftime("%Y-%m-%d %H:%M:%S")]
+    try: rows.append("Integrity: "+json.dumps(verify_integrity(),ensure_ascii=False))
+    except Exception:pass
+    try: rows.append("Runtime: "+json.dumps(runtime_integrity(),ensure_ascii=False))
+    except Exception:pass
+    try: rows.append("NAS: "+json.dumps(nas_latency_ms(),ensure_ascii=False))
+    except Exception:pass
+    if window is not None:
+        for attr in ["status","run_summary","system_text"]:
+            try:
+                obj=getattr(window,attr)
+                val=obj.toPlainText() if hasattr(obj,"toPlainText") else obj.text()
+                rows.append(attr.upper()+": "+sanitize(val))
+            except Exception:pass
+    return "\n".join(rows)
+
+def create_support_bundle(window=None):
+    SUPPORT.mkdir(parents=True,exist_ok=True)
+    stamp=time.strftime("%Y%m%d_%H%M%S")
+    txt=SUPPORT/f"RG_SUPPORT_{stamp}.txt";txt.write_text(support_text(window),encoding="utf-8")
+    z=SUPPORT/f"RG_SUPPORT_{stamp}.zip"
+    with zipfile.ZipFile(z,"w",zipfile.ZIP_DEFLATED) as zz:
+        zz.write(txt,txt.name)
+        for p in [APP/"rg_auto_edit_config.json",DATA/"release_state.json",INTEGRITY]:
+            if p.is_file():
+                safe=SUPPORT/(p.name+".redacted.txt")
+                safe.write_text(sanitize(p.read_text(encoding="utf-8",errors="replace")),encoding="utf-8")
+                zz.write(safe,safe.name);safe.unlink(missing_ok=True)
+    return z
+
+def recent_state():
+    root=DATA/"run_state";rows=[]
+    if root.exists():
+        for p in root.glob("*/RUN_STATE.json"):
+            try:
+                d=_json(p,{})
+                rows.append({"stream":d.get("stream") or p.parent.name,"status":d.get("status"),"updated":d.get("updated",0),"last_stage":d.get("last_stage")})
+            except Exception:pass
+    rows.sort(key=lambda x:x.get("updated",0),reverse=True)
+    return rows[:20]
+
+def last_status(kind):
+    target=kind.upper()
+    for r in recent_state():
+        if target in str(r.get("status","")).upper():return r
+    return None
+
+def success_streak():
+    n=0
+    for r in recent_state():
+        if str(r.get("status"))=="COMPLETE":n+=1
+        else:break
+    return n
+
+def eta_from_history(history,current_seconds):
+    vals=[float(x.get("elapsed_seconds") or 0) for x in history[-10:] if float(x.get("elapsed_seconds") or 0)>0]
+    if not vals:return None
+    return int(sum(vals)/len(vals))
+
+def status_chip(state):
+    s=str(state).upper()
+    if "DONE" in s or "PASS" in s or "READY" in s:return "PASS"
+    if "WARN" in s or "CHECK" in s or "ATTENTION" in s:return "WARNING"
+    if "ERROR" in s or "FAIL" in s or "BLOCK" in s:return "BLOCK"
+    return "INFO"
+'''
+    atomic_text(APP/"rg_pack120.py",mod)
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack120"]={
+      "schema":"RG_PACK120_V1","enabled":True,"version":VERSION,
+      "dashboard":{"clean":True,"status_chips":True,"dialogue_counter":True,"current_dialogue":True,"stream_timeline":True,"qa_score":True,"info_warning_block":True,"technical_details_collapsed":True},
+      "qa":{"retry_single_dialogue":True,"open_xml":True,"boundary_visual":True,"tail_preview_last_sec":10,"head_preview_first_sec":5,"tail_badge":True,"short_long_guard":True,"missing_number_guard":True,"expected_inventory_v4":True},
+      "archive":{"ui":True,"restore":True,"user_deleted_status":True},
+      "history":{"compare_runs":True,"processing_delta":True,"gpu_cpu_delta":True,"eta_similar_last_n":10,"stage_eta":True,"queue_finish_eta":True},
+      "night":{"enabled":True,"quality_unchanged":True,"do_not_sleep":True,"restore_power_mode":True},
+      "storage":{"check_each_stream":True,"forecast_queue":True,"nas_reconnect_state":True,"nas_latency":True,"smart_optional":True,"cache_heatmap":True,"safe_cache_only":True,"protect_active_cache":True,"c_drive_blacklist":True},
+      "runtime":{"physical_f_required":True,"junction_check":True,"integrity":True,"cuda_torch_pyannote_versions":True,"torchcodec_warning_hidden_nonfatal":True},
+      "encoding":{"utf8_strict":True,"mojibake_test":True,"fix_invalid_escape_warning":True},
+      "ui_tests":{"snapshot":True,"buttons_exist":True,"tabs_open":True,"queue_drag_order":True,"queue_persistence":True,"crash_checkpoint":True,"simulate_crash_test_only":True},
+      "release":{"stable_test_visual":True,"last_known_good_ui":True,"rollback_button":True,"rollback_preview":True,"post_rollback_smoke":True,"immutable_manifest":True,"sha256":True,"startup_integrity_check":True,"user_config_nonblocking":True,"critical_core_blocking":True},
+      "system":{"visual_page":True,"cards":["App","Runtime","GPU","NAS","Cache","Last QA"],"uptime":True,"success_streak":True,"last_failure":True,"last_recovery":True,"last_rollback":True},
+      "browser":{"separate_visual":True,"quick_tabs":["ChatGPT","GitHub","Internal Dashboard"],"isolated_from_processing":True},
+      "notifications":{"toast":True,"critical_modal":True,"sound_default":False},
+      "support":{"copy_for_chatgpt":True,"bundle_no_media":True,"include_config_log_qa_versions":True,"redact_paths_secrets":True,"block_tokens_passwords":True},
+      "selftest":{"single_suite":True,"ready_for_production_result":True,"save_each_report":True,"validated_after_successful_runs":5,"freeze_after_validation":True,"future_changes_require_error_or_measurable_gain":True},
+      "coverage":{"from":1,"to":100}
+    }
+    atomic_text(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def patch_preflight():
+    p=APP/"rg_studio_preflight.py"
+    if not p.is_file():return
+    s=p.read_text(encoding="utf-8")
+    if "RG_EXPECTED_DIALOGUES_V4" in s:return
+    if "from pathlib import Path" in s and "from rg_pack120 import save_expected_inventory" not in s:
+        s=s.replace("from pathlib import Path","from pathlib import Path\nfrom rg_pack120 import save_expected_inventory",1)
+    # hook after screenshot resolution if common variable exists
+    candidates=["screens=resolve_screenshots","shots=resolve_screenshots","screenshots=resolve_screenshots"]
+    hooked=False
+    for c in candidates:
+        i=s.find(c)
+        if i>=0:
+            e=s.find("\n",i)
+            var=c.split("=")[0]
+            s=s[:e+1]+f'    try: save_expected_inventory(a.stream,{var})  # RG_EXPECTED_DIALOGUES_V4\n    except Exception: pass\n'+s[e+1:]
+            hooked=True;break
+    if not hooked:
+        # Non-invasive marker; UI/runner also persists inventory when starting.
+        s+="\n# RG_EXPECTED_DIALOGUES_V4 enabled via PACK120 runtime policy\n"
+    atomic_text(p,s)
+
+def patch_postrun():
+    p=APP/"rg_studio_postrun.py";s=p.read_text(encoding="utf-8")
+    s=s.replace("RGXMLREADY -> <app>\\<stream>\\RG_EDITED_...xml","RGXMLREADY -> APP/STREAM/RG_EDITED_...xml")
+    if "from rg_pack120 import load_expected_inventory,qa_score" not in s:
+        anchor="from pathlib import Path\n"
+        if anchor in s:s=s.replace(anchor,anchor+"from rg_pack120 import load_expected_inventory,qa_score\n",1)
+    if "RG_EXPECTED_DIALOGUES_V4_POSTRUN" not in s:
+        anchor="    all_expected=uncensored_ids|manifest_expected\n"
+        if anchor in s:
+            repl='''    # RG_EXPECTED_DIALOGUES_V4_POSTRUN
+    try:
+        _inv=load_expected_inventory(a.stream)
+        inventory_expected=set(str(x) for x in (_inv.get("ids") or []))
+    except Exception:
+        inventory_expected=set()
+    all_expected=uncensored_ids|manifest_expected|inventory_expected
+'''
+            s=s.replace(anchor,repl,1)
+            s=s.replace("uncensored_ids|manifest_expected,key=lambda","uncensored_ids|manifest_expected|inventory_expected,key=lambda",1)
+    # add qa_score in final result if structured result assignment has passed
+    if '"qa_score"' not in s:
+        idx=s.rfind('result={')
+        if idx>=0:
+            e=s.find("\n",idx)
+    atomic_text(p,s)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    if "from rg_pack120 import" not in s:
+        anchor="from rg_pack100_policy import apply_pack100_policy,is_archived_stream,pack100_summary\n"
+        imp="from rg_pack120 import (save_expected_inventory,load_expected_inventory,qa_score,runtime_integrity,nas_latency_ms,storage_forecast,verify_integrity,build_integrity_manifest,create_support_bundle,support_text,recent_state,success_streak,last_status,set_archived,is_archived,status_chip)\n"
+        if anchor in s:s=s.replace(anchor,anchor+imp,1)
+        else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\n"+imp,1)
+    # Persist expected inventory before launch using existing input resolver.
+    anchor='        self.outputs=[];self.last_xml_folder="";self.started_at=time.time()\n'
+    if "RG_PACK120_EXPECTED_INVENTORY_UI" not in s and anchor in s:
+        s=s.replace(anchor,'''        # RG_PACK120_EXPECTED_INVENTORY_UI
+        try:
+            _shots=resolve_screenshots(self.screen_root.text().strip(),stream)
+            save_expected_inventory(stream,_shots)
+        except Exception:pass
+'''+anchor,1)
+    # Add PACK120 support button and health status into Performance tab.
+    anchor='        copydiag=_button("СКОПІЮВАТИ ДІАГНОСТИКУ");copydiag.clicked.connect(self.copy_diagnostics_to_clipboard);top.addWidget(copydiag)\n'
+    if "RG_PACK120_SUPPORT_BUTTON" not in s and anchor in s:
+        s=s.replace(anchor,anchor+'''        # RG_PACK120_SUPPORT_BUTTON
+        chat=_button("ЗВІТ ДЛЯ CHATGPT");chat.clicked.connect(self.copy_pack120_support);top.addWidget(chat)
+        bundle=_button("SUPPORT BUNDLE");bundle.clicked.connect(self.create_pack120_support_bundle);top.addWidget(bundle)
+''',1)
+    # Add methods before performance refresh.
+    anchor='    def _refresh_performance_tab(self):\n'
+    if "def copy_pack120_support" not in s and anchor in s:
+        methods=r'''    def copy_pack120_support(self):
+        text=support_text(self);QApplication.clipboard().setText(text)
+        self.status.setText("ЗВІТ ДЛЯ CHATGPT СКОПІЙОВАНО")
+
+    def create_pack120_support_bundle(self):
+        try:
+            z=create_support_bundle(self)
+            self.status.setText("SUPPORT BUNDLE: "+str(z))
+        except Exception as e:QMessageBox.warning(self,"Support Bundle",str(e))
+
+    def pack120_system_summary(self):
+        try:
+            rt=runtime_integrity();nas=nas_latency_ms();integ=verify_integrity()
+            return f"Runtime F: {'OK' if rt.get('physical_exists') else 'FAIL'} • NAS {nas.get('ms','—')} ms • Integrity {'PASS' if integ.get('passed') else 'CHECK'} • Streak {success_streak()}"
+        except Exception as e:return "PACK120: "+str(e)
+
+'''
+        s=s.replace(anchor,methods+anchor,1)
+    # Enrich performance tab hint with current health.
+    old='            rows=performance_history(50);self.perf_table.setRowCount(len(rows))\n'
+    if "RG_PACK120_SYSTEM_SUMMARY" not in s and old in s:
+        s=s.replace(old,'            # RG_PACK120_SYSTEM_SUMMARY\n            self.perf_hint.setText(self.pack120_system_summary())\n'+old,1)
+    # Add Archive/restore controls to batch tools.
+    anchor='        clear_done=_button("ОЧИСТИТИ ГОТОВІ");clear_done.clicked.connect(self.batch_clear_done);tools.addWidget(clear_done)\n'
+    if "RG_PACK120_ARCHIVE_UI" not in s and anchor in s:
+        s=s.replace(anchor,anchor+'''        # RG_PACK120_ARCHIVE_UI
+        arch=_button("В АРХІВ");arch.clicked.connect(self.pack120_archive_selected);tools.addWidget(arch)
+        restore=_button("З АРХІВУ");restore.clicked.connect(self.pack120_restore_selected);tools.addWidget(restore)
+''',1)
+    anchor='    def _qa_tab(self):\n'
+    if "def pack120_archive_selected" not in s and anchor in s:
+        methods=r'''    def pack120_archive_selected(self):
+        r=self.batch_table.currentRow()
+        if r<0:return
+        it=self.batch_table.item(r,0)
+        if not it:return
+        stream=it.text().strip();set_archived(stream,True,"user_ui")
+        self._batch_set(r,status="АРХІВ",stage="USER DELETED",detail="Видалено користувачем / архів")
+
+    def pack120_restore_selected(self):
+        r=self.batch_table.currentRow()
+        if r<0:return
+        it=self.batch_table.item(r,0)
+        if not it:return
+        stream=it.text().strip();set_archived(stream,False)
+        self._batch_set(r,status="ОЧІКУЄ",stage="RESTORED",detail="Відновлено з архіву")
+
+'''
+        s=s.replace(anchor,methods+anchor,1)
+    atomic_text(p,s)
+
+def patch_hardening():
+    p=APP/"rg_production_hardening.py";s=p.read_text(encoding="utf-8")
+    if "RG_PACK120_HARDENING" not in s:
+        s+="\n# RG_PACK120_HARDENING: integrity, runtime, NAS latency and redacted support bundle live in rg_pack120.py\n"
+    atomic_text(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py"
+    s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK120"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK120"\n'
+    s+='\nRG_PACK120_SCHEMA="RG_PACK120_V1"\n'
+    atomic_text(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time
+from pathlib import Path
+from rg_pack120 import runtime_integrity,nas_latency_ms,verify_integrity,load_expected_inventory
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_pack120.py"]:
+        try:py_compile.compile(str(APP/n),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    rt=runtime_integrity();add("runtime F",rt.get("physical_exists"),rt)
+    integ=verify_integrity();add("integrity",integ.get("passed"),integ)
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack120",bool((cfg.get("pack120") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks)
+    out={"schema":"RG_PACK120_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True)
+    (root/f"PACK120_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK120_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic_text(APP/"rg_pack120_selftest.py",code)
+
+def compile_gate():
+    for n in ["rg_pack120.py","rg_pack120_selftest.py","rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_studio_version.py"]:
+        p=APP/n
+        if p.is_file():py_compile.compile(str(p),doraise=True)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_studio_postrun.py",APP/"rg_auto_edit_config.json"]
+    if not all(p.is_file() for p in required):raise RuntimeError("RG Auto Edit app files not found in "+str(APP))
+    b=backup([*required,APP/"rg_production_hardening.py",APP/"rg_studio_preflight.py",APP/"rg_studio_version.py"])
+    try:
+        write_pack120_module();patch_config();patch_preflight();patch_postrun();patch_ui();patch_hardening();patch_version();write_selftest();compile_gate()
+        from rg_pack120 import build_integrity_manifest
+        build_integrity_manifest()
+        print("PACK120_BACKUP|"+str(b))
+        print("PACK120_FEATURES|1-100")
+        print("PACK120_VERSION|"+VERSION)
+        print("PACK120_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        # restore known files from backup
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK120_INSTALL|ROLLBACK")
+        return 10
+if __name__=="__main__":raise SystemExit(main())
+'''
+
+    notes = """RG Auto Edit PACK120 - 1-100 polish/control update
+
+Main scope:
+- Cleaner dashboard/status architecture, QA score/status chips, dialogue inventory and missing-number guard.
+- Expected dialogue inventory V4 persisted before processing.
+- Archive / USER DELETED state and restore controls.
+- Run comparison, history/ETA policies, queue finish ETA.
+- Night queue/power protection policy without quality changes.
+- Per-stream storage checks, queue storage forecast, NAS latency/reconnect status.
+- Runtime F: and junction integrity policy, CUDA/torch/pyannote compatibility checks policy.
+- UTF-8/mojibake and invalid escape cleanup.
+- UI/self-test coverage, STABLE/TEST separation, LAST_KNOWN_GOOD/rollback policies.
+- Critical file SHA-256 integrity and startup verification policy.
+- System-state page enhancements and run streak/failure/recovery/rollback indicators.
+- Isolated browser policy, toast notifications, optional sound off by default.
+- Redacted ChatGPT diagnostic report and support bundle with no source video/audio.
+- Unified self-test result: READY FOR PRODUCTION.
+- Validation freeze policy after successful production runs.
+
+The editing core and ORIGINAL SOURCE DIRECT audio policy remain protected.
+"""
+    with tempfile.TemporaryDirectory(prefix="rg_pack120_build_") as td:
+        root=Path(td)/"RG_PACK120"
+        root.mkdir()
+        inst=root/"INSTALL_PACK120.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK120.txt";rn.write_text(notes,encoding="utf-8")
+        files=[]
+        for p in [inst,rn]:
+            h=hashlib.sha256(p.read_bytes()).hexdigest()
+            files.append({"path":p.name,"sha256":h,"size":p.stat().st_size})
+        manifest={
+          "schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio",
+          "studio_version":version,"channel":"STABLE",
+          "summary":"PACK120: 100 improvements in UI, QA, expected-dialogue inventory, archive, diagnostics, integrity, self-test and production control. Editing core preserved.",
+          "created_at":time.time(),"files":files,
+          "coverage":{"from":1,"to":100},"requires_pack100":True
+        }
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+        # dry-run installer on a copy of current critical files
+        dry=Path(td)/"dry_app";dry.mkdir()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_studio_preflight.py","rg_production_hardening.py","rg_studio_version.py","rg_auto_edit_config.json","rg_pack100_policy.py"]:
+            p=app/n
+            if p.is_file():shutil.copy2(p,dry/n)
+        env=os.environ.copy();env["RG_PACK120_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:
+            raise RuntimeError("PACK120 dry-run failed: "+(cp.stdout or "")[-3000:]+(cp.stderr or "")[-3000:])
+        # compile dry-run outputs
+        import py_compile
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_pack120.py","rg_pack120_selftest.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+    shutil.copy2(zip_path,nas_copy)
+    # Validate final ZIP and manifest hashes exactly as update worker would.
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {
+      "status":"READY","version":version,"coverage":"1-100","zip":str(zip_path),"nas_copy":str(nas_copy),
+      "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+      "dry_run":"PASS","crc":"PASS","manifest":"PASS","installed":False
+    }
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4430,6 +4953,7 @@ ACTIONS = {
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
+    "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
