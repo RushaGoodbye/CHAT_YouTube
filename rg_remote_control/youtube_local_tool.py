@@ -841,6 +841,129 @@ def sync_recent_live_for_today() -> dict:
     finally:
         conn.close()
 
+
+def find_today_upcoming_live_broadcasts() -> dict:
+    """Find upcoming broadcasts on the LIVE channel with minimal quota."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rg_youtube_control.db import connect, upsert_video
+    from rg_youtube_control.metadata_audit import audit
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        record_quota_units,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    conn = connect(_db_path())
+    try:
+        before = today_quota_units(conn)
+        client = YouTubeClient(profile="live")
+        client.credentials()
+        response = client.service().liveBroadcasts().list(
+            part="id,snippet,status",
+            broadcastStatus="upcoming",
+            mine=True,
+            maxResults=50,
+        ).execute()
+        record_quota_units(
+            conn,
+            READ_REQUEST_COST,
+            purpose="service",
+        )
+        broadcasts = response.get("items", []) or []
+        ids = [str(item.get("id") or "") for item in broadcasts if item.get("id")]
+        details = []
+        if ids:
+            details, requests = client.video_details_with_request_count(ids)
+            record_quota_units(
+                conn,
+                int(requests) * READ_REQUEST_COST,
+                purpose="service",
+            )
+
+        details_by_id = {str(item.get("id")): item for item in details}
+        kyiv = ZoneInfo("Europe/Kyiv")
+        kyiv_today = datetime.now(kyiv).date()
+        result_items = []
+
+        for item in broadcasts:
+            video_id = str(item.get("id") or "")
+            snippet = item.get("snippet", {}) or {}
+            raw_start = str(snippet.get("scheduledStartTime") or "")
+            try:
+                start_dt = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+                kyiv_dt = start_dt.astimezone(kyiv)
+                is_today = kyiv_dt.date() == kyiv_today
+                kyiv_iso = kyiv_dt.isoformat()
+            except Exception:
+                kyiv_dt = None
+                is_today = False
+                kyiv_iso = ""
+
+            detail = details_by_id.get(video_id, {})
+            dsn = detail.get("snippet", {}) or {}
+            dst = detail.get("status", {}) or {}
+            dct = detail.get("contentDetails", {}) or {}
+            stats = detail.get("statistics", {}) or {}
+            title = str(dsn.get("title") or snippet.get("title") or "")
+            description = str(dsn.get("description") or snippet.get("description") or "")
+            tags = dsn.get("tags") or []
+            audit_result = audit(
+                description,
+                tags,
+                title,
+                dct.get("duration"),
+            )
+            if detail:
+                upsert_video(
+                    conn,
+                    {
+                        "video_id": video_id,
+                        "profile": "live",
+                        "channel_id": dsn.get("channelId"),
+                        "title": title,
+                        "published_at": dsn.get("publishedAt"),
+                        "scheduled_publish_at": raw_start or dst.get("publishAt"),
+                        "privacy_status": dst.get("privacyStatus"),
+                        "duration": dct.get("duration"),
+                        "views": int(stats.get("viewCount") or 0),
+                        "audit": {
+                            "score": audit_result.score,
+                            "issues": list(audit_result.issues),
+                        },
+                    },
+                )
+
+            result_items.append({
+                "video_id": video_id,
+                "title": title,
+                "scheduled_start": raw_start,
+                "scheduled_kyiv": kyiv_iso,
+                "is_today_kyiv": is_today,
+                "privacy_status": dst.get("privacyStatus"),
+                "description_chars": len(description),
+                "tags_count": len(tags),
+                "audit_issues": list(audit_result.issues),
+                "life_cycle_status": (
+                    item.get("status", {}) or {}
+                ).get("lifeCycleStatus"),
+            })
+
+        after = today_quota_units(conn)
+        return {
+            "youtube_api_calls": max(0, after - before),
+            "today_kyiv": kyiv_today.isoformat(),
+            "upcoming_count": len(result_items),
+            "upcoming": result_items,
+            "today_upcoming": [
+                item for item in result_items if item["is_today_kyiv"]
+            ],
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -864,6 +987,8 @@ def main() -> int:
         result = launch_diagnostic()
     elif action == "youtube_local_sync_recent_live_for_today":
         result = sync_recent_live_for_today()
+    elif action == "youtube_local_find_today_upcoming_live_broadcasts":
+        result = find_today_upcoming_live_broadcasts()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
