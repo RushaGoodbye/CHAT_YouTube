@@ -1917,6 +1917,95 @@ def apply_ready_scheduled_batch() -> dict:
     finally:
         conn.close()
 
+
+def inspect_ready_scheduled_mismatches() -> dict:
+    """Read actual metadata for scheduled drafts still marked ready after a write."""
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.optimization import (
+        compose_description,
+        sanitize_imported_package_description,
+    )
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        record_quota_units,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    conn = connect(_db_path())
+    try:
+        rows = conn.execute(
+            """SELECT v.video_id,v.profile,v.title,
+                      d.new_title,d.description,d.chapters,d.tags_json
+               FROM videos v
+               JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.scheduled_publish_at IS NOT NULL
+                 AND d.status='ready'
+               ORDER BY v.scheduled_publish_at ASC"""
+        ).fetchall()
+        before = today_quota_units(conn)
+        result = []
+        by_profile: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            by_profile.setdefault(str(row["profile"] or "main"), []).append(row)
+
+        for profile, profile_rows in by_profile.items():
+            client = YouTubeClient(profile=profile)
+            client.credentials()
+            ids = [str(row["video_id"]) for row in profile_rows]
+            items, requests = client.video_details_with_request_count(ids)
+            record_quota_units(
+                conn,
+                int(requests) * READ_REQUEST_COST,
+                purpose="service",
+            )
+            actual = {str(item.get("id") or ""): item for item in items}
+            for row in profile_rows:
+                video_id = str(row["video_id"])
+                item = actual.get(video_id, {})
+                snippet = item.get("snippet", {}) or {}
+                expected_title = str(row["new_title"] or "").strip()
+                expected_description = sanitize_imported_package_description(
+                    str(row["description"] or "").strip(),
+                    expected_title,
+                ).after
+                expected_description = compose_description(
+                    expected_description,
+                    str(row["chapters"] or "").strip(),
+                )
+                expected_tags = [
+                    str(x).strip()
+                    for x in json.loads(row["tags_json"] or "[]")
+                    if str(x).strip()
+                ]
+                actual_title = str(snippet.get("title") or "")
+                actual_description = str(snippet.get("description") or "")
+                actual_tags = list(snippet.get("tags") or [])
+                result.append({
+                    "video_id": video_id,
+                    "title_match": actual_title == expected_title,
+                    "description_match": actual_description == expected_description,
+                    "expected_description_chars": len(expected_description),
+                    "actual_description_chars": len(actual_description),
+                    "expected_description": expected_description,
+                    "actual_description": actual_description,
+                    "expected_tags": expected_tags,
+                    "actual_tags": actual_tags,
+                    "tags_match_casefold_set": {
+                        str(x).casefold() for x in expected_tags
+                    } == {
+                        str(x).casefold() for x in actual_tags
+                    },
+                })
+        after = today_quota_units(conn)
+        return {
+            "youtube_api_units_tracked": max(0, after - before),
+            "ready_count": len(rows),
+            "items": result,
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1958,6 +2047,8 @@ def main() -> int:
         result = enable_archive_priority_campaign()
     elif action == "youtube_local_apply_ready_scheduled_batch":
         result = apply_ready_scheduled_batch()
+    elif action == "youtube_local_inspect_scheduled_mismatches":
+        result = inspect_ready_scheduled_mismatches()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
