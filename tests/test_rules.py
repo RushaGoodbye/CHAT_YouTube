@@ -208,6 +208,81 @@ def test_safe_description_fix_adds_only_missing_link():
     assert "додано посилання на донат" in fixed.changes
 
 
+
+def test_safe_description_fix_replaces_legacy_rg_header_with_canonical_links():
+    from rg_youtube_control.config import DONATE_URL, PROJECT_LINKS_URL
+    from rg_youtube_control.optimization import safe_description_fix
+
+    title = "Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ"
+    source = """🔔 КАНАЛ ДЛЯ СТРИМІВ: https://www.youtube.com/channel/old
+👉 Стати партнером проекту: https://www.buymeacoffee.com/rushagoodbye
+👉 Підтримати автора додатковим спонсорством каналу
+https://www.youtube.com/channel/old/join
+
+ЗБІР ТРИВАЄ
+💲 ДЛЯ ЗСУ:
+💳 Monobank: 5375 4141 0007 0407
+💳 ПриватБанк: 5168 7520 0183 7924
+💳 PayPal: alex@brights.io
+
+💲 НА РОЗВИТОК ПРОЕКТУ:
+💳 ПриватБанк: 5169 3600 2070 3546
+👉 За посиланням: https://bit.ly/3LaPGSb
+💳 PayPal: alex@brights.io
+КРИПТОГАМАНЕЦЬ:
+USDT (BEP20) 0x5f337cb7d6293a5c34ce20a76968fdb06e3243c0
+
+Телеграм канал проекту:
+https://t.me/rushagoodbye
+
+TikTok канали проекту:
+https://www.tiktok.com/@uanegotiator
+https://www.tiktok.com/@rushagoodbye
+
+📌 Проект «ХОЧУ ЖИТЬ» @hochuzhit
+https://hochuzhit.com/
+https://t.me/hochu_zhyt
+
+Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ
+#чатрулетка #рашагудбай #опросроссиян #alexlos"""
+
+    fixed = safe_description_fix(source, title)
+
+    assert fixed.after.startswith(title)
+    assert "buymeacoffee.com" not in fixed.after
+    assert "Monobank:" not in fixed.after
+    assert "ПриватБанк:" not in fixed.after
+    assert "PayPal:" not in fixed.after
+    assert "t.me/rushagoodbye" not in fixed.after
+    assert "tiktok.com" not in fixed.after
+    assert "hochuzhit.com" not in fixed.after
+    assert fixed.after.count(PROJECT_LINKS_URL) == 1
+    assert fixed.after.count(DONATE_URL) == 1
+    assert fixed.after.count("УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:") == 1
+    assert fixed.after.count("УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:") == 1
+    assert "прибрано застарілий блок посилань і реквізитів" in fixed.changes
+
+
+def test_safe_description_fix_keeps_normal_body_and_rebuilds_service_block():
+    from rg_youtube_control.config import DONATE_URL, PROJECT_LINKS_URL
+    from rg_youtube_control.optimization import safe_description_fix
+
+    title = "Тестове відео"
+    source = (
+        "Основний опис відео без старого службового блоку.\n\n"
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        f"{PROJECT_LINKS_URL}\n\n"
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
+        f"{DONATE_URL}"
+    )
+
+    fixed = safe_description_fix(source, title)
+
+    assert fixed.after.startswith("Основний опис відео")
+    assert fixed.after.count(PROJECT_LINKS_URL) == 1
+    assert fixed.after.count(DONATE_URL) == 1
+
+
 def test_safe_link_issue_detection():
     from rg_youtube_control.optimization import has_safe_link_issue
 
