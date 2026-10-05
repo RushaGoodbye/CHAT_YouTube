@@ -6745,6 +6745,25 @@ def inspect_auto_edit_progress_pipeline() -> dict:
     return out
 
 
+def inspect_auto_edit_progress_functions() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    src=p.read_text(encoding="utf-8",errors="replace")
+    rows=src.splitlines()
+    tree=ast.parse(src)
+    needles=["progress.setValue","percent.setText","metric_elapsed","proc_eta_value","started_at","readyReadStandardOutput","readAllStandardOutput","_stdout_buf","RGPROGRESS","RGSTAGE","heartbeat","_batch_set","smart_eta"]
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+            a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            body="\n".join(rows[a:b])
+            if any(n.lower() in body.lower() for n in needles):
+                out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    return {"path":str(p),"functions":out}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6795,6 +6814,7 @@ ACTIONS = {
     "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
     "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
     "inspect_auto_edit_progress_pipeline": inspect_auto_edit_progress_pipeline,
+    "inspect_auto_edit_progress_functions": inspect_auto_edit_progress_functions,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
