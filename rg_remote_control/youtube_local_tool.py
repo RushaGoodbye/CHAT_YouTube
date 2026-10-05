@@ -412,6 +412,108 @@ def quota_plan_status() -> dict:
         conn.close()
 
 
+
+def live_archive_audit() -> dict:
+    """Audit only already-published LIVE-channel videos using local SQLite."""
+    from statistics import median
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.optimization import (
+        archive_potential_score,
+        is_safe_archive_candidate,
+    )
+
+    conn = connect(_db_path())
+    try:
+        rows = conn.execute(
+            """SELECT v.video_id,v.title,v.views,v.audit_json,v.published_at,
+                      v.privacy_status,v.scheduled_publish_at,
+                      d.status AS draft_status,
+                      a.analytics_views,a.impressions,a.ctr_percent
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               LEFT JOIN video_analytics_cache a
+                 ON a.video_id=v.video_id AND a.profile=v.profile
+               WHERE v.profile='live'
+                 AND v.scheduled_publish_at IS NULL
+               ORDER BY COALESCE(v.published_at,'') DESC"""
+        ).fetchall()
+
+        public_rows = [
+            row for row in rows
+            if str(row["privacy_status"] or "") == "public"
+        ]
+        ctr_values = [
+            float(row["ctr_percent"] or 0)
+            for row in public_rows
+            if int(row["impressions"] or 0) >= 1000
+            and float(row["ctr_percent"] or 0) > 0
+        ]
+        channel_median_ctr = median(ctr_values) if ctr_values else 0.0
+
+        candidates = []
+        status_counts = {"none": 0, "draft": 0, "ready": 0, "applied": 0}
+        audit_buckets = {"100": 0, "70_99": 0, "below_70": 0}
+        for row in public_rows:
+            try:
+                audit = json.loads(str(row["audit_json"] or "{}"))
+            except Exception:
+                audit = {}
+            score = int(audit.get("score") or 0)
+            issues = list(audit.get("issues") or [])
+            status = str(row["draft_status"] or "")
+            status_counts[status if status in status_counts else "none"] += 1
+            if score >= 100:
+                audit_buckets["100"] += 1
+            elif score >= 70:
+                audit_buckets["70_99"] += 1
+            else:
+                audit_buckets["below_70"] += 1
+
+            potential = archive_potential_score(
+                lifetime_views=int(row["views"] or 0),
+                analytics_views=int(row["analytics_views"] or 0),
+                impressions=int(row["impressions"] or 0),
+                ctr_percent=float(row["ctr_percent"] or 0),
+                median_ctr_percent=float(channel_median_ctr),
+                issues=issues,
+            )
+            candidates.append({
+                "video_id": str(row["video_id"]),
+                "title": str(row["title"] or ""),
+                "published_at": str(row["published_at"] or ""),
+                "views": int(row["views"] or 0),
+                "audit_score": score,
+                "issues": issues,
+                "draft_status": status or "none",
+                "safe_candidate": bool(is_safe_archive_candidate(issues)),
+                "potential": int(potential),
+                "impressions": int(row["impressions"] or 0),
+                "ctr_percent": float(row["ctr_percent"] or 0),
+            })
+
+        candidates.sort(
+            key=lambda item: (
+                -int(item["safe_candidate"]),
+                -int(item["potential"]),
+                int(item["audit_score"]),
+                -int(item["views"]),
+            )
+        )
+        return {
+            "youtube_api_calls": 0,
+            "profile": "live",
+            "scheduled_excluded": True,
+            "published_total": len(rows),
+            "public_total": len(public_rows),
+            "status_counts": status_counts,
+            "audit_buckets": audit_buckets,
+            "safe_candidates": sum(1 for item in candidates if item["safe_candidate"]),
+            "top_candidates": candidates[:50],
+        }
+    finally:
+        conn.close()
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -2606,6 +2708,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_live_archive_audit":
+        result = live_archive_audit()
     elif action == "youtube_local_stop_legacy_gui":
         result = stop_legacy_installed_gui()
     elif action == "youtube_local_sync_source_only":
