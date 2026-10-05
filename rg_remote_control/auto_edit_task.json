@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_recovery_queue",
+  "action": "apply_auto_edit_completeness_hotfix",
   "args": {},
-  "nonce": "20261005-inspect-recovery-progress-5"
+  "nonce": "20261005-completeness-v2-apply"
 }
