@@ -5856,7 +5856,7 @@ def apply_auto_edit_pack150_ui_hotfix() -> dict:
 
 def probe_auto_edit_studio_startup() -> dict:
     if os.name != "nt": raise RuntimeError("Windows only")
-    import subprocess,os,time
+    import subprocess,time
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
     py=str(runtime if runtime.is_file() else sys.executable)
