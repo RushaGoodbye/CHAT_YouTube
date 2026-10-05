@@ -1,13 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_set_vidiq_budget_state",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "vidiq-balance-sync-20261005",
-    "plan": "AIR Boost",
-    "max_renewable_credits": 2000,
-    "renewable_credits": 0,
-    "add_on_credits": 0,
-    "reset_at": "2026-10-10T20:56:47.536073Z"
+    "nonce": "refresh-after-vidiq-balance-20261005"
   }
 }
