@@ -636,6 +636,103 @@ def runtime_status() -> dict:
     }
 
 
+
+def _source_python(target: Path, *, windowed: bool = False) -> Path:
+    scripts = target / ".venv" / "Scripts"
+    candidate = scripts / ("pythonw.exe" if windowed else "python.exe")
+    if candidate.is_file():
+        return candidate
+    if windowed:
+        fallback = Path(sys.executable).with_name("pythonw.exe")
+        if fallback.is_file():
+            return fallback
+    return Path(sys.executable)
+
+
+def prepare_source_runtime() -> dict:
+    """Create/update the private venv used by the local source GUI."""
+    import subprocess
+
+    target = Path.home() / "CHAT_YouTube-main"
+    pyproject = target / "pyproject.toml"
+    run_app = target / "run_app.py"
+    if not pyproject.is_file() or not run_app.is_file():
+        raise RuntimeError(f"RG YouTube Control source is incomplete: {target}")
+
+    venv_dir = target / ".venv"
+    venv_python = venv_dir / "Scripts" / "python.exe"
+    if not venv_python.is_file():
+        created = subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_dir)],
+            cwd=str(target),
+            text=True,
+            capture_output=True,
+            timeout=180,
+        )
+        if created.returncode != 0:
+            raise RuntimeError(
+                "venv creation failed: "
+                + ((created.stderr or created.stdout) or "")[-4000:]
+            )
+
+    install = subprocess.run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "-e",
+            ".",
+        ],
+        cwd=str(target),
+        text=True,
+        capture_output=True,
+        timeout=900,
+    )
+    if install.returncode != 0:
+        raise RuntimeError(
+            "dependency install failed: "
+            + ((install.stderr or install.stdout) or "")[-8000:]
+        )
+
+    probe = subprocess.run(
+        [
+            str(venv_python),
+            "-c",
+            (
+                "import PySide6, googleapiclient, google.auth, keyring, "
+                "yt_dlp, youtube_transcript_api; "
+                "print(PySide6.__version__)"
+            ),
+        ],
+        cwd=str(target),
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            "runtime import probe failed: "
+            + ((probe.stderr or probe.stdout) or "")[-4000:]
+        )
+
+    match = re.search(
+        r'^version = "([^"]+)"',
+        pyproject.read_text(encoding="utf-8", errors="replace"),
+        re.MULTILINE,
+    )
+    return {
+        "youtube_api_calls": 0,
+        "target": str(target),
+        "version": match.group(1) if match else "",
+        "venv": str(venv_dir),
+        "python": str(venv_python),
+        "pythonw": str(venv_dir / "Scripts" / "pythonw.exe"),
+        "pyside6_version": (probe.stdout or "").strip(),
+        "install_tail": (install.stdout or "")[-2500:],
+    }
+
 def sync_and_launch_source() -> dict:
     """Safely update the fixed local source checkout and launch it."""
     import subprocess
@@ -678,8 +775,7 @@ def sync_and_launch_source() -> dict:
     )
     version = version_match.group(1) if version_match else ""
 
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    executable = pythonw if pythonw.is_file() else Path(sys.executable)
+    executable = _source_python(target, windowed=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(target / "src")
     env.pop("RUNNER_TRACKING_ID", None)
@@ -749,7 +845,7 @@ def launch_diagnostic() -> dict:
     import time
 
     target = Path.home() / "CHAT_YouTube-main"
-    python = Path(sys.executable)
+    python = _source_python(target, windowed=False)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(target / "src")
     proc = subprocess.Popen(
@@ -1259,8 +1355,7 @@ def ensure_gui_startup() -> dict:
     if not run_app.is_file():
         raise RuntimeError(f"run_app.py not found: {run_app}")
 
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    executable = pythonw if pythonw.is_file() else Path(sys.executable)
+    executable = _source_python(target, windowed=True)
 
     pyproject = target / "pyproject.toml"
     version = ""
@@ -1422,6 +1517,8 @@ def main() -> int:
         result = finalize_stream_901_local_state()
     elif action == "youtube_local_ensure_gui_startup":
         result = ensure_gui_startup()
+    elif action == "youtube_local_prepare_source_runtime":
+        result = prepare_source_runtime()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
