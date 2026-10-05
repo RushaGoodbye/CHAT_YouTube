@@ -3041,6 +3041,10 @@ def locate_auto_edit_missing_screens() -> dict:
         Path(r"\\Desktop-v7gg0en\record"),
         Path(r"F:\RG_AUTO_EDIT"),
         Path(r"C:\Users\fauto\AppData\Local\RG_Auto_Edit"),
+        Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS"),
+        Path(r"\\AlexLosServer\RG_AUTO_EDIT\CACHE"),
+        Path(r"\\AlexLosServer\RG_AUTO_EDIT\RUNS"),
+        Path(r"\\AlexLosServer\RG_AUTO_EDIT\DISASTER_RECOVERY"),
     ]
     found = {p: [] for p in patterns}
     scanned = []
