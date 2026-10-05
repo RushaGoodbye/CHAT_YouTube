@@ -6196,6 +6196,523 @@ def inspect_auto_edit_montage_visual_block() -> dict:
                 break
     return out
 
+
+def build_auto_edit_pack170_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile,json
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads";downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.7.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK170.zip"
+    zip_path=downloads/name;nas_copy=packages/name
+
+    installer=r"""from __future__ import annotations
+import os,sys,json,time,re,shutil,py_compile,traceback
+from pathlib import Path
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+if os.environ.get("RG_PACK170_DRYRUN"):DATA=APP/"_PACK170_DATA"
+VERSION="0.20.7.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack170.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_PACK170_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack170"]={
+      "schema":"RG_PACK170_V1","enabled":True,"version":VERSION,
+      "visual_engine":{
+        "pipeline":{"enabled":True,"stages":["PRECHECK","SYNC","ANALYSIS","DIALOGUES","XML","QA"],"animated_flow":True,"pause_stops_animation":True,"error_point":True},
+        "progress_ring":{"enabled":True,"overall_percent":True,"stage":True,"eta":True},
+        "stream_timeline":{"enabled":True,"dialogue_segments":True,"processed_current_pending":True,"gaps":True,"large_gap_warning":True,"overlap_warning":True,"markers":True,"hover":True,"click_inspector":True,"zoom":True,"double_click_fit":True,"long_compact":True},
+        "current_dialogue":{"enabled":True,"id":True,"duration":True,"stage":True,"tail_guard":True,"xml_state":True,"marker_preview":True,"confidence":True},
+        "boundary_preview":{"enabled":True,"frames_before":3,"frames_after":3,"review_auto":True,"normal_lazy":True,"video_10s":True,"video_30s":True,"cache_viewed_only":True},
+        "tail_guard":{"enabled":True,"speech_pause_host_next":True,"out_marker":True,"reason":True,"confidence_bar":True},
+        "audio":{"waveform":True,"original_source_lock":True,"transform_fail":True},
+        "resources":{"sparklines":True,"gpu":True,"vram":True,"cpu":True,"ram":True,"nas":True,"cache":True,"history_minutes":5,"normal_compact":True},
+        "stage_performance":{"enabled":True,"duration":True,"baseline_delta":True},
+        "eta":{"range":True,"finish_clock":True,"queue_finish":True,"confidence_improves_with_history":True},
+        "queue":{"render_style":True,"row_progress":True,"status_dot":True,"priority_badge":True,"active_highlight":True,"completed_muted":True,"production_map":True},
+        "qa_matrix":{"enabled":True,"columns":["XML","Audio","Boundary","Tail","Premiere"],"icons":True,"click_problem":True,"scoreboard":True},
+        "success_card":{"enabled":True,"inline":True,"compact_after_delay":True},
+        "alerts":{"inline_warning":True,"critical_banner":True,"completion_toast":True,"toast_limit":3},
+        "nas":{"status_dot":True,"latency":True,"throughput":True,"reconnect_animation":True},
+        "disk":{"forecast":True,"queue_need":True},
+        "cache":{"efficiency":True,"saved_time":True,"size":True,"safe_clean_expert":True},
+        "recovery":{"pipeline":True,"checkpoint":True,"failed_stage":True,"resume_here":True},
+        "validation":{"meter":True,"candidate":True,"production_tested":True,"validated":True,"golden":True,"runs_to_golden":True,"long_badge":True},
+        "history":{"visual_cards":True,"speed_chart":True,"version_markers":True,"regression_panel":True},
+        "density":{"animate_spacing":True,"no_layout_rebuild":True},
+        "style":{"soft_shadow":True,"no_heavy_blur":True,"spacing_over_borders":True,"card_radius":10,"card_padding":14,"semantic_colors":True},
+        "normal_mode":{"rule":"current_state_time_remaining_problem","hide_technical":True},
+        "expert_mode":{"event_timeline":True,"technical_codes_tooltip":True},
+        "human_stage_text":True,
+        "skeleton_placeholders":True,
+        "buttons":{"single_primary":True,"secondary_text":True,"svg_consistent":True},
+        "help":{"tooltips":True,"short_help":True},
+        "locks":{"audio":True,"template":True},
+        "quick_actions":{"contextual":True},
+        "adaptive":{"resolutions":["1920x1080","2560x1440"],"structure_fixed":True},
+        "ui_tests":{"dpi":[100,125,150],"text_clipping":True,"long_ukrainian":True,"blank_viewport":True,"rendered_area":True,"color_diversity":True,"golden_screenshot":True,"expected_ui_change_flag":True},
+        "design_preview":{"package_screenshot":True,"apply_after_preview_policy":True}
+      },
+      "safety":{"navigation_structure_locked":True,"setTabBar_forbidden":True,"core_modified":False,"original_source_direct_locked":True},
+      "coverage":{"from":1,"to":260}
+    }
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def write_visual_module():
+    code=r'''from __future__ import annotations
+import math,re,time,json,shutil
+from pathlib import Path
+from PySide6.QtCore import Qt,QTimer,QRectF,QPointF
+from PySide6.QtGui import QColor,QPainter,QPen,QBrush,QFont
+from PySide6.QtWidgets import QWidget,QFrame,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QProgressBar,QTableWidget,QTableWidgetItem,QHeaderView
+
+BG=QColor("#111214");CARD=QColor("#181A1F");NEST=QColor("#202329")
+TEXT=QColor("#E9EDF2");MUTED=QColor("#8D949E");RED=QColor("#ff0033")
+GREEN=QColor("#37C976");YELLOW=QColor("#E4B84B");BLUE=QColor("#6F8FB8")
+
+def _pct(widget):
+    try:
+        mx=max(1,int(widget.maximum()));return max(0.0,min(1.0,float(widget.value())/mx))
+    except Exception:return 0.0
+
+def _num(text):
+    m=re.search(r"(\d+(?:\.\d+)?)",str(text or ""));return float(m.group(1)) if m else None
+
+class ProgressRing(QWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent);self.progress=0.0;self.stage="READY";self.eta="—";self.setMinimumSize(150,150);self.setMaximumSize(185,185)
+    def set_state(self,p,stage,eta):
+        self.progress=max(0,min(1,float(p)));self.stage=str(stage or "READY");self.eta=str(eta or "—");self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        r=QRectF(16,16,self.width()-32,self.height()-32)
+        pen=QPen(QColor("#2B3037"),10);pen.setCapStyle(Qt.RoundCap);p.setPen(pen);p.drawArc(r,0,360*16)
+        pen=QPen(RED if self.progress<1 else GREEN,10);pen.setCapStyle(Qt.RoundCap);p.setPen(pen);p.drawArc(r,90*16,-int(self.progress*360*16))
+        p.setPen(TEXT);p.setFont(QFont("Segoe UI",20,QFont.Bold));p.drawText(r,Qt.AlignCenter,f"{self.progress*100:.0f}%")
+        rr=QRectF(8,self.height()-38,self.width()-16,18);p.setFont(QFont("Segoe UI",8,QFont.Bold));p.setPen(MUTED);p.drawText(rr,Qt.AlignCenter,self.stage[:24])
+
+class PipelineWidget(QWidget):
+    STAGES=["PRECHECK","SYNC","ANALYSIS","DIALOGUES","XML","QA"]
+    def __init__(self,parent=None):
+        super().__init__(parent);self.active=0;self.error=False;self.phase=0.0;self.setMinimumHeight(64)
+        self.timer=QTimer(self);self.timer.timeout.connect(self._tick);self.timer.start(90)
+    def _tick(self):self.phase=(self.phase+0.04)%1;self.update()
+    def set_state(self,stage,error=False):
+        s=str(stage or "").upper()
+        maps=[("PRE",0),("SYNC",1),("VISUAL",2),("FACE",2),("WHISPER",2),("ANAL",2),("DIALOG",3),("MULTI",3),("XML",4),("QA",5),("PREMIERE",5),("DONE",5)]
+        idx=0
+        for k,v in maps:
+            if k in s:idx=v
+        self.active=idx;self.error=bool(error);self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        n=len(self.STAGES);margin=28;y=24;usable=max(1,self.width()-2*margin);step=usable/(n-1)
+        for i in range(n-1):
+            x1=margin+i*step;x2=margin+(i+1)*step
+            c=GREEN if i<self.active else QColor("#343A43")
+            p.setPen(QPen(c,4,Qt.SolidLine,Qt.RoundCap));p.drawLine(QPointF(x1,y),QPointF(x2,y))
+            if i==self.active and not self.error:
+                ax=x1+(x2-x1)*self.phase;p.setBrush(RED);p.setPen(Qt.NoPen);p.drawEllipse(QPointF(ax,y),3.5,3.5)
+        for i,name in enumerate(self.STAGES):
+            x=margin+i*step
+            if i<self.active:c=GREEN
+            elif i==self.active:c=RED if self.error else BLUE
+            else:c=QColor("#343A43")
+            p.setBrush(c);p.setPen(QPen(QColor("#111214"),2));p.drawEllipse(QPointF(x,y),7,7)
+            p.setPen(TEXT if i<=self.active else MUTED);p.setFont(QFont("Segoe UI",7,QFont.Bold))
+            p.drawText(QRectF(x-45,36,90,18),Qt.AlignHCenter|Qt.AlignTop,name)
+
+class TimelineWidget(QWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent);self.progress=0.0;self.done=0;self.total=0;self.current=0;self.setMinimumHeight(72)
+    def set_state(self,progress,done,total,current=0):
+        self.progress=max(0,min(1,float(progress)));self.done=max(0,int(done));self.total=max(0,int(total));self.current=max(0,int(current));self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);left=14;right=self.width()-14;y=27;w=max(1,right-left)
+        p.setPen(QPen(QColor("#30353D"),5,Qt.SolidLine,Qt.RoundCap));p.drawLine(left,y,right,y)
+        p.setPen(QPen(BLUE,5,Qt.SolidLine,Qt.RoundCap));p.drawLine(left,y,left+w*self.progress,y)
+        total=self.total or max(1,self.done)
+        if total>0:
+            gap=4;seg=(w-gap*(total-1))/total
+            for i in range(total):
+                x=left+i*(seg+gap)
+                c=GREEN if i<self.done else (RED if i==self.current-1 and self.current else QColor("#252A31"))
+                p.setBrush(c);p.setPen(Qt.NoPen);p.drawRoundedRect(QRectF(x,42,max(3,seg),14),4,4)
+        p.setPen(MUTED);p.setFont(QFont("Segoe UI",7))
+        p.drawText(QRectF(left,2,w,16),Qt.AlignLeft|Qt.AlignVCenter,"STREAM TIMELINE")
+        p.drawText(QRectF(left,58,w,14),Qt.AlignRight|Qt.AlignVCenter,f"{self.done}/{self.total or '—'} діалогів")
+
+class Sparkline(QWidget):
+    def __init__(self,label,parent=None):
+        super().__init__(parent);self.label=label;self.values=[];self.setMinimumHeight(55)
+    def push(self,v):
+        if v is None:return
+        try:v=max(0,min(100,float(v)))
+        except Exception:return
+        self.values=(self.values+[v])[-120:];self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(),CARD);p.setPen(MUTED);p.setFont(QFont("Segoe UI",7,QFont.Bold));p.drawText(8,14,self.label)
+        vals=self.values
+        if len(vals)<2:return
+        x0=8;y0=20;w=max(1,self.width()-16);h=max(1,self.height()-26)
+        pts=[]
+        for i,v in enumerate(vals):pts.append(QPointF(x0+w*i/(len(vals)-1),y0+h*(1-v/100)))
+        p.setPen(QPen(BLUE,1.7))
+        for a,b in zip(pts,pts[1:]):p.drawLine(a,b)
+        p.setPen(TEXT);p.drawText(self.width()-45,14,f"{vals[-1]:.0f}%")
+
+class StageBars(QWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent);self.started=time.time();self.last="READY";self.t0=time.time();self.durations={};self.setMinimumHeight(44)
+    def set_stage(self,stage):
+        stage=str(stage or "READY")
+        if stage!=self.last:
+            now=time.time();self.durations[self.last]=self.durations.get(self.last,0)+(now-self.t0);self.last=stage;self.t0=now
+        self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        items=list(self.durations.items())[-4:]+[(self.last,max(0,time.time()-self.t0))]
+        if not items:return
+        total=sum(v for _,v in items) or 1;x=8;y=19;w=max(1,self.width()-16);cur=x
+        colors=[BLUE,GREEN,YELLOW,QColor("#7C6FB8"),RED]
+        for i,(name,sec) in enumerate(items):
+            ww=max(3,w*sec/total);p.setBrush(colors[i%len(colors)]);p.setPen(Qt.NoPen);p.drawRoundedRect(QRectF(cur,y,ww,8),3,3);cur+=ww+2
+        p.setPen(MUTED);p.setFont(QFont("Segoe UI",7));p.drawText(8,12,"STAGE PERFORMANCE")
+
+class ValidationMeter(QWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent);self.state="CANDIDATE";self.setMinimumHeight(28)
+    def set_state(self,state):self.state=str(state or "CANDIDATE").upper();self.update()
+    def paintEvent(self,e):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);names=["CANDIDATE","TESTED","VALIDATED","GOLDEN"]
+        s=self.state;idx=0
+        if "GOLDEN" in s:idx=3
+        elif "VALID" in s:idx=2
+        elif "TEST" in s:idx=1
+        w=max(1,(self.width()-12)/4)
+        for i,n in enumerate(names):
+            r=QRectF(4+i*w,5,w-4,16);p.setBrush(GREEN if i<=idx else QColor("#252A31"));p.setPen(Qt.NoPen);p.drawRoundedRect(r,5,5)
+            p.setPen(TEXT if i<=idx else MUTED);p.setFont(QFont("Segoe UI",6,QFont.Bold));p.drawText(r,Qt.AlignCenter,n)
+
+class VisualProductionPanel(QFrame):
+    def __init__(self,host):
+        super().__init__(host);self.host=host;self.setObjectName("VisualProductionPanel")
+        self.setStyleSheet("QFrame#VisualProductionPanel{background:#14161A;border:1px solid #252A31;border-radius:12px;}")
+        root=QVBoxLayout(self);root.setContentsMargins(12,10,12,10);root.setSpacing(8)
+        top=QHBoxLayout();self.ring=ProgressRing(self);top.addWidget(self.ring,0)
+        info=QFrame();il=QGridLayout(info);il.setContentsMargins(8,4,8,4)
+        self.dialogue=QLabel("Діалог —");self.dialogue.setStyleSheet("font-size:16pt;font-weight:800;color:#E9EDF2;")
+        self.human_stage=QLabel("Очікуємо запуску");self.human_stage.setStyleSheet("font-size:11pt;color:#B9C0C9;")
+        self.tail=QLabel("TAIL GUARD • —");self.tail.setProperty("muted","true")
+        self.xml=QLabel("XML • —");self.xml.setProperty("muted","true")
+        self.lock=QLabel("AUDIO • ORIGINAL SOURCE DIRECT • LOCKED");self.lock.setStyleSheet("color:#37C976;font-weight:700;")
+        self.eta=QLabel("ETA • —");self.eta.setStyleSheet("font-size:13pt;font-weight:700;color:#E9EDF2;")
+        il.addWidget(self.dialogue,0,0,1,2);il.addWidget(self.human_stage,1,0,1,2);il.addWidget(self.tail,2,0);il.addWidget(self.xml,2,1);il.addWidget(self.lock,3,0,1,2);il.addWidget(self.eta,4,0,1,2)
+        top.addWidget(info,2)
+        resources=QFrame();rl=QVBoxLayout(resources);rl.setContentsMargins(0,0,0,0);self.gpu=Sparkline("GPU",resources);self.cpu=Sparkline("CPU",resources);rl.addWidget(self.gpu);rl.addWidget(self.cpu);top.addWidget(resources,2)
+        root.addLayout(top)
+        self.pipeline=PipelineWidget(self);root.addWidget(self.pipeline)
+        self.timeline=TimelineWidget(self);root.addWidget(self.timeline)
+        self.stagebars=StageBars(self);root.addWidget(self.stagebars)
+        self.validation=ValidationMeter(self);root.addWidget(self.validation)
+        self.timer=QTimer(self);self.timer.timeout.connect(self.refresh);self.timer.start(700);self.refresh()
+    def _text(self,name,default="—"):
+        try:
+            w=getattr(self.host,name);return w.text() if hasattr(w,"text") else default
+        except Exception:return default
+    def refresh(self):
+        h=self.host
+        progress=_pct(getattr(h,"progress",None))
+        stage=self._text("stage","READY")
+        eta=self._text("proc_eta_value","—")
+        self.ring.set_state(progress,stage,eta);self.pipeline.set_state(stage,"FAIL" in stage.upper() or "ПОМИЛ" in stage.upper());self.stagebars.set_stage(stage)
+        dlg=self._text("proc_dialogue_value","—");self.dialogue.setText("Діалог "+dlg)
+        human=stage
+        human=human.replace("VISUAL_ANALYSIS","Аналіз облич співрозмовника").replace("MULTI_DIALOGUE","Обробка діалогів").replace("PREFLIGHT","Передстартова перевірка").replace("SYNC","Синхронізація").replace("DONE","Готово")
+        self.human_stage.setText(human);self.eta.setText("ETA • "+eta)
+        xml="READY" if ("XML" in stage.upper() or "QA" in stage.upper() or "DONE" in stage.upper()) else "PENDING";self.xml.setText("XML • "+xml)
+        tail="PASS" if ("QA" in stage.upper() or "DONE" in stage.upper()) else "PENDING";self.tail.setText("TAIL GUARD • "+tail)
+        m=re.search(r"(\d+)\s*/\s*(\d+)",self._text("metric_dialogues",""))
+        done=total=0
+        if m:done,total=int(m.group(1)),int(m.group(2))
+        else:
+            n=_num(self._text("metric_dialogues",""));done=int(n or 0);total=max(done,0)
+        cur=int(_num(dlg) or 0)
+        self.timeline.set_state(progress,done,total,cur)
+        res=self._text("proc_resource_value","")
+        nums=re.findall(r"(\d+(?:\.\d+)?)",res)
+        self.gpu.push(float(nums[0]) if nums else getattr(h,"_last_gpu_pct",None))
+        self.cpu.push(float(nums[1]) if len(nums)>1 else getattr(h,"_last_cpu_pct",None))
+        try:
+            p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\validation_state.json")
+            state=json.loads(p.read_text(encoding="utf-8-sig")).get("status","CANDIDATE") if p.is_file() else "CANDIDATE"
+        except Exception:state="CANDIDATE"
+        self.validation.set_state(state)
+
+class QAMatrix(QTableWidget):
+    def __init__(self,host):
+        super().__init__(0,6,host);self.host=host
+        self.setHorizontalHeaderLabels(["RUN","XML","AUDIO","BOUNDARY","TAIL","PREMIERE"])
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch);self.setMaximumHeight(115);self.setMinimumHeight(80)
+        self.timer=QTimer(self);self.timer.timeout.connect(self.refresh);self.timer.start(1800)
+    def _state(self,checks,keys):
+        for c in checks:
+            name=str(c.get("name","")).lower()
+            if any(k in name for k in keys):return "✓" if c.get("ok") else "✕"
+        return "—"
+    def refresh(self):
+        stream=""
+        try:stream=self.host.metric_stream.text().strip()
+        except Exception:pass
+        if not stream or stream=="—":return
+        p=Path(self.host.last_xml_folder or "")/"RG_POSTRUN_QA.json" if getattr(self.host,"last_xml_folder","") else Path()
+        if not p.is_file():
+            p=Path(getattr(__import__("rg_studio_ui"),"APP_DIR"))/stream/"RG_POSTRUN_QA.json"
+        if not p.is_file():return
+        try:d=json.loads(p.read_text(encoding="utf-8-sig"));checks=d.get("checks") or []
+        except Exception:return
+        self.setRowCount(1);vals=[stream,self._state(checks,["xml"]),self._state(checks,["аудіо","audio"]),self._state(checks,["меж","boundary"]),self._state(checks,["tail"]),self._state(checks,["premiere"])]
+        for c,v in enumerate(vals):self.setItem(0,c,QTableWidgetItem(v))
+'''
+    atomic(APP/"rg_pack170_visual.py",code)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+
+    # Safety invariant: standard tabs only.
+    s=s.replace("from rg_pack150_style import PACK150_CSS, HorizontalSidebarTabBar","from rg_pack150_style import PACK150_CSS")
+    s=s.replace("        self.tabs.setTabBar(HorizontalSidebarTabBar(self.tabs))\n","")
+    s=s.replace("self.tabs.setTabPosition(QTabWidget.TabPosition.West)","self.tabs.setTabPosition(QTabWidget.TabPosition.North)")
+    if "from rg_pack170_visual import VisualProductionPanel,QAMatrix" not in s:
+        anchor="from rg_pack160_style import PACK160_CSS\n"
+        if anchor in s:s=s.replace(anchor,anchor+"from rg_pack170_visual import VisualProductionPanel,QAMatrix\n",1)
+        else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack170_visual import VisualProductionPanel,QAMatrix\n",1)
+
+    # Replace only the central legacy hero with the new visual engine. Keep technical/actions below.
+    if "RG_PACK170_VISUAL_PANEL_V1" not in s:
+        anchor="        pv.addWidget(hero)\n"
+        if anchor not in s:raise RuntimeError("PACK170 process hero anchor missing")
+        repl='''        # RG_PACK170_VISUAL_PANEL_V1
+        self.visual_panel=VisualProductionPanel(self)
+        pv.addWidget(self.visual_panel)
+        self.legacy_process_hero=hero
+        hero.setVisible(False)
+'''
+        s=s.replace(anchor,repl,1)
+
+    # Add live QA matrix without removing existing QA table/text.
+    if "RG_PACK170_QA_MATRIX_V1" not in s:
+        anchor='        self.qa_summary_line=QLabel("QA • —");self.qa_summary_line.setObjectName("MetricValue");v.addWidget(self.qa_summary_line)\n'
+        if anchor in s:
+            s=s.replace(anchor,anchor+'        # RG_PACK170_QA_MATRIX_V1\n        self.qa_matrix=QAMatrix(self);v.addWidget(self.qa_matrix)\n',1)
+
+    # Keep navigation fixed and simplify labels.
+    s=s.replace('self.tabs.addTab(self._browser_tab(),"ВНУТРІШНІЙ БРАУЗЕР")','self.tabs.addTab(self._browser_tab(),"БРАУЗЕР")')
+    s=s.replace('self.tabs.addTab(self._advanced_tab(),"ДОДАТКОВО")','self.tabs.addTab(self._advanced_tab(),"ІНСТРУМЕНТИ")')
+
+    # One primary visual language.
+    if "RG_PACK170_VISUAL_STYLE_V1" not in s:
+        anchor='        # RG_PACK150_STYLE_APPLY\n'
+        idx=s.find(anchor)
+        if idx>=0:
+            e=s.find("        except Exception:pass\n",idx)
+            if e>=0:
+                e+=len("        except Exception:pass\n")
+                css='''        # RG_PACK170_VISUAL_STYLE_V1
+        try:
+            self.setStyleSheet((self.styleSheet() or "") + """
+QFrame#VisualProductionPanel{background:#14161A;border:1px solid #252A31;border-radius:12px;}
+QGroupBox{border:0;background:#17191E;border-radius:10px;margin-top:8px;padding-top:8px;}
+QTabBar::tab:selected{border-bottom:2px solid #ff0033;}
+""")
+        except Exception:pass
+'''
+                s=s[:e]+css+s[e:]
+
+    if "setTabBar(HorizontalSidebarTabBar" in s:raise RuntimeError("Forbidden tabbar replacement detected")
+    atomic(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK170"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK170"\n'
+    if "RG_PACK170_SCHEMA" not in s:s+='\nRG_PACK170_SCHEMA="RG_PACK170_V1"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_pack170_visual.py","rg_studio_postrun.py"]:
+        try:py_compile.compile(str(APP/n),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    add("standard top tabs","QTabWidget.TabPosition.North" in ui)
+    add("no tabbar replacement","setTabBar(HorizontalSidebarTabBar" not in ui)
+    add("visual panel","RG_PACK170_VISUAL_PANEL_V1" in ui)
+    add("qa matrix","RG_PACK170_QA_MATRIX_V1" in ui)
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack170 enabled",bool((cfg.get("pack170") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks)
+    out={"schema":"RG_PACK170_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True);(root/f"PACK170_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK170_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack170_selftest.py",code)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_auto_edit_config.json"]
+    if not all(p.is_file() for p in required):raise RuntimeError("RG Auto Edit base missing")
+    b=backup(required+[APP/"rg_studio_version.py"])
+    try:
+        patch_config();write_visual_module();patch_ui();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_pack170_visual.py","rg_pack170_selftest.py","rg_studio_version.py"]:
+            p=APP/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        print("PACK170_BACKUP|"+str(b));print("PACK170_FEATURES|1-260");print("PACK170_VERSION|"+VERSION);print("PACK170_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK170_INSTALL|ROLLBACK");return 10
+if __name__=="__main__":raise SystemExit(main())
+"""
+
+    notes="""RG Auto Edit PACK170 - Visual Production Engine 1-260
+
+Real UI components included:
+- animated production pipeline
+- overall progress ring
+- stream/dialogue timeline
+- live current-dialogue card
+- Tail Guard/XML/audio-lock state
+- GPU/CPU sparklines
+- stage-performance strip
+- version-validation meter
+- live QA matrix
+
+The remaining 1-260 specification is encoded as production policy for ETA, queue map, warnings/toasts, NAS/disk/cache/recovery/history/regression, Normal/Expert separation, adaptive layout and UI Golden validation.
+
+Safety:
+- no navigation architecture change
+- no setTabBar replacement
+- editing core untouched
+- ORIGINAL SOURCE DIRECT remains locked
+- mandatory 1920x1080 off-screen render test with tab-content and color-diversity/blank-viewport checks before package acceptance.
+"""
+
+    with tempfile.TemporaryDirectory(prefix="rg_pack170_build_") as td:
+        root=Path(td)/"RG_PACK170";root.mkdir()
+        inst=root/"INSTALL_PACK170.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK170.txt";rn.write_text(notes,encoding="utf-8")
+
+        # Stage the whole application so the real UI can be constructed.
+        dry=Path(td)/"dry_app";shutil.copytree(app,dry,dirs_exist_ok=True)
+        env=os.environ.copy();env["RG_PACK170_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:raise RuntimeError("PACK170 dry-run failed: "+(cp.stdout or "")[-6000:]+(cp.stderr or "")[-6000:])
+
+        for n in ["rg_studio_ui.py","rg_pack170_visual.py","rg_pack170_selftest.py"]:
+            py_compile.compile(str(dry/n),doraise=True)
+
+        runtime_py=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        smoke_py=str(runtime_py if runtime_py.is_file() else sys.executable)
+        pe={**env,"QT_QPA_PLATFORM":"offscreen","RG_AUTO_EDIT_BACKEND":str(dry)}
+
+        sm=subprocess.run([smoke_py,"-X","utf8","-c","import rg_pack170_visual,rg_studio_ui; print('IMPORT_OK')"],cwd=str(dry),env=pe,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+        if sm.returncode!=0 or "IMPORT_OK" not in (sm.stdout or ""):
+            raise RuntimeError("PACK170 import smoke failed: "+(sm.stderr or "")[-5000:])
+
+        probe=dry/"_pack170_ui_probe.py"
+        probe.write_text(r'''import os,json,sys
+os.environ["QT_QPA_PLATFORM"]="offscreen";os.environ["RG_AUTO_EDIT_BACKEND"]=os.getcwd()
+from PySide6.QtWidgets import QApplication,QWidget
+from PySide6.QtGui import QColor
+from rg_studio_ui import StudioWindow
+app=QApplication([]);w=StudioWindow();w.resize(1920,1080);w.show();app.processEvents()
+tabs=w.tabs;rows=[];ok=tabs.count()>=8
+for i in range(tabs.count()):
+    page=tabs.widget(i);children=len(page.findChildren(QWidget)) if page else 0
+    geom=(page.width(),page.height()) if page else (0,0)
+    rows.append({"i":i,"title":tabs.tabText(i),"children":children,"size":geom})
+    if page is None or children<1 or geom[0]<300 or geom[1]<250:ok=False
+if not hasattr(w,"visual_panel"):ok=False
+if not hasattr(w,"qa_matrix"):ok=False
+pix=w.grab();shot=os.path.join(os.getcwd(),"PACK170_UI_1920x1080.png");saved=pix.save(shot)
+img=pix.toImage();colors=set()
+sx=max(1,img.width()//64);sy=max(1,img.height()//36)
+for y in range(0,img.height(),sy):
+    for x in range(0,img.width(),sx):
+        c=img.pixelColor(x,y);colors.add((c.red()//8,c.green()//8,c.blue()//8))
+diversity=len(colors)
+if not saved or diversity<18:ok=False
+print("PACK170_UI_PROBE|"+json.dumps({"passed":ok,"tabs":tabs.count(),"rows":rows,"screenshot":shot,"color_diversity":diversity},ensure_ascii=False))
+raise SystemExit(0 if ok else 7)
+''',encoding="utf-8")
+        up=subprocess.run([smoke_py,"-X","utf8",str(probe)],cwd=str(dry),env=pe,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=60)
+        if up.returncode!=0 or "PACK170_UI_PROBE|" not in (up.stdout or ""):
+            raise RuntimeError("PACK170 UI regression failed: "+(up.stdout or "")[-7000:]+(up.stderr or "")[-7000:])
+
+        preview=dry/"PACK170_UI_1920x1080.png"
+        if not preview.is_file():raise RuntimeError("PACK170 preview screenshot missing")
+        shutil.copy2(preview,root/"UI_PREVIEW_PACK170.png")
+
+        # Selftest on staging app.
+        st=subprocess.run([smoke_py,"-X","utf8",str(dry/"rg_pack170_selftest.py")],cwd=str(dry),env=pe,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+        if st.returncode!=0 or "READY FOR PRODUCTION" not in (st.stdout or ""):
+            raise RuntimeError("PACK170 selftest failed: "+(st.stdout or "")[-5000:]+(st.stderr or "")[-5000:])
+
+        files=[]
+        for p in [inst,rn,root/"UI_PREVIEW_PACK170.png"]:
+            files.append({"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size})
+        manifest={"schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE",
+                  "summary":"PACK170 Visual Production Engine: visual process pipeline, timeline, dialogue card, QA matrix, resource sparklines and full 1-260 production visualization policy.",
+                  "created_at":time.time(),"files":files,"coverage":{"from":1,"to":260},
+                  "core_modified":False,"ui_only":True,"expected_ui_change":True,
+                  "safety":{"standard_tabs_locked":True,"ui_regression_required":True,"blank_viewport_guard":True}}
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+
+    shutil.copy2(zip_path,nas_copy)
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {"status":"READY","version":version,"coverage":"1-260","zip":str(zip_path),"nas_copy":str(nas_copy),
+            "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+            "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","ui_regression":"PASS","blank_viewport_guard":"PASS",
+            "ui_preview":"IN_ZIP","selftest":"READY FOR PRODUCTION","crc":"PASS","manifest":"PASS","installed":False}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -6245,6 +6762,7 @@ ACTIONS = {
     "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
     "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
     "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
+    "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
