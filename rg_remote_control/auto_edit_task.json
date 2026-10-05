@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_pack100",
+  "action": "verify_auto_edit_pack100",
   "args": {},
-  "nonce": "20261005-pack100-install-2"
+  "nonce": "20261005-pack100-verify"
 }
