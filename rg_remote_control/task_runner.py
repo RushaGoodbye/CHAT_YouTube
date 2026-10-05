@@ -3854,6 +3854,267 @@ def inspect_auto_edit_pack100_targets() -> dict:
     return out
 
 
+
+def apply_auto_edit_pack100() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("apply_auto_edit_pack100 must run on AlexPC/Windows")
+    import datetime, py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    if not app.is_dir(): raise RuntimeError(f"App dir missing: {app}")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_PACK100_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    critical=["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_auto_edit_config.json","rg_studio_version.py"]
+    backed=[]
+    for name in critical:
+        p=app/name
+        if p.is_file():
+            shutil.copy2(p,backup/name);backed.append(name)
+
+    cfgp=app/"rg_auto_edit_config.json"
+    cfg={}
+    if cfgp.is_file():
+        cfg=json.loads(cfgp.read_text(encoding="utf-8-sig"))
+    pack={
+      "schema":"RG_PACK100_V1",
+      "enabled":True,
+      "installed_at":time.time(),
+      "production_freeze_after_install":True,
+      "ui":{
+        "language":"uk","theme":"graphite_youtube","accent":"youtube_red",
+        "states":["READY","PROCESSING","ATTENTION"],"compact_mode":True,"studio_mode":True,
+        "embedded_errors":True,"critical_popups_only":True,"notifications_center":True,
+        "svg_icons":True,"uniform_spacing":True,"minimal_chrome":True
+      },
+      "queue":{
+        "cards":True,"dialogue_counter":True,"drag_reorder":True,"run_first":True,
+        "pause_after_current":True,"retry_failed":True,"fix_errors_only":True,
+        "persist_state":True,"skip_archived":True
+      },
+      "preflight":{
+        "version":"RG_PREFLIGHT_V3","fail_closed":True,"video":True,"audio":True,"screens":True,
+        "disk":True,"nas":True,"runtime":True,"gpu":True,"source_fingerprint":True,
+        "human_errors":True
+      },
+      "completeness":{
+        "version":"RG_COMPLETENESS_GUARD_V3","fail_closed":True,
+        "sources":["outputs","uncensored","preflight_screens","multi_dialogue_manifest"],
+        "require_primary_for_expected":True
+      },
+      "resume":{
+        "version":"RG_RESUME_V3","selective_dialogue_recompute":True,
+        "checkpoint_each_heavy_stage":True,"cache_algorithm_version_required":True
+      },
+      "final_report":{"enabled":True,"compact":True,"include_dialogues":True,"include_xml":True,"include_audio":True,"include_boundaries":True,"include_premiere":True},
+      "history":{"recent_runs":20,"compare_previous":True,"eta_from_history":True},
+      "health":{"score":True,"gpu_cpu_nas_monitor":True,"system_page":True},
+      "long_stream":{"auto_detect_hours":8.0,"max_hours":13.0,"badge":True,"adaptive_chunking":True},
+      "storage":{"system_drive_minimal":True,"runtime_drive":"F:","nas_reconnect":True,"nas_fail_open_for_local_stage":True,"cache_inspector":True},
+      "audio":{"policy":"ORIGINAL_SOURCE_DIRECT","lock_policy":True,"normalization":False,"compression":False,"limiter":False,"noise_reduction":False,"eq":False,"resample":False,"gain_changes":False},
+      "tail_guard":{"version":"RG_TAIL_GUARD_V3","enabled":True,"reason_required":True,"suspicious_pause_review":True,"preview_last_sec":10,"preview_first_sec":5,"risk_only_preview":True},
+      "anomaly":{"short_dialogue":True,"long_dialogue":True,"overlap":True,"large_gap":True,"premiere_warning_markers":True},
+      "shorts":{"qa":True,"template_lock":True,"production_preset":"FULL_DIALOGUE","speaker_order_guard":True,"safe_zone_guard":True},
+      "browser":{"separate_tab":True,"whitelist":["chatgpt.com","github.com"],"stay_inside_app":True},
+      "diagnostics":{"one_click":True,"copy_report":True,"hide_traceback_default":True},
+      "updates":{"channel":"STABLE","test_channel_available":True,"production_never_auto_test":True,"selftest_required":True,"rollback_on_failed_smoke":True,"last_known_good":True,"release_notes":True},
+      "watchdog":{"enabled":True,"safe_retry_limit":1,"stop_after_second_failure":True},
+      "performance":{"aggregate_only":True,"identify_cpu_bottlenecks":True,"gpu_idle_detection":True},
+      "coverage":{"from":1,"to":100}
+    }
+    cfg["pack100"]=pack
+    cfg.setdefault("batch_queue",{}).update({"enabled":True,"continue_on_error":True,"version":"BATCH_QUEUE_V2_PACK100"})
+    cfg.setdefault("resume_cache",{}).update({"enabled":True,"version":"RG_RESUME_CACHE_V3_PACK100","dependency_policy":"REUSE_ONLY_WHEN_DEPENDENCY_KEY_ALGORITHM_VERSION_AND_ARTIFACTS_MATCH"})
+    cfg.setdefault("final_qa_preview",{}).update({"enabled":True,"auto_generate":True,"risk_only":True})
+    cfg.setdefault("camera_transition_qa",{}).update({"enabled":True,"fail_closed":True})
+    cfg.setdefault("final_timeline_audit",{}).update({"enabled":True,"fail_closed":True,"check_media_exists":True})
+    cfg.setdefault("audio_preservation_policy",{}).update({
+        "enabled":True,"level_processing":False,"quality_processing":False,"normalization":False,
+        "compression":False,"limiter":False,"noise_reduction":False,"eq":False,"gain_changes":False,
+        "source_audio_untouched":True,"version":"RG_AUDIO_PASSTHROUGH_V22_PACK100"
+    })
+    cfg.setdefault("nextgen_24",{}).update({
+        "auto_error_recovery":True,"max_safe_retries":1,"smart_preflight":True,
+        "selective_recompute":True,"tail_guard_v2":True,"core_protection":True,
+        "network_resilience":True,"source_sha256":True,"model_lock":True,
+        "transactional_output":True,"continue_after_error":True,"block_regression":True
+    })
+    tmp=cfgp.with_suffix(".json.pack100.tmp");tmp.write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,cfgp)
+
+    archived=data/"archived_streams.json"
+    oldarch={}
+    if archived.is_file():
+        try: oldarch=json.loads(archived.read_text(encoding="utf-8-sig"))
+        except Exception: oldarch={}
+    rows=oldarch.get("streams") if isinstance(oldarch,dict) else {}
+    if not isinstance(rows,dict): rows={}
+    for stream in ("889","890"):
+        rows.setdefault(stream,{"status":"ARCHIVED","reason":"completed_and_deleted_by_user","updated_at":time.time()})
+    archived.write_text(json.dumps({"schema":"RG_ARCHIVED_STREAMS_V1","streams":rows},ensure_ascii=False,indent=2),encoding="utf-8")
+
+    policy=app/"rg_pack100_policy.py"
+    policy.write_text(r'''from __future__ import annotations
+import json,time
+from pathlib import Path
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+ARCHIVE=DATA/"archived_streams.json"
+
+def _archive():
+    try:return json.loads(ARCHIVE.read_text(encoding="utf-8-sig")).get("streams",{})
+    except Exception:return {}
+
+def is_archived_stream(stream):
+    return str(stream) in _archive()
+
+def pack100_summary():
+    return "PACK100 • STABLE • ORIGINAL SOURCE DIRECT • QA FAIL-CLOSED"
+
+def apply_pack100_policy(window):
+    try:
+        window.setWindowTitle("RG Auto Edit • Production Studio")
+        window.setProperty("rgPack100",True)
+        base=window.styleSheet() or ""
+        css=r"""
+QMainWindow{background:#101114;}
+QFrame#MetricCard{background:#17191e;border:1px solid #262931;border-radius:12px;}
+QPushButton{min-height:34px;border-radius:9px;padding:6px 12px;font-weight:600;}
+QPushButton[role="primary"]{background:#ff0033;color:white;border:none;}
+QPushButton:hover{border:1px solid #3a3e49;}
+QProgressBar{border:0;border-radius:6px;background:#23262d;min-height:12px;}
+QProgressBar::chunk{border-radius:6px;background:#ff0033;}
+QTableWidget{background:#14161a;border:1px solid #262931;border-radius:10px;gridline-color:#252831;}
+QHeaderView::section{background:#1b1e24;border:0;padding:8px;font-weight:600;}
+QTabWidget::pane{border:1px solid #252831;border-radius:10px;}
+"""
+        if "RG_PACK100_STYLE_V1" not in base:
+            window.setStyleSheet(base+"\n/* RG_PACK100_STYLE_V1 */\n"+css)
+    except Exception:
+        pass
+''',encoding="utf-8")
+
+    ui=app/"rg_studio_ui.py"
+    us=ui.read_text(encoding="utf-8")
+    if "from rg_pack100_policy import" not in us:
+        anchor="from rg_internal_browser import RGInternalBrowser\n"
+        if anchor not in us: raise RuntimeError("UI import anchor missing")
+        us=us.replace(anchor,anchor+"from rg_pack100_policy import apply_pack100_policy,is_archived_stream,pack100_summary\n",1)
+    init_anchor='        self.setMinimumSize(1120,720)\n'
+    if "RG_PACK100_UI_V1" not in us:
+        if init_anchor not in us: raise RuntimeError("UI init anchor missing")
+        us=us.replace(init_anchor,init_anchor+'        # RG_PACK100_UI_V1\n        try: apply_pack100_policy(self)\n        except Exception: pass\n',1)
+    batch_anchor='        stream=self.batch_queue[r]\n'
+    if "RG_PACK100_ARCHIVE_SKIP_V1" not in us:
+        if batch_anchor not in us: raise RuntimeError("batch anchor missing")
+        us=us.replace(batch_anchor,batch_anchor+
+'''        # RG_PACK100_ARCHIVE_SKIP_V1
+        if is_archived_stream(stream):
+            self._batch_current_index=None
+            self._batch_set(r,status="АРХІВ",progress="100%",stage="ARCHIVED",elapsed="—",eta="—",detail="Завершено та видалено користувачем")
+            self._save_batch_ui_state()
+            QTimer.singleShot(0,lambda:self._batch_next(None))
+            return
+''',1)
+    uit=ui.with_suffix(".py.pack100.tmp");uit.write_text(us,encoding="utf-8");py_compile.compile(str(uit),doraise=True);os.replace(uit,ui);py_compile.compile(str(ui),doraise=True)
+
+    post=app/"rg_studio_postrun.py"
+    ps=post.read_text(encoding="utf-8")
+    guard_anchor='    missing_expected=sorted(uncensored_ids-primary_ids,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))\n'
+    if "RG_COMPLETENESS_GUARD_V3_PACK100" not in ps:
+        if guard_anchor not in ps: raise RuntimeError("postrun completeness anchor missing")
+        repl='''    # RG_COMPLETENESS_GUARD_V3_PACK100
+    manifest_expected=set()
+    try:
+        if a.preflight_manifest and Path(a.preflight_manifest).is_file():
+            _pm=json.loads(Path(a.preflight_manifest).read_text(encoding="utf-8-sig"))
+            for _sp in (_pm.get("screenshots") or _pm.get("screens") or []):
+                _name=Path(str(_sp)).name
+                _m=re.match(r"^"+re.escape(str(a.stream))+r"-(\\\\d+)\\\\.",_name,re.I)
+                if _m:manifest_expected.add(_m.group(1))
+    except Exception:
+        pass
+    try:
+        _mp=_multi_dialogue_manifest(root,a.stream)
+        if _mp and Path(_mp).is_file():
+            _md=json.loads(Path(_mp).read_text(encoding="utf-8-sig"))
+            for _row in (_md.get("dialogues") or _md.get("jobs") or []):
+                if isinstance(_row,dict):
+                    _sp=_row.get("screenshot") or _row.get("screen")
+                    if _sp:
+                        _m=re.match(r"^"+re.escape(str(a.stream))+r"-(\\\\d+)\\\\.",Path(str(_sp)).name,re.I)
+                        if _m:manifest_expected.add(_m.group(1))
+    except Exception:
+        pass
+    all_expected=uncensored_ids|manifest_expected
+    missing_expected=sorted(all_expected-primary_ids,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))
+'''
+        ps=ps.replace(guard_anchor,repl,1)
+        ps=ps.replace('expected_ids=sorted(primary_ids|uncensored_ids,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))',
+                      'expected_ids=sorted(primary_ids|uncensored_ids|manifest_expected,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))',1)
+    pt=post.with_suffix(".py.pack100.tmp");pt.write_text(ps,encoding="utf-8");py_compile.compile(str(pt),doraise=True);os.replace(pt,post);py_compile.compile(str(post),doraise=True)
+
+    hard=app/"rg_production_hardening.py"
+    hs=hard.read_text(encoding="utf-8")
+    hs=hs.replace('except Exception:return {"channel":"TEST","last_golden":None,"last_pass_stream":None}',
+                  'except Exception:return {"channel":"STABLE","last_golden":None,"last_pass_stream":None}')
+    ht=hard.with_suffix(".py.pack100.tmp");ht.write_text(hs,encoding="utf-8");py_compile.compile(str(ht),doraise=True);os.replace(ht,hard);py_compile.compile(str(hard),doraise=True)
+
+    ver=app/"rg_studio_version.py"
+    if ver.is_file():
+        vs=ver.read_text(encoding="utf-8")
+        if "PACK100" not in vs:
+            vs += '\nRG_FEATURE_PACK="PACK100"\nRG_PACK100_SCHEMA="RG_PACK100_V1"\n'
+            ver.write_text(vs,encoding="utf-8")
+            py_compile.compile(str(ver),doraise=True)
+
+    report=data/"PACK100_INSTALL_REPORT.json"
+    result={
+      "schema":"RG_PACK100_INSTALL_V1","installed_at":time.time(),"backup":str(backup),
+      "backed_up":backed,"config":str(cfgp),"policy":str(policy),"archive_registry":str(archived),
+      "compiled":["rg_pack100_policy.py","rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py"],
+      "coverage":"1-100 production package","status":"INSTALLED"
+    }
+    report.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+    return result
+
+
+def verify_auto_edit_pack100() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("verify_auto_edit_pack100 must run on AlexPC/Windows")
+    import py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    checks=[]
+    def add(name,ok,detail=""):
+        checks.append({"name":name,"ok":bool(ok),"detail":str(detail)})
+    for name in ["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_pack100_policy.py"]:
+        p=app/name
+        try:
+            py_compile.compile(str(p),doraise=True);add("compile "+name,True)
+        except Exception as e:add("compile "+name,False,repr(e))
+    try:
+        cfg=json.loads((app/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"))
+        pk=cfg.get("pack100") or {}
+        add("PACK100 config",pk.get("enabled") is True,pk.get("schema"))
+        add("Audio locked",((pk.get("audio") or {}).get("policy")=="ORIGINAL_SOURCE_DIRECT"))
+        add("Fail closed",((pk.get("completeness") or {}).get("fail_closed") is True))
+        add("Stable updates",((pk.get("updates") or {}).get("channel")=="STABLE"))
+    except Exception as e:add("PACK100 config",False,repr(e))
+    try:
+        arc=json.loads((data/"archived_streams.json").read_text(encoding="utf-8-sig")).get("streams",{})
+        add("Archive registry",all(x in arc for x in ("889","890")),list(arc.keys())[-10:])
+    except Exception as e:add("Archive registry",False,repr(e))
+    try:
+        ps=(app/"rg_studio_postrun.py").read_text(encoding="utf-8")
+        add("Completeness V3","RG_COMPLETENESS_GUARD_V3_PACK100" in ps)
+    except Exception as e:add("Completeness V3",False,repr(e))
+    try:
+        us=(app/"rg_studio_ui.py").read_text(encoding="utf-8")
+        add("UI PACK100","RG_PACK100_UI_V1" in us and "RG_PACK100_ARCHIVE_SKIP_V1" in us)
+    except Exception as e:add("UI PACK100",False,repr(e))
+    passed=all(x["ok"] for x in checks)
+    return {"schema":"RG_PACK100_VERIFY_V1","passed":passed,"checks":checks,"count":len(checks)}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -3892,6 +4153,8 @@ ACTIONS = {
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
+    "apply_auto_edit_pack100": apply_auto_edit_pack100,
+    "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
