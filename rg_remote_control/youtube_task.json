@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "sync-source-0373"
+    "nonce": "verify-source-gui-20261005"
   }
 }
