@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_thumbnail_candidate_writers",
+  "action": "inspect_auto_edit_thumbnail_mix_source",
   "args": {},
-  "nonce": "inspect-thumb-writers-20261005-2"
+  "nonce": "inspect-thumb-mix-source-20261005-3"
 }
