@@ -3,7 +3,7 @@
   "contour": "youtube",
   "action": "youtube_program_local_status",
   "args": {
-    "mode": "verify_0376_stale_cleanup",
-    "nonce": "verify-stale-cleanup-20261005"
+    "mode": "autopilot_preflight_0376",
+    "nonce": "autopilot-preflight-20261005"
   }
 }
