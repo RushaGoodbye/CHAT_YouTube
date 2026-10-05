@@ -234,4 +234,122 @@ QDialog {
 QMessageBox {
     background: #181818;
 }
+
+/* 0.4 dashboard / process visualization */
+QFrame#ProcessStrip, QFrame#HealthStrip, QFrame#ContextCard,
+QFrame#QueueCard, QFrame#ArchiveCard, QFrame#ActivityCard {
+    background: #181818;
+    border: 1px solid #2b2b2b;
+    border-radius: 12px;
+}
+QLabel#SectionTitle {
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: 700;
+}
+QLabel#SectionKicker {
+    color: #8f8f8f;
+    font-size: 8.5pt;
+    font-weight: 600;
+}
+QLabel#StatusGood {
+    background: #16371f;
+    color: #7ee59a;
+    border: 1px solid #275f37;
+    border-radius: 9px;
+    padding: 4px 9px;
+    font-weight: 600;
+}
+QLabel#StatusWork {
+    background: #142b3c;
+    color: #7bc7ff;
+    border: 1px solid #245270;
+    border-radius: 9px;
+    padding: 4px 9px;
+    font-weight: 600;
+}
+QLabel#StatusWarn {
+    background: #3b3012;
+    color: #ffd76a;
+    border: 1px solid #66531e;
+    border-radius: 9px;
+    padding: 4px 9px;
+    font-weight: 600;
+}
+QLabel#StatusBad {
+    background: #431821;
+    color: #ff8ca1;
+    border: 1px solid #732637;
+    border-radius: 9px;
+    padding: 4px 9px;
+    font-weight: 600;
+}
+QProgressBar {
+    background: #242424;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    height: 12px;
+    text-align: center;
+    color: transparent;
+}
+QProgressBar::chunk {
+    background: #4285f4;
+    border-radius: 5px;
+}
+QProgressBar[role="success"]::chunk {
+    background: #2ba640;
+}
+QProgressBar[role="warning"]::chunk {
+    background: #f5b400;
+}
+QProgressBar[role="danger"]::chunk {
+    background: #ff0033;
+}
+QListWidget#ActivityList {
+    background: transparent;
+    border: 0;
+    outline: 0;
+}
+QListWidget#ActivityList::item {
+    padding: 7px 4px;
+    border-bottom: 1px solid #252525;
+}
+QToolButton {
+    background: #272727;
+    border: 1px solid #3a3a3a;
+    border-radius: 7px;
+    padding: 7px 12px;
+    color: #f1f1f1;
+    min-height: 20px;
+}
+QToolButton:hover {
+    background: #333333;
+}
+QMenu {
+    background: #1d1d1d;
+    color: #f1f1f1;
+    border: 1px solid #3a3a3a;
+    padding: 6px;
+}
+QMenu::item {
+    padding: 7px 22px 7px 12px;
+    border-radius: 5px;
+}
+QMenu::item:selected {
+    background: #343434;
+}
+QLabel#StickyVideoTitle {
+    color: white;
+    font-size: 11pt;
+    font-weight: 700;
+}
+QLabel#DeltaGood {
+    color: #7ee59a;
+    font-weight: 700;
+}
+QLabel#DeltaWarn {
+    color: #ffd76a;
+    font-weight: 700;
+}
+
 """
