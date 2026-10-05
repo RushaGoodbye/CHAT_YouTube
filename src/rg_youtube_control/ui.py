@@ -9823,15 +9823,13 @@ class MainWindow(QMainWindow):
         )
         self.reload_optimization_queue()
         self.reload_action_log()
-        self.statusBar().showMessage(
-            "SEO-пакет перевірено та готовий до застосування · YouTube API квота: 0"
+        self._set_process_idle("SEO-пакет готовий до застосування")
+        self._toast(
+            "✓ SEO-пакет перевірено · статус «Готово до застосування» · "
+            "YouTube API: 0",
+            7000,
         )
-        QMessageBox.information(
-            self,
-            APP_NAME,
-            "SEO-пакет перевірено та збережено зі статусом «Готово до застосування».\n"
-            "В YouTube нічого не відправлено. Квота YouTube API: 0.",
-        )
+        self._update_optimization_context_card()
 
     def local_comment_reply_selected(self) -> None:
         row = self.comment_table.currentRow()
