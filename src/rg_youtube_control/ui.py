@@ -611,6 +611,12 @@ class MainWindow(QMainWindow):
         self.reload_optimization_queue()
         self.reload_comments()
         self.reload_action_log()
+        if hasattr(self, "optimization_density"):
+            self._apply_table_density(
+                self.optimization_table,
+                self.optimization_density,
+            )
+        self._update_optimization_context_card()
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(1200, self.recover_archive_campaign_state)
@@ -2184,6 +2190,121 @@ class MainWindow(QMainWindow):
         layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
 
+
+    def _selected_optimization_video_id(self) -> str:
+        if not hasattr(self, "optimization_table"):
+            return ""
+        rows = self.optimization_table.selectionModel().selectedRows()
+        if not rows:
+            return ""
+        item = self.optimization_table.item(rows[0].row(), 3)
+        if item is None:
+            return ""
+        return str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+
+    def _update_optimization_context_card(self) -> None:
+        if not hasattr(self, "optimization_context_title"):
+            return
+        video_id = self._selected_optimization_video_id()
+        if not video_id:
+            self.optimization_context_title.setText("Виберіть відео")
+            self.optimization_context_pipeline.setText(
+                "Аналіз → Транскрипт → SEO → Перевірка → Готово → YouTube → Контроль"
+            )
+            self.optimization_context_note.setText("")
+            self.context_primary_btn.setText("Локальний SEO")
+            return
+
+        row = self.conn.execute(
+            """SELECT v.title,v.audit_json,v.views,d.status AS draft_status,
+                      oe.optimized_at AS last_optimized
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               LEFT JOIN optimization_events oe ON oe.event_id=(
+                   SELECT e.event_id FROM optimization_events e
+                   WHERE e.video_id=v.video_id AND e.profile=v.profile
+                   ORDER BY e.optimized_at DESC,e.event_id DESC LIMIT 1
+               )
+               WHERE v.video_id=?""",
+            (video_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            audit_data = json.loads(row["audit_json"] or "{}")
+        except Exception:
+            audit_data = {}
+        score = int(audit_data.get("score") or 0)
+        draft = str(row["draft_status"] or "")
+        try:
+            transcript_dir = self._nas_path(
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+            transcript_ready = (transcript_dir / f"{video_id}.srt").exists()
+        except Exception:
+            transcript_ready = False
+
+        stages = [
+            ("Аналіз", True),
+            ("Транскрипт", transcript_ready),
+            ("SEO", draft in {"draft", "ready", "applied"}),
+            ("Перевірка", draft in {"ready", "applied"}),
+            ("Готово", draft in {"ready", "applied"}),
+            ("YouTube", draft == "applied"),
+            ("Контроль", bool(row["last_optimized"])),
+        ]
+        pipeline = "  →  ".join(
+            f"{'✓' if done else '○'} {label}" for label, done in stages
+        )
+        self.optimization_context_title.setText(str(row["title"] or video_id))
+        self.optimization_context_pipeline.setText(pipeline)
+
+        history = self.conn.execute(
+            """SELECT optimized_at,changed_fields
+               FROM optimization_events
+               WHERE video_id=? AND profile=?
+               ORDER BY optimized_at DESC,event_id DESC LIMIT 3""",
+            (video_id, self.current_profile),
+        ).fetchall()
+        history_text = " · ".join(
+            f"{str(item['optimized_at'] or '')[:10]} {str(item['changed_fields'] or '')}"
+            for item in history
+        )
+        note = (
+            f"{video_id} · аудит {score} · пакет {draft or 'немає'}"
+            + (f" · історія: {history_text}" if history_text else "")
+        )
+        self.optimization_context_note.setText(note)
+
+        if draft == "ready":
+            self.context_primary_btn.setText("Застосувати пакет")
+        elif draft == "applied":
+            self.context_primary_btn.setText("Переглянути результат")
+        elif draft == "draft":
+            self.context_primary_btn.setText("Перевірити пакет")
+        else:
+            self.context_primary_btn.setText("Локальний SEO · 0 квоти")
+
+        if hasattr(self, "pipeline_label"):
+            self.pipeline_label.setText(pipeline)
+
+    def _run_context_primary_action(self) -> None:
+        video_id = self._selected_optimization_video_id()
+        if not video_id:
+            self._toast("Виберіть відео")
+            return
+        draft = get_optimization_draft(self.conn, video_id)
+        status = str(draft["status"] or "") if draft is not None else ""
+        if status == "ready":
+            self.apply_content_package()
+        elif status == "applied":
+            self.tabs.setCurrentIndex(5)
+            self.load_optimization_results()
+        elif status == "draft":
+            self.edit_content_package()
+        else:
+            self.local_seo_selected()
 
     def _build_comments_tab(self) -> None:
         page = QWidget()
@@ -6092,10 +6213,15 @@ class MainWindow(QMainWindow):
                     median_ctr_percent=float(channel_median_ctr),
                     issues=issues,
                 )
+                grade = (
+                    "A" if priority_value >= 80
+                    else "B" if priority_value >= 55
+                    else "C"
+                )
                 priority_text = (
-                    f"ГЛИБОКА {priority_value}"
+                    f"DEEP {grade} · {priority_value}"
                     if queue_filter == "deep_review"
-                    else f"ПОТЕНЦІАЛ {priority_value}"
+                    else f"{grade} · {priority_value}"
                 )
             else:
                 priority_value, priority_text = priority_label(
@@ -6119,6 +6245,65 @@ class MainWindow(QMainWindow):
                     issues,
                 )
             )
+
+        search_text = (
+            self.optimization_search.text().strip().casefold()
+            if hasattr(self, "optimization_search")
+            else ""
+        )
+        status_filter = (
+            self.optimization_status_filter.currentData()
+            if hasattr(self, "optimization_status_filter")
+            else "all"
+        )
+        min_archive_potential = int(
+            get_setting(self.conn, "archive_ui_min_potential", "0") or 0
+        )
+        filtered_prepared = []
+        for item in prepared:
+            priority_value, _publish, _priority_text, row, score, issues = item
+            title_text = str(row["title"] or "")
+            video_id = str(row["video_id"] or "")
+            issue_text = _issue_labels(issues)
+            if search_text and not any(
+                search_text in value.casefold()
+                for value in (title_text, video_id, issue_text)
+            ):
+                continue
+            draft_key = str(row["draft_status"] or "")
+            ctr = float(row["ctr_percent"] or 0)
+            impressions = int(row["impressions"] or 0)
+            matches_status = (
+                status_filter == "all"
+                or (
+                    status_filter == "needs"
+                    and (
+                        score < 100
+                        or bool(issues)
+                        or draft_key in {"", "draft"}
+                    )
+                )
+                or (status_filter == "draft" and draft_key == "draft")
+                or (status_filter == "ready" and draft_key == "ready")
+                or (status_filter == "applied" and draft_key == "applied")
+                or (status_filter == "no_tags" and "no_tags" in issues)
+                or (
+                    status_filter == "low_ctr"
+                    and impressions >= 1000
+                    and ctr > 0
+                    and channel_median_ctr > 0
+                    and ctr < channel_median_ctr
+                )
+            )
+            if not matches_status:
+                continue
+            if (
+                queue_filter == "archive_top"
+                and priority_value < min_archive_potential
+            ):
+                continue
+            filtered_prepared.append(item)
+        prepared = filtered_prepared
 
         if queue_filter == "prepared":
             prepared.sort(
@@ -6191,8 +6376,7 @@ class MainWindow(QMainWindow):
                         item.setForeground(QColor(YOUTUBE_RED))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                     elif (
-                        priority_text.startswith("ПОТЕНЦІАЛ ")
-                        or priority_text.startswith("ГЛИБОКА ")
+                        priority_text.startswith(("A ·", "B ·", "C ·", "DEEP "))
                     ):
                         potential = int(priority_text.rsplit(" ", 1)[-1])
                         item.setForeground(
