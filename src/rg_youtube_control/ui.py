@@ -6387,7 +6387,7 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
                 if column == 0:
                     if priority_text == "ЗАПЛАНОВАНО":
-                        item.setForeground(QColor(YOUTUBE_RED))
+                        item.setForeground(QColor("#5aa7ff"))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                     elif (
                         priority_text.startswith(("A ·", "B ·", "C ·", "DEEP "))
@@ -6395,11 +6395,11 @@ class MainWindow(QMainWindow):
                         potential = int(priority_text.rsplit(" ", 1)[-1])
                         item.setForeground(
                             QColor(
-                                YOUTUBE_RED
+                                "#5aa7ff"
                                 if potential >= 80
                                 else WARNING
                                 if potential >= 55
-                                else SUCCESS
+                                else MUTED
                             )
                         )
                         item.setFont(
@@ -6413,7 +6413,7 @@ class MainWindow(QMainWindow):
                             f"медіана каналу {channel_median_ctr:.2f}%"
                         )
                     elif priority_text == "НАЗВА":
-                        item.setForeground(QColor(YOUTUBE_RED))
+                        item.setForeground(QColor(WARNING))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                     elif priority_text == "ВИСОКИЙ":
                         item.setForeground(QColor(WARNING))
@@ -6427,15 +6427,17 @@ class MainWindow(QMainWindow):
                     item.setForeground(QColor(SUCCESS))
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 elif column == 8 and draft_status:
-                    item.setForeground(
-                        QColor(
-                            SUCCESS
-                            if draft_status == "ЗАСТОСОВАНО"
-                            else WARNING
-                            if draft_status == "ЧЕРНЕТКА"
-                            else YOUTUBE_RED
-                        )
-                    )
+                    if draft_status == "ЗАСТОСОВАНО":
+                        fg = QColor(SUCCESS)
+                        bg = QColor("#16371f")
+                    elif draft_status == "ГОТОВО":
+                        fg = QColor("#8ecbff")
+                        bg = QColor("#142b3c")
+                    else:
+                        fg = QColor(WARNING)
+                        bg = QColor("#3b3012")
+                    item.setForeground(fg)
+                    item.setBackground(bg)
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 elif column == 10 and checkpoint_text != "—":
                     item.setForeground(
