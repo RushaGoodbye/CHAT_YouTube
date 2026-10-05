@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_code",
+  "action": "verify_auto_edit_preview_hotfix_state",
   "args": {},
-  "nonce": "verify-preview-hotfix-live-20261005-1"
+  "nonce": "verify-preview-hotfix-state-20261005-2"
 }
