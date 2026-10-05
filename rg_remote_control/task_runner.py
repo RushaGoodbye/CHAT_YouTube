@@ -1642,11 +1642,63 @@ def probe_cloudflare_mcp_gateway_options() -> dict:
     }
 
 
-def telegram_mcp_call() -> dict:
-    import asyncio
-    import importlib.util
+def enable_telegram_mcp_bridge() -> dict:
+    from datetime import datetime, timezone
 
-    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "rg_remote_control" / "task.json")
+    source_tick = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_TICK.sh"
+    source_helper = ROOT / "rg_remote_control" / "nas" / "RG_NAS_MCP_TELEGRAM_CALL.py"
+    live_tick = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_TICK.sh")
+    live_helper = Path(r"\\AlexLosServer\docker\RG_NAS_MCP_TELEGRAM_CALL.py")
+    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+
+    if not source_tick.is_file() or not source_helper.is_file():
+        raise RuntimeError("Telegram MCP bridge sources are missing")
+
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    backups = {}
+    for live, source, label in (
+        (live_tick, source_tick, "tick"),
+        (live_helper, source_helper, "helper"),
+    ):
+        if live.is_file():
+            backup = state / f"{live.name}.before_telegram_bridge_{stamp}"
+            shutil.copy2(live, backup)
+            backups[label] = str(backup)
+        shutil.copy2(source, live)
+
+    tick_text = live_tick.read_text(encoding="utf-8", errors="replace")
+    helper_text = live_helper.read_text(encoding="utf-8", errors="replace")
+    if "TELEGRAM_CALL_ROOT" not in tick_text:
+        raise RuntimeError("Telegram call queue is missing from live MCP tick")
+    if 'tool.startswith("telegram_")' not in helper_text:
+        raise RuntimeError("Telegram-only tool guard is missing from live helper")
+    if "YOUTUBE_CALL_ROOT" not in tick_text:
+        raise RuntimeError("YouTube call queue disappeared from shared MCP tick")
+    if "AUTO_EDIT_CALL_ROOT" not in tick_text:
+        raise RuntimeError("Auto Edit call queue disappeared from shared MCP tick")
+
+    return {
+        "enabled": True,
+        "interval_seconds": 60,
+        "tick": str(live_tick),
+        "helper": str(live_helper),
+        "backups": backups,
+        "youtube_queue_preserved": True,
+        "auto_edit_queue_preserved": True,
+    }
+
+
+def telegram_mcp_call() -> dict:
+    import time
+    import uuid
+
+    task_path = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else ROOT / "rg_remote_control" / "telegram_task.json"
+    )
     task = json.loads(task_path.read_text(encoding="utf-8"))
     args = task.get("args") or {}
     tool = str(args.get("tool") or "").strip()
@@ -1657,36 +1709,84 @@ def telegram_mcp_call() -> dict:
     if not isinstance(tool_args, dict):
         raise RuntimeError("tool_args must be an object")
 
-    if importlib.util.find_spec("mcp") is None:
-        install = run(
-            [sys.executable, "-m", "pip", "install", "--user", "mcp==2.3.0"],
-            timeout=300,
-        )
-        if install["exit_code"] != 0:
-            raise RuntimeError(
-                "Failed to install MCP client: " + install["stderr"]
-            )
+    root = Path(r"\\AlexLosServer\docker\RG_NAS_MCP\TELEGRAM_CALLS")
+    requests = root / "requests"
+    results = root / "results"
+    errors = root / "errors"
+    requests.mkdir(parents=True, exist_ok=True)
+    results.mkdir(parents=True, exist_ok=True)
+    errors.mkdir(parents=True, exist_ok=True)
 
-    from mcp import Client
+    request_id = uuid.uuid4().hex
+    request_file = requests / f"{request_id}.json"
+    result_file = results / f"{request_id}.json"
+    error_file = errors / f"{request_id}.log"
 
-    async def _call():
-        async with Client("http://192.168.50.32:8765/mcp") as client:
-            result = await client.call_tool(tool, tool_args)
-            content = []
-            for item in result.content or []:
-                entry = {"type": getattr(item, "type", None)}
-                text_value = getattr(item, "text", None)
-                if text_value is not None:
-                    entry["text"] = text_value
-                content.append(entry)
+    payload = {
+        "request_id": request_id,
+        "tool": tool,
+        "tool_args": tool_args,
+    }
+    temp = request_file.with_suffix(".tmp")
+    temp.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(temp, request_file)
+
+    started = time.time()
+    timeout_seconds = 90
+    last_fs_error = None
+    while time.time() - started < timeout_seconds:
+        try:
+            result_ready = result_file.is_file()
+            error_ready = error_file.is_file()
+            request_exists = request_file.exists()
+        except OSError as exc:
+            last_fs_error = repr(exc)
+            time.sleep(2)
+            continue
+
+        if result_ready:
+            try:
+                result = json.loads(
+                    result_file.read_text(encoding="utf-8", errors="replace")
+                )
+            except OSError as exc:
+                last_fs_error = repr(exc)
+                time.sleep(2)
+                continue
+            try:
+                result_file.unlink()
+            except Exception:
+                pass
             return {
-                "tool": tool,
-                "is_error": bool(result.is_error),
-                "structured_content": result.structured_content,
-                "content": content,
+                "transport": "RG NAS MCP Telegram queue bridge",
+                "elapsed_seconds": int(time.time() - started),
+                **result,
             }
 
-    return asyncio.run(_call())
+        if error_ready and not request_exists:
+            try:
+                error = error_file.read_text(
+                    encoding="utf-8", errors="replace"
+                )[-12000:]
+            except OSError as exc:
+                last_fs_error = repr(exc)
+                time.sleep(2)
+                continue
+            try:
+                error_file.unlink()
+            except Exception:
+                pass
+            raise RuntimeError("RG NAS MCP Telegram call failed: " + error)
+
+        time.sleep(2)
+
+    suffix = f"; last_fs_error={last_fs_error}" if last_fs_error else ""
+    raise RuntimeError(
+        f"RG NAS MCP Telegram call timed out after {timeout_seconds}s{suffix}"
+    )
 
 
 def enable_auto_edit_mcp_bridge() -> dict:
@@ -3497,6 +3597,7 @@ ACTIONS = {
     "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
     "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
     "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "enable_telegram_mcp_bridge": enable_telegram_mcp_bridge,
     "telegram_mcp_call": telegram_mcp_call,
     "youtube_mcp_call": youtube_mcp_call,
     "youtube_mcp_batch": youtube_mcp_batch,
