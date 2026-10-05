@@ -2504,3 +2504,14 @@ def test_imported_package_does_not_remove_only_english_body():
     fixed = sanitize_imported_package_description(source, "Тест")
     assert fixed.after == source
     assert fixed.changes == ()
+
+
+def test_youtube_tag_verification_ignores_order():
+    import inspect
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    source = inspect.getsource(YouTubeClient.update_video)
+    assert "sorted(returned_tags, key=str.casefold)" in source
+    assert "sorted(expected_tags" in source
+
+

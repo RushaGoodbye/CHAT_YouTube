@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_verify_stream901_partial_update",
+  "action": "youtube_local_finalize_stream901",
   "args": {
-    "nonce": "verify-stream901-partial-20261005"
+    "nonce": "finalize-stream901-20261005"
   }
 }

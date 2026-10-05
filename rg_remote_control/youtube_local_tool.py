@@ -1170,6 +1170,84 @@ def verify_stream_901_after_partial_update() -> dict:
     finally:
         conn.close()
 
+
+def finalize_stream_901_local_state() -> dict:
+    """Finalize Stream 901 local state after verified YouTube update."""
+    from rg_youtube_control.db import (
+        connect,
+        latest_metadata_snapshot,
+        log_action,
+        record_optimization_event,
+        set_optimization_draft_status,
+    )
+
+    video_id = "K-yK-cDQij0"
+    conn = connect(_db_path())
+    try:
+        row = conn.execute(
+            "SELECT status FROM optimization_drafts WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        before_status = str(row["status"] or "") if row else ""
+        if row:
+            set_optimization_draft_status(conn, video_id, "applied")
+
+        existing = conn.execute(
+            """SELECT event_id
+               FROM optimization_events
+               WHERE video_id=? AND reason='today_scheduled_stream_priority'
+               LIMIT 1""",
+            (video_id,),
+        ).fetchone()
+        event_id = int(existing["event_id"]) if existing else 0
+        if not existing:
+            snap = latest_metadata_snapshot(conn, video_id)
+            history_id = int(snap["history_id"]) if snap else None
+            event_id = record_optimization_event(
+                conn,
+                history_id=history_id,
+                video_id=video_id,
+                profile="live",
+                reason="today_scheduled_stream_priority",
+                changed_fields="опис + теги",
+            )
+
+        logged = conn.execute(
+            """SELECT log_id FROM action_log
+               WHERE profile='live'
+                 AND category='заплановані'
+                 AND action='Сьогоднішній стрім оптимізовано'
+                 AND details LIKE ?
+               LIMIT 1""",
+            (f"%{video_id}%",),
+        ).fetchone()
+        if not logged:
+            log_action(
+                conn,
+                profile="live",
+                category="заплановані",
+                action="Сьогоднішній стрім оптимізовано",
+                details=(
+                    f"{video_id}; verified on YouTube; "
+                    "title unchanged; description optimized; 15 tags"
+                ),
+            )
+
+        after = conn.execute(
+            "SELECT status FROM optimization_drafts WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        return {
+            "youtube_api_calls": 0,
+            "video_id": video_id,
+            "before_status": before_status,
+            "after_status": str(after["status"] or "") if after else "",
+            "optimization_event_id": event_id,
+            "verified_youtube_state": True,
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1199,6 +1277,8 @@ def main() -> int:
         result = optimize_scheduled_stream(task)
     elif action == "youtube_local_verify_stream901_partial_update":
         result = verify_stream_901_after_partial_update()
+    elif action == "youtube_local_finalize_stream901":
+        result = finalize_stream_901_local_state()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 

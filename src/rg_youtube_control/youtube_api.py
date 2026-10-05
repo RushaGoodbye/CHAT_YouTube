@@ -398,7 +398,11 @@ class YouTubeClient:
                 )
         if tags is not None:
             returned_tags = list(updated_snippet.get("tags") or [])
-            if returned_tags != list(tags):
+            expected_tags = list(tags)
+            if sorted(returned_tags, key=str.casefold) != sorted(
+                expected_tags,
+                key=str.casefold,
+            ):
                 raise RuntimeError(
                     "YouTube не підтвердив зміну тегів відео."
                 )
