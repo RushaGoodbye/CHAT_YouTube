@@ -8953,6 +8953,201 @@ def inspect_auto_edit_901_anchor_sequence() -> dict:
             rows.append(d)
     return {"exists":True,"path":str(p),"events":rows}
 
+def apply_auto_edit_monotonic_anchor_hotfix() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, subprocess, time, hashlib
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+    ]
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_MONOTONIC_ANCHOR_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    changed=[]
+    marker="# RG_MONOTONIC_ANCHOR_RESCUE_V1"
+    anchor="    resolved.sort(key=lambda r:(int(r['dialogue_position']), float(r['winner']['time'])))\n"
+    block=anchor+r'''
+    # RG_MONOTONIC_ANCHOR_RESCUE_V1
+    # Screenshot filenames define dialogue order. A visually similar repeated
+    # frame may occasionally win at an earlier clock position; never let that
+    # single false match invert the sequence and crash the whole stream.
+    if len(resolved) >= 2:
+        for _rg_i in range(1,len(resolved)):
+            _rg_prev=float(resolved[_rg_i-1]['winner']['time'])
+            _rg_cur=float(resolved[_rg_i]['winner']['time'])
+            if _rg_cur > _rg_prev + 1.0:
+                continue
+
+            _rg_rec=resolved[_rg_i]
+            _rg_lower=min(float(video_duration)-2.0,_rg_prev+1.0)
+            _rg_upper=None
+            # Use the first later anchor that is genuinely ahead as a hard safe
+            # upper bound. For 901-4 this naturally becomes the 901-5 anchor.
+            for _rg_j in range(_rg_i+1,len(resolved)):
+                _rg_future=float(resolved[_rg_j]['winner']['time'])
+                if _rg_future > _rg_lower + 10.0:
+                    _rg_upper=min(float(video_duration)-1.0,_rg_future-1.0)
+                    break
+            if _rg_upper is None:
+                _rg_upper=min(float(video_duration)-1.0,_rg_lower+1200.0)
+            if _rg_upper <= _rg_lower + 6.0:
+                raise RuntimeError(
+                    f"{_rg_rec['path'].name}: неможливо побудувати безпечне вікно "
+                    f"монотонного відновлення ({_rg_lower:.1f}-{_rg_upper:.1f})."
+                )
+
+            # Prefer an already-computed visual candidate inside the safe window.
+            _rg_viable=[]
+            for _rg_c in (_rg_rec.get('candidates') or []):
+                try:
+                    _rg_t=float(_rg_c.get('time'))
+                    if _rg_lower < _rg_t < _rg_upper:
+                        _rg_viable.append(dict(_rg_c))
+                except Exception:
+                    pass
+            _rg_best=max(_rg_viable,key=lambda c:float(c.get('score',0.0))) if _rg_viable else None
+
+            # If phase-1 candidates did not cover the correct interval, perform
+            # one bounded local visual search only inside the neighbour window.
+            _rg_need_local=(_rg_best is None or float(_rg_best.get('score',0.0)) < 0.40)
+            if _rg_need_local:
+                _rg_mid=(_rg_lower+_rg_upper)/2.0
+                _rg_radius=max(45.0,(_rg_upper-_rg_lower)/2.0)
+                _rg_local=_best_local_match(
+                    video_path,_rg_rec['shot'],_rg_mid,video_duration,
+                    progress_cb=None,coarse_radius_sec=_rg_radius,
+                )
+                try:
+                    _rg_lt=float(_rg_local.get('time'))
+                    if _rg_lower < _rg_lt < _rg_upper:
+                        if _rg_best is None or float(_rg_local.get('score',0.0)) > float(_rg_best.get('score',0.0)):
+                            _rg_best=dict(_rg_local)
+                except Exception:
+                    pass
+
+            if _rg_best is None:
+                raise RuntimeError(
+                    f"{_rg_rec['path'].name}: не знайдено visual-candidate у "
+                    f"монотонному вікні {_rg_lower:.1f}-{_rg_upper:.1f}."
+                )
+            _rg_score=float(_rg_best.get('score',0.0))
+            if _rg_score < 0.28:
+                raise RuntimeError(
+                    f"{_rg_rec['path'].name}: монотонний rescue занадто слабкий "
+                    f"(score={_rg_score:.3f})."
+                )
+
+            _rg_old=float(_rg_rec['winner']['time'])
+            _rg_best['candidate_source']='monotonic_neighbor_rescue'
+            _rg_best['candidate_sec']=(_rg_lower+_rg_upper)/2.0
+            _rg_rec['winner']=_rg_best
+            _rg_rec['winner_score']=_rg_score
+            _rg_rec['predicted']=float(_rg_best['candidate_sec'])
+            _rg_rec['source_name']='monotonic_neighbor_rescue'
+            _rg_rec['temporal_error']=abs(float(_rg_best['time'])-float(_rg_best['candidate_sec']))
+            _rg_rec['confirmation_meta']={
+                'accepted':True,
+                'reason':'MONOTONIC_NEIGHBOR_RESCUE',
+                'old_time':round(_rg_old,3),
+                'new_time':round(float(_rg_best['time']),3),
+                'window':[round(_rg_lower,3),round(_rg_upper,3)],
+                'score':round(_rg_score,5),
+            }
+            print(
+                f"RGWARNING|MONOTONIC_ANCHOR_RESCUE|{_rg_rec['path'].name}|"
+                f"{_rg_old:.3f}->{float(_rg_best['time']):.3f}|"
+                f"window={_rg_lower:.3f}-{_rg_upper:.3f}|score={_rg_score:.3f}",
+                flush=True,
+            )
+
+        # Re-check the full ordered chain before any expensive boundary scan.
+        for _rg_i in range(1,len(resolved)):
+            _rg_a=float(resolved[_rg_i-1]['winner']['time'])
+            _rg_b=float(resolved[_rg_i]['winner']['time'])
+            if _rg_b <= _rg_a + 1.0:
+                raise RuntimeError(
+                    f"Порядок screenshot-anchor не відновлено: "
+                    f"{resolved[_rg_i-1]['path'].name}={_rg_a:.3f}, "
+                    f"{resolved[_rg_i]['path'].name}={_rg_b:.3f}."
+                )
+        final_zero_samples=[
+            _clock_zero_from_match(r['clock']['seconds_of_day'],float(r['winner']['time']))
+            for r in resolved
+        ]
+'''
+    for root in roots:
+        p=root/"rg_clock_selector.py"
+        if not p.is_file(): continue
+        src=p.read_text(encoding="utf-8")
+        if marker not in src:
+            if anchor not in src:
+                raise RuntimeError(f"Monotonic patch anchor missing in {p}")
+            bp=backup/(("F_" if str(root).startswith("F:") else "C_")+p.name)
+            shutil.copy2(p,bp)
+            src=src.replace(anchor,block,1)
+            tmp=p.with_suffix(".py.monotonic.tmp")
+            tmp.write_text(src,encoding="utf-8")
+            py_compile.compile(str(tmp),doraise=True)
+            os.replace(tmp,p)
+            changed.append(str(p))
+        else:
+            py_compile.compile(str(p),doraise=True)
+
+    # Ensure F: and local Program copies are identical after patch.
+    codefiles=[r/"rg_clock_selector.py" for r in roots if (r/"rg_clock_selector.py").is_file()]
+    hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in codefiles}
+    if len(set(hashes.values()))>1:
+        canonical=roots[0]/"rg_clock_selector.py"
+        for p in codefiles[1:]:
+            shutil.copy2(canonical,p)
+        hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in codefiles}
+
+    # Targeted real-data probe for the exact 901 inversion. This scans only the
+    # safe 12-minute interval between anchors 3 and 5, not the full 3h47 stream.
+    runtime_candidates=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit Runtime"/"venv"/"Scripts"/"python.exe",
+    ]
+    runtime=next((x for x in runtime_candidates if x.is_file()),None)
+    if runtime is None: raise RuntimeError("Runtime python not found")
+    probe=r'''
+import json,sys
+from pathlib import Path
+sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+import cv2
+import rg_clock_selector as m
+video=Path(r"\\Desktop-v7gg0en\record\901.mp4")
+shot=Path(r"\\Desktop-v7gg0en\record\Screens\901-4.jpg")
+img=cv2.imread(str(shot))
+if img is None: raise RuntimeError("901-4 screenshot unreadable")
+lo=3*3600+14*60+20
+hi=3*3600+26*60+26
+mid=(lo+hi)/2
+res=m._best_local_match(video,img,mid,13624.021313,progress_cb=None,coarse_radius_sec=(hi-lo)/2)
+t=float(res.get("time"));score=float(res.get("score",0.0))
+ok=(lo<t<hi and score>=0.28)
+print("RG901_MONOTONIC_PROBE|"+json.dumps({"passed":ok,"time":t,"score":score,"window":[lo,hi]},ensure_ascii=False),flush=True)
+raise SystemExit(0 if ok else 7)
+'''
+    cp=subprocess.run([str(runtime),"-u","-X","utf8","-c",probe],
+                      cwd=str(roots[0]),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=480)
+    if cp.returncode!=0 or "RG901_MONOTONIC_PROBE|" not in (cp.stdout or ""):
+        # Roll back modified files if the actual 901 screenshot cannot be rescued.
+        for root in roots:
+            p=root/"rg_clock_selector.py"
+            bp=backup/(("F_" if str(root).startswith("F:") else "C_")+p.name)
+            if bp.is_file(): shutil.copy2(bp,p)
+        raise RuntimeError("901 monotonic probe failed: "+(cp.stdout or "")[-5000:]+(cp.stderr or "")[-5000:])
+
+    line=next((x for x in (cp.stdout or "").splitlines() if x.startswith("RG901_MONOTONIC_PROBE|")),None)
+    probe_result=json.loads(line.split("|",1)[1]) if line else {}
+    return {
+      "status":"APPLIED","changed":changed,"backup":str(backup),
+      "hashes":hashes,"probe":probe_result,
+      "policy":"MONOTONIC_SCREENSHOT_ORDER_WITH_NEIGHBOR_BOUNDED_VISUAL_RESCUE_V1"
+    }
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9050,6 +9245,7 @@ ACTIONS = {
     "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
     "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
     "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
+    "apply_auto_edit_monotonic_anchor_hotfix": apply_auto_edit_monotonic_anchor_hotfix,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
