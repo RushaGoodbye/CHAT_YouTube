@@ -3153,6 +3153,287 @@ def inspect_auto_edit_execution_functions() -> dict:
     return out
 
 
+def start_auto_edit_recovery_queue() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("start_auto_edit_recovery_queue must run on AlexPC/Windows")
+
+    import datetime
+    import subprocess
+    import textwrap
+    import uuid
+
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/auto_edit_task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    requested = [str(x).strip() for x in ((task.get("args") or {}).get("streams") or [])]
+    streams = list(dict.fromkeys(x for x in requested if x.isdigit()))
+    if not streams or len(streams) > 12:
+        raise RuntimeError("Recovery queue requires 1..12 numeric stream ids")
+
+    app = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    local = Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    runtime_candidates = [
+        local / "Programs" / "RG Auto Edit Runtime" / "venv" / "Scripts" / "python.exe",
+        Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe"),
+    ]
+    runtime = next((p for p in runtime_candidates if p.is_file()), None)
+    if runtime is None:
+        raise RuntimeError("RG Auto Edit runtime python not found")
+
+    # Do not launch a second production backend.
+    probe = run(
+        [
+            "powershell.exe","-NoProfile","-NonInteractive","-Command",
+            "$p=Get-CimInstance Win32_Process | Where-Object { "
+            "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+            "(($_.CommandLine -like '*rg_production_wrapper.py*') -or ($_.CommandLine -like '*rg_multi_dialogue.py*')) "
+            "}; $p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+        ],
+        timeout=30,
+    )
+    active = (probe.get("stdout") or "").strip()
+    if active and active not in {"null","[]"}:
+        raise RuntimeError("Production backend is already running: " + active[:2000])
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_id = f"RECOVERY_{stamp}_{uuid.uuid4().hex[:8]}"
+    run_dir = data / "control_runs" / session_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    plan = {
+        "session_id": session_id,
+        "streams": streams,
+        "app": str(app),
+        "data": str(data),
+        "runtime": str(runtime),
+        "video_root": r"\\Desktop-v7gg0en\record",
+        "audio_root": r"\\Desktop-v7gg0en\record\sound",
+        "screen_root": r"\\Desktop-v7gg0en\record\Screens",
+        "queue_state": str(local / "RG_Auto_Edit" / "studio_batch_queue.json"),
+        "status_file": str(run_dir / "RECOVERY_QUEUE_STATUS.json"),
+        "run_dir": str(run_dir),
+    }
+    plan_path = run_dir / "plan.json"
+    plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    helper = r'''from __future__ import annotations
+import json, os, re, subprocess, sys, time, traceback
+from pathlib import Path
+
+plan=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+streams=[str(x) for x in plan["streams"]]
+app=Path(plan["app"]); data=Path(plan["data"]); runtime=Path(plan["runtime"])
+video_root=plan["video_root"]; audio_root=plan["audio_root"]; screen_root=plan["screen_root"]
+queue_state=Path(plan["queue_state"]); status_file=Path(plan["status_file"]); run_dir=Path(plan["run_dir"])
+sys.path.insert(0,str(app))
+
+from rg_server_resolver import resolve_video, resolve_audio, resolve_screenshots
+from rg_production_stability import acquire_stream_lock, release_stream_lock
+from rg_studio_resilience import build_run_package, update_state, new_run_session
+
+rows=[{"stream":s,"status":"ОЧІКУЄ","progress":"0%","stage":"—","elapsed":"—","eta":"—","detail":"Recovery queue"} for s in streams]
+state={"schema":"RG_STUDIO_BATCH_UI_V2","updated_at":time.time(),"running":True,"paused":False,
+       "session_id":plan["session_id"],"queue":streams,"rows":rows}
+
+def atomic_json(path,obj):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    tmp=path.with_suffix(path.suffix+".tmp")
+    tmp.write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding="utf-8")
+    os.replace(tmp,path)
+
+def publish():
+    state["updated_at"]=time.time()
+    atomic_json(queue_state,state)
+    atomic_json(status_file,state)
+
+def row(stream):
+    return next(x for x in rows if x["stream"]==stream)
+
+def setrow(stream,**kw):
+    row(stream).update({k:str(v) for k,v in kw.items()})
+    publish()
+
+def primary_from_log(lines,stream):
+    out=[]
+    seen=set()
+    target=(app/stream).resolve()
+    for line in lines:
+        if "ГОТОВО:" not in line:
+            continue
+        raw=line.split("ГОТОВО:",1)[1].strip()
+        try:p=Path(raw)
+        except Exception:continue
+        n=p.name.upper()
+        if p.suffix.lower()!=".xml" or "_SHORTS" in n or "_UNCENSORED" in n:
+            continue
+        try:
+            if p.resolve().parent != target:
+                continue
+        except Exception:
+            continue
+        sp=str(p)
+        if sp not in seen:
+            seen.add(sp);out.append(sp)
+    return out
+
+publish()
+overall_ok=True
+for stream in streams:
+    started=time.time()
+    lock=None
+    log_path=run_dir/f"{stream}_STUDIO_RUN.log"
+    lines=[]
+    try:
+        setrow(stream,status="ПЕРЕВІРКА",stage="INPUT_CHECK",progress="0%",elapsed="00:00:00",detail="Перевірка input")
+        try:
+            resolve_video(video_root,stream)
+            resolve_audio(audio_root,stream)
+            shots=resolve_screenshots(screen_root,stream)
+        except Exception as exc:
+            overall_ok=False
+            setrow(stream,status="ПОМИЛКА",stage="INPUT_CHECK",progress="0%",elapsed="00:00:00",
+                   detail=f"{type(exc).__name__}: {str(exc)[:180]}")
+            continue
+
+        lock=acquire_stream_lock(stream,owner_pid=os.getpid(),owner="RG Auto Edit Recovery Queue")
+        run_id=str((lock or {}).get("run_id") or "")
+        try:
+            new_run_session(stream,run_id=run_id,status="RUNNING",started_at=started,outputs=[],last_stage="START",error_code=None,error_tail=[])
+        except Exception:
+            pass
+
+        setrow(stream,status="ПРАЦЮЄ",stage="START",progress="1%",elapsed="00:00:00",detail=f"Запущено • screenshots={len(shots or [])}")
+        cmd=[str(runtime),"-u","-X","utf8",str(app/"rg_production_wrapper.py"),
+             "--backend",str(app/"rg_multi_dialogue.py"),
+             "--video-root",video_root,"--audio-root",audio_root,"--screen-root",screen_root,
+             "--video-stream",stream,"--audio-stream",stream,
+             "--output",str(app/f"RG_EDITED_{stream}.xml"),
+             "--config",str(app/"rg_auto_edit_config.json"),
+             "--model","large-v3","--device","auto","--stream-start","auto"]
+        env=os.environ.copy();env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8"
+        env["RG_BATCH_MODE"]="1";env["RG_BATCH_SESSION_ID"]=plan["session_id"]
+        with log_path.open("w",encoding="utf-8") as lf:
+            p=subprocess.Popen(cmd,cwd=str(app),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                               text=True,encoding="utf-8",errors="replace",bufsize=1)
+            for raw in p.stdout:
+                line=raw.rstrip("\r\n");lines.append(line);lf.write(line+"\n");lf.flush()
+                m=re.search(r"RGPROGRESS\|([0-9.]+)\|([^|]+)\|(.*)",line)
+                if m:
+                    setrow(stream,status="ПРАЦЮЄ",progress=f"{float(m.group(1)):.0f}%",stage=m.group(2),
+                           elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),detail=m.group(3)[:160])
+            rc=p.wait()
+        if rc!=0:
+            overall_ok=False
+            try:update_state(stream,status="BACKEND_ERROR",outputs=[],error_code=rc,error_tail=lines[-40:])
+            except Exception:pass
+            setrow(stream,status="ПОМИЛКА",stage="BACKEND_ERROR",progress=row(stream).get("progress","0%"),
+                   elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),
+                   detail=f"Backend code {rc}")
+            continue
+
+        outputs=primary_from_log(lines,stream)
+        if not outputs:
+            folder=app/stream
+            outputs=[str(p) for p in sorted(folder.glob(f"RG_EDITED_{stream}*.xml"))
+                     if "_SHORTS" not in p.name.upper() and "_UNCENSORED" not in p.name.upper()]
+
+        setrow(stream,status="ПРАЦЮЄ",stage="POSTRUN_QA",progress="99%",
+               elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),detail=f"QA • {len(outputs)} primary XML")
+        qcmd=[str(runtime),"-u","-X","utf8",str(app/"rg_studio_postrun.py"),
+              "--stream",stream,"--folder",str(app/stream),"--outputs-json",json.dumps(outputs,ensure_ascii=False),
+              "--started-at",str(started)]
+        q=subprocess.run(qcmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace")
+        qa_text=(q.stdout or "")+"\n"+(q.stderr or "")
+        with log_path.open("a",encoding="utf-8") as lf:lf.write(qa_text)
+        result=None
+        for line in (q.stdout or "").splitlines():
+            if line.startswith("RGPOSTRUN|"):
+                try:result=json.loads(line.split("|",1)[1])
+                except Exception:pass
+        passed=bool(result and result.get("passed") and q.returncode==0)
+        package=None
+        if result:
+            try:
+                package,_table=build_run_package(stream,outputs,result,log_path,None)
+            except Exception as exc:
+                with log_path.open("a",encoding="utf-8") as lf:lf.write("\nRUN PACKAGE ERROR: "+repr(exc)+"\n")
+        try:update_state(stream,status="COMPLETE" if passed else "NEEDS_CHECK",outputs=outputs,run_package=str(package) if package else None)
+        except Exception:pass
+
+        if passed:
+            setrow(stream,status="ГОТОВО",stage="DONE",progress="100%",
+                   elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),
+                   detail=f"QA PASS • {len(outputs)} XML")
+        else:
+            overall_ok=False
+            bad=[str(x.get("name")) for x in ((result or {}).get("checks") or []) if not x.get("ok")]
+            setrow(stream,status="ПОМИЛКА",stage="POSTRUN_QA",progress="100%",
+                   elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),
+                   detail=("QA FAIL • "+", ".join(bad[:5])) if bad else f"QA process code {q.returncode}")
+    except Exception as exc:
+        overall_ok=False
+        with log_path.open("a",encoding="utf-8") as lf:
+            lf.write("\nRECOVERY RUNNER EXCEPTION:\n"+traceback.format_exc()+"\n")
+        setrow(stream,status="ПОМИЛКА",stage="RECOVERY_ERROR",progress=row(stream).get("progress","0%"),
+               elapsed=time.strftime("%H:%M:%S",time.gmtime(max(0,time.time()-started))),detail=f"{type(exc).__name__}: {str(exc)[:180]}")
+    finally:
+        if lock is not None:
+            try:release_stream_lock(stream,str((lock or {}).get("run_id") or ""))
+            except Exception:pass
+
+state["running"]=False
+state["finished_at"]=time.time()
+state["overall_ok"]=overall_ok
+publish()
+'''
+    helper_path = run_dir / "recovery_queue_runner.py"
+    helper_path.write_text(textwrap.dedent(helper), encoding="utf-8")
+
+    env = os.environ.copy()
+    env.pop("RUNNER_TRACKING_ID", None)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    flags = getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0) | getattr(subprocess,"DETACHED_PROCESS",0)
+    proc = subprocess.Popen(
+        [str(runtime),"-u",str(helper_path),str(plan_path)],
+        cwd=str(run_dir),env=env,creationflags=flags,close_fds=True,
+        stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+    )
+    time.sleep(2)
+    if proc.poll() is not None:
+        raise RuntimeError(f"Recovery queue exited immediately with code {proc.returncode}")
+
+    return {
+        "started": True,
+        "pid": proc.pid,
+        "session_id": session_id,
+        "streams": streams,
+        "status_file": str(run_dir / "RECOVERY_QUEUE_STATUS.json"),
+        "queue_state": str(local / "RG_Auto_Edit" / "studio_batch_queue.json"),
+        "runner": str(helper_path),
+    }
+
+
+def inspect_auto_edit_recovery_queue() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_recovery_queue must run on AlexPC/Windows")
+    data = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\control_runs")
+    candidates = sorted(data.glob("RECOVERY_*"), key=lambda p:p.stat().st_mtime, reverse=True)
+    if not candidates:
+        return {"found": False}
+    root = candidates[0]
+    status = root / "RECOVERY_QUEUE_STATUS.json"
+    out = {"found": True, "session": root.name, "status_file": str(status)}
+    if status.is_file():
+        try:out["status"]=json.loads(status.read_text(encoding="utf-8-sig"))
+        except Exception as exc:out["status_error"]=repr(exc)
+    logs={}
+    for p in sorted(root.glob("*_STUDIO_RUN.log")):
+        try:logs[p.name]=p.read_text(encoding="utf-8",errors="replace").splitlines()[-40:]
+        except Exception as exc:logs[p.name]=[repr(exc)]
+    out["log_tails"]=logs
+    return out
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -3222,6 +3503,8 @@ ACTIONS = {
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
+    "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
+    "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
