@@ -863,7 +863,6 @@ def find_today_upcoming_live_broadcasts() -> dict:
         client.credentials()
         response = client.service().liveBroadcasts().list(
             part="id,snippet,status",
-            broadcastStatus="upcoming",
             mine=True,
             maxResults=50,
         ).execute()
