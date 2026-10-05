@@ -137,3 +137,29 @@ def test_description_quality_accepts_ukrainian_summary() -> None:
     )
 
     assert _description_quality_error(description, transcript) == ""
+
+
+def test_grounded_description_uses_detected_topics_without_transcript_dump() -> None:
+    from rg_youtube_control.free_tools import (
+        _description_quality_error,
+        _grounded_description_from_transcript,
+    )
+
+    transcript = (
+        "[00:00] цены поднялись и стало дороже жить\n"
+        "[01:00] зарплата поднялась\n"
+        "[02:00] мне добавили пенсию\n"
+        "[03:00] экономика улучшается\n"
+        "[04:00] 90 процентов будут голосовать за Путина\n"
+    ) * 12
+    description = _grounded_description_from_transcript(
+        "Как улучшилась жизнь россиян за прошедший 2023 год? | РАША ГУДБАЙ",
+        transcript,
+    )
+
+    assert "ціни та вартість життя" in description
+    assert "зарплати та доходи" in description
+    assert "пенсії та соціальні виплати" in description
+    assert "економіку Росії" in description
+    assert "цены поднялись" not in description
+    assert _description_quality_error(description, transcript) == ""
