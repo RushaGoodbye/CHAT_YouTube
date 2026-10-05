@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
+  "action": "inspect_auto_edit_pack100_targets",
   "args": {},
-  "nonce": "20261005-pack100-ui-functions"
+  "nonce": "20261005-pack100-targets"
 }
