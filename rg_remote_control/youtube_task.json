@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_stop_legacy_gui",
   "args": {
-    "nonce": "verify094"
+    "nonce": "switch-to-source094"
   }
 }
