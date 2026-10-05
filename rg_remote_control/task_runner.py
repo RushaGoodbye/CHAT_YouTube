@@ -3031,6 +3031,49 @@ def inspect_auto_edit_runtime_state() -> dict:
     return out
 
 
+def locate_auto_edit_missing_screens() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("locate_auto_edit_missing_screens must run on AlexPC/Windows")
+    import fnmatch
+
+    patterns = ("889-*.jpg","890-*.jpg","892-4.jpg")
+    roots = [
+        Path(r"\\Desktop-v7gg0en\record"),
+        Path(r"F:\RG_AUTO_EDIT"),
+        Path(r"C:\Users\fauto\AppData\Local\RG_Auto_Edit"),
+    ]
+    found = {p: [] for p in patterns}
+    scanned = []
+    for root in roots:
+        if not root.exists():
+            scanned.append({"root":str(root),"exists":False})
+            continue
+        scanned.append({"root":str(root),"exists":True})
+        try:
+            for dp, ds, fs in os.walk(root):
+                low = str(dp).lower()
+                if any(x in low for x in ("\\venv","\\__pycache__","\\site-packages")):
+                    ds[:] = []
+                    continue
+                for name in fs:
+                    for pat in patterns:
+                        if fnmatch.fnmatch(name, pat):
+                            path = Path(dp) / name
+                            try:
+                                found[pat].append({
+                                    "path": str(path),
+                                    "size": path.stat().st_size,
+                                    "mtime": path.stat().st_mtime,
+                                })
+                            except Exception:
+                                found[pat].append({"path": str(path)})
+                if sum(len(v) for v in found.values()) >= 100:
+                    break
+        except Exception as exc:
+            scanned[-1]["error"] = repr(exc)
+    return {"patterns": found, "scanned": scanned}
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -3097,6 +3140,7 @@ ACTIONS = {
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
+    "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
