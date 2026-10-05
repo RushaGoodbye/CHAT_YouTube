@@ -673,6 +673,8 @@ class MainWindow(QMainWindow):
         self._build_log_tab()
         self._build_settings_tab()
         self._build_archive_dashboard_tab()
+        self.tabs.currentChanged.connect(self._on_main_tab_changed)
+        self._on_main_tab_changed(self.tabs.currentIndex())
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.background_scan_all_channels)
@@ -704,6 +706,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(8000, self.check_quota_plan_ready)
         QTimer.singleShot(10000, self.run_background_maintenance)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
+
+    def _on_main_tab_changed(self, _index: int) -> None:
+        if not hasattr(self, "metrics_wrapper"):
+            return
+        current = self.tabs.currentWidget() if hasattr(self, "tabs") else None
+        hide_global_metrics = current in {
+            getattr(self, "today_page", None),
+            getattr(self, "archive_page", None),
+        }
+        self.metrics_wrapper.setVisible(not hide_global_metrics)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -751,6 +763,7 @@ class MainWindow(QMainWindow):
 
     def _build_metrics(self, parent_layout: QVBoxLayout) -> None:
         wrapper = QWidget()
+        self.metrics_wrapper = wrapper
         grid = QGridLayout(wrapper)
         grid.setContentsMargins(18, 12, 18, 12)
         grid.setHorizontalSpacing(10)
@@ -986,6 +999,7 @@ class MainWindow(QMainWindow):
 
     def _build_task_center_tab(self) -> None:
         page = QWidget()
+        self.today_page = page
         layout = QVBoxLayout(page)
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(12)
