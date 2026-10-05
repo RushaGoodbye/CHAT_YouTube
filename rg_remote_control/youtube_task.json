@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_source_only",
+  "action": "youtube_local_launch_diagnostic",
   "args": {
-    "nonce": "ui-redesign-040"
+    "nonce": "diag-ui-040"
   }
 }
