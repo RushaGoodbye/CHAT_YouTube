@@ -3074,6 +3074,63 @@ def locate_auto_edit_missing_screens() -> dict:
     return {"patterns": found, "scanned": scanned}
 
 
+def apply_auto_edit_completeness_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("apply_auto_edit_completeness_hotfix must run on AlexPC/Windows")
+
+    import datetime
+    import py_compile
+
+    path = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_postrun.py")
+    if not path.is_file():
+        raise RuntimeError(f"Postrun file missing: {path}")
+
+    source = path.read_text(encoding="utf-8")
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\release_backups") / f"PRE_COMPLETENESS_HOTFIX_{stamp}"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, backup_dir / path.name)
+
+    marker = '    def add(n,ok,d="",critical=True):checks.append({"name":n,"ok":bool(ok),"detail":str(d),"critical":critical})\n'
+    if marker not in source:
+        raise RuntimeError("Postrun insertion marker not found")
+
+    if "RG_EXPECTED_DIALOGUE_COMPLETENESS_V1" not in source:
+        patch = marker + '''    # RG_EXPECTED_DIALOGUE_COMPLETENESS_V1
+    def _dialogue_key(p):
+        import re
+        n=Path(p).name
+        m=re.match(r"^RG_EDITED_"+re.escape(str(a.stream))+r"(?:_(\\\\d+))?(?:_SHORTS|_UNCENSORED)?\\\\.xml$",n,re.I)
+        if not m:return None
+        return m.group(1) or "MAIN"
+    primary_ids={x for x in (_dialogue_key(p) for p in outs) if x}
+    uncensored_ids=set()
+    for p in root.glob(f"RG_EDITED_{a.stream}*_UNCENSORED.xml"):
+        k=_dialogue_key(p)
+        if k:uncensored_ids.add(k)
+    missing_expected=sorted(uncensored_ids-primary_ids,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))
+    expected_ids=sorted(primary_ids|uncensored_ids,key=lambda x:(x!="MAIN",int(x) if x.isdigit() else -1))
+    add("Повнота діалогів",not missing_expected,
+        ("PASS • expected="+",".join(expected_ids)) if not missing_expected
+        else ("MISSING PRIMARY XML: "+",".join(missing_expected)+" • expected="+",".join(expected_ids)),
+        True)
+'''
+        source = source.replace(marker, patch, 1)
+
+    temp = path.with_suffix(".py.hotfix.tmp")
+    temp.write_text(source,encoding="utf-8")
+    py_compile.compile(str(temp), doraise=True)
+    os.replace(temp,path)
+    py_compile.compile(str(path), doraise=True)
+
+    return {
+        "patched": True,
+        "path": str(path),
+        "backup": str(backup_dir),
+        "guard": "RG_EXPECTED_DIALOGUE_COMPLETENESS_V1",
+    }
+
+
 def health() -> dict:
     usage = shutil.disk_usage(Path.home())
     return {
@@ -3141,6 +3198,7 @@ ACTIONS = {
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
+    "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
     "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
