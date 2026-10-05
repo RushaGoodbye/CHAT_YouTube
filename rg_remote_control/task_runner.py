@@ -7122,6 +7122,23 @@ def inspect_auto_edit_thumbnail_final_render() -> dict:
     return {"path":str(p),"functions":out}
 
 
+def inspect_auto_edit_final_compilation_code() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_final_compilation.py")
+    src=p.read_text(encoding="utf-8",errors="replace")
+    rows=src.splitlines()
+    tree=ast.parse(src)
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+            a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            body="\n".join(rows[a:b])
+            if any(k in body for k in ("render_output","render-dir","selection-file","clips","Premiere","output")):
+                out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    return {"path":str(p),"functions":out,"head":"\n".join(f"{i+1}: {rows[i]}" for i in range(min(220,len(rows))))}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7193,6 +7210,7 @@ ACTIONS = {
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
+    "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
