@@ -481,6 +481,8 @@ def runtime_status() -> dict:
 
     running = False
     process_text = ""
+    source_running = False
+    source_processes = ""
     if os.name == "nt":
         proc = subprocess.run(
             [
@@ -501,6 +503,30 @@ def runtime_status() -> dict:
         )
         process_text = (proc.stdout or "").strip()
         running = bool(process_text and process_text not in {"null", "[]"})
+
+        src_proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                (
+                    "$p=Get-CimInstance Win32_Process | Where-Object { "
+                    "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                    "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+                    "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
+                    "ConvertTo-Json -Compress"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        source_processes = (src_proc.stdout or "").strip()
+        source_running = bool(
+            source_processes
+            and source_processes not in {"null", "[]"}
+        )
 
     source_candidates = []
     candidate_paths = [
@@ -600,6 +626,8 @@ def runtime_status() -> dict:
         "installs": installs,
         "running": running,
         "processes": process_text,
+        "source_running": source_running,
+        "source_processes": source_processes,
         "source_candidates": source_candidates,
         "installed_exe_version": exe_version,
         "gh_available": gh_available,
