@@ -3830,6 +3830,30 @@ def remote_mcp_status() -> dict:
     )
 
 
+
+def inspect_auto_edit_pack100_targets() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("inspect_auto_edit_pack100_targets must run on AlexPC/Windows")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    files=["rg_studio_ui.py","rg_studio_style.py","rg_studio_preflight.py","rg_studio_postrun.py","rg_production_hardening.py","rg_studio_resilience.py"]
+    patterns=["setStyleSheet","QTabWidget","batch_table","run_btn","status","preflight","archive","resume","cache","history","health","browser","diagnostic","release","rollback","watchdog","LONG","compact"]
+    out={}
+    for name in files:
+        p=app/name
+        if not p.is_file():
+            out[name]={"missing":True};continue
+        rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+        hits=[]
+        for i,line in enumerate(rows):
+            low=line.lower()
+            if any(x.lower() in low for x in patterns):
+                a=max(0,i-5);b=min(len(rows),i+8)
+                hits.append({"line":i+1,"snippet":"\n".join(f"{k+1}: {rows[k]}" for k in range(a,b))})
+                if len(hits)>=35:break
+        out[name]={"size":p.stat().st_size,"hits":hits}
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -3867,6 +3891,7 @@ ACTIONS = {
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
+    "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
