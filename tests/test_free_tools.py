@@ -100,3 +100,40 @@ def test_recover_missing_description_uses_plain_text_fallback(monkeypatch) -> No
 
     assert len(result) >= 320
     assert result.startswith("У відео")
+
+
+def test_description_quality_rejects_raw_transcript_dump() -> None:
+    from rg_youtube_control.free_tools import _description_quality_error
+
+    transcript = (
+        "Тяжелее стало цены поднялись в принципе всё что было так есть просто "
+        "цены поднялись немножко ну ясно что кто-то должен это оплачивать "
+        "вот оплачиваем ценами конечно вы довольны ну да у всего своя цена "
+        "поверьте это ещё не всё вам долго расплачиваться "
+    ) * 12
+    description = transcript[:1800]
+
+    assert _description_quality_error(description, transcript) in {
+        "too_long",
+        "not_summary_prose",
+        "wrong_language",
+        "transcript_copy",
+    }
+
+
+def test_description_quality_accepts_ukrainian_summary() -> None:
+    from rg_youtube_control.free_tools import _description_quality_error
+
+    transcript = (
+        "Тяжелее стало цены поднялись зарплата изменилась люди отвечают "
+        "как изменилась жизнь за год и оценивают ситуацию в России "
+    ) * 40
+    description = (
+        "У цьому випуску росіяни відповідають, як змінилося їхнє життя за 2023 рік. "
+        "Співрозмовники говорять про зростання цін, зарплати, пенсії та власний добробут. "
+        "Частина учасників стверджує, що живе краще, інші прямо кажуть про погіршення. "
+        "Окремо звучать оцінки економіки Росії та ставлення до політики влади. "
+        "Розмова показує різні, часто суперечливі відповіді на одне просте запитання."
+    )
+
+    assert _description_quality_error(description, transcript) == ""
