@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_strict_guest_face_v2",
+  "action": "inspect_auto_edit_latest_thumbnail_state",
   "args": {},
-  "nonce": "apply-strict-guest-face-v2-20261005-8"
+  "nonce": "inspect-latest-thumb-state-20261005-1"
 }
