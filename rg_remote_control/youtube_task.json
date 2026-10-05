@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_finalize_stream901",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "finalize-stream901-20261005"
+    "nonce": "sync-launch-0374-20261005"
   }
 }
