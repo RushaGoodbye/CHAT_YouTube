@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
-  "args": {
-    "stream": "901"
-  },
-  "nonce": "inspect-stream-901-error-20261006-1"
+  "action": "inspect_auto_edit_901_diagnostic",
+  "args": {},
+  "nonce": "inspect-901-diagnostic-20261006-2"
 }
