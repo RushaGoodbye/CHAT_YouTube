@@ -97,7 +97,7 @@ class TelemetryModel:
         if line.startswith("RGPROGRESS|"):
             try:
                 _,pc,code,msg=line.split("|",3);pc=max(0,min(100,float(pc)))
-                self.exact_pc=pc;self.exact_count+=1;self._set_stage(code,pc,msg or code)
+                first_exact=(self.exact_count==0);self.exact_pc=pc;self.exact_count+=1;\n                if first_exact:self.last_visible=pc\n                self._set_stage(code,pc,msg or code)
                 m=re.search(r"video\s+([0-9]+(?:\.[0-9]+)?)\s*min",msg or "",re.I)
                 if m:self.video=m.group(1)+" min"
                 m=re.search(r"(\d+)/(\d+)",msg or "")
