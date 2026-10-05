@@ -10,6 +10,7 @@ from rg_youtube_control.vidiq_budget import (
     request_fingerprint,
     set_limits,
     set_manual_usage,
+    sync_external_balance,
 )
 
 
@@ -69,16 +70,42 @@ def test_vidiq_duplicate_request_is_blocked(tmp_path) -> None:
     assert duplicate.reason == "duplicate_request"
 
 
-def test_vidiq_counter_resets_on_new_month(tmp_path) -> None:
+def test_vidiq_counter_resets_on_real_billing_date(tmp_path) -> None:
     conn = connect(tmp_path / "rg.db")
-    set_setting(conn, "vidiq_monthly_limit", "2000")
-    set_setting(conn, "vidiq_reserve_credits", "300")
-    set_setting(conn, "vidiq_credit_period", "2026-09")
-    set_setting(conn, "vidiq_used_credits", "900")
-
-    october = budget_status(
+    sync_external_balance(
         conn,
-        datetime(2026, 10, 1, 12, tzinfo=timezone.utc),
+        max_renewable_credits=2000,
+        renewable_credits=1100,
+        reset_at="2026-10-10T20:56:47+00:00",
     )
-    assert october.period == "2026-10"
-    assert october.used == 0
+
+    before = budget_status(
+        conn,
+        datetime(2026, 10, 10, 20, 0, tzinfo=timezone.utc),
+    )
+    assert before.used == 900
+    assert before.remaining == 1100
+
+    after = budget_status(
+        conn,
+        datetime(2026, 10, 10, 21, 0, tzinfo=timezone.utc),
+    )
+    assert after.used == 0
+    assert after.remaining == 2000
+    assert after.reset_at.startswith("2026-11-10")
+
+
+def test_vidiq_external_balance_matches_real_bucket_semantics(tmp_path) -> None:
+    conn = connect(tmp_path / "rg.db")
+    status = sync_external_balance(
+        conn,
+        max_renewable_credits=2000,
+        renewable_credits=0,
+        reset_at="2026-10-10T20:56:47.536073Z",
+        add_on_credits=0,
+    )
+
+    assert status.limit == 2000
+    assert status.used == 2000
+    assert status.remaining == 0
+    assert status.reset_at.startswith("2026-10-10")
