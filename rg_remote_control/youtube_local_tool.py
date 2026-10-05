@@ -1484,6 +1484,65 @@ def ensure_gui_startup() -> dict:
         "processes": process_text,
     }
 
+
+def cleanup_gui_processes() -> dict:
+    """Keep only the private-venv RG YouTube Control GUI process."""
+    import subprocess
+
+    target = Path.home() / "CHAT_YouTube-main"
+    keep = target / ".venv" / "Scripts" / "pythonw.exe"
+    if not keep.is_file():
+        raise RuntimeError(f"Private GUI runtime not found: {keep}")
+
+    command = (
+        "$keep='"
+        + str(keep).replace("'", "''")
+        + "'; "
+        "$items=Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+        "$removed=@(); "
+        "foreach($p in $items){ "
+        "if($p.ExecutablePath -and ($p.ExecutablePath -ne $keep)){ "
+        "$removed += [int]$p.ProcessId; "
+        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
+        "} }; "
+        "$alive=Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+        "[pscustomobject]@{removed=$removed;alive=$alive} | "
+        "ConvertTo-Json -Depth 5 -Compress"
+    )
+    proc = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "GUI process cleanup failed: "
+            + ((proc.stderr or proc.stdout) or "")[-3000:]
+        )
+    raw = (proc.stdout or "").strip()
+    payload = {}
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {"raw": raw}
+    return {
+        "youtube_api_calls": 0,
+        "keep": str(keep),
+        "result": payload,
+    }
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1519,6 +1578,8 @@ def main() -> int:
         result = ensure_gui_startup()
     elif action == "youtube_local_prepare_source_runtime":
         result = prepare_source_runtime()
+    elif action == "youtube_local_cleanup_gui_processes":
+        result = cleanup_gui_processes()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
