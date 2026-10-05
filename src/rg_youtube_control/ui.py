@@ -5359,6 +5359,8 @@ class MainWindow(QMainWindow):
 
     def _advance_archive_campaign(self, *, notify: bool = False) -> None:
         stats = self._archive_campaign_stats()
+        self._dashboard_archive_stats_cache = stats
+        self._dashboard_archive_stats_cache_at = time.monotonic()
         phase, target = next_campaign_phase(stats)
         save_campaign_checkpoint(
             self.conn,
