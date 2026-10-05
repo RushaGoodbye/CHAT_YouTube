@@ -1120,6 +1120,56 @@ def optimize_scheduled_stream(task: dict) -> dict:
     finally:
         conn.close()
 
+
+def verify_stream_901_after_partial_update() -> dict:
+    """Recover quota accounting and inspect Stream 901 after API normalization."""
+    from rg_youtube_control.db import connect, get_setting, set_setting
+    from rg_youtube_control.service import (
+        READ_REQUEST_COST,
+        VIDEO_UPDATE_COST,
+        record_quota_units,
+        today_quota_units,
+    )
+    from rg_youtube_control.youtube_api import YouTubeClient
+
+    video_id = "K-yK-cDQij0"
+    marker_key = "quota_repair_stream901_partial_update_2026-10-05"
+    conn = connect(_db_path())
+    try:
+        before = today_quota_units(conn)
+        if get_setting(conn, marker_key, "0") != "1":
+            record_quota_units(
+                conn,
+                VIDEO_UPDATE_COST,
+                purpose="video",
+            )
+            set_setting(conn, marker_key, "1")
+
+        client = YouTubeClient(profile="live")
+        client.credentials()
+        items, requests = client.video_details_with_request_count([video_id])
+        record_quota_units(
+            conn,
+            int(requests) * READ_REQUEST_COST,
+            purpose="service",
+        )
+        if not items:
+            raise RuntimeError(f"Video not found: {video_id}")
+        snippet = items[0].get("snippet", {}) or {}
+        after = today_quota_units(conn)
+        return {
+            "video_id": video_id,
+            "title": str(snippet.get("title") or ""),
+            "description": str(snippet.get("description") or ""),
+            "description_chars": len(str(snippet.get("description") or "")),
+            "tags": list(snippet.get("tags") or []),
+            "tags_count": len(list(snippet.get("tags") or [])),
+            "quota_units_added_this_recovery": max(0, after - before),
+            "quota_repair_marker": get_setting(conn, marker_key, "0"),
+        }
+    finally:
+        conn.close()
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1147,6 +1197,8 @@ def main() -> int:
         result = find_today_upcoming_live_broadcasts()
     elif action == "youtube_local_optimize_scheduled_stream":
         result = optimize_scheduled_stream(task)
+    elif action == "youtube_local_verify_stream901_partial_update":
+        result = verify_stream_901_after_partial_update()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
