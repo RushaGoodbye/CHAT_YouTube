@@ -8518,6 +8518,10 @@ class MainWindow(QMainWindow):
             description,
             title,
         ).after
+        description = safe_description_fix(
+            description,
+            title,
+        ).after
         tags = [
             str(item).strip()
             for item in package.get("tags", [])
@@ -8533,8 +8537,13 @@ class MainWindow(QMainWindow):
             for item in package.get("title_variants", [])
             if str(item).strip()
         ]
-        if title not in variants:
-            variants.insert(0, title)
+        variants = list(dict.fromkeys(variants))
+        variants = [item for item in variants if item.casefold() != title.casefold()]
+        if len(variants) < 3:
+            raise RuntimeError(
+                "Локальна модель не створила 3 різні A/B варіанти назви. "
+                "Пакет не збережено."
+            )
         variants = variants[:3]
 
         check = validate_content_package(
