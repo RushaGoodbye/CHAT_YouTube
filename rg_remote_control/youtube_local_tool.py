@@ -963,6 +963,46 @@ def prepare_source_runtime() -> dict:
         "install_tail": (install.stdout or "")[-2500:],
     }
 
+def sync_source_only() -> dict:
+    """Update the fixed local source checkout without touching the running GUI."""
+    target = Path.home() / "CHAT_YouTube-main"
+    if not target.is_dir():
+        raise RuntimeError(f"Local source folder not found: {target}")
+    source_src = ROOT / "src"
+    if not source_src.is_dir():
+        raise RuntimeError(f"Fresh source folder not found: {source_src}")
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup = target / "BACKUPS" / f"source_before_sync_{stamp}"
+    backup.mkdir(parents=True, exist_ok=True)
+
+    target_src = target / "src"
+    if target_src.exists():
+        shutil.copytree(target_src, backup / "src")
+    for name in ("run_app.py", "pyproject.toml", "requirements.txt"):
+        local_file = target / name
+        if local_file.is_file():
+            shutil.copy2(local_file, backup / name)
+
+    if target_src.exists():
+        shutil.rmtree(target_src)
+    shutil.copytree(source_src, target_src)
+    for name in ("run_app.py", "pyproject.toml", "requirements.txt"):
+        src_file = ROOT / name
+        if src_file.is_file():
+            shutil.copy2(src_file, target / name)
+
+    prepared = prepare_source_runtime()
+    return {
+        "youtube_api_calls": 0,
+        "target": str(target),
+        "backup": str(backup),
+        "version": prepared.get("version", ""),
+        "python": prepared.get("python", ""),
+        "pythonw": prepared.get("pythonw", ""),
+    }
+
+
 def sync_and_launch_source() -> dict:
     """Safely update the fixed local source checkout and launch it."""
     import subprocess
@@ -2520,6 +2560,8 @@ def main() -> int:
         result = runtime_status()
     elif action == "youtube_local_stop_legacy_gui":
         result = stop_legacy_installed_gui()
+    elif action == "youtube_local_sync_source_only":
+        result = sync_source_only()
     elif action == "youtube_local_sync_and_launch_source":
         result = sync_and_launch_source()
     elif action == "youtube_local_launch_diagnostic":
