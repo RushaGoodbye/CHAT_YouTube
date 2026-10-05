@@ -4409,6 +4409,7 @@ import os,sys,json,time,re,shutil,hashlib,py_compile,traceback
 from pathlib import Path
 
 APP=Path.cwd()
+if str(APP) not in sys.path: sys.path.insert(0,str(APP))
 DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
 DRY=bool(os.environ.get("RG_PACK120_DRYRUN"))
 if DRY:
@@ -4672,6 +4673,7 @@ def patch_preflight():
 def patch_postrun():
     p=APP/"rg_studio_postrun.py";s=p.read_text(encoding="utf-8")
     s=s.replace("RGXMLREADY -> <app>\\<stream>\\RG_EDITED_...xml","RGXMLREADY -> APP/STREAM/RG_EDITED_...xml")
+    s=s.replace("RGOUTPUT   -> <app>\\RG_EDITED_...xml","RGOUTPUT   -> APP/RG_EDITED_...xml")
     if "from rg_pack120 import load_expected_inventory,qa_score" not in s:
         anchor="from pathlib import Path\n"
         if anchor in s:s=s.replace(anchor,anchor+"from rg_pack120 import load_expected_inventory,qa_score\n",1)
