@@ -4115,6 +4115,43 @@ def verify_auto_edit_pack100() -> dict:
     return {"schema":"RG_PACK100_VERIFY_V1","passed":passed,"checks":checks,"count":len(checks)}
 
 
+
+def audit_auto_edit_pack100_features() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("audit_auto_edit_pack100_features must run on AlexPC/Windows")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    ui=(app/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    post=(app/"rg_studio_postrun.py").read_text(encoding="utf-8",errors="replace")
+    hard=(app/"rg_production_hardening.py").read_text(encoding="utf-8",errors="replace")
+    cfg=json.loads((app/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"))
+    checks={
+      "queue_drag_drop": any(x in ui for x in ["InternalMove","setDragDropMode","moveRow"]),
+      "run_first": any(x in ui.lower() for x in ["run first","першим","запустити першим"]),
+      "pause_after_current": "_batch_paused" in ui,
+      "retry_failed": any(x in ui.lower() for x in ["retry","повторити","повтор"]),
+      "compact_mode": "compact" in ui.lower(),
+      "studio_mode": "studio" in ui.lower(),
+      "notifications_center": "notification" in ui.lower() or "сповіщ" in ui.lower(),
+      "diagnostics_copy": "clipboard" in ui.lower() or "скопіювати" in ui.lower(),
+      "history_ui": "performance_history" in ui and ("history" in ui.lower() or "істор" in ui.lower()),
+      "cache_ui": "cache_stats" in ui,
+      "health_ui": "storage_snapshot" in ui and ("gpu" in ui.lower()),
+      "browser": "RGInternalBrowser" in ui,
+      "watchdog": "watchdog" in ui.lower(),
+      "selective_recompute": "selective" in ui.lower(),
+      "preflight": "preflight" in ui.lower(),
+      "completeness_v3": "RG_COMPLETENESS_GUARD_V3_PACK100" in post,
+      "premiere_validation": "premiere_validate" in post,
+      "audio_original": "ORIGINAL SOURCE" in post or "audio_preservation" in json.dumps(cfg,ensure_ascii=False),
+      "history_backend": "performance_history" in hard,
+      "release_channels": "promote_stable" in hard and "set_test" in hard,
+      "rollback": "rollback" in hard.lower() or "last_known_good" in json.dumps(cfg,ensure_ascii=False).lower(),
+      "pack100_config": bool((cfg.get("pack100") or {}).get("enabled"))
+    }
+    missing=[k for k,v in checks.items() if not v]
+    return {"schema":"RG_PACK100_FEATURE_AUDIT_V1","checks":checks,"missing":missing,"passed":not missing}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4155,6 +4192,7 @@ ACTIONS = {
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
+    "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
