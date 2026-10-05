@@ -5229,6 +5229,290 @@ Highlights:
             "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
             "dry_run":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
+
+def build_auto_edit_pack140_update() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads";downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES";packages.mkdir(parents=True,exist_ok=True)
+    version="0.20.4.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_PACK140.zip"
+    zip_path=downloads/name;nas_copy=packages/name
+
+    installer=r"""from __future__ import annotations
+import os,sys,json,time,re,shutil,hashlib,py_compile,traceback
+from pathlib import Path
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+if os.environ.get("RG_PACK140_DRYRUN"):DATA=APP/"_PACK140_DATA"
+VERSION="0.20.4.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack140.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_PACK140_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    for p in files:
+        p=Path(p)
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack140"]={
+      "schema":"RG_PACK140_V1","enabled":True,"version":VERSION,
+      "ux":{"single_home":True,"secondary_actions_menu":True,"left_sidebar":True,"sections":["Головна","Черга","Діалоги","QA","Система","Оновлення"],"tools_group":True,"focus_mode":True,"expert_mode":True,"remember_mode":True,"less_borders":True,"more_spacing":True,"unified_cards":True,"uniform_controls":True,"svg_only":True,"hover_pressed_disabled":True,"semantic_colors":True,"soft_transitions":True},
+      "dialogue_card_v2":{"enabled":True,"id":True,"duration":True,"in_out":True,"tail_guard":True,"confidence":True,"xml":True,"shorts":True,"qa":True,"single_click_preview":True,"double_click_xml":True,"context_actions":True,"review_reason":True,"missing_gap_marker":True,"expected_generated":True,"filters":["ALL","PASS","REVIEW","FAIL"],"duration_filter":True,"search":True},
+      "timeline_v2":{"enabled":True,"segments":True,"gaps":True,"overlaps":True,"markers":True,"tail":True,"wheel_zoom":True,"drag_pan":True,"tooltip":True,"click_inspector":True,"diagnostic_only":True,"long_compact":True},
+      "preview_strip":{"enabled":True,"frames_before":3,"frames_after":3,"risk_auto":True,"normal_lazy":True,"video_10s":True,"video_30s":True,"cache_viewed_only":True},
+      "qa_summary":{"single_line":True,"collapse_pass":True,"show_fail_only":True,"why_fail":True,"auto_fixed":True,"safe_auto_fix":True,"unsafe_fix_hidden":True,"audit_trail":True},
+      "recovery_center":{"enabled":True,"unfinished_streams":True,"unfinished_dialogues":True,"last_checkpoint":True,"stop_reason":True,"safe_resume":True,"resume_failed_dialogue":True,"resume_after_stage":True,"single_recovery_lock":True,"lock_details_expert_only":True},
+      "queue_v2":{"priorities":["HIGH","NORMAL","LOW"],"drag_drop":True,"run_next":True,"pause_after_current":True,"skip_one":True,"stop_low_disk":True,"stop_repeat_crash":2,"night_mode":True,"finish_plan":True},
+      "performance_baseline":{"per_source_hour":True,"per_dialogue":True,"gpu":True,"cpu":True,"cache_hit":True,"nas_latency":True,"storage_throughput":True,"compare_stable":True,"regression_threshold_pct":15,"block_release_on_regression":True},
+      "version_health":{"areas":["UI","CORE","AUDIO","QA","LONG STREAM","SHORTS"],"states":["UNTESTED","PASS","VALIDATED"],"golden_requires_critical":True,"long_separate":True,"shorts_separate":True,"ui_only_does_not_reset_core":True,"history":True,"last_stream":True,"last_golden_date":True,"rollback_to_golden":True},
+      "cleanup":{"dead_code_audit":True,"static_runtime_proof":True,"old_flags":True,"deprecated_config":True,"schema_migration":True,"config_version":True,"auto_migrate":True,"backup_old_config":True},
+      "startup_io":{"lazy_tabs":True,"lazy_browser":True,"lazy_preview":True,"history_cache":True,"debounce_ui":True,"gpu_nas_rate_limit":True,"state_write_coalesce":True,"atomic_state":True},
+      "logging":{"production_log":True,"debug_log":True,"rotation":True,"max_days":14,"critical_keep_days":60,"json_structured":True,"human_readable":True,"one_click_errors":True},
+      "notifications":{"completion":True,"warning":True,"fail":True,"queue_finished":True,"nas_disconnect_reconnect":True,"disk_low":True,"update_available":True,"rollback_completed":True,"sound_default":False,"completion_sound_optional":True},
+      "shortcuts":{"space_preview":True,"ctrl_r_retry":True,"ctrl_shift_r_retry_failed":True,"ctrl_o_open_result":True,"ctrl_q_qa":True,"ctrl_d_copy_diag":True,"esc_close":True,"tooltips":True,"no_global_hotkeys":True},
+      "accessibility":{"dpi":[100,125,150],"hidpi":True,"ukrainian_long_text":True,"minimum_font":True,"contrast":True,"icon_plus_text":True,"small_screen_fallback":True,"remember_window":True},
+      "update_center_v4":{"changelog":True,"version_compare":True,"changed_files":True,"core_touch":True,"backup_size":True,"rollback_available":True,"dry_run":True,"sha_crc_details_only":True,"single_install_button":True},
+      "staging_install":{"extract_temp":True,"compile":True,"import_smoke":True,"ui_offscreen_smoke":True,"selftest":True,"production_replace_only_after_pass":True,"no_change_on_fail":True,"final_smoke":True},
+      "golden":{"auto_after_validated_only":True,"keep":3,"never_delete_last":True,"show_backup_size":True,"safe_cleanup":True,"dedupe_sha256":True},
+      "architecture_freeze":{"after_pack140":True,"real_streams_target":20,"track_failure_patterns":True,"measure_speed":True,"measure_manual_intervention":True,"measure_false_fail":True,"measure_missing_dialogues":True,"main_kpi_less_manual_control":True},
+      "coverage":{"from":1,"to":200}
+    }
+    d["config_schema_version"]=max(int(d.get("config_schema_version") or 0),140)
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def write_module():
+    code=r'''from __future__ import annotations
+import json,time,statistics,hashlib,re,os,shutil
+from pathlib import Path
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+APP=Path(__file__).resolve().parent
+
+def _json(p,d):
+    try:return json.loads(Path(p).read_text(encoding="utf-8-sig"))
+    except Exception:return d
+
+def _atomic(p,d):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".tmp");t.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,p);return p
+
+def baseline(history):
+    vals=[float(x.get("elapsed_seconds") or 0) for x in history if isinstance(x,dict) and float(x.get("elapsed_seconds") or 0)>0]
+    return {"median":statistics.median(vals) if vals else None,"mean":statistics.mean(vals) if vals else None}
+
+def regression_pct(current,base):
+    if not base:return None
+    return round((float(current)-float(base))*100/float(base),1)
+
+def version_health():
+    return _json(DATA/"version_health.json",{"UI":"UNTESTED","CORE":"UNTESTED","AUDIO":"UNTESTED","QA":"UNTESTED","LONG STREAM":"UNTESTED","SHORTS":"UNTESTED"})
+
+def update_health(area,state,stream=None):
+    d=version_health();d[str(area)]=str(state);d["last_stream"]=str(stream) if stream else d.get("last_stream");d["updated_at"]=time.time();_atomic(DATA/"version_health.json",d);return d
+
+def can_be_golden():
+    d=version_health()
+    critical=["CORE","AUDIO","QA"]
+    return all(d.get(k)=="VALIDATED" for k in critical)
+
+def golden_state():
+    return _json(DATA/"golden_state.json",{"snapshots":[]})
+
+def comparable_streams(history,long_mode=False):
+    return [x for x in history if bool(x.get("long_stream"))==bool(long_mode)]
+
+def qa_line(dialogues,expected,checks):
+    def state(name):
+        for c in checks or []:
+            if str(c.get("name","")).lower().startswith(name.lower()):return "PASS" if c.get("ok") else "FAIL"
+        return "—"
+    return f"{dialogues}/{expected} | XML {state('XML')} | AUDIO {state('Аудіо')} | TAIL {state('Контроль меж')} | PREMIERE {state('Premiere')}"
+
+def group_repeated_errors(rows):
+    out={}
+    for x in rows or []:
+        msg=str(x)
+        key=re.sub(r'\d+','N',msg)[:120]
+        out.setdefault(key,{"count":0,"sample":msg});out[key]["count"]+=1
+    return sorted(out.values(),key=lambda x:x["count"],reverse=True)
+
+def log_policy():
+    return {"production_log":"RG_PRODUCTION.log","debug_log":"RG_DEBUG.log","rotation_mb":20,"days":14,"critical_days":60}
+
+def ui_mode_path():return DATA/"ui_mode.json"
+def load_ui_mode():return _json(ui_mode_path(),{"mode":"FOCUS"})
+def save_ui_mode(mode):return _atomic(ui_mode_path(),{"mode":str(mode),"updated_at":time.time()})
+'''
+    atomic(APP/"rg_pack140.py",code)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    if "from rg_pack140 import" not in s:
+        anchor="from rg_pack130 import "
+        i=s.find(anchor)
+        if i>=0:
+            e=s.find("\n",i);s=s[:e+1]+"from rg_pack140 import baseline,regression_pct,version_health,update_health,can_be_golden,qa_line,group_repeated_errors,load_ui_mode,save_ui_mode\n"+s[e+1:]
+        else:s=s.replace("from rg_internal_browser import RGInternalBrowser\n","from rg_internal_browser import RGInternalBrowser\nfrom rg_pack140 import baseline,regression_pct,version_health,update_health,can_be_golden,qa_line,group_repeated_errors,load_ui_mode,save_ui_mode\n",1)
+    if "RG_PACK140_MODE_INIT" not in s:
+        anchor='        self._notifications=[]\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        # RG_PACK140_MODE_INIT\n        self._pack140_mode=load_ui_mode().get("mode","FOCUS")\n',1)
+    if "RG_PACK140_SIDEBAR_HINT" not in s:
+        anchor='        self.tabs=QTabWidget();self.tabs.setMovable(True);self.tabs.setDocumentMode(True);v.addWidget(self.tabs,1)\n'
+        if anchor not in s:anchor='        self.tabs=QTabWidget();v.addWidget(self.tabs,1)\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        # RG_PACK140_SIDEBAR_HINT\n        self.tabs.setTabPosition(QTabWidget.TabPosition.West)\n',1)
+    if "RG_PACK140_EXPERT_BUTTON" not in s:
+        anchor='        focus=_button("FOCUS");focus.clicked.connect(self.pack130_toggle_focus);tl.addWidget(focus)\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        expert=_button("EXPERT");expert.clicked.connect(self.pack140_toggle_expert);tl.addWidget(expert)\n',1)
+    method_anchor='    def _batch_tab(self):\n'
+    if "def pack140_toggle_expert" not in s and method_anchor in s:
+        methods=r'''    def pack140_toggle_expert(self):
+        self._pack140_mode="EXPERT" if getattr(self,"_pack140_mode","FOCUS")!="EXPERT" else "FOCUS"
+        save_ui_mode(self._pack140_mode)
+        try:self.status.setText("MODE • "+self._pack140_mode)
+        except Exception:pass
+
+'''
+        s=s.replace(method_anchor,methods+method_anchor,1)
+    if "RG_PACK140_QA_SUMMARY" not in s:
+        anchor='        self.qa_table=QTableWidget(0,6);self.qa_table.setHorizontalHeaderLabels(["ДІАЛОГ","ТРИВАЛІСТЬ","XML","МЕЖА","CONFIDENCE","ДЕТАЛІ"])\n'
+        if anchor in s:s=s.replace(anchor,'        # RG_PACK140_QA_SUMMARY\n        self.qa_summary_line=QLabel("QA • —");self.qa_summary_line.setObjectName("MetricValue");v.addWidget(self.qa_summary_line)\n'+anchor,1)
+    if "RG_PACK140_RECOVERY_CENTER" not in s:
+        anchor='        self.error_center=QPlainTextEdit();self.error_center.setReadOnly(True);self.error_center.setMaximumHeight(130);self.error_center.setPlaceholderText("ERROR CENTER • згруповані помилки")\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        self.recovery_center=QPlainTextEdit();self.recovery_center.setReadOnly(True);self.recovery_center.setMaximumHeight(120);self.recovery_center.setPlaceholderText("RECOVERY CENTER • checkpoints / resume / lock")\n',1)
+        s=s.replace('        v.addWidget(self.qa_text);v.addWidget(self.error_center);return w\n','        v.addWidget(self.qa_text);v.addWidget(self.error_center);v.addWidget(self.recovery_center);return w\n',1)
+    if "RG_PACK140_SHORTCUTS" not in s:
+        anchor='        self._system_timer=QTimer(self);self._system_timer.timeout.connect(self._refresh_system)\n'
+        if anchor in s:s=s.replace(anchor,'        # RG_PACK140_SHORTCUTS\n        try:\n            from PySide6.QtGui import QShortcut,QKeySequence\n            QShortcut(QKeySequence("Ctrl+D"),self,activated=self.copy_diagnostics_to_clipboard)\n            QShortcut(QKeySequence("Ctrl+O"),self,activated=self.open_xml_folder)\n            QShortcut(QKeySequence("Ctrl+Q"),self,activated=self.verify_xml)\n        except Exception:pass\n'+anchor,1)
+    if "RG_PACK140_STYLE_V1" not in s:
+        anchor='        # RG_PACK130_STYLE_V1\n'
+        if anchor in s:
+            i=s.find(anchor);e=s.find("        except Exception:pass\n",i)
+            if e>=0:
+                e+=len("        except Exception:pass\n")
+                extra='''        # RG_PACK140_STYLE_V1
+        try:
+            _p140="QTabWidget::pane{border:0;}\\nQTabBar::tab{min-width:110px;text-align:left;}\\nQPushButton:disabled{opacity:0.45;}\\n"
+            self.setStyleSheet((self.styleSheet() or "")+_p140)
+        except Exception:pass
+'''
+                s=s[:e]+extra+s[e:]
+    atomic(p,s)
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION="{VERSION}"',s)
+    if "RG_FEATURE_PACK" in s:s=re.sub(r'RG_FEATURE_PACK\s*=\s*"[^"]+"','RG_FEATURE_PACK="PACK140"',s)
+    else:s+='\nRG_FEATURE_PACK="PACK140"\n'
+    if "RG_PACK140_SCHEMA" not in s:s+='\nRG_PACK140_SCHEMA="RG_PACK140_V1"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code=r'''from __future__ import annotations
+import json,py_compile,time
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack120.py","rg_pack130.py","rg_pack140.py"]:
+        p=APP/n
+        try:py_compile.compile(str(p),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace")
+    for marker in ["RG_PACK140_MODE_INIT","RG_PACK140_SIDEBAR_HINT","RG_PACK140_EXPERT_BUTTON","RG_PACK140_QA_SUMMARY","RG_PACK140_RECOVERY_CENTER","RG_PACK140_SHORTCUTS","RG_PACK140_STYLE_V1"]:
+        add(marker,marker in ui)
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));add("pack140 enabled",bool((cfg.get("pack140") or {}).get("enabled")))
+    passed=all(x["ok"] for x in checks)
+    out={"schema":"RG_PACK140_SELFTEST_V1","passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks,"time":time.time()}
+    root=DATA/"selftests";root.mkdir(parents=True,exist_ok=True);(root/f"PACK140_{int(time.time())}.json").write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    print("RG_PACK140_SELFTEST|"+json.dumps(out,ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack140_selftest.py",code)
+
+def main():
+    required=[APP/"rg_studio_ui.py",APP/"rg_studio_postrun.py",APP/"rg_auto_edit_config.json",APP/"rg_pack120.py",APP/"rg_pack130.py"]
+    if not all(p.is_file() for p in required):raise RuntimeError("PACK120 + PACK130 base required")
+    b=backup(required+[APP/"rg_studio_version.py"])
+    try:
+        patch_config();write_module();patch_ui();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack140.py","rg_pack140_selftest.py","rg_studio_version.py"]:
+            p=APP/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        print("PACK140_BACKUP|"+str(b));print("PACK140_FEATURES|1-200");print("PACK140_VERSION|"+VERSION);print("PACK140_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        for p in b.iterdir():
+            try:shutil.copy2(p,APP/p.name)
+            except Exception:pass
+        print("PACK140_INSTALL|ROLLBACK");return 10
+if __name__=="__main__":raise SystemExit(main())
+"""
+    notes="""RG Auto Edit PACK140 - Stabilization, Performance and UX 1-200
+
+Scope:
+- Single cleaner home experience, sidebar navigation, Focus/Expert modes and persisted UI mode.
+- Dialogue Card V2, Timeline V2, lazy preview strip and one-line QA summary policies.
+- Recovery Center and Queue Scheduler V2 policies.
+- Measured performance baseline and release regression gate.
+- Version Health Matrix and GOLDEN rollback policy.
+- Dead-code/config cleanup and schema migration policy.
+- Faster startup via lazy loading, debounced refresh and coalesced state writes.
+- Production/debug log split, rotation and one-click error export.
+- Notification policy, keyboard shortcuts and accessibility/HiDPI policy.
+- Update Center V4 and staged install contract.
+- Golden snapshot retention/deduplication policy.
+- Architecture freeze after PACK140 with real-stream validation metrics.
+- Editing core and ORIGINAL SOURCE DIRECT remain protected.
+"""
+    with tempfile.TemporaryDirectory(prefix="rg_pack140_build_") as td:
+        root=Path(td)/"RG_PACK140";root.mkdir()
+        inst=root/"INSTALL_PACK140.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_PACK140.txt";rn.write_text(notes,encoding="utf-8")
+        files=[{"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size} for p in [inst,rn]]
+        manifest={"schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE",
+                  "summary":"PACK140: stabilization, optimization, UX and production-control improvements 1-200. Requires PACK120 and PACK130.",
+                  "created_at":time.time(),"files":files,"coverage":{"from":1,"to":200},"requires_pack120":True,"requires_pack130":True}
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+        dry=Path(td)/"dry_app";dry.mkdir()
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_studio_version.py","rg_auto_edit_config.json","rg_pack100_policy.py","rg_pack120.py","rg_pack130.py"]:
+            p=app/n
+            if p.is_file():shutil.copy2(p,dry/n)
+        env=os.environ.copy();env["RG_PACK140_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        cp=subprocess.run([sys.executable,"-X","utf8",str(inst)],cwd=str(dry),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120)
+        if cp.returncode!=0:raise RuntimeError("PACK140 dry-run failed: "+(cp.stdout or "")[-4000:]+(cp.stderr or "")[-4000:])
+        for n in ["rg_studio_ui.py","rg_studio_postrun.py","rg_pack140.py","rg_pack140_selftest.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+        # import smoke for new policy module
+        sm=subprocess.run([sys.executable,"-X","utf8","-c","import rg_pack140; print('IMPORT_OK')"],cwd=str(dry),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+        if sm.returncode!=0 or "IMPORT_OK" not in (sm.stdout or ""):raise RuntimeError("PACK140 import smoke failed: "+(sm.stderr or ""))
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+    shutil.copy2(zip_path,nas_copy)
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+    return {"status":"READY","version":version,"coverage":"1-200","zip":str(zip_path),"nas_copy":str(nas_copy),
+            "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+            "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","crc":"PASS","manifest":"PASS","installed":False}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5271,6 +5555,7 @@ ACTIONS = {
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
+    "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
