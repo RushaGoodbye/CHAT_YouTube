@@ -1248,6 +1248,147 @@ def finalize_stream_901_local_state() -> dict:
     finally:
         conn.close()
 
+
+def ensure_gui_startup() -> dict:
+    """Create desktop/startup launchers and start the GUI in user context."""
+    import subprocess
+    import time
+
+    target = Path.home() / "CHAT_YouTube-main"
+    run_app = target / "run_app.py"
+    if not run_app.is_file():
+        raise RuntimeError(f"run_app.py not found: {run_app}")
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    executable = pythonw if pythonw.is_file() else Path(sys.executable)
+
+    pyproject = target / "pyproject.toml"
+    version = ""
+    if pyproject.is_file():
+        match = re.search(
+            r'^version = "([^"]+)"',
+            pyproject.read_text(encoding="utf-8", errors="replace"),
+            re.MULTILINE,
+        )
+        version = match.group(1) if match else ""
+
+    appdata = Path(
+        os.environ.get(
+            "APPDATA",
+            str(Path.home() / "AppData" / "Roaming"),
+        )
+    )
+    desktop = Path.home() / "Desktop"
+    startup = (
+        appdata
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+    desktop.mkdir(parents=True, exist_ok=True)
+    startup.mkdir(parents=True, exist_ok=True)
+
+    def _ps_quote(value: str) -> str:
+        return value.replace("'", "''")
+
+    def create_shortcut(path: Path) -> None:
+        command = (
+            "$ws=New-Object -ComObject WScript.Shell; "
+            "$s=$ws.CreateShortcut('"
+            + _ps_quote(str(path))
+            + "'); $s.TargetPath='"
+            + _ps_quote(str(executable))
+            + "'; $s.Arguments='\""
+            + _ps_quote(str(run_app))
+            + "\"'; $s.WorkingDirectory='"
+            + _ps_quote(str(target))
+            + "'; $s.Description='RG YouTube Control'; $s.Save()"
+        )
+        proc = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                command,
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "Shortcut create failed: "
+                + ((proc.stderr or proc.stdout) or "")[-2000:]
+            )
+
+    desktop_shortcut = desktop / "RG YouTube Control.lnk"
+    startup_shortcut = startup / "RG YouTube Control.lnk"
+    create_shortcut(desktop_shortcut)
+    create_shortcut(startup_shortcut)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(target / "src")
+    env.pop("RUNNER_TRACKING_ID", None)
+
+    flags = 0
+    if os.name == "nt":
+        flags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        )
+
+    proc = subprocess.Popen(
+        [str(executable), str(run_app)],
+        cwd=str(target),
+        env=env,
+        creationflags=flags,
+        close_fds=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+    time.sleep(6)
+    verify = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | Where-Object { "
+                "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+                "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
+                "ConvertTo-Json -Compress"
+            ),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    process_text = (verify.stdout or "").strip()
+    running = bool(
+        process_text
+        and process_text not in {"null", "[]"}
+    )
+
+    return {
+        "youtube_api_calls": 0,
+        "version": version,
+        "target": str(target),
+        "desktop_shortcut": str(desktop_shortcut),
+        "desktop_shortcut_exists": desktop_shortcut.is_file(),
+        "startup_shortcut": str(startup_shortcut),
+        "startup_shortcut_exists": startup_shortcut.is_file(),
+        "pid": proc.pid,
+        "running": running,
+        "processes": process_text,
+    }
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1279,6 +1420,8 @@ def main() -> int:
         result = verify_stream_901_after_partial_update()
     elif action == "youtube_local_finalize_stream901":
         result = finalize_stream_901_local_state()
+    elif action == "youtube_local_ensure_gui_startup":
+        result = ensure_gui_startup()
     else:
         raise RuntimeError(f"Unsupported YouTube local action: {action}")
 
