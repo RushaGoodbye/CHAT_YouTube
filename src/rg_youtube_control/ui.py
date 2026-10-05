@@ -679,6 +679,10 @@ class MainWindow(QMainWindow):
         self.scan_timer.timeout.connect(self.run_background_maintenance)
         self.scan_timer.start(DEFAULT_SCAN_MINUTES * 60 * 1000)
 
+        self.dashboard_timer = QTimer(self)
+        self.dashboard_timer.timeout.connect(self.update_dashboard)
+        self.dashboard_timer.start(15 * 1000)
+
         self.statusBar().showMessage("СИСТЕМА ГОТОВА")
         self.reload_videos()
         self.reload_optimization_queue()
