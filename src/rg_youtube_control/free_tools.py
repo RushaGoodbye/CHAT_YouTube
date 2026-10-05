@@ -655,6 +655,84 @@ def _recover_title_variants(
     ][:3]
 
 
+def _grounded_tags_from_transcript(
+    current_title: str,
+    transcript: str,
+) -> list[str]:
+    """Build 8-15 conservative SEO tags from the actual title/transcript."""
+    title = re.sub(
+        r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
+        "",
+        str(current_title or "").strip(),
+        flags=re.I,
+    ).strip()
+    haystack = f"{title}\n{transcript}".casefold()
+
+    tags: list[str] = ["РАША ГУДБАЙ", "чат рулетка"]
+
+    def add(value: str) -> None:
+        clean = " ".join(str(value or "").split()).strip().lstrip("#")
+        if not clean:
+            return
+        if clean.casefold() not in {item.casefold() for item in tags}:
+            tags.append(clean)
+
+    if "росси" in haystack or "росія" in haystack:
+        for value in (
+            "Россия",
+            "россияне",
+            "мнение россиян",
+            "вопросы россиянам",
+        ):
+            add(value)
+
+    if "жизн" in haystack or "житт" in haystack:
+        add("жизнь в России")
+        add("жизнь россиян")
+    if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
+        add("цены в России")
+    if "зарплат" in haystack or "доход" in haystack:
+        add("зарплаты в России")
+    if "пенси" in haystack or "соцпакет" in haystack:
+        add("пенсии в России")
+    if "эконом" in haystack or "економ" in haystack:
+        add("экономика России")
+    if "путин" in haystack or "путін" in haystack:
+        add("Путин")
+    if "войн" in haystack or "війн" in haystack or "сво" in haystack:
+        add("война России против Украины")
+    if "мобилиз" in haystack or "мобіліз" in haystack:
+        add("мобилизация в России")
+    if "санкц" in haystack:
+        add("санкции против России")
+    if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
+        add("бензин в России")
+    if "работ" in haystack or "робот" in haystack:
+        add("работа в России")
+    if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
+        add("жилье в России")
+    if "медицин" in haystack or "здоров" in haystack or "боляч" in haystack:
+        add("здоровье в России")
+    if re.search(r"\b2023\b", haystack):
+        add("Россия 2023")
+
+    if title:
+        add(title[:100])
+
+    # Universal but accurate fallback tags for the project's chat-roulette format.
+    for value in (
+        "опрос россиян",
+        "русская чат рулетка",
+        "реакция россиян",
+        "разговор с россиянами",
+    ):
+        if len(tags) >= 8:
+            break
+        add(value)
+
+    return tags[:15]
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -814,6 +892,30 @@ chapters: рядок з підтвердженими таймкодами або
                 raise ValueError(
                     "description quality failed: " + description_error
                 )
+
+            model_tags = [
+                str(item).strip().lstrip("#")
+                for item in (candidate.get("tags") or [])
+                if str(item).strip()
+            ]
+            grounded_tags = _grounded_tags_from_transcript(
+                current_title,
+                transcript,
+            )
+            merged_tags: list[str] = []
+            seen_tags: set[str] = set()
+            for item in model_tags + grounded_tags:
+                key = item.casefold()
+                if not key or key in seen_tags:
+                    continue
+                seen_tags.add(key)
+                merged_tags.append(item)
+                if len(merged_tags) >= 15:
+                    break
+            if len(merged_tags) < 8:
+                raise ValueError("need at least 8 grounded tags")
+            candidate["tags"] = merged_tags
+
             payload = candidate
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
