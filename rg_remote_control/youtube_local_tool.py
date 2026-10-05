@@ -681,6 +681,54 @@ def _stop_all_rg_youtube_gui_processes() -> dict:
     return {"stopped": stopped, "windows": True}
 
 
+def _stop_non_private_source_gui_processes(target: Path) -> dict:
+    """Remove stale source GUI processes not running from the private venv."""
+    import subprocess
+
+    if os.name != "nt":
+        return {"removed": [], "windows": False}
+
+    keep = target / ".venv" / "Scripts" / "pythonw.exe"
+    command = (
+        "$keep='"
+        + str(keep).replace("'", "''")
+        + "'; "
+        "$items=Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+        "$removed=@(); "
+        "foreach($p in $items){ "
+        "if(-not $p.ExecutablePath -or $p.ExecutablePath -ne $keep){ "
+        "$removed += [pscustomobject]@{id=[int]$p.ProcessId;path=$p.ExecutablePath}; "
+        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
+        "} }; "
+        "$removed | ConvertTo-Json -Compress"
+    )
+    proc = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Could not remove stale RG YouTube Control source process: "
+            + ((proc.stderr or proc.stdout) or "")[-3000:]
+        )
+    raw = (proc.stdout or "").strip()
+    try:
+        removed = json.loads(raw) if raw else []
+    except Exception:
+        removed = raw
+    return {"removed": removed, "windows": True}
+
+
 def _source_python(target: Path, *, windowed: bool = False) -> Path:
     scripts = target / ".venv" / "Scripts"
     candidate = scripts / ("pythonw.exe" if windowed else "python.exe")
@@ -844,6 +892,8 @@ def sync_and_launch_source() -> dict:
     )
 
     time.sleep(5)
+    stale_cleanup = _stop_non_private_source_gui_processes(target)
+    time.sleep(1)
     running = False
     process_text = ""
     if os.name == "nt":
@@ -885,6 +935,7 @@ def sync_and_launch_source() -> dict:
         "running": running,
         "processes": process_text,
         "stopped_before_launch": stopped,
+        "stale_cleanup": stale_cleanup,
     }
 
 
@@ -1502,6 +1553,8 @@ def ensure_gui_startup() -> dict:
     )
 
     time.sleep(6)
+    stale_cleanup = _stop_non_private_source_gui_processes(target)
+    time.sleep(1)
     verify = subprocess.run(
         [
             "powershell.exe",
@@ -1540,6 +1593,7 @@ def ensure_gui_startup() -> dict:
         "running": running,
         "processes": process_text,
         "stopped_before_launch": stopped,
+        "stale_cleanup": stale_cleanup,
     }
 
 
