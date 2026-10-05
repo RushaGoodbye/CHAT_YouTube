@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_topaz_flow",
+  "action": "inspect_auto_edit_thumbnail_candidate_writers",
   "args": {},
-  "nonce": "inspect-topaz-flow-20261005-1"
+  "nonce": "inspect-thumb-writers-20261005-2"
 }
