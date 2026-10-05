@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_program_local_status",
   "args": {
-    "nonce": "hot-update-0376-final-20261005"
+    "mode": "verify_0376_stale_cleanup",
+    "nonce": "verify-stale-cleanup-20261005"
   }
 }
