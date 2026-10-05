@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_thumbnail_v6_visibility_hotfix",
+  "action": "inspect_auto_edit_chatgpt_collage_flow",
   "args": {},
-  "nonce": "apply-thumb-v6-visibility-20261005-4"
+  "nonce": "inspect-chatgpt-collage-flow-20261005-1"
 }
