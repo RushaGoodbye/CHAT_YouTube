@@ -8446,6 +8446,17 @@ class MainWindow(QMainWindow):
 
         def task():
             context = fetch_public_metadata(video_id)
+            current_title = str(context.get("title") or "")
+            raw_description = str(context.get("description") or "")
+            cleaned_description = safe_description_fix(
+                raw_description,
+                current_title,
+            ).after
+            needs_transcript = safe_description_needs_content_package(
+                cleaned_description,
+                current_title,
+            )
+
             trends_path = self.data_dir / "google_trends_latest.json"
             if trends_path.exists():
                 try:
@@ -8465,12 +8476,22 @@ class MainWindow(QMainWindow):
             except Exception:
                 transcript_rows = []
                 transcript = ""
+
+            if needs_transcript and not transcript.strip():
+                raise RuntimeError(
+                    "Для цього відео після очищення старого опису немає "
+                    "достатнього змістовного тексту, а транскрипт недоступний. "
+                    "SEO-пакет не створено, щоб не вигадувати зміст."
+                )
+
+            context_for_model = dict(context)
+            context_for_model["description"] = cleaned_description
             package = generate_seo_package_local(
-                current_title=str(context.get("title") or ""),
-                current_description=str(context.get("description") or ""),
+                current_title=current_title,
+                current_description=cleaned_description,
                 current_tags=list(context.get("tags") or []),
                 transcript=transcript,
-                public_context=context,
+                public_context=context_for_model,
                 is_short=int(context.get("duration") or 0) <= 70,
             )
             return {
