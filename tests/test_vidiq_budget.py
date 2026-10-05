@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from rg_youtube_control.db import connect
+from rg_youtube_control.db import connect, set_setting
 from rg_youtube_control.vidiq_budget import (
     authorize,
     budget_status,
@@ -71,15 +71,10 @@ def test_vidiq_duplicate_request_is_blocked(tmp_path) -> None:
 
 def test_vidiq_counter_resets_on_new_month(tmp_path) -> None:
     conn = connect(tmp_path / "rg.db")
-    set_limits(conn, limit=2000, reserve=300)
-    set_manual_usage(conn, 900)
-
-    september = budget_status(
-        conn,
-        datetime(2026, 9, 30, 12, tzinfo=timezone.utc),
-    )
-    assert september.used == 0
-    set_manual_usage(conn, 900)
+    set_setting(conn, "vidiq_monthly_limit", "2000")
+    set_setting(conn, "vidiq_reserve_credits", "300")
+    set_setting(conn, "vidiq_credit_period", "2026-09")
+    set_setting(conn, "vidiq_used_credits", "900")
 
     october = budget_status(
         conn,
