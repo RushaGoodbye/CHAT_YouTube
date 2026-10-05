@@ -70,6 +70,106 @@ def sync_videos(
         rows.append(row)
     return rows
 
+def sync_upcoming_live_broadcasts(
+    client: YouTubeClient,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Sync owned upcoming/active live broadcasts with minimal API reads."""
+    counted = getattr(
+        client,
+        "upcoming_live_broadcasts_with_request_count",
+        None,
+    )
+    if not callable(counted):
+        return []
+
+    items, requests = counted()
+    record_quota_units(
+        conn,
+        int(requests) * READ_REQUEST_COST,
+        purpose="service",
+    )
+
+    rows: list[dict[str, Any]] = []
+    for payload in items:
+        broadcast = payload.get("broadcast", {}) or {}
+        video = payload.get("video", {}) or {}
+        video_id = str(
+            broadcast.get("id")
+            or video.get("id")
+            or ""
+        )
+        if not video_id:
+            continue
+
+        broadcast_status = broadcast.get("status", {}) or {}
+        life_cycle = str(
+            broadcast_status.get("lifeCycleStatus") or ""
+        ).casefold()
+
+        if life_cycle in {"complete", "revoked"}:
+            conn.execute(
+                """UPDATE videos
+                   SET scheduled_publish_at=NULL,
+                       last_synced_at=?
+                   WHERE video_id=? AND profile=?""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    video_id,
+                    client.profile,
+                ),
+            )
+            conn.commit()
+            continue
+
+        broadcast_snippet = broadcast.get("snippet", {}) or {}
+        scheduled = str(
+            broadcast_snippet.get("scheduledStartTime") or ""
+        ).strip()
+        if not scheduled:
+            continue
+
+        snippet = video.get("snippet", {}) or {}
+        status = video.get("status", {}) or {}
+        stats = video.get("statistics", {}) or {}
+        content = video.get("contentDetails", {}) or {}
+        title = str(
+            snippet.get("title")
+            or broadcast_snippet.get("title")
+            or ""
+        )
+        description = str(
+            snippet.get("description")
+            or broadcast_snippet.get("description")
+            or ""
+        )
+        tags = list(snippet.get("tags") or [])
+        result = audit(
+            description,
+            tags,
+            title,
+            content.get("duration"),
+        )
+        row = {
+            "video_id": video_id,
+            "profile": client.profile,
+            "channel_id": snippet.get("channelId"),
+            "title": title,
+            "published_at": snippet.get("publishedAt"),
+            "scheduled_publish_at": scheduled,
+            "privacy_status": status.get("privacyStatus"),
+            "duration": content.get("duration"),
+            "views": int(stats.get("viewCount") or 0),
+            "audit": {
+                "score": result.score,
+                "issues": list(result.issues),
+            },
+        }
+        upsert_video(conn, row)
+        rows.append(row)
+    return rows
+
+
 def reconcile_local_video_title(
     conn: sqlite3.Connection,
     *,

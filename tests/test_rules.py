@@ -2516,3 +2516,107 @@ def test_youtube_tag_verification_ignores_order():
     assert "key=str.casefold" in source
 
 
+
+
+def test_sync_upcoming_live_broadcasts_tracks_ready_and_clears_complete(tmp_path):
+    from rg_youtube_control.db import connect, upsert_video
+    from rg_youtube_control.service import (
+        sync_upcoming_live_broadcasts,
+        today_quota_units,
+    )
+
+    class FakeClient:
+        profile = "live"
+
+        def upcoming_live_broadcasts_with_request_count(self):
+            ready_video = {
+                "id": "ready-live",
+                "snippet": {
+                    "channelId": "channel-live",
+                    "title": "Запланований стрім",
+                    "description": "Опис стріму",
+                    "tags": ["стрім", "україна"],
+                },
+                "status": {"privacyStatus": "public"},
+                "contentDetails": {"duration": "PT0S"},
+                "statistics": {"viewCount": "0"},
+            }
+            complete_video = {
+                "id": "done-live",
+                "snippet": {
+                    "channelId": "channel-live",
+                    "title": "Завершений стрім",
+                    "description": "Опис",
+                    "tags": [],
+                },
+                "status": {"privacyStatus": "public"},
+                "contentDetails": {"duration": "PT1H"},
+                "statistics": {"viewCount": "10"},
+            }
+            return [
+                {
+                    "broadcast": {
+                        "id": "ready-live",
+                        "snippet": {
+                            "title": "Запланований стрім",
+                            "scheduledStartTime": "2026-10-05T17:00:00Z",
+                        },
+                        "status": {"lifeCycleStatus": "ready"},
+                    },
+                    "video": ready_video,
+                },
+                {
+                    "broadcast": {
+                        "id": "done-live",
+                        "snippet": {
+                            "title": "Завершений стрім",
+                            "scheduledStartTime": "2026-10-04T17:00:00Z",
+                        },
+                        "status": {"lifeCycleStatus": "complete"},
+                    },
+                    "video": complete_video,
+                },
+            ], 2
+
+    conn = connect(tmp_path / "youtube.db")
+    upsert_video(
+        conn,
+        {
+            "video_id": "done-live",
+            "profile": "live",
+            "channel_id": "channel-live",
+            "title": "Завершений стрім",
+            "published_at": None,
+            "scheduled_publish_at": "2026-10-04T17:00:00Z",
+            "privacy_status": "public",
+            "duration": "PT1H",
+            "views": 10,
+            "audit": {},
+        },
+    )
+
+    rows = sync_upcoming_live_broadcasts(FakeClient(), conn)
+
+    assert [row["video_id"] for row in rows] == ["ready-live"]
+    ready = conn.execute(
+        "SELECT scheduled_publish_at FROM videos WHERE video_id='ready-live'"
+    ).fetchone()
+    done = conn.execute(
+        "SELECT scheduled_publish_at FROM videos WHERE video_id='done-live'"
+    ).fetchone()
+    assert ready["scheduled_publish_at"] == "2026-10-05T17:00:00Z"
+    assert done["scheduled_publish_at"] is None
+    assert today_quota_units(conn) == 2
+    conn.close()
+
+
+def test_startup_schedules_upcoming_broadcast_refresh():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    init_source = inspect.getsource(MainWindow.__init__)
+    sync_source = inspect.getsource(MainWindow.sync_upcoming_streams_startup)
+
+    assert "sync_upcoming_streams_startup" in init_source
+    assert "PROFILE_TARGETS" in sync_source
+    assert "sync_upcoming_live_broadcasts" in sync_source

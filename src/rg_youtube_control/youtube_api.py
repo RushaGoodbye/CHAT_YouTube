@@ -219,6 +219,36 @@ class YouTubeClient:
         items, _requests = self.recent_videos_with_request_count(limit)
         return items
 
+    def upcoming_live_broadcasts_with_request_count(
+        self,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return owned live broadcasts plus their video metadata."""
+        response = self.service().liveBroadcasts().list(
+            part="id,snippet,status",
+            mine=True,
+            maxResults=50,
+        ).execute()
+        broadcasts = response.get("items", []) or []
+        requests = 1
+        ids = [
+            str(item.get("id") or "")
+            for item in broadcasts
+            if item.get("id")
+        ]
+        details, detail_requests = self.video_details_with_request_count(ids)
+        requests += detail_requests
+        details_by_id = {
+            str(item.get("id") or ""): item
+            for item in details
+        }
+        return [
+            {
+                "broadcast": item,
+                "video": details_by_id.get(str(item.get("id") or ""), {}),
+            }
+            for item in broadcasts
+        ], requests
+
     def video_details_with_request_count(
         self,
         video_ids: list[str],

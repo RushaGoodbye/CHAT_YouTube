@@ -137,6 +137,7 @@ from .service import (
     scan_channel_comments,
     scan_comments,
     sync_specific_videos,
+    sync_upcoming_live_broadcasts,
     sync_videos,
     today_auto_reply_count,
     today_reply_count,
@@ -557,6 +558,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1200, self.recover_archive_campaign_state)
         QTimer.singleShot(2000, self.cleanup_cached_updates)
         QTimer.singleShot(3000, self.check_for_updates_silent)
+        QTimer.singleShot(4500, self.sync_upcoming_streams_startup)
         QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
         QTimer.singleShot(8000, self.check_quota_plan_ready)
         QTimer.singleShot(10000, self.run_background_maintenance)
@@ -3640,6 +3642,41 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка авторизації", exc)
 
+    def sync_upcoming_streams_startup(self) -> None:
+        """Refresh upcoming broadcasts on both channels once after startup."""
+        if quota_exhausted(self.conn):
+            return
+
+        before_units = today_quota_units(self.conn)
+        synced = 0
+        for profile in PROFILE_TARGETS:
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+                rows = sync_upcoming_live_broadcasts(
+                    client,
+                    self.conn,
+                )
+                synced += len(rows)
+            except Exception as exc:
+                if _is_quota_exceeded_error(exc):
+                    mark_quota_exhausted(self.conn)
+                    break
+                continue
+
+        if synced:
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.update_dashboard()
+            consumed = max(
+                0,
+                today_quota_units(self.conn) - before_units,
+            )
+            self.statusBar().showMessage(
+                f"Заплановані ефіри оновлено: {synced} · "
+                f"квота читання: {consumed}"
+            )
+
     def sync_video_list(self) -> None:
         try:
             if quota_exhausted(self.conn):
@@ -3653,12 +3690,18 @@ class MainWindow(QMainWindow):
                 return
             before_units = today_quota_units(self.conn)
             rows = sync_videos(self.client, self.conn, limit=50)
+            upcoming = sync_upcoming_live_broadcasts(
+                self.client,
+                self.conn,
+            )
             consumed = max(0, today_quota_units(self.conn) - before_units)
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
             self.statusBar().showMessage(
-                f"Відео синхронізовано: {len(rows)} · квота читання: {consumed}"
+                f"Відео синхронізовано: {len(rows)} · "
+                f"майбутніх ефірів: {len(upcoming)} · "
+                f"квота читання: {consumed}"
             )
         except Exception as exc:
             self._error("Помилка синхронізації", exc)
