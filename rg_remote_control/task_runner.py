@@ -8901,6 +8901,41 @@ def inspect_auto_edit_901_temp_artifacts() -> dict:
     rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
     return {"items":rows[:250]}
 
+def search_auto_edit_901_anchor_artifacts() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import time
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"RG_AUTO_EDIT",
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+    ]
+    t0=1791233450.0; t1=1791234150.0
+    needles=("901-1.jpg","901-2.jpg","901-3.jpg","901-4.jpg","901-5.jpg","901-6.jpg","sequential_anchor_plan","joint_clock_consensus")
+    out=[]
+    for root in roots:
+        if not root.exists(): continue
+        for p in root.rglob("*"):
+            try:
+                if not p.is_file(): continue
+                st=p.stat()
+                if st.st_mtime<t0 or st.st_mtime>t1: continue
+                if p.suffix.lower() not in {".json",".txt",".log",".jsonl"}: continue
+                if st.st_size>8_000_000: continue
+                txt=p.read_text(encoding="utf-8",errors="replace")
+                if not any(n in txt for n in needles): continue
+                lines=txt.splitlines()
+                hits=[]
+                for i,line in enumerate(lines):
+                    if any(n in line for n in needles):
+                        a=max(0,i-4);b=min(len(lines),i+12)
+                        hits.append("\n".join(f"{j+1}: {lines[j]}" for j in range(a,b)))
+                        if len(hits)>=80: break
+                out.append({"path":str(p),"size":st.st_size,"mtime":st.st_mtime,"hits":hits})
+            except Exception:
+                pass
+    out.sort(key=lambda x:x.get("mtime",0),reverse=True)
+    return {"items":out[:120]}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8996,6 +9031,7 @@ ACTIONS = {
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
+    "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
