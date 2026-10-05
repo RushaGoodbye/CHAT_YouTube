@@ -1818,27 +1818,131 @@ class MainWindow(QMainWindow):
 
         connect_btn = QPushButton("Підключити YouTube")
         connect_btn.clicked.connect(self.connect_youtube)
-        sync_btn = QPushButton("Синхронізувати відео")
+        sync_btn = QPushButton("Синхронізувати")
+        sync_btn.setProperty("role", "primary")
         sync_btn.clicked.connect(self.sync_video_list)
-        sync_both_btn = QPushButton("Синхронізувати обидва канали")
+        sync_both_btn = QPushButton("Обидва канали")
         sync_both_btn.clicked.connect(self.sync_both_channels)
-        edit_btn = QPushButton("Редагувати вибране")
+        edit_btn = QPushButton("Редагувати")
         edit_btn.clicked.connect(self.edit_selected_video)
-        controls.addWidget(connect_btn)
-        controls.addWidget(sync_btn)
-        controls.addWidget(sync_both_btn)
-        controls.addWidget(edit_btn)
-        controls.addStretch()
+
+        self.video_search = QLineEdit()
+        self.video_search.setPlaceholderText("Пошук за назвою або Video ID")
+        self.video_search.setClearButtonEnabled(True)
+        self.video_search.setMinimumWidth(280)
+        self.video_search.textChanged.connect(self.reload_videos)
+
+        self.video_density = QComboBox()
+        self.video_density.addItem("Компактно", 28)
+        self.video_density.addItem("Комфортно", 34)
+        self.video_density.addItem("Крупно", 42)
+        self.video_density.setCurrentIndex(1)
+        self.video_density.currentIndexChanged.connect(
+            lambda _i: self._apply_table_density(self.video_table, self.video_density)
+        )
+
+        for button in (connect_btn, sync_btn, sync_both_btn, edit_btn):
+            controls.addWidget(button)
+        controls.addSpacing(12)
+        controls.addWidget(self.video_search, 1)
+        controls.addWidget(QLabel("Щільність:"))
+        controls.addWidget(self.video_density)
 
         self.video_table = QTableWidget(0, 5)
         self.video_table.setHorizontalHeaderLabels(
             ["Відео", "Назва", "Перегляди", "Аудит", "Проблеми"]
         )
         self.video_table.horizontalHeader().setStretchLastSection(True)
+        self.video_table.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self._configure_table(self.video_table)
+        self.video_table.itemSelectionChanged.connect(
+            self._update_video_context_card
+        )
+
+        context = QFrame()
+        context.setObjectName("ContextCard")
+        cx = QHBoxLayout(context)
+        cx.setContentsMargins(14, 10, 14, 10)
+        title_box = QVBoxLayout()
+        self.video_context_title = QLabel("Виберіть відео")
+        self.video_context_title.setObjectName("StickyVideoTitle")
+        self.video_context_title.setWordWrap(True)
+        self.video_context_note = QLabel(
+            "Назва та Video ID залишаються тут видимими навіть при горизонтальній прокрутці."
+        )
+        self.video_context_note.setProperty("muted", True)
+        self.video_context_note.setWordWrap(True)
+        title_box.addWidget(self.video_context_title)
+        title_box.addWidget(self.video_context_note)
+        cx.addLayout(title_box, 1)
+        open_opt = QPushButton("До оптимізації")
+        open_opt.clicked.connect(self._open_selected_video_in_optimization)
+        cx.addWidget(open_opt)
+
         layout.addLayout(controls)
-        layout.addWidget(self.video_table)
+        layout.addWidget(self.video_table, 1)
+        layout.addWidget(context)
         self.tabs.addTab(page, "Відео")
+
+
+    def _apply_table_density(
+        self,
+        table: QTableWidget,
+        combo: QComboBox,
+    ) -> None:
+        value = int(combo.currentData() or 34)
+        table.verticalHeader().setDefaultSectionSize(value)
+        for row in range(table.rowCount()):
+            table.setRowHeight(row, value)
+
+    def _selected_video_row_id(self) -> str:
+        if not hasattr(self, "video_table"):
+            return ""
+        rows = self.video_table.selectionModel().selectedRows()
+        if not rows:
+            return ""
+        item = self.video_table.item(rows[0].row(), 0)
+        if item is None:
+            return ""
+        return str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+
+    def _update_video_context_card(self) -> None:
+        if not hasattr(self, "video_context_title"):
+            return
+        video_id = self._selected_video_row_id()
+        if not video_id:
+            self.video_context_title.setText("Виберіть відео")
+            self.video_context_note.setText(
+                "Назва та Video ID залишаються тут видимими навіть при горизонтальній прокрутці."
+            )
+            return
+        row = self.conn.execute(
+            """SELECT title,views,audit_json,published_at
+               FROM videos WHERE video_id=?""",
+            (video_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            audit_data = json.loads(row["audit_json"] or "{}")
+        except Exception:
+            audit_data = {}
+        score = int(audit_data.get("score") or 0)
+        issues = _issue_labels(list(audit_data.get("issues", []))) or "критичних проблем немає"
+        self.video_context_title.setText(str(row["title"] or video_id))
+        self.video_context_note.setText(
+            f"{video_id} · {int(row['views'] or 0):,} переглядів · "
+            f"аудит {score} · {issues}"
+        )
+
+    def _open_selected_video_in_optimization(self) -> None:
+        video_id = self._selected_video_row_id()
+        self.tabs.setCurrentIndex(2)
+        if hasattr(self, "optimization_search"):
+            self.optimization_search.setText(video_id)
+        self.reload_optimization_queue()
 
     def _build_optimization_tab(self) -> None:
         page = QWidget()
@@ -8911,11 +9015,23 @@ class MainWindow(QMainWindow):
         import json
 
         profile = self.current_profile
+        search = (
+            self.video_search.text().strip().casefold()
+            if hasattr(self, "video_search")
+            else ""
+        )
         rows = self.conn.execute(
             "SELECT video_id,title,views,audit_json FROM videos "
-            "WHERE profile=? ORDER BY published_at DESC LIMIT 200",
+            "WHERE profile=? ORDER BY published_at DESC LIMIT 1200",
             (profile,),
         ).fetchall()
+        if search:
+            rows = [
+                row for row in rows
+                if search in str(row["video_id"] or "").casefold()
+                or search in str(row["title"] or "").casefold()
+            ]
+
         self.video_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
             audit_data = json.loads(row["audit_json"] or "{}")
@@ -8929,14 +9045,26 @@ class MainWindow(QMainWindow):
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
                 if column == 3:
                     score = int(audit_data.get("score") or 0)
                     item.setForeground(
-                        QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
+                        QColor(
+                            SUCCESS
+                            if score >= 100
+                            else WARNING
+                            if score >= 70
+                            else YOUTUBE_RED
+                        )
                     )
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 self.video_table.setItem(index, column, item)
+        if hasattr(self, "video_density"):
+            self._apply_table_density(self.video_table, self.video_density)
+        self._update_video_context_card()
         self.update_dashboard()
+
 
     def _run_local_tool(self, label: str, func, on_success) -> None:
         worker = getattr(self, "_local_tool_worker", None)
