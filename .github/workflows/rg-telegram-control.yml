@@ -1,0 +1,42 @@
+name: RG Telegram Control
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rg_remote_control/telegram_task.json"
+      - ".github/workflows/rg-telegram-control.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-telegram-control
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Telegram contour
+        shell: powershell
+        run: |
+          $task = Get-Content "rg_remote_control/telegram_task.json" -Raw | ConvertFrom-Json
+          if ($task.target -ne "alexpc") { throw "Task target must be alexpc" }
+          if ($task.contour -ne "telegram") { throw "Task contour must be telegram" }
+          if ($task.action -notin @("telegram_mcp_call","run_telegram_mcp_smoke")) { throw "Action not allowed" }
+          if ($task.action -eq "telegram_mcp_call" -and -not ($task.args.tool -like "telegram_*")) { throw "Only telegram_* tools allowed" }
+      - name: Run Telegram MCP
+        shell: powershell
+        run: |
+          Copy-Item "rg_remote_control/telegram_task.json" "rg_remote_control/task.json" -Force
+          $lines = & python rg_remote_control/task_runner.py rg_remote_control/task.json 2>&1
+          $code = $LASTEXITCODE
+          "## RG Telegram MCP" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "exit_code=$code" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "```text" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($lines | Select-Object -Last 120) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          exit $code
