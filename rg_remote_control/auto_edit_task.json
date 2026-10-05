@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_final_compilation_code",
+  "action": "apply_auto_edit_final_compilation_retirement_hotfix",
   "args": {},
-  "nonce": "inspect-final-compilation-code-20261005-2"
+  "nonce": "apply-final-used-dialogues-20261005-3"
 }
