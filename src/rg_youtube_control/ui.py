@@ -714,7 +714,7 @@ class MainWindow(QMainWindow):
         title_box.setSpacing(0)
         title = QLabel("Керування YouTube")
         title.setObjectName("AppTitle")
-        subtitle = QLabel("Центр · відео · оптимізація · коментарі")
+        subtitle = QLabel("Сьогодні · відео · оптимізація · архів · результати")
         subtitle.setObjectName("AppSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -734,7 +734,6 @@ class MainWindow(QMainWindow):
         self.header_channel_state.setObjectName("ChannelState")
 
         sync_btn = QPushButton("Синхронізувати")
-        sync_btn.setProperty("role", "primary")
         sync_btn.clicked.connect(self.sync_video_list)
 
         layout.addWidget(badge)
