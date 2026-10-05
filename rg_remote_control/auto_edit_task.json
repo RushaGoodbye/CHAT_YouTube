@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_recovery_queue",
+  "action": "inspect_auto_edit_chatgpt_collage_flow",
   "args": {},
-  "nonce": "check-901-monotonic-rescue-fired-20261006-14"
+  "nonce": "inspect-chatgpt-collage-after-runner-recovery-20261006-15"
 }
