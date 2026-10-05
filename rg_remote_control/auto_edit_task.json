@@ -1,7 +1,7 @@
 {
   "target":"alexpc",
   "contour":"auto_edit",
-  "action":"inspect_auto_edit_live_code",
+  "action":"apply_auto_edit_pack150_ui_hotfix",
   "args":{},
-  "nonce":"20261005-pack150-ui-break-inspect"
+  "nonce":"20261005-pack150-ui-hotfix-1"
 }
