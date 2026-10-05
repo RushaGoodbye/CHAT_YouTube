@@ -6449,18 +6449,28 @@ class MainWindow(QMainWindow):
 
         before = QPlainTextEdit()
         before.setReadOnly(True)
-        before.setPlainText(
+        before_text = (
             f"НАЗВА\n{current_title}\n\n"
-            f"ОПИС\n{current_description}\n\n"
-            f"ТЕГИ\n{', '.join(current_tags)}"
+            f"ОПИС\n{current_description}"
         )
+        if current_tags:
+            before_text += (
+                "\n\nОКРЕМЕ ПОЛЕ YOUTUBE - ТЕГИ\n"
+                + ", ".join(current_tags)
+            )
+        before.setPlainText(before_text)
         after = QPlainTextEdit()
         after.setReadOnly(True)
-        after.setPlainText(
+        after_text = (
             f"НАЗВА\n{new_title}\n\n"
-            f"ОПИС\n{new_description}\n\n"
-            f"ТЕГИ\n{', '.join(new_tags)}"
+            f"ОПИС\n{new_description}"
         )
+        if new_tags:
+            after_text += (
+                "\n\nОКРЕМЕ ПОЛЕ YOUTUBE - ТЕГИ\n"
+                + ", ".join(new_tags)
+            )
+        after.setPlainText(after_text)
         before_box.addWidget(before)
         after_box.addWidget(after)
         columns.addLayout(before_box, 1)
