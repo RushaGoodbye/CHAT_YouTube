@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_anchor_sequence",
+  "action": "apply_auto_edit_monotonic_anchor_hotfix",
   "args": {},
-  "nonce": "inspect-901-anchor-sequence-20261006-7"
+  "nonce": "apply-monotonic-anchor-rescue-20261006-8"
 }
