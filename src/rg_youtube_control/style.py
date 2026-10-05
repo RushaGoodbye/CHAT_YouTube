@@ -122,7 +122,7 @@ QTabBar::tab:selected {
     font-weight: 600;
     border-bottom: 3px solid #ff0033;
 }
-QTableWidget {
+QTableWidget, QTableView {
     background: #111111;
     alternate-background-color: #171717;
     border: 1px solid #2b2b2b;
@@ -131,7 +131,7 @@ QTableWidget {
     selection-background-color: #4a1822;
     selection-color: white;
 }
-QTableWidget::item {
+QTableWidget::item, QTableView::item {
     padding: 7px 5px;
     border-bottom: 1px solid #222222;
 }
