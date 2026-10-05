@@ -7105,6 +7105,23 @@ $r=Get-CimInstance Win32_Process | Where-Object {
     }
 
 
+def inspect_auto_edit_thumbnail_final_render() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    src=p.read_text(encoding="utf-8",errors="replace")
+    rows=src.splitlines()
+    tree=ast.parse(src)
+    wanted={"thumbnail_refresh_dialogues","thumbnail_final_render","_thumbnail_final_render_finished","thumbnail_prepare","_thumbnail_selection_changed"}
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in wanted:
+            a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    return {"path":str(p),"functions":out}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -7175,6 +7192,7 @@ ACTIONS = {
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
     "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
+    "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
