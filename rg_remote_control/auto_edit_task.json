@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "finalize_auto_edit_pack100",
+  "action": "inspect_auto_edit_update_format",
   "args": {},
-  "nonce": "20261005-pack100-finalize"
+  "nonce": "20261005-pack120-update-format"
 }
