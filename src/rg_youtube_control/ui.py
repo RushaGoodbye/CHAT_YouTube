@@ -322,24 +322,33 @@ class ContentOptimizationDialog(QDialog):
                 f"Запланований стрім · {scheduled_publish_at}\n"
                 "Назву, опис і теги можна оптимізувати заздалегідь. "
                 "Дата, час публікації та видимість не змінюються. "
-                "Таймінги в опис не додаються."
+                "Для стрімів таймінги в опис не додаються."
             )
             scheduled_note.setWordWrap(True)
             layout.addWidget(scheduled_note)
-
-        description = _strip_timestamp_lines(description)
-        chapters = ""
+            description = _strip_timestamp_lines(description)
+            chapters = ""
+        elif not (chapters or "").strip():
+            description, detected_chapters = extract_chapters_from_description(
+                description
+            )
+            if detected_chapters:
+                chapters = detected_chapters
 
         form = QFormLayout()
         self.title_edit = QLineEdit(_standard_hyphen(title))
         self.description_edit = QPlainTextEdit(_standard_hyphen(description))
-        self.chapters_edit = QPlainTextEdit()
-        self.chapters_edit.setPlainText("")
-        self.chapters_edit.setPlaceholderText(
-            "Вимкнено: таймінги в описах не використовуються"
-        )
-        self.chapters_edit.setEnabled(False)
-        self.chapters_edit.setMaximumHeight(54)
+        self.chapters_edit = QPlainTextEdit(_standard_hyphen(chapters))
+        if scheduled_publish_at:
+            self.chapters_edit.setPlaceholderText(
+                "Вимкнено для стрімів: таймінги в опис не додаються"
+            )
+            self.chapters_edit.setEnabled(False)
+            self.chapters_edit.setMaximumHeight(54)
+        else:
+            self.chapters_edit.setPlaceholderText(
+                "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
+            )
         self.tags_edit = QPlainTextEdit(
             _standard_hyphen(", ".join(tags))
         )
@@ -367,15 +376,23 @@ class ContentOptimizationDialog(QDialog):
 
         form.addRow("Нова назва:", self.title_edit)
         form.addRow("Повний опис:", self.description_edit)
-        form.addRow("Розділи (вимкнено):", self.chapters_edit)
+        form.addRow(
+            "Розділи (вимкнено для стрімів):"
+            if scheduled_publish_at else "Розділи:",
+            self.chapters_edit,
+        )
         form.addRow("Теги:", self.tags_edit)
         form.addRow("A/B варіанти назви:", self.title_variants_edit)
         form.addRow("Статус:", self.status_combo)
         layout.addLayout(form)
 
         checks = QHBoxLayout()
-        validate_btn = QPushButton("Розділи вимкнено")
-        validate_btn.setEnabled(False)
+        validate_btn = QPushButton(
+            "Розділи вимкнено для стрімів"
+            if scheduled_publish_at else "Перевірити розділи"
+        )
+        validate_btn.setEnabled(not bool(scheduled_publish_at))
+        validate_btn.clicked.connect(self.validate_chapters_now)
         package_check_btn = QPushButton("Перевірити пакет")
         package_check_btn.clicked.connect(self.validate_package_now)
         checks.addWidget(validate_btn)
@@ -492,10 +509,18 @@ class ContentOptimizationDialog(QDialog):
         ][:3]
         return (
             _standard_hyphen(self.title_edit.text().strip()),
-            _strip_timestamp_lines(
-                _standard_hyphen(self.description_edit.toPlainText().strip())
+            (
+                _strip_timestamp_lines(
+                    _standard_hyphen(self.description_edit.toPlainText().strip())
+                )
+                if self.scheduled_publish_at
+                else _standard_hyphen(self.description_edit.toPlainText().strip())
             ),
-            "",
+            (
+                ""
+                if self.scheduled_publish_at
+                else _standard_hyphen(self.chapters_edit.toPlainText().strip())
+            ),
             [_standard_hyphen(item) for item in tags],
             str(self.status_combo.currentData()),
             [_standard_hyphen(item) for item in title_variants],
@@ -7847,8 +7872,20 @@ class MainWindow(QMainWindow):
 
         import json
         try:
-            final_description = _strip_timestamp_lines(
-                draft["description"]
+            video_row = self.conn.execute(
+                "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            is_scheduled_stream = bool(
+                video_row and video_row["scheduled_publish_at"]
+            )
+            final_description = (
+                _strip_timestamp_lines(draft["description"])
+                if is_scheduled_stream
+                else compose_description(
+                    draft["description"],
+                    draft["chapters"],
+                )
             )
             current_title, current_description, current_tags = (
                 self._current_video_metadata(video_id)
