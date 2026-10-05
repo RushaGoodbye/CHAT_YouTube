@@ -1713,7 +1713,7 @@ class MainWindow(QMainWindow):
         title.setObjectName("AppTitle")
         subtitle = QLabel(
             "Пріоритетна кампанія старих опублікованих відео. "
-            "Спочатку локальна підготовка, потім контрольована запис у YouTube."
+            "Спочатку локальна підготовка, потім контрольований запис у YouTube."
         )
         subtitle.setWordWrap(True)
         subtitle.setProperty("muted", True)
@@ -2514,6 +2514,18 @@ class MainWindow(QMainWindow):
         self._configure_table(self.results_table)
 
         layout.addLayout(controls)
+
+        summary_grid = QGridLayout()
+        self.results_total_card = MetricCard("Оптимізації")
+        self.results_improved_card = MetricCard("Покращились")
+        self.results_declined_card = MetricCard("Погіршились")
+        self.results_waiting_card = MetricCard("Очікують даних")
+        summary_grid.addWidget(self.results_total_card, 0, 0)
+        summary_grid.addWidget(self.results_improved_card, 0, 1)
+        summary_grid.addWidget(self.results_declined_card, 0, 2)
+        summary_grid.addWidget(self.results_waiting_card, 0, 3)
+        layout.addLayout(summary_grid)
+
         layout.addWidget(hint)
         layout.addWidget(self.results_table)
         self.tabs.addTab(page, "Результати")
@@ -2527,6 +2539,35 @@ class MainWindow(QMainWindow):
             "scheduled_package_batch": "запланований стрім",
             "metadata_edit": "ручні метадані",
         }.get(reason, reason.replace("_", " "))
+
+    def _update_results_summary_cards(self) -> None:
+        if not hasattr(self, "results_total_card"):
+            return
+        total = self.results_table.rowCount()
+        improved = 0
+        declined = 0
+        waiting = 0
+        for row in range(total):
+            result_item = self.results_table.item(row, 18)
+            status_item = self.results_table.item(row, 3)
+            result_key = (
+                str(result_item.data(Qt.ItemDataRole.UserRole) or "")
+                if result_item is not None else ""
+            )
+            status_key = (
+                str(status_item.data(Qt.ItemDataRole.UserRole) or "")
+                if status_item is not None else ""
+            )
+            if result_key == "improved":
+                improved += 1
+            elif result_key == "declined":
+                declined += 1
+            if status_key == "waiting":
+                waiting += 1
+        self.results_total_card.set_value(str(total), "7 / 28 / 90 днів")
+        self.results_improved_card.set_value(str(improved), "позитивна динаміка")
+        self.results_declined_card.set_value(str(declined), "потребують аналізу")
+        self.results_waiting_card.set_value(str(waiting), "ще немає повного вікна")
 
     @staticmethod
     def _pct_change(before: float, after: float) -> str:
@@ -3128,6 +3169,7 @@ class MainWindow(QMainWindow):
                 self.results_table.setItem(row_index, column, item)
 
         self._filter_results_table()
+        self._update_results_summary_cards()
         suffix = f" · імпортовано з історії {imported}" if imported else ""
         reach_note = (
             f" · CTR/покази {coverage_start}–{coverage_end}"
