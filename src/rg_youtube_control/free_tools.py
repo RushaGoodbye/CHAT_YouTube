@@ -386,6 +386,64 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+
+def _description_quality_error(description: str, transcript: str = "") -> str:
+    """Return a machine-readable reason when a generated SEO description is unsafe."""
+    value = " ".join(str(description or "").split()).strip()
+    if len(value) < 260:
+        return "too_short"
+    if len(value) > 1000:
+        return "too_long"
+
+    # A real description should be prose, not a pasted transcript stream.
+    sentence_marks = len(re.findall(r"[.!?…]", value))
+    if sentence_marks < 3:
+        return "not_summary_prose"
+
+    words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", value.casefold())
+    if len(words) < 45:
+        return "too_few_words"
+
+    # Reject clearly Russian transcript dumps. Descriptions for RG are Ukrainian.
+    ru_markers = {
+        "что", "это", "как", "вот", "просто", "если", "почему", "конечно",
+        "россии", "россиян", "жизнь", "людей", "стало", "цены", "всё", "все",
+        "ничего", "улучшилась", "зарплату", "пенсию",
+    }
+    uk_markers = {
+        "що", "це", "як", "але", "якщо", "чому", "росії", "росіяни",
+        "життя", "людей", "стало", "ціни", "нічого", "покращилося",
+        "зарплата", "пенсія", "розмова", "співрозмовник", "відео",
+    }
+    word_set = set(words)
+    ru_hits = len(word_set & ru_markers)
+    uk_hits = len(word_set & uk_markers)
+    if ru_hits >= 5 and uk_hits <= 2:
+        return "wrong_language"
+
+    # Detect near-verbatim transcript copying by n-gram overlap.
+    transcript_words = re.findall(
+        r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+",
+        str(transcript or "").casefold(),
+    )
+    if len(transcript_words) >= 30 and len(words) >= 30:
+        n = 6
+        source = {
+            tuple(transcript_words[i:i+n])
+            for i in range(0, max(0, len(transcript_words) - n + 1))
+        }
+        grams = [
+            tuple(words[i:i+n])
+            for i in range(0, max(0, len(words) - n + 1))
+        ]
+        if grams:
+            overlap = sum(1 for gram in grams if gram in source) / len(grams)
+            if overlap >= 0.35:
+                return "transcript_copy"
+
+    return ""
+
+
 def _recover_missing_description(
     *,
     current_title: str,
@@ -393,22 +451,23 @@ def _recover_missing_description(
     public_context: dict[str, Any],
     model: str,
 ) -> str:
-    """Focused zero-quota recovery for missing or too-thin descriptions."""
+    """Focused zero-quota recovery for missing or low-quality descriptions."""
     if not transcript.strip():
         return ""
 
-    target_min = 320
-    hard_min = 260
     last = ""
+    last_error = "missing"
 
     base_prompt = f"""
-Створи український опис YouTube-відео ВИКЛЮЧНО за транскриптом.
-Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
-Напиши 5-7 повних речень, приблизно 450-850 символів.
+Створи КОРОТКИЙ SEO-ОПИС українською мовою за змістом транскрипту.
+ЦЕ НЕ ТРАНСКРИПТ. НЕ КОПІЮЙ репліки підряд і не вставляй сире розпізнавання мовлення.
+Стисни зміст своїми словами у 5-7 грамотних речень, приблизно 450-850 символів.
 Перші 1-2 речення конкретно пояснюють, що відбувається у відео.
-Далі назви 2-4 реальні теми, тези або позиції співрозмовника з транскрипту.
-Не додавай посилання, хештеги, ENGLISH SUMMARY, заголовок чи службові фрази.
-Не пиши загальні фрази типу "обговорюються важливі теми".
+Далі назви 2-4 реальні теми, тези або позиції співрозмовників.
+Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
+Не додавай посилання, хештеги, ENGLISH SUMMARY, заголовок, службові фрази чи таймкоди.
+Не повторюй довгі дослівні фрагменти транскрипту.
+Мова опису: ТІЛЬКИ українська.
 
 ПОТОЧНА НАЗВА:
 {current_title}
@@ -420,81 +479,79 @@ def _recover_missing_description(
 {transcript[:12000]}
 """.strip()
 
-    for attempt in range(2):
-        prompt = (
-            base_prompt
-            + "\n\nПоверни JSON рівно такого формату: "
-            + '{"description":"..."}'
-        )
-        if attempt:
-            prompt += (
-                "\nПОПЕРЕДНІЙ ТЕКСТ БУВ ЗАКОРОТКИМ. "
-                "Перепиши повністю у 5-7 реченнях."
-            )
-        raw = ollama_chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ти точний редактор YouTube. "
-                        "Поверни тільки JSON з одним ключем description."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            model=model,
-            temperature=0.05,
-            json_mode=True,
-        )
-        recovered = _normalize_seo_candidate(_extract_json_object(raw))
-        last = str(recovered.get("description") or "").strip()
-        if len(last) >= target_min:
-            return last
+    for mode in ("json", "text"):
+        for attempt in range(2):
+            retry_note = ""
+            if last_error != "missing":
+                retry_note = (
+                    f"\n\nПОПЕРЕДНІЙ РЕЗУЛЬТАТ ВІДХИЛЕНО: {last_error}. "
+                    "Зроби саме стислий український переказ, а не копію транскрипту."
+                )
+            if mode == "json":
+                prompt = (
+                    base_prompt
+                    + retry_note
+                    + '\n\nПоверни JSON рівно такого формату: {"description":"..."}'
+                )
+                raw = ollama_chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Ти редактор YouTube. Узагальнюй транскрипт своїми словами. "
+                                "Поверни тільки JSON з одним ключем description."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    model=model,
+                    temperature=0.08,
+                    json_mode=True,
+                )
+                recovered = _normalize_seo_candidate(_extract_json_object(raw))
+                value = str(recovered.get("description") or "").strip()
+            else:
+                prompt = (
+                    base_prompt
+                    + retry_note
+                    + "\n\nПоверни ТІЛЬКИ готовий опис без JSON, лапок і пояснень."
+                )
+                raw = ollama_chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Напиши лише стислий український SEO-опис. "
+                                "Не копіюй транскрипт дослівно."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    model=model,
+                    temperature=0.10,
+                    json_mode=False,
+                )
+                value = str(raw or "").strip()
+                fence = chr(96) * 3
+                if value.startswith(fence):
+                    value = value[len(fence):].lstrip()
+                if value.endswith(fence):
+                    value = value[:-len(fence)].rstrip()
+                value = re.sub(
+                    r"^\s*(?:Опис|Описание)\s*:\s*",
+                    "",
+                    value,
+                    flags=re.I,
+                )
+                value = value.strip().strip('"').strip()
 
-    for attempt in range(2):
-        prompt = (
-            base_prompt
-            + "\n\nПоверни ТІЛЬКИ готовий опис суцільним текстом, "
-              "без JSON, без лапок і без пояснень."
-        )
-        if attempt:
-            prompt += (
-                "\nПопередня версія була закороткою. "
-                "Напиши 6-8 змістовних речень, не менше 320 символів."
-            )
-        raw = ollama_chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "Напиши лише готовий український опис відео. "
-                        "Не додавай службових пояснень."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            model=model,
-            temperature=0.08,
-            json_mode=False,
-        )
-        value = str(raw or "").strip()
-        fence = chr(96) * 3
-        if value.startswith(fence):
-            value = value[len(fence):].lstrip()
-            if value.lower().startswith("text"):
-                value = value[4:].lstrip()
-            elif value.lower().startswith("markdown"):
-                value = value[8:].lstrip()
-        if value.endswith(fence):
-            value = value[:-len(fence)].rstrip()
-        value = re.sub(r"^\s*(?:Опис|Описание)\s*:\s*", "", value, flags=re.I)
-        value = value.strip().strip('"').strip()
-        if len(value) > len(last):
-            last = value
-        if len(last) >= target_min:
-            return last
+            if len(value) > len(last):
+                last = value
+            last_error = _description_quality_error(value, transcript)
+            if not last_error:
+                return value
 
-    return last if len(last) >= hard_min else last
+    return ""
 
 
 def _recover_title_variants(
@@ -667,7 +724,12 @@ chapters: рядок з підтвердженими таймкодами або
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
             description_candidate = str(candidate.get("description") or "").strip()
-            if transcript.strip() and len(description_candidate) < 260:
+            description_error = (
+                _description_quality_error(description_candidate, transcript)
+                if transcript.strip()
+                else ""
+            )
+            if transcript.strip() and description_error:
                 recovered_description = _recover_missing_description(
                     current_title=current_title,
                     transcript=transcript,
@@ -677,8 +739,14 @@ chapters: рядок з підтвердженими таймкодами або
                 if recovered_description:
                     candidate["description"] = recovered_description
                     description_candidate = recovered_description
-            if transcript.strip() and len(description_candidate) < 260:
-                raise ValueError("description too thin for transcript-backed SEO (<260 chars)")
+                    description_error = _description_quality_error(
+                        description_candidate,
+                        transcript,
+                    )
+            if transcript.strip() and description_error:
+                raise ValueError(
+                    "description quality failed: " + description_error
+                )
             payload = candidate
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
