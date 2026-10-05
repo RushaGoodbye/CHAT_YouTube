@@ -8550,6 +8550,23 @@ def inspect_auto_edit_latest_thumbnail_state() -> dict:
             if len(snippets)>=80:break
     return {"latest":rows[:3],"ui_snippets":snippets}
 
+def inspect_auto_edit_thumbnail_paths() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import ast,re
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py")
+    src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines();tree=ast.parse(src)
+    out={}
+    for node in ast.walk(tree):
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {"_thumbnail_root","_thumbnail_ensure_job","thumbnail_prepare","_thumbnail_prepare_finished","_thumbnail_load_manifest","_thumbnail_show_candidate_gallery","_start_service_process"}:
+            a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+            out[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    const=[]
+    for i,row in enumerate(rows[:260]):
+        if "APP_DIR" in row or "BACKEND" in row or "RG_AUTO_EDIT_BACKEND" in row:
+            const.append(f"{i+1}: {row}")
+    return {"constants":const,"functions":out}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8633,6 +8650,7 @@ ACTIONS = {
     "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
     "inspect_auto_edit_thumbnail_mix_main": inspect_auto_edit_thumbnail_mix_main,
     "inspect_auto_edit_latest_thumbnail_state": inspect_auto_edit_latest_thumbnail_state,
+    "inspect_auto_edit_thumbnail_paths": inspect_auto_edit_thumbnail_paths,
     "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
     "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
