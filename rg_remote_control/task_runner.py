@@ -5794,6 +5794,65 @@ Key changes:
             "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
             "dry_run":"PASS","compile":"PASS","import_smoke":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
+
+def apply_auto_edit_pack150_ui_hotfix() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import datetime,py_compile,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py"
+    if not ui.is_file(): raise RuntimeError("UI file missing")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_PACK150_UI_HOTFIX_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(ui,backup/ui.name)
+
+    src=ui.read_text(encoding="utf-8")
+    before=src
+
+    src=src.replace(
+        "from rg_pack150_style import PACK150_CSS, HorizontalSidebarTabBar",
+        "from rg_pack150_style import PACK150_CSS"
+    )
+    src=src.replace(
+        "self.tabs.setTabPosition(QTabWidget.TabPosition.West)",
+        "self.tabs.setTabPosition(QTabWidget.TabPosition.North)"
+    )
+    src=src.replace(
+        "        self.tabs.setTabBar(HorizontalSidebarTabBar(self.tabs))\n",
+        ""
+    )
+    src=src.replace(
+        "        self.tabs.tabBar().setExpanding(False)\n",
+        "        self.tabs.tabBar().setExpanding(False)\n"
+    )
+
+    if "RG_PACK150_BLANK_UI_HOTFIX_V1" not in src:
+        anchor="        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)\n"
+        if anchor in src:
+            src=src.replace(anchor,anchor+"        # RG_PACK150_BLANK_UI_HOTFIX_V1\n        self.tabs.setCurrentIndex(0)\n",1)
+
+    if src==before:
+        raise RuntimeError("Expected PACK150 UI patterns not found")
+
+    tmp=ui.with_suffix(".py.hotfix.tmp")
+    tmp.write_text(src,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True)
+    os.replace(tmp,ui)
+    py_compile.compile(str(ui),doraise=True)
+
+    # Restart Studio safely so the repaired layout is loaded.
+    ps=r"""$x=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'rg_studio_main\.py' }; foreach($p in $x){ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"""
+    subprocess.run(["powershell.exe","-NoProfile","-Command",ps],capture_output=True,text=True,timeout=20)
+    time.sleep(1.0)
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    py=str(runtime if runtime.is_file() else sys.executable)
+    subprocess.Popen([py,"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),
+                     creationflags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0),
+                     close_fds=True)
+    return {"status":"PASS","backup":str(backup),"ui":str(ui),"tab_position":"North","custom_tabbar_removed":True,"compile":"PASS","restarted":True}
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -5838,6 +5897,7 @@ ACTIONS = {
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
     "build_auto_edit_pack150_update": build_auto_edit_pack150_update,
+    "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
