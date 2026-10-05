@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_live_archive_audit",
+  "action": "youtube_local_quota_plan_status",
   "args": {
-    "nonce": "live-archive-audit-retry-result-persist-20261005"
+    "nonce": "quota-before-live-batch-20261005"
   }
 }
