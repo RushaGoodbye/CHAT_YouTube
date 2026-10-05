@@ -733,6 +733,45 @@ def _grounded_tags_from_transcript(
     return tags[:15]
 
 
+def _preserve_current_title_when_candidate_is_not_stronger(
+    current_title: str,
+    candidate_title: str,
+) -> str:
+    """Keep the current title when the candidate only strips punctuation/branding."""
+    current = " ".join(str(current_title or "").split()).strip()
+    candidate = " ".join(str(candidate_title or "").split()).strip()
+    if not current:
+        return candidate
+    if not candidate:
+        return current
+
+    def core(value: str) -> str:
+        value = re.sub(
+            r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
+            "",
+            value,
+            flags=re.I,
+        )
+        value = re.sub(r"[!?.,:;«»\"'()]+", " ", value)
+        return " ".join(value.casefold().split())
+
+    current_core = core(current)
+    candidate_core = core(candidate)
+
+    # Exact same semantic title with only punctuation/brand removed is a downgrade.
+    if current_core == candidate_core:
+        return current
+
+    current_words = set(current_core.split())
+    candidate_words = set(candidate_core.split())
+
+    # If the candidate contributes no new meaningful words, keep the proven title.
+    if candidate_words and candidate_words.issubset(current_words):
+        return current
+
+    return candidate
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -924,6 +963,10 @@ chapters: рядок з підтвердженими таймкодами або
         raise ValueError(f"Локальна SEO-генерація не пройшла валідацію після повтору: {last_error}")
 
     title = str(payload.get("title") or "").strip()
+    title = _preserve_current_title_when_candidate_is_not_stronger(
+        current_title,
+        title,
+    )
     variants = [
         str(item).strip()
         for item in (payload.get("title_variants") or [])
