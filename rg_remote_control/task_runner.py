@@ -5775,7 +5775,9 @@ Key changes:
         for n in ["rg_studio_ui.py","rg_pack150_style.py","rg_pack150_selftest.py"]:
             p=dry/n
             if p.is_file():py_compile.compile(str(p),doraise=True)
-        sm=subprocess.run([sys.executable,"-X","utf8","-c","import rg_pack150_style; print('IMPORT_OK')"],cwd=str(dry),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+        runtime_py=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        smoke_py=str(runtime_py if runtime_py.is_file() else sys.executable)
+        sm=subprocess.run([smoke_py,"-X","utf8","-c","import rg_pack150_style; print('IMPORT_OK')"],cwd=str(dry),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
         if sm.returncode!=0 or "IMPORT_OK" not in (sm.stdout or ""):raise RuntimeError("PACK150 import smoke failed: "+(sm.stderr or ""))
         with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
             for p in root.iterdir():zz.write(p,p.name)
