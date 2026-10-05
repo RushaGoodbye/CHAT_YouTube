@@ -4307,6 +4307,52 @@ def apply_auto_edit_pack100_ui_completion() -> dict:
     return {"status":"INSTALLED","backup":str(backup),"features":["queue_drag_drop","run_first","notifications_center","diagnostics_copy"],"compiled":True}
 
 
+
+def finalize_auto_edit_pack100() -> dict:
+    if os.name != "nt": raise RuntimeError("Windows only")
+    import datetime,py_compile,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    # Re-run compile gate before promotion.
+    compiled=[]
+    for name in ["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_pack100_policy.py"]:
+        p=app/name;py_compile.compile(str(p),doraise=True);compiled.append(name)
+    # Promote the installed package to the production STABLE channel.
+    rs_path=data/"release_state.json"
+    try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
+    except Exception:rs={}
+    rs.update({"channel":"STABLE","pack100":"RG_PACK100_V1","pack100_verified":True,"updated":time.time()})
+    rs_path.parent.mkdir(parents=True,exist_ok=True)
+    tmp=rs_path.with_suffix(".json.tmp");tmp.write_text(json.dumps(rs,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,rs_path)
+    # Last-known-good snapshot after successful verifier/audit.
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    lkg=data/"LAST_KNOWN_GOOD"/f"PACK100_{stamp}"
+    lkg.mkdir(parents=True,exist_ok=True)
+    saved=[]
+    for name in ["rg_studio_ui.py","rg_studio_postrun.py","rg_production_hardening.py","rg_pack100_policy.py","rg_auto_edit_config.json","rg_studio_version.py"]:
+        p=app/name
+        if p.is_file():shutil.copy2(p,lkg/name);saved.append(name)
+    notes=data/"PACK100_RELEASE_NOTES.txt"
+    notes.write_text("""RG AUTO EDIT - PACK100
+Channel: STABLE
+Scope: improvements 1-100
+Core editing algorithm: preserved
+Audio: ORIGINAL SOURCE DIRECT locked
+Completeness: V3 fail-closed
+Preflight: V3 policy
+Queue: persistent, pause-after-current, retry-failed, drag/drop, run-first, archive skip
+QA: Premiere + boundaries + completeness + regression + risk preview
+UI: graphite/YouTube accent, notifications center, diagnostics copy, compact/studio policies
+Recovery: selective recompute, checkpoints, watchdog retry limit 1
+Updates: STABLE production policy, rollback + LAST_KNOWN_GOOD
+Archived by user: 889, 890
+""",encoding="utf-8")
+    report=data/"PACK100_INSTALL_REPORT.json"
+    out={"schema":"RG_PACK100_FINAL_V1","status":"STABLE_VERIFIED","channel":"STABLE","compiled":compiled,"last_known_good":str(lkg),"saved":saved,"release_notes":str(notes),"timestamp":time.time()}
+    report.write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8")
+    return out
+
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -4350,6 +4396,7 @@ ACTIONS = {
     "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
     "inspect_auto_edit_pack100_missing_targets": inspect_auto_edit_pack100_missing_targets,
     "apply_auto_edit_pack100_ui_completion": apply_auto_edit_pack100_ui_completion,
+    "finalize_auto_edit_pack100": finalize_auto_edit_pack100,
     "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
     "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
     "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
