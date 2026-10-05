@@ -34,7 +34,7 @@ jobs:
         shell: powershell
         run: |
           $task = Get-Content "rg_remote_control/youtube_task.json" -Raw | ConvertFrom-Json
-          if ($task.action -in @("youtube_local_repair_preview","youtube_local_repair_apply","youtube_local_quota_plan_status","youtube_local_runtime_status","youtube_local_sync_and_launch_source")) {
+          if ($task.action -in @("youtube_local_repair_preview","youtube_local_repair_apply","youtube_local_quota_plan_status","youtube_local_runtime_status","youtube_local_sync_and_launch_source","youtube_local_launch_diagnostic")) {
             python rg_remote_control/youtube_local_tool.py rg_remote_control/youtube_task.json
           } else {
             python rg_remote_control/task_runner.py rg_remote_control/youtube_task.json
