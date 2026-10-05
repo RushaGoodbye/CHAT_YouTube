@@ -7976,6 +7976,135 @@ print(json.dumps({"passed":True,"shape":list(crop.shape[:2])},ensure_ascii=False
             if bp.is_file():shutil.copy2(bp,p)
         raise
 
+def rebuild_auto_edit_clean_guest_candidates() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, subprocess, time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    prep=app/"rg_thumbnail_prep.py"
+    mix=app/"rg_thumbnail_mix_prep.py"
+    ver=app/"rg_studio_version.py"
+    if not prep.is_file() or not mix.is_file():
+        raise RuntimeError("Thumbnail prep files missing")
+    psrc=prep.read_text(encoding="utf-8",errors="replace")
+    if "CLEAN_FACE" not in psrc or "Old code used ~2.25 face heights" not in psrc:
+        raise RuntimeError("Clean guest crop is not active; refusing to rebuild with old crop")
+
+    manifests=sorted(
+        app.glob("*/THUMBNAIL/RG_THUMBNAIL_PREP.json"),
+        key=lambda p:p.stat().st_mtime if p.is_file() else 0,
+        reverse=True
+    )
+    if not manifests:
+        raise RuntimeError("No thumbnail job manifest found")
+    old_mf=manifests[0]
+    md=json.loads(old_mf.read_text(encoding="utf-8-sig"))
+    job=str(md.get("job") or old_mf.parents[1].name)
+    clips=[Path(str(x)) for x in (md.get("selected_clips") or []) if Path(str(x)).is_file()]
+    if not clips:
+        raise RuntimeError("Current thumbnail job has no valid selected clips")
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_CLEAN_GUEST_REBUILD_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(old_mf,backup/"RG_THUMBNAIL_PREP_BEFORE.json")
+    thumb=old_mf.parent
+    for folder_name in ["CANDIDATES","TOPAZ_INPUT","TOPAZ_READY"]:
+        src=thumb/folder_name
+        if src.exists():
+            shutil.copytree(src,backup/folder_name,dirs_exist_ok=True)
+
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    py=str(runtime if runtime.is_file() else sys.executable)
+    env=os.environ.copy();env["PYTHONUTF8"]="1";env["RG_AUTO_EDIT_BACKEND"]=str(app)
+    clips_file=backup/"SELECTED_CLIPS.json"
+    clips_file.write_text(json.dumps({"clips":[str(x) for x in clips]},ensure_ascii=False,indent=2),encoding="utf-8")
+
+    cp=subprocess.run(
+        [py,"-X","utf8",str(mix),"--app",str(app),"--job",job,"--clips-file",str(clips_file)],
+        cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=1200
+    )
+    if cp.returncode!=0:
+        raise RuntimeError("Full candidate rebuild failed: "+(cp.stdout or "")[-7000:]+(cp.stderr or "")[-7000:])
+
+    mf=app/job/"THUMBNAIL"/"RG_THUMBNAIL_PREP.json"
+    fresh=json.loads(mf.read_text(encoding="utf-8-sig"))
+    checks=[]
+    for d in fresh.get("dialogues",[]):
+        gid=str(d.get("guest_id") or "")
+        paths=[Path(str(x)) for x in d.get("guest_candidates",[])]
+        if len(paths)<1:
+            raise RuntimeError(f"No regenerated guest candidates for {gid}")
+        clean_names=all("CLEAN_FACE" in p.name and p.is_file() for p in paths)
+        dims=[]
+        edge_scores=[]
+        try:
+            import cv2, numpy as np
+            for p in paths:
+                im=cv2.imread(str(p))
+                if im is None:
+                    continue
+                h,w=im.shape[:2];dims.append([w,h])
+                hsv=cv2.cvtColor(im,cv2.COLOR_BGR2HSV)
+                H,S,V=cv2.split(hsv)
+                decor=((S>145)&(V>65)&((H<38)|(H>165)))|((S<45)&(V>215))
+                band=max(1,int(min(h,w)*.07))
+                edge=np.concatenate([
+                    decor[:band,:].ravel(),decor[h-band:,:].ravel(),
+                    decor[:,:band].ravel(),decor[:,w-band:].ravel()
+                ])
+                edge_scores.append(round(float(edge.mean()),4) if edge.size else 0.0)
+        except Exception:
+            pass
+        checks.append({"guest_id":gid,"count":len(paths),"clean_names":clean_names,"dims":dims,"max_edge_decor":max(edge_scores) if edge_scores else None})
+        if not clean_names:
+            raise RuntimeError(f"Non-clean candidate filename remains for {gid}")
+
+    # prepare_mix already clears these, but enforce zero stale Topaz data.
+    for stale in ["RG_THUMBNAIL_SELECTION.json","RG_THUMBNAIL_BUILD.json","RG_TOPAZ_PREF_BACKUP.json"]:
+        p=mf.parent/stale
+        if p.exists():p.unlink()
+    for folder in [mf.parent/"TOPAZ_INPUT",mf.parent/"TOPAZ_READY"]:
+        if folder.exists():shutil.rmtree(folder)
+        folder.mkdir(parents=True,exist_ok=True)
+
+    # Ensure visible version matches the clean-crop generation.
+    if ver.is_file():
+        vs=ver.read_text(encoding="utf-8")
+        import re
+        if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+            vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.6"',vs,count=1)
+        else:
+            vs='STUDIO_VERSION="0.20.7.6"\n'+vs
+        ver.write_text(vs,encoding="utf-8")
+        py_compile.compile(str(ver),doraise=True)
+
+    # Restart Studio with only F: Runtime instance.
+    ps=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
+    subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],capture_output=True,text=True,timeout=20)
+    time.sleep(0.8)
+    main=app/"rg_studio_main.py"
+    pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+    launch_env=os.environ.copy();launch_env.pop("RUNNER_TRACKING_ID",None)
+    flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+    subprocess.Popen([exe,"-X","utf8",str(main)],cwd=str(app),env=launch_env,creationflags=flags,close_fds=True,
+                     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    time.sleep(2.0)
+
+    return {
+        "status":"REBUILT",
+        "version":"0.20.7.6",
+        "job":job,
+        "clips":[p.name for p in clips],
+        "guest_checks":checks,
+        "topaz_input_reset":True,
+        "topaz_ready_reset":True,
+        "backup":str(backup),
+        "studio_restarted":True,
+    }
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8048,6 +8177,7 @@ ACTIONS = {
     "apply_auto_edit_final_compilation_retirement_hotfix": apply_auto_edit_final_compilation_retirement_hotfix,
     "apply_auto_edit_topaz_all_selected_hotfix": apply_auto_edit_topaz_all_selected_hotfix,
     "apply_auto_edit_clean_guest_portraits_hotfix": apply_auto_edit_clean_guest_portraits_hotfix,
+    "rebuild_auto_edit_clean_guest_candidates": rebuild_auto_edit_clean_guest_candidates,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
