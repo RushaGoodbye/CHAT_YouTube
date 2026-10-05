@@ -8842,6 +8842,32 @@ def inspect_auto_edit_901_diagnostic() -> dict:
             })
     return out
 
+def inspect_auto_edit_clock_boundary_code() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import ast
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App"),
+      Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+    ]
+    out=[]
+    for root in roots:
+        p=root/"rg_clock_selector.py"
+        if not p.is_file(): continue
+        src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        funcs={}
+        try:
+            tree=ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {
+                    "_dialogue_boundaries","find_dialogues_by_clock","_find_anchor","_boundary","_scan"
+                }:
+                    a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                    funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+        except Exception as exc:
+            funcs={"parse_error":repr(exc)}
+        out.append({"path":str(p),"functions":funcs})
+    return {"items":out}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -8935,6 +8961,7 @@ ACTIONS = {
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
+    "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
