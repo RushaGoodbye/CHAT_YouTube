@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "locate_auto_edit_missing_screens",
+  "action": "apply_auto_edit_completeness_hotfix",
   "args": {},
-  "nonce": "20261005-locate-missing-screens-1"
+  "nonce": "20261005-apply-completeness-hotfix-1"
 }
