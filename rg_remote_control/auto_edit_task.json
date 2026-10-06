@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "finalize_control_settings",
+  "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "finalize-control-settings-clean-20261006-2"
+  "nonce": "final-three-contour-nas-health-20261006-1"
 }
