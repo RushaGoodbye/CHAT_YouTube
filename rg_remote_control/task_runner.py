@@ -11018,6 +11018,40 @@ def inspect_auto_edit_profanity_module_full() -> dict:
     return out
 
 
+
+def inspect_auto_edit_901_uncensored_bases() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import hashlib, xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out=[]
+    for i in range(1,7):
+        p=app/f"RG_EDITED_901_{i}_UNCENSORED.xml"
+        row={"dialogue":i,"path":str(p),"exists":p.is_file()}
+        if not p.is_file():
+            out.append(row); continue
+        root=ET.parse(p).getroot(); seq=root.find(".//sequence")
+        v=seq.findall("./media/video/track")[0].findall("./clipitem")
+        at=seq.findall("./media/audio/track")
+        row.update({
+          "size":p.stat().st_size,
+          "sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+          "video_clips":len(v),
+          "audio_tracks":len(at),
+          "audio_clips_per_track":[len(t.findall("./clipitem")) for t in at],
+          "gain96_count":sum(
+             1 for c in seq.findall("./media/audio/track/clipitem")
+             if any(
+                ("gain" in (((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold())
+                 and (lambda x: (float(x)<=-90 if x not in ("",None) else False))((par.findtext("value") or "").strip()))
+                for par in c.findall("./filter/effect/parameter")
+             )
+          ),
+          "keyframe_count":len(seq.findall(".//media/audio/track/clipitem/filter/effect/parameter/keyframe")),
+        })
+        out.append(row)
+    return {"bases":out}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11165,6 +11199,7 @@ ACTIONS = {
     "inspect_auto_edit_901_censor_group_spans": inspect_auto_edit_901_censor_group_spans,
     "inspect_auto_edit_keyframe_support": inspect_auto_edit_keyframe_support,
     "inspect_auto_edit_profanity_module_full": inspect_auto_edit_profanity_module_full,
+    "inspect_auto_edit_901_uncensored_bases": inspect_auto_edit_901_uncensored_bases,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
