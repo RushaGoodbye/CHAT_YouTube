@@ -1437,27 +1437,25 @@ def _stop_all_rg_youtube_gui_processes() -> dict:
 
 
 def _stop_non_private_source_gui_processes(target: Path) -> dict:
-    """Remove stale source GUI processes not running from the private venv."""
+    """Observe source GUI processes without killing the venv base-interpreter child.
+
+    On Windows Python 3.12 a venv pythonw launcher can be accompanied by the
+    base interpreter process. Both have the same run_app.py command line and
+    together represent one logical GUI launch. QLockFile in the application
+    owns single-instance enforcement, so executable-path based cleanup is
+    unsafe here.
+    """
     import subprocess
 
     if os.name != "nt":
-        return {"removed": [], "windows": False}
+        return {"removed": [], "observed": [], "windows": False}
 
-    keep = target / ".venv" / "Scripts" / "pythonw.exe"
     command = (
-        "$keep='"
-        + str(keep).replace("'", "''")
-        + "'; "
         "$items=Get-CimInstance Win32_Process | Where-Object { "
         "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
         "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-        "$removed=@(); "
-        "foreach($p in $items){ "
-        "if(-not $p.ExecutablePath -or $p.ExecutablePath -ne $keep){ "
-        "$removed += [pscustomobject]@{id=[int]$p.ProcessId;path=$p.ExecutablePath}; "
-        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
-        "} }; "
-        "$removed | ConvertTo-Json -Compress"
+        "$items | Select-Object ProcessId,Name,ExecutablePath,ParentProcessId,CommandLine | "
+        "ConvertTo-Json -Compress"
     )
     proc = subprocess.run(
         [
@@ -1473,15 +1471,20 @@ def _stop_non_private_source_gui_processes(target: Path) -> dict:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            "Could not remove stale RG YouTube Control source process: "
+            "Could not inspect RG YouTube Control source processes: "
             + ((proc.stderr or proc.stdout) or "")[-3000:]
         )
     raw = (proc.stdout or "").strip()
     try:
-        removed = json.loads(raw) if raw else []
+        observed = json.loads(raw) if raw else []
     except Exception:
-        removed = raw
-    return {"removed": removed, "windows": True}
+        observed = raw
+    return {
+        "removed": [],
+        "observed": observed,
+        "windows": True,
+        "single_instance_owner": "QLockFile",
+    }
 
 
 def stop_legacy_installed_gui() -> dict:
@@ -2688,7 +2691,7 @@ def ensure_gui_startup() -> dict:
 
 
 def cleanup_gui_processes() -> dict:
-    """Keep only the private-venv RG YouTube Control GUI process."""
+    """Verify the source GUI process group without killing venv interpreter children."""
     import subprocess
 
     target = Path.home() / "CHAT_YouTube-main"
@@ -2697,23 +2700,11 @@ def cleanup_gui_processes() -> dict:
         raise RuntimeError(f"Private GUI runtime not found: {keep}")
 
     command = (
-        "$keep='"
-        + str(keep).replace("'", "''")
-        + "'; "
         "$items=Get-CimInstance Win32_Process | Where-Object { "
         "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
         "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-        "$removed=@(); "
-        "foreach($p in $items){ "
-        "if($p.ExecutablePath -and ($p.ExecutablePath -ne $keep)){ "
-        "$removed += [int]$p.ProcessId; "
-        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue "
-        "} }; "
-        "$alive=Get-CimInstance Win32_Process | Where-Object { "
-        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
-        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-        "[pscustomobject]@{removed=$removed;alive=$alive} | "
-        "ConvertTo-Json -Depth 5 -Compress"
+        "$items | Select-Object ProcessId,Name,ExecutablePath,ParentProcessId,CommandLine | "
+        "ConvertTo-Json -Compress"
     )
     proc = subprocess.run(
         [
@@ -2729,11 +2720,11 @@ def cleanup_gui_processes() -> dict:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            "GUI process cleanup failed: "
+            "GUI process verification failed: "
             + ((proc.stderr or proc.stdout) or "")[-3000:]
         )
     raw = (proc.stdout or "").strip()
-    payload = {}
+    payload = []
     if raw:
         try:
             payload = json.loads(raw)
@@ -2742,7 +2733,9 @@ def cleanup_gui_processes() -> dict:
     return {
         "youtube_api_calls": 0,
         "keep": str(keep),
-        "result": payload,
+        "removed": [],
+        "processes": payload,
+        "single_instance_owner": "QLockFile",
     }
 
 
