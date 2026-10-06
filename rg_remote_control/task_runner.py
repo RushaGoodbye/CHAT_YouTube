@@ -12555,6 +12555,122 @@ def build_auto_edit_production40_update() -> dict:
             "nas_copy":str(nas_copy) if nas_copy else None,"size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
             "psutil_wheel":True,"dry_run":"PASS","compile":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
+
+def apply_auto_edit_updater_detach_fix_v2() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,py_compile,shutil,re
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App");data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    worker=app/"rg_studio_update_worker.py";ui=app/"rg_studio_ui.py"
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_UPDATER_DETACH_V2_{stamp}";backup.mkdir(parents=True,exist_ok=True)
+    for p in (worker,ui):
+        if p.is_file():shutil.copy2(p,backup/p.name)
+
+    ws=worker.read_text(encoding="utf-8")
+    pat=r'(?ms)^def _close_studio_for_update\(\):.*?(?=^def _sha256\()'
+    new='''def _close_studio_for_update():
+    # RG_UPDATER_DETACH_V2
+    # The updater is launched by Studio, so it is a child process of Studio.
+    # Never terminate Studio with tree=True here: that kills the updater itself.
+    try:
+        from rg_windows_service import studio_processes,terminate_process
+        rows=studio_processes() if "studio_processes" in dir(__import__("rg_windows_service")) else []
+    except Exception:
+        try:
+            from rg_windows_service import list_matching_processes,terminate_process
+            rows=list_matching_processes(("rg_studio_main.py",),("python.exe","pythonw.exe"))
+        except Exception:
+            rows=[]
+    closed=0
+    me=os.getpid()
+    for row in rows:
+        try:
+            pid=int(row.get("pid") or row.get("ProcessId") or 0)
+            if pid and pid!=me and terminate_process(pid,tree=False,timeout=4):
+                closed+=1
+        except Exception:
+            pass
+    if closed>0:
+        print("RGUPDATE|INFO|studio closed safely, updater preserved",flush=True)
+        time.sleep(1.0)
+        atexit.register(_restart_studio)
+'''
+    if not re.search(pat,ws):raise RuntimeError("worker close function not found")
+    ws=re.sub(pat,new+"\n",ws,count=1)
+    worker.write_text(ws,encoding="utf-8")
+
+    us=ui.read_text(encoding="utf-8")
+    pat2=r'(?ms)^    def _start_service_process\(self,script,args,on_done=None,on_line=None\):.*?^        return p\n'
+    m=re.search(pat2,us)
+    if not m:raise RuntimeError("UI service process function not found")
+    new2='''    def _start_service_process(self,script,args,on_done=None,on_line=None):
+        # RG_SERVICE_PROCESS_GUARD_V2
+        p=QProcess(self)
+        p.setWorkingDirectory(str(APP_DIR))
+        p.setProcessChannelMode(QProcess.MergedChannels)
+        env=QProcessEnvironment.systemEnvironment();env.insert("PYTHONUTF8","1");env.insert("PYTHONIOENCODING","utf-8")
+        env.insert("RG_RUN_ID",str(getattr(self,"_run_id","") or ""))
+        env.insert("RG_STREAM_ID",str(getattr(self,"_run_stream","") or (self.metric_stream.text().strip() if hasattr(self,"metric_stream") else "")))
+        env.insert("RG_AUTO_EDIT_BACKEND",str(BACKEND_DIR))
+        p.setProcessEnvironment(env)
+        buf={"s":""};done_once={"v":False}
+        def finish_once(code,extra=""):
+            if done_once["v"]:return
+            done_once["v"]=True
+            if extra:
+                buf["s"]+=str(extra)+"\\n"
+                try:self._log(str(extra))
+                except Exception:pass
+            if on_done:
+                try:on_done(int(code),buf["s"])
+                except Exception:pass
+            try:self._service_processes.remove(p)
+            except Exception:pass
+        def ready():
+            raw=bytes(p.readAllStandardOutput()).decode("utf-8","replace")
+            buf["s"]+=raw
+            for line in raw.splitlines():
+                self._log(line)
+                if on_line:
+                    try:on_line(line)
+                    except Exception:pass
+                if line.startswith("RGSPROGRESS|"):
+                    try:
+                        _,pc,stage,msg=line.split("|",3);pc=float(pc)
+                        self.progress.setRange(0,100);self.progress.setValue(int(max(0,min(100,pc))))
+                        self.percent.setText(f"{pc:.0f}%");self.stage.setText(stage);self.detail.setText(msg)
+                    except Exception:pass
+        def done(code,status):finish_once(int(code))
+        def failed(err):
+            if p.state()==QProcess.ProcessState.NotRunning:
+                finish_once(-997,"SERVICE START ERROR: "+p.errorString())
+        p.readyReadStandardOutput.connect(ready);p.finished.connect(done);p.errorOccurred.connect(failed)
+        if not hasattr(self,"_service_processes"):self._service_processes=[]
+        self._service_processes.append(p)
+        _runtime=str(RUNTIME_PY)
+        if not Path(_runtime).is_file():
+            finish_once(-998,"SERVICE RUNTIME MISSING: "+_runtime);return p
+        p.start(_runtime,["-u","-X","utf8",str(APP_DIR/script)]+list(args))
+        QTimer.singleShot(4000,lambda: finish_once(-996,"SERVICE DID NOT START: "+p.errorString()) if p.state()==QProcess.ProcessState.NotRunning and not done_once["v"] else None)
+        return p
+'''
+    us=us[:m.start()]+new2+us[m.end():]
+
+    # Choosing a file must never launch or block the updater.
+    old='''        if p:
+            self.update_path.setText(p)
+            self._inspect_update_package(Path(p))
+'''
+    newpick='''        if p:
+            self.update_path.setText(p)
+            self.update_state.setText("ОНОВЛЕННЯ: ПАКЕТ ОБРАНО")
+            QTimer.singleShot(0,lambda _p=Path(p):self._inspect_update_package(_p))
+'''
+    if old in us:us=us.replace(old,newpick,1)
+    ui.write_text(us,encoding="utf-8")
+    for p in (worker,ui):py_compile.compile(str(p),doraise=True)
+    return {"status":"PASS","marker":"RG_UPDATER_DETACH_V2","service_guard":"RG_SERVICE_PROCESS_GUARD_V2","backup":str(backup)}
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12716,6 +12832,7 @@ ACTIONS = {
     "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
     "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
     "apply_auto_edit_service_process_stream_fix": apply_auto_edit_service_process_stream_fix,
+    "apply_auto_edit_updater_detach_fix_v2": apply_auto_edit_updater_detach_fix_v2,
     "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
     "freeze_auto_edit_stable_020180": freeze_auto_edit_stable_020180,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
