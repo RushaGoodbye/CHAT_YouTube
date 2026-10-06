@@ -13045,7 +13045,7 @@ def finalize_auto_edit_020201_stable() -> dict:
 
 def sync_auto_edit_020201_stable_metadata() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
-    import hashlib,zipfile,py_compile,time,shutil,re
+    import hashlib,zipfile,py_compile,time,shutil
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
     nas_root=Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS")
@@ -13067,11 +13067,123 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
     if not nas.is_dir() or not local.is_dir() or not zpath.parent.exists():
         raise RuntimeError("Stable paths unavailable")
 
-    # Canonicalize live version metadata.
     vp=app/"rg_studio_version.py"
     src=vp.read_text(encoding="utf-8-sig")
-    def setv(text,key,value):
-        pat=rf'(?m)^\s*{re.escape(key)}\s*=\s*["\'][^"\']*["\']\s*    if os.name!="nt":
+    def set_line(text,key,value):
+        rows=text.splitlines();out=[];found=False
+        for row in rows:
+            stripped=row.strip()
+            if stripped.startswith(key+"=") or stripped.startswith(key+" ="):
+                out.append(key+'="'+value+'"');found=True
+            else:
+                out.append(row)
+        if not found:out.append(key+'="'+value+'"')
+        return "\n".join(out)+"\n"
+    for key in ("STUDIO_VERSION","RG_UI_VERSION","RG_CORE_VERSION"):
+        src=set_line(src,key,version)
+    src=set_line(src,"STUDIO_CHANNEL","stable")
+    tmp=vp.with_suffix(".stable-sync.tmp.py");tmp.write_text(src,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True);os.replace(tmp,vp)
+
+    for root in (nas,local):
+        dst=root/"rg_studio_version.py";dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(vp,dst)
+
+    def sha256(p):
+        h=hashlib.sha256()
+        with Path(p).open("rb") as f:
+            for b in iter(lambda:f.read(4*1024*1024),b""):h.update(b)
+        return h.hexdigest()
+
+    marker_path=nas/"STABLE_MARKER.json"
+    marker=json.loads(marker_path.read_text(encoding="utf-8-sig"))
+    rows=list(marker.get("files") or [])
+    for row in rows:
+        if str(row.get("path") or "").replace("\\","/")=="rg_studio_version.py":
+            p=nas/"rg_studio_version.py"
+            row["size"]=p.stat().st_size
+            row["sha256"]=sha256(p)
+    marker.update({
+      "schema":"RG_AUTO_EDIT_STABLE_SNAPSHOT_V1","status":"STABLE_VERIFIED","version":version,
+      "studio_version":version,"ui_version":version,"core_version":version,"channel":"STABLE",
+      "metadata_synced":True,"metadata_synced_at":time.time()
+    })
+    for root in (nas,local):
+        (root/"STABLE_MARKER.json").write_text(json.dumps(marker,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    bad_files=[]
+    for row in rows:
+        p=nas/Path(str(row.get("path") or ""))
+        if not p.is_file() or p.stat().st_size!=int(row.get("size") or -1) or sha256(p)!=row.get("sha256"):
+            bad_files.append(str(row.get("path")))
+    if bad_files:raise RuntimeError("Stable file verification failed: "+str(bad_files[:10]))
+
+    temp_zip=zpath.with_suffix(".stable-sync.tmp.zip")
+    if temp_zip.exists():temp_zip.unlink()
+    with zipfile.ZipFile(temp_zip,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+        for row in rows:
+            rel=str(row["path"]).replace("\\","/")
+            z.write(nas/Path(rel),rel)
+        z.write(nas/"STABLE_MARKER.json","STABLE_MARKER.json")
+    with zipfile.ZipFile(temp_zip) as z:
+        badcrc=z.testzip()
+        if badcrc:raise RuntimeError("Stable ZIP CRC failed: "+str(badcrc))
+    os.replace(temp_zip,zpath)
+
+    rs_path=data/"release_state.json"
+    try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
+    except Exception:rs={}
+    rs.update({
+      "channel":"STABLE","studio_version":version,"ui_version":version,"core_version":version,
+      "test_version":version,"last_golden":version,"last_pass_stream":"886",
+      "stable_snapshot":str(nas),"stable_zip":str(zpath),"stable_control_stream":"886",
+      "stable_verified":True,"metadata_synced":True,"updated":time.time()
+    })
+    rs_path.write_text(json.dumps(rs,ensure_ascii=False,indent=2),encoding="utf-8")
+    pointer.update({
+      "version":version,"backup":str(nas),"zip":str(zpath),"control_stream":"886",
+      "verified":True,"golden":True,"channel":"STABLE","ui_version":version,"core_version":version,
+      "metadata_synced":True,"updated_at":time.time()
+    })
+    pointer_path.write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (nas_root/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    boot={"schema":"RG_BOOT_OK_V2","version":version,"pid":0,"ts":time.time(),"source":"STABLE_METADATA_SYNC"}
+    (data/"boot_ok.json").write_text(json.dumps(boot,ensure_ascii=False,indent=2),encoding="utf-8")
+    state.update({"status":"GOLDEN_STABLE","metadata_synced":True,"metadata_synced_at":time.time(),"nas":str(nas),"local":str(local),"zip":str(zpath)})
+    state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    cleaned=[]
+    prefix=f"RG_AUTO_EDIT_{version}_CANDIDATE_"
+    for root in (data/"LAST_KNOWN_GOOD",nas_root):
+        if not root.exists():continue
+        for p in list(root.glob(prefix+"*")):
+            try:
+                if p.is_dir():shutil.rmtree(p)
+                elif p.is_file():p.unlink()
+                cleaned.append(str(p))
+            except Exception:pass
+
+    final=vp.read_text(encoding="utf-8-sig",errors="replace")
+    checks={
+      "studio":('STUDIO_VERSION="'+version+'"') in final,
+      "ui":('RG_UI_VERSION="'+version+'"') in final,
+      "core":('RG_CORE_VERSION="'+version+'"') in final,
+      "channel":'STUDIO_CHANNEL="stable"' in final,
+      "pointer":pointer.get("version")==version and bool(pointer.get("golden")),
+      "release":rs.get("studio_version")==version and rs.get("channel")=="STABLE",
+      "boot":boot.get("version")==version,
+      "zip":zpath.is_file()
+    }
+    if not all(checks.values()):raise RuntimeError("Final stable metadata verification failed: "+str(checks))
+    with zipfile.ZipFile(zpath) as z:
+        if z.testzip():raise RuntimeError("Final stable ZIP CRC failed")
+    return {
+      "status":"PASS","version":version,"channel":"STABLE","stable":stable_name,
+      "nas":str(nas),"zip":str(zpath),"checks":checks,"cleaned_candidates":cleaned,
+      "tests":state.get("tests",{})
+    }
+
+def freeze_auto_edit_stable_020180() -> dict:
+    if os.name!="nt":
         raise RuntimeError("Windows only")
     import datetime,hashlib,py_compile,shutil,subprocess,zipfile,time
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
