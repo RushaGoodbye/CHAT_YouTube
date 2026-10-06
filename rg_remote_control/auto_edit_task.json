@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_worker",
+  "action": "inspect_auto_edit_live_code",
   "args": {},
-  "nonce": "inspect-updater-after-master60-noapply-20261006-2317"
+  "nonce": "inspect-ui-updater-call-20261006-2318"
 }
