@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
-  "args": {},
-  "nonce": "inspect-active-901-tree-20261006-1"
+  "action": "inspect_auto_edit_run_log",
+  "args": {"stream":"901"},
+  "nonce": "inspect-run-log-901-after-ui-hotfix-20261006-1"
 }
