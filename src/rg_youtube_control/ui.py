@@ -803,6 +803,46 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(10000, self.run_background_maintenance)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
 
+    def _set_tab_badge(self, index: int, base: str, count: int = 0) -> None:
+        if not hasattr(self, "tabs") or index >= self.tabs.count():
+            return
+        self.tabs.setTabText(
+            index,
+            f"{base} ({count})" if int(count) > 0 else base,
+        )
+
+    def _refresh_tab_badges(self) -> None:
+        if not hasattr(self, "tabs"):
+            return
+        profile = self.current_profile
+        drafts = int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM optimization_drafts d
+                   JOIN videos v ON v.video_id=d.video_id
+                   WHERE v.profile=? AND d.status='draft'""",
+                (profile,),
+            ).fetchone()[0]
+        )
+        ready = len(self._prepared_queue_ids())
+        comments = int(
+            self.conn.execute(
+                """SELECT COUNT(*) FROM comments c
+                   JOIN videos v ON v.video_id=c.video_id
+                   WHERE v.profile=? AND c.status='new'""",
+                (profile,),
+            ).fetchone()[0]
+        )
+        self._set_tab_badge(0, "Сьогодні")
+        self._set_tab_badge(1, "Відео")
+        self._set_tab_badge(2, "Оптимізація", drafts or ready)
+        self._set_tab_badge(3, "Коментарі", comments)
+        self._set_tab_badge(4, "Аналітика")
+        self._set_tab_badge(5, "Результати")
+        self._set_tab_badge(6, "Журнал")
+        self._set_tab_badge(7, "Налаштування")
+        self._set_tab_badge(8, "Архів")
+
     def _on_main_tab_changed(self, _index: int) -> None:
         if not hasattr(self, "metrics_wrapper"):
             return
@@ -1845,6 +1885,7 @@ class MainWindow(QMainWindow):
         self.center_prepared.set_value(str(ready), "перевірені та готові")
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_results.set_value(str(waiting), "очікують контрольних точок")
+        self._refresh_tab_badges()
 
         stats = self._archive_campaign_stats_cached()
         total_archive = sum(
@@ -2683,7 +2724,7 @@ class MainWindow(QMainWindow):
             frozen_columns=(0, 1),
         )
         self.video_table.setHorizontalHeaderLabels(
-            ["Відео", "Назва", "Перегляди", "Аудит", "Проблеми"]
+            ["Відео", "Назва", "Перегляди", "Стан", "Проблеми"]
         )
         self.video_table.horizontalHeader().setStretchLastSection(True)
         for column, width in {0: 120, 1: 420, 2: 105, 3: 80, 4: 320}.items():
@@ -2770,9 +2811,17 @@ class MainWindow(QMainWindow):
         score = int(audit_data.get("score") or 0)
         issues = _issue_labels(list(audit_data.get("issues", []))) or "критичних проблем немає"
         self.video_context_title.setText(str(row["title"] or video_id))
+        quality_label = (
+            "Добре"
+            if score >= 100
+            else "Потрібно покращити"
+            if score >= 70
+            else "Критично"
+        )
         self.video_context_note.setText(
             f"{video_id} · {int(row['views'] or 0):,} переглядів · "
-            f"аудит {score} · {issues}"
+            f"{quality_label} · {issues}"
+            + (f" · аудит {score}" if self.advanced_mode else "")
         )
 
     def _open_selected_video_in_optimization(self) -> None:
@@ -3010,7 +3059,7 @@ class MainWindow(QMainWindow):
         prepare_guided_btn.clicked.connect(self.prepare_zero_quota_batch)
 
         ready_guided_btn = QPushButton("Готово до YouTube")
-        ready_guided_btn.setProperty("role", "primary")
+        ready_guided_btn.setProperty("role", "success")
         ready_guided_btn.clicked.connect(self._open_ready_work_queue)
 
         scheduled_guided_btn = QPushButton("Заплановані")
@@ -3204,9 +3253,13 @@ class MainWindow(QMainWindow):
         advanced = bool(getattr(self, "advanced_mode", False))
         if hasattr(self, "optimization_table"):
             self.optimization_table.setColumnHidden(7, not advanced)
-            self.optimization_table.horizontalHeaderItem(6).setText(
-                "Аудит" if advanced else "Стан"
-            )
+            header_item = self.optimization_table.horizontalHeaderItem(6)
+            if header_item is not None:
+                header_item.setText("Аудит" if advanced else "Стан")
+        if hasattr(self, "video_table"):
+            header_item = self.video_table.horizontalHeaderItem(3)
+            if header_item is not None:
+                header_item.setText("Аудит" if advanced else "Стан")
         if hasattr(self, "health_labels"):
             parent = next(iter(self.health_labels.values())).parent()
             if parent is not None:
@@ -11128,11 +11181,20 @@ class MainWindow(QMainWindow):
         for index, row in enumerate(rows):
             audit_data = json.loads(row["audit_json"] or "{}")
             issues = _issue_labels(list(audit_data.get("issues", [])))
+            score = int(audit_data.get("score") or 0)
             values = [
                 row["video_id"],
                 row["title"],
                 str(row["views"] or 0),
-                str(audit_data.get("score", "")),
+                (
+                    str(score)
+                    if self.advanced_mode
+                    else "Добре"
+                    if score >= 100
+                    else "Потрібно покращити"
+                    if score >= 70
+                    else "Критично"
+                ),
                 issues,
             ]
             for column, value in enumerate(values):
@@ -11140,7 +11202,6 @@ class MainWindow(QMainWindow):
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
                 if column == 3:
-                    score = int(audit_data.get("score") or 0)
                     item.setForeground(
                         QColor(
                             SUCCESS
@@ -11151,7 +11212,17 @@ class MainWindow(QMainWindow):
                         )
                     )
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    item.setToolTip(
+                        f"Внутрішня оцінка: {score}/100"
+                        + (f" · {issues}" if issues else "")
+                    )
                 self.video_table.setItem(index, column, item)
+        if hasattr(self, "video_table"):
+            header_item = self.video_table.horizontalHeaderItem(3)
+            if header_item is not None:
+                header_item.setText(
+                    "Аудит" if self.advanced_mode else "Стан"
+                )
         if hasattr(self, "video_density"):
             self._apply_table_density(self.video_table, self.video_density)
         self._update_video_context_card()
