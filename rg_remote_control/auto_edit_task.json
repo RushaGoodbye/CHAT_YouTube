@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_recovery_queue",
+  "action": "probe_rg_resilience",
   "args": {},
-  "nonce": "inspect-901-recovery-queue-20261006-1"
+  "nonce": "verify-youtube-044-selfheal-20261006-1"
 }
