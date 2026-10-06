@@ -12314,6 +12314,172 @@ print(json.dumps(s,ensure_ascii=False))
         raise
 
 
+
+def freeze_auto_edit_stable_020180() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,hashlib,py_compile,shutil,subprocess,zipfile,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    nas_root=Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS")
+    version="0.20.18.0"
+    control_stream="886"
+
+    if not app.is_dir(): raise RuntimeError("App directory missing")
+    if not runtime.is_file(): raise RuntimeError("Runtime python missing")
+    if not nas_root.exists(): raise RuntimeError("NAS backup root unavailable")
+
+    # Do not snapshot while production backend is active.
+    try:
+        sys.path.insert(0,str(app))
+        from rg_windows_service import backend_processes
+        active=backend_processes()
+    except Exception:
+        active=[]
+    if active:
+        raise RuntimeError("Stable freeze blocked: backend active: "+str(active[:4]))
+
+    critical=[
+      "rg_studio_ui.py","rg_studio_version.py","rg_auto_edit_config.json",
+      "rg_production_stability.py","rg_stability_ux25.py","rg_windows_service.py",
+      "VALIDATE_PREMIERE_XML.py","rg_studio_update_worker.py","rg_studio_restart.py",
+      "rg_multi_dialogue.py","rg_auto_edit_one_button.py","rg_production_wrapper.py",
+    ]
+    missing=[n for n in critical if not (app/n).is_file()]
+    if missing: raise RuntimeError("Critical files missing: "+", ".join(missing))
+    for n in critical:
+        p=app/n
+        if p.suffix==".py": py_compile.compile(str(p),doraise=True)
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name=f"RG_AUTO_EDIT_{version}_STABLE_{stamp}"
+    local_lkg=data/"LAST_KNOWN_GOOD"/name
+    nas_dir=nas_root/name
+    for root in (local_lkg,nas_dir):
+        root.mkdir(parents=True,exist_ok=False)
+
+    ignore_names={
+      "__pycache__",".rg_cache","run_manifests",".rg_revisions",".git",
+      "diagnostics","crash_bundles","temp","tmp"
+    }
+    ignore_suffix={".pyc",".pyo",".tmp",".log"}
+    ignore_patterns=("RG_DIAGNOSTIC_","RG_CRASH_BUNDLE_")
+
+    def should_skip(p:Path):
+        if any(part in ignore_names for part in p.parts): return True
+        if p.suffix.lower() in ignore_suffix:return True
+        if any(p.name.startswith(x) for x in ignore_patterns):return True
+        # Generated stream result folders/files are not part of program restore point.
+        if p.name.isdigit():return True
+        if p.name.startswith("RG_EDITED_"):return True
+        return False
+
+    files=[]
+    for src in app.rglob("*"):
+        if not src.is_file():continue
+        rel=src.relative_to(app)
+        if should_skip(rel):continue
+        try:size=src.stat().st_size
+        except Exception:continue
+        # Do not pull giant model/media payloads into source snapshot.
+        if size>250*1024*1024 and rel.parts and rel.parts[0].lower() in {"models","assets"}:
+            continue
+        files.append((src,rel,size))
+
+    def sha256(p):
+        h=hashlib.sha256()
+        with Path(p).open("rb") as fh:
+            for b in iter(lambda:fh.read(4*1024*1024),b""):h.update(b)
+        return h.hexdigest()
+
+    manifest_files=[]
+    for src,rel,size in files:
+        h=sha256(src)
+        manifest_files.append({"path":str(rel).replace("\\","/"),"size":size,"sha256":h})
+        for root in (local_lkg,nas_dir):
+            dst=root/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
+
+    # Runtime reproducibility metadata, not a duplicate 5+ GB runtime.
+    pyver=subprocess.run([str(runtime),"--version"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=20)
+    freeze=subprocess.run([str(runtime),"-m","pip","freeze"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=60)
+    runtime_meta={
+      "python":(pyver.stdout or pyver.stderr or "").strip(),
+      "runtime_path":str(runtime),
+      "pip_freeze":(freeze.stdout or "").splitlines(),
+    }
+
+    marker={
+      "schema":"RG_AUTO_EDIT_STABLE_SNAPSHOT_V1",
+      "status":"STABLE_VERIFIED",
+      "version":version,
+      "control_stream":control_stream,
+      "manual_check":"886 dialogues/audio/censorship/XML confirmed OK by user",
+      "created_at":time.time(),
+      "created_local":stamp,
+      "source":str(app),
+      "local_last_known_good":str(local_lkg),
+      "nas_backup":str(nas_dir),
+      "file_count":len(manifest_files),
+      "runtime":runtime_meta,
+      "features":{
+        "ux25":"RG_STABILITY_UX25_V1",
+        "validator":"RG_VALIDATOR_AVLINK_V2",
+        "windows_service":"RG_WINDOWS_SERVICE_LAYER_V1"
+      },
+      "files":manifest_files
+    }
+    for root in (local_lkg,nas_dir):
+        (root/"STABLE_MARKER.json").write_text(json.dumps(marker,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    # Verify NAS snapshot file-for-file against manifest.
+    bad=[]
+    for row in manifest_files:
+        p=nas_dir/Path(row["path"])
+        if not p.is_file() or p.stat().st_size!=int(row["size"]):
+            bad.append(row["path"]);continue
+        if sha256(p)!=row["sha256"]:bad.append(row["path"])
+    if bad: raise RuntimeError("NAS snapshot verification failed: "+str(bad[:10]))
+
+    # Small recovery ZIP of the exact program snapshot.
+    zip_path=nas_root/(name+".zip")
+    with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+        for row in manifest_files:
+            src=nas_dir/Path(row["path"]);z.write(src,row["path"])
+        z.write(nas_dir/"STABLE_MARKER.json","STABLE_MARKER.json")
+    with zipfile.ZipFile(zip_path) as z:
+        bad_crc=z.testzip()
+        if bad_crc: raise RuntimeError("Stable ZIP CRC failed: "+str(bad_crc))
+
+    # Promote release state and write canonical pointer.
+    rs_path=data/"release_state.json"
+    try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
+    except Exception:rs={}
+    rs.update({
+      "channel":"STABLE","studio_version":version,
+      "stable_snapshot":str(nas_dir),"stable_zip":str(zip_path),
+      "stable_control_stream":control_stream,"stable_verified":True,
+      "updated":time.time()
+    })
+    tmp=rs_path.with_suffix(".json.tmp");tmp.write_text(json.dumps(rs,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,rs_path)
+
+    pointer={
+      "schema":"RG_AUTO_EDIT_CURRENT_STABLE_V1","version":version,
+      "backup":str(nas_dir),"zip":str(zip_path),"control_stream":control_stream,
+      "verified":True,"updated_at":time.time()
+    }
+    (nas_root/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (data/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    return {
+      "status":"STABLE_VERIFIED","version":version,"control_stream":control_stream,
+      "nas_backup":str(nas_dir),"nas_zip":str(zip_path),
+      "local_last_known_good":str(local_lkg),"file_count":len(manifest_files),
+      "verified_files":len(manifest_files),"zip_crc":"PASS",
+      "pointer":str(nas_root/"CURRENT_STABLE.json")
+    }
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12474,6 +12640,7 @@ ACTIONS = {
     "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
     "apply_auto_edit_service_process_stream_fix": apply_auto_edit_service_process_stream_fix,
     "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
+    "freeze_auto_edit_stable_020180": freeze_auto_edit_stable_020180,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
