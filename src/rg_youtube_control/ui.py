@@ -12715,39 +12715,67 @@ class MainWindow(QMainWindow):
         )
 
     def _save_regenerated_comment_reply_batch(self, items: list[dict]) -> None:
-        replaced = 0
-        skipped = 0
+        requested_ids: list[str] = []
+        skipped_by_gate = 0
         for item in items:
             comment_id = str(item.get("comment_id") or "")
             reply = str(item.get("reply") or "").strip()
             if not comment_id:
                 continue
-            self.conn.execute(
+            cursor = self.conn.execute(
                 "UPDATE comments SET reply_text=? WHERE comment_id=? AND status='new'",
                 (reply, comment_id),
             )
-            if reply:
-                replaced += 1
-            else:
-                skipped += 1
+            if cursor.rowcount:
+                requested_ids.append(comment_id)
+                if not reply:
+                    skipped_by_gate += 1
         self.conn.commit()
+
+        verified = 0
+        if requested_ids:
+            placeholders = ",".join("?" for _ in requested_ids)
+            verified = int(
+                self.conn.execute(
+                    f"""SELECT COUNT(*)
+                        FROM comments
+                        WHERE comment_id IN ({placeholders})
+                          AND status='new'
+                          AND COALESCE(TRIM(reply_text),'')<>''""",
+                    tuple(requested_ids),
+                ).fetchone()[0]
+            )
+        skipped = max(0, len(requested_ids) - verified)
+
         log_action(
             self.conn,
             profile=self.current_profile,
             category="локально",
             action="Перегенерація чернеток · 0 квоти",
             details=(
-                f"оновлено {replaced}; відхилено quality-gate {skipped}; "
+                f"записано {len(requested_ids)}; перевірено в БД {verified}; "
+                f"без чернетки {skipped}; quality-gate {skipped_by_gate}; "
                 "нічого не відправлено в YouTube"
             ),
         )
         self.reload_comments()
         self.reload_action_log()
+
+        if verified == 0 and requested_ids:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Чернетки не підтвердилися після запису в локальну базу.\n"
+                "Програма не буде показувати хибний результат.\n"
+                "YouTube не змінено. Квота YouTube API: 0.",
+            )
+            return
+
         QMessageBox.information(
             self,
             APP_NAME,
-            f"Перегенеровано: {replaced}.\n"
-            f"Відхилено як ненадійні: {skipped}.\n"
+            f"Підтверджено чернеток у базі: {verified}.\n"
+            f"Залишено без чернетки: {skipped}.\n"
             "У YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
 
@@ -12909,6 +12937,11 @@ class MainWindow(QMainWindow):
                     item.setForeground(QColor(status_color))
                     if str(row["status"]) in {"replied", "new"}:
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif column == 6:
+                    draft_text = str(row["reply_text"] or "").strip()
+                    if draft_text:
+                        item.setForeground(QColor(SUCCESS))
+                        item.setToolTip(draft_text)
                 self.comment_table.setItem(index, column, item)
 
         self.update_dashboard()
