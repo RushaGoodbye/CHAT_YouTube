@@ -10567,21 +10567,24 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
         code=code.replace(old,new,1)
 
     link_marker="RG_FINAL_AV_LINKAGE_V1"
-    call_block='''        censor_audio_report=apply_dialogue_profanity_audio(
-            out,censor_report,cleanup_report,censor_opts,
-            timeline_offset_sec=_censor_timeline_offset,
-            fps=int(director_cfg.get('fps',30)),
-        )'''
-    call_new=call_block+'''
-    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
+    if link_marker not in code:
+        start=code.find("censor_audio_report=apply_dialogue_profanity_audio(")
+        if start<0:
+            raise RuntimeError("post-censor call start not found")
+        close=code.find("\n        )",start)
+        if close<0:
+            close=code.find("\n\t\t)",start)
+        if close<0:
+            raise RuntimeError("post-censor call end not found")
+        line_end=code.find("\n",close+1)
+        if line_end<0:
+            line_end=len(code)
+        insertion='''\n    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
     # explicitly linked to the actual final A1/A2 clipitems.
     from rg_premiere_av_linkage import normalize_xml_av_links as _normalize_xml_av_links
     _av_link_report=_normalize_xml_av_links(out,hard_disable_censor=True)
     emit(99.72,'AV_LINKAGE',f"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}")'''
-    if link_marker not in code:
-        if call_block not in code:
-            raise RuntimeError("post-censor pipeline anchor not found")
-        code=code.replace(call_block,call_new,1)
+        code=code[:line_end]+insertion+code[line_end:]
 
     core.write_text(code,encoding="utf-8")
     py_compile.compile(str(core),doraise=True)
