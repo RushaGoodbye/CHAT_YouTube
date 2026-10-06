@@ -12732,16 +12732,17 @@ class MainWindow(QMainWindow):
             )
             return
 
+        safe_candidate = local_safe_template_candidate(
+            self.conn,
+            self.current_profile,
+            str(comment_id),
+            comment_text,
+            author,
+        )
+
         def task():
-            candidate = local_safe_template_candidate(
-                self.conn,
-                self.current_profile,
-                str(comment_id),
-                comment_text,
-                author,
-            )
-            if candidate is not None:
-                return candidate
+            if safe_candidate is not None:
+                return dict(safe_candidate)
             return generate_comment_reply_candidate_local(
                 comment_text=comment_text,
                 video_title=video_title,
@@ -12800,17 +12801,30 @@ class MainWindow(QMainWindow):
                LIMIT 20""",
             (self.current_profile,),
         ).fetchall()
-        items = [
-            {
-                "comment_id": str(row["comment_id"]),
-                "comment_text": str(row["text"] or ""),
-                "stored_category": str(row["category"] or ""),
-                "author": str(row["author"] or ""),
-                "video_title": str(row["video_title"] or ""),
-            }
-            for row in rows
-            if str(row["text"] or "").strip()
-        ]
+        items = []
+        for row in rows:
+            comment_text = str(row["text"] or "").strip()
+            if not comment_text:
+                continue
+            comment_id = str(row["comment_id"])
+            author = str(row["author"] or "")
+            safe_candidate = local_safe_template_candidate(
+                self.conn,
+                self.current_profile,
+                comment_id,
+                comment_text,
+                author,
+            )
+            items.append(
+                {
+                    "comment_id": comment_id,
+                    "comment_text": comment_text,
+                    "stored_category": str(row["category"] or ""),
+                    "author": author,
+                    "video_title": str(row["video_title"] or ""),
+                    "safe_candidate": safe_candidate,
+                }
+            )
         if not items:
             QMessageBox.information(
                 self,
@@ -12822,18 +12836,14 @@ class MainWindow(QMainWindow):
         def task():
             result = []
             for item in items:
-                candidate = local_safe_template_candidate(
-                    self.conn,
-                    self.current_profile,
-                    item["comment_id"],
-                    item["comment_text"],
-                    item.get("author", ""),
-                )
+                candidate = item.get("safe_candidate")
                 if candidate is None:
                     candidate = generate_comment_reply_candidate_local(
                         comment_text=item["comment_text"],
                         video_title=item["video_title"],
                     )
+                else:
+                    candidate = dict(candidate)
                 result.append(
                     {
                         "comment_id": item["comment_id"],
@@ -12861,17 +12871,30 @@ class MainWindow(QMainWindow):
                LIMIT 20""",
             (self.current_profile,),
         ).fetchall()
-        items = [
-            {
-                "comment_id": str(row["comment_id"]),
-                "comment_text": str(row["text"] or ""),
-                "stored_category": str(row["category"] or ""),
-                "author": str(row["author"] or ""),
-                "video_title": str(row["video_title"] or ""),
-            }
-            for row in rows
-            if str(row["text"] or "").strip()
-        ]
+        items = []
+        for row in rows:
+            comment_text = str(row["text"] or "").strip()
+            if not comment_text:
+                continue
+            comment_id = str(row["comment_id"])
+            author = str(row["author"] or "")
+            safe_candidate = local_safe_template_candidate(
+                self.conn,
+                self.current_profile,
+                comment_id,
+                comment_text,
+                author,
+            )
+            items.append(
+                {
+                    "comment_id": comment_id,
+                    "comment_text": comment_text,
+                    "stored_category": str(row["category"] or ""),
+                    "author": author,
+                    "video_title": str(row["video_title"] or ""),
+                    "safe_candidate": safe_candidate,
+                }
+            )
         if not items:
             QMessageBox.information(
                 self,
@@ -12883,18 +12906,14 @@ class MainWindow(QMainWindow):
         def task():
             result = []
             for item in items:
-                candidate = local_safe_template_candidate(
-                    self.conn,
-                    self.current_profile,
-                    item["comment_id"],
-                    item["comment_text"],
-                    item.get("author", ""),
-                )
+                candidate = item.get("safe_candidate")
                 if candidate is None:
                     candidate = generate_comment_reply_candidate_local(
                         comment_text=item["comment_text"],
                         video_title=item["video_title"],
                     )
+                else:
+                    candidate = dict(candidate)
                 result.append(
                     {
                         "comment_id": item["comment_id"],
