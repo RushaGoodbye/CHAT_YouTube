@@ -10358,8 +10358,6 @@ class MainWindow(QMainWindow):
             if duration_seconds and duration_seconds <= 70:
                 continue
             candidate_ids.append(str(row["video_id"]))
-            if len(candidate_ids) >= limit:
-                break
 
         if not candidate_ids:
             QMessageBox.information(
@@ -10370,14 +10368,21 @@ class MainWindow(QMainWindow):
             )
             return
 
+        max_attempts = min(len(candidate_ids), max(limit * 3, limit))
+
         def task():
             prepared: list[dict] = []
             skipped: list[dict] = []
-            for index, video_id in enumerate(candidate_ids, start=1):
+            attempted = 0
+            for video_id in candidate_ids[:max_attempts]:
+                if len(prepared) >= limit:
+                    break
+                attempted += 1
                 worker_ref = getattr(self, "_local_tool_worker", None)
                 if worker_ref is not None:
                     worker_ref.progress.emit(
-                        f"{index}/{len(candidate_ids)} · {video_id}"
+                        f"готово {len(prepared)}/{limit} · "
+                        f"спроба {attempted}/{max_attempts} · {video_id}"
                     )
                 try:
                     prepared.append(
@@ -10393,10 +10398,12 @@ class MainWindow(QMainWindow):
             return {
                 "prepared": prepared,
                 "skipped": skipped,
+                "requested": limit,
+                "attempted": attempted,
             }
 
         self._run_local_tool(
-            f"SEO-чернетки x{len(candidate_ids)} (0 квоти)",
+            f"SEO-чернетки x{limit} (0 квоти)",
             task,
             self._save_local_seo_batch,
         )
@@ -10443,23 +10450,69 @@ class MainWindow(QMainWindow):
                     }
                 )
 
+        failures = skipped + validation_failed
+        for failure in failures:
+            video_id = str(failure.get("video_id") or "невідоме відео")
+            error_text = " ".join(
+                str(failure.get("error") or "невідома причина").split()
+            )
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="локально",
+                action="SEO-чернетка batch · пропуск",
+                details=f"{video_id}: {error_text[:700]}",
+            )
+
+        if saved:
+            if hasattr(self, "optimization_search"):
+                self.optimization_search.clear()
+            if hasattr(self, "optimization_filter"):
+                archive_index = self.optimization_filter.findData("archive")
+                if archive_index >= 0:
+                    self.optimization_filter.setCurrentIndex(archive_index)
+            if hasattr(self, "optimization_status_filter"):
+                draft_index = self.optimization_status_filter.findData("draft")
+                if draft_index >= 0:
+                    self.optimization_status_filter.setCurrentIndex(draft_index)
+
         self.reload_optimization_queue()
         self.reload_action_log()
         self._set_process_idle("Пакетні SEO-чернетки готові")
         self._toast(
             f"✓ SEO-чернетки: {saved} · пропущено "
-            f"{len(skipped) + len(validation_failed)} · API 0",
+            f"{len(failures)} · API 0",
             7000,
         )
+
+        reason_text = ""
+        if failures:
+            reason_lines = []
+            for failure in failures[:5]:
+                video_id = str(failure.get("video_id") or "невідоме відео")
+                error_text = " ".join(
+                    str(failure.get("error") or "невідома причина").split()
+                )
+                reason_lines.append(f"{video_id}: {error_text[:220]}")
+            reason_text = (
+                "\n\nПричини перших пропусків:\n"
+                + "\n".join(reason_lines)
+            )
+
         QMessageBox.information(
             self,
             "Пакет Local SEO",
             f"Створено чернеток: {saved}.\n"
-            f"Пропущено/заблоковано: "
-            f"{len(skipped) + len(validation_failed)}.\n\n"
+            f"Пропущено/заблоковано: {len(failures)}.\n"
+            f"Спроб виконано: {int(result.get('attempted') or len(prepared) + len(skipped))}.\n\n"
             "У YouTube нічого не відправлено. "
-            "Квота YouTube Data API: 0.\n"
-            "Перевіряйте їх через фільтр «Чернетки».",
+            "Квота YouTube Data API: 0."
+            + reason_text
+            + (
+                "\n\nФільтр «Чернетки» відкрито автоматично."
+                if saved
+                else "\n\nПовні причини записані у «Журнал»."
+            ),
         )
 
     def local_seo_selected(self) -> None:
