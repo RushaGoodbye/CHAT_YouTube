@@ -915,6 +915,20 @@ class MainWindow(QMainWindow):
         self.metric_attention = MetricCard("Потребує уваги")
         self.metric_comments = MetricCard("Коментарі в черзі")
 
+        self.metric_videos.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.metric_scheduled.clicked.connect(self.show_scheduled_center)
+        self.metric_attention.clicked.connect(
+            lambda: self._open_optimization_status("needs")
+        )
+        self.metric_comments.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        for clickable_card in (
+            self.metric_videos,
+            self.metric_scheduled,
+            self.metric_attention,
+            self.metric_comments,
+        ):
+            clickable_card.setCursor(Qt.CursorShape.PointingHandCursor)
+
         grid.addWidget(self.metric_videos, 0, 0)
         grid.addWidget(self.metric_scheduled, 0, 1)
         grid.addWidget(self.metric_attention, 0, 2)
@@ -2617,6 +2631,18 @@ class MainWindow(QMainWindow):
             self.archive_eta_card,
         )):
             grid.addWidget(card, idx // 3, idx % 3)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.archive_total_card.clicked.connect(self._open_archive_mode)
+        self.archive_done_card.clicked.connect(
+            lambda: self._open_optimization_status("applied")
+        )
+        self.archive_safe_card.clicked.connect(self._open_archive_mode)
+        self.archive_deep_card.clicked.connect(
+            lambda: self._open_optimization_status("needs")
+        )
+        self.archive_ready_card.clicked.connect(self._open_ready_work_queue)
+        self.archive_eta_card.clicked.connect(self.show_quota_planner)
         layout.addLayout(grid)
 
         progress_card = QFrame()
@@ -3385,6 +3411,18 @@ class MainWindow(QMainWindow):
             "1" if self.advanced_mode else "0",
         )
         self._apply_advanced_mode()
+
+    def _open_optimization_status(self, key: str) -> None:
+        self.tabs.setCurrentIndex(2)
+        if hasattr(self, "optimization_filter"):
+            queue_index = self.optimization_filter.findData("all")
+            if queue_index >= 0:
+                self.optimization_filter.setCurrentIndex(queue_index)
+        if hasattr(self, "optimization_status_filter"):
+            status_index = self.optimization_status_filter.findData(str(key))
+            if status_index >= 0:
+                self.optimization_status_filter.setCurrentIndex(status_index)
+        self.reload_optimization_queue()
 
     def _set_optimization_queue_filter(self, key: str) -> None:
         if not hasattr(self, "optimization_filter"):
@@ -12432,7 +12470,7 @@ class MainWindow(QMainWindow):
             "Квота YouTube Data API: 0."
             + reason_text
             + (
-                "\n\nФільтр «Чернетки» відкрито автоматично."
+                "\n\nРозділ «Потрібно перевірити» відкрито автоматично."
                 if saved
                 else "\n\nПовні причини записані у «Журнал»."
             ),
