@@ -3,5 +3,5 @@
   "contour": "auto_edit",
   "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "apply-final-resilience-guard-dedup-20261006-1230"
+  "nonce": "migrate-control-plane-to-nas-20261006-1"
 }
