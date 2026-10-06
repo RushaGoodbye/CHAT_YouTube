@@ -1,12 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_daily_autopilot",
+  "action": "youtube_local_install_boot_ready",
   "args": {
-    "nonce": "daily-autopilot-20261006-no-concurrency-1",
-    "rounds": 4,
-    "per_batch": 50,
-    "model": "qwen3:8b",
-    "allow_pull": true
+    "nonce": "install-boot-ready-20261006-v1"
   }
 }
