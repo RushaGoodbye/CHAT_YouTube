@@ -9178,6 +9178,16 @@ def inspect_auto_edit_chatgpt_browser_automation() -> dict:
         out[name]={"path":str(p),"functions":funcs,"classes":classes,"head":"\n".join(f"{i+1}: {rows[i]}" for i in range(min(180,len(rows))))}
     return out
 
+def inspect_auto_edit_one_button_boundary_gate() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_auto_edit_one_button.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    spans={}
+    for center in (300,320,334,350,360):
+        a=max(0,center-35);b=min(len(rows),center+45)
+        spans[str(center)]="\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))
+    return {"path":str(p),"spans":spans}
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9273,6 +9283,7 @@ ACTIONS = {
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
+    "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
     "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
     "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
     "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
