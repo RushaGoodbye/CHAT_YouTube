@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
+  "action": "inspect_auto_edit_update_worker",
   "args": {},
-  "nonce": "inspect-execution-pack25-20261006-2051"
+  "nonce": "inspect-update-worker-pack25-20261006-2052"
 }
