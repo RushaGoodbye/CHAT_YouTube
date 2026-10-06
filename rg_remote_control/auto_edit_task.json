@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_link_samples",
+  "action": "inspect_auto_edit_901_muted_xml_sample",
   "args": {},
-  "nonce": "verify-901-link-censor-final-20261006-14"
+  "nonce": "inspect-901-muted-sample-20261006-15"
 }
