@@ -64,6 +64,8 @@ def sync_videos(
             "privacy_status": status.get("privacyStatus"),
             "duration": content.get("duration"),
             "views": int(stats.get("viewCount") or 0),
+            "description": snippet.get("description", ""),
+            "tags": snippet.get("tags", []) or [],
             "audit": {"score": result.score, "issues": list(result.issues)},
         }
         upsert_video(conn, row)
