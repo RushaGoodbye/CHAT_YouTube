@@ -185,6 +185,35 @@ from .vidiq_budget import (
     set_manual_usage as set_vidiq_manual_usage,
 )
 
+def _duration_seconds(value: str | int | float | None) -> int:
+    """Parse numeric seconds or a YouTube ISO-8601 duration."""
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    if text.isdigit():
+        return max(0, int(text))
+    match = re.fullmatch(
+        r"P(?:(?P<days>\d+)D)?T"
+        r"(?:(?P<hours>\d+)H)?"
+        r"(?:(?P<minutes>\d+)M)?"
+        r"(?:(?P<seconds>\d+)S)?",
+        text,
+        flags=re.I,
+    )
+    if not match:
+        return 0
+    return (
+        int(match.group("days") or 0) * 86400
+        + int(match.group("hours") or 0) * 3600
+        + int(match.group("minutes") or 0) * 60
+        + int(match.group("seconds") or 0)
+    )
+
+
 def _is_quota_exceeded_error(exc: Exception) -> bool:
     text = str(exc).casefold()
     return "quotaexceeded" in text or "quota exceeded" in text
