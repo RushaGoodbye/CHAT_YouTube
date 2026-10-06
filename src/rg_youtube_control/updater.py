@@ -16,6 +16,8 @@ from .config import DEFAULT_NAS_UPDATES_PATH
 REPO = "RushaGoodbye/CHAT_YouTube"
 LATEST_MANIFEST_URL = f"https://github.com/{REPO}/releases/latest/download/latest.json"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+PAGES_BASE_URL = "https://rushagoodbye.github.io/CHAT_YouTube/updates"
+PAGES_MANIFEST_URL = f"{PAGES_BASE_URL}/latest.json"
 USER_AGENT = "RG-YouTube-Control-Updater"
 
 @dataclass(frozen=True)
@@ -108,6 +110,12 @@ def check_for_update() -> UpdateInfo | None:
     except Exception:
         # NAS is primary, but update checks must stay usable if the share is
         # temporarily unavailable. GitHub is only an emergency fallback.
+        pass
+
+    try:
+        manifest = _request_json(PAGES_MANIFEST_URL)
+        return _from_manifest(manifest)
+    except Exception:
         pass
 
     try:
