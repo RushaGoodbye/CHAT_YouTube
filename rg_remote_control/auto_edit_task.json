@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_startup_hotspots",
+  "action": "apply_auto_edit_ui_responsiveness_hotfix",
   "args": {},
-  "nonce": "inspect-startup-hotspots-freeze-020200-20261006-2355"
+  "nonce": "apply-ui-responsive-hotfix-020201-20261006-2358"
 }
