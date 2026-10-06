@@ -84,3 +84,19 @@ def test_local_seo_worker_uses_thread_local_sqlite_connection() -> None:
     block = source[start:end]
     assert "sqlite3.connect" in block
     assert "self.conn.execute" not in block
+
+
+def test_local_tool_failures_are_visible() -> None:
+    source = _ui_source()
+    start = source.index("    def _run_local_tool")
+    end = source.index("\n    def refresh_free_tools_status", start)
+    block = source[start:end]
+    assert "QMessageBox.critical" in block
+    assert "self.reload_action_log()" in block
+    assert 'QMessageBox.information(self, APP_NAME, message)' in block
+
+
+def test_local_seo_batch_lifecycle_is_logged() -> None:
+    source = _ui_source()
+    assert 'action="SEO-чернетка batch · старт"' in source
+    assert 'action="SEO-чернетка batch · результат"' in source
