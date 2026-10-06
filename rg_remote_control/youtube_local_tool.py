@@ -1260,6 +1260,7 @@ def validate_local_seo_rules() -> dict:
     """Smoke-test transcript-first SEO specificity without YouTube API."""
     from rg_youtube_control.free_tools import (
         _grounded_tags_from_transcript,
+        _polish_generated_description,
         _tag_is_grounded,
     )
     from rg_youtube_control.optimization import optimized_hashtags
@@ -1274,6 +1275,18 @@ def validate_local_seo_rules() -> dict:
         title,
         "Співрозмовники також згадують економіку Росії.",
     )
+    polished = _polish_generated_description(
+        "Шойгу обсуждают в связи с кадровыми изменениями. "
+        "Відбувається згадка про його попередню посаду. "
+        "Відбувається згадка про його попередню посаду. "
+        "Обговорюють корупцію та рішення керівництва."
+    )
+    broad_transcript = (
+        "Шойгу увольнение Министерство обороны коррупция. "
+        "Один раз упомянули Путин, война, экономика и другая работа."
+    )
+    broad_tags = _grounded_tags_from_transcript(title, broad_transcript)
+
     checks = {
         "has_shoigu": "Шойгу" in tags,
         "has_shoigu_dismissal": "увольнение Шойгу" in tags,
@@ -1282,6 +1295,11 @@ def validate_local_seo_rules() -> dict:
         "reject_plan": not _tag_is_grounded("план", title, transcript),
         "reject_strategy": not _tag_is_grounded("стратегия", title, transcript),
         "precise_hashtag": hashtags[-1] == "#шойгу",
+        "dedupe_description": polished.count("попередню посаду") == 1,
+        "reject_incidental_putin": "Путин" not in broad_tags,
+        "reject_incidental_war": "война России против Украины" not in broad_tags,
+        "reject_incidental_economy": "экономика России" not in broad_tags,
+        "reject_incidental_work": "работа в России" not in broad_tags,
     }
     return {
         "youtube_api_calls": 0,
@@ -1289,6 +1307,8 @@ def validate_local_seo_rules() -> dict:
         "checks": checks,
         "hashtags": list(hashtags),
         "tags": tags,
+        "broad_tags": broad_tags,
+        "polished": polished,
     }
 
 
