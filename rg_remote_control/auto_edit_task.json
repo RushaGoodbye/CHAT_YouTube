@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_identity_local_scan_cap_hotfix",
+  "action": "enable_auto_edit_mcp_bridge",
   "args": {},
-  "nonce": "apply-identity-local-scan-cap-20261006-7"
+  "nonce": "enable-auto-edit-mcp-bridge-20261006-1144"
 }
