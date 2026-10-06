@@ -81,7 +81,7 @@ try {
 
         $healthOk = $false
         try {
-            $health = Invoke-RestMethod -Uri "http://AlexLosServer:8788/healthz" -TimeoutSec 3
+            $health = Invoke-RestMethod -Uri "http://AlexLosServer:8791/healthz" -TimeoutSec 3
             $healthOk = [bool]$health.ok
         } catch {}
 
