@@ -3247,6 +3247,36 @@ def launch_auto_edit_studio() -> dict:
 
 
 
+
+def inspect_auto_edit_active_process_tree() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import subprocess
+    ps = r'''
+$procs = Get-CimInstance Win32_Process | Where-Object {
+  (($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and
+  (($_.CommandLine -like '*rg_production_wrapper.py*') -or
+   ($_.CommandLine -like '*rg_multi_dialogue.py*') -or
+   ($_.CommandLine -like '*rg_auto_edit_one_button.py*') -or
+   ($_.CommandLine -like '*rg_studio_main.py*') -or
+   ($_.CommandLine -like '*rg_studio_ui.py*'))
+}
+$procs | Select-Object ProcessId,ParentProcessId,CreationDate,Name,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress
+'''
+    p=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],timeout=30)
+    text=(p.get("stdout") or "").strip()
+    try:
+        parsed=json.loads(text) if text else []
+    except Exception:
+        parsed=text
+    lock=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\.rg_stream_locks\901.json")
+    lock_data=None
+    if lock.is_file():
+        try: lock_data=json.loads(lock.read_text(encoding="utf-8-sig",errors="replace"))
+        except Exception as exc: lock_data={"error":repr(exc),"raw":lock.read_text(encoding="utf-8",errors="replace")[-5000:]}
+    return {"processes":parsed,"lock_path":str(lock),"lock":lock_data}
+
+
 def restart_auto_edit_studio_ui() -> dict:
     if os.name != "nt":
         raise RuntimeError("restart_auto_edit_studio_ui must run on AlexPC/Windows")
@@ -9617,6 +9647,7 @@ ACTIONS = {
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "restart_auto_edit_studio_ui": restart_auto_edit_studio_ui,
+    "inspect_auto_edit_active_process_tree": inspect_auto_edit_active_process_tree,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
