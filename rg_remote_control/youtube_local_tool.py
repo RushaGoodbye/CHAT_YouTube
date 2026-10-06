@@ -543,6 +543,9 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
     from statistics import median
 
     args = task.get("args") or {}
+    profile = str(args.get("profile") or "live").strip().lower()
+    if profile not in {"main", "live"}:
+        raise RuntimeError(f"Unsupported archive profile: {profile}")
     requested = max(1, min(int(args.get("max_items") or 20), 50))
 
     conn = connect(_db_path())
@@ -550,7 +553,7 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
         budget = quota_budget_status(conn)
         if bool(budget["exhausted"]):
             return {
-                "profile": "live",
+                "profile": profile,
                 "scheduled_excluded": True,
                 "changed": 0,
                 "reason": "quota_exhausted",
@@ -563,9 +566,10 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
                FROM videos v
                LEFT JOIN video_analytics_cache a
                  ON a.video_id=v.video_id AND a.profile=v.profile
-               WHERE v.profile='live'
+               WHERE v.profile=?
                  AND v.privacy_status='public'
-                 AND v.scheduled_publish_at IS NULL"""
+                 AND v.scheduled_publish_at IS NULL""",
+            (profile,),
         ).fetchall()
 
         ctr_values = [
@@ -604,7 +608,7 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
         candidate_ids = candidate_ids[:allowed]
         if not candidate_ids:
             return {
-                "profile": "live",
+                "profile": profile,
                 "scheduled_excluded": True,
                 "changed": 0,
                 "safe_candidates": len(ranked),
@@ -613,7 +617,7 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
             }
 
         backup_path = _backup_database(conn)
-        client = YouTubeClient(profile="live")
+        client = YouTubeClient(profile=profile)
         client.credentials()
         before_units = today_quota_units(conn)
 
@@ -670,7 +674,7 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
                     conn,
                     history_id=history_id,
                     video_id=video_id,
-                    profile="live",
+                    profile=profile,
                     reason="safe_optimization",
                     changed_fields="посилання + хештеги",
                 )
@@ -689,9 +693,9 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
         after = quota_budget_status(conn)
         log_action(
             conn,
-            profile="live",
+            profile=profile,
             category="архів",
-            action="Безпечний LIVE-пакет",
+            action=f"Безпечний {profile.upper()}-пакет",
             details=(
                 f"опубліковані тільки; заплановані виключено; "
                 f"оновлено {len(changed)}; пропущено {len(skipped)}; "
@@ -699,7 +703,7 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
             ),
         )
         return {
-            "profile": "live",
+            "profile": profile,
             "scheduled_excluded": True,
             "requested": requested,
             "safe_candidates": len(ranked),
