@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_install_nas_first",
   "args": {
-    "nonce": "nas-first-migration-20261006-v1"
+    "nonce": "nas-first-migration-20261006-v2"
   }
 }
