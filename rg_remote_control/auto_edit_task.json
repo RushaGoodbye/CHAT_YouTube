@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_visual_targets",
+  "action": "build_auto_edit_pack25_stability_ux_update",
   "args": {},
-  "nonce": "inspect-visual-pack25-20261006-2054"
+  "nonce": "build-ux25-20261006-2058"
 }
