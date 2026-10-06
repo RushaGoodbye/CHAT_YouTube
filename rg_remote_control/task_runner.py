@@ -616,21 +616,32 @@ def sync_nas_scheduler_tick() -> dict:
         )
     if b'sh "$ROOT/RG_NAS_COMMAND_BUS.sh"' not in payload:
         raise RuntimeError("Scheduler does not contain shell-based command bus launch")
+    if b'RG_AUTODEPLOY_OWNER=scheduler "$AUTODEPLOY"' not in payload:
+        raise RuntimeError("Scheduler does not contain direct host autodeploy launch")
 
-    target = Path(r"\\AlexLosServer\docker\RG_NAS_SCHEDULER_TICK.sh")
+    if os.name == "nt":
+        target = Path(r"\\AlexLosServer\docker\RG_NAS_SCHEDULER_TICK.sh")
+        state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+        transport = "smb"
+    else:
+        target = Path("/volume1/docker/RG_NAS_SCHEDULER_TICK.sh")
+        state = Path("/volume1/docker/RG_NAS_STATE")
+        transport = "local"
+
     if not target.is_file():
         raise RuntimeError(f"Live scheduler missing: {target}")
 
-    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
     state.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    backup = state / f"RG_NAS_SCHEDULER_TICK.before_mcp_{stamp}.sh"
+    backup = state / f"RG_NAS_SCHEDULER_TICK.before_direct_host_{stamp}.sh"
     shutil.copy2(target, backup)
 
-    with target.open("wb") as handle:
+    tmp = target.with_name(target.name + ".new")
+    with tmp.open("wb") as handle:
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
+    os.replace(tmp, target)
 
     written = target.read_bytes()
     written_blob = hashlib.sha1(
@@ -641,12 +652,19 @@ def sync_nas_scheduler_tick() -> dict:
             handle.write(backup.read_bytes())
         raise RuntimeError("Scheduler verification failed; backup restored")
 
+    try:
+        target.chmod(target.stat().st_mode | 0o111)
+    except Exception:
+        pass
+
     return {
         "updated": True,
         "git_blob": written_blob,
         "bytes": len(written),
         "backup": str(backup),
-        "launch_mode": "sh",
+        "launch_mode": "host-direct",
+        "transport": transport,
+        "target": str(target),
     }
 
 
