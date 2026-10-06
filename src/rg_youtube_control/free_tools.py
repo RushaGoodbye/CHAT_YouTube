@@ -165,9 +165,140 @@ def fetch_public_metadata(video: str) -> dict[str, Any]:
         "webpage_url": str(info.get("webpage_url") or _video_url(video)),
         "automatic_captions": sorted((info.get("automatic_captions") or {}).keys()),
         "subtitles": sorted((info.get("subtitles") or {}).keys()),
+        "_caption_tracks": {
+            "automatic": info.get("automatic_captions") or {},
+            "manual": info.get("subtitles") or {},
+        },
         "source": "yt-dlp",
         "youtube_data_api_quota": 0,
     }
+
+
+def _subtitle_timestamp_seconds(value: str) -> float:
+    text = str(value or "").strip().replace(",", ".")
+    parts = text.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Некоректний SRT-таймкод: {value}")
+    hours, minutes, seconds = parts
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def parse_srt_transcript(text: str) -> list[dict[str, Any]]:
+    """Parse a local SRT transcript into the same row shape as transcript API."""
+    blocks = re.split(r"\r?\n\s*\r?\n", str(text or "").strip())
+    rows: list[dict[str, Any]] = []
+    for block in blocks:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if lines and lines[0].isdigit():
+            lines = lines[1:]
+        if not lines or "-->" not in lines[0]:
+            continue
+        left, right = [part.strip() for part in lines[0].split("-->", 1)]
+        try:
+            start = _subtitle_timestamp_seconds(left)
+            end = _subtitle_timestamp_seconds(right.split()[0])
+        except Exception:
+            continue
+        caption = " ".join(lines[1:]).strip()
+        caption = re.sub(r"<[^>]+>", "", caption)
+        if not caption:
+            continue
+        rows.append(
+            {
+                "text": caption,
+                "start": start,
+                "duration": max(0.0, end - start),
+            }
+        )
+    return rows
+
+
+def load_srt_transcript(path: str | Path) -> list[dict[str, Any]]:
+    return parse_srt_transcript(
+        Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    )
+
+
+def fetch_transcript_from_public_metadata(
+    context: dict[str, Any],
+    languages: Iterable[str] = ("uk", "ru", "en"),
+    *,
+    timeout: float = 20.0,
+) -> list[dict[str, Any]]:
+    """Use caption URLs already discovered by yt-dlp; no YouTube Data API quota."""
+    tracks = dict(context.get("_caption_tracks") or {})
+    sources = [
+        dict(tracks.get("manual") or {}),
+        dict(tracks.get("automatic") or {}),
+    ]
+
+    language_order = [str(item).casefold() for item in languages]
+    for source in sources:
+        keys = list(source.keys())
+        ordered: list[str] = []
+        for wanted in language_order:
+            ordered.extend(
+                key for key in keys
+                if key.casefold() == wanted and key not in ordered
+            )
+            ordered.extend(
+                key for key in keys
+                if key.casefold().startswith(wanted + "-") and key not in ordered
+            )
+
+        for language in ordered:
+            formats = list(source.get(language) or [])
+            formats.sort(
+                key=lambda item: (
+                    0 if str(item.get("ext") or "").casefold() == "json3" else 1,
+                    0 if "json3" in str(item.get("url") or "").casefold() else 1,
+                )
+            )
+            for item in formats:
+                url = str(item.get("url") or "").strip()
+                ext = str(item.get("ext") or "").casefold()
+                if not url or ext != "json3":
+                    continue
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 Chrome/154 Safari/537.36"
+                        )
+                    },
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        payload = json.loads(
+                            response.read().decode("utf-8", errors="replace")
+                        )
+                except Exception:
+                    continue
+
+                rows: list[dict[str, Any]] = []
+                for event in payload.get("events") or []:
+                    segments = event.get("segs") or []
+                    text_value = "".join(
+                        str(segment.get("utf8") or "")
+                        for segment in segments
+                    )
+                    text_value = " ".join(text_value.replace("\n", " ").split())
+                    if not text_value:
+                        continue
+                    rows.append(
+                        {
+                            "text": text_value,
+                            "start": float(event.get("tStartMs") or 0) / 1000.0,
+                            "duration": float(event.get("dDurationMs") or 0) / 1000.0,
+                        }
+                    )
+                if rows:
+                    return rows
+
+    return []
 
 
 def fetch_transcript(
