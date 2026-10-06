@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import traceback
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -172,6 +173,143 @@ def process_request(path: Path, contour: str) -> dict:
     }
 
 
+
+def _processes_json(filter_script: str) -> str:
+    proc = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            filter_script,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=20,
+    )
+    return (proc.stdout or "").strip()
+
+
+def ensure_youtube_gui() -> dict:
+    target = Path.home() / "CHAT_YouTube-main"
+    run_app = target / "run_app.py"
+    pythonw = target / ".venv" / "Scripts" / "pythonw.exe"
+    if not run_app.is_file() or not pythonw.is_file():
+        return {
+            "ok": False,
+            "reason": "local_gui_runtime_missing",
+            "run_app": str(run_app),
+            "pythonw": str(pythonw),
+        }
+
+    probe_cmd = (
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
+        "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
+        "ConvertTo-Json -Compress"
+    )
+    before = _processes_json(probe_cmd)
+    started = False
+    if not before or before in {"null", "[]"}:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(target / "src")
+        env.pop("RUNNER_TRACKING_ID", None)
+        flags = 0
+        if os.name == "nt":
+            flags = (
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+        subprocess.Popen(
+            [str(pythonw), str(run_app)],
+            cwd=str(target),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+        started = True
+        time.sleep(3)
+    after = _processes_json(probe_cmd)
+    return {
+        "ok": bool(after and after not in {"null", "[]"}),
+        "started": started,
+        "processes": after,
+    }
+
+
+def ensure_ollama() -> dict:
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:11434/api/tags",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=2.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        models = [
+            str(item.get("name") or item.get("model") or "")
+            for item in payload.get("models", [])
+            if isinstance(item, dict)
+        ]
+        ready = any(x.startswith("qwen3:8b") for x in models)
+        return {"ok": True, "started": False, "qwen3_8b": ready}
+    except Exception:
+        pass
+
+    candidates = [
+        shutil.which("ollama"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "ollama.exe"),
+    ]
+    exe = next((x for x in candidates if x and Path(x).is_file()), None)
+    if not exe:
+        return {"ok": False, "reason": "ollama_executable_missing"}
+
+    flags = 0
+    if os.name == "nt":
+        flags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    subprocess.Popen(
+        [exe, "serve"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+        close_fds=True,
+    )
+    for _ in range(12):
+        time.sleep(1)
+        try:
+            req = urllib.request.Request(
+                "http://127.0.0.1:11434/api/tags",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=2.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            models = [
+                str(item.get("name") or item.get("model") or "")
+                for item in payload.get("models", [])
+                if isinstance(item, dict)
+            ]
+            return {
+                "ok": True,
+                "started": True,
+                "qwen3_8b": any(x.startswith("qwen3:8b") for x in models),
+            }
+        except Exception:
+            continue
+    return {"ok": False, "started": True, "reason": "ollama_start_timeout"}
+
+
 def ensure_dirs() -> None:
     LOCAL_ROOT.mkdir(parents=True, exist_ok=True)
     LOCAL_STATE.mkdir(parents=True, exist_ok=True)
@@ -183,7 +321,11 @@ def ensure_dirs() -> None:
         (NAS_ROOT / "status").mkdir(parents=True, exist_ok=True)
 
 
-def write_status(state: str, active: dict | None = None) -> None:
+def write_status(
+    state: str,
+    active: dict | None = None,
+    services: dict | None = None,
+) -> None:
     payload = {
         "schema": "RG_ALEXPC_AGENT_V1",
         "computer": os.environ.get("COMPUTERNAME", ""),
@@ -193,6 +335,7 @@ def write_status(state: str, active: dict | None = None) -> None:
         "updated_at": now_iso(),
         "poll_seconds": POLL_SECONDS,
         "github_required": False,
+        "services": services or {},
     }
     atomic_json(LOCAL_STATE / "agent_status.json", payload)
     try:
@@ -219,8 +362,14 @@ def run_loop() -> None:
     while True:
         try:
             ensure_dirs()
+            if time.time() - last_service_check >= 60:
+                services = {
+                    "youtube_gui": ensure_youtube_gui(),
+                    "ollama": ensure_ollama(),
+                }
+                last_service_check = time.time()
             if time.time() - last_heartbeat >= HEARTBEAT_SECONDS:
-                write_status("ready")
+                write_status("ready", services=services)
                 last_heartbeat = time.time()
 
             did_work = False
@@ -237,7 +386,7 @@ def run_loop() -> None:
                             continue
                         did_work = True
                         active = {"contour": contour, "request": claimed.name}
-                        write_status("busy", active)
+                        write_status("busy", active, services=services)
                         try:
                             result = process_request(claimed, contour)
                             atomic_json(results / claimed.name, result)
@@ -258,21 +407,21 @@ def run_loop() -> None:
                                 claimed.unlink()
                             except Exception:
                                 pass
-                            write_status("ready")
+                            write_status("ready", services=services)
                         break
                     if did_work:
                         break
             if not did_work:
                 time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
-            write_status("stopped")
+            write_status("stopped", services=services)
             return
         except Exception as exc:
             atomic_json(
                 LOCAL_STATE / "last_error.json",
                 {"at": now_iso(), "error": repr(exc), "traceback": traceback.format_exc()[-20000:]},
             )
-            write_status("degraded")
+            write_status("degraded", services=services)
             time.sleep(10)
 
 
