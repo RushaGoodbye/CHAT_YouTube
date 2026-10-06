@@ -1,13 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_update_supervisor.py",
-      "rg_studio_ui.py",
-      "rg_studio_main.py"
-    ]
-  },
-  "nonce": "inspect-supervisor-ui-main-20261006-2319"
+  "action": "inspect_auto_edit_update_format",
+  "args": {},
+  "nonce": "inspect-master60-installer-selection-20261006-2320"
 }
