@@ -11399,6 +11399,109 @@ def _apply_events_to_clean_xml(xml_path, mapped_events, *, mute_db=DEFAULT_MUTE_
     }
 
 
+
+def inspect_auto_edit_901_all_final_qa() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import hashlib, xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    delivery=app/"901"
+    rows=[]
+
+    def iv(c):
+        try:return int(float(c.findtext("start") or "0")),int(float(c.findtext("end") or "0"))
+        except:return None
+
+    for i in range(1,7):
+        p=delivery/f"RG_EDITED_901_{i}.xml"
+        row={"dialogue":i,"path":str(p),"exists":p.is_file()}
+        if not p.is_file():
+            rows.append(row); continue
+        root=ET.parse(p).getroot(); seq=root.find(".//sequence")
+        vtracks=seq.findall("./media/video/track")
+        atracks=seq.findall("./media/audio/track")
+        vclips=vtracks[0].findall("./clipitem") if vtracks else []
+        a1=atracks[0].findall("./clipitem") if len(atracks)>0 else []
+        a2=atracks[1].findall("./clipitem") if len(atracks)>1 else []
+        base=[c for c in vclips if str(c.get("id") or "").startswith("video-clip-")]
+
+        nonbase=[{
+          "id":c.get("id"),"name":c.findtext("name"),"start":c.findtext("start"),"end":c.findtext("end"),
+          "enabled":c.findtext("enabled")
+        } for c in vclips if c not in base]
+
+        v_intervals=[iv(c) for c in vclips if iv(c)]
+        a1_intervals=[iv(c) for c in a1 if iv(c)]
+        a2_intervals=[iv(c) for c in a2 if iv(c)]
+
+        def merge(xs):
+            xs=sorted([x for x in xs if x and x[1]>x[0]])
+            out=[]
+            for a,b in xs:
+                if not out or a>out[-1][1]:out.append([a,b])
+                else:out[-1][1]=max(out[-1][1],b)
+            return out
+
+        def subtract(base,cover):
+            cover=merge(cover); out=[]
+            for a,b in merge(base):
+                cur=a
+                for c,d in cover:
+                    if d<=cur:continue
+                    if c>=b:break
+                    if c>cur:out.append((cur,min(c,b)))
+                    cur=max(cur,d)
+                    if cur>=b:break
+                if cur<b:out.append((cur,b))
+            return [(a,b) for a,b in out if b>a]
+
+        keyframes=0; keyed=0; gain96=0; disabled=0; bad_kf=[]
+        for c in a1+a2:
+            if (c.findtext("enabled") or "TRUE").strip().upper()=="FALSE": disabled+=1
+            dur=max(0,(iv(c) or (0,0))[1]-(iv(c) or (0,0))[0])
+            ck=0
+            for eff in c.findall("./filter/effect"):
+                eid=(eff.findtext("effectid") or "").strip().casefold()
+                for par in eff.findall("./parameter"):
+                    key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                    if "gain(db)" in key:
+                        try:
+                            if float(par.findtext("value") or "0")<=-90:gain96+=1
+                        except:pass
+                    if eid=="audiolevels" and (par.findtext("parameterid") or "").strip().casefold()=="level":
+                        ks=par.findall("./keyframe"); ck+=len(ks)
+                        for k in ks:
+                            try:w=int(float(k.findtext("when") or "0"))
+                            except:w=-999999
+                            if w<0 or w>dur:
+                                bad_kf.append({"clip":c.get("id"),"when":w,"duration":dur})
+            if ck:keyed+=1; keyframes+=ck
+
+        v_audio_links=0
+        unlinked_video=[]
+        for c in base:
+            links=c.findall("./link")
+            if any((lk.findtext("mediatype") or "").lower()=="audio" for lk in links):
+                v_audio_links+=1
+            else:
+                unlinked_video.append({"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end")})
+
+        row.update({
+          "sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+          "v1_total":len(vclips),"v1_base":len(base),"v1_nonbase":len(nonbase),"nonbase":nonbase[:20],
+          "a1_count":len(a1),"a2_count":len(a2),
+          "v1_base_with_audio_links":v_audio_links,
+          "unlinked_base_video_count":len(unlinked_video),"unlinked_base_video":unlinked_video[:20],
+          "a1_gap_count_vs_all_v1":len(subtract(v_intervals,a1_intervals)),
+          "a2_gap_count_vs_all_v1":len(subtract(v_intervals,a2_intervals)),
+          "a1_gaps":subtract(v_intervals,a1_intervals)[:30],
+          "a2_gaps":subtract(v_intervals,a2_intervals)[:30],
+          "gain96_count":gain96,"disabled_audio_clips":disabled,
+          "keyframe_count":keyframes,"keyed_audio_clips":keyed,"bad_keyframes":bad_kf[:20],
+        })
+        rows.append(row)
+    return {"dialogues":rows}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11548,6 +11651,7 @@ ACTIONS = {
     "inspect_auto_edit_profanity_module_full": inspect_auto_edit_profanity_module_full,
     "inspect_auto_edit_901_uncensored_bases": inspect_auto_edit_901_uncensored_bases,
     "apply_auto_edit_keyframe_censor_v2": apply_auto_edit_keyframe_censor_v2,
+    "inspect_auto_edit_901_all_final_qa": inspect_auto_edit_901_all_final_qa,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
