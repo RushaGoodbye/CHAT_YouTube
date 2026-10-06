@@ -103,8 +103,14 @@ docker inspect rg-mcp-auto-edit >/dev/null 2>&1 && AUTO="$(docker inspect -f '{{
 docker inspect rg-mcp-youtube >/dev/null 2>&1 && YT="$(docker inspect -f '{{.State.Status}}' rg-mcp-youtube 2>/dev/null || printf unknown)"
 docker inspect rg-mcp-telegram >/dev/null 2>&1 && TG="$(docker inspect -f '{{.State.Status}}' rg-mcp-telegram 2>/dev/null || printf unknown)"
 
+AGENT_STATUS_FILE="$ROOT/RG_NAS_MCP/ALEXPC/status/alexpc_agent.json"
+AGENT="missing"
+if [ -s "$AGENT_STATUS_FILE" ]; then
+  AGENT="present"
+fi
+
 OVERALL="ok"
-if [ "$HUB" != "running" ] || [ "$AUTO" != "running" ] || [ "$YT" != "running" ] || [ "$TG" != "running" ] || [ "$REPAIR_RESULT" = "error" ]; then
+if [ "$HUB" != "running" ] || [ "$AUTO" != "running" ] || [ "$YT" != "running" ] || [ "$TG" != "running" ] || [ "$REPAIR_RESULT" = "error" ] || [ "$AGENT" != "present" ]; then
   OVERALL="degraded"
 fi
 
@@ -118,7 +124,10 @@ cat > "$STATUS.tmp" <<EOF
   "youtube": "$YT",
   "telegram": "$TG",
   "repair": "$REPAIR_RESULT",
-  "github_fallback": "enabled",
+  "primary_transport": "RG_NAS_MCP_ALEXPC_AGENT",
+  "alexpc_agent": "$AGENT",
+  "github_required_at_runtime": false,
+  "github_fallback": "manual_only",
   "credentials": "isolated"
 }
 EOF
