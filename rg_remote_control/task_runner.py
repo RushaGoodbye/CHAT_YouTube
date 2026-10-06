@@ -3768,7 +3768,7 @@ def inspect_auto_edit_multi_resume_span() -> dict:
     p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_multi_dialogue.py")
     rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
     spans={}
-    for a,b in ((540,680),(680,840),(840,930)):
+    for a,b in ((430,540),(540,680),(680,840),(840,930)):
         spans[f"{a}-{b}"]="\n".join(f"{i+1}: {rows[i]}" for i in range(max(0,a-1),min(len(rows),b)))
     return {"path":str(p),"size":p.stat().st_size,"spans":spans}
 
