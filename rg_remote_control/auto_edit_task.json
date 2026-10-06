@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_ui_freeze_runtime",
+  "action": "inspect_auto_edit_updater_state",
   "args": {},
-  "nonce": "verify-ui-responsive-hotfix-020201-20261007-0000"
+  "nonce": "verify-physical-version-020201-20261007-0001"
 }
