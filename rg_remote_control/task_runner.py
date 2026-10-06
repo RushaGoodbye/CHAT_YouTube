@@ -11612,6 +11612,192 @@ def apply_auto_edit_all_v1_linkage_fix() -> dict:
             "compile":True,"results":results,"hash_pairs":hash_pairs}
 
 
+
+def apply_auto_edit_audio_integrity_guard() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import datetime, importlib.util, json, py_compile, shutil, sys
+    import xml.etree.ElementTree as ET
+    from collections import Counter
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    helper=app/"rg_premiere_av_linkage.py"
+    pipeline=app/"rg_auto_edit_one_button.py"
+    for p in (helper,pipeline):
+        if not p.is_file(): raise FileNotFoundError(p)
+    if str(app) not in sys.path: sys.path.insert(0,str(app))
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=app/"release_backups"/f"audio_integrity_guard_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(helper,backup/helper.name)
+    shutil.copy2(pipeline,backup/pipeline.name)
+
+    hcode=helper.read_text(encoding="utf-8",errors="replace")
+    if "def audit_xml_av_integrity(" not in hcode:
+        hcode += r'''
+
+def audit_xml_av_integrity(xml_path, *, require_links=True, fail=True):
+    """Final Premiere delivery guard for RG dialogue audio."""
+    from collections import Counter
+    xml_path=Path(xml_path)
+    tree=ET.parse(xml_path)
+    seq=tree.getroot().find(".//sequence")
+    if seq is None:
+        raise RuntimeError("AUDIO INTEGRITY: no sequence")
+    vtracks=seq.findall("./media/video/track")
+    atracks=seq.findall("./media/audio/track")
+    if not vtracks or len(atracks)<2:
+        raise RuntimeError("AUDIO INTEGRITY: requires V1 + A1/A2")
+
+    v1=vtracks[0].findall("./clipitem")
+    a1=atracks[0].findall("./clipitem")
+    a2=atracks[1].findall("./clipitem")
+
+    def iv(c):
+        try:
+            s=int(float(c.findtext("start") or "0"))
+            e=int(float(c.findtext("end") or "0"))
+            return (s,e) if e>s else None
+        except Exception:
+            return None
+
+    vint=[iv(c) for c in v1 if iv(c)]
+    a1int=[iv(c) for c in a1 if iv(c)]
+    a2int=[iv(c) for c in a2 if iv(c)]
+
+    failures=[]
+    if Counter(vint)!=Counter(a1int):
+        failures.append("V1_A1_INTERVAL_SET_MISMATCH")
+    if Counter(vint)!=Counter(a2int):
+        failures.append("V1_A2_INTERVAL_SET_MISMATCH")
+    if len(v1)!=len(a1) or len(v1)!=len(a2):
+        failures.append(f"CLIP_COUNT_MISMATCH V1={len(v1)} A1={len(a1)} A2={len(a2)}")
+
+    unlinked_v=[]
+    unlinked_a=[]
+    if require_links:
+        for c in v1:
+            meds=[(lk.findtext("mediatype") or "").lower() for lk in c.findall("./link")]
+            tracks=[(lk.findtext("trackindex") or "") for lk in c.findall("./link") if (lk.findtext("mediatype") or "").lower()=="audio"]
+            if "1" not in tracks or "2" not in tracks:
+                unlinked_v.append(c.get("id"))
+        for c in a1+a2:
+            if not any((lk.findtext("mediatype") or "").lower()=="video" for lk in c.findall("./link")):
+                unlinked_a.append(c.get("id"))
+        if unlinked_v:
+            failures.append(f"UNLINKED_V1={len(unlinked_v)}")
+        if unlinked_a:
+            failures.append(f"UNLINKED_AUDIO={len(unlinked_a)}")
+
+    disabled=0
+    gain96=0
+    keyframes=0
+    bad_keyframes=[]
+    zero_keyframes=0
+    for c in a1+a2:
+        if (c.findtext("enabled") or "TRUE").strip().upper()=="FALSE":
+            disabled+=1
+        x=iv(c); dur=(x[1]-x[0]) if x else 0
+        for eff in c.findall("./filter/effect"):
+            eid=(eff.findtext("effectid") or "").strip().casefold()
+            for par in eff.findall("./parameter"):
+                key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                if "gain(db)" in key:
+                    try:
+                        if float(par.findtext("value") or "0")<=-90: gain96+=1
+                    except Exception:
+                        pass
+                if eid=="audiolevels" and (par.findtext("parameterid") or "").strip().casefold()=="level":
+                    for k in par.findall("./keyframe"):
+                        keyframes+=1
+                        try:
+                            w=int(float(k.findtext("when") or "0"))
+                            val=float(k.findtext("value") or "0")
+                        except Exception:
+                            bad_keyframes.append({"clip":c.get("id"),"reason":"PARSE"})
+                            continue
+                        if abs(val)<1e-12:
+                            zero_keyframes+=1
+                        if w<0 or w>dur:
+                            bad_keyframes.append({"clip":c.get("id"),"when":w,"duration":dur})
+    if disabled:
+        failures.append(f"DISABLED_AUDIO={disabled}")
+    if gain96:
+        failures.append(f"LEGACY_MINUS96_GAIN={gain96}")
+    if bad_keyframes:
+        failures.append(f"BAD_AUDIO_KEYFRAMES={len(bad_keyframes)}")
+
+    report={
+      "version":"RG_AUDIO_INTEGRITY_GUARD_V1",
+      "xml":str(xml_path),
+      "passed":not failures,
+      "failures":failures,
+      "v1_count":len(v1),"a1_count":len(a1),"a2_count":len(a2),
+      "unlinked_v1_count":len(unlinked_v),"unlinked_audio_count":len(unlinked_a),
+      "disabled_audio_count":disabled,"legacy_minus96_gain_count":gain96,
+      "audio_keyframe_count":keyframes,"zero_audio_keyframe_count":zero_keyframes,
+      "bad_keyframe_count":len(bad_keyframes),
+      "unlinked_v1_sample":unlinked_v[:10],"unlinked_audio_sample":unlinked_a[:10],
+      "bad_keyframe_sample":bad_keyframes[:10],
+    }
+    if failures and fail:
+        raise RuntimeError("AUDIO INTEGRITY QA FAILED: "+", ".join(failures))
+    return report
+'''
+
+    pcode=pipeline.read_text(encoding="utf-8",errors="replace")
+    marker="RG_AUDIO_INTEGRITY_GUARD_V1"
+    if marker not in pcode:
+        needle="    emit(99.72,'AV_LINKAGE',f\"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}\")"
+        if needle not in pcode:
+            raise RuntimeError("AV linkage emit anchor not found")
+        insert=needle+'''
+    # RG_AUDIO_INTEGRITY_GUARD_V1: fail closed before delivery if Premiere
+    # A/V structure or censorship automation is inconsistent.
+    from rg_premiere_av_linkage import audit_xml_av_integrity as _audit_xml_av_integrity
+    _audio_integrity=_audit_xml_av_integrity(out,require_links=True,fail=True)
+    if bool(censor_audio_report.get('applied')) and int(censor_audio_report.get('event_count',0) or 0)>0:
+        if int(_audio_integrity.get('zero_audio_keyframe_count',0) or 0)<=0:
+            raise RuntimeError('AUDIO INTEGRITY QA FAILED: censor events exist but zero mute keyframes found')
+    emit(99.725,'AUDIO_INTEGRITY',
+         f"PASS V1={_audio_integrity.get('v1_count',0)} A1={_audio_integrity.get('a1_count',0)} keyframes={_audio_integrity.get('audio_keyframe_count',0)}")
+'''
+        pcode=pcode.replace(needle,insert,1)
+
+    compile(hcode,str(helper),"exec")
+    compile(pcode,str(pipeline),"exec")
+    helper.write_text(hcode,encoding="utf-8")
+    pipeline.write_text(pcode,encoding="utf-8")
+    py_compile.compile(str(helper),doraise=True)
+    py_compile.compile(str(pipeline),doraise=True)
+
+    spec=importlib.util.spec_from_file_location("rg_premiere_av_linkage_guard",helper)
+    mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+
+    qa=[]
+    for i in range(1,7):
+        p=app/"901"/f"RG_EDITED_901_{i}.xml"
+        if not p.is_file(): continue
+        rep=mod.audit_xml_av_integrity(p,require_links=True,fail=False)
+        side=app/"901"/f"RG_EDITED_901_{i}_CENSOR_AUDIO.json"
+        censor_events=0
+        if side.is_file():
+            try:
+                d=json.loads(side.read_text(encoding="utf-8-sig",errors="replace"))
+                censor_events=int(d.get("event_count",0) or 0) if d.get("applied") else 0
+            except Exception:
+                pass
+        rep["dialogue"]=i
+        rep["censor_events"]=censor_events
+        rep["censor_keyframe_guard_pass"]=(censor_events==0 or rep.get("zero_audio_keyframe_count",0)>0)
+        if not rep["passed"] or not rep["censor_keyframe_guard_pass"]:
+            raise RuntimeError(f"901_{i}: audio integrity guard failed: {rep}")
+        qa.append(rep)
+
+    return {"backup":str(backup),"helper_compile":True,"pipeline_compile":True,
+            "guard_version":"RG_AUDIO_INTEGRITY_GUARD_V1","qa":qa}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11764,6 +11950,7 @@ ACTIONS = {
     "inspect_auto_edit_901_all_final_qa": inspect_auto_edit_901_all_final_qa,
     "inspect_auto_edit_901_2_ripple_links": inspect_auto_edit_901_2_ripple_links,
     "apply_auto_edit_all_v1_linkage_fix": apply_auto_edit_all_v1_linkage_fix,
+    "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
