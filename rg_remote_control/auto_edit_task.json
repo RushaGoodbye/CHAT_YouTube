@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_worker",
+  "action": "inspect_auto_edit_run_log",
   "args": {},
-  "nonce": "inspect-update-worker-20261006-2035"
+  "nonce": "inspect-run-log-886-20261006-2042"
 }
