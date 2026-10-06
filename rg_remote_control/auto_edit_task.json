@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "bootstrap_youtube_runtime",
+  "action": "finalize_control_settings",
   "args": {},
-  "nonce": "nas-bootstrap-youtube-runtime-20261006-2"
+  "nonce": "finalize-control-settings-clean-20261006-2"
 }
