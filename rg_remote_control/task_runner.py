@@ -12009,6 +12009,53 @@ def inspect_auto_edit_update_install_state() -> dict:
 
 
 
+def inspect_auto_edit_updater_state() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import zipfile
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    def read_json(p):
+        try:return json.loads(Path(p).read_text(encoding="utf-8-sig",errors="replace"))
+        except Exception as exc:return {"missing":not Path(p).is_file(),"error":repr(exc),"path":str(p)}
+    out={
+        "version_file": (app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")[:1200] if (app/"rg_studio_version.py").is_file() else None,
+        "supervisor_state":read_json(data/"update_supervisor_state.json"),
+        "boot_ok":read_json(data/"boot_ok.json"),
+        "pending_boot_validation":read_json(data/"pending_boot_validation.json"),
+        "release_state":read_json(data/"release_state.json"),
+        "transactions":[],
+        "packages":[]
+    }
+    tx=data/"update_transactions"
+    if tx.is_dir():
+        rows=sorted([p for p in tx.iterdir() if p.is_dir()],key=lambda p:p.stat().st_mtime,reverse=True)[:5]
+        for p in rows:
+            row={"name":p.name,"mtime":p.stat().st_mtime,"snapshot":(p/"PRE_APP").is_dir()}
+            for n in ("installer.log","snapshot.json"):
+                q=p/n
+                if q.is_file():
+                    row[n]=q.read_text(encoding="utf-8",errors="replace")[-12000:]
+            out["transactions"].append(row)
+    for root in (Path.home()/"Downloads",data/"PACKAGES",Path(r"\\AlexLosServer\RG_AUTO_EDIT\UPDATES")):
+        try:
+            if not root.is_dir():continue
+            for p in sorted(root.glob("RG_AUTO_EDIT_STUDIO_UPDATE_0.20.20.0_MASTER60*.zip"),key=lambda x:x.stat().st_mtime,reverse=True)[:5]:
+                row={"path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime}
+                try:
+                    with zipfile.ZipFile(p) as z:
+                        mans=[n for n in z.namelist() if n.endswith("RG_UPDATE_MANIFEST.json")]
+                        if mans:
+                            m=json.loads(z.read(mans[0]).decode("utf-8"))
+                            row["manifest"]={k:m.get(k) for k in ("studio_version","channel","installer","update_contract","summary")}
+                        row["installers"]=[n for n in z.namelist() if Path(n).name.upper().startswith(("INSTALL_","APPLY_"))][:20]
+                except Exception as exc:row["zip_error"]=repr(exc)
+                out["packages"].append(row)
+        except Exception as exc:
+            out.setdefault("root_errors",[]).append({"root":str(root),"error":repr(exc)})
+    return out
+
+
 def apply_auto_edit_service_process_stream_fix() -> dict:
     if os.name!="nt":
         raise RuntimeError("Windows only")
@@ -12944,6 +12991,7 @@ ACTIONS = {
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
+    "inspect_auto_edit_updater_state": inspect_auto_edit_updater_state,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
