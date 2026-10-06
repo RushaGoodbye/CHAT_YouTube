@@ -45,13 +45,13 @@ QLabel#ChannelState {
     color: #d7d7d7;
 }
 QFrame#MetricCard {
-    background: #181818;
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
+    background: #151515;
+    border: 0;
+    border-radius: 10px;
 }
 QLabel#MetricValue {
     color: #ffffff;
-    font-size: 19pt;
+    font-size: 18pt;
     font-weight: 700;
 }
 QLabel#MetricTitle {
@@ -251,14 +251,14 @@ QMessageBox {
 /* 0.4 dashboard / process visualization */
 QFrame#ProcessStrip, QFrame#HealthStrip, QFrame#ContextCard,
 QFrame#QueueCard, QFrame#ArchiveCard, QFrame#ActivityCard {
-    background: #181818;
-    border: 1px solid #2b2b2b;
-    border-radius: 12px;
+    background: #161616;
+    border: 1px solid #242424;
+    border-radius: 10px;
 }
 QFrame#NextActionCard {
-    background: #181818;
-    border: 2px solid #ff0033;
-    border-radius: 14px;
+    background: #171717;
+    border: 1px solid #ff0033;
+    border-radius: 12px;
 }
 QFrame#NextActionCard QPushButton[role="primary"] {
     font-size: 11pt;
@@ -376,3 +376,23 @@ QLabel#DeltaWarn {
 }
 
 """
+/* 0.6 guided workspace polish */
+QFrame#ContextCard {
+    background: #131313;
+    border-top: 1px solid #242424;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 0;
+}
+QLabel#MetricTitle {
+    letter-spacing: 0.2px;
+}
+QPushButton[role="success"] {
+    font-weight: 600;
+}
+QPushButton:disabled {
+    background: #1b1b1b;
+    border-color: #282828;
+    color: #666666;
+}
