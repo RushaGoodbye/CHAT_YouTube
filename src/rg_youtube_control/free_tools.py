@@ -1999,23 +1999,20 @@ def _comment_reply_safe_novelty_ok(comment: str, reply: str) -> bool:
     return True
 
 
-def generate_comment_reply_local(
+def generate_comment_reply_candidate_local(
     *,
     comment_text: str,
     video_title: str = "",
     video_context: str = "",
     model: str = DEFAULT_OLLAMA_MODEL,
-) -> str:
+) -> dict[str, str]:
     source = " ".join(str(comment_text or "").split()).strip()
     if not source:
-        return ""
+        return {"state": "skipped", "reply": "", "reason": "empty_comment"}
 
-    # Extremely short, emoji-only or fragmentary comments are poor candidates
-    # for free-form generation. Leave them for manual review instead of
-    # manufacturing meaning.
     words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", source)
     if len(source) < 4 or (len(words) == 0 and len(source) < 24):
-        return ""
+        return {"state": "skipped", "reply": "", "reason": "too_fragmentary"}
 
     prompt = f"""
 Підготуй ОДНУ коротку чернетку відповіді на ОПУБЛІКОВАНИЙ YouTube-коментар
@@ -2030,7 +2027,7 @@ def generate_comment_reply_local(
 Поверни ТІЛЬКИ JSON:
 {{"action":"reply","reply":"...","reason":"relevant"}}
 або
-{{"action":"skip","reply":"","reason":"..."}}
+{{"action":"skip","reply":"","reason":"коротка причина"}}
 
 Правила для reply:
 - 1-2 короткі речення;
@@ -2042,8 +2039,6 @@ def generate_comment_reply_local(
 - не сперечайся від імені каналу і не повчай;
 - не пиши канцелярські фрази на кшталт «ми прагнемо», «давайте зберігати повагу»,
   «кожен має право», якщо це не відповідає конкретному тексту;
-- не пиши «підготував, як просили», «відео створене з любов'ю» та подібні
-  універсальні фрази;
 - якщо це подяка - коротко подякуй;
 - якщо це питання і відповіді немає у наданому контексті - SKIP;
 - мова відповіді: українська, якщо коментар не просить інше;
@@ -2059,31 +2054,48 @@ def generate_comment_reply_local(
 {source}
 """.strip()
 
-    raw = ollama_chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Ти обережний редактор коментарів. Краще SKIP, ніж "
-                    "нерелевантна або вигадана відповідь."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        model=model,
-        temperature=0.05,
-        json_mode=True,
-    )
-    payload = _extract_json_object(raw)
+    try:
+        raw = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ти обережний редактор коментарів. Краще SKIP, ніж "
+                        "нерелевантна або вигадана відповідь."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            model=model,
+            temperature=0.05,
+            json_mode=True,
+        )
+        payload = _extract_json_object(raw)
+    except Exception as exc:
+        return {
+            "state": "error",
+            "reply": "",
+            "reason": f"ollama_error:{str(exc)[:160]}",
+        }
+
     action = str(payload.get("action") or "").strip().casefold()
+    reason = str(payload.get("reason") or "").strip()[:240]
     reply = " ".join(str(payload.get("reply") or "").split()).strip()
 
     if action != "reply" or not reply:
-        return ""
+        return {
+            "state": "skipped",
+            "reply": "",
+            "reason": reason or "model_skip",
+        }
     if len(reply) > 420:
-        return ""
+        return {"state": "skipped", "reply": "", "reason": "reply_too_long"}
     if not _comment_reply_safe_novelty_ok(source, reply):
-        return ""
+        return {
+            "state": "skipped",
+            "reply": "",
+            "reason": "unsafe_new_topic_or_number",
+        }
 
     banned = (
         "відео створене з любов",
@@ -2097,9 +2109,29 @@ def generate_comment_reply_local(
     )
     folded = reply.casefold()
     if any(item in folded for item in banned):
-        return ""
+        return {
+            "state": "skipped",
+            "reply": "",
+            "reason": "generic_or_hallucinated_phrase",
+        }
 
-    return reply
+    return {"state": "ready", "reply": reply, "reason": reason or "relevant"}
+
+
+def generate_comment_reply_local(
+    *,
+    comment_text: str,
+    video_title: str = "",
+    video_context: str = "",
+    model: str = DEFAULT_OLLAMA_MODEL,
+) -> str:
+    candidate = generate_comment_reply_candidate_local(
+        comment_text=comment_text,
+        video_title=video_title,
+        video_context=video_context,
+        model=model,
+    )
+    return str(candidate.get("reply") or "") if candidate.get("state") == "ready" else ""
 
 def parse_google_trends_csv_text(text: str) -> list[dict[str, Any]]:
     """Parse a downloaded Google Trends CSV without network/API calls."""
