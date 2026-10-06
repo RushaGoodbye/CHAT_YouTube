@@ -13006,7 +13006,7 @@ def finalize_auto_edit_020201_stable() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import hashlib,zipfile,re,time
     app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App");data=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data")
-    nas_root=Path(r"\\\\AlexLosServer\\RG_AUTO_EDIT\\BACKUPS");version="0.20.20.1"
+    nas_root=Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS");version="0.20.20.1"
     sp=data/"stabilization_020201.json"
     state=json.loads(sp.read_text(encoding="utf-8-sig"))
     required=("886_PRODUCTION_SMOKE","PREVIEW_SMOKE","UPDATER_SMOKE")
