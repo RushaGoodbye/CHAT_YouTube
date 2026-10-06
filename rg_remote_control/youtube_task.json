@@ -1,10 +1,10 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_apply_live_archive_safe_batch",
+  "action": "youtube_local_repair_ollama",
   "args": {
-    "nonce": "daily-main-safe-20261006-1",
-    "profile": "main",
-    "max_items": 50
+    "nonce": "repair-ollama-20261006",
+    "model": "qwen3:8b",
+    "allow_pull": true
   }
 }
