@@ -32,7 +32,7 @@ jobs:
           action=str(task.get("action") or "")
           if target not in {"alexpc","nas"}:
               raise SystemExit("invalid target")
-          if action not in {"health","deploy_remote_mcp","remote_mcp_status"}:
+          if action not in {"health","deploy_remote_mcp","remote_mcp_status","sync_nas_scheduler_tick"}:
               raise SystemExit("invalid action")
           print(f"target={target}")
           print(f"action={action}")
