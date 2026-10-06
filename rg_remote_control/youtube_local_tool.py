@@ -721,6 +721,102 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
         conn.close()
 
 
+
+def repair_ollama(task: dict) -> dict:
+    """Ensure the local Ollama server is running and qwen3:8b is available."""
+    import os
+    import shutil
+    import subprocess
+    import time
+    from pathlib import Path
+
+    from rg_youtube_control.free_tools import (
+        DEFAULT_OLLAMA_MODEL,
+        probe_free_tools,
+    )
+
+    args = task.get("args") or {}
+    model = str(args.get("model") or DEFAULT_OLLAMA_MODEL)
+    allow_pull = bool(args.get("allow_pull", True))
+
+    before = probe_free_tools(ollama_model=model, timeout=2.0)
+    if bool(before.get("ollama_model", {}).get("available")):
+        return {
+            "changed": False,
+            "server_started": False,
+            "model_pulled": False,
+            "before": before,
+            "after": before,
+        }
+
+    candidates = [
+        shutil.which("ollama"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "ollama.exe"),
+    ]
+    exe = next((item for item in candidates if item and Path(item).is_file()), None)
+    if not exe:
+        return {
+            "changed": False,
+            "server_started": False,
+            "model_pulled": False,
+            "error": "ollama.exe not found",
+            "before": before,
+        }
+
+    server_started = False
+    if not bool(before.get("ollama", {}).get("available")):
+        flags = 0
+        if os.name == "nt":
+            flags = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
+            )
+        subprocess.Popen(
+            [exe, "serve"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+        server_started = True
+        for _ in range(20):
+            time.sleep(0.75)
+            probe = probe_free_tools(ollama_model=model, timeout=2.0)
+            if bool(probe.get("ollama", {}).get("available")):
+                break
+
+    mid = probe_free_tools(ollama_model=model, timeout=2.0)
+    model_pulled = False
+    pull_output = ""
+    if (
+        bool(mid.get("ollama", {}).get("available"))
+        and not bool(mid.get("ollama_model", {}).get("available"))
+        and allow_pull
+    ):
+        completed = subprocess.run(
+            [exe, "pull", model],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=1800,
+        )
+        pull_output = ((completed.stdout or "") + "\n" + (completed.stderr or ""))[-2000:]
+        model_pulled = completed.returncode == 0
+
+    after = probe_free_tools(ollama_model=model, timeout=3.0)
+    return {
+        "changed": server_started or model_pulled,
+        "server_started": server_started,
+        "model_pulled": model_pulled,
+        "executable": exe,
+        "before": before,
+        "after": after,
+        "pull_output": pull_output,
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -2915,6 +3011,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_repair_ollama":
+        result = repair_ollama(task)
     elif action == "youtube_local_apply_live_archive_safe_batch":
         result = apply_live_archive_safe_batch(task)
     elif action == "youtube_local_live_archive_audit":
