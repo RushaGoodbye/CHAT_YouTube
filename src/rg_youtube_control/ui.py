@@ -3282,6 +3282,10 @@ class MainWindow(QMainWindow):
             self.advanced_mode_box.blockSignals(True)
             self.advanced_mode_box.setChecked(advanced)
             self.advanced_mode_box.blockSignals(False)
+        if hasattr(self, "settings_sections"):
+            for index in range(self.settings_sections.count()):
+                if self.settings_sections.tabText(index).startswith("Сховища / API"):
+                    self.settings_sections.setTabVisible(index, advanced)
         self.reload_optimization_queue()
 
     def save_advanced_mode_setting(self, state: int) -> None:
@@ -5774,6 +5778,35 @@ class MainWindow(QMainWindow):
         storage_layout.addStretch()
         self.settings_sections.addTab(storage_page, "Сховища / API")
 
+        # Діагностика
+        diagnostics_page, diagnostics_layout = settings_scroll_page()
+        diagnostics_card = settings_card(
+            diagnostics_layout,
+            "Стан локальних компонентів",
+            "Технічні деталі винесені сюди, щоб не заважати щоденній роботі.",
+        )
+        self.diagnostics_text = QLabel("Дані ще не оновлено.")
+        self.diagnostics_text.setWordWrap(True)
+        self.diagnostics_text.setObjectName("QuotaSummary")
+        diagnostics_card.addWidget(self.diagnostics_text)
+
+        diagnostics_buttons = QHBoxLayout()
+        refresh_diagnostics_btn = QPushButton("Оновити діагностику")
+        refresh_diagnostics_btn.clicked.connect(
+            self.refresh_diagnostics_panel
+        )
+        storage_test_btn = QPushButton("Перевірити NAS")
+        storage_test_btn.clicked.connect(self.test_nas_transcript_path)
+        open_diag_log_btn = QPushButton("Відкрити журнал діагностики")
+        open_diag_log_btn.clicked.connect(self._open_diagnostics_log)
+        diagnostics_buttons.addWidget(refresh_diagnostics_btn)
+        diagnostics_buttons.addWidget(storage_test_btn)
+        diagnostics_buttons.addWidget(open_diag_log_btn)
+        diagnostics_buttons.addStretch()
+        diagnostics_card.addLayout(diagnostics_buttons)
+        diagnostics_layout.addStretch()
+        self.settings_sections.addTab(diagnostics_page, "Діагностика")
+
         # Система
         system_page, system_layout = settings_scroll_page()
 
@@ -5821,6 +5854,59 @@ class MainWindow(QMainWindow):
         self.settings_sections.addTab(system_page, "Система")
 
         self.tabs.addTab(page, "Налаштування")
+
+    def _open_diagnostics_log(self) -> None:
+        self.tabs.setCurrentIndex(6)
+        self.reload_action_log()
+        if hasattr(self, "log_sections"):
+            self.log_sections.setCurrentIndex(1)
+
+    def refresh_diagnostics_panel(self) -> None:
+        try:
+            probes = probe_free_tools()
+            self._free_tools_last_probe = probes
+        except Exception as exc:
+            probes = {}
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="діагностика",
+                action="Помилка діагностики",
+                details=str(exc),
+            )
+
+        budget = quota_budget_status(self.conn)
+        try:
+            nas_path = self._nas_path(
+                "nas_transcripts_path",
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
+            nas_state = "OK" if nas_path.parent.exists() else "недоступний"
+        except Exception as exc:
+            nas_path = Path(DEFAULT_NAS_TRANSCRIPTS_PATH)
+            nas_state = f"помилка: {exc}"
+
+        yt = probes.get("yt_dlp", {}) if isinstance(probes, dict) else {}
+        tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
+        ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
+        model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
+        lines = [
+            f"NAS: {nas_state}",
+            f"Шлях транскриптів: {nas_path}",
+            f"yt-dlp: {'OK' if yt.get('available') else '—'}",
+            f"Transcript: {'OK' if tr.get('available') else '—'}",
+            f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
+            (
+                "YouTube API: "
+                f"залишилось {int(budget['remaining']):,}; "
+                f"резерв {int(budget['reserve']):,}; "
+                f"доступно {int(budget['spendable']):,}"
+            ),
+        ]
+        if hasattr(self, "diagnostics_text"):
+            self.diagnostics_text.setText("\n".join(lines))
+        self.reload_action_log()
 
     def check_local_database(self) -> None:
         try:
