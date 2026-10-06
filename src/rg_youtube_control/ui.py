@@ -2402,6 +2402,10 @@ class MainWindow(QMainWindow):
         local_seo_btn = QPushButton("Локальний SEO · 0 квоти")
         local_seo_btn.setProperty("role", "success")
         local_seo_btn.clicked.connect(self.local_seo_selected)
+        local_seo_batch_btn = QPushButton("SEO-чернетки x10 · 0 квоти")
+        local_seo_batch_btn.clicked.connect(
+            lambda: self.local_seo_batch(limit=10)
+        )
         apply_package_btn = QPushButton("Застосувати пакет")
         apply_package_btn.setProperty("role", "primary")
         apply_package_btn.clicked.connect(self.apply_content_package)
@@ -2478,6 +2482,7 @@ class MainWindow(QMainWindow):
         for button in (
             scheduled_center_btn,
             local_seo_btn,
+            local_seo_batch_btn,
             apply_package_btn,
             package_btn,
             rollback_btn,
@@ -10148,118 +10153,97 @@ class MainWindow(QMainWindow):
             self._set_health_state("transcript", False, "Transcript")
 
 
-    def local_seo_selected(self) -> None:
-        video_ids = self._selected_optimization_video_ids()
-        if len(video_ids) != 1:
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "Для локального SEO виберіть рівно одне відео.",
-            )
-            return
-        video_id = video_ids[0]
-
+    def _generate_local_seo_result(self, video_id: str) -> dict:
         state = self.conn.execute(
-            """SELECT scheduled_publish_at,privacy_status,title
+            """SELECT scheduled_publish_at,privacy_status,title,duration
                FROM videos
                WHERE video_id=? AND profile=?""",
             (video_id, self.current_profile),
         ).fetchone()
         if state is not None and str(state["scheduled_publish_at"] or "").strip():
-            QMessageBox.information(
-                self,
-                "Запланований стрім",
-                "Для запланованих і майбутніх стрімів локальний SEO з архівної "
-                "черги заблоковано. Використовуйте окремий центр "
-                "«Заплановані стріми».",
-            )
-            self.statusBar().showMessage(
-                "Локальний SEO: пропущено запланований стрім"
-            )
-            return
-
-        def task():
-            try:
-                context = fetch_public_metadata(video_id)
-            except Exception as exc:
-                text = str(exc)
-                live_tokens = (
-                    "live event will begin",
-                    "premieres in",
-                    "upcoming live",
-                    "is live",
-                )
-                if any(token in text.casefold() for token in live_tokens):
-                    raise RuntimeError(
-                        "Відео визначено як майбутній/живий стрім. "
-                        "Архівний локальний SEO для нього заблоковано."
-                    ) from exc
-                raise
-            current_title = str(context.get("title") or "")
-            raw_description = str(context.get("description") or "")
-            cleaned_description = safe_description_fix(
-                raw_description,
-                current_title,
-            ).after
-            needs_transcript = safe_description_needs_content_package(
-                cleaned_description,
-                current_title,
+            raise RuntimeError(
+                "Відео визначено як запланований/майбутній стрім. "
+                "Архівний локальний SEO для нього заблоковано."
             )
 
-            trends_path = self.data_dir / "google_trends_latest.json"
-            if trends_path.exists():
-                try:
-                    context["google_trends"] = load_google_trends_summary(
-                        trends_path,
-                        max_terms=12,
-                    )
-                except Exception:
-                    context["google_trends"] = []
-            try:
-                transcript_rows = fetch_transcript(video_id)
-                transcript = transcript_sample_text(
-                    transcript_rows,
-                    max_chars=12000,
-                    segments=6,
-                )
-            except Exception:
-                transcript_rows = []
-                transcript = ""
-
-            if needs_transcript and not transcript.strip():
+        try:
+            context = fetch_public_metadata(video_id)
+        except Exception as exc:
+            text = str(exc)
+            live_tokens = (
+                "live event will begin",
+                "premieres in",
+                "upcoming live",
+                "is live",
+            )
+            if any(token in text.casefold() for token in live_tokens):
                 raise RuntimeError(
-                    "Для цього відео після очищення старого опису немає "
-                    "достатнього змістовного тексту, а транскрипт недоступний. "
-                    "SEO-пакет не створено, щоб не вигадувати зміст."
-                )
+                    "Відео визначено як майбутній/живий стрім. "
+                    "Архівний локальний SEO для нього заблоковано."
+                ) from exc
+            raise
 
-            context_for_model = dict(context)
-            context_for_model["description"] = cleaned_description
-            package = generate_seo_package_local(
-                current_title=current_title,
-                current_description=cleaned_description,
-                current_tags=list(context.get("tags") or []),
-                transcript=transcript,
-                public_context=context_for_model,
-                is_short=int(context.get("duration") or 0) <= 70,
-            )
-            return {
-                "video_id": video_id,
-                "context": context,
-                "transcript_rows": transcript_rows,
-                "package": package,
-            }
-
-        self._run_local_tool(
-            "Локальна SEO-оптимізація (0 квоти)",
-            task,
-            self._save_local_seo_result,
+        current_title = str(context.get("title") or "")
+        raw_description = str(context.get("description") or "")
+        cleaned_description = safe_description_fix(
+            raw_description,
+            current_title,
+        ).after
+        needs_transcript = safe_description_needs_content_package(
+            cleaned_description,
+            current_title,
         )
 
-    def _save_local_seo_result(self, result: dict) -> None:
+        trends_path = self.data_dir / "google_trends_latest.json"
+        if trends_path.exists():
+            try:
+                context["google_trends"] = load_google_trends_summary(
+                    trends_path,
+                    max_terms=12,
+                )
+            except Exception:
+                context["google_trends"] = []
+
+        try:
+            transcript_rows = fetch_transcript(video_id)
+            transcript = transcript_sample_text(
+                transcript_rows,
+                max_chars=12000,
+                segments=6,
+            )
+        except Exception:
+            transcript_rows = []
+            transcript = ""
+
+        if needs_transcript and not transcript.strip():
+            raise RuntimeError(
+                "Після очищення старого опису недостатньо змісту, "
+                "а транскрипт недоступний. SEO-пакет не створено."
+            )
+
+        context_for_model = dict(context)
+        context_for_model["description"] = cleaned_description
+        package = generate_seo_package_local(
+            current_title=current_title,
+            current_description=cleaned_description,
+            current_tags=list(context.get("tags") or []),
+            transcript=transcript,
+            public_context=context_for_model,
+            is_short=int(context.get("duration") or 0) <= 70,
+        )
+        return {
+            "video_id": video_id,
+            "context": context,
+            "transcript_rows": transcript_rows,
+            "package": package,
+        }
+
+    def _normalize_local_seo_package(
+        self,
+        result: dict,
+    ) -> tuple[str, str, str, list[str], str, list[str]]:
         video_id = str(result["video_id"])
         package = dict(result["package"])
-        context = dict(result["context"])
 
         title = str(package.get("title") or "").strip()
         description = str(package.get("description") or "").strip()
@@ -10287,11 +10271,13 @@ class MainWindow(QMainWindow):
             if str(item).strip()
         ]
         variants = list(dict.fromkeys(variants))
-        variants = [item for item in variants if item.casefold() != title.casefold()]
+        variants = [
+            item for item in variants
+            if item.casefold() != title.casefold()
+        ]
         if len(variants) < 3:
             raise RuntimeError(
-                "Локальна модель не створила 3 різні A/B варіанти назви. "
-                "Пакет не збережено."
+                "Локальна модель не створила 3 різні A/B варіанти назви."
             )
         variants = variants[:3]
 
@@ -10304,6 +10290,180 @@ class MainWindow(QMainWindow):
         )
         if not check.ready:
             raise RuntimeError("\n".join(check.errors))
+
+        return (
+            video_id,
+            title,
+            description,
+            tags,
+            chapters,
+            variants,
+        )
+
+    def local_seo_batch(self, limit: int = 10) -> None:
+        limit = max(1, min(int(limit), 20))
+        rows = self.conn.execute(
+            """SELECT v.video_id,v.audit_json,v.duration,v.views
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=?
+                 AND v.scheduled_publish_at IS NULL
+                 AND COALESCE(v.privacy_status,'public')='public'
+                 AND d.video_id IS NULL
+               ORDER BY v.views DESC, v.video_id
+               LIMIT 250""",
+            (self.current_profile,),
+        ).fetchall()
+
+        candidate_ids: list[str] = []
+        for row in rows:
+            try:
+                audit_payload = json.loads(row["audit_json"] or "{}")
+            except Exception:
+                audit_payload = {}
+            score = int(audit_payload.get("score") or 0)
+            duration = str(row["duration"] or "")
+            duration_seconds = _duration_seconds(duration)
+            if score >= 100:
+                continue
+            if duration_seconds and duration_seconds <= 70:
+                continue
+            candidate_ids.append(str(row["video_id"]))
+            if len(candidate_ids) >= limit:
+                break
+
+        if not candidate_ids:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Немає звичайних опублікованих відео без SEO-чернетки "
+                "для пакетної 0-quota підготовки.",
+            )
+            return
+
+        def task():
+            prepared: list[dict] = []
+            skipped: list[dict] = []
+            for index, video_id in enumerate(candidate_ids, start=1):
+                worker_ref = getattr(self, "_local_tool_worker", None)
+                if worker_ref is not None:
+                    worker_ref.progress.emit(
+                        f"{index}/{len(candidate_ids)} · {video_id}"
+                    )
+                try:
+                    prepared.append(
+                        self._generate_local_seo_result(video_id)
+                    )
+                except Exception as exc:
+                    skipped.append(
+                        {
+                            "video_id": video_id,
+                            "error": str(exc),
+                        }
+                    )
+            return {
+                "prepared": prepared,
+                "skipped": skipped,
+            }
+
+        self._run_local_tool(
+            f"SEO-чернетки x{len(candidate_ids)} (0 квоти)",
+            task,
+            self._save_local_seo_batch,
+        )
+
+    def _save_local_seo_batch(self, result: dict) -> None:
+        prepared = list(result.get("prepared") or [])
+        skipped = list(result.get("skipped") or [])
+        saved = 0
+        validation_failed: list[dict] = []
+
+        for item in prepared:
+            try:
+                (
+                    video_id,
+                    title,
+                    description,
+                    tags,
+                    chapters,
+                    variants,
+                ) = self._normalize_local_seo_package(item)
+                save_optimization_draft(
+                    self.conn,
+                    video_id,
+                    title,
+                    description,
+                    chapters,
+                    tags,
+                    "draft",
+                    variants,
+                )
+                saved += 1
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="локально",
+                    action="SEO-чернетка batch · 0 квоти",
+                    details=f"{video_id}: збережено як чернетку",
+                )
+            except Exception as exc:
+                validation_failed.append(
+                    {
+                        "video_id": str(item.get("video_id") or ""),
+                        "error": str(exc),
+                    }
+                )
+
+        self.reload_optimization_queue()
+        self.reload_action_log()
+        self._set_process_idle("Пакетні SEO-чернетки готові")
+        self._toast(
+            f"✓ SEO-чернетки: {saved} · пропущено "
+            f"{len(skipped) + len(validation_failed)} · API 0",
+            7000,
+        )
+        QMessageBox.information(
+            self,
+            "Пакет Local SEO",
+            f"Створено чернеток: {saved}.\n"
+            f"Пропущено/заблоковано: "
+            f"{len(skipped) + len(validation_failed)}.\n\n"
+            "У YouTube нічого не відправлено. "
+            "Квота YouTube Data API: 0.\n"
+            "Перевіряйте їх через фільтр «Чернетки».",
+        )
+
+    def local_seo_selected(self) -> None:
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Для локального SEO виберіть рівно одне відео.",
+            )
+            return
+        video_id = video_ids[0]
+
+        def task():
+            return self._generate_local_seo_result(video_id)
+
+        self._run_local_tool(
+            "Локальна SEO-оптимізація (0 квоти)",
+            task,
+            self._save_local_seo_result,
+        )
+
+    def _save_local_seo_result(self, result: dict) -> None:
+        package = dict(result["package"])
+        context = dict(result["context"])
+        (
+            video_id,
+            title,
+            description,
+            tags,
+            chapters,
+            variants,
+        ) = self._normalize_local_seo_package(result)
 
         before_title = str(context.get("title") or "")
         before_description = str(context.get("description") or "")
