@@ -1,14 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_ui.py",
-      "rg_master60.py",
-      "rg_production40.py",
-      "rg_stability_ux25.py"
-    ]
-  },
-  "nonce": "inspect-freeze-functions-master60-020200-20261006-2353"
+  "action": "inspect_auto_edit_startup_hotspots",
+  "args": {},
+  "nonce": "inspect-startup-hotspots-freeze-020200-20261006-2355"
 }
