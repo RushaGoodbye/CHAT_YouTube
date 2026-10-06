@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_uncensored_bases",
+  "action": "apply_auto_edit_keyframe_censor_v2",
   "args": {},
-  "nonce": "inspect-901-uncensored-bases-20261006-20"
+  "nonce": "apply-keyframe-censor-v2-20261006-21"
 }
