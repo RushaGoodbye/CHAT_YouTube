@@ -3,7 +3,7 @@
   "contour": "youtube",
   "action": "youtube_local_daily_autopilot",
   "args": {
-    "nonce": "daily-autopilot-20261006-selfhosted-only-1",
+    "nonce": "daily-autopilot-20261006-no-concurrency-1",
     "rounds": 4,
     "per_batch": 50,
     "model": "qwen3:8b",
