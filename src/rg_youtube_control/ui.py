@@ -72,6 +72,8 @@ from .config import (
 from .db import (
     annotate_optimization_draft,
     commit_video_analytics,
+    comment_draft_counts,
+    clear_comment_drafts,
     connect,
     database_integrity_cleanup,
     deep_review_counts,
@@ -83,6 +85,7 @@ from .db import (
     latest_metadata_snapshot,
     optimization_events,
     record_optimization_event,
+    save_comment_draft,
     save_metadata_snapshot,
     save_optimization_draft,
     set_comment_status,
@@ -113,6 +116,7 @@ from .free_tools import (
     fetch_transcript,
     fetch_transcript_from_public_metadata,
     load_srt_transcript,
+    generate_comment_reply_candidate_local,
     generate_comment_reply_local,
     generate_seo_package_local,
     load_google_trends_csv,
@@ -3981,31 +3985,62 @@ class MainWindow(QMainWindow):
     def _build_comments_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
-        controls = QHBoxLayout()
 
-        scan_btn = QPushButton("Перевірити коментарі")
+        actions = QGridLayout()
+        scan_btn = QPushButton("Оновити коментарі")
         scan_btn.clicked.connect(lambda: self.scan_comment_queue(silent=False))
-        test_auto_btn = QPushButton("Тест: 1 автовідповідь")
-        test_auto_btn.clicked.connect(self.test_one_auto_reply)
-        reply_btn = QPushButton("Відповісти на вибраний")
-        reply_btn.clicked.connect(self.reply_selected)
-        local_reply_btn = QPushButton("Локальна чернетка · 0 квоти")
-        local_reply_btn.setProperty("role", "success")
-        local_reply_btn.clicked.connect(self.local_comment_reply_selected)
-        local_reply_batch_btn = QPushButton("Чернетки нових x20 · 0 квоти")
+
+        local_reply_batch_btn = QPushButton("Створити x20 · 0 квоти")
+        local_reply_batch_btn.setProperty("role", "success")
         local_reply_batch_btn.clicked.connect(self.local_comment_reply_batch)
+
         local_reply_regen_btn = QPushButton("Перегенерувати x20 · 0 квоти")
         local_reply_regen_btn.clicked.connect(self.local_comment_reply_regenerate_batch)
+
+        clear_drafts_btn = QPushButton("Очистити чернетки")
+        clear_drafts_btn.clicked.connect(self.clear_local_comment_drafts)
+
+        reply_btn = QPushButton("Відповісти на вибраний")
+        reply_btn.setProperty("role", "primary")
+        reply_btn.clicked.connect(self.reply_selected)
+
+        local_reply_btn = QPushButton("Чернетка для вибраного · 0 квоти")
+        local_reply_btn.clicked.connect(self.local_comment_reply_selected)
+
+        next_draft_btn = QPushButton("Наступна готова")
+        next_draft_btn.clicked.connect(self.select_next_ready_comment_draft)
+
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
+
         queue_btn = QPushButton("Повернути в чергу")
         queue_btn.clicked.connect(lambda: self.set_selected_comment_status("new"))
 
+        test_auto_btn = QPushButton("Тест: 1 автовідповідь")
+        test_auto_btn.clicked.connect(self.test_one_auto_reply)
+
+        action_buttons = [
+            scan_btn,
+            local_reply_batch_btn,
+            local_reply_regen_btn,
+            clear_drafts_btn,
+            reply_btn,
+            local_reply_btn,
+            next_draft_btn,
+            ignore_btn,
+            queue_btn,
+            test_auto_btn,
+        ]
+        for index, button in enumerate(action_buttons):
+            actions.addWidget(button, index // 5, index % 5)
+
+        filters = QHBoxLayout()
         self.comment_status_filter = QComboBox()
         self.comment_status_filter.addItem("Усі статуси", "")
         self.comment_status_filter.addItem("Нові", "new")
         self.comment_status_filter.addItem("З відповіддю", "replied")
         self.comment_status_filter.addItem("Проігноровані", "ignored")
+        self.comment_status_filter.addItem("На модерації YouTube", "moderation_locked")
         self.comment_status_filter.currentIndexChanged.connect(self.reload_comments)
 
         self.comment_category_filter = QComboBox()
@@ -4017,33 +4052,45 @@ class MainWindow(QMainWindow):
         self.comment_category_filter.addItem("Розклад", "schedule")
         self.comment_category_filter.currentIndexChanged.connect(self.reload_comments)
 
-        self.auto_quota_label = QLabel()
+        self.comment_draft_filter = QComboBox()
+        self.comment_draft_filter.addItem("Усі чернетки", "")
+        self.comment_draft_filter.addItem("Готові", "ready")
+        self.comment_draft_filter.addItem("Пропущені quality-gate", "skipped")
+        self.comment_draft_filter.addItem("Помилки генерації", "error")
+        self.comment_draft_filter.addItem("Без чернетки", "none")
+        self.comment_draft_filter.currentIndexChanged.connect(self.reload_comments)
+
         self.comment_draft_count_label = QLabel("Чернетки: 0")
+        self.comment_draft_count_label.setProperty("role", "success")
+        self.comment_skip_count_label = QLabel("SKIP: 0")
+        self.comment_moderation_count_label = QLabel("Модерація: 0")
+        self.auto_quota_label = QLabel()
 
-        controls.addWidget(scan_btn)
-        controls.addWidget(test_auto_btn)
-        controls.addWidget(reply_btn)
-        controls.addWidget(local_reply_btn)
-        controls.addWidget(local_reply_batch_btn)
-        controls.addWidget(local_reply_regen_btn)
-        controls.addWidget(ignore_btn)
-        controls.addWidget(queue_btn)
-        controls.addWidget(self.comment_status_filter)
-        controls.addWidget(self.comment_category_filter)
-        controls.addStretch()
-        controls.addWidget(self.comment_draft_count_label)
-        controls.addWidget(self.auto_quota_label)
+        filters.addWidget(QLabel("Статус:"))
+        filters.addWidget(self.comment_status_filter)
+        filters.addWidget(QLabel("Категорія:"))
+        filters.addWidget(self.comment_category_filter)
+        filters.addWidget(QLabel("Чернетка:"))
+        filters.addWidget(self.comment_draft_filter)
+        filters.addStretch()
+        filters.addWidget(self.comment_draft_count_label)
+        filters.addWidget(self.comment_skip_count_label)
+        filters.addWidget(self.comment_moderation_count_label)
+        filters.addWidget(self.auto_quota_label)
 
-        self.comment_table = QTableWidget(0, 7)
+        self.comment_table = QTableWidget(0, 8)
         self.comment_table.setHorizontalHeaderLabels(
-            ["Дата", "Відео", "Автор", "Коментар", "Категорія", "Статус", "Чернетка"]
+            [
+                "Дата", "Відео", "Автор", "Коментар", "Категорія",
+                "Статус", "Стан чернетки", "Чернетка",
+            ]
         )
         comments_header = self.comment_table.horizontalHeader()
         comments_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         comments_header.setStretchLastSection(True)
         comments_header.setMinimumSectionSize(72)
         for column, width in {
-            0: 105, 1: 180, 2: 150, 3: 300, 4: 120, 5: 100, 6: 520,
+            0: 105, 1: 190, 2: 150, 3: 350, 4: 120, 5: 120, 6: 140, 7: 520,
         }.items():
             self.comment_table.setColumnWidth(column, width)
         self.comment_table.setHorizontalScrollMode(
@@ -4054,15 +4101,27 @@ class MainWindow(QMainWindow):
             self._update_comment_draft_preview
         )
 
+        preview_title = QLabel("Перевірка чернетки")
+        preview_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.comment_draft_reason_label = QLabel(
+            "Виберіть коментар - тут буде стан і причина quality-gate."
+        )
+        self.comment_draft_reason_label.setWordWrap(True)
+        self.comment_draft_reason_label.setProperty("muted", True)
+
         self.comment_draft_preview = QPlainTextEdit()
         self.comment_draft_preview.setReadOnly(True)
-        self.comment_draft_preview.setMaximumHeight(120)
+        self.comment_draft_preview.setMinimumHeight(90)
+        self.comment_draft_preview.setMaximumHeight(150)
         self.comment_draft_preview.setPlaceholderText(
-            "Виберіть коментар - тут буде повний текст локальної чернетки."
+            "Повний текст локальної чернетки з SQLite."
         )
 
-        layout.addLayout(controls)
+        layout.addLayout(actions)
+        layout.addLayout(filters)
         layout.addWidget(self.comment_table, 1)
+        layout.addWidget(preview_title)
+        layout.addWidget(self.comment_draft_reason_label)
         layout.addWidget(self.comment_draft_preview)
         self.tabs.addTab(page, "Коментарі")
 
@@ -12899,6 +12958,9 @@ class MainWindow(QMainWindow):
         row = self.comment_table.currentRow()
         if row < 0:
             self.comment_draft_preview.clear()
+            self.comment_draft_reason_label.setText(
+                "Виберіть коментар - тут буде стан і причина quality-gate."
+            )
             return
         key_item = self.comment_table.item(row, 0)
         comment_id = (
@@ -12909,11 +12971,75 @@ class MainWindow(QMainWindow):
             self.comment_draft_preview.clear()
             return
         db_row = self.conn.execute(
-            "SELECT reply_text FROM comments WHERE comment_id=?",
+            """SELECT reply_text,draft_state,draft_reason,status
+               FROM comments WHERE comment_id=?""",
             (str(comment_id),),
         ).fetchone()
-        text = str(db_row["reply_text"] or "") if db_row is not None else ""
+        if db_row is None:
+            self.comment_draft_preview.clear()
+            return
+        text = str(db_row["reply_text"] or "")
+        state = str(db_row["draft_state"] or "")
+        reason = str(db_row["draft_reason"] or "")
+        status = str(db_row["status"] or "")
         self.comment_draft_preview.setPlainText(text)
+        state_label = {
+            "ready": "ГОТОВО",
+            "skipped": "SKIP",
+            "error": "ПОМИЛКА",
+            "": "НЕМАЄ",
+        }.get(state, state.upper())
+        self.comment_draft_reason_label.setText(
+            f"Стан: {state_label} · статус коментаря: {status}"
+            + (f" · причина: {reason}" if reason else "")
+        )
+
+    def select_next_ready_comment_draft(self) -> None:
+        rows = self.comment_table.rowCount()
+        if rows <= 0:
+            return
+        start = max(-1, self.comment_table.currentRow())
+        for offset in range(1, rows + 1):
+            row = (start + offset) % rows
+            state_item = self.comment_table.item(row, 6)
+            if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") == "ready":
+                self.comment_table.selectRow(row)
+                self.comment_table.scrollToItem(state_item)
+                return
+        self._toast("У поточному фільтрі немає готових чернеток")
+
+    def clear_local_comment_drafts(self) -> None:
+        stats = comment_draft_counts(self.conn, self.current_profile)
+        affected = stats["ready"] + stats["skipped"] + stats["errors"]
+        if affected <= 0:
+            self._toast("Локальних чернеток немає")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Очистити локальні чернетки",
+            f"Очистити локальні чернетки та стани quality-gate: {affected}?\n\n"
+            "YouTube не буде змінено. Відправлені відповіді не видаляються.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        cleared = clear_comment_drafts(
+            self.conn,
+            self.current_profile,
+            only_new=True,
+        )
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="Чернетки коментарів очищено",
+            details=f"очищено {cleared}; YouTube API: 0",
+        )
+        self.reload_comments()
+        self.reload_action_log()
+        self._toast(f"Очищено: {cleared} · YouTube не змінено · 0 квоти")
+
 
     def reload_comments(self, _index: int = -1) -> None:
         profile = self.current_profile
@@ -12927,9 +13053,15 @@ class MainWindow(QMainWindow):
             if hasattr(self, "comment_category_filter")
             else ""
         )
+        draft_filter = (
+            self.comment_draft_filter.currentData()
+            if hasattr(self, "comment_draft_filter")
+            else ""
+        )
 
         query = """SELECT c.comment_id,c.published_at,c.video_id,v.title AS video_title,
-                          c.author,c.text,c.category,c.status,c.reply_text
+                          c.author,c.text,c.category,c.status,c.reply_text,
+                          c.draft_state,c.draft_reason
                    FROM comments c
                    JOIN videos v ON v.video_id=c.video_id
                    WHERE v.profile=?"""
@@ -12940,18 +13072,38 @@ class MainWindow(QMainWindow):
         if category_filter:
             query += " AND c.category=?"
             params.append(str(category_filter))
+        if draft_filter == "none":
+            query += " AND COALESCE(c.draft_state,'')=''"
+        elif draft_filter:
+            query += " AND c.draft_state=?"
+            params.append(str(draft_filter))
         query += " ORDER BY c.published_at DESC LIMIT 500"
 
         rows = self.conn.execute(query, tuple(params)).fetchall()
-        draft_count = sum(
-            1 for row in rows if str(row["reply_text"] or "").strip()
-        )
+        stats = comment_draft_counts(self.conn, profile)
         if hasattr(self, "comment_draft_count_label"):
             self.comment_draft_count_label.setText(
-                f"Чернетки: {draft_count}"
+                f"Готові: {stats['ready']}"
             )
+        if hasattr(self, "comment_skip_count_label"):
+            self.comment_skip_count_label.setText(
+                f"SKIP: {stats['skipped'] + stats['errors']}"
+            )
+        if hasattr(self, "comment_moderation_count_label"):
+            self.comment_moderation_count_label.setText(
+                f"Модерація: {stats['moderation_locked']}"
+            )
+
         self.comment_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
+            draft_state = str(row["draft_state"] or "")
+            draft_text = str(row["reply_text"] or "")
+            state_label = {
+                "ready": "ГОТОВО",
+                "skipped": "SKIP",
+                "error": "ПОМИЛКА",
+                "": "",
+            }.get(draft_state, draft_state)
             values = [
                 row["published_at"] or "",
                 row["video_title"] or row["video_id"],
@@ -12965,10 +13117,11 @@ class MainWindow(QMainWindow):
                     str(row["status"] or ""),
                     str(row["status"] or ""),
                 ),
-                row["reply_text"] or "",
+                state_label,
+                draft_text,
             ]
             for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
+                item = QTableWidgetItem(str(value or ""))
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, row["comment_id"])
                     item.setData(Qt.ItemDataRole.UserRole + 1, row["video_id"])
@@ -12986,18 +13139,26 @@ class MainWindow(QMainWindow):
                         "replied": SUCCESS,
                         "new": YOUTUBE_RED,
                         "ignored": MUTED,
+                        "moderation_locked": WARNING,
                     }.get(str(row["status"]), MUTED)
                     item.setForeground(QColor(status_color))
-                    if str(row["status"]) in {"replied", "new"}:
-                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 elif column == 6:
-                    draft_text = str(row["reply_text"] or "").strip()
-                    if draft_text:
-                        item.setForeground(QColor(SUCCESS))
-                        item.setToolTip(draft_text)
+                    item.setData(Qt.ItemDataRole.UserRole, draft_state)
+                    state_color = {
+                        "ready": SUCCESS,
+                        "skipped": WARNING,
+                        "error": YOUTUBE_RED,
+                    }.get(draft_state, MUTED)
+                    item.setForeground(QColor(state_color))
+                    if row["draft_reason"]:
+                        item.setToolTip(str(row["draft_reason"]))
+                elif column == 7 and draft_text:
+                    item.setForeground(QColor(SUCCESS))
+                    item.setToolTip(draft_text)
                 self.comment_table.setItem(index, column, item)
 
         self.update_dashboard()
+        self._update_comment_draft_preview()
         if hasattr(self, "auto_quota_label"):
             safe_used = today_auto_reply_count(self.conn, self.current_profile)
             total_used = today_reply_count(self.conn, self.current_profile)
@@ -13008,29 +13169,49 @@ class MainWindow(QMainWindow):
             )
             self.auto_quota_label.setText(
                 f"Автовідповіді: {safe_used}/{daily_limit} "
-                f"· надіслано через застосунок сьогодні: {total_used} "
-                f"· ≈{total_used * VIDEO_UPDATE_COST} од. квоти"
+                f"· сьогодні: {total_used} "
+                f"· ≈{total_used * COMMENT_REPLY_COST} од."
             )
+
 
     def reply_selected(self) -> None:
         row = self.comment_table.currentRow()
         if row < 0:
+            self._toast("Виберіть коментар")
             return
         key_item = self.comment_table.item(row, 0)
-        draft_item = self.comment_table.item(row, 6)
-        comment_id = key_item.data(Qt.ItemDataRole.UserRole)
-        draft = draft_item.text() if draft_item else ""
+        comment_id = key_item.data(Qt.ItemDataRole.UserRole) if key_item else None
+        if not comment_id:
+            return
+        db_row = self.conn.execute(
+            """SELECT status,reply_text,draft_state,draft_reason
+               FROM comments WHERE comment_id=?""",
+            (str(comment_id),),
+        ).fetchone()
+        if db_row is None:
+            return
+        status = str(db_row["status"] or "")
+        if status == "moderation_locked":
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Цей коментар знаходиться на модерації YouTube. "
+                "Відповідь заблокована, статус модерації не змінюється.",
+            )
+            return
+        draft = str(db_row["reply_text"] or "")
         text, ok = QInputDialog.getMultiLineText(
             self, "Відповідь на коментар", "Текст відповіді:", draft
         )
         if not ok or not text.strip():
             return
         try:
-            manual_reply(self.client, self.conn, comment_id, text.strip())
+            manual_reply(self.client, self.conn, str(comment_id), text.strip())
             self.reload_comments()
             self.statusBar().showMessage("Відповідь опубліковано")
         except Exception as exc:
             self._error("Помилка відповіді", exc)
+
 
     def set_selected_comment_status(self, status: str) -> None:
         row = self.comment_table.currentRow()
