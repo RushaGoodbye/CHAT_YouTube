@@ -1,6 +1,8 @@
 import sys
 
-from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
+from pathlib import Path
+
+from PySide6.QtCore import QLibraryInfo, QLocale, QLockFile, QStandardPaths, QTimer, QTranslator
 from PySide6.QtWidgets import QApplication
 
 from .config import APP_NAME
@@ -10,6 +12,14 @@ from .ui import MainWindow
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+
+    lock_path = Path(
+        QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
+    ) / "rg_youtube_control_gui.lock"
+    single_instance_lock = QLockFile(str(lock_path))
+    if not single_instance_lock.tryLock(100):
+        return 0
+    app._rg_single_instance_lock = single_instance_lock
 
     locale = QLocale(QLocale.Language.Ukrainian, QLocale.Country.Ukraine)
     QLocale.setDefault(locale)
