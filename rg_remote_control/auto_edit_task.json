@@ -1,7 +1,13 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_code",
-  "args": {},
-  "nonce": "inspect-ui-updater-call-20261006-2318"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_update_supervisor.py",
+      "rg_studio_ui.py",
+      "rg_studio_main.py"
+    ]
+  },
+  "nonce": "inspect-supervisor-ui-main-20261006-2319"
 }
