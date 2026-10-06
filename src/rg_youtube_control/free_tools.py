@@ -990,6 +990,14 @@ def _grounded_tags_from_transcript(
         add("Белоусов")
     if "тимур" in haystack and "иванов" in haystack:
         add("Тимур Иванов")
+    if "лукашенко" in haystack:
+        add("Лукашенко")
+    if "беларус" in haystack:
+        add("Беларусь")
+        if "украин" in haystack or "україн" in haystack:
+            add("Беларусь и Украина")
+    if "украин" in haystack or "україн" in haystack:
+        add("Украина")
     if "совет" in haystack and "безопас" in haystack:
         add("Совет безопасности России")
     if "министерств" in haystack and "оборон" in haystack:
@@ -1059,6 +1067,42 @@ def _grounded_tags_from_transcript(
         add(value)
 
     return tags[:15]
+
+
+def _clean_project_title_for_seo(value: str) -> str:
+    """Remove legacy channel promo suffixes/handles from an SEO title."""
+    text = " ".join(str(value or "").split()).strip()
+    text = re.sub(
+        r"\s*@RUSSIAGOODBYE(?:_LIVE)?\b",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\s*[|·]\s*РАША\s+ГУДБАЙ(?:\s+СТРИМ)?\s*[👍🔥]*\s*$",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\s{2,}", " ", text).strip(" |·-")
+    text = re.sub(r"\bБеларусский\b", "Белорусский", text, flags=re.I)
+    text = re.sub(r"\bБеларус\b", "Беларусь", text, flags=re.I)
+    return text.strip()
+
+
+def _chapters_are_generic(chapters: str) -> bool:
+    labels = [label.casefold() for _stamp, label in _chapter_lines(chapters)]
+    if not labels:
+        return False
+    generic = (
+        "вступ",
+        "наступний блок",
+        "основна частина",
+        "фінальна частина",
+        "завершення",
+        "початок",
+    )
+    return all(any(token in label for token in generic) for label in labels)
 
 
 def _preserve_current_title_when_candidate_is_not_stronger(
@@ -1456,17 +1500,18 @@ chapters: рядок з підтвердженими таймкодами та �
             )
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             if not str(candidate.get("title") or "").strip():
-                variants_candidate = candidate.get("title_variants") or []
-                if isinstance(variants_candidate, list) and variants_candidate:
-                    candidate["title"] = str(variants_candidate[0]).strip()
-            if not str(candidate.get("title") or "").strip():
                 if fast_mode and str(current_title or "").strip():
-                    # The current published title is already grounded and safe.
-                    # Batch mode may reuse it instead of rejecting an otherwise
-                    # valid package only because the local model omitted "title".
-                    candidate["title"] = str(current_title).strip()
+                    # In batch mode the already published title is safer than
+                    # promoting an arbitrary A/B variant to the primary title.
+                    candidate["title"] = _clean_project_title_for_seo(
+                        current_title
+                    )
                 else:
-                    raise ValueError("missing title")
+                    variants_candidate = candidate.get("title_variants") or []
+                    if isinstance(variants_candidate, list) and variants_candidate:
+                        candidate["title"] = str(variants_candidate[0]).strip()
+            if not str(candidate.get("title") or "").strip():
+                raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
                 if fast_mode:
                     recovered_description = _grounded_description_from_transcript(
@@ -1509,10 +1554,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 str(candidate.get("description") or "").strip()
             )
             candidate["description"] = description_candidate
-            description_error = (
-                _description_quality_error(description_candidate, transcript)
-                if transcript.strip()
-                else ""
+            description_error = _description_quality_error(
+                description_candidate,
+                transcript,
             )
             if transcript.strip():
                 if fast_mode:
@@ -1618,8 +1662,12 @@ chapters: рядок з підтвердженими таймкодами та �
         current_title,
         title,
     )
+    if fast_mode:
+        title = _clean_project_title_for_seo(title)
     variants = [
-        str(item).strip()
+        _clean_project_title_for_seo(str(item).strip())
+        if fast_mode
+        else str(item).strip()
         for item in (payload.get("title_variants") or [])
         if str(item).strip()
     ]
@@ -1661,6 +1709,8 @@ chapters: рядок з підтвердженими таймкодами та �
                 transcript=transcript,
             )
         if chapters and _chapters_quality_error(chapters, transcript):
+            chapters = ""
+        if fast_mode and chapters and _chapters_are_generic(chapters):
             chapters = ""
 
     if not title:
