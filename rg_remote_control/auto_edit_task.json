@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_windows_service_targets",
+  "action": "apply_auto_edit_windows_service_layer_v1",
   "args": {},
-  "nonce": "inspect-windows-service-targets-20261006-2140"
+  "nonce": "windows-service-v1"
 }
