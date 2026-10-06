@@ -4018,6 +4018,7 @@ class MainWindow(QMainWindow):
         self.comment_category_filter.currentIndexChanged.connect(self.reload_comments)
 
         self.auto_quota_label = QLabel()
+        self.comment_draft_count_label = QLabel("Чернетки: 0")
 
         controls.addWidget(scan_btn)
         controls.addWidget(test_auto_btn)
@@ -4030,16 +4031,39 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.comment_status_filter)
         controls.addWidget(self.comment_category_filter)
         controls.addStretch()
+        controls.addWidget(self.comment_draft_count_label)
         controls.addWidget(self.auto_quota_label)
 
         self.comment_table = QTableWidget(0, 7)
         self.comment_table.setHorizontalHeaderLabels(
             ["Дата", "Відео", "Автор", "Коментар", "Категорія", "Статус", "Чернетка"]
         )
-        self.comment_table.horizontalHeader().setStretchLastSection(True)
+        comments_header = self.comment_table.horizontalHeader()
+        comments_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        comments_header.setStretchLastSection(True)
+        comments_header.setMinimumSectionSize(72)
+        for column, width in {
+            0: 105, 1: 180, 2: 150, 3: 300, 4: 120, 5: 100, 6: 520,
+        }.items():
+            self.comment_table.setColumnWidth(column, width)
+        self.comment_table.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self._configure_table(self.comment_table)
+        self.comment_table.itemSelectionChanged.connect(
+            self._update_comment_draft_preview
+        )
+
+        self.comment_draft_preview = QPlainTextEdit()
+        self.comment_draft_preview.setReadOnly(True)
+        self.comment_draft_preview.setMaximumHeight(120)
+        self.comment_draft_preview.setPlaceholderText(
+            "Виберіть коментар - тут буде повний текст локальної чернетки."
+        )
+
         layout.addLayout(controls)
-        layout.addWidget(self.comment_table)
+        layout.addWidget(self.comment_table, 1)
+        layout.addWidget(self.comment_draft_preview)
         self.tabs.addTab(page, "Коментарі")
 
     def _build_analytics_tab(self) -> None:
@@ -12869,6 +12893,18 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка імпорту Google Trends", exc)
 
+    def _update_comment_draft_preview(self) -> None:
+        if not hasattr(self, "comment_draft_preview"):
+            return
+        row = self.comment_table.currentRow()
+        if row < 0:
+            self.comment_draft_preview.clear()
+            return
+        item = self.comment_table.item(row, 6)
+        self.comment_draft_preview.setPlainText(
+            item.text() if item is not None else ""
+        )
+
     def reload_comments(self, _index: int = -1) -> None:
         profile = self.current_profile
         status_filter = (
@@ -12897,6 +12933,13 @@ class MainWindow(QMainWindow):
         query += " ORDER BY c.published_at DESC LIMIT 500"
 
         rows = self.conn.execute(query, tuple(params)).fetchall()
+        draft_count = sum(
+            1 for row in rows if str(row["reply_text"] or "").strip()
+        )
+        if hasattr(self, "comment_draft_count_label"):
+            self.comment_draft_count_label.setText(
+                f"Чернетки: {draft_count}"
+            )
         self.comment_table.setRowCount(len(rows))
         for index, row in enumerate(rows):
             values = [
