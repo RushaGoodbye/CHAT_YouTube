@@ -1,9 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_recent_errors",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "limit": 10,
-    "nonce": "diagnose-local-seo-error-20261006"
+    "nonce": "block-live-local-seo-20261006"
   }
 }
