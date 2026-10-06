@@ -12843,6 +12843,27 @@ def build_auto_edit_master60_update() -> dict:
             "sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),"dry_run":"PASS","compile":"PASS","crc":"PASS","manifest":"PASS",
             "regression":regression,"updater_required":"RG_UPDATE_SUPERVISOR_V3","installed":False}
 
+
+def locate_auto_edit_901_xmls() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    roots=[
+      Path(r"F:\RG_AUTO_EDIT"),
+      Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР"),
+    ]
+    out=[];seen=set()
+    for root in roots:
+        if not root.exists():continue
+        try:
+            for p in root.rglob("RG_EDITED_901*.xml"):
+                try:
+                    rp=str(p.resolve()).casefold()
+                    if rp in seen:continue
+                    seen.add(rp);out.append({"path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime})
+                    if len(out)>=80:return {"files":sorted(out,key=lambda x:x["mtime"],reverse=True)}
+                except Exception:pass
+        except Exception:pass
+    return {"files":sorted(out,key=lambda x:x["mtime"],reverse=True)}
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12922,6 +12943,7 @@ ACTIONS = {
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
+    "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
