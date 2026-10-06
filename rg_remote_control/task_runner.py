@@ -12009,6 +12009,282 @@ def inspect_auto_edit_update_install_state() -> dict:
 
 
 
+def apply_auto_edit_ui_responsiveness_hotfix() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,py_compile,re,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    runtimew=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    files=[app/"rg_studio_ui.py",app/"rg_production40.py",app/"rg_master60.py",app/"rg_stability_ux25.py",app/"rg_studio_version.py"]
+    for p in files:
+        if not p.is_file():raise RuntimeError("Missing "+str(p))
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_UI_RESPONSIVENESS_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in files:shutil.copy2(p,backup/p.name)
+
+    worker=r'''from __future__ import annotations
+import json,time,traceback
+from pathlib import Path
+
+def _safe(fn,default):
+    try:return fn()
+    except Exception as exc:return {"error":repr(exc)} if isinstance(default,dict) else default
+
+def main():
+    from rg_production40 import health_snapshot
+    from rg_master60 import update_progress,latest_new_update,recovery_points
+    while True:
+        row={"schema":"RG_UI_HEALTH_BG_V1","ts":time.time()}
+        try:row["health"]=health_snapshot()
+        except Exception as exc:row["health"]={"ready":False,"score":0,"issues":["MONITOR"],"error":repr(exc)}
+        try:row["update"]=update_progress()
+        except Exception as exc:row["update"]={"error":repr(exc)}
+        try:
+            u=latest_new_update()
+            row["latest_update"]=u if isinstance(u,dict) else None
+        except Exception as exc:row["latest_update_error"]=repr(exc)
+        try:row["recovery"]=recovery_points()[:6]
+        except Exception as exc:row["recovery_error"]=repr(exc);row["recovery"]=[]
+        print("RGUIMON|"+json.dumps(row,ensure_ascii=False,separators=(",",":")),flush=True)
+        time.sleep(8)
+
+if __name__=="__main__":
+    try:main()
+    except KeyboardInterrupt:pass
+    except Exception:
+        print("RGUIMONERR|"+traceback.format_exc().replace("\n"," | "),flush=True)
+'''
+    monitor=r'''from __future__ import annotations
+import json
+from pathlib import Path
+from PySide6.QtCore import QProcess,QProcessEnvironment
+from PySide6.QtWidgets import QApplication
+
+def _apply(host,d):
+    h=d.get("health") or {}
+    host._rg_health_snapshot=h
+    ready=bool(h.get("ready"));score=h.get("score","—")
+    nas=h.get("nas") or {};gpu=h.get("gpu") or {};checks=h.get("checks") or {}
+    try:host.nas_chip.setText("NAS • "+("ОНЛАЙН" if checks.get("nas") else "ОФЛАЙН"))
+    except Exception:pass
+    try:host.gpu_chip.setText("GPU • "+("CUDA" if checks.get("gpu") else "CHECK"))
+    except Exception:pass
+    try:
+        lab=getattr(host,"_ux25_health",None)
+        if lab is not None:
+            lab.setText("SYSTEM READY ✓" if ready else "SYSTEM • "+"/".join(h.get("issues") or ["CHECK"]))
+            lab.setStyleSheet("color:#22c55e;font-weight:700;" if ready else "color:#ef4444;font-weight:700;")
+    except Exception:pass
+    try:
+        lab=getattr(host,"_production40_health",None)
+        if lab is not None:
+            lab.setText(f"{score}/100 • {'READY' if ready else 'CHECK'} • NAS {nas.get('latency_ms','—')} ms • GPU {gpu.get('util_pct','—')}% • BACKGROUND")
+    except Exception:pass
+    try:
+        lab=getattr(host,"_m60_system_line",None)
+        if lab is not None:
+            f=(h.get("disk",{}).get("F:\\",{}) or {}).get("free_gb","—")
+            lab.setText(f"SYSTEM {'READY' if ready else 'CHECK'} | HEALTH {score}/100 | GPU {'READY' if checks.get('gpu') else 'CHECK'} | NAS {nas.get('latency_ms','—')} ms | F: {f} GB")
+    except Exception:pass
+    try:
+        rows=[
+          f"STUDIO: {getattr(host,'_rg_studio_version','—')}",
+          f"HEALTH: {score}/100 • {'READY' if ready else 'CHECK'}",
+          f"NAS: {'ОНЛАЙН' if checks.get('nas') else 'ОФЛАЙН'} • {nas.get('latency_ms','—')} ms",
+          f"GPU: {'CUDA' if checks.get('gpu') else 'CHECK'} • {gpu.get('util_pct','—')}%",
+          "MONITOR: BACKGROUND PROCESS"
+        ]
+        if hasattr(host,"system_text"):host.system_text.setPlainText("\n".join(rows))
+    except Exception:pass
+    try:
+        rec=d.get("recovery") or []
+        lab=getattr(host,"_m60_recovery",None)
+        if lab is not None:
+            lab.setText("\n".join(f"{x.get('where')} • {x.get('name')}" for x in rec) or "Точки відновлення не знайдені.")
+    except Exception:pass
+    try:
+        u=d.get("update") or {};phase=str(u.get("phase") or "")
+        if phase and hasattr(host,"update_state"):host.update_state.setText("UPDATE SUPERVISOR: "+phase)
+        nxt=d.get("latest_update")
+        if isinstance(nxt,dict) and nxt:
+            if hasattr(host,"update_manifest_label"):host.update_manifest_label.setText(f"Доступно: {nxt.get('version','—')} • {nxt.get('channel') or '—'}")
+            if hasattr(host,"update_detail"):host.update_detail.setText((nxt.get("summary") or "")+"\n"+str(nxt.get("path") or ""))
+    except Exception:pass
+
+def install(host,runtime_py,app_dir,studio_version=""):
+    host._rg_studio_version=str(studio_version or "")
+    p=QProcess(host);p.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+    env=QProcessEnvironment.systemEnvironment();env.insert("PYTHONUTF8","1");env.insert("PYTHONIOENCODING","utf-8");p.setProcessEnvironment(env)
+    buf={"s":""}
+    def read():
+        s=bytes(p.readAllStandardOutput()).decode("utf-8","replace")
+        buf["s"]+=s
+        while "\n" in buf["s"]:
+            line,buf["s"]=buf["s"].split("\n",1);line=line.strip()
+            if not line.startswith("RGUIMON|"):continue
+            try:_apply(host,json.loads(line.split("|",1)[1]))
+            except Exception:pass
+    p.readyReadStandardOutput.connect(read)
+    p.start(str(runtime_py),["-u","-X","utf8",str(Path(app_dir)/"rg_ui_health_worker.py")])
+    host._rg_ui_monitor=p
+    app=QApplication.instance()
+    if app is not None:
+        def stop():
+            try:
+                if p.state()!=QProcess.ProcessState.NotRunning:p.kill()
+            except Exception:pass
+        app.aboutToQuit.connect(stop)
+    return p
+'''
+    (app/"rg_ui_health_worker.py").write_text(worker,encoding="utf-8")
+    (app/"rg_ui_health_monitor.py").write_text(monitor,encoding="utf-8")
+
+    # UI: install background monitor and make refresh render cached data only.
+    p=app/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    if "from rg_ui_health_monitor import install as install_ui_health_monitor" not in s:
+        anchor='from rg_master60 import enhance_window as master60_enhance_window,semver_tuple,latest_new_update\n'
+        if anchor not in s:raise RuntimeError("UI monitor import anchor missing")
+        s=s.replace(anchor,anchor+'from rg_ui_health_monitor import install as install_ui_health_monitor\n',1)
+    if "RG_UI_RESPONSIVE_MONITOR_V1" not in s:
+        anchor='        # RG_MASTER60_UI_V1\n        try:master60_enhance_window(self)\n        except Exception as e:\n            try:self.statusBar().showMessage("MASTER60 init warning: "+str(e),8000)\n            except Exception:pass\n'
+        if anchor not in s:raise RuntimeError("UI monitor install anchor missing")
+        patch=anchor+'        # RG_UI_RESPONSIVE_MONITOR_V1\n        try:install_ui_health_monitor(self,RUNTIME_PY,APP_DIR,STUDIO_VERSION)\n        except Exception as e:\n            try:self.statusBar().showMessage("UI monitor warning: "+str(e),5000)\n            except Exception:pass\n'
+        s=s.replace(anchor,patch,1)
+    s=s.replace('        self._system_timer.start(15000);self._refresh_system()\n',
+                '        self._system_timer.start(60000);QTimer.singleShot(250,self._refresh_system)\n',1)
+    pat=r'(?ms)^    def _refresh_system\(self\):\n.*?(?=^    def |\Z)'
+    repl='''    def _refresh_system(self):
+        # RG_UI_RESPONSIVE_MONITOR_V1: UI thread only renders cached data.
+        h=getattr(self,"_rg_health_snapshot",{}) or {}
+        if not h:
+            try:self.system_text.setPlainText(f"STUDIO: {STUDIO_VERSION}\\nMONITOR: запуск фонового процесу…")
+            except Exception:pass
+            return
+        try:
+            score=h.get("score","—");ready=bool(h.get("ready"));nas=h.get("nas") or {};gpu=h.get("gpu") or {};checks=h.get("checks") or {}
+            self.nas_chip.setText("NAS • "+("ОНЛАЙН" if checks.get("nas") else "ОФЛАЙН"))
+            self.gpu_chip.setText("GPU • "+("CUDA" if checks.get("gpu") else "CHECK"))
+            self.system_text.setPlainText(
+                f"STUDIO: {STUDIO_VERSION} ({STUDIO_CHANNEL})\\n"
+                f"РУШІЙ: {APP_VERSION}\\n"
+                f"HEALTH: {score}/100 • {'READY' if ready else 'CHECK'}\\n"
+                f"NAS: {nas.get('latency_ms','—')} ms\\n"
+                f"GPU: {gpu.get('util_pct','—')}%\\n"
+                "MONITOR: BACKGROUND PROCESS"
+            )
+        except Exception:pass
+
+'''
+    s,n=re.subn(pat,repl,s,count=1)
+    if n!=1:raise RuntimeError("_refresh_system patch failed")
+    p.write_text(s,encoding="utf-8")
+
+    # Production40: no NAS/GPU probe in the UI thread.
+    p40=app/"rg_production40.py";s=p40.read_text(encoding="utf-8")
+    s=s.replace('    state=startup_register();h=startup_self_test()\n','    state=startup_register();h={}  # RG_UI_RESPONSIVE_MONITOR_V1\n',1)
+    s=s.replace('        hh=health_snapshot()\n','        hh=getattr(host,"_rg_health_snapshot",{}) or {}\n',1)
+    # Avoid KeyError and keep card updates lightweight.
+    s=s.replace("              f\"{hh['score']}/100 • {'READY' if hh['ready'] else 'CHECK'} • \"\n",
+                "              f\"{hh.get('score','—')}/100 • {'READY' if hh.get('ready') else 'CHECK'} • \"\n",1)
+    s=s.replace("              f\"NAS {hh['nas'].get('latency_ms','—')} ms • GPU {hh['gpu'].get('util_pct','—')}% • \"\n",
+                "              f\"NAS {(hh.get('nas') or {}).get('latency_ms','—')} ms • GPU {(hh.get('gpu') or {}).get('util_pct','—')}% • \"\n",1)
+    s=s.replace("              f\"Windows Service: {'PSUTIL' if hh['checks'].get('psutil') else 'WinAPI/Fallback'}\"\n",
+                "              f\"Windows Service: {'PSUTIL' if (hh.get('checks') or {}).get('psutil') else 'BACKGROUND'}\"\n",1)
+    p40.write_text(s,encoding="utf-8")
+
+    # Master60: no system/NAS/recovery/update scans in GUI timer.
+    m=app/"rg_master60.py";s=m.read_text(encoding="utf-8")
+    s=s.replace('    line=QLabel(system_line());line.setObjectName("M60SystemLine");host.statusBar().addPermanentWidget(line,1)\n',
+                '    line=QLabel("SYSTEM • ФОНОВИЙ МОНІТОРИНГ");host._m60_system_line=line;line.setObjectName("M60SystemLine");host.statusBar().addPermanentWidget(line,1)\n',1)
+    s=s.replace('        rec=QLabel(_format_recovery());rec.setWordWrap(True);v.addWidget(rec)\n',
+                '        rec=QLabel("Фоновий моніторинг…");rec.setWordWrap(True);v.addWidget(rec)\n',1)
+    old='''    def tick():
+        try:line.setText(system_line())
+        except Exception:pass
+        _update_ui(host)
+        try:
+            ps=preview_status(host)
+            pr=premiere_snapshot(host)
+            if ps and hasattr(host,"detail"):host.detail.setText(ps+" • PREMIERE "+("ACTIVE" if pr.get("active") else "WAIT"))
+        except Exception:pass
+        try:
+            if hasattr(host,"_m60_recovery"):host._m60_recovery.setText(_format_recovery())
+        except Exception:pass
+    t=QTimer(host);t.timeout.connect(tick);t.start(3500);host._m60_timer=t;tick()
+'''
+    new='''    def tick():
+        # RG_UI_RESPONSIVE_MONITOR_V1: no filesystem/NAS/GPU work in GUI thread.
+        try:
+            ps=preview_status(host)
+            if ps and hasattr(host,"detail"):host.detail.setText(ps)
+        except Exception:pass
+    t=QTimer(host);t.timeout.connect(tick);t.start(5000);host._m60_timer=t
+'''
+    if old not in s:raise RuntimeError("MASTER60 tick anchor missing")
+    s=s.replace(old,new,1)
+    m.write_text(s,encoding="utf-8")
+
+    # UX25: consume cached health instead of probing every 1.5 sec.
+    ux=app/"rg_stability_ux25.py";s=ux.read_text(encoding="utf-8")
+    s=s.replace('    health=QLabel("SYSTEM READY");health.setObjectName("UX25Health");sb.addPermanentWidget(health)\n',
+                '    health=QLabel("SYSTEM • MONITOR");host._ux25_health=health;health.setObjectName("UX25Health");sb.addPermanentWidget(health)\n',1)
+    old='''    def tick():
+        h=health_snapshot()
+        if h["ok"]:
+            health.setText("SYSTEM READY ✓");health.setStyleSheet("color:#22c55e;font-weight:700;")
+        else:
+            health.setText("SYSTEM • "+"/".join(h["issues"]));health.setStyleSheet("color:#ef4444;font-weight:700;")
+        recent.setText(_recent_text())
+        try:
+            chain.setText(_pipeline_text(host.stage.text(),host.percent.text()))
+        except Exception:pass
+        _style_queue(host)
+    t=QTimer(host);t.timeout.connect(tick);t.start(1500);host._ux25_timer=t;tick()
+'''
+    new='''    def tick():
+        h=getattr(host,"_rg_health_snapshot",{}) or {}
+        if h:
+            if h.get("ready"):
+                health.setText("SYSTEM READY ✓");health.setStyleSheet("color:#22c55e;font-weight:700;")
+            else:
+                health.setText("SYSTEM • "+"/".join(h.get("issues") or ["CHECK"]));health.setStyleSheet("color:#ef4444;font-weight:700;")
+        recent.setText(_recent_text())
+        try:chain.setText(_pipeline_text(host.stage.text(),host.percent.text()))
+        except Exception:pass
+        _style_queue(host)
+    t=QTimer(host);t.timeout.connect(tick);t.start(2000);host._ux25_timer=t;tick()
+'''
+    if old not in s:raise RuntimeError("UX25 tick anchor missing")
+    s=s.replace(old,new,1)
+    ux.write_text(s,encoding="utf-8")
+
+    # Version marker.
+    vp=app/"rg_studio_version.py";vs=vp.read_text(encoding="utf-8")
+    vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.20.1"',vs,count=1)
+    vs=re.sub(r'RG_UI_VERSION\s*=\s*["\'][^"\']+["\']','RG_UI_VERSION="0.20.20.1"',vs,count=1)
+    if "RG_UI_RESPONSIVE_MONITOR_V1" not in vs:vs+="\nRG_UI_RESPONSIVE_MONITOR_V1=True\n"
+    vp.write_text(vs,encoding="utf-8")
+
+    for p in [app/"rg_ui_health_worker.py",app/"rg_ui_health_monitor.py",app/"rg_studio_ui.py",p40,m,ux,vp]:
+        py_compile.compile(str(p),doraise=True)
+
+    # Restart UI only. Never touch montage/backend processes.
+    try:
+        sys.path.insert(0,str(app))
+        from rg_windows_service import terminate_matching
+        terminate_matching(("rg_studio_main.py",),("python.exe","pythonw.exe"),exclude_pids=(os.getpid(),))
+    except Exception:pass
+    time.sleep(.8)
+    env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None);env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8"
+    py=runtimew if runtimew.is_file() else runtime
+    flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+    subprocess.Popen([str(py),"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),env=env,creationflags=flags,close_fds=True)
+    return {"status":"PASS","version":"0.20.20.1","marker":"RG_UI_RESPONSIVE_MONITOR_V1","backup":str(backup),
+            "compiled":True,"background_monitor":True,"restarted":True}
+
+
 def inspect_auto_edit_startup_hotspots() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import ast
@@ -13111,6 +13387,7 @@ ACTIONS = {
     "inspect_auto_edit_updater_state": inspect_auto_edit_updater_state,
     "inspect_auto_edit_ui_freeze_runtime": inspect_auto_edit_ui_freeze_runtime,
     "inspect_auto_edit_startup_hotspots": inspect_auto_edit_startup_hotspots,
+    "apply_auto_edit_ui_responsiveness_hotfix": apply_auto_edit_ui_responsiveness_hotfix,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
