@@ -13113,7 +13113,8 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
     bad_files=[]
     for row in rows:
         p=nas/Path(str(row.get("path") or ""))
-        if not p.is_file() or p.stat().st_size!=int(row.get("size") or -1) or sha256(p)!=row.get("sha256"):
+        expected_size=row.get("size")
+        if not p.is_file() or expected_size is None or p.stat().st_size!=int(expected_size) or sha256(p)!=row.get("sha256"):
             bad_files.append(str(row.get("path")))
     if bad_files:raise RuntimeError("Stable file verification failed: "+str(bad_files[:10]))
 
