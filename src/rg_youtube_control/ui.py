@@ -109,6 +109,8 @@ from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
     fetch_public_metadata,
     fetch_transcript,
+    fetch_transcript_from_public_metadata,
+    load_srt_transcript,
     generate_comment_reply_local,
     generate_seo_package_local,
     load_google_trends_csv,
@@ -10257,16 +10259,48 @@ class MainWindow(QMainWindow):
             except Exception:
                 context["google_trends"] = []
 
-        try:
-            transcript_rows = fetch_transcript(video_id)
-            transcript = transcript_sample_text(
-                transcript_rows,
-                max_chars=12000,
-                segments=6,
-            )
-        except Exception:
-            transcript_rows = []
-            transcript = ""
+        transcript_rows = []
+        transcript_source = ""
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        nas_transcript = transcript_dir / f"{video_id}.srt"
+
+        if nas_transcript.exists():
+            try:
+                transcript_rows = load_srt_transcript(nas_transcript)
+                if transcript_rows:
+                    transcript_source = "nas-srt"
+            except Exception:
+                transcript_rows = []
+
+        if not transcript_rows:
+            try:
+                transcript_rows = fetch_transcript(video_id)
+                if transcript_rows:
+                    transcript_source = "youtube-transcript-api"
+            except Exception:
+                transcript_rows = []
+
+        if not transcript_rows:
+            try:
+                transcript_rows = fetch_transcript_from_public_metadata(
+                    context,
+                    timeout=15.0 if fast_mode else 25.0,
+                )
+                if transcript_rows:
+                    transcript_source = "yt-dlp-captions"
+            except Exception:
+                transcript_rows = []
+
+        transcript = transcript_sample_text(
+            transcript_rows,
+            max_chars=12000,
+            segments=6,
+        ) if transcript_rows else ""
+
+        context["transcript_source"] = transcript_source
 
         if fast_mode and not transcript.strip():
             raise RuntimeError(
@@ -10281,6 +10315,7 @@ class MainWindow(QMainWindow):
             )
 
         context_for_model = dict(context)
+        context_for_model.pop("_caption_tracks", None)
         context_for_model["description"] = cleaned_description
         package = generate_seo_package_local(
             current_title=current_title,
@@ -10390,6 +10425,17 @@ class MainWindow(QMainWindow):
             if duration_seconds and duration_seconds <= 70:
                 continue
             candidate_ids.append(str(row["video_id"]))
+
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        candidate_ids = sorted(
+            candidate_ids,
+            key=lambda video_id: (
+                0 if (transcript_dir / f"{video_id}.srt").exists() else 1
+            ),
+        )
 
         if not candidate_ids:
             QMessageBox.information(
