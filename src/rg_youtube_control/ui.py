@@ -135,6 +135,7 @@ from .optimization import (
     sanitize_imported_package_description,
     validate_chapters,
     validate_content_package,
+    youtube_description_errors,
 )
 from .service import (
     archive_priority_enabled,
@@ -208,6 +209,7 @@ ISSUE_LABELS = {
     "too_many_hashtags": "забагато хештегів",
     "no_tags": "немає тегів",
     "latin_title_review": "англомовна назва - перевірити",
+    "invalid_description": "опис несумісний з YouTube API",
 }
 
 PRIVACY_LABELS = {
@@ -8525,6 +8527,47 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, APP_NAME, message)
         return len(changed_ids)
 
+    def _mark_invalid_description_for_review(
+        self,
+        video_id: str,
+        errors: list[str] | tuple[str, ...],
+    ) -> None:
+        """Keep an API-invalid description out of safe batches without editing it."""
+        row = self.conn.execute(
+            "SELECT audit_json FROM videos WHERE video_id=? AND profile=?",
+            (video_id, self.current_profile),
+        ).fetchone()
+        payload = {}
+        if row is not None:
+            try:
+                payload = json.loads(row["audit_json"] or "{}")
+            except Exception:
+                payload = {}
+        issues = list(payload.get("issues") or [])
+        if "invalid_description" not in issues:
+            issues.append("invalid_description")
+        payload["issues"] = issues
+        payload["invalid_description_errors"] = list(errors)
+        payload["invalid_description_checked_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+        self.conn.execute(
+            "UPDATE videos SET audit_json=? WHERE video_id=? AND profile=?",
+            (
+                json.dumps(payload, ensure_ascii=False),
+                video_id,
+                self.current_profile,
+            ),
+        )
+        self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="архів",
+            action="Пропущено некоректний опис",
+            details=f"{video_id}: {'; '.join(str(x) for x in errors)}",
+        )
+
     def _safe_archive_candidates_for_profile(
         self,
         profile: str,
@@ -8980,6 +9023,7 @@ class MainWindow(QMainWindow):
 
         changed_ids: list[str] = []
         skipped_ids: list[str] = []
+        blocked_ids: list[str] = []
         error_text = ""
         progress = None
         if daily and notify:
@@ -9140,6 +9184,19 @@ class MainWindow(QMainWindow):
                                 progress.setValue(index)
                             continue
 
+                        description_errors = youtube_description_errors(
+                            fix.after
+                        )
+                        if description_errors:
+                            self._mark_invalid_description_for_review(
+                                video_id,
+                                description_errors,
+                            )
+                            blocked_ids.append(video_id)
+                            if progress is not None:
+                                progress.setValue(index)
+                            continue
+
                         history_id = save_metadata_snapshot(
                             self.conn,
                             video_id,
@@ -9176,8 +9233,17 @@ class MainWindow(QMainWindow):
                         mark_quota_exhausted(self.conn)
                         self.refresh_youtube_quota_label()
                         error_text = "quota_exceeded"
-                    else:
-                        error_text = f"{video_id}: {exc}"
+                        break
+                    if "invaliddescription" in str(exc).casefold():
+                        self._mark_invalid_description_for_review(
+                            video_id,
+                            (str(exc),),
+                        )
+                        blocked_ids.append(video_id)
+                        if progress is not None:
+                            progress.setValue(index)
+                        continue
+                    error_text = f"{video_id}: {exc}"
                     break
 
             if progress is not None:
@@ -9206,11 +9272,15 @@ class MainWindow(QMainWindow):
 
             remaining = max(
                 0,
-                total_candidates - len(changed_ids) - len(skipped_ids),
+                total_candidates
+                - len(changed_ids)
+                - len(skipped_ids)
+                - len(blocked_ids),
             )
             message = (
                 f"Готово. Змінено: {len(changed_ids)}. "
-                f"Без змін: {len(skipped_ids)}.\n"
+                f"Без змін: {len(skipped_ids)}. "
+                f"Некоректний опис: {len(blocked_ids)}.\n"
                 f"Залишилося в черзі безпечних правок: ≈{remaining}."
             )
             if notify:
