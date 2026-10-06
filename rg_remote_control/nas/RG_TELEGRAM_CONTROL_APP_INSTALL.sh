@@ -42,12 +42,21 @@ PY
 }
 
 PORT=""
-for CANDIDATE in 18788 18789 18790 18888 18988; do
-  if port_free "$CANDIDATE"; then
-    PORT="$CANDIDATE"
-    break
+CURRENT_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
+if [ -n "$CURRENT_PORT" ] && docker inspect rg-telegram-control >/dev/null 2>&1; then
+  PUBLISHED="$(docker port rg-telegram-control 8788/tcp 2>/dev/null | tail -n 1 | sed 's/.*://')"
+  if [ "$PUBLISHED" = "$CURRENT_PORT" ]; then
+    PORT="$CURRENT_PORT"
   fi
-done
+fi
+if [ -z "$PORT" ]; then
+  for CANDIDATE in 18788 18789 18790 18888 18988; do
+    if port_free "$CANDIDATE"; then
+      PORT="$CANDIDATE"
+      break
+    fi
+  done
+fi
 [ -n "$PORT" ] || fail_install 11 "no_free_control_port"
 printf '%s\n' "$PORT" > "$PORT_FILE"
 export RGTC_HOST_PORT="$PORT"
