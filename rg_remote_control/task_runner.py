@@ -510,52 +510,72 @@ def sync_nas_command_bus_mcp() -> dict:
     import hashlib
     from datetime import datetime, timezone
 
-    expected_blob = "a0f5285547ac5653e9cc9b6844fe94032bd60633"
-    source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_COMMAND_BUS.sh"
-    if not source.is_file():
-        raise RuntimeError(f"Vendored command bus missing: {source}")
-    payload = source.read_bytes()
+    sources = {
+        "RG_NAS_COMMAND_BUS.sh": ROOT / "rg_remote_control" / "nas" / "RG_NAS_COMMAND_BUS.sh",
+        "RG_TELEGRAM_CONTROL_AGENT.sh": ROOT / "rg_remote_control" / "nas" / "RG_TELEGRAM_CONTROL_AGENT.sh",
+        "RG_TELEGRAM_CONTROL_APP_INSTALL.sh": ROOT / "rg_remote_control" / "nas" / "RG_TELEGRAM_CONTROL_APP_INSTALL.sh",
+    }
+    expected = {
+        "RG_NAS_COMMAND_BUS.sh": "03f66d43b4eff4aa8b22dbd4e67cbb6543b1ce02",
+        "RG_TELEGRAM_CONTROL_AGENT.sh": "5b3286a7ed08ef63d0a79c57cdd7d1c906470882",
+        "RG_TELEGRAM_CONTROL_APP_INSTALL.sh": "251ae84c6253df8816f7c35c7972047f9dc19eba",
+    }
 
-    actual_blob = hashlib.sha1(
-        f"blob {len(payload)}\0".encode("ascii") + payload
-    ).hexdigest()
-    if actual_blob != expected_blob:
-        raise RuntimeError(
-            f"Unexpected command bus blob: {actual_blob}; expected {expected_blob}"
-        )
-    if b"mcp-deploy)" not in payload or b"mcp-status)" not in payload:
-        raise RuntimeError("MCP actions missing from vendored command bus")
+    payloads = {}
+    for name, source in sources.items():
+        if not source.is_file():
+            raise RuntimeError(f"Vendored NAS recovery file missing: {source}")
+        payload = source.read_bytes()
+        blob = hashlib.sha1(f"blob {len(payload)}\0".encode("ascii") + payload).hexdigest()
+        if blob != expected[name]:
+            raise RuntimeError(f"Unexpected {name} blob: {blob}; expected {expected[name]}")
+        payloads[name] = payload
 
-    target = Path(r"\\AlexLosServer\docker\RG_NAS_COMMAND_BUS.sh")
-    if not target.is_file():
-        raise RuntimeError(f"Live command bus missing: {target}")
+    bus = payloads["RG_NAS_COMMAND_BUS.sh"]
+    if b"control-app-install)" not in bus or b"control-app-status)" not in bus:
+        raise RuntimeError("RG Telegram Control actions missing from vendored command bus")
+    agent = payloads["RG_TELEGRAM_CONTROL_AGENT.sh"]
+    if b'"control-app-install"' not in agent:
+        raise RuntimeError("RG Telegram Control install action missing from vendored agent")
+    installer = payloads["RG_TELEGRAM_CONTROL_APP_INSTALL.sh"]
+    if b"http://127.0.0.1:8788/healthz" not in installer:
+        raise RuntimeError("RG Telegram Control health check missing from vendored installer")
 
-    state = Path(r"\\AlexLosServer\docker\RG_NAS_STATE")
+    root = Path(r"\\AlexLosServer\docker")
+    state = root / "RG_NAS_STATE"
     state.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    backup = state / f"RG_NAS_COMMAND_BUS.before_mcp_{stamp}.sh"
-    shutil.copy2(target, backup)
+    backups = {}
+    written = {}
 
-    with target.open("wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-    written = target.read_bytes()
-    written_blob = hashlib.sha1(
-        f"blob {len(written)}\0".encode("ascii") + written
-    ).hexdigest()
-    if written_blob != expected_blob:
-        with target.open("wb") as handle:
-            handle.write(backup.read_bytes())
-        raise RuntimeError("Live command bus verification failed; backup restored")
+    for name, payload in payloads.items():
+        target = root / name
+        backup = state / f"{name}.before_rgtc_stage1_{stamp}.bak"
+        if target.is_file():
+            shutil.copy2(target, backup)
+            backups[name] = str(backup)
+        tmp = target.with_name(target.name + ".rgtc-stage1.tmp")
+        with tmp.open("wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+        verify = target.read_bytes()
+        blob = hashlib.sha1(f"blob {len(verify)}\0".encode("ascii") + verify).hexdigest()
+        if blob != expected[name]:
+            raise RuntimeError(f"Live {name} verification failed after atomic replace")
+        written[name] = {"blob": blob, "bytes": len(verify), "target": str(target)}
+        try:
+            target.chmod(target.stat().st_mode | 0o111)
+        except Exception:
+            pass
 
     return {
         "updated": True,
-        "git_blob": written_blob,
-        "bytes": len(written),
-        "backup": str(backup),
-        "mcp_actions": ["mcp-deploy", "mcp-status"],
+        "scope": "telegram_control_stage1_only",
+        "files": written,
+        "backups": backups,
+        "production_workers_touched": False,
     }
 
 def probe_command_bus_state() -> dict:
