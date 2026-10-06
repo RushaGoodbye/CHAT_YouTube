@@ -1438,6 +1438,237 @@ class MainWindow(QMainWindow):
         )
 
 
+    def _safe_local_prepare_candidate_count(self, limit: int = 10) -> int:
+        metadata_issues = {
+            "thin_description",
+            "no_tags",
+            "old_links",
+            "missing_project_link",
+            "missing_donate_link",
+        }
+        rows = self.conn.execute(
+            """SELECT v.audit_json,d.status AS draft_status
+               FROM videos v
+               LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
+               WHERE v.profile=? AND v.privacy_status='public'
+               ORDER BY v.views DESC""",
+            (self.current_profile,),
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if str(row["draft_status"] or "") in {"ready", "applied"}:
+                continue
+            try:
+                issues = set(
+                    json.loads(row["audit_json"] or "{}").get("issues", [])
+                )
+            except Exception:
+                issues = set()
+            if metadata_issues.intersection(issues):
+                count += 1
+                if count >= int(limit):
+                    break
+        return count
+
+    def _open_ready_work_queue(self) -> None:
+        if not hasattr(self, "optimization_filter"):
+            return
+        queue_ids = self._prepared_queue_ids()
+        if queue_ids:
+            index = self.optimization_filter.findData("prepared")
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+            if hasattr(self, "optimization_status_filter"):
+                status_index = self.optimization_status_filter.findData("all")
+                if status_index >= 0:
+                    self.optimization_status_filter.setCurrentIndex(status_index)
+        else:
+            index = self.optimization_filter.findData("all")
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+            if hasattr(self, "optimization_status_filter"):
+                status_index = self.optimization_status_filter.findData("ready")
+                if status_index >= 0:
+                    self.optimization_status_filter.setCurrentIndex(status_index)
+        self.tabs.setCurrentIndex(2)
+        self.reload_optimization_queue()
+
+    def _refresh_next_action_card(self, safe_capacity: int | None = None) -> None:
+        if not hasattr(self, "next_action_title"):
+            return
+
+        worker = getattr(self, "_local_tool_worker", None)
+        if worker is not None and worker.isRunning():
+            self._guided_next_action = "wait"
+            self.next_action_state.setText("ВИКОНУЄТЬСЯ")
+            self.next_action_state.setObjectName("StatusWork")
+            self.next_action_title.setText("Завершується поточна операція")
+            self.next_action_explanation.setText(
+                "Нічого додатково натискати не потрібно. "
+                "Після завершення програма сама визначить наступний крок."
+            )
+            self.next_action_button.setText("Зачекати")
+            self.next_action_button.setEnabled(False)
+            self.next_action_state.style().unpolish(self.next_action_state)
+            self.next_action_state.style().polish(self.next_action_state)
+            return
+
+        self.next_action_button.setEnabled(True)
+        profile = self.current_profile
+        budget = quota_budget_status(self.conn)
+        if safe_capacity is None:
+            safe_capacity = max(
+                0,
+                (int(budget["remaining"]) - int(budget["reserve"]))
+                // max(1, SAFE_METADATA_ITEM_COST),
+            )
+
+        today_row = self._today_scheduled_row()
+        today_status = (
+            str(today_row["draft_status"] or "")
+            if today_row is not None
+            else ""
+        )
+        if today_row is not None and today_status not in {"ready", "applied"}:
+            self._guided_next_action = "today_stream"
+            self.next_action_state.setText("ВАЖЛИВО")
+            self.next_action_state.setObjectName("StatusWarn")
+            self.next_action_title.setText("Підготувати сьогоднішній стрім")
+            self.next_action_explanation.setText(
+                "На сьогодні є запланований ефір, який ще не готовий. "
+                "Це пріоритетніше за архів."
+            )
+            self.next_action_button.setText("Відкрити стрім")
+        else:
+            draft_count = int(
+                self.conn.execute(
+                    """SELECT COUNT(*)
+                       FROM optimization_drafts d
+                       JOIN videos v ON v.video_id=d.video_id
+                       WHERE v.profile=? AND d.status='draft'""",
+                    (profile,),
+                ).fetchone()[0]
+            )
+            if draft_count:
+                self._guided_next_action = "review_drafts"
+                self.next_action_state.setText("ПОТРІБНА ПЕРЕВІРКА")
+                self.next_action_state.setObjectName("StatusWarn")
+                self.next_action_title.setText(
+                    f"Перевірити підготовлені пакети: {draft_count}"
+                )
+                self.next_action_explanation.setText(
+                    "Ці зміни ще не підуть у YouTube. "
+                    "Спочатку перегляньте їх і залиште тільки коректні."
+                )
+                self.next_action_button.setText("Відкрити на перевірку")
+            else:
+                ready_queue = self._prepared_queue_ids()
+                if ready_queue and safe_capacity > 0:
+                    self._guided_next_action = "ready_queue"
+                    self.next_action_state.setText("ГОТОВО")
+                    self.next_action_state.setObjectName("StatusGood")
+                    self.next_action_title.setText(
+                        f"Готово до YouTube: {len(ready_queue)} відео"
+                    )
+                    self.next_action_explanation.setText(
+                        f"Сьогодні доступно приблизно {safe_capacity} "
+                        "безпечних оновлень понад резерв квоти."
+                    )
+                    self.next_action_button.setText("Відкрити готові")
+                else:
+                    local_count = self._safe_local_prepare_candidate_count(10)
+                    if local_count:
+                        self._guided_next_action = "prepare_local"
+                        self.next_action_state.setText(
+                            "БЕЗ КВОТИ" if safe_capacity <= 0 else "МОЖНА ПІДГОТУВАТИ"
+                        )
+                        self.next_action_state.setObjectName(
+                            "StatusWarn" if safe_capacity <= 0 else "StatusGood"
+                        )
+                        self.next_action_title.setText(
+                            f"Підготувати наступні {local_count} відео локально"
+                        )
+                        self.next_action_explanation.setText(
+                            "YouTube Data API не витрачається. "
+                            + (
+                                "Квота зараз у резерві, тому це найкраща робота на сьогодні."
+                                if safe_capacity <= 0
+                                else "Пакети будуть готові до наступного кроку."
+                            )
+                        )
+                        self.next_action_button.setText(
+                            f"Підготувати {local_count}"
+                        )
+                    elif ready_queue:
+                        self._guided_next_action = "ready_queue"
+                        self.next_action_state.setText("ГОТОВО НА ЗАВТРА")
+                        self.next_action_state.setObjectName("StatusGood")
+                        self.next_action_title.setText(
+                            f"Підготовлено {len(ready_queue)} відео"
+                        )
+                        self.next_action_explanation.setText(
+                            "Безпечна квота зараз у резерві. "
+                            "Черга вже готова і може чекати наступного квотного дня."
+                        )
+                        self.next_action_button.setText("Переглянути чергу")
+                    else:
+                        queued_comments = int(
+                            self.conn.execute(
+                                """SELECT COUNT(*) FROM comments c
+                                   JOIN videos v ON v.video_id=c.video_id
+                                   WHERE v.profile=? AND c.status='new'""",
+                                (profile,),
+                            ).fetchone()[0]
+                        )
+                        if queued_comments:
+                            self._guided_next_action = "comments"
+                            self.next_action_state.setText("Є РОБОТА")
+                            self.next_action_state.setObjectName("StatusGood")
+                            self.next_action_title.setText(
+                                f"Перевірити нові коментарі: {queued_comments}"
+                            )
+                            self.next_action_explanation.setText(
+                                "Архівна черга не потребує термінової дії. "
+                                "Можна перейти до коментарів."
+                            )
+                            self.next_action_button.setText("Відкрити коментарі")
+                        else:
+                            self._guided_next_action = "none"
+                            self.next_action_state.setText("ГОТОВО")
+                            self.next_action_state.setObjectName("StatusGood")
+                            self.next_action_title.setText("На зараз обов'язкових дій немає")
+                            self.next_action_explanation.setText(
+                                "Програма не бачить задач, які потребують вашого рішення."
+                            )
+                            self.next_action_button.setText("Оновити стан")
+
+        self.next_action_state.style().unpolish(self.next_action_state)
+        self.next_action_state.style().polish(self.next_action_state)
+
+    def _run_guided_next_action(self) -> None:
+        action = getattr(self, "_guided_next_action", "none")
+        if action == "today_stream":
+            self.open_today_stream_optimization()
+        elif action == "review_drafts":
+            if hasattr(self, "optimization_filter"):
+                index = self.optimization_filter.findData("all")
+                if index >= 0:
+                    self.optimization_filter.setCurrentIndex(index)
+            if hasattr(self, "optimization_status_filter"):
+                index = self.optimization_status_filter.findData("draft")
+                if index >= 0:
+                    self.optimization_status_filter.setCurrentIndex(index)
+            self.tabs.setCurrentIndex(2)
+            self.reload_optimization_queue()
+        elif action == "ready_queue":
+            self._open_ready_work_queue()
+        elif action == "prepare_local":
+            self.prepare_zero_quota_batch()
+        elif action == "comments":
+            self.tabs.setCurrentIndex(3)
+        else:
+            self.update_task_center()
+
     def update_task_center(self) -> None:
         if not hasattr(self, "center_scheduled"):
             return
@@ -1504,6 +1735,7 @@ class MainWindow(QMainWindow):
         )
 
         self._refresh_today_stream_card()
+        self._refresh_next_action_card(safe_capacity)
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
         self.center_prepared.set_value(str(ready), "перевірені та готові")
         self.center_comments.set_value(str(queued), "нові / не оброблені")
@@ -1532,7 +1764,7 @@ class MainWindow(QMainWindow):
         remaining_total = safe_remaining + deep_remaining
         days = math.ceil(remaining_total / daily_capacity) if remaining_total else 0
         self.archive_today_note.setText(
-            f"safe: {safe_remaining:,} · deep: {deep_remaining:,} · "
+            f"залишилось опрацювати: {remaining_total:,} · "
             f"застосовано: {applied:,} · прогноз ≈{days} дн."
         )
 
