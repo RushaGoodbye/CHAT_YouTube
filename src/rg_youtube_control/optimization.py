@@ -213,6 +213,7 @@ def is_safe_archive_candidate(issues: list[str] | tuple[str, ...]) -> bool:
     return (
         bool(SAFE_LINK_ISSUES.intersection(issue_set))
         and "latin_title_review" not in issue_set
+        and "invalid_description" not in issue_set
     )
 
 
@@ -626,6 +627,41 @@ def extract_chapters_from_description(
     return body, chapters
 
 
+def youtube_title_errors(title: str) -> tuple[str, ...]:
+    """Validate title against YouTube Data API snippet constraints."""
+    value = title or ""
+    errors: list[str] = []
+    if len(value) > 100:
+        errors.append(
+            f"Назва має {len(value)} символів. YouTube дозволяє не більше 100."
+        )
+    if "<" in value or ">" in value:
+        errors.append("Назва містить заборонені YouTube символи < або >.")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        errors.append("Назва містить некоректну UTF-8 послідовність.")
+    return tuple(errors)
+
+
+def youtube_description_errors(description: str) -> tuple[str, ...]:
+    """Validate description against YouTube Data API snippet constraints."""
+    value = description or ""
+    errors: list[str] = []
+    try:
+        byte_len = len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        byte_len = 0
+        errors.append("Опис містить некоректну UTF-8 послідовність.")
+    if byte_len > 5000:
+        errors.append(
+            f"Опис займає {byte_len} байт. YouTube дозволяє не більше 5000."
+        )
+    if "<" in value or ">" in value:
+        errors.append("Опис містить заборонені YouTube символи < або >.")
+    return tuple(errors)
+
+
 def validate_content_package(
     title: str,
     description: str,
@@ -647,19 +683,15 @@ def validate_content_package(
 
     if not clean_title:
         errors.append("Назва порожня.")
-    elif len(clean_title) > 100:
-        errors.append(
-            f"Назва має {len(clean_title)} символів. YouTube дозволяє не більше 100."
-        )
+    else:
+        errors.extend(youtube_title_errors(clean_title))
 
     if not clean_description:
         errors.append("Опис порожній.")
-    elif len(clean_description) > 5000:
-        errors.append(
-            f"Опис має {len(clean_description)} символів. YouTube дозволяє не більше 5000."
-        )
-    elif len(clean_description) < 250:
-        warnings.append("Опис коротший за 250 символів.")
+    else:
+        errors.extend(youtube_description_errors(clean_description))
+        if len(clean_description) < 250:
+            warnings.append("Опис коротший за 250 символів.")
 
     if PROJECT_LINKS_URL not in clean_description:
         warnings.append("В описі немає актуального посилання проєкту.")
