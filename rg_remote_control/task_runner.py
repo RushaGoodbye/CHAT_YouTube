@@ -10972,6 +10972,35 @@ def inspect_auto_edit_901_censor_group_spans() -> dict:
     return {"path":str(p),"groups":out}
 
 
+
+def inspect_auto_edit_keyframe_support() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={"xml_hits":[],"code_hits":[]}
+    for xp in list(app.glob("*.xml"))+list((app/"901").glob("*.xml")):
+        try:
+            txt=xp.read_text(encoding="utf-8",errors="replace")
+        except Exception:
+            continue
+        low=txt.casefold()
+        if "<keyframe" in low or "<keyframes" in low:
+            i=low.find("<keyframe")
+            out["xml_hits"].append({"file":str(xp),"snippet":txt[max(0,i-2500):i+7000]})
+            if len(out["xml_hits"])>=8: break
+    for fp in app.glob("*.py"):
+        try: rows=fp.read_text(encoding="utf-8",errors="replace").splitlines()
+        except Exception: continue
+        hits=[]
+        for i,line in enumerate(rows):
+            low=line.casefold()
+            if "keyframe" in low and ("audio" in low or "level" in low or "volume" in low or "xml" in low):
+                a=max(0,i-6); b=min(len(rows),i+12)
+                hits.append("\n".join(f"{j+1}: {rows[j]}" for j in range(a,b)))
+                if len(hits)>=15: break
+        if hits: out["code_hits"].append({"file":fp.name,"hits":hits})
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11117,6 +11146,7 @@ ACTIONS = {
     "inspect_auto_edit_901_muted_xml_sample": inspect_auto_edit_901_muted_xml_sample,
     "apply_auto_edit_visible_censor_fix": apply_auto_edit_visible_censor_fix,
     "inspect_auto_edit_901_censor_group_spans": inspect_auto_edit_901_censor_group_spans,
+    "inspect_auto_edit_keyframe_support": inspect_auto_edit_keyframe_support,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
