@@ -4019,6 +4019,26 @@ def inspect_auto_edit_multi_resume_span() -> dict:
 
 
 
+
+def inspect_auto_edit_audio_generator_code() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    needles=("rg-final-mix-L","file-audio","PannerIsInverted","premiereChannelType","sourcetrack","Audio Levels","audiolevels","outputchannelindex")
+    out={}
+    for p in sorted(app.glob("*.py")):
+        try:
+            rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+        except Exception:continue
+        hits=[]
+        for i,line in enumerate(rows):
+            if any(n.lower() in line.lower() for n in needles):
+                a=max(0,i-12);b=min(len(rows),i+28)
+                hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+                if len(hits)>=60:break
+        if hits:out[p.name]=hits
+    return out
+
+
 def inspect_auto_edit_901_audio_outputs() -> dict:
     if os.name != "nt":
         raise RuntimeError("Windows only")
@@ -9869,6 +9889,7 @@ ACTIONS = {
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
+    "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
