@@ -4030,6 +4030,9 @@ class MainWindow(QMainWindow):
         test_auto_btn = QPushButton("Тест: 1 автовідповідь")
         test_auto_btn.clicked.connect(self.test_one_auto_reply)
 
+        export_comments_btn = QPushButton("Експорт для аналізу")
+        export_comments_btn.clicked.connect(self.export_comments_for_analysis)
+
         action_buttons = [
             scan_btn,
             local_reply_batch_btn,
@@ -4041,6 +4044,7 @@ class MainWindow(QMainWindow):
             ignore_btn,
             queue_btn,
             test_auto_btn,
+            export_comments_btn,
         ]
         for index, button in enumerate(action_buttons):
             actions.addWidget(button, index // 5, index % 5)
@@ -12700,6 +12704,138 @@ class MainWindow(QMainWindow):
             7000,
         )
         self._update_optimization_context_card()
+
+    def export_comments_for_analysis(self) -> None:
+        rows = self.conn.execute(
+            """SELECT
+                   c.comment_id,
+                   c.video_id,
+                   v.title AS video_title,
+                   c.parent_id,
+                   c.author,
+                   c.text,
+                   c.published_at,
+                   c.category,
+                   c.status,
+                   c.reply_text,
+                   c.replied_at,
+                   c.draft_state,
+                   c.draft_reason,
+                   c.draft_updated_at,
+                   c.raw_json
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=?
+               ORDER BY c.published_at DESC, c.comment_id DESC""",
+            (self.current_profile,),
+        ).fetchall()
+        if not rows:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Для активного каналу ще немає локально збережених коментарів.",
+            )
+            return
+
+        target_dir = Path.home() / "Downloads"
+        if not target_dir.exists():
+            target_dir = Path.home()
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        safe_profile = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.current_profile)
+        path = target_dir / (
+            f"RG_Comments_Analysis_{safe_profile}_{stamp}.csv"
+        )
+
+        headers = [
+            "comment_id",
+            "video_id",
+            "video_title",
+            "parent_id",
+            "author",
+            "comment_text",
+            "published_at",
+            "category",
+            "status",
+            "draft_state",
+            "draft_reason",
+            "draft_text",
+            "draft_updated_at",
+            "replied_at",
+            "moderation_status",
+            "like_count",
+            "viewer_rating",
+            "total_reply_count",
+            "raw_json",
+        ]
+
+        with path.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.writer(fh, delimiter=";")
+            writer.writerow(headers)
+            for row in rows:
+                raw_text = str(row["raw_json"] or "{}")
+                moderation_status = ""
+                like_count = ""
+                viewer_rating = ""
+                total_reply_count = ""
+                try:
+                    raw = json.loads(raw_text)
+                    thread_snippet = raw.get("snippet", {}) or {}
+                    total_reply_count = thread_snippet.get(
+                        "totalReplyCount", ""
+                    )
+                    top = thread_snippet.get("topLevelComment", {}) or {}
+                    snippet = top.get("snippet", {}) or {}
+                    moderation_status = snippet.get("moderationStatus", "")
+                    like_count = snippet.get("likeCount", "")
+                    viewer_rating = snippet.get("viewerRating", "")
+                except Exception:
+                    pass
+
+                writer.writerow(
+                    [
+                        str(row["comment_id"] or ""),
+                        str(row["video_id"] or ""),
+                        str(row["video_title"] or ""),
+                        str(row["parent_id"] or ""),
+                        str(row["author"] or ""),
+                        str(row["text"] or ""),
+                        str(row["published_at"] or ""),
+                        str(row["category"] or ""),
+                        str(row["status"] or ""),
+                        str(row["draft_state"] or ""),
+                        str(row["draft_reason"] or ""),
+                        str(row["reply_text"] or ""),
+                        str(row["draft_updated_at"] or ""),
+                        str(row["replied_at"] or ""),
+                        str(moderation_status or ""),
+                        str(like_count if like_count is not None else ""),
+                        str(viewer_rating or ""),
+                        str(
+                            total_reply_count
+                            if total_reply_count is not None
+                            else ""
+                        ),
+                        raw_text,
+                    ]
+                )
+
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="коментарі",
+            action="Експорт коментарів для аналізу",
+            details=f"{len(rows)} рядків: {path}",
+        )
+        QMessageBox.information(
+            self,
+            "Експорт завершено",
+            f"Експортовано коментарів: {len(rows)}.\n\n"
+            f"Файл:\n{path}\n\n"
+            "YouTube API: 0 квоти.",
+        )
+        self.statusBar().showMessage(
+            f"Експортовано {len(rows)} коментарів · YouTube API: 0"
+        )
 
     def local_comment_reply_selected(self) -> None:
         row = self.comment_table.currentRow()
