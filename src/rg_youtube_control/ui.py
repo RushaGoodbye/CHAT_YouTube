@@ -5049,32 +5049,95 @@ class MainWindow(QMainWindow):
                 return
             self._error("Помилка YouTube Analytics", exc)
 
+    @staticmethod
+    def _is_diagnostic_log_row(row) -> bool:
+        category = str(row["category"] or "").casefold()
+        action = str(row["action"] or "").casefold()
+        details = str(row["details"] or "").casefold()
+        technical_categories = {
+            "діагностика", "локально", "система", "api",
+        }
+        technical_tokens = (
+            "помилка", "error", "failed", "traceback", "sqlite",
+            "timeout", "403", "quotaexceeded", "thread", "exception",
+        )
+        return (
+            category in technical_categories
+            and any(token in (action + " " + details) for token in technical_tokens)
+        )
+
+    @staticmethod
+    def _diagnostic_family(row) -> str:
+        text = (
+            str(row["action"] or "") + " " + str(row["details"] or "")
+        ).casefold()
+        for token, family in (
+            ("sqlite objects created in a thread", "SQLite / потоки"),
+            ("немає транскрипту", "Транскрипт недоступний"),
+            ("transcript", "Транскрипт"),
+            ("quotaexceeded", "Квота YouTube"),
+            ("403", "YouTube 403"),
+            ("timeout", "Timeout"),
+            ("timed out", "Timeout"),
+            ("ollama", "Ollama"),
+        ):
+            if token in text:
+                return family
+        return str(row["action"] or "Технічна помилка")[:80]
+
     def _build_log_tab(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
+
         controls = QHBoxLayout()
-        refresh_btn = QPushButton("Оновити журнал")
+        refresh_btn = QPushButton("Оновити")
         refresh_btn.clicked.connect(self.reload_action_log)
         controls.addWidget(refresh_btn)
-        controls.addWidget(
-            QLabel("Показуються останні дії для активного каналу.")
+        hint = QLabel(
+            "«Робота» показує зрозумілі дії. Технічні помилки зібрані окремо."
         )
+        hint.setProperty("muted", True)
+        controls.addWidget(hint)
         controls.addStretch()
+        layout.addLayout(controls)
 
+        self.log_sections = QTabWidget()
+
+        work_page = QWidget()
+        work_layout = QVBoxLayout(work_page)
+        work_layout.setContentsMargins(0, 0, 0, 0)
         self.action_log_table = QTableWidget(0, 4)
         self.action_log_table.setHorizontalHeaderLabels(
             ["Час", "Категорія", "Дія", "Деталі"]
         )
-        header = self.action_log_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
+        work_header = self.action_log_table.horizontalHeader()
+        work_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        work_header.setStretchLastSection(True)
         self.action_log_table.setColumnWidth(0, 180)
         self.action_log_table.setColumnWidth(1, 130)
-        self.action_log_table.setColumnWidth(2, 220)
+        self.action_log_table.setColumnWidth(2, 240)
         self._configure_table(self.action_log_table)
+        work_layout.addWidget(self.action_log_table)
+        self.log_sections.addTab(work_page, "Робота")
 
-        layout.addLayout(controls)
-        layout.addWidget(self.action_log_table)
+        diagnostic_page = QWidget()
+        diagnostic_layout = QVBoxLayout(diagnostic_page)
+        diagnostic_layout.setContentsMargins(0, 0, 0, 0)
+        self.diagnostic_log_table = QTableWidget(0, 4)
+        self.diagnostic_log_table.setHorizontalHeaderLabels(
+            ["Остання подія", "Тип", "Кількість", "Деталі"]
+        )
+        diagnostic_header = self.diagnostic_log_table.horizontalHeader()
+        diagnostic_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        diagnostic_header.setStretchLastSection(True)
+        self.diagnostic_log_table.setColumnWidth(0, 180)
+        self.diagnostic_log_table.setColumnWidth(1, 220)
+        self.diagnostic_log_table.setColumnWidth(2, 90)
+        self._configure_table(self.diagnostic_log_table)
+        diagnostic_layout.addWidget(self.diagnostic_log_table)
+        self.log_sections.addTab(diagnostic_page, "Діагностика")
+
+        layout.addWidget(self.log_sections)
         self.tabs.addTab(page, "Журнал")
 
     def reload_action_log(self) -> None:
@@ -5083,10 +5146,15 @@ class MainWindow(QMainWindow):
         rows = recent_action_log(
             self.conn,
             profile=self.current_profile,
-            limit=250,
+            limit=500,
         )
-        self.action_log_table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
+
+        work_rows = [
+            row for row in rows
+            if not self._is_diagnostic_log_row(row)
+        ]
+        self.action_log_table.setRowCount(len(work_rows))
+        for index, row in enumerate(work_rows):
             created = str(row["created_at"] or "")
             try:
                 dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
@@ -5103,6 +5171,52 @@ class MainWindow(QMainWindow):
                 self.action_log_table.setItem(
                     index, column, QTableWidgetItem(value)
                 )
+
+        groups: dict[str, dict[str, object]] = {}
+        for row in rows:
+            if not self._is_diagnostic_log_row(row):
+                continue
+            family = self._diagnostic_family(row)
+            group = groups.setdefault(
+                family,
+                {
+                    "count": 0,
+                    "created_at": str(row["created_at"] or ""),
+                    "details": str(row["details"] or ""),
+                },
+            )
+            group["count"] = int(group["count"]) + 1
+
+        diagnostic_rows = list(groups.items())
+        self.diagnostic_log_table.setRowCount(len(diagnostic_rows))
+        for index, (family, info) in enumerate(diagnostic_rows):
+            created = str(info["created_at"] or "")
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                created = dt.astimezone().strftime("%d.%m.%Y %H:%M:%S")
+            except Exception:
+                pass
+            values = [
+                created,
+                family,
+                f"×{int(info['count'])}",
+                str(info["details"] or ""),
+            ]
+            for column, value in enumerate(values):
+                self.diagnostic_log_table.setItem(
+                    index, column, QTableWidgetItem(value)
+                )
+
+        self.log_sections.setTabText(
+            0,
+            f"Робота ({len(work_rows)})" if work_rows else "Робота",
+        )
+        self.log_sections.setTabText(
+            1,
+            f"Діагностика ({len(diagnostic_rows)})"
+            if diagnostic_rows
+            else "Діагностика",
+        )
 
     def _build_settings_tab(self) -> None:
         page = QWidget()
