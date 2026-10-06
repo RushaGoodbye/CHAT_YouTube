@@ -72,6 +72,30 @@ def sync_bundle() -> dict:
     return {"ok": copied > 0, "copied": copied}
 
 
+def sync_bundle_if_changed() -> dict:
+    nas_manifest = NAS_ROOT / "BUNDLE" / "bundle_manifest.json"
+    local_manifest = LOCAL_STATE / "bundle_manifest.json"
+    try:
+        nas_text = nas_manifest.read_text(encoding="utf-8", errors="replace") if nas_manifest.is_file() else ""
+    except Exception:
+        nas_text = ""
+    try:
+        local_text = local_manifest.read_text(encoding="utf-8", errors="replace") if local_manifest.is_file() else ""
+    except Exception:
+        local_text = ""
+
+    cache_ready = (LOCAL_CACHE / "rg_remote_control" / "task_runner.py").is_file()
+    if nas_text and nas_text == local_text and cache_ready:
+        return {"ok": True, "changed": False}
+
+    result = sync_bundle()
+    if result.get("ok") and nas_text:
+        LOCAL_STATE.mkdir(parents=True, exist_ok=True)
+        local_manifest.write_text(nas_text, encoding="utf-8")
+    result["changed"] = True
+    return result
+
+
 def allowed(contour: str, action: str) -> bool:
     if contour == "youtube":
         return action.startswith("youtube_")
@@ -111,6 +135,7 @@ def process_request(path: Path, contour: str) -> dict:
     if not isinstance(args, dict):
         raise RuntimeError("args must be an object")
 
+    sync_bundle_if_changed()
     handler = resolve_handler(contour, action)
     if not handler.is_file():
         sync_bundle()
@@ -187,7 +212,7 @@ def claim(path: Path, processing_dir: Path) -> Path | None:
 
 def run_loop() -> None:
     ensure_dirs()
-    sync_bundle()
+    sync_bundle_if_changed()
     last_heartbeat = 0.0
     write_status("ready")
 
