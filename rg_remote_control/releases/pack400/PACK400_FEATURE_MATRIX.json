@@ -1,0 +1,212 @@
+{
+  "schema": "RG_PACK400_FEATURE_MATRIX_V1",
+  "version": "0.20.8.0",
+  "coverage": {
+    "from": 1,
+    "to": 50,
+    "count": 50
+  },
+  "note": "PACK400 combines new productivity patches with existing production capabilities already present in current Studio/PACK300-312.",
+  "features": [
+    {
+      "id": 1,
+      "status": "COVERED"
+    },
+    {
+      "id": 2,
+      "status": "COVERED"
+    },
+    {
+      "id": 3,
+      "status": "COVERED"
+    },
+    {
+      "id": 4,
+      "status": "COVERED"
+    },
+    {
+      "id": 5,
+      "status": "COVERED"
+    },
+    {
+      "id": 6,
+      "status": "COVERED"
+    },
+    {
+      "id": 7,
+      "status": "COVERED"
+    },
+    {
+      "id": 8,
+      "status": "COVERED"
+    },
+    {
+      "id": 9,
+      "status": "COVERED"
+    },
+    {
+      "id": 10,
+      "status": "COVERED"
+    },
+    {
+      "id": 11,
+      "status": "COVERED"
+    },
+    {
+      "id": 12,
+      "status": "COVERED"
+    },
+    {
+      "id": 13,
+      "status": "COVERED"
+    },
+    {
+      "id": 14,
+      "status": "COVERED"
+    },
+    {
+      "id": 15,
+      "status": "COVERED"
+    },
+    {
+      "id": 16,
+      "status": "COVERED"
+    },
+    {
+      "id": 17,
+      "status": "COVERED"
+    },
+    {
+      "id": 18,
+      "status": "COVERED"
+    },
+    {
+      "id": 19,
+      "status": "COVERED"
+    },
+    {
+      "id": 20,
+      "status": "COVERED"
+    },
+    {
+      "id": 21,
+      "status": "COVERED"
+    },
+    {
+      "id": 22,
+      "status": "COVERED"
+    },
+    {
+      "id": 23,
+      "status": "COVERED"
+    },
+    {
+      "id": 24,
+      "status": "COVERED"
+    },
+    {
+      "id": 25,
+      "status": "COVERED"
+    },
+    {
+      "id": 26,
+      "status": "COVERED"
+    },
+    {
+      "id": 27,
+      "status": "COVERED"
+    },
+    {
+      "id": 28,
+      "status": "COVERED"
+    },
+    {
+      "id": 29,
+      "status": "COVERED"
+    },
+    {
+      "id": 30,
+      "status": "COVERED"
+    },
+    {
+      "id": 31,
+      "status": "COVERED"
+    },
+    {
+      "id": 32,
+      "status": "COVERED"
+    },
+    {
+      "id": 33,
+      "status": "COVERED"
+    },
+    {
+      "id": 34,
+      "status": "COVERED"
+    },
+    {
+      "id": 35,
+      "status": "COVERED"
+    },
+    {
+      "id": 36,
+      "status": "COVERED"
+    },
+    {
+      "id": 37,
+      "status": "COVERED"
+    },
+    {
+      "id": 38,
+      "status": "COVERED"
+    },
+    {
+      "id": 39,
+      "status": "COVERED"
+    },
+    {
+      "id": 40,
+      "status": "COVERED"
+    },
+    {
+      "id": 41,
+      "status": "COVERED"
+    },
+    {
+      "id": 42,
+      "status": "COVERED"
+    },
+    {
+      "id": 43,
+      "status": "COVERED"
+    },
+    {
+      "id": 44,
+      "status": "COVERED"
+    },
+    {
+      "id": 45,
+      "status": "COVERED"
+    },
+    {
+      "id": 46,
+      "status": "COVERED"
+    },
+    {
+      "id": 47,
+      "status": "COVERED"
+    },
+    {
+      "id": 48,
+      "status": "COVERED"
+    },
+    {
+      "id": 49,
+      "status": "COVERED"
+    },
+    {
+      "id": 50,
+      "status": "COVERED"
+    }
+  ]
+}
