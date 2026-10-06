@@ -10700,6 +10700,46 @@ def inspect_auto_edit_censor_pipeline_backup_span() -> dict:
     return {"candidates":rows}
 
 
+
+def inspect_auto_edit_901_muted_xml_sample() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\901\RG_EDITED_901_1.xml")
+    root=ET.parse(p).getroot()
+    seq=root.find(".//sequence")
+    out={"path":str(p),"samples":[]}
+    for ti,tr in enumerate(seq.findall("./media/audio/track"),1):
+        clips=tr.findall("./clipitem")
+        for idx,c in enumerate(clips):
+            en=(c.findtext("enabled") or "").strip().upper()
+            gain96=False
+            for par in c.findall("./filter/effect/parameter"):
+                try:
+                    v=float((par.findtext("value") or "nan").strip())
+                except Exception:
+                    continue
+                key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                if "gain" in key and v<=-90:
+                    gain96=True
+            if en=="FALSE" or gain96:
+                rows=[]
+                for j in range(max(0,idx-1),min(len(clips),idx+2)):
+                    rows.append({
+                      "index":j+1,
+                      "id":clips[j].get("id"),
+                      "start":clips[j].findtext("start"),
+                      "end":clips[j].findtext("end"),
+                      "in":clips[j].findtext("in"),
+                      "out":clips[j].findtext("out"),
+                      "enabled":clips[j].findtext("enabled"),
+                      "xml":ET.tostring(clips[j],encoding="unicode")[:14000],
+                    })
+                out["samples"].append({"track":ti,"clip_index":idx+1,"rows":rows})
+                if len(out["samples"])>=4:
+                    return out
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10842,6 +10882,7 @@ ACTIONS = {
     "inspect_auto_edit_901_link_samples": inspect_auto_edit_901_link_samples,
     "apply_auto_edit_censor_avlink_hotfix": apply_auto_edit_censor_avlink_hotfix,
     "inspect_auto_edit_censor_pipeline_backup_span": inspect_auto_edit_censor_pipeline_backup_span,
+    "inspect_auto_edit_901_muted_xml_sample": inspect_auto_edit_901_muted_xml_sample,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
