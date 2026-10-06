@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_identity_refiner",
+  "action": "apply_auto_edit_identity_local_scan_cap_hotfix",
   "args": {},
-  "nonce": "inspect-identity-refiner-20261006-6"
+  "nonce": "apply-identity-local-scan-cap-20261006-7"
 }
