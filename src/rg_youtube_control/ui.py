@@ -10051,7 +10051,9 @@ class MainWindow(QMainWindow):
     def _run_local_tool(self, label: str, func, on_success) -> None:
         worker = getattr(self, "_local_tool_worker", None)
         if worker is not None and worker.isRunning():
-            self._toast("Локальний інструмент уже виконує інше завдання")
+            message = "Локальний інструмент уже виконує інше завдання."
+            self._toast(message)
+            QMessageBox.information(self, APP_NAME, message)
             return
 
         self._last_local_task = (label, func, on_success)
@@ -10119,9 +10121,15 @@ class MainWindow(QMainWindow):
                 profile=self.current_profile,
                 category="локально",
                 action="Помилка локального інструмента",
-                details=f"{label}: {message[:400]}",
+                details=f"{label}: {message[:700]}",
             )
+            self.reload_action_log()
             self.update_task_center()
+            QMessageBox.critical(
+                self,
+                "Помилка локального інструмента",
+                f"{label}\n\n{message}",
+            )
 
         def cleanup() -> None:
             self._local_tool_worker = None
@@ -10413,6 +10421,17 @@ class MainWindow(QMainWindow):
                 "attempted": attempted,
             }
 
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="SEO-чернетка batch · старт",
+            details=(
+                f"запитано {limit}; кандидатів {len(candidate_ids)}; "
+                f"макс. спроб {max_attempts}"
+            ),
+        )
+        self.reload_action_log()
         self._run_local_tool(
             f"SEO-чернетки x{limit} (0 квоти)",
             task,
@@ -10509,6 +10528,19 @@ class MainWindow(QMainWindow):
                 "\n\nПричини перших пропусків:\n"
                 + "\n".join(reason_lines)
             )
+
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="SEO-чернетка batch · результат",
+            details=(
+                f"створено {saved}; пропущено {len(failures)}; "
+                f"спроб {int(result.get('attempted') or len(prepared) + len(skipped))}; "
+                "YouTube API 0"
+            ),
+        )
+        self.reload_action_log()
 
         QMessageBox.information(
             self,
