@@ -770,8 +770,19 @@ def inspect_resilience_runtime() -> dict:
             "failover_heartbeat": safe_text(STATE / "failover_heartbeat_at"),
             "control_center": safe_text(STATE / "RG_CONTROL_CENTER.json"),
             "autodeploy_loop_exists": auto_loop.is_file(),
+            "autodeploy_loop": safe_text(auto_loop, 16000),
             "tick_exists": tick.is_file(),
+            "tick": safe_text(tick, 20000),
+            "auto_deploy_log": safe_text(STATE / "auto-deploy.log", 20000),
         },
+        "nas_ssh_runtime": run([
+            r"C:\Windows\System32\OpenSSH\ssh.exe",
+            "-o","BatchMode=yes","-o","ConnectTimeout=5","-o","StrictHostKeyChecking=yes",
+            "AlexLosServer",
+            "sh","-lc",
+            "ps w | grep -E 'RG_NAS_(AUTODEPLOY_LOOP|MCP_TICK)' | grep -v grep || true; "
+            "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'rg-nas-mcp|rg-mcp-' || true"
+        ], timeout=15),
     }
 
 
