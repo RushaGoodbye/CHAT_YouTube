@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_anchor_sequence",
+  "action": "inspect_auto_edit_one_button_boundary_gate",
   "args": {},
-  "nonce": "inspect-901-anchor-sequence-20261006-4"
+  "nonce": "inspect-one-button-boundary-gate-20261006-5"
 }
