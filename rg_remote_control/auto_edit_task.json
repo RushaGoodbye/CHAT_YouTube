@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_multi_resume_span",
+  "action": "apply_auto_edit_resume_protection_hotfix",
   "args": {},
-  "nonce": "inspect-resume-span-901-20261006-2"
+  "nonce": "apply-resume-protect-901-20261006-1"
 }
