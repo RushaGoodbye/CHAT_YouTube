@@ -242,3 +242,31 @@ def test_specific_shoigu_tags_beat_generic_model_words() -> None:
     assert _tag_is_grounded("план", title, transcript) is False
     assert _tag_is_grounded("стратегия", title, transcript) is False
     assert _tag_is_grounded("Шойгу", title, transcript) is True
+
+
+def test_fast_mode_reuses_current_title_when_model_omits_title(monkeypatch):
+    from rg_youtube_control import free_tools
+
+    monkeypatch.setattr(
+        free_tools,
+        "ollama_chat",
+        lambda *args, **kwargs: (
+            '{"title":"","title_variants":["Вариант 1","Вариант 2","Вариант 3"],'
+            '"description":"У цьому випуску чат-рулетки росіяни обговорюють бензин у Росії. '
+            'Співрозмовники говорять про ціни на пальне, ситуацію на АЗС та власний досвід. '
+            'У розмові звучать різні оцінки причин дефіциту й вартості пального. '
+            'Позиції учасників відрізняються, тому відео показує кілька поглядів на тему.",'
+            '"tags":["РАША ГУДБАЙ","чат рулетка","Россия","россияне","мнение россиян",'
+            '"вопросы россиянам","бензин в России","цены в России"],"chapters":""}'
+        ),
+    )
+
+    result = free_tools.generate_seo_package_local(
+        current_title="Хотел доказать, что бензин есть - и передумал",
+        transcript="[00:00] бензин в России и цены на АЗС",
+        public_context={},
+        fast_mode=True,
+        timeout=1,
+    )
+
+    assert result["title"] == "Хотел доказать, что бензин есть - и передумал"
