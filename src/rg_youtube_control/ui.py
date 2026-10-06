@@ -173,6 +173,7 @@ from .service import (
 )
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
+from .windows_runtime import powershell_status
 from .updater import (
     UpdateInfo,
     check_for_update,
@@ -6016,12 +6017,19 @@ class MainWindow(QMainWindow):
         tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
         ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
         model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
+        ps = powershell_status()
+        ps_label = (
+            f"OK {ps.get('version') or ''}".strip()
+            if ps.get("available")
+            else "недоступний"
+        )
         lines = [
             f"NAS: {nas_state}",
             f"Шлях транскриптів: {nas_path}",
             f"yt-dlp: {'OK' if yt.get('available') else '—'}",
             f"Transcript: {'OK' if tr.get('available') else '—'}",
             f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"PowerShell (вбудований): {ps_label}",
             f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
             (
                 "YouTube API: "
