@@ -12009,6 +12009,63 @@ def inspect_auto_edit_update_install_state() -> dict:
 
 
 
+def inspect_auto_edit_ui_freeze_runtime() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={"processes":[],"ui_init":{},"timers":[]}
+    try:
+        import psutil
+        rows=[]
+        for p in psutil.process_iter(["pid","ppid","name","exe","cmdline","memory_info","num_threads","create_time"]):
+            try:
+                info=p.info
+                cmd=" ".join(info.get("cmdline") or [])
+                name=str(info.get("name") or "")
+                exe=str(info.get("exe") or "")
+                low=(name+" "+exe+" "+cmd).casefold()
+                if not any(x in low for x in ("rg auto edit","rg_auto_edit","rg_studio_main.py","rg_studio_ui.py")):
+                    continue
+                cpu0=p.cpu_times()
+                rows.append((p,info,cmd,cpu0))
+            except Exception:pass
+        time.sleep(1.5)
+        for p,info,cmd,cpu0 in rows:
+            try:
+                cpu1=p.cpu_times()
+                mem=info.get("memory_info")
+                out["processes"].append({
+                    "pid":p.pid,"ppid":p.ppid(),"name":info.get("name"),"exe":info.get("exe"),"cmdline":cmd,
+                    "cpu_seconds_delta":round((cpu1.user+cpu1.system)-(cpu0.user+cpu0.system),3),
+                    "rss_mb":round((mem.rss if mem else 0)/1048576,1),
+                    "threads":p.num_threads(),"status":p.status(),
+                    "children":[{"pid":c.pid,"name":c.name(),"cmdline":" ".join(c.cmdline())} for c in p.children(recursive=False)]
+                })
+            except Exception as exc:
+                out["processes"].append({"pid":getattr(p,"pid",0),"error":repr(exc)})
+    except Exception as exc:
+        out["psutil_error"]=repr(exc)
+    ui=app/"rg_studio_ui.py"
+    if ui.is_file():
+        src=ui.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        import ast
+        try:
+            tree=ast.parse(src)
+            for node in ast.walk(tree):
+                if isinstance(node,ast.ClassDef) and node.name=="StudioWindow":
+                    for sub in node.body:
+                        if isinstance(sub,(ast.FunctionDef,ast.AsyncFunctionDef)) and sub.name=="__init__":
+                            a=max(0,sub.lineno-1);b=min(len(rows),getattr(sub,"end_lineno",sub.lineno))
+                            out["ui_init"]={"start":a+1,"end":b,"source":"\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))}
+                            break
+        except Exception as exc:out["ui_init_error"]=repr(exc)
+        for i,line in enumerate(rows):
+            if "QTimer" in line or ".start(" in line and ("timer" in line.casefold() or "Timer" in line):
+                a=max(0,i-3);b=min(len(rows),i+5)
+                out["timers"].append({"line":i+1,"snippet":"\n".join(f"{k+1}: {rows[k]}" for k in range(a,b))})
+    return out
+
+
 def inspect_auto_edit_updater_state() -> dict:
     if os.name!="nt":
         raise RuntimeError("Windows only")
@@ -13026,6 +13083,7 @@ ACTIONS = {
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
     "inspect_auto_edit_updater_state": inspect_auto_edit_updater_state,
+    "inspect_auto_edit_ui_freeze_runtime": inspect_auto_edit_ui_freeze_runtime,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
