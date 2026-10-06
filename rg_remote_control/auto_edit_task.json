@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_visible_censor_fix",
+  "action": "inspect_auto_edit_901_censor_group_spans",
   "args": {},
-  "nonce": "apply-visible-censor-20261006-16"
+  "nonce": "inspect-901-censor-groups-20261006-17"
 }
