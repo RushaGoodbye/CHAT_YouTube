@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "install_auto_edit_master60_r1_direct",
+  "action": "inspect_auto_edit_updater_state",
   "args": {},
-  "nonce": "direct-install-master60-r1-after-process-fix-20261006-2343"
+  "nonce": "final-verify-master60-r1-installed-20261006-2344"
 }
