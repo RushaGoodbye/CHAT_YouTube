@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_diagnostic",
+  "action": "inspect_auto_edit_clock_boundary_code",
   "args": {},
-  "nonce": "inspect-901-prod-backend-20261006-1"
+  "nonce": "inspect-901-boundary-fallback-20261006-2"
 }
