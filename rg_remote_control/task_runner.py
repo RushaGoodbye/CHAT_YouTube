@@ -10685,6 +10685,30 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
     }
 
 
+
+def inspect_auto_edit_censor_pipeline_backup_span() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    rows=[]
+    for d in sorted((app/"release_backups").glob("censor_avlink_*"), reverse=True):
+        p=d/"rg_auto_edit_one_button.py"
+        if not p.is_file(): continue
+        txt=p.read_text(encoding="utf-8",errors="replace")
+        ok=True
+        err=None
+        try: compile(txt,str(p),"exec")
+        except Exception as exc: ok=False; err=repr(exc)
+        item={"backup":str(d),"compile":ok,"error":err}
+        if ok:
+            lines=txt.splitlines()
+            a=max(0,1815-1); b=min(len(lines),1885)
+            item["span"]="\n".join(f"{i+1}: {lines[i]}" for i in range(a,b))
+            rows.append(item)
+            break
+        rows.append(item)
+    return {"candidates":rows}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10826,6 +10850,7 @@ ACTIONS = {
     "inspect_auto_edit_901_linkage": inspect_auto_edit_901_linkage,
     "inspect_auto_edit_901_link_samples": inspect_auto_edit_901_link_samples,
     "apply_auto_edit_censor_avlink_hotfix": apply_auto_edit_censor_avlink_hotfix,
+    "inspect_auto_edit_censor_pipeline_backup_span": inspect_auto_edit_censor_pipeline_backup_span,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
