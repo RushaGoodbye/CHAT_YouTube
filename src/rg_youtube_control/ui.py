@@ -12900,10 +12900,20 @@ class MainWindow(QMainWindow):
         if row < 0:
             self.comment_draft_preview.clear()
             return
-        item = self.comment_table.item(row, 6)
-        self.comment_draft_preview.setPlainText(
-            item.text() if item is not None else ""
+        key_item = self.comment_table.item(row, 0)
+        comment_id = (
+            key_item.data(Qt.ItemDataRole.UserRole)
+            if key_item is not None else None
         )
+        if not comment_id:
+            self.comment_draft_preview.clear()
+            return
+        db_row = self.conn.execute(
+            "SELECT reply_text FROM comments WHERE comment_id=?",
+            (str(comment_id),),
+        ).fetchone()
+        text = str(db_row["reply_text"] or "") if db_row is not None else ""
+        self.comment_draft_preview.setPlainText(text)
 
     def reload_comments(self, _index: int = -1) -> None:
         profile = self.current_profile
