@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.6.4 question-only review replies."""
+"""RG YouTube Control package. 0.6.5 comment analysis export."""
 
-__version__ = "0.6.4"
+__version__ = "0.6.5"
