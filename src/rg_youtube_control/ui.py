@@ -269,6 +269,7 @@ COMMENT_STATUS_LABELS = {
     "replied": "відповіли",
     "ignored": "проігноровано",
     "moderation_locked": "модерація YouTube",
+    "moderation_locked": "модерація YouTube",
 }
 
 def _issue_labels(issues: list[str]) -> str:
@@ -12677,25 +12678,64 @@ class MainWindow(QMainWindow):
         key_item = self.comment_table.item(row, 0)
         comment_item = self.comment_table.item(row, 3)
         video_item = self.comment_table.item(row, 1)
-        comment_id = key_item.data(Qt.ItemDataRole.UserRole)
+        comment_id = key_item.data(Qt.ItemDataRole.UserRole) if key_item else None
         comment_text = comment_item.text() if comment_item else ""
         video_title = video_item.text() if video_item else ""
         if not comment_id or not comment_text.strip():
             return
 
+        db_row = self.conn.execute(
+            "SELECT status FROM comments WHERE comment_id=?",
+            (str(comment_id),),
+        ).fetchone()
+        if db_row is None or str(db_row["status"] or "") != "new":
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Локальну чернетку можна створювати лише для опублікованого "
+                "коментаря зі статусом «новий».",
+            )
+            return
+
         def task():
-            return generate_comment_reply_local(
+            return generate_comment_reply_candidate_local(
                 comment_text=comment_text,
                 video_title=video_title,
             )
 
+        def save(candidate: dict) -> None:
+            state = str(candidate.get("state") or "error")
+            reply = str(candidate.get("reply") or "").strip()
+            reason = str(candidate.get("reason") or "")
+            save_comment_draft(
+                self.conn,
+                str(comment_id),
+                reply,
+                state=state,
+                reason=reason,
+            )
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="локально",
+                action="Чернетка відповіді · 0 квоти",
+                details=(
+                    f"{comment_id}: state={state}; reason={reason[:120]}; "
+                    "не відправлено"
+                ),
+            )
+            self.reload_comments()
+            self.reload_action_log()
+            self.statusBar().showMessage(
+                f"Локальна перевірка: {state} · YouTube API: 0"
+            )
+
         self._run_local_tool(
-            "Локальна чернетка відповіді (0 квоти)",
+            "Локальна перевірка відповіді · 0 квоти",
             task,
-            lambda text: self._save_local_comment_reply(
-                str(comment_id), str(text)
-            ),
+            save,
         )
+
 
     def local_comment_reply_batch(self) -> None:
         rows = self.conn.execute(
