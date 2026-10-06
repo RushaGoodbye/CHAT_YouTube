@@ -16,7 +16,7 @@ jobs:
   run:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Validate YouTube contour
         shell: powershell
         run: |
@@ -38,26 +38,11 @@ jobs:
             python rg_remote_control/task_runner.py rg_remote_control/youtube_task.json | Tee-Object -FilePath $resultPath
           }
 
-      - name: Publish latest task result
+      - name: Upload latest task result
         if: always()
-        shell: powershell
-        run: |
-          if (-not (Test-Path "rg_remote_control/results/youtube_task_result.json")) { exit 0 }
-          git config user.name "rg-youtube-runner"
-          git config user.email "actions@users.noreply.github.com"
-          git add "rg_remote_control/results/youtube_task_result.json"
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m "Record latest YouTube task result [skip ci]"
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            git fetch origin main
-            git rebase origin/main
-            if ($LASTEXITCODE -ne 0) {
-              git rebase --abort 2>$null
-              throw "Could not rebase YouTube task result onto origin/main"
-            }
-            git push origin HEAD:main
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Start-Sleep -Seconds (2 * $attempt)
-          }
-          throw "Could not publish YouTube task result after retries"
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-task-result-${{ github.run_id }}
+          path: rg_remote_control/results/youtube_task_result.json
+          if-no-files-found: ignore
+          retention-days: 7
