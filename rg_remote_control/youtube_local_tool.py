@@ -817,6 +817,82 @@ def repair_ollama(task: dict) -> dict:
     }
 
 
+
+def daily_autopilot(task: dict) -> dict:
+    """Run one autonomous daily maintenance cycle without touching scheduled streams."""
+    from rg_youtube_control.db import connect
+    from rg_youtube_control.service import quota_budget_status
+
+    args = task.get("args") or {}
+    rounds = max(1, min(int(args.get("rounds") or 4), 8))
+    per_batch = max(1, min(int(args.get("per_batch") or 50), 50))
+
+    result = {
+        "scheduled_excluded": True,
+        "ollama": None,
+        "zero_quota_repair": None,
+        "safe_batches": [],
+    }
+
+    # Free/local work first.
+    try:
+        result["ollama"] = repair_ollama({
+            "args": {
+                "model": str(args.get("model") or "qwen3:8b"),
+                "allow_pull": bool(args.get("allow_pull", True)),
+            }
+        })
+    except Exception as exc:
+        result["ollama"] = {"error": str(exc)}
+
+    try:
+        result["zero_quota_repair"] = run("apply")
+    except Exception as exc:
+        result["zero_quota_repair"] = {"error": str(exc)}
+
+    # Alternate channels so neither archive starves the other.
+    stop = False
+    for _round in range(rounds):
+        for profile in ("main", "live"):
+            batch_task = {
+                "args": {
+                    "profile": profile,
+                    "max_items": per_batch,
+                }
+            }
+            try:
+                batch = apply_live_archive_safe_batch(batch_task)
+            except Exception as exc:
+                batch = {
+                    "profile": profile,
+                    "changed": 0,
+                    "error": str(exc),
+                }
+            result["safe_batches"].append(batch)
+
+            quota_after = batch.get("quota_after") or batch.get("quota_before") or {}
+            if (
+                batch.get("reason") in {"quota_exhausted", "no_affordable_safe_candidates"}
+                or int(quota_after.get("spendable") or 0) < 53
+            ):
+                stop = True
+                break
+        if stop:
+            break
+
+    conn = connect(_db_path())
+    try:
+        result["quota_after"] = quota_budget_status(conn)
+    finally:
+        conn.close()
+
+    result["changed_total"] = sum(
+        int(item.get("changed") or 0)
+        for item in result["safe_batches"]
+    )
+    return result
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3011,6 +3087,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_daily_autopilot":
+        result = daily_autopilot(task)
     elif action == "youtube_local_repair_ollama":
         result = repair_ollama(task)
     elif action == "youtube_local_apply_live_archive_safe_batch":
