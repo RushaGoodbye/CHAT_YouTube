@@ -754,6 +754,62 @@ def queue_roundtrip(timeout: int = 85) -> dict:
     }
 
 
+
+def youtube_agent_roundtrip(timeout: int = 70) -> dict:
+    base = AGENT_NAS / "youtube"
+    req_root = base / "requests"
+    res_root = base / "results"
+    err_root = base / "errors"
+    req_root.mkdir(parents=True, exist_ok=True)
+    res_root.mkdir(parents=True, exist_ok=True)
+    err_root.mkdir(parents=True, exist_ok=True)
+
+    request_id = uuid.uuid4().hex
+    req = req_root / f"{request_id}.json"
+    result = res_root / f"{request_id}.json"
+    error = err_root / f"{request_id}.json"
+    atomic_json(req, {
+        "request_id": request_id,
+        "action": "youtube_local_runtime_status",
+        "args": {},
+        "timeout_seconds": 180,
+    })
+
+    started = time.time()
+    while time.time() - started < timeout:
+        if smb_is_file(result):
+            try:
+                data = json.loads(smb_read_text(result))
+            except Exception as exc:
+                return {"ok": False, "request_id": request_id, "parse_error": repr(exc)}
+            return {
+                "ok": bool(data.get("ok")),
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "result": data,
+            }
+        if smb_is_file(error) and smb_size(error):
+            try:
+                data = json.loads(smb_read_text(error))
+            except Exception:
+                data = {"raw": smb_read_text(error, 12000)}
+            return {
+                "ok": False,
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "error": data,
+            }
+        time.sleep(1)
+    return {
+        "ok": False,
+        "request_id": request_id,
+        "elapsed_seconds": round(time.time() - started, 1),
+        "timeout": True,
+        "request_still_exists": smb_is_file(req),
+    }
+
+
+
 def agent_roundtrip(timeout: int = 70) -> dict:
     base = AGENT_NAS / "auto_edit"
     req_root = base / "requests"
@@ -985,6 +1041,7 @@ def probe(do_roundtrip: bool = True) -> dict:
         # Primary runtime path. Legacy AUTO_EDIT_CALLS is intentionally excluded:
         # the MCP hub now submits AlexPC work through ALEXPC/<contour> queues.
         out["alexpc_agent_roundtrip"] = agent_roundtrip()
+        out["youtube_agent_roundtrip"] = youtube_agent_roundtrip()
 
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
     agent_info = out.get("alexpc_agent", {})
@@ -1003,7 +1060,12 @@ def probe(do_roundtrip: bool = True) -> dict:
         and guard_state.get("RG_CONTROL_CENTER.json", {}).get("age_seconds", 9999) <= 120
     )
     roundtrip_ok = bool(
-        out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True
+        (
+            out.get("alexpc_agent_roundtrip", {}).get("ok")
+            and out.get("youtube_agent_roundtrip", {}).get("ok")
+        )
+        if do_roundtrip
+        else True
     )
     warnings = []
     if not guard_fresh:
