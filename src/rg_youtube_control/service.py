@@ -558,20 +558,33 @@ def _reply_template_for(
     category: str,
     comment_id: str,
 ) -> str:
-    profile_key = f"reply_template_{profile}_{category}"
-    global_key = f"reply_template_{category}"
-    custom = get_setting(conn, profile_key, "").strip()
-    if not custom:
-        custom = get_setting(conn, global_key, "").strip()
-    default = DEFAULT_REPLY_TEMPLATES[category]
-    # Preserve explicitly edited templates. Otherwise rotate safe built-in
-    # variants deterministically so repeated replies do not look robotic.
-    if custom and custom != default:
-        return custom
-    variants = DEFAULT_REPLY_VARIANTS.get(category, (default,))
+    variants_key = f"reply_template_variants_{profile}_{category}"
+    raw_variants = get_setting(conn, variants_key, "").strip()
+    if raw_variants:
+        variants = tuple(
+            line.strip()
+            for line in raw_variants.splitlines()
+            if line.strip()
+        )
+    else:
+        profile_key = f"reply_template_{profile}_{category}"
+        global_key = f"reply_template_{category}"
+        custom = get_setting(conn, profile_key, "").strip()
+        if not custom:
+            custom = get_setting(conn, global_key, "").strip()
+        default = DEFAULT_REPLY_TEMPLATES[category]
+        if custom and custom != default:
+            variants = (custom,)
+        else:
+            variants = DEFAULT_REPLY_VARIANTS.get(category, (default,))
+
+    if not variants:
+        variants = DEFAULT_REPLY_VARIANTS.get(
+            category,
+            (DEFAULT_REPLY_TEMPLATES[category],),
+        )
     checksum = sum(ord(ch) for ch in str(comment_id))
     return variants[checksum % len(variants)]
-
 
 def _thread_needs_remote_reply_lookup(thread: dict[str, Any]) -> bool:
     total = int(thread.get("snippet", {}).get("totalReplyCount") or 0)
