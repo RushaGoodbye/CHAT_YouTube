@@ -13,6 +13,8 @@ services:
       RG_WORKER_AUTO_EDIT_URL: http://auto-edit-worker:8780
     ports:
       - "127.0.0.1:8765:8765"
+    volumes:
+      - /volume1/docker/RG_NAS_MCP/ALEXPC:/alexpc:rw
     depends_on:
       youtube-worker:
         condition: service_healthy
