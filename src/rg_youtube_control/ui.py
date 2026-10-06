@@ -69,6 +69,7 @@ from .config import (
     normalize_nas_unc_path,
 )
 from .db import (
+    annotate_optimization_draft,
     commit_video_analytics,
     connect,
     database_integrity_cleanup,
@@ -3165,6 +3166,347 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "pipeline_label"):
             self.pipeline_label.setText(pipeline)
+
+    @staticmethod
+    def _looks_ukrainian_description(text: str) -> bool:
+        value = " ".join(str(text or "").casefold().split())
+        if not value:
+            return False
+        ukrainian_signals = (
+            " і ", " та ", " що ", " у ", " цей ", " цьому ",
+            "співрозмов", "розмов", "погляд", "відповід", "Україн".casefold(),
+            "ї", "є", "ґ",
+        )
+        russian_signals = (
+            " в эфире", "рассказал", "подчеркивает", "также ",
+            "заявляет", "представитель", "обсуждается", "участие ",
+            "военных действиях", "последствий",
+        )
+        uk_score = sum(value.count(token) for token in ukrainian_signals)
+        ru_score = sum(value.count(token) for token in russian_signals)
+        return uk_score >= 3 and uk_score >= ru_score
+
+    @staticmethod
+    def _generic_chapters(chapters: str) -> bool:
+        labels = [
+            line.split(" ", 1)[1].strip().casefold()
+            for line in str(chapters or "").splitlines()
+            if re.match(r"^\d{1,2}:\d{2}(?::\d{2})?\s+\S", line.strip())
+            and " " in line.strip()
+        ]
+        if not labels:
+            return False
+        generic = (
+            "вступ", "наступний блок", "основна частина",
+            "фінальна частина", "завершення", "початок",
+        )
+        return all(any(token in label for token in generic) for label in labels)
+
+    def _package_quality_gate(
+        self,
+        *,
+        title: str,
+        description: str,
+        chapters: str,
+        tags: list[str],
+        require_ukrainian: bool = False,
+    ) -> tuple[str, list[str]]:
+        reasons: list[str] = []
+        clean_title = " ".join(str(title or "").split())
+        clean_description = str(description or "").strip()
+        if not clean_title:
+            reasons.append("порожня назва")
+        if len(clean_title) > 100:
+            reasons.append("назва довша за 100 символів")
+        title_fold = clean_title.casefold()
+        if "@russiagoodbye" in title_fold:
+            reasons.append("службовий @handle у назві")
+        if "раша гудбай стрим" in title_fold:
+            reasons.append("старий рекламний хвіст у назві")
+        if require_ukrainian and not self._looks_ukrainian_description(
+            clean_description
+        ):
+            reasons.append("SEO-опис не українською")
+        if self._generic_chapters(chapters):
+            reasons.append("загальні, неінформативні розділи")
+        if len([item for item in tags if str(item).strip()]) < 8:
+            reasons.append("менше 8 корисних тегів")
+        check = validate_content_package(
+            clean_title,
+            clean_description,
+            chapters,
+            tags,
+            [],
+        )
+        reasons.extend(str(item) for item in check.errors)
+        reasons = list(dict.fromkeys(reasons))
+        if reasons:
+            return "blocked", reasons
+        return "safe", []
+
+    def _legacy_draft_count(self) -> int:
+        return int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM optimization_drafts d
+                   JOIN videos v ON v.video_id=d.video_id
+                   WHERE v.profile=? AND d.status='draft'
+                     AND COALESCE(d.generation,'legacy')='legacy'""",
+                (self.current_profile,),
+            ).fetchone()[0]
+        )
+
+    def _discard_all_legacy_drafts(self) -> None:
+        count = self._legacy_draft_count()
+        if not count:
+            self._toast("Старих чернеток немає")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Очистити старі чернетки",
+            f"Видалити старі експериментальні чернетки: {count}?\n\n"
+            "YouTube не буде змінено. Нові пакети можна буде підготувати повторно.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        rows = self.conn.execute(
+            """SELECT d.video_id
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE v.profile=? AND d.status='draft'
+                 AND COALESCE(d.generation,'legacy')='legacy'""",
+            (self.current_profile,),
+        ).fetchall()
+        ids = [str(row["video_id"]) for row in rows]
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            self.conn.execute(
+                f"DELETE FROM optimization_drafts WHERE video_id IN ({placeholders})",
+                ids,
+            )
+            self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="рішення",
+            action="Старі чернетки очищено",
+            details=f"видалено {len(ids)}; YouTube не змінено",
+        )
+        self.reload_optimization_queue()
+        self.reload_action_log()
+        self.update_dashboard()
+        QMessageBox.information(
+            self,
+            "Старі чернетки очищено",
+            f"Видалено: {len(ids)}.\nYouTube не змінено.\n\n"
+            "Наступний крок програма визначить автоматично.",
+        )
+
+    def _draft_review_source(self, draft) -> tuple[str, str, list[str]]:
+        source_title = str(draft["source_title"] or "").strip()
+        source_description = str(draft["source_description"] or "").strip()
+        try:
+            source_tags = [
+                str(item).strip()
+                for item in json.loads(draft["source_tags_json"] or "[]")
+                if str(item).strip()
+            ]
+        except Exception:
+            source_tags = []
+        if source_title or source_description or source_tags:
+            return source_title, source_description, source_tags
+        video_id = str(draft["video_id"])
+        row = self.conn.execute(
+            "SELECT title FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        return (
+            str(row["title"] or "") if row else video_id,
+            "",
+            [],
+        )
+
+    def _review_one_draft_dialog(self, draft, index: int, total: int) -> str:
+        video_id = str(draft["video_id"])
+        before_title, before_description, before_tags = self._draft_review_source(
+            draft
+        )
+        try:
+            after_tags = [
+                str(item).strip()
+                for item in json.loads(draft["tags_json"] or "[]")
+                if str(item).strip()
+            ]
+        except Exception:
+            after_tags = []
+        after_description = compose_description(
+            str(draft["description"] or ""),
+            str(draft["chapters"] or ""),
+        )
+        quality_state = str(draft["quality_state"] or "")
+        quality_reason = str(draft["quality_reason"] or "")
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(
+            f"Перевірка пакета {index}/{total} · {video_id}"
+        )
+        dialog.resize(1180, 760)
+        layout = QVBoxLayout(dialog)
+
+        top = QHBoxLayout()
+        title = QLabel(f"Перевірка {index}/{total}")
+        title.setObjectName("AppTitle")
+        quality = QLabel(
+            "БЕЗПЕЧНО" if quality_state == "safe" else "ПОТРІБНА ПЕРЕВІРКА"
+        )
+        quality.setObjectName(
+            "StatusGood" if quality_state == "safe" else "StatusWarn"
+        )
+        top.addWidget(title)
+        top.addWidget(quality)
+        top.addStretch()
+        layout.addLayout(top)
+
+        if quality_reason:
+            reason = QLabel(quality_reason)
+            reason.setWordWrap(True)
+            reason.setProperty("muted", True)
+            layout.addWidget(reason)
+
+        columns = QHBoxLayout()
+        left = QVBoxLayout()
+        right = QVBoxLayout()
+        left.addWidget(QLabel("ДО"))
+        right.addWidget(QLabel("ПІСЛЯ"))
+
+        before_title_label = QLabel(before_title or "—")
+        before_title_label.setWordWrap(True)
+        after_title_label = QLabel(str(draft["new_title"] or ""))
+        after_title_label.setWordWrap(True)
+        left.addWidget(before_title_label)
+        right.addWidget(after_title_label)
+
+        before_desc = QPlainTextEdit(before_description)
+        before_desc.setReadOnly(True)
+        after_desc = QPlainTextEdit(after_description)
+        after_desc.setReadOnly(True)
+        left.addWidget(before_desc, 1)
+        right.addWidget(after_desc, 1)
+
+        before_tags_box = QPlainTextEdit(", ".join(before_tags) or "—")
+        before_tags_box.setReadOnly(True)
+        before_tags_box.setMaximumHeight(105)
+        after_tags_box = QPlainTextEdit(", ".join(after_tags) or "—")
+        after_tags_box.setReadOnly(True)
+        after_tags_box.setMaximumHeight(105)
+        left.addWidget(before_tags_box)
+        right.addWidget(after_tags_box)
+        columns.addLayout(left, 1)
+        columns.addLayout(right, 1)
+        layout.addLayout(columns, 1)
+
+        actions = QHBoxLayout()
+        accept_btn = QPushButton("Прийняти")
+        accept_btn.setProperty("role", "success")
+        reject_btn = QPushButton("Відхилити")
+        next_btn = QPushButton("Пропустити")
+        stop_btn = QPushButton("Завершити перевірку")
+        accept_btn.clicked.connect(lambda: dialog.done(2))
+        reject_btn.clicked.connect(lambda: dialog.done(3))
+        next_btn.clicked.connect(lambda: dialog.done(4))
+        stop_btn.clicked.connect(lambda: dialog.done(0))
+        actions.addWidget(accept_btn)
+        actions.addWidget(reject_btn)
+        actions.addWidget(next_btn)
+        actions.addStretch()
+        actions.addWidget(stop_btn)
+        layout.addLayout(actions)
+
+        result = dialog.exec()
+        return {
+            2: "accept",
+            3: "reject",
+            4: "skip",
+        }.get(result, "stop")
+
+    def review_draft_queue(self) -> None:
+        rows = self.conn.execute(
+            """SELECT d.*
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE v.profile=? AND d.status='draft'
+                 AND COALESCE(d.generation,'legacy')!='legacy'
+               ORDER BY d.updated_at ASC""",
+            (self.current_profile,),
+        ).fetchall()
+        if not rows:
+            legacy = self._legacy_draft_count()
+            if legacy:
+                self._discard_all_legacy_drafts()
+            else:
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "Пакетів, які очікують перевірки, немає.",
+                )
+            return
+
+        accepted = 0
+        rejected = 0
+        skipped = 0
+        for index, draft in enumerate(rows, start=1):
+            action = self._review_one_draft_dialog(draft, index, len(rows))
+            video_id = str(draft["video_id"])
+            if action == "stop":
+                break
+            if action == "skip":
+                skipped += 1
+                continue
+            if action == "accept":
+                set_optimization_draft_status(self.conn, video_id, "ready")
+                annotate_optimization_draft(
+                    self.conn,
+                    video_id,
+                    quality_state="safe",
+                    quality_reason="Перевірено користувачем",
+                )
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="рішення",
+                    action="Пакет прийнято",
+                    details=f"{video_id}: готово до YouTube",
+                )
+                accepted += 1
+            elif action == "reject":
+                self.conn.execute(
+                    "DELETE FROM optimization_drafts WHERE video_id=?",
+                    (video_id,),
+                )
+                self.conn.commit()
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="рішення",
+                    action="Пакет відхилено",
+                    details=f"{video_id}: YouTube не змінено",
+                )
+                rejected += 1
+
+        self.reload_optimization_queue()
+        self.reload_action_log()
+        self.update_dashboard()
+        QMessageBox.information(
+            self,
+            "Перевірка пакетів завершена",
+            f"Прийнято: {accepted}.\n"
+            f"Відхилено: {rejected}.\n"
+            f"Пропущено: {skipped}.\n"
+            "YouTube ще не змінено.\n\n"
+            "Наступний крок програма визначила на екрані «Сьогодні».",
+        )
 
     def _discard_selected_draft(self) -> None:
         video_id = self._selected_optimization_video_id()
