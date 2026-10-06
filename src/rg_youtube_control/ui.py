@@ -10268,6 +10268,12 @@ class MainWindow(QMainWindow):
             transcript_rows = []
             transcript = ""
 
+        if fast_mode and not transcript.strip():
+            raise RuntimeError(
+                "Для пакетного SEO немає транскрипту для фактчекінгу. "
+                "Кандидат пропущено без створення чернетки."
+            )
+
         if needs_transcript and not transcript.strip():
             raise RuntimeError(
                 "Після очищення старого опису недостатньо змісту, "
