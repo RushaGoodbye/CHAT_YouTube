@@ -562,6 +562,8 @@ class ContentOptimizationDialog(QDialog):
 
 
 class MetricCard(QFrame):
+    clicked = Signal()
+
     def __init__(self, title: str, value: str = "—", parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("MetricCard")
@@ -586,6 +588,11 @@ class MetricCard(QFrame):
     def set_value(self, value: str, note: str = "") -> None:
         self.value_label.setText(value)
         self.note_label.setText(note)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class FrozenColumnsTable(QTableWidget):
@@ -660,6 +667,8 @@ class FrozenColumnsTable(QTableWidget):
 
 
 class ProgressMetricCard(QFrame):
+    clicked = Signal()
+
     def __init__(self, title: str, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("QueueCard")
@@ -699,6 +708,11 @@ class ProgressMetricCard(QFrame):
         self.bar.style().polish(self.bar)
         self.note_label.setText(note)
 
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
@@ -724,6 +738,11 @@ class MainWindow(QMainWindow):
         self.data_dir = app_data_dir()
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
         self.current_profile = get_setting(self.conn, "current_profile", "main")
+        self.advanced_mode = get_setting(
+            self.conn,
+            "ui_advanced_mode",
+            "0",
+        ) == "1"
         self.client = YouTubeClient(profile=self.current_profile)
         self.setStyleSheet(APP_STYLESHEET)
         self.resize(1500, 920)
@@ -772,6 +791,7 @@ class MainWindow(QMainWindow):
                 self.optimization_density,
             )
         self._update_optimization_context_card()
+        self._apply_advanced_mode()
         self.update_dashboard()
         self._refresh_channel_header()
         QTimer.singleShot(1200, self.recover_archive_campaign_state)
@@ -1246,6 +1266,16 @@ class MainWindow(QMainWindow):
         self.center_results = MetricCard("Контроль 7/28/90")
         self.center_quota = ProgressMetricCard("Квота YouTube на сьогодні")
         self.center_vidiq = ProgressMetricCard("vidIQ · AIR Boost")
+
+        self.center_prepared.clicked.connect(self._open_ready_work_queue)
+        self.center_comments.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        self.center_quota.clicked.connect(self.show_quota_planner)
+        for clickable_card in (
+            self.center_prepared,
+            self.center_comments,
+            self.center_quota,
+        ):
+            clickable_card.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.center_scheduled.setVisible(False)
         self.center_results.setVisible(False)
@@ -2778,8 +2808,16 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem("Готові до YouTube", "prepared")
         self.optimization_filter.addItem("Англомовні назви", "latin_titles")
         self.optimization_filter.addItem("Глибока оптимізація", "deep_review")
+        saved_queue_filter = get_setting(
+            self.conn,
+            f"optimization_queue_filter_{self.current_profile}",
+            "all",
+        )
+        saved_queue_index = self.optimization_filter.findData(saved_queue_filter)
+        if saved_queue_index >= 0:
+            self.optimization_filter.setCurrentIndex(saved_queue_index)
         self.optimization_filter.currentIndexChanged.connect(
-            self.reload_optimization_queue
+            self._optimization_view_changed
         )
 
         self.optimization_status_filter = QComboBox()
@@ -2790,20 +2828,38 @@ class MainWindow(QMainWindow):
         self.optimization_status_filter.addItem("Застосовано", "applied")
         self.optimization_status_filter.addItem("Без тегів", "no_tags")
         self.optimization_status_filter.addItem("Низький CTR", "low_ctr")
+        saved_status_filter = get_setting(
+            self.conn,
+            f"optimization_status_filter_{self.current_profile}",
+            "all",
+        )
+        saved_status_index = self.optimization_status_filter.findData(
+            saved_status_filter
+        )
+        if saved_status_index >= 0:
+            self.optimization_status_filter.setCurrentIndex(saved_status_index)
         self.optimization_status_filter.currentIndexChanged.connect(
-            self.reload_optimization_queue
+            self._optimization_view_changed
         )
 
         self.optimization_density = QComboBox()
         self.optimization_density.addItem("Компактно", 28)
         self.optimization_density.addItem("Комфортно", 34)
         self.optimization_density.addItem("Крупно", 42)
-        self.optimization_density.setCurrentIndex(1)
-        self.optimization_density.currentIndexChanged.connect(
-            lambda _i: self._apply_table_density(
-                self.optimization_table,
-                self.optimization_density,
+        saved_density = int(
+            get_setting(
+                self.conn,
+                "optimization_density",
+                "34",
             )
+            or 34
+        )
+        density_index = self.optimization_density.findData(saved_density)
+        self.optimization_density.setCurrentIndex(
+            density_index if density_index >= 0 else 1
+        )
+        self.optimization_density.currentIndexChanged.connect(
+            self._optimization_density_changed
         )
 
         toolbar.addWidget(sync_all_btn)
@@ -3044,7 +3100,7 @@ class MainWindow(QMainWindow):
                 "Відео",
                 "Назва",
                 "Перегляди",
-                "Аудит",
+                "Стан",
                 "Транскрипт",
                 "Етап",
                 "Остання оптимізація",
@@ -3116,6 +3172,59 @@ class MainWindow(QMainWindow):
         layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
 
+
+    def _optimization_view_changed(self, _index: int = -1) -> None:
+        if hasattr(self, "optimization_filter"):
+            set_setting(
+                self.conn,
+                f"optimization_queue_filter_{self.current_profile}",
+                str(self.optimization_filter.currentData() or "all"),
+            )
+        if hasattr(self, "optimization_status_filter"):
+            set_setting(
+                self.conn,
+                f"optimization_status_filter_{self.current_profile}",
+                str(self.optimization_status_filter.currentData() or "all"),
+            )
+        self.reload_optimization_queue()
+
+    def _optimization_density_changed(self, _index: int = -1) -> None:
+        if hasattr(self, "optimization_density"):
+            set_setting(
+                self.conn,
+                "optimization_density",
+                str(int(self.optimization_density.currentData() or 34)),
+            )
+            self._apply_table_density(
+                self.optimization_table,
+                self.optimization_density,
+            )
+
+    def _apply_advanced_mode(self) -> None:
+        advanced = bool(getattr(self, "advanced_mode", False))
+        if hasattr(self, "optimization_table"):
+            self.optimization_table.setColumnHidden(7, not advanced)
+            self.optimization_table.horizontalHeaderItem(6).setText(
+                "Аудит" if advanced else "Стан"
+            )
+        if hasattr(self, "health_labels"):
+            parent = next(iter(self.health_labels.values())).parent()
+            if parent is not None:
+                parent.setVisible(advanced)
+        if hasattr(self, "advanced_mode_box"):
+            self.advanced_mode_box.blockSignals(True)
+            self.advanced_mode_box.setChecked(advanced)
+            self.advanced_mode_box.blockSignals(False)
+        self.reload_optimization_queue()
+
+    def save_advanced_mode_setting(self, state: int) -> None:
+        self.advanced_mode = bool(state)
+        set_setting(
+            self.conn,
+            "ui_advanced_mode",
+            "1" if self.advanced_mode else "0",
+        )
+        self._apply_advanced_mode()
 
     def _set_optimization_queue_filter(self, key: str) -> None:
         if not hasattr(self, "optimization_filter"):
@@ -5472,6 +5581,19 @@ class MainWindow(QMainWindow):
         # Система
         system_page, system_layout = settings_scroll_page()
 
+        ui_card = settings_card(
+            system_layout,
+            "Інтерфейс",
+            "Звичайний режим приховує технічні деталі. "
+            "Розширений режим потрібен лише для діагностики.",
+        )
+        self.advanced_mode_box = QCheckBox("Розширений режим")
+        self.advanced_mode_box.setChecked(self.advanced_mode)
+        self.advanced_mode_box.stateChanged.connect(
+            self.save_advanced_mode_setting
+        )
+        ui_card.addWidget(self.advanced_mode_box)
+
         update_card = settings_card(system_layout, "Версія та оновлення")
         version_row = QHBoxLayout()
         self.version_label.setObjectName("SettingsVersion")
@@ -7687,6 +7809,28 @@ class MainWindow(QMainWindow):
             if hasattr(self, "optimization_status_filter")
             else "all"
         )
+        search_aliases = {
+            "готові": "ready",
+            "готовые": "ready",
+            "готово": "ready",
+            "до youtube": "ready",
+            "чернетки": "draft",
+            "черновики": "draft",
+            "перевірити": "draft",
+            "проверить": "draft",
+            "застосовано": "applied",
+            "применено": "applied",
+            "без тегів": "no_tags",
+            "без тегов": "no_tags",
+            "низький ctr": "low_ctr",
+            "низкий ctr": "low_ctr",
+            "потрібно підготувати": "needs",
+            "нужно подготовить": "needs",
+        }
+        alias_status = search_aliases.get(search_text)
+        if alias_status:
+            status_filter = alias_status
+            search_text = ""
         min_archive_potential = int(
             get_setting(self.conn, "archive_ui_min_potential", "0") or 0
         )
@@ -7696,9 +7840,22 @@ class MainWindow(QMainWindow):
             title_text = str(row["title"] or "")
             video_id = str(row["video_id"] or "")
             issue_text = _issue_labels(issues)
+            draft_key_for_search = str(row["draft_status"] or "")
+            status_search_text = {
+                "draft": "потрібно перевірити чернетки черновики проверить",
+                "ready": "готово готові готовые до youtube",
+                "applied": "застосовано применено",
+                "": "потрібно підготувати нужно подготовить",
+            }.get(draft_key_for_search, "")
             if search_text and not any(
                 search_text in value.casefold()
-                for value in (title_text, video_id, issue_text)
+                for value in (
+                    title_text,
+                    video_id,
+                    issue_text,
+                    status_search_text,
+                    str(row["privacy_status"] or ""),
+                )
             ):
                 continue
             draft_key = str(row["draft_status"] or "")
@@ -7798,7 +7955,15 @@ class MainWindow(QMainWindow):
                 row["video_id"],
                 row["title"],
                 str(row["views"] or 0),
-                str(score),
+                (
+                    str(score)
+                    if self.advanced_mode
+                    else "Добре"
+                    if score >= 100
+                    else "Потрібно покращити"
+                    if score >= 70
+                    else "Критично"
+                ),
                 transcript_status,
                 draft_status,
                 last_optimized,
@@ -7847,6 +8012,10 @@ class MainWindow(QMainWindow):
                     item.setForeground(
                         QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
                     )
+                    item.setToolTip(
+                        f"Внутрішня оцінка: {score}/100"
+                        + (f" · {issue_text}" if issue_text else "")
+                    )
                 elif column == 7 and transcript_status:
                     item.setForeground(QColor(SUCCESS))
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -7880,6 +8049,16 @@ class MainWindow(QMainWindow):
                 self.optimization_table,
                 self.optimization_density,
             )
+        if hasattr(self, "optimization_table"):
+            self.optimization_table.setColumnHidden(
+                7,
+                not bool(getattr(self, "advanced_mode", False)),
+            )
+            header_item = self.optimization_table.horizontalHeaderItem(6)
+            if header_item is not None:
+                header_item.setText(
+                    "Аудит" if self.advanced_mode else "Стан"
+                )
         self._update_optimization_context_card()
         self.update_dashboard()
         self.refresh_archive_dashboard()
