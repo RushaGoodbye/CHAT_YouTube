@@ -60,7 +60,12 @@ try {
     }
 
     $requestPath = Join-Path $requestDir "$requestId.json"
-    $request | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 $requestPath
+    $requestJson = $request | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText(
+        $requestPath,
+        $requestJson + [Environment]::NewLine,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
     Write-Host "REQUESTED control-app-install"
 
     $deadline = (Get-Date).AddMinutes(4)
