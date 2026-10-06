@@ -11052,6 +11052,349 @@ def inspect_auto_edit_901_uncensored_bases() -> dict:
     return {"bases":out}
 
 
+
+def apply_auto_edit_keyframe_censor_v2() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime, hashlib, importlib.util, json, math, py_compile, shutil
+    import xml.etree.ElementTree as ET
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    censor_mod=app/"rg_dialogue_profanity_audio.py"
+    pipeline=app/"rg_auto_edit_one_button.py"
+    linkage=app/"rg_premiere_av_linkage.py"
+    for p in (censor_mod,pipeline,linkage):
+        if not p.is_file():
+            raise FileNotFoundError(p)
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=app/"release_backups"/f"keyframe_censor_v2_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in (censor_mod,pipeline,linkage):
+        shutil.copy2(p,backup/p.name)
+
+    code=censor_mod.read_text(encoding="utf-8",errors="replace")
+    start=code.find("def _apply_events_to_clean_xml(")
+    end=code.find("\ndef apply_to_xml(",start)
+    if start<0 or end<0:
+        raise RuntimeError("profanity apply function anchor not found")
+
+    replacement=r'''def _audio_level_parameter(clip):
+    """Return Premiere/FCP Audio Levels -> Level parameter, creating it if absent."""
+    for eff in clip.findall("./filter/effect"):
+        if (eff.findtext("effectid") or "").strip().casefold()=="audiolevels":
+            for par in eff.findall("./parameter"):
+                pid=(par.findtext("parameterid") or "").strip().casefold()
+                name=(par.findtext("name") or "").strip().casefold()
+                if pid=="level" or name=="level":
+                    return par
+    flt=ET.Element("filter")
+    eff=ET.SubElement(flt,"effect")
+    ET.SubElement(eff,"name").text="Audio Levels"
+    ET.SubElement(eff,"effectid").text="audiolevels"
+    ET.SubElement(eff,"effectcategory").text="audiolevels"
+    ET.SubElement(eff,"effecttype").text="audiolevels"
+    ET.SubElement(eff,"mediatype").text="audio"
+    ET.SubElement(eff,"pproBypass").text="false"
+    par=ET.SubElement(eff,"parameter",{"authoringApp":"PremierePro"})
+    ET.SubElement(par,"parameterid").text="level"
+    ET.SubElement(par,"name").text="Level"
+    ET.SubElement(par,"valuemin").text="0"
+    ET.SubElement(par,"valuemax").text="3.98109"
+    ET.SubElement(par,"value").text="1"
+    insert_at=len(list(clip))
+    for i,ch in enumerate(list(clip)):
+        if ch.tag=="link":
+            insert_at=i
+            break
+    clip.insert(insert_at,flt)
+    return par
+
+
+def _base_level(par):
+    node=par.find("value")
+    if node is not None:
+        try:
+            return max(0.0,min(3.98109,float(node.text or "1")))
+        except Exception:
+            return 1.0
+    kfs=par.findall("./keyframe")
+    if kfs:
+        try:
+            return max(0.0,min(3.98109,float(kfs[0].findtext("value") or "1")))
+        except Exception:
+            pass
+    return 1.0
+
+
+def _merge_frame_intervals(items):
+    xs=sorted((int(a),int(b)) for a,b in items if int(b)>int(a))
+    out=[]
+    for a,b in xs:
+        if not out or a>out[-1][1]:
+            out.append([a,b])
+        else:
+            out[-1][1]=max(out[-1][1],b)
+    return out
+
+
+def _set_level_keyframes(par, duration_frames, intervals):
+    """
+    XMEML Audio Levels keyframes with clip-local frame positions.
+    No audio clip splitting, no media replacement, no source modification.
+    One-frame guard ramps stop interpolation leaking speech at mute boundaries.
+    """
+    duration=max(1,int(duration_frames))
+    base=_base_level(par)
+    existing=par.findall("./keyframe")
+    if existing:
+        raise RuntimeError("Existing Audio Levels keyframes found on RG clean dialogue audio")
+
+    for node in list(par.findall("./value")):
+        par.remove(node)
+
+    merged=_merge_frame_intervals(intervals)
+    points={0:base,duration:base}
+    for a,b in merged:
+        a=max(0,min(duration,int(a)))
+        b=max(a+1,min(duration,int(b)))
+        pre=max(0,a-1)
+        post=min(duration,b+1)
+        if pre<a:
+            points[pre]=base
+        points[a]=0.0
+        points[b]=0.0
+        if post>b:
+            points[post]=base
+
+    for when in sorted(points):
+        k=ET.SubElement(par,"keyframe")
+        ET.SubElement(k,"when").text=str(int(when))
+        val=points[when]
+        ET.SubElement(k,"value").text=("0" if abs(val)<1e-12 else ("1" if abs(val-1.0)<1e-12 else f"{val:.6f}".rstrip("0").rstrip(".")))
+    return len(merged),len(points)
+
+
+def _apply_events_to_clean_xml(xml_path, mapped_events, *, mute_db=DEFAULT_MUTE_DB, fps=30):
+    """
+    RG_DIALOGUE_PROFANITY_AUDIO_V2_KEYFRAMES.
+    Keep A1/A2 clip structure untouched. Trusted profanity intervals become
+    native Audio Levels keyframes inside existing audio clipitems.
+    """
+    tree=ET.parse(xml_path)
+    seq=tree.getroot().find(".//sequence")
+    if seq is None:
+        raise RuntimeError("Premiere XML has no sequence node for profanity censor")
+    tracks=seq.findall("./media/audio/track")
+    if not tracks:
+        raise RuntimeError("Premiere XML has no audio tracks")
+
+    fps=max(1,int(fps))
+    event_rows=[]
+    affected_clips=0
+    affected_intervals=0
+    total_keyframes=0
+
+    global_intervals=[]
+    for ev in mapped_events:
+        try:
+            a=float(ev.get("start",0.0))
+            b=float(ev.get("end",a))
+        except Exception:
+            continue
+        sf=int(math.floor(a*fps))-1
+        ef=int(math.ceil(b*fps))+1
+        if ef<=sf:
+            ef=sf+1
+        global_intervals.append((sf,ef,ev))
+
+    for track_index,tr in enumerate(tracks[:2],1):
+        for clip in tr.findall("./clipitem"):
+            try:
+                cs=int(float(clip.findtext("start") or "0"))
+                ce=int(float(clip.findtext("end") or "0"))
+            except Exception:
+                continue
+            if ce<=cs:
+                continue
+            local=[]
+            events_here=[]
+            for sf,ef,ev in global_intervals:
+                a=max(cs,sf); b=min(ce,ef)
+                if b<=a:
+                    continue
+                local.append((a-cs,b-cs))
+                events_here.append(ev)
+            if not local:
+                continue
+
+            par=_audio_level_parameter(clip)
+            mute_count,kf_count=_set_level_keyframes(par,ce-cs,local)
+            affected_clips+=1
+            affected_intervals+=mute_count
+            total_keyframes+=kf_count
+            event_rows.append({
+                "track":track_index,
+                "clip_id":clip.get("id"),
+                "clip_start_frame":cs,
+                "clip_end_frame":ce,
+                "mute_intervals":[[int(a),int(b)] for a,b in _merge_frame_intervals(local)],
+                "event_ids":sorted({str(e.get("id")) for e in events_here if e.get("id")}),
+                "keyframes":kf_count,
+            })
+
+    _write_xmeml(tree,xml_path)
+    return {
+        "event_rows":event_rows,
+        "muted_channel_clips":affected_clips,
+        "muted_interval_count":affected_intervals,
+        "keyframe_count":total_keyframes,
+        "censor_method":"AUDIO_LEVELS_KEYFRAMES_NO_AUDIO_SPLITS",
+        "restored_file_definitions":[],
+        "restored_file_definition_count":0,
+        "continuity":{
+            "passed":True,
+            "reason":"NO_AUDIO_CLIP_STRUCTURE_CHANGES",
+            "source_audio_untouched":True,
+        },
+    }
+
+'''
+    new_code=code[:start]+replacement+code[end+1:]
+    new_code=new_code.replace(
+        'VERSION = "RG_DIALOGUE_PROFANITY_AUDIO_V1_REVERSIBLE"',
+        'VERSION = "RG_DIALOGUE_PROFANITY_AUDIO_V2_KEYFRAMES"'
+    )
+    new_code=new_code.replace(
+        '"policy": "TRUSTED_ONLY_SPLIT_AND_MINUS_96DB_PREMIERE_GAIN_SOURCE_AUDIO_UNTOUCHED",',
+        '"policy": "TRUSTED_ONLY_AUDIO_LEVELS_KEYFRAMES_NO_AUDIO_SPLITS_SOURCE_UNTOUCHED",'
+    )
+    compile(new_code,str(censor_mod),"exec")
+
+    pipe=pipeline.read_text(encoding="utf-8",errors="replace")
+    pipe=pipe.replace(
+        "# RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1\n    # explicitly linked to the actual final A1/A2 clipitems.",
+        "# RG_FINAL_AV_LINKAGE_V2: keep final V1 explicitly linked to A1/A2.\n    # Profanity censorship no longer splits audio clipitems."
+    )
+    pipe=pipe.replace(
+        "_av_link_report=_normalize_xml_av_links(out,hard_disable_censor=True)",
+        "_av_link_report=_normalize_xml_av_links(out,hard_disable_censor=False)"
+    )
+    compile(pipe,str(pipeline),"exec")
+
+    censor_mod.write_text(new_code,encoding="utf-8")
+    pipeline.write_text(pipe,encoding="utf-8")
+    py_compile.compile(str(censor_mod),doraise=True)
+    py_compile.compile(str(pipeline),doraise=True)
+    py_compile.compile(str(linkage),doraise=True)
+
+    spec=importlib.util.spec_from_file_location("rg_dialogue_profanity_audio_v2",censor_mod)
+    cm=importlib.util.module_from_spec(spec); spec.loader.exec_module(cm)
+    spec2=importlib.util.spec_from_file_location("rg_premiere_av_linkage_v2",linkage)
+    lm=importlib.util.module_from_spec(spec2); spec2.loader.exec_module(lm)
+
+    repaired=[]
+    delivery=app/"901"
+    delivery.mkdir(parents=True,exist_ok=True)
+
+    def _qa_xml(xp,expected_video):
+        root=ET.parse(xp).getroot(); seq=root.find(".//sequence")
+        v=seq.findall("./media/video/track")[0].findall("./clipitem")
+        atr=seq.findall("./media/audio/track")
+        counts=[len(t.findall("./clipitem")) for t in atr[:2]]
+        gain96=0; disabled=0; keyframes=0; bad_kf=[]; keyed_clips=0
+        for tr in atr[:2]:
+            for c in tr.findall("./clipitem"):
+                if (c.findtext("enabled") or "TRUE").strip().upper()=="FALSE":
+                    disabled+=1
+                ck=0
+                dur=max(0,int(float(c.findtext("end") or "0"))-int(float(c.findtext("start") or "0")))
+                for eff in c.findall("./filter/effect"):
+                    eid=(eff.findtext("effectid") or "").strip().casefold()
+                    for par in eff.findall("./parameter"):
+                        key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                        if "gain(db)" in key:
+                            try:
+                                if float(par.findtext("value") or "0")<=-90: gain96+=1
+                            except Exception: pass
+                        if eid=="audiolevels" and (par.findtext("parameterid") or "").strip().casefold()=="level":
+                            ks=par.findall("./keyframe"); ck+=len(ks)
+                            for k in ks:
+                                try:w=int(float(k.findtext("when") or "0"))
+                                except Exception:w=-999999
+                                if w<0 or w>dur:
+                                    bad_kf.append({"clip":c.get("id"),"when":w,"duration":dur})
+                if ck:keyed_clips+=1; keyframes+=ck
+        if len(v)!=expected_video:
+            raise RuntimeError(f"901 repair QA video count changed for {xp}: {len(v)} != {expected_video}")
+        if counts[:2] != [expected_video,expected_video]:
+            raise RuntimeError(f"901 repair QA audio clip count mismatch for {xp}: {counts}")
+        if gain96 or disabled or bad_kf:
+            raise RuntimeError(f"901 repair QA failed for {xp}: gain96={gain96} disabled={disabled} bad_kf={bad_kf[:3]}")
+        return {"video_clips":len(v),"audio_clips_per_track":counts,"gain96_count":gain96,
+                "disabled_audio_clips":disabled,"keyframe_count":keyframes,"keyed_audio_clips":keyed_clips,
+                "bad_keyframes":len(bad_kf)}
+
+    for i in range(1,7):
+        base=app/f"RG_EDITED_901_{i}_UNCENSORED.xml"
+        dst=app/f"RG_EDITED_901_{i}.xml"
+        side=app/f"RG_EDITED_901_{i}_CENSOR_AUDIO.json"
+        if not base.is_file() or not side.is_file():
+            raise RuntimeError(f"901_{i}: clean base or censor sidecar missing")
+        root=ET.parse(base).getroot(); seq=root.find(".//sequence")
+        expected_video=len(seq.findall("./media/video/track")[0].findall("./clipitem"))
+        base_counts=[len(t.findall("./clipitem")) for t in seq.findall("./media/audio/track")[:2]]
+        if base_counts != [expected_video,expected_video]:
+            raise RuntimeError(f"901_{i}: uncensored base is not one-to-one A/V: {base_counts} vs {expected_video}")
+
+        if dst.is_file():
+            shutil.copy2(dst,backup/f"RG_EDITED_901_{i}_BROKEN_BEFORE_V2.xml")
+        shutil.copy2(base,dst)
+
+        data=json.loads(side.read_text(encoding="utf-8-sig",errors="replace"))
+        restored={str(x) for x in (data.get("restored_event_ids") or [])}
+        events=[dict(e) for e in (data.get("events") or []) if str(e.get("id") or "") not in restored]
+        detail=cm._apply_events_to_clean_xml(dst,events,mute_db=-96.0,fps=int(data.get("fps") or 30))
+
+        link_report=lm.normalize_xml_av_links(dst,hard_disable_censor=False)
+        if int(link_report.get("audio_splits_added") or 0)!=0:
+            raise RuntimeError(f"901_{i}: unexpected AV linkage split in clean V2 base")
+
+        qa=_qa_xml(dst,expected_video)
+        if events and qa["keyframe_count"]<=0:
+            raise RuntimeError(f"901_{i}: events exist but no keyframes were created")
+
+        data.update(detail)
+        data["version"]="RG_DIALOGUE_PROFANITY_AUDIO_V2_KEYFRAMES"
+        data["policy"]="TRUSTED_ONLY_AUDIO_LEVELS_KEYFRAMES_NO_AUDIO_SPLITS_SOURCE_UNTOUCHED"
+        data["premiere_execution"]="CONTINUOUS_AUDIO_CLIPS_WITH_AUDIO_LEVELS_KEYFRAMES"
+        data["applied"]=bool(events)
+        data["event_count"]=len(events)
+        data["applied_sha256"]=hashlib.sha256(dst.read_bytes()).hexdigest()
+        side.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+        shutil.copy2(dst,delivery/dst.name)
+        shutil.copy2(side,delivery/side.name)
+
+        repaired.append({
+            "dialogue":i,
+            "events":len(events),
+            "detail":{"muted_channel_clips":detail.get("muted_channel_clips"),"keyframe_count":detail.get("keyframe_count")},
+            "linkage":link_report,
+            "qa":qa,
+            "root_sha256":hashlib.sha256(dst.read_bytes()).hexdigest(),
+            "delivery_sha256":hashlib.sha256((delivery/dst.name).read_bytes()).hexdigest(),
+        })
+
+    return {
+        "backup":str(backup),
+        "module_version":"RG_DIALOGUE_PROFANITY_AUDIO_V2_KEYFRAMES",
+        "source_audio_untouched":True,
+        "production_compile":True,
+        "repaired":repaired,
+    }
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11200,6 +11543,7 @@ ACTIONS = {
     "inspect_auto_edit_keyframe_support": inspect_auto_edit_keyframe_support,
     "inspect_auto_edit_profanity_module_full": inspect_auto_edit_profanity_module_full,
     "inspect_auto_edit_901_uncensored_bases": inspect_auto_edit_901_uncensored_bases,
+    "apply_auto_edit_keyframe_censor_v2": apply_auto_edit_keyframe_censor_v2,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
