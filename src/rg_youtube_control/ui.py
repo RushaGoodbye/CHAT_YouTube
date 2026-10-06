@@ -1084,7 +1084,8 @@ class MainWindow(QMainWindow):
         title = QLabel("Сьогодні")
         title.setObjectName("AppTitle")
         subtitle = QLabel(
-            "Один екран: що відбувається зараз, що потребує рішення і що буде далі."
+            "Програма сама визначає наступний безпечний крок. "
+            "Вам достатньо виконувати одну рекомендовану дію."
         )
         subtitle.setWordWrap(True)
         subtitle.setProperty("muted", True)
@@ -1093,17 +1094,54 @@ class MainWindow(QMainWindow):
         header.addLayout(title_box)
         header.addStretch()
 
-        zero_quota_btn = QPushButton("Підготувати · 0 квоти")
-        zero_quota_btn.clicked.connect(self.prepare_zero_quota_batch)
-        planner_btn = QPushButton("План квоти")
-        planner_btn.clicked.connect(self.show_quota_planner)
-        scheduled_btn = QPushButton("Заплановані")
-        scheduled_btn.clicked.connect(self.show_scheduled_center)
-        archive_btn = QPushButton("Архів")
-        archive_btn.clicked.connect(self._open_archive_mode)
-        for button in (zero_quota_btn, planner_btn, scheduled_btn, archive_btn):
-            header.addWidget(button)
+        other_tasks = QToolButton()
+        other_tasks.setText("Інші задачі ▾")
+        other_tasks.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        other_menu = QMenu(other_tasks)
+        for text_value, callback in (
+            ("Заплановані стріми", self.show_scheduled_center),
+            ("Коментарі", lambda: self.tabs.setCurrentIndex(3)),
+            ("Архів", self._open_archive_mode),
+            ("Підготувати без квоти", self.prepare_zero_quota_batch),
+            ("План квоти", self.show_quota_planner),
+        ):
+            action = QAction(text_value, other_menu)
+            action.triggered.connect(
+                lambda _checked=False, cb=callback: cb()
+            )
+            other_menu.addAction(action)
+        other_tasks.setMenu(other_menu)
+        header.addWidget(other_tasks)
         layout.addLayout(header)
+
+        next_action = QFrame()
+        next_action.setObjectName("QueueCard")
+        next_action_layout = QVBoxLayout(next_action)
+        next_action_layout.setContentsMargins(18, 14, 18, 14)
+        next_action_layout.setSpacing(8)
+        next_action_head = QHBoxLayout()
+        next_action_caption = QLabel("Наступна дія")
+        next_action_caption.setObjectName("SectionTitle")
+        self.next_action_state = QLabel("визначаю...")
+        self.next_action_state.setObjectName("StatusWork")
+        next_action_head.addWidget(next_action_caption)
+        next_action_head.addWidget(self.next_action_state)
+        next_action_head.addStretch()
+        next_action_layout.addLayout(next_action_head)
+        self.next_action_title = QLabel("Перевіряю стан каналу...")
+        self.next_action_title.setObjectName("MetricValue")
+        self.next_action_title.setWordWrap(True)
+        self.next_action_explanation = QLabel("")
+        self.next_action_explanation.setWordWrap(True)
+        self.next_action_explanation.setProperty("muted", True)
+        self.next_action_button = QPushButton("Продовжити")
+        self.next_action_button.setProperty("role", "primary")
+        self.next_action_button.setMinimumHeight(42)
+        self.next_action_button.clicked.connect(self._run_guided_next_action)
+        next_action_layout.addWidget(self.next_action_title)
+        next_action_layout.addWidget(self.next_action_explanation)
+        next_action_layout.addWidget(self.next_action_button)
+        layout.addWidget(next_action)
 
         health = QFrame()
         health.setObjectName("HealthStrip")
@@ -1124,6 +1162,7 @@ class MainWindow(QMainWindow):
             self.health_labels[key] = pill
             health_layout.addWidget(pill)
         health_layout.addStretch()
+        health.setVisible(False)
         layout.addWidget(health)
 
         process = QFrame()
@@ -1195,7 +1234,7 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
         self.center_scheduled = MetricCard("Заплановані")
-        self.center_prepared = MetricCard("Готові пакети")
+        self.center_prepared = MetricCard("Готово до YouTube")
         self.center_comments = MetricCard("Коментарі")
         self.center_results = MetricCard("Контроль 7/28/90")
         self.center_quota = ProgressMetricCard("YouTube API")
@@ -1211,10 +1250,10 @@ class MainWindow(QMainWindow):
         pipeline = QFrame()
         pipeline.setObjectName("QueueCard")
         pipeline_layout = QVBoxLayout(pipeline)
-        pipeline_title = QLabel("Конвеєр вибраного відео")
+        pipeline_title = QLabel("Етап роботи")
         pipeline_title.setObjectName("SectionTitle")
         self.pipeline_label = QLabel(
-            "Аналіз  →  Транскрипт  →  SEO  →  Перевірка  →  Готово  →  YouTube  →  Контроль"
+            "Підготовка  →  Перевірка  →  Готово  →  YouTube  →  Контроль"
         )
         self.pipeline_label.setWordWrap(True)
         self.pipeline_label.setProperty("muted", True)
