@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_resume_protection_hotfix",
+  "action": "inspect_auto_edit_execution_functions",
   "args": {},
-  "nonce": "apply-resume-protect-901-20261006-1"
+  "nonce": "inspect-ui-state-labels-20261006-1"
 }
