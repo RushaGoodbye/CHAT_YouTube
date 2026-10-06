@@ -536,6 +536,7 @@ def _http_error_reason(exc: HttpError) -> str:
 
 def _validated_reply_text(value: str) -> str:
     text = str(value or "").strip()
+    text = text.replace("—", "-").replace("–", "-")
     if not text:
         raise ValueError("Текст відповіді порожній.")
     if len(text) > 10000:
@@ -584,7 +585,7 @@ def _reply_template_for(
             (DEFAULT_REPLY_TEMPLATES[category],),
         )
     checksum = sum(ord(ch) for ch in str(comment_id))
-    return variants[checksum % len(variants)]
+    return _validated_reply_text(variants[checksum % len(variants)])
 
 def local_safe_template_candidate(
     conn: sqlite3.Connection,
