@@ -12139,7 +12139,7 @@ def apply_auto_edit_boot_version_sync_hotfix() -> dict:
     py_compile.compile(str(tmp),doraise=True);os.replace(tmp,p)
     vs=vp.read_text(encoding="utf-8",errors="replace")
     import re
-    m=re.search(r'STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',vs);ver=m.group(1) if m else "0.20.20.1"
+    ver=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in vs.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"0.20.20.1")
     boot=data/"boot_ok.json"
     t=boot.with_suffix(".tmp");t.write_text(json.dumps({"schema":"RG_BOOT_OK_V2","version":ver,"pid":0,"ts":time.time(),"source":"BOOT_VERSION_SYNC"},ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,boot)
     return {"status":"PASS","version":ver,"production40_dynamic_version":True,"boot_ok":str(boot),"backup":str(backup)}
@@ -12894,8 +12894,7 @@ def prepare_auto_edit_020201_candidate_snapshot() -> dict:
         raise RuntimeError("Required App/Runtime/NAS path unavailable")
     vp=app/"rg_studio_version.py"
     vs=vp.read_text(encoding="utf-8-sig",errors="replace") if vp.is_file() else ""
-    m=re.search(r'STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',vs)
-    actual=m.group(1).strip() if m else ""
+    actual=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in vs.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
     if actual!=version:raise RuntimeError(f"Version mismatch: {actual} != {version}")
     try:
         sys.path.insert(0,str(app))
@@ -12976,8 +12975,8 @@ def finalize_auto_edit_020201_stable() -> dict:
     bad=[k for k in required if (state.get("tests",{}).get(k) or {}).get("status")!="PASS"]
     if bad:raise RuntimeError("Cannot promote, tests not PASS: "+",".join(bad))
     vp=(app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
-    m=re.search(r'STUDIO_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']',vp)
-    if not m or m.group(1)!=version:raise RuntimeError("Current Studio version mismatch")
+    actual=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in vp.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
+    if actual!=version:raise RuntimeError("Current Studio version mismatch")
     old_nas=Path(state.get("nas") or state.get("candidate_nas"));old_local=Path(state.get("local") or state.get("candidate_local"));old_zip=Path(state.get("zip") or state.get("candidate_zip"))
     stable_name=str(state.get("candidate") or state.get("candidate_name")).replace("_CANDIDATE_","_STABLE_")
     nas=nas_root/stable_name;local=data/"LAST_KNOWN_GOOD"/stable_name;zpath=nas_root/(stable_name+".zip")
