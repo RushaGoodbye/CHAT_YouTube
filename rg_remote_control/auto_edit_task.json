@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_updater_supervisor_v3",
+  "action": "inspect_auto_edit_updater_state",
   "args": {},
-  "nonce": "apply-stuck-studio-close-fix-20261006-2336"
+  "nonce": "inspect-after-user-screenshot-master60-r1-20261006-2338"
 }
