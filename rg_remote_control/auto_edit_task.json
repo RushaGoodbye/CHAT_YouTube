@@ -3,5 +3,5 @@
   "contour": "auto_edit",
   "action": "prepare_auto_edit_020201_candidate_snapshot",
   "args": {},
-  "nonce": "candidate-snapshot-020201-final"
+  "nonce": "prepare-stable-candidate-020201"
 }
