@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "locate_auto_edit_901_xmls",
+  "action": "build_auto_edit_master60_update",
   "args": {},
-  "nonce": "locate-901-xmls-final"
+  "nonce": "rebuild-master60-with-901-regression"
 }
