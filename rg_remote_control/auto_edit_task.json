@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "run_auto_edit_updater_smoke_020201",
   "args": {},
-  "nonce": "inspect-updater-smoke-fail-020201"
+  "nonce": "updater-smoke-020201-r2"
 }
