@@ -10925,6 +10925,53 @@ def apply_auto_edit_visible_censor_fix() -> dict:
     }
 
 
+
+def inspect_auto_edit_901_censor_group_spans() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\901\RG_EDITED_901_1.xml")
+    root=ET.parse(p).getroot()
+    seq=root.find(".//sequence")
+    vclips=seq.findall("./media/video/track")[0].findall("./clipitem")
+    atracks=seq.findall("./media/audio/track")
+    out=[]
+    def iv(c):
+        try:return int(c.findtext("start")),int(c.findtext("end"))
+        except:return None
+    for vi,v in enumerate(vclips,1):
+        vs,ve=iv(v)
+        censor=[]
+        aud=[]
+        for ti,tr in enumerate(atracks[:2],1):
+            for ai,c in enumerate(tr.findall("./clipitem"),1):
+                x=iv(c)
+                if not x: continue
+                s,e=x
+                if e<=vs or s>=ve: continue
+                g=False; lev=None
+                for eff in c.findall("./filter/effect"):
+                    eid=(eff.findtext("effectid") or "").strip().casefold()
+                    for par in eff.findall("./parameter"):
+                        key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                        val=(par.findtext("value") or "").strip()
+                        if "gain(db)" in key:
+                            try:g=g or float(val)<=-90
+                            except:pass
+                        if eid=="audiolevels" and (par.findtext("parameterid") or "").strip().casefold()=="level":
+                            lev=val
+                row={"track":ti,"clipindex":ai,"id":c.get("id"),"start":s,"end":e,"enabled":c.findtext("enabled"),"level":lev,"censor":g}
+                aud.append(row)
+                if g:censor.append(row)
+        if censor:
+            out.append({
+              "video_clipindex":vi,"video_id":v.get("id"),"start":vs,"end":ve,
+              "start_sec":round(vs/30,3),"end_sec":round(ve/30,3),"duration_sec":round((ve-vs)/30,3),
+              "audio_piece_count":len(aud),"censor_piece_count":len(censor),
+              "audio":aud
+            })
+    return {"path":str(p),"groups":out}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11069,6 +11116,7 @@ ACTIONS = {
     "inspect_auto_edit_censor_pipeline_backup_span": inspect_auto_edit_censor_pipeline_backup_span,
     "inspect_auto_edit_901_muted_xml_sample": inspect_auto_edit_901_muted_xml_sample,
     "apply_auto_edit_visible_censor_fix": apply_auto_edit_visible_censor_fix,
+    "inspect_auto_edit_901_censor_group_spans": inspect_auto_edit_901_censor_group_spans,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
