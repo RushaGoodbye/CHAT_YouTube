@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "run_auto_edit_886_short_smoke",
+  "action": "run_auto_edit_preview_886_smoke",
   "args": {},
-  "nonce": "run-886-short-smoke-020201-r3"
+  "nonce": "preview-smoke-886-020201"
 }
