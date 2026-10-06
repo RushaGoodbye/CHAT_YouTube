@@ -163,6 +163,16 @@ def connect(path: Path) -> sqlite3.Connection:
              AND COALESCE(draft_state,'')=''""",
         (utc_now(),),
     )
+    conn.execute(
+        """UPDATE comments
+           SET reply_text='',
+               draft_state='',
+               draft_reason='legacy_requires_regeneration',
+               draft_updated_at=?
+           WHERE status='new'
+             AND draft_reason='legacy_reply_text_migrated'""",
+        (utc_now(),),
+    )
     _ensure_column(
         conn,
         "optimization_drafts",
