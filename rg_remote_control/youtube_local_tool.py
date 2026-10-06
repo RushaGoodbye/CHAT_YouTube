@@ -1097,6 +1097,78 @@ finally {
 
 
 
+
+def cleanup_redundant_youtube_nas_agent() -> dict:
+    """Remove the superseded YouTube-only NAS agent; shared AlexPC agent remains canonical."""
+    import subprocess
+
+    target = Path.home() / "CHAT_YouTube-main"
+    appdata = Path(
+        os.environ.get(
+            "APPDATA",
+            str(Path.home() / "AppData" / "Roaming"),
+        )
+    )
+    startup = (
+        appdata
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+
+    stopped = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$p=Get-CimInstance Win32_Process | Where-Object { "
+                "($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') "
+                "-and $_.CommandLine -like '*youtube_nas_agent.py*' }; "
+                "$ids=@($p | ForEach-Object {[int]$_.ProcessId}); "
+                "foreach($x in @($p)){Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue}; "
+                "$ids | ConvertTo-Json -Compress"
+            ),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    schtasks = r"C:\Windows\System32\schtasks.exe"
+    task_delete = subprocess.run(
+        [schtasks, "/Delete", "/TN", "RG_YOUTUBE_NAS_AGENT", "/F"],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    removed = []
+    for path in (
+        startup / "RG_YOUTUBE_NAS_AGENT.vbs",
+        target / "rg_remote_control" / "start_youtube_nas_agent.vbs",
+        target / "rg_remote_control" / "youtube_nas_agent.py",
+    ):
+        try:
+            if path.is_file():
+                path.unlink()
+                removed.append(str(path))
+        except Exception:
+            pass
+
+    return {
+        "youtube_api_calls": 0,
+        "canonical_agent": r"C:\RG_AGENT\alexpc_agent.py",
+        "stopped": (stopped.stdout or "").strip(),
+        "task_deleted": task_delete.returncode == 0,
+        "removed": removed,
+        "duplicate_agent_removed": True,
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3291,6 +3363,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_cleanup_redundant_nas_agent":
+        result = cleanup_redundant_youtube_nas_agent()
     elif action == "youtube_local_install_boot_ready":
         result = install_boot_ready()
     elif action == "youtube_local_daily_autopilot":
