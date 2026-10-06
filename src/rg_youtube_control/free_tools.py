@@ -2081,6 +2081,7 @@ def generate_comment_reply_candidate_local(
     action = str(payload.get("action") or "").strip().casefold()
     reason = str(payload.get("reason") or "").strip()[:240]
     reply = " ".join(str(payload.get("reply") or "").split()).strip()
+    reply = reply.replace("—", "-").replace("–", "-")
 
     if action != "reply" or not reply:
         return {
