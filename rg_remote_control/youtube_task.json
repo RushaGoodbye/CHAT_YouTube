@@ -1,9 +1,11 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_repair_ollama",
+  "action": "youtube_local_daily_autopilot",
   "args": {
-    "nonce": "repair-ollama-20261006",
+    "nonce": "daily-autopilot-20261006",
+    "rounds": 4,
+    "per_batch": 50,
     "model": "qwen3:8b",
     "allow_pull": true
   }
