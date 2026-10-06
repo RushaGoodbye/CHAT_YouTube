@@ -10294,6 +10294,339 @@ def inspect_auto_edit_901_link_samples() -> dict:
     return out
 
 
+
+def apply_auto_edit_censor_avlink_hotfix() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, textwrap, xml.etree.ElementTree as ET
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=app/"release_backups"/f"censor_avlink_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+
+    core=app/"rg_auto_edit.py"
+    helper=app/"rg_premiere_av_linkage.py"
+    if not core.is_file():
+        raise FileNotFoundError(core)
+    shutil.copy2(core,backup/core.name)
+    if helper.is_file():
+        shutil.copy2(helper,backup/helper.name)
+
+    helper_code = r'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
+import copy
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+VERSION="RG_PREMIERE_AV_LINKAGE_V1"
+TICKS_PER_SECOND=254016000000
+
+
+def _ival(node, tag, default=None):
+    try:
+        return int(float(node.findtext(tag)))
+    except Exception:
+        return default
+
+
+def _write(tree, path):
+    try:
+        ET.indent(tree, space="\t")
+    except Exception:
+        pass
+    body=ET.tostring(tree.getroot(), encoding="unicode")
+    Path(path).write_text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n'+body, encoding="utf-8")
+
+
+def _remove_links(clip):
+    for lk in list(clip.findall("./link")):
+        clip.remove(lk)
+
+
+def _clip_ticks_mid(clip, start, end, boundary):
+    tin=_ival(clip,"pproTicksIn",None)
+    tout=_ival(clip,"pproTicksOut",None)
+    if tin is None or tout is None or end<=start:
+        return None
+    frac=(float(boundary)-float(start))/float(end-start)
+    return int(round(tin+(tout-tin)*frac))
+
+
+def _split_clip(track, clip, boundary, serial):
+    start=_ival(clip,"start",None); end=_ival(clip,"end",None)
+    if start is None or end is None or not (start < boundary < end):
+        return None
+    src_in=_ival(clip,"in",None); src_out=_ival(clip,"out",None)
+    right=copy.deepcopy(clip)
+    old_id=str(clip.get("id") or f"clip-{serial}")
+    right.set("id", f"{old_id}-rgav-{serial}")
+
+    clip.find("end").text=str(boundary)
+    right.find("start").text=str(boundary)
+
+    if src_in is not None and src_out is not None and end>start:
+        # RG delivery clips are speed 1. Keep source mapping frame-exact.
+        mid=src_in+(boundary-start)
+        if mid<src_in: mid=src_in
+        if mid>src_out: mid=src_out
+        clip.find("out").text=str(mid)
+        right.find("in").text=str(mid)
+
+    mid_ticks=_clip_ticks_mid(clip,start,end,boundary)
+    if mid_ticks is not None:
+        n=clip.find("pproTicksOut")
+        if n is not None: n.text=str(mid_ticks)
+        n=right.find("pproTicksIn")
+        if n is not None: n.text=str(mid_ticks)
+
+    # Keep the first half as the media-definition owner. The clone only refers
+    # to that file id, preventing duplicate complete <file> definitions.
+    rf=right.find("./file")
+    if rf is not None and list(rf):
+        fid=rf.get("id")
+        idx=list(right).index(rf)
+        right.remove(rf)
+        right.insert(idx, ET.Element("file", {"id":str(fid or "")}))
+
+    _remove_links(clip); _remove_links(right)
+    children=list(track)
+    idx=children.index(clip)
+    track.insert(idx+1,right)
+    return right
+
+
+def _split_audio_at_video_boundaries(seq):
+    vtracks=seq.findall("./media/video/track")
+    atracks=seq.findall("./media/audio/track")
+    if not vtracks or len(atracks)<2:
+        return 0
+    base=[c for c in vtracks[0].findall("./clipitem") if str(c.get("id") or "").startswith("video-clip-")]
+    boundaries=sorted({x for c in base for x in (_ival(c,"start",None),_ival(c,"end",None)) if x is not None})
+    made=0; serial=0
+    for track in atracks[:2]:
+        for boundary in boundaries:
+            while True:
+                target=None
+                for c in track.findall("./clipitem"):
+                    s=_ival(c,"start",None); e=_ival(c,"end",None)
+                    if s is not None and e is not None and s < boundary < e:
+                        target=c; break
+                if target is None: break
+                serial+=1
+                if _split_clip(track,target,boundary,serial) is None: break
+                made+=1
+    return made
+
+
+def _link(parent, ref, media, track_idx, clip_idx, group=1):
+    lk=ET.SubElement(parent,"link")
+    ET.SubElement(lk,"linkclipref").text=str(ref)
+    ET.SubElement(lk,"mediatype").text=str(media)
+    ET.SubElement(lk,"trackindex").text=str(track_idx)
+    ET.SubElement(lk,"clipindex").text=str(clip_idx)
+    ET.SubElement(lk,"groupindex").text=str(group)
+
+
+def _hard_disable_gain_mutes(seq):
+    disabled=0
+    for clip in seq.findall("./media/audio/track/clipitem"):
+        hard=False
+        for par in clip.findall("./filter/effect/parameter"):
+            key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+            val=(par.findtext("value") or "").strip()
+            if "gain(db)" in key:
+                try:
+                    if float(val)<=-90.0:
+                        hard=True
+                except Exception:
+                    pass
+        if hard:
+            en=clip.find("enabled")
+            if en is None:
+                en=ET.Element("enabled")
+                clip.insert(2,en)
+            if (en.text or "").strip().upper()!="FALSE":
+                disabled+=1
+            en.text="FALSE"
+    return disabled
+
+
+def _coverage(track):
+    rows=[]
+    for c in track.findall("./clipitem"):
+        s=_ival(c,"start",None); e=_ival(c,"end",None)
+        if s is not None and e is not None and e>s:
+            rows.append((s,e))
+    rows.sort()
+    merged=[]
+    for s,e in rows:
+        if not merged or s>merged[-1][1]:
+            merged.append([s,e])
+        elif e>merged[-1][1]:
+            merged[-1][1]=e
+    return merged
+
+
+def normalize_xml_av_links(xml_path, hard_disable_censor=True):
+    xml_path=Path(xml_path)
+    tree=ET.parse(xml_path)
+    seq=tree.getroot().find(".//sequence")
+    if seq is None:
+        raise RuntimeError("Premiere XML has no sequence")
+    vtracks=seq.findall("./media/video/track")
+    atracks=seq.findall("./media/audio/track")
+    if not vtracks or len(atracks)<2:
+        raise RuntimeError("Premiere XML requires V1 + A1/A2")
+
+    before=[_coverage(atracks[0]),_coverage(atracks[1])]
+    split_count=_split_audio_at_video_boundaries(seq)
+
+    # Lists changed after splitting.
+    v1=vtracks[0]
+    a1,a2=atracks[0],atracks[1]
+    base=[c for c in v1.findall("./clipitem") if str(c.get("id") or "").startswith("video-clip-")]
+    a1c=a1.findall("./clipitem"); a2c=a2.findall("./clipitem")
+
+    for c in base+a1c+a2c:
+        _remove_links(c)
+
+    # Position is the authoritative Premiere clipindex.
+    vindex={id(c):i for i,c in enumerate(v1.findall("./clipitem"),1)}
+    a1index={id(c):i for i,c in enumerate(a1c,1)}
+    a2index={id(c):i for i,c in enumerate(a2c,1)}
+
+    linked_video=0
+    linked_audio_ids=set()
+    for v in base:
+        vs=_ival(v,"start",None); ve=_ival(v,"end",None)
+        if vs is None or ve is None or ve<=vs:
+            continue
+        l1=[c for c in a1c if (_ival(c,"start",-1) >= vs and _ival(c,"end",-1) <= ve and _ival(c,"end",-1)>_ival(c,"start",-1))]
+        l2=[c for c in a2c if (_ival(c,"start",-1) >= vs and _ival(c,"end",-1) <= ve and _ival(c,"end",-1)>_ival(c,"start",-1))]
+        if not l1 or not l2:
+            continue
+        # Require identical stereo interval sets before creating AV links.
+        if [( _ival(c,"start"),_ival(c,"end") ) for c in l1] != [( _ival(c,"start"),_ival(c,"end") ) for c in l2]:
+            continue
+        specs=[(v.get("id"),"video",1,vindex[id(v)])]
+        specs += [(c.get("id"),"audio",1,a1index[id(c)]) for c in l1]
+        specs += [(c.get("id"),"audio",2,a2index[id(c)]) for c in l2]
+        members=[v]+l1+l2
+        for m in members:
+            for ref,media,track_idx,clip_idx in specs:
+                _link(m,ref,media,track_idx,clip_idx,1)
+        linked_video+=1
+        linked_audio_ids.update(id(c) for c in l1+l2)
+
+    disabled=_hard_disable_gain_mutes(seq) if hard_disable_censor else 0
+    after=[_coverage(a1),_coverage(a2)]
+    if before!=after:
+        raise RuntimeError("AV LINKAGE GUARD: audio timeline coverage changed")
+
+    unlinked_base=len(base)-linked_video
+    unlinked_audio=sum(1 for c in a1.findall("./clipitem")+a2.findall("./clipitem") if id(c) not in linked_audio_ids)
+    if unlinked_base:
+        raise RuntimeError(f"AV LINKAGE GUARD: {unlinked_base} base video clips lack A1/A2 links")
+
+    _write(tree,xml_path)
+    return {
+        "version":VERSION,
+        "xml":str(xml_path),
+        "audio_splits_added":split_count,
+        "base_video_clips":len(base),
+        "linked_base_video_clips":linked_video,
+        "unlinked_base_video_clips":unlinked_base,
+        "audio_clipitems":len(a1.findall("./clipitem"))+len(a2.findall("./clipitem")),
+        "unlinked_audio_clipitems":unlinked_audio,
+        "hard_disabled_censor_clipitems":disabled,
+        "audio_coverage_unchanged":True,
+    }
+'''
+    helper.write_text(helper_code,encoding="utf-8")
+
+    code=core.read_text(encoding="utf-8",errors="replace")
+    hard_marker="RG_CENSOR_HARD_DISABLE_V2"
+    old='''            if _set_gain_db(lp,mute_db): muted+=1
+            if _set_gain_db(rp,mute_db): muted+=1'''
+    new='''            if _set_gain_db(lp,mute_db): muted+=1
+            if _set_gain_db(rp,mute_db): muted+=1
+            # RG_CENSOR_HARD_DISABLE_V2: Premiere does not consistently execute
+            # legacy custom Gain(dB) metadata. Keep -96 dB as fallback and also
+            # disable only the exact split profanity pieces. Source audio is untouched.
+            for _rg_censor_piece in (lp,rp):
+                _rg_enabled=_rg_censor_piece.find("enabled")
+                if _rg_enabled is None:
+                    _rg_enabled=ET.SubElement(_rg_censor_piece,"enabled")
+                _rg_enabled.text="FALSE"'''
+    if hard_marker not in code:
+        if old not in code:
+            raise RuntimeError("censor gain anchor not found")
+        code=code.replace(old,new,1)
+
+    link_marker="RG_FINAL_AV_LINKAGE_V1"
+    call_block='''        censor_audio_report=apply_dialogue_profanity_audio(
+            out,censor_report,cleanup_report,censor_opts,
+            timeline_offset_sec=_censor_timeline_offset,
+            fps=int(director_cfg.get('fps',30)),
+        )'''
+    call_new=call_block+'''
+    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
+    # explicitly linked to the actual final A1/A2 clipitems.
+    from rg_premiere_av_linkage import normalize_xml_av_links as _normalize_xml_av_links
+    _av_link_report=_normalize_xml_av_links(out,hard_disable_censor=True)
+    emit(99.72,'AV_LINKAGE',f"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}")'''
+    if link_marker not in code:
+        if call_block not in code:
+            raise RuntimeError("post-censor pipeline anchor not found")
+        code=code.replace(call_block,call_new,1)
+
+    core.write_text(code,encoding="utf-8")
+    py_compile.compile(str(core),doraise=True)
+    py_compile.compile(str(helper),doraise=True)
+
+    # Patch completed 901 XMLs in-place. This is XML-only: no stream/dialogue recompute.
+    import importlib.util
+    spec=importlib.util.spec_from_file_location("rg_premiere_av_linkage_hotfix",helper)
+    mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+
+    results=[]
+    for base in (app,app/"901"):
+        for i in range(1,7):
+            xp=base/f"RG_EDITED_901_{i}.xml"
+            if not xp.is_file():
+                continue
+            rel=f"{base.name}_{xp.name}"
+            shutil.copy2(xp,backup/(rel+".bak"))
+            res=mod.normalize_xml_av_links(xp,hard_disable_censor=True)
+            ET.parse(xp)
+            res["location"]=str(base)
+            results.append(res)
+
+            # Keep sidecar truthful about the execution mechanism.
+            side=xp.with_name(xp.stem+"_CENSOR_AUDIO.json")
+            if side.is_file():
+                try:
+                    data=json.loads(side.read_text(encoding="utf-8-sig",errors="replace"))
+                    if data.get("enabled") and data.get("applied"):
+                        data["policy"]="TRUSTED_ONLY_SPLIT_HARD_DISABLED_PLUS_MINUS_96DB_SOURCE_AUDIO_UNTOUCHED"
+                        data["premiere_execution"]="CLIP_ENABLED_FALSE_PLUS_MINUS_96DB_FALLBACK"
+                        side.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                except Exception:
+                    pass
+
+    return {
+        "backup":str(backup),
+        "core_compile":True,
+        "helper_compile":True,
+        "hard_disable_marker":hard_marker in core.read_text(encoding="utf-8",errors="replace"),
+        "av_link_marker":link_marker in core.read_text(encoding="utf-8",errors="replace"),
+        "patched_xmls":results,
+    }
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10434,6 +10767,7 @@ ACTIONS = {
     "inspect_auto_edit_901_delivery_vs_source": inspect_auto_edit_901_delivery_vs_source,
     "inspect_auto_edit_901_linkage": inspect_auto_edit_901_linkage,
     "inspect_auto_edit_901_link_samples": inspect_auto_edit_901_link_samples,
+    "apply_auto_edit_censor_avlink_hotfix": apply_auto_edit_censor_avlink_hotfix,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
