@@ -50,6 +50,10 @@ try {
         Write-Host "SYNCED $name"
     }
 
+    Remove-Item (Join-Path $state "rg_telegram_control_app_status") -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $state "rg_telegram_control_app_error_at") -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $state "rg_telegram_control_app_last_error") -Force -ErrorAction SilentlyContinue
+
     $requestId = "rgtc-stage1-bootstrap-$stamp"
     $request = [ordered]@{
         id = $requestId
@@ -68,8 +72,9 @@ try {
     )
     Write-Host "REQUESTED control-app-install"
 
-    $deadline = (Get-Date).AddMinutes(4)
+    $deadline = (Get-Date).AddMinutes(7)
     $statusFile = Join-Path $state "rg_telegram_control_app_status"
+    $portFile = Join-Path $state "rg_telegram_control_app_port"
 
     do {
         Start-Sleep -Seconds 5
@@ -79,19 +84,31 @@ try {
             $status = (Get-Content $statusFile -Raw -ErrorAction SilentlyContinue).Trim()
         }
 
+        $port = ""
+        if (Test-Path $portFile) {
+            $port = (Get-Content $portFile -Raw -ErrorAction SilentlyContinue).Trim()
+        }
+
         $healthOk = $false
-        try {
-            $health = Invoke-RestMethod -Uri "http://AlexLosServer:8791/healthz" -TimeoutSec 3
-            $healthOk = [bool]$health.ok
-        } catch {}
+        if ($port -match '^\d+$') {
+            try {
+                $health = Invoke-RestMethod -Uri ("http://AlexLosServer:{0}/healthz" -f $port) -TimeoutSec 3
+                $healthOk = [bool]$health.ok
+            } catch {}
+        }
 
         if ($status -eq "OK" -and $healthOk) {
             Write-Host "RG_TELEGRAM_CONTROL_STAGE1_OK"
+            Write-Host ("port={0}" -f $port)
             Write-Host "healthz=OK"
             exit 0
         }
 
         if ($status -eq "ERROR") {
+            $lastError = Get-Content (Join-Path $state "rg_telegram_control_app_last_error") -Raw -ErrorAction SilentlyContinue
+            $installLog = Get-Content (Join-Path $state "rg-telegram-control-install.log") -Tail 80 -ErrorAction SilentlyContinue
+            if ($lastError) { Write-Host ("INSTALL_ERROR: " + $lastError.Trim()) }
+            if ($installLog) { $installLog | ForEach-Object { Write-Host $_ } }
             throw "RG Telegram Control installer reported ERROR"
         }
     } while ((Get-Date) -lt $deadline)
