@@ -4137,6 +4137,75 @@ def _ensure_unity_audio_levels(clip):
 
 
 
+
+def apply_auto_edit_direct_audio_unity_generator_fix() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, hashlib
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"rg_premiere_native_xml.py"
+    if not p.is_file(): raise RuntimeError("rg_premiere_native_xml.py missing")
+    src=p.read_text(encoding="utf-8")
+    if "RG_PREMIERE_AUDIO_UNITY_V1" not in src or "def _ensure_unity_audio_levels" not in src:
+        raise RuntimeError("base unity helper missing")
+    marker="# RG_DIRECT_AUDIO_UNITY_V1"
+    if marker not in src:
+        old1='''            st = ET.SubElement(left, "sourcetrack")
+            _text(st, "mediatype", "audio")
+            _text(st, "trackindex", 1)
+
+            right = ET.SubElement(
+'''
+        new1='''            st = ET.SubElement(left, "sourcetrack")
+            _text(st, "mediatype", "audio")
+            _text(st, "trackindex", 1)
+            # RG_DIRECT_AUDIO_UNITY_V1
+            _ensure_unity_audio_levels(left)
+
+            right = ET.SubElement(
+'''
+        old2='''            st = ET.SubElement(right, "sourcetrack")
+            _text(st, "mediatype", "audio")
+            _text(st, "trackindex", 2)
+
+            for owner in (left, right):
+'''
+        new2='''            st = ET.SubElement(right, "sourcetrack")
+            _text(st, "mediatype", "audio")
+            _text(st, "trackindex", 2)
+            _ensure_unity_audio_levels(right)
+
+            for owner in (left, right):
+'''
+        if old1 not in src or old2 not in src:
+            raise RuntimeError("direct MP3 audio anchors missing")
+        stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup=data/"release_backups"/f"PRE_DIRECT_AUDIO_UNITY_{stamp}"
+        backup.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(p,backup/p.name)
+        src=src.replace(old1,new1,1).replace(old2,new2,1)
+        tmp=p.with_suffix(".py.direct-audio-unity.tmp")
+        tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,p)
+    py_compile.compile(str(p),doraise=True)
+    final=p.read_text(encoding="utf-8")
+    if final.count("_ensure_unity_audio_levels(left)") < 2 or final.count("_ensure_unity_audio_levels(right)") < 2:
+        raise RuntimeError("direct audio unity calls not proven")
+    if "PannerIsInverted" in final:
+        raise RuntimeError("PannerIsInverted unexpectedly restored")
+    return {
+      "status":"APPLIED",
+      "guard":"RG_DIRECT_AUDIO_UNITY_V1",
+      "path":str(p),
+      "sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+      "left_unity_calls":final.count("_ensure_unity_audio_levels(left)"),
+      "right_unity_calls":final.count("_ensure_unity_audio_levels(right)"),
+      "panner_inverted":False,
+      "audio_policy":"unity metadata only; source audio samples untouched"
+    }
+
+
 def inspect_auto_edit_premiere_audio_direct_branch() -> dict:
     if os.name!="nt": raise RuntimeError("Windows only")
     p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_premiere_native_xml.py")
@@ -10022,6 +10091,7 @@ ACTIONS = {
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
     "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
     "inspect_auto_edit_premiere_audio_direct_branch": inspect_auto_edit_premiere_audio_direct_branch,
+    "apply_auto_edit_direct_audio_unity_generator_fix": apply_auto_edit_direct_audio_unity_generator_fix,
     "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
