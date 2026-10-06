@@ -982,8 +982,10 @@ def probe(do_roundtrip: bool = True) -> dict:
         },
     }
     if do_roundtrip:
-        out["auto_edit_roundtrip"] = queue_roundtrip()
+        # Primary runtime path. Legacy AUTO_EDIT_CALLS is intentionally excluded:
+        # the MCP hub now submits AlexPC work through ALEXPC/<contour> queues.
         out["alexpc_agent_roundtrip"] = agent_roundtrip()
+
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
     agent_info = out.get("alexpc_agent", {})
     agent_ok = bool(
@@ -994,36 +996,80 @@ def probe(do_roundtrip: bool = True) -> dict:
         and agent_info.get("nas_status_age_seconds") <= 30
     )
     guard_state = out.get("state", {})
-    guard_ok = bool(
+    guard_fresh = bool(
         guard_state.get("rg_resilience_heartbeat_at", {}).get("exists")
         and guard_state.get("rg_resilience_heartbeat_at", {}).get("age_seconds", 9999) <= 120
         and guard_state.get("RG_CONTROL_CENTER.json", {}).get("exists")
         and guard_state.get("RG_CONTROL_CENTER.json", {}).get("age_seconds", 9999) <= 120
     )
     roundtrip_ok = bool(
-        (out.get("auto_edit_roundtrip", {}).get("ok") if do_roundtrip else True)
-        and (out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True)
+        out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True
     )
+    warnings = []
+    if not guard_fresh:
+        warnings.append("legacy_nas_shell_guard_stale")
+    legacy_pending = 0
+    try:
+        legacy_pending = len(list((MCP_ROOT / "AUTO_EDIT_CALLS" / "requests").glob("*.json")))
+    except Exception:
+        legacy_pending = 0
+    if legacy_pending:
+        warnings.append(f"retired_legacy_auto_edit_requests={legacy_pending}")
+
     out["health"] = {
         "critical_files_ok": critical_files_ok,
         "alexpc_agent_ok": agent_ok,
-        "nas_guard_ok": guard_ok,
-        "roundtrip_ok": roundtrip_ok,
+        "nas_guard_fresh": guard_fresh,
+        "primary_roundtrip_ok": roundtrip_ok,
+        "legacy_auto_edit_calls_retired": True,
         "github_required_at_runtime": False,
+        "warnings": warnings,
     }
-    out["status"] = "ok" if critical_files_ok and agent_ok and guard_ok and roundtrip_ok else "degraded"
+    # The primary path is NAS MCP hub -> ALEXPC queue -> local Agent.
+    # The old host shell tick is maintenance-only and must not mark runtime down.
+    out["status"] = "ok" if critical_files_ok and agent_ok and roundtrip_ok else "degraded"
     atomic_json(STATE / "RG_CONTROL_PROBE.json", out)
     return out
 
 
 def repair() -> dict:
+    """Repair the runtime control path without rebuilding NAS Docker services."""
     before = probe(do_roundtrip=False)
-    installation = install()
+    agent = install_alexpc_agent()
+    runner_fallback = disable_github_runner_autostart()
     after = probe(do_roundtrip=True)
     return {
         "before_status": before.get("status"),
-        "installation": installation,
+        "mode": "runtime_only_no_docker_redeploy",
+        "alexpc_agent": agent,
+        "github_runner_fallback": runner_fallback,
         "after": after,
+    }
+
+
+def finalize_resilience() -> dict:
+    """Archive stale requests from the retired legacy AUTO_EDIT_CALLS transport."""
+    root = MCP_ROOT / "AUTO_EDIT_CALLS" / "requests"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    archive = STATE / "legacy_auto_edit_requests_archived" / stamp
+    moved = []
+    if root.is_dir():
+        for p in sorted(root.glob("*.json")):
+            try:
+                if time.time() - p.stat().st_mtime < 60:
+                    continue
+                archive.mkdir(parents=True, exist_ok=True)
+                dst = archive / p.name
+                shutil.move(str(p), str(dst))
+                moved.append(p.name)
+            except Exception:
+                pass
+    status = probe(do_roundtrip=True)
+    return {
+        "legacy_transport": "retired",
+        "archived_requests": moved,
+        "archive": str(archive) if moved else None,
+        "status": status,
     }
 
 
@@ -1032,6 +1078,7 @@ ACTIONS = {
     "probe_rg_resilience": probe,
     "repair_rg_resilience": repair,
     "inspect_rg_resilience_runtime": inspect_resilience_runtime,
+    "finalize_rg_resilience": finalize_resilience,
 }
 
 
