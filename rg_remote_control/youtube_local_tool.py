@@ -956,60 +956,24 @@ def daily_autopilot(task: dict) -> dict:
 
 
 def install_boot_ready() -> dict:
-    """Install a single self-healing runner guard and GUI autostart for AlexPC."""
+    """Install the runner-free NAS-first AlexPC agent and GUI autostart."""
     import subprocess
     import time
 
-    runner_dir = Path(r"C:\RG_GITHUB_RUNNER")
-    run_cmd = runner_dir / "run.cmd"
-    if not run_cmd.is_file():
-        raise RuntimeError(f"GitHub runner run.cmd not found: {run_cmd}")
-
-    # Keep the installed desktop source current before wiring autostart.
     sync = sync_source_only()
 
-    guard = runner_dir / "runner_guard.ps1"
-    guard.write_text(
-        r"""$ErrorActionPreference = 'SilentlyContinue'
-$root = 'C:\RG_GITHUB_RUNNER'
-$statusPath = Join-Path $root 'runner_guard_status.json'
-$mutex = New-Object System.Threading.Mutex($false, 'Global\RG_GITHUB_RUNNER_GUARD_V2')
-$locked = $false
-try {
-  $locked = $mutex.WaitOne(0)
-  if (-not $locked) { exit 0 }
+    agent_root = Path(r"C:\RG_AGENT")
+    agent_root.mkdir(parents=True, exist_ok=True)
+    source_agent = ROOT / "rg_remote_control" / "alexpc_agent.py"
+    target_agent = agent_root / "alexpc_agent.py"
+    if not source_agent.is_file():
+        raise RuntimeError(f"RG AlexPC Agent source not found: {source_agent}")
+    shutil.copy2(source_agent, target_agent)
 
-  $listener = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-    Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' })
-  $launcher = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" |
-    Where-Object { $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*run.cmd*' })
-
-  $action = 'healthy'
-  if ($listener.Count -eq 0 -and $launcher.Count -eq 0) {
-    Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','cd /d C:\RG_GITHUB_RUNNER && call run.cmd' -WindowStyle Hidden
-    $action = 'started'
-    Start-Sleep -Seconds 4
-    $listener = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-      Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' })
-  }
-
-  $payload = [pscustomobject]@{
-    timestamp = (Get-Date).ToString('o')
-    action = $action
-    listener_count = $listener.Count
-    launcher_count = $launcher.Count
-    computer = $env:COMPUTERNAME
-    runner = 'C:\RG_GITHUB_RUNNER'
-  }
-  $payload | ConvertTo-Json -Compress | Set-Content -Path $statusPath -Encoding UTF8
-}
-finally {
-  if ($locked) { $mutex.ReleaseMutex() | Out-Null }
-  $mutex.Dispose()
-}
-""",
-        encoding="utf-8",
-    )
+    python_exe = Path(sys.executable)
+    pythonw = python_exe.with_name("pythonw.exe")
+    if not pythonw.is_file():
+        pythonw = python_exe
 
     appdata = Path(
         os.environ.get(
@@ -1027,38 +991,24 @@ finally {
     )
     startup_dir.mkdir(parents=True, exist_ok=True)
 
-    # Remove the old direct run.cmd launcher. It could race the watchdog.
-    old_startup = startup_dir / "RG_GITHUB_RUNNER.vbs"
-    try:
-        if old_startup.is_file():
-            old_startup.unlink()
-    except Exception:
-        pass
-
-    guard_startup = startup_dir / "RG_GITHUB_RUNNER_GUARD.vbs"
-    guard_startup.write_text(
+    agent_startup = startup_dir / "RG_ALEXPC_AGENT.vbs"
+    agent_startup.write_text(
         'Set WshShell = CreateObject("WScript.Shell")\r\n'
-        'WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass '
-        '-WindowStyle Hidden -File ""C:\\RG_GITHUB_RUNNER\\runner_guard.ps1""", 0, False\r\n',
+        f'WshShell.Run """{pythonw}"" ""{target_agent}""", 0, False\r\n',
         encoding="utf-8",
         newline="",
     )
 
-    task_command = (
-        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
-        '-File "C:\\RG_GITHUB_RUNNER\\runner_guard.ps1"'
-    )
-    schtasks = r"C:\WINDOWS\System32\schtasks.exe"
+    schtasks = r"C:\Windows\System32\schtasks.exe"
+    task_command = f'\"{pythonw}\" \"{target_agent}\"'
 
-    # One watchdog only. It is safe to run beside the Startup guard because
-    # runner_guard.ps1 owns a named mutex and checks listener/launcher first.
     watchdog = subprocess.run(
         [
             schtasks,
             "/Create",
             "/SC", "MINUTE",
             "/MO", "1",
-            "/TN", "RG_GITHUB_RUNNER_WATCHDOG",
+            "/TN", "RG_ALEXPC_AGENT_WATCHDOG",
             "/TR", task_command,
             "/F",
         ],
@@ -1067,24 +1017,19 @@ finally {
         timeout=30,
     )
     subprocess.run(
-        [schtasks, "/Change", "/TN", "RG_GITHUB_RUNNER_WATCHDOG", "/ENABLE"],
+        [schtasks, "/Change", "/TN", "RG_ALEXPC_AGENT_WATCHDOG", "/ENABLE"],
         text=True,
         capture_output=True,
         timeout=20,
     )
 
-    # Best effort: make the guard available even before interactive logon.
-    # If the current account is not elevated, Startup + minute watchdog remain
-    # the supported fallback and the program is ready as the desktop appears.
-    boot = subprocess.run(
+    logon = subprocess.run(
         [
             schtasks,
             "/Create",
-            "/SC", "ONSTART",
-            "/TN", "RG_GITHUB_RUNNER_BOOT",
+            "/SC", "ONLOGON",
+            "/TN", "RG_ALEXPC_AGENT_LOGON",
             "/TR", task_command,
-            "/RU", "SYSTEM",
-            "/RL", "HIGHEST",
             "/F",
         ],
         text=True,
@@ -1092,21 +1037,56 @@ finally {
         timeout=30,
     )
 
-    # Run the guard once now. It must not create a second listener.
-    guard_now = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", str(guard),
-        ],
-        text=True,
-        capture_output=True,
-        timeout=30,
-    )
-    time.sleep(1)
+    # GitHub Runner is no longer a runtime dependency. Remove its automatic
+    # watchdog/startup hooks but keep the runner installation for manual CI use.
+    retired_tasks = {}
+    for task_name in (
+        "RG_GITHUB_RUNNER_WATCHDOG",
+        "RG_GITHUB_RUNNER_BOOT",
+    ):
+        proc = subprocess.run(
+            [schtasks, "/Delete", "/TN", task_name, "/F"],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        retired_tasks[task_name] = {
+            "removed": proc.returncode == 0,
+            "exit_code": proc.returncode,
+        }
 
-    status_path = runner_dir / "runner_guard_status.json"
+    removed_startup = []
+    for old_name in (
+        "RG_GITHUB_RUNNER.vbs",
+        "RG_GITHUB_RUNNER_GUARD.vbs",
+    ):
+        old = startup_dir / old_name
+        try:
+            if old.is_file():
+                old.unlink()
+                removed_startup.append(str(old))
+        except Exception:
+            pass
+
+    flags = 0
+    if os.name == "nt":
+        flags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    subprocess.Popen(
+        [str(pythonw), str(target_agent)],
+        cwd=str(agent_root),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+        close_fds=True,
+    )
+    time.sleep(2)
+
+    status_path = agent_root / "state" / "agent_status.json"
     status = {}
     if status_path.is_file():
         try:
@@ -1121,42 +1101,44 @@ finally {
             }
 
     gui = ensure_gui_startup()
+    agent_ready = bool(
+        status.get("schema") == "RG_ALEXPC_AGENT_V1"
+        and status.get("github_required") is False
+    )
 
     return {
         "youtube_api_calls": 0,
         "sync": sync,
-        "runner_guard": str(guard),
-        "runner_guard_exists": guard.is_file(),
-        "startup_guard": str(guard_startup),
-        "startup_guard_exists": guard_startup.is_file(),
-        "old_direct_startup_removed": not old_startup.exists(),
+        "mode": "nas_first_runner_free",
+        "github_runner_required": False,
+        "agent": str(target_agent),
+        "agent_exists": target_agent.is_file(),
+        "startup": str(agent_startup),
+        "startup_exists": agent_startup.is_file(),
         "watchdog": {
+            "installed": watchdog.returncode == 0,
             "exit_code": watchdog.returncode,
             "stdout": (watchdog.stdout or "")[-2000:],
             "stderr": (watchdog.stderr or "")[-2000:],
         },
-        "boot_task": {
-            "installed": boot.returncode == 0,
-            "exit_code": boot.returncode,
-            "stdout": (boot.stdout or "")[-2000:],
-            "stderr": (boot.stderr or "")[-2000:],
+        "logon_task": {
+            "installed": logon.returncode == 0,
+            "exit_code": logon.returncode,
+            "stdout": (logon.stdout or "")[-2000:],
+            "stderr": (logon.stderr or "")[-2000:],
         },
-        "guard_now": {
-            "exit_code": guard_now.returncode,
-            "stdout": (guard_now.stdout or "")[-2000:],
-            "stderr": (guard_now.stderr or "")[-2000:],
-        },
-        "guard_status": status,
+        "retired_runner_tasks": retired_tasks,
+        "removed_runner_startup": removed_startup,
+        "agent_status": status,
         "gui": gui,
         "ready": bool(
-            guard.is_file()
-            and guard_startup.is_file()
+            target_agent.is_file()
+            and agent_startup.is_file()
             and watchdog.returncode == 0
+            and agent_ready
             and gui.get("startup_shortcut_exists")
         ),
     }
-
-
 
 
 def cleanup_redundant_youtube_nas_agent() -> dict:
