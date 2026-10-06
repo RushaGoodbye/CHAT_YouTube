@@ -11056,10 +11056,12 @@ def inspect_auto_edit_901_uncensored_bases() -> dict:
 def apply_auto_edit_keyframe_censor_v2() -> dict:
     if os.name!="nt":
         raise RuntimeError("Windows only")
-    import datetime, hashlib, importlib.util, json, math, py_compile, shutil
+    import datetime, hashlib, importlib.util, json, math, py_compile, shutil, sys
     import xml.etree.ElementTree as ET
 
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    if str(app) not in sys.path:
+        sys.path.insert(0,str(app))
     censor_mod=app/"rg_dialogue_profanity_audio.py"
     pipeline=app/"rg_auto_edit_one_button.py"
     linkage=app/"rg_premiere_av_linkage.py"
