@@ -459,6 +459,27 @@ def patch_autodeploy_loop(loop_path: Path, backup_dir: Path) -> dict:
     return {"patched": True, "path": str(loop_path)}
 
 
+
+def stage_mcp_source_to_nas() -> dict:
+    source = ROOT / "rg_remote_mcp"
+    target = MCP_ROOT / "SOURCE"
+    if not source.is_dir():
+        raise RuntimeError(f"RG NAS MCP source missing: {source}")
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    request = MCP_ROOT / "DEPLOY_REQUEST"
+    request.write_text(
+        datetime.now(timezone.utc).isoformat() + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "source": str(source),
+        "target": str(target),
+        "deploy_request": str(request),
+        "deploy_requested": request.is_file(),
+    }
+
+
 def install() -> dict:
     STATE.mkdir(parents=True, exist_ok=True)
     GOLDEN.mkdir(parents=True, exist_ok=True)
@@ -485,6 +506,7 @@ def install() -> dict:
         copied[name] = {"live": str(live), "golden": str(GOLDEN / name)}
 
     loop = patch_autodeploy_loop(NAS_ROOT / "RG_NAS_AUTODEPLOY_LOOP.sh", backup_dir)
+    mcp_stage = stage_mcp_source_to_nas()
     agent = install_alexpc_agent()
     runner_fallback = disable_github_runner_autostart()
 
@@ -522,6 +544,7 @@ def install() -> dict:
         "installed_at": datetime.now(timezone.utc).isoformat(),
         "copied": copied,
         "autodeploy_loop": loop,
+        "mcp_stage": mcp_stage,
         "alexpc_agent": agent,
         "github_runner_fallback": runner_fallback,
         "backup_dir": str(backup_dir),
