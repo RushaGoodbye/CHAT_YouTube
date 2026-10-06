@@ -4399,6 +4399,68 @@ def inspect_auto_edit_901_audio_schema_compact() -> dict:
     return out
 
 
+
+def _update_020201_test(name,status,detail=None):
+    p=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\stabilization_020201.json")
+    try:d=json.loads(p.read_text(encoding="utf-8-sig"))
+    except Exception:d={"schema":"RG_020201_STABILIZATION_V1","version":"0.20.20.1","tests":{}}
+    d.setdefault("tests",{})[str(name)]={"status":str(status),"detail":detail,"ts":time.time()}
+    d["updated_at"]=time.time()
+    t=p.with_suffix(".tmp");t.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,p)
+    return d
+
+def run_auto_edit_886_short_smoke() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import subprocess,xml.etree.ElementTree as ET,py_compile
+    app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App")
+    runtime=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe")
+    local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    stream="886"; folder=app/stream
+    try:
+        for n in ("rg_production_wrapper.py","rg_multi_dialogue.py","rg_studio_postrun.py","VALIDATE_PREMIERE_XML.py"):
+            py_compile.compile(str(app/n),doraise=True)
+        from rg_server_resolver import resolve_video,resolve_audio,resolve_screenshots
+        video=resolve_video(r"\\Desktop-v7gg0en\record",stream)
+        audio=resolve_audio(r"\\Desktop-v7gg0en\record\sound",stream)
+        shots=resolve_screenshots(r"\\Desktop-v7gg0en\record\Screens",stream)
+        if not shots:raise RuntimeError("886 screenshots missing")
+        from rg_production_stability import acquire_stream_lock,release_stream_lock
+        lock=acquire_stream_lock(stream,owner_pid=os.getpid(),owner="RG 0.20.20.1 SHORT SMOKE")
+        release_stream_lock(stream,str((lock or {}).get("run_id") or ""))
+        xmls=[p for p in sorted(folder.glob("RG_EDITED_886*.xml")) if "_SHORTS" not in p.name.upper() and "_UNCENSORED" not in p.name.upper()]
+        if not xmls:raise RuntimeError("886 primary XML missing")
+        parsed=0;audio_refs=[];bad=[]
+        for p in xmls:
+            t=ET.parse(p);parsed+=1
+            for el in t.iter():
+                if str(el.tag).lower().endswith("pathurl") and el.text:
+                    u=el.text.upper()
+                    if any(x in u for x in ("AUDIO","SOUND",".WAV",".MP3",".M4A")):audio_refs.append(el.text)
+                    if any(x in u for x in ("NORMALIZED","NORMALISED","DIALOGUE_AUDIO.WAV","_DIALOGUE_AUDIO.")):bad.append(el.text)
+        if bad:raise RuntimeError("Processed audio reference detected: "+str(bad[:3]))
+        qstate=local/"RG_Auto_Edit"/"studio_batch_queue.json"
+        qstate.parent.mkdir(parents=True,exist_ok=True)
+        base={"schema":"RG_STUDIO_BATCH_UI_V2","running":True,"paused":False,"session_id":"SMOKE_020201_886","queue":[stream],
+              "rows":[{"stream":stream,"status":"ПРАЦЮЄ","progress":"90%","stage":"POSTRUN_QA","elapsed":"SMOKE","eta":"—","detail":"0.20.20.1 short production smoke"}],"updated_at":time.time()}
+        qstate.write_text(json.dumps(base,ensure_ascii=False,indent=2),encoding="utf-8")
+        cmd=[str(runtime),"-u","-X","utf8",str(app/"rg_studio_postrun.py"),"--stream",stream,"--folder",str(folder),"--outputs-json",json.dumps([str(x) for x in xmls],ensure_ascii=False),"--started-at",str(time.time())]
+        cp=subprocess.run(cmd,cwd=str(app),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=300,creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+        result=None
+        for line in (cp.stdout or "").splitlines():
+            if line.startswith("RGPOSTRUN|"):
+                try:result=json.loads(line.split("|",1)[1])
+                except Exception:pass
+        passed=bool(cp.returncode==0 and result and result.get("passed"))
+        if not passed:raise RuntimeError("POSTRUN failed: "+((cp.stdout or "")+(cp.stderr or ""))[-2500:])
+        base["running"]=False;base["rows"][0].update(status="ГОТОВО",progress="100%",stage="DONE",detail=f"QA PASS • {len(xmls)} XML");base["updated_at"]=time.time()
+        qstate.write_text(json.dumps(base,ensure_ascii=False,indent=2),encoding="utf-8")
+        detail={"video":str(video),"audio":str(audio),"screens":len(shots),"xml":len(xmls),"parsed":parsed,"audio_refs":len(audio_refs),"postrun":True}
+        _update_020201_test("886_PRODUCTION_SMOKE","PASS",detail)
+        return {"status":"PASS","stream":stream,**detail,"queue_state":str(qstate)}
+    except Exception as exc:
+        _update_020201_test("886_PRODUCTION_SMOKE","FAIL",repr(exc));raise
+
+
 def inspect_auto_edit_stream_result() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_stream_result must run on AlexPC/Windows")
@@ -13583,6 +13645,7 @@ ACTIONS = {
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
+    "run_auto_edit_886_short_smoke": run_auto_edit_886_short_smoke,
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
     "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
     "inspect_auto_edit_premiere_audio_direct_branch": inspect_auto_edit_premiere_audio_direct_branch,
