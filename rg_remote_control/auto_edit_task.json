@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_clock_boundary_code",
+  "action": "inspect_auto_edit_901_anchor_sequence",
   "args": {},
-  "nonce": "inspect-901-boundary-fallback-20261006-2"
+  "nonce": "inspect-901-anchor-sequence-20261006-4"
 }
