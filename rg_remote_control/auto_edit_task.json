@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_service_process_stream_fix",
+  "action": "build_auto_edit_pack25_stability_ux_update",
   "args": {},
-  "nonce": "apply-service-process-fix-20261006-2125"
+  "nonce": "build-ux25-fix1-20261006-2128"
 }
