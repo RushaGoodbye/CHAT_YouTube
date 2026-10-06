@@ -416,3 +416,22 @@ def test_review_precheck_skips_short_statement():
     assert _comment_reply_precheck_reason(
         "Бензина нет, но он есть"
     ) == "short_non_question"
+
+
+def test_template_rotation_avoids_immediate_repeat(tmp_path):
+    from rg_youtube_control.service import _reply_template_for
+
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        first = _reply_template_for(
+            conn, "main", "thanks", "rotation-1", "viewer"
+        )
+        second = _reply_template_for(
+            conn, "main", "thanks", "rotation-2", "viewer"
+        )
+        assert first != second
+        assert "—" not in first and "–" not in first
+        assert "—" not in second and "–" not in second
+    finally:
+        conn.close()
