@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
+  "action": "inspect_auto_edit_ui_freeze_runtime",
   "args": {},
-  "nonce": "inspect-freeze-process-tree-020200-20261006-2348"
+  "nonce": "inspect-ui-freeze-runtime-020200-20261006-2351"
 }
