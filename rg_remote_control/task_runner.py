@@ -602,7 +602,7 @@ def sync_nas_scheduler_tick() -> dict:
     import hashlib
     from datetime import datetime, timezone
 
-    expected_blob = "499fd06d91fdab32950c69abad04cad27b26beea"
+    expected_blob = "a551b31501bea802d1f7486a6165f0dba6ec62c9"
     source = ROOT / "rg_remote_control" / "nas" / "RG_NAS_SCHEDULER_TICK.sh"
     if not source.is_file():
         raise RuntimeError(f"Vendored scheduler missing: {source}")
