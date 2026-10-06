@@ -655,11 +655,48 @@ def _recover_title_variants(
     ][:3]
 
 
+_GENERIC_MODEL_TAGS = {
+    "план", "стратегия", "политика", "должность", "перевод", "власть",
+    "тема", "мнение", "разговор", "видео", "вопрос", "ответ", "общество",
+    "новости", "события", "ситуация", "анализ", "обсуждение", "интервью",
+}
+
+
+def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
+    """Allow model tags only when they are specific and grounded in title/transcript."""
+    clean = " ".join(str(tag or "").split()).strip().lstrip("#")
+    if not clean:
+        return False
+    folded = clean.casefold()
+    if folded in _GENERIC_MODEL_TAGS:
+        return False
+    if folded in {"раша гудбай", "чат рулетка"}:
+        return True
+
+    haystack = f"{current_title}\n{transcript}".casefold()
+    if folded in haystack:
+        return True
+
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", folded)
+        if len(token) >= 4 and token not in _GENERIC_MODEL_TAGS
+    ]
+    if not tokens:
+        return False
+
+    # Multi-word tags may use a normalized phrase not present verbatim, but at
+    # least half of their meaningful words must be visible in the source.
+    hits = sum(1 for token in tokens if token in haystack)
+    required = 1 if len(tokens) == 1 else max(2, (len(tokens) + 1) // 2)
+    return hits >= required
+
+
 def _grounded_tags_from_transcript(
     current_title: str,
     transcript: str,
 ) -> list[str]:
-    """Build 8-15 conservative SEO tags from the actual title/transcript."""
+    """Build 8-15 specific SEO tags from the actual title/transcript."""
     title = re.sub(
         r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
         "",
@@ -677,6 +714,22 @@ def _grounded_tags_from_transcript(
         if clean.casefold() not in {item.casefold() for item in tags}:
             tags.append(clean)
 
+    # Named entities and concrete episode topics come before generic channel tags.
+    if "шойгу" in haystack:
+        add("Шойгу")
+        if "уволь" in haystack or "отстав" in haystack:
+            add("увольнение Шойгу")
+    if "герасим" in haystack:
+        add("Герасимов")
+    if "пригож" in haystack:
+        add("Пригожин")
+    if "министерств" in haystack and "оборон" in haystack:
+        add("Министерство обороны России")
+    if "коррупц" in haystack:
+        add("коррупция в России")
+    if "арм" in haystack and ("росси" in haystack or "рф" in haystack):
+        add("российская армия")
+
     if "росси" in haystack or "росія" in haystack:
         for value in (
             "Россия",
@@ -688,7 +741,6 @@ def _grounded_tags_from_transcript(
 
     if "жизн" in haystack or "житт" in haystack:
         add("жизнь в России")
-        add("жизнь россиян")
     if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
         add("цены в России")
     if "зарплат" in haystack or "доход" in haystack:
@@ -716,15 +768,12 @@ def _grounded_tags_from_transcript(
     if re.search(r"\b2023\b", haystack):
         add("Россия 2023")
 
-    if title:
-        add(title[:100])
-
-    # Universal but accurate fallback tags for the project's chat-roulette format.
+    # Project-format fallbacks are added last, only to reach a useful minimum.
     for value in (
         "опрос россиян",
-        "русская чат рулетка",
         "реакция россиян",
         "разговор с россиянами",
+        "русская чат рулетка",
     ):
         if len(tags) >= 8:
             break
