@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_one_button_boundary_gate",
+  "action": "inspect_auto_edit_identity_refiner",
   "args": {},
-  "nonce": "inspect-one-button-boundary-gate-20261006-5"
+  "nonce": "inspect-identity-refiner-20261006-6"
 }
