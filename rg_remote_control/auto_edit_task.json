@@ -1,10 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "auto_edit_mcp_call",
-  "args": {
-    "tool": "auto_edit_queue",
-    "tool_args": {}
-  },
-  "nonce": "recovery-check-20261006-0131"
+  "action": "inspect_auto_edit_901_diagnostic",
+  "args": {},
+  "nonce": "inspect-901-prod-backend-20261006-1"
 }
