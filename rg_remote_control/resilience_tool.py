@@ -138,13 +138,24 @@ try {
   $locked = $mutex.WaitOne(0)
   if (-not $locked) { exit 0 }
 
-  $listener = Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-    Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' }
+  $listeners = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+    Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' })
   $launcher = Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" |
     Where-Object { $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*run.cmd*' }
 
-  if ($listener) {
-    "$(Get-Date -Format o) OK listener=$($listener.ProcessId -join ',')" | Add-Content -Path $log -Encoding UTF8
+  if ($listeners.Count -gt 1) {
+    $ordered = @($listeners | Sort-Object CreationDate)
+    $keep = $ordered[0]
+    $extras = @($ordered | Select-Object -Skip 1)
+    foreach ($x in $extras) {
+      Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    "$(Get-Date -Format o) DEDUP keep=$($keep.ProcessId) stopped=$($extras.ProcessId -join ',')" | Add-Content -Path $log -Encoding UTF8
+    $listeners = @($keep)
+  }
+
+  if ($listeners.Count -eq 1) {
+    "$(Get-Date -Format o) OK listener=$($listeners[0].ProcessId)" | Add-Content -Path $log -Encoding UTF8
     exit 0
   }
   if ($launcher) {
@@ -621,6 +632,15 @@ def probe(do_roundtrip: bool = True) -> dict:
         r"$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Runner.Listener.exe' -and ($_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' -or $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*') }; $p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
     ], timeout=20)
 
+    listener_count = 0
+    try:
+        raw_listener = (listener.get("stdout") or "").strip()
+        if raw_listener:
+            parsed_listener = json.loads(raw_listener)
+            listener_count = len(parsed_listener) if isinstance(parsed_listener, list) else 1
+    except Exception:
+        listener_count = 0
+
     out = {
         "schema": "RG_CONTROL_PROBE_V1",
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -628,6 +648,7 @@ def probe(do_roundtrip: bool = True) -> dict:
         "state": state_files,
         "runner": {
             "listener": listener,
+            "listener_count": listener_count,
             "keepalive": _task_query(TASK_KEEPALIVE),
             "boot": _task_query(TASK_BOOT),
         },
@@ -641,7 +662,9 @@ def probe(do_roundtrip: bool = True) -> dict:
         out["auto_edit_roundtrip"] = queue_roundtrip()
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
     runner_ok = bool(
-        out.get("alexpc_agent", {}).get("keepalive", {}).get("exists")
+        out.get("runner", {}).get("listener_count") == 1
+        and out.get("runner", {}).get("keepalive", {}).get("exists")
+        and out.get("alexpc_agent", {}).get("keepalive", {}).get("exists")
         and out.get("alexpc_agent", {}).get("boot", {}).get("exists")
     )
     roundtrip_ok = bool(out.get("auto_edit_roundtrip", {}).get("ok")) if do_roundtrip else True
