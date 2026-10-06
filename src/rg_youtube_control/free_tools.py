@@ -587,6 +587,71 @@ def _description_quality_error(description: str, transcript: str = "") -> str:
     return ""
 
 
+def _repair_description_to_ukrainian(
+    *,
+    draft: str,
+    current_title: str,
+    transcript: str,
+    model: str,
+) -> str:
+    """Repair a concrete draft into grounded Ukrainian prose."""
+    if not str(draft or "").strip() or not str(transcript or "").strip():
+        return ""
+
+    prompt = f"""
+Перепиши чернетку SEO-опису українською мовою, звіряючи КОЖНЕ твердження з транскриптом.
+
+Правила:
+- 4-6 речень, приблизно 420-750 символів;
+- збережи конкретні теми й позиції, які підтверджені транскриптом;
+- видали будь-яку людину, ім'я, посаду, ЗМІ, ефір, організацію або факт, яких немає в транскрипті чи назві;
+- не розширюй імена із зовнішніх знань: якщо є лише «Шойгу», залиш «Шойгу»;
+- не перетворюй шумні/обірвані ASR-фрагменти на назви джерел;
+- без CTA, без службових фраз, без посилань, хештегів і таймкодів;
+- не повторюй речення;
+- мова: ТІЛЬКИ українська;
+- поверни лише готовий опис.
+
+НАЗВА:
+{current_title}
+
+ЧЕРНЕТКА:
+{draft}
+
+ТРАНСКРИПТ:
+{transcript[:12000]}
+""".strip()
+
+    raw = ollama_chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Ти фактчекер і редактор українських YouTube-описів. "
+                    "Використовуй лише наданий транскрипт."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        model=model,
+        temperature=0.03,
+        json_mode=False,
+    )
+    value = str(raw or "").strip()
+    fence = chr(96) * 3
+    if value.startswith(fence):
+        value = value[len(fence):].lstrip()
+    if value.endswith(fence):
+        value = value[:-len(fence)].rstrip()
+    value = re.sub(
+        r"^\s*(?:Опис|Описание)\s*:\s*",
+        "",
+        value,
+        flags=re.I,
+    ).strip().strip('"').strip()
+    return _polish_generated_description(value)
+
+
 def _recover_missing_description(
     *,
     current_title: str,
@@ -699,6 +764,29 @@ def _recover_missing_description(
             last_error = _description_quality_error(value, transcript)
             if not last_error:
                 return value
+
+            if last_error in {
+                "wrong_language",
+                "unverified_source_entity",
+                "duplicate_sentence",
+                "repetitive_style",
+            }:
+                repaired = _repair_description_to_ukrainian(
+                    draft=value,
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+                repaired_error = _description_quality_error(
+                    repaired,
+                    transcript,
+                )
+                if repaired and not repaired_error:
+                    return repaired
+                if len(repaired) > len(last):
+                    last = repaired
+                if repaired_error:
+                    last_error = repaired_error
 
     return ""
 
@@ -1129,14 +1217,29 @@ chapters: рядок з підтвердженими таймкодами або
             )
             merged_tags: list[str] = []
             seen_tags: set[str] = set()
-            for item in grounded_tags + model_tags:
+
+            primary_tags = grounded_tags if transcript.strip() else model_tags
+            fallback_tags = model_tags if transcript.strip() else grounded_tags
+
+            for item in primary_tags:
                 key = item.casefold()
                 if not key or key in seen_tags:
                     continue
                 seen_tags.add(key)
                 merged_tags.append(item)
-                if len(merged_tags) >= 15:
+                if len(merged_tags) >= 10:
                     break
+
+            if len(merged_tags) < 8:
+                for item in fallback_tags:
+                    key = item.casefold()
+                    if not key or key in seen_tags:
+                        continue
+                    seen_tags.add(key)
+                    merged_tags.append(item)
+                    if len(merged_tags) >= 10:
+                        break
+
             if len(merged_tags) < 8:
                 raise ValueError("need at least 8 grounded tags")
             candidate["tags"] = merged_tags
