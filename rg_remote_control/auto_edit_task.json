@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "inspect_rg_resilience_runtime",
   "args": {},
-  "nonce": "fix-nas-agent-loop-20261006-1"
+  "nonce": "inspect-resilience-runtime-after-queue-cleanup-20261006-1"
 }
