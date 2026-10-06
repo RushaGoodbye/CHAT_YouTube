@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_cleanup_redundant_nas_agent",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "cleanup-temp-youtube-agent-20261006-v2"
+    "nonce": "apply-invalid-description-fix-20261006"
   }
 }
