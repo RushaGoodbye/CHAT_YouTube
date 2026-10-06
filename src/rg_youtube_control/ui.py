@@ -1000,6 +1000,7 @@ class MainWindow(QMainWindow):
         self.current_profile = profile
         set_setting(self.conn, "current_profile", self.current_profile)
         self.client = YouTubeClient(profile=self.current_profile)
+        self._restore_optimization_view_state()
 
         if hasattr(self, "header_profile_combo"):
             self.header_profile_combo.blockSignals(True)
@@ -3250,6 +3251,30 @@ class MainWindow(QMainWindow):
         layout.addWidget(context)
         self.tabs.addTab(page, "Оптимізація")
 
+
+    def _restore_optimization_view_state(self) -> None:
+        if hasattr(self, "optimization_filter"):
+            value = get_setting(
+                self.conn,
+                f"optimization_queue_filter_{self.current_profile}",
+                "all",
+            )
+            index = self.optimization_filter.findData(value)
+            self.optimization_filter.blockSignals(True)
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+            self.optimization_filter.blockSignals(False)
+        if hasattr(self, "optimization_status_filter"):
+            value = get_setting(
+                self.conn,
+                f"optimization_status_filter_{self.current_profile}",
+                "all",
+            )
+            index = self.optimization_status_filter.findData(value)
+            self.optimization_status_filter.blockSignals(True)
+            if index >= 0:
+                self.optimization_status_filter.setCurrentIndex(index)
+            self.optimization_status_filter.blockSignals(False)
 
     def _optimization_view_changed(self, _index: int = -1) -> None:
         if hasattr(self, "optimization_filter"):
