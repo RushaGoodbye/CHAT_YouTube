@@ -893,6 +893,209 @@ def daily_autopilot(task: dict) -> dict:
     return result
 
 
+
+def install_boot_ready() -> dict:
+    """Install a single self-healing runner guard and GUI autostart for AlexPC."""
+    import subprocess
+    import time
+
+    runner_dir = Path(r"C:\RG_GITHUB_RUNNER")
+    run_cmd = runner_dir / "run.cmd"
+    if not run_cmd.is_file():
+        raise RuntimeError(f"GitHub runner run.cmd not found: {run_cmd}")
+
+    # Keep the installed desktop source current before wiring autostart.
+    sync = sync_source_only()
+
+    guard = runner_dir / "runner_guard.ps1"
+    guard.write_text(
+        r"""$ErrorActionPreference = 'SilentlyContinue'
+$root = 'C:\RG_GITHUB_RUNNER'
+$statusPath = Join-Path $root 'runner_guard_status.json'
+$mutex = New-Object System.Threading.Mutex($false, 'Global\RG_GITHUB_RUNNER_GUARD_V2')
+$locked = $false
+try {
+  $locked = $mutex.WaitOne(0)
+  if (-not $locked) { exit 0 }
+
+  $listener = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+    Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' })
+  $launcher = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" |
+    Where-Object { $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*run.cmd*' })
+
+  $action = 'healthy'
+  if ($listener.Count -eq 0 -and $launcher.Count -eq 0) {
+    Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','cd /d C:\RG_GITHUB_RUNNER && call run.cmd' -WindowStyle Hidden
+    $action = 'started'
+    Start-Sleep -Seconds 4
+    $listener = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+      Where-Object { $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' -or $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' })
+  }
+
+  $payload = [pscustomobject]@{
+    timestamp = (Get-Date).ToString('o')
+    action = $action
+    listener_count = $listener.Count
+    launcher_count = $launcher.Count
+    computer = $env:COMPUTERNAME
+    runner = 'C:\RG_GITHUB_RUNNER'
+  }
+  $payload | ConvertTo-Json -Compress | Set-Content -Path $statusPath -Encoding UTF8
+}
+finally {
+  if ($locked) { $mutex.ReleaseMutex() | Out-Null }
+  $mutex.Dispose()
+}
+""",
+        encoding="utf-8",
+    )
+
+    appdata = Path(
+        os.environ.get(
+            "APPDATA",
+            str(Path.home() / "AppData" / "Roaming"),
+        )
+    )
+    startup_dir = (
+        appdata
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+    startup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove the old direct run.cmd launcher. It could race the watchdog.
+    old_startup = startup_dir / "RG_GITHUB_RUNNER.vbs"
+    try:
+        if old_startup.is_file():
+            old_startup.unlink()
+    except Exception:
+        pass
+
+    guard_startup = startup_dir / "RG_GITHUB_RUNNER_GUARD.vbs"
+    guard_startup.write_text(
+        'Set WshShell = CreateObject("WScript.Shell")\r\n'
+        'WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass '
+        '-WindowStyle Hidden -File ""C:\\RG_GITHUB_RUNNER\\runner_guard.ps1""", 0, False\r\n',
+        encoding="utf-8",
+        newline="",
+    )
+
+    task_command = (
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        '-File "C:\\RG_GITHUB_RUNNER\\runner_guard.ps1"'
+    )
+    schtasks = r"C:\WINDOWS\System32\schtasks.exe"
+
+    # One watchdog only. It is safe to run beside the Startup guard because
+    # runner_guard.ps1 owns a named mutex and checks listener/launcher first.
+    watchdog = subprocess.run(
+        [
+            schtasks,
+            "/Create",
+            "/SC", "MINUTE",
+            "/MO", "1",
+            "/TN", "RG_GITHUB_RUNNER_WATCHDOG",
+            "/TR", task_command,
+            "/F",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    subprocess.run(
+        [schtasks, "/Change", "/TN", "RG_GITHUB_RUNNER_WATCHDOG", "/ENABLE"],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    # Best effort: make the guard available even before interactive logon.
+    # If the current account is not elevated, Startup + minute watchdog remain
+    # the supported fallback and the program is ready as the desktop appears.
+    boot = subprocess.run(
+        [
+            schtasks,
+            "/Create",
+            "/SC", "ONSTART",
+            "/TN", "RG_GITHUB_RUNNER_BOOT",
+            "/TR", task_command,
+            "/RU", "SYSTEM",
+            "/RL", "HIGHEST",
+            "/F",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    # Run the guard once now. It must not create a second listener.
+    guard_now = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", str(guard),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    time.sleep(1)
+
+    status_path = runner_dir / "runner_guard_status.json"
+    status = {}
+    if status_path.is_file():
+        try:
+            status = json.loads(
+                status_path.read_text(encoding="utf-8-sig", errors="replace")
+            )
+        except Exception:
+            status = {
+                "raw": status_path.read_text(
+                    encoding="utf-8-sig", errors="replace"
+                )[-2000:]
+            }
+
+    gui = ensure_gui_startup()
+
+    return {
+        "youtube_api_calls": 0,
+        "sync": sync,
+        "runner_guard": str(guard),
+        "runner_guard_exists": guard.is_file(),
+        "startup_guard": str(guard_startup),
+        "startup_guard_exists": guard_startup.is_file(),
+        "old_direct_startup_removed": not old_startup.exists(),
+        "watchdog": {
+            "exit_code": watchdog.returncode,
+            "stdout": (watchdog.stdout or "")[-2000:],
+            "stderr": (watchdog.stderr or "")[-2000:],
+        },
+        "boot_task": {
+            "installed": boot.returncode == 0,
+            "exit_code": boot.returncode,
+            "stdout": (boot.stdout or "")[-2000:],
+            "stderr": (boot.stderr or "")[-2000:],
+        },
+        "guard_now": {
+            "exit_code": guard_now.returncode,
+            "stdout": (guard_now.stdout or "")[-2000:],
+            "stderr": (guard_now.stderr or "")[-2000:],
+        },
+        "guard_status": status,
+        "gui": gui,
+        "ready": bool(
+            guard.is_file()
+            and guard_startup.is_file()
+            and watchdog.returncode == 0
+            and gui.get("startup_shortcut_exists")
+        ),
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3087,6 +3290,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_install_boot_ready":
+        result = install_boot_ready()
     elif action == "youtube_local_daily_autopilot":
         result = daily_autopilot(task)
     elif action == "youtube_local_repair_ollama":
