@@ -4,6 +4,115 @@ from mcp.server import MCPServer
 
 from .hubclient import WORKERS, worker_get, worker_post
 
+import asyncio
+import json
+import os
+import time
+import uuid
+from pathlib import Path
+
+ALEXPC_ROOT = Path(os.getenv("RG_ALEXPC_ROOT", "/alexpc"))
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return {}
+
+
+async def _alexpc_submit(
+    contour: str,
+    action: str,
+    args: dict | None = None,
+    timeout_seconds: int = 180,
+    wait: bool = True,
+) -> dict:
+    contour = str(contour).strip().casefold()
+    if contour not in {"youtube", "telegram", "auto_edit"}:
+        raise ValueError("invalid contour")
+    action = str(action or "").strip()
+    if not action:
+        raise ValueError("action is required")
+    timeout_seconds = max(5, min(int(timeout_seconds), 3600))
+
+    request_id = uuid.uuid4().hex
+    base = ALEXPC_ROOT / contour
+    request = {
+        "request_id": request_id,
+        "contour": contour,
+        "action": action,
+        "args": dict(args or {}),
+        "created_at": __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ).isoformat(),
+        "timeout_seconds": timeout_seconds,
+    }
+    _atomic_json(base / "requests" / f"{request_id}.json", request)
+
+    queued = {
+        "request_id": request_id,
+        "contour": contour,
+        "action": action,
+        "queued": True,
+        "github_required": False,
+    }
+    if not wait:
+        return queued
+
+    result_path = base / "results" / f"{request_id}.json"
+    error_path = base / "errors" / f"{request_id}.json"
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_seconds:
+        if result_path.is_file():
+            return {**queued, "result": _read_json(result_path)}
+        if error_path.is_file():
+            return {**queued, "error": _read_json(error_path)}
+        await asyncio.sleep(1)
+
+    return {
+        **queued,
+        "timeout": True,
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+async def _alexpc_status(contour: str) -> dict:
+    status = _read_json(ALEXPC_ROOT / "status" / "alexpc_agent.json")
+    base = ALEXPC_ROOT / contour
+    counts = {}
+    for name in ("requests", "processing", "results", "errors"):
+        folder = base / name
+        try:
+            counts[name] = sum(1 for p in folder.glob("*.json"))
+        except Exception:
+            counts[name] = 0
+    updated = str(status.get("updated_at") or "")
+    age = None
+    if updated:
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            age = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+        except Exception:
+            age = None
+    return {
+        "contour": contour,
+        "agent": status,
+        "agent_online": age is not None and age < 45,
+        "age_seconds": round(age, 1) if age is not None else None,
+        "queue": counts,
+        "github_required": False,
+    }
+
+
 mcp = MCPServer("RG NAS MCP Hub")
 
 
@@ -253,6 +362,63 @@ async def auto_edit_diagnostics_snapshot(stream: str) -> dict:
         "diagnostics": await _auto_list(f"DIAGNOSTICS/{stream}"),
         "run": await auto_edit_run(stream),
     }
+
+
+
+
+@mcp.tool(name="youtube_alexpc_task")
+async def youtube_alexpc_task(
+    action: str,
+    args: dict | None = None,
+    timeout_seconds: int = 180,
+    wait: bool = True,
+) -> dict:
+    """Run a YouTube-contour task on AlexPC through the NAS queue, without GitHub Actions."""
+    if not str(action).startswith("youtube_"):
+        raise ValueError("YouTube AlexPC action must start with youtube_")
+    return await _alexpc_submit("youtube", action, args, timeout_seconds, wait)
+
+
+@mcp.tool(name="youtube_alexpc_status")
+async def youtube_alexpc_status() -> dict:
+    """Return AlexPC NAS-agent health and YouTube queue status."""
+    return await _alexpc_status("youtube")
+
+
+@mcp.tool(name="telegram_alexpc_task")
+async def telegram_alexpc_task(
+    action: str,
+    args: dict | None = None,
+    timeout_seconds: int = 180,
+    wait: bool = True,
+) -> dict:
+    """Run a Telegram-contour task on AlexPC through the NAS queue, without GitHub Actions."""
+    if not str(action).startswith("telegram_"):
+        raise ValueError("Telegram AlexPC action must start with telegram_")
+    return await _alexpc_submit("telegram", action, args, timeout_seconds, wait)
+
+
+@mcp.tool(name="telegram_alexpc_status")
+async def telegram_alexpc_status() -> dict:
+    """Return AlexPC NAS-agent health and Telegram queue status."""
+    return await _alexpc_status("telegram")
+
+
+@mcp.tool(name="auto_edit_alexpc_task")
+async def auto_edit_alexpc_task(
+    action: str,
+    args: dict | None = None,
+    timeout_seconds: int = 180,
+    wait: bool = True,
+) -> dict:
+    """Run an Auto Edit task on AlexPC through the NAS queue, without GitHub Actions."""
+    return await _alexpc_submit("auto_edit", action, args, timeout_seconds, wait)
+
+
+@mcp.tool(name="auto_edit_alexpc_status")
+async def auto_edit_alexpc_status() -> dict:
+    """Return AlexPC NAS-agent health and Auto Edit queue status."""
+    return await _alexpc_status("auto_edit")
 
 
 def main() -> None:
