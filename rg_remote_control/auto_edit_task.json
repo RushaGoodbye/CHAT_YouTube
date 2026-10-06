@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_rg_resilience",
+  "action": "finalize_control_settings",
   "args": {},
-  "nonce": "verify-youtube-044-selfheal-20261006-1"
+  "nonce": "finalize-control-settings-no-stream-20261006-1"
 }
