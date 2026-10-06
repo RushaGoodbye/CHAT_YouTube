@@ -208,8 +208,10 @@ PY
     printf 'deployed_at='
     cat "$STATE/rg_telegram_control_app_deployed_at" 2>/dev/null || true
     printf '\n'
+    PORT="$(cat "$STATE/rg_telegram_control_app_port" 2>/dev/null || echo 18788)"
+    printf 'port=%s\n' "$PORT"
     if command -v curl >/dev/null 2>&1; then
-      curl -fsS --max-time 5 http://127.0.0.1:8791/healthz || true
+      curl -fsS --max-time 5 "http://127.0.0.1:$PORT/healthz" || true
       printf '\n'
     fi
     docker ps -a --format '{{.Names}}\t{{.Status}}' | grep '^rg-telegram-control' || true
