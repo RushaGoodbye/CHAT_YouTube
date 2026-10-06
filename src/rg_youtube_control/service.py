@@ -586,6 +586,29 @@ def _reply_template_for(
     checksum = sum(ord(ch) for ch in str(comment_id))
     return variants[checksum % len(variants)]
 
+def local_safe_template_candidate(
+    conn: sqlite3.Connection,
+    profile: str,
+    comment_id: str,
+    comment_text: str,
+) -> dict[str, str] | None:
+    """Return a deterministic zero-AI draft only for freshly classified safe intents."""
+    decision = classify(str(comment_text or ""))
+    if not decision.auto_allowed or decision.category not in SAFE_AUTO_CATEGORIES:
+        return None
+    return {
+        "state": "ready",
+        "reply": _reply_template_for(
+            conn,
+            profile,
+            decision.category,
+            str(comment_id),
+        ),
+        "reason": f"safe_template:{decision.category}",
+        "category": decision.category,
+    }
+
+
 def _thread_needs_remote_reply_lookup(thread: dict[str, Any]) -> bool:
     total = int(thread.get("snippet", {}).get("totalReplyCount") or 0)
     embedded = thread.get("replies", {}).get("comments", []) or []
