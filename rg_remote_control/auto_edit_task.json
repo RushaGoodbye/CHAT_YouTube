@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_rg_resilience",
+  "action": "bootstrap_youtube_runtime",
   "args": {},
-  "nonce": "verify-primary-nas-agent-youtube-20261006-1"
+  "nonce": "nas-bootstrap-youtube-runtime-20261006-1"
 }
