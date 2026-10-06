@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_all_v1_linkage_fix",
+  "action": "apply_auto_edit_audio_integrity_guard",
   "args": {},
-  "nonce": "apply-all-v1-linkage-20261006-26"
+  "nonce": "apply-audio-integrity-guard-20261006-27"
 }
