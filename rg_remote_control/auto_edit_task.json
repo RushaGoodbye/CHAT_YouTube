@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_audio_outputs",
+  "action": "inspect_auto_edit_901_audio_schema_compact",
   "args": {},
-  "nonce": "inspect-901-audio-20261006-1"
+  "nonce": "inspect-901-audio-schema-20261006-1"
 }
