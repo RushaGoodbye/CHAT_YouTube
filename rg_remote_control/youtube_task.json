@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_local_cleanup_redundant_nas_agent",
   "args": {
-    "nonce": "cleanup-temp-youtube-agent-20261006"
+    "nonce": "cleanup-temp-youtube-agent-20261006-v2"
   }
 }
