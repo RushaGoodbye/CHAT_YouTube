@@ -260,16 +260,25 @@ PRIVACY_LABELS = {
 COMMENT_CATEGORY_LABELS = {
     "review": "на перевірці",
     "thanks": "подяка",
+    "support": "підтримка",
+    "greeting": "привітання",
+    "wishes": "побажання",
+    "humor": "гумор",
     "links": "посилання",
     "donate": "донат",
     "schedule": "розклад",
+    "new_viewer": "новий глядач",
+    "returning_viewer": "повернення",
+    "episode_praise": "відгук про випуск",
+    "health_wishes": "побажання здоров'я",
+    "host_compliment": "комплімент ведучому",
+    "fundraising_support": "підтримка зборів",
 }
 
 COMMENT_STATUS_LABELS = {
     "new": "новий",
     "replied": "відповіли",
     "ignored": "проігноровано",
-    "moderation_locked": "модерація YouTube",
     "moderation_locked": "модерація YouTube",
 }
 
@@ -4047,11 +4056,24 @@ class MainWindow(QMainWindow):
 
         self.comment_category_filter = QComboBox()
         self.comment_category_filter.addItem("Усі категорії", "")
-        self.comment_category_filter.addItem("На перевірці", "review")
-        self.comment_category_filter.addItem("Подяки", "thanks")
-        self.comment_category_filter.addItem("Посилання", "links")
-        self.comment_category_filter.addItem("Донати", "donate")
-        self.comment_category_filter.addItem("Розклад", "schedule")
+        for key, label in (
+            ("review", "На перевірці"),
+            ("thanks", "Подяки"),
+            ("support", "Підтримка"),
+            ("greeting", "Привітання"),
+            ("wishes", "Побажання"),
+            ("humor", "Гумор"),
+            ("links", "Посилання"),
+            ("donate", "Донати"),
+            ("schedule", "Розклад"),
+            ("new_viewer", "Новий глядач"),
+            ("returning_viewer", "Повернення"),
+            ("episode_praise", "Відгук про випуск"),
+            ("health_wishes", "Побажання здоров'я"),
+            ("host_compliment", "Комплімент ведучому"),
+            ("fundraising_support", "Підтримка зборів"),
+        ):
+            self.comment_category_filter.addItem(label, key)
         self.comment_category_filter.currentIndexChanged.connect(self.reload_comments)
 
         self.comment_draft_filter = QComboBox()
@@ -5661,9 +5683,19 @@ class MainWindow(QMainWindow):
         self.reply_template_edits = {}
         template_labels = {
             "thanks": "Подяка",
+            "support": "Підтримка каналу",
+            "greeting": "Привітання",
+            "wishes": "Побажання",
+            "humor": "Гумор / сміх",
             "links": "Посилання",
             "donate": "Донат",
             "schedule": "Розклад",
+            "new_viewer": "Новий глядач",
+            "returning_viewer": "Повернувся після паузи",
+            "episode_praise": "Відгук про випуск / рубрику",
+            "health_wishes": "Побажання здоров'я",
+            "host_compliment": "Комплімент ведучому",
+            "fundraising_support": "Підтримка зборів",
         }
         for category, label in template_labels.items():
             raw = get_setting(
@@ -12679,9 +12711,11 @@ class MainWindow(QMainWindow):
         key_item = self.comment_table.item(row, 0)
         comment_item = self.comment_table.item(row, 3)
         video_item = self.comment_table.item(row, 1)
+        author_item = self.comment_table.item(row, 2)
         comment_id = key_item.data(Qt.ItemDataRole.UserRole) if key_item else None
         comment_text = comment_item.text() if comment_item else ""
         video_title = video_item.text() if video_item else ""
+        author = author_item.text() if author_item else ""
         if not comment_id or not comment_text.strip():
             return
 
@@ -12704,6 +12738,7 @@ class MainWindow(QMainWindow):
                 self.current_profile,
                 str(comment_id),
                 comment_text,
+                author,
             )
             if candidate is not None:
                 return candidate
@@ -12755,7 +12790,7 @@ class MainWindow(QMainWindow):
 
     def local_comment_reply_batch(self) -> None:
         rows = self.conn.execute(
-            """SELECT c.comment_id,c.text,c.category,v.title AS video_title
+            """SELECT c.comment_id,c.text,c.category,c.author,v.title AS video_title
                FROM comments c
                JOIN videos v ON v.video_id=c.video_id
                WHERE v.profile=?
@@ -12770,6 +12805,7 @@ class MainWindow(QMainWindow):
                 "comment_id": str(row["comment_id"]),
                 "comment_text": str(row["text"] or ""),
                 "stored_category": str(row["category"] or ""),
+                "author": str(row["author"] or ""),
                 "video_title": str(row["video_title"] or ""),
             }
             for row in rows
@@ -12791,6 +12827,7 @@ class MainWindow(QMainWindow):
                     self.current_profile,
                     item["comment_id"],
                     item["comment_text"],
+                    item.get("author", ""),
                 )
                 if candidate is None:
                     candidate = generate_comment_reply_candidate_local(
@@ -12814,7 +12851,7 @@ class MainWindow(QMainWindow):
 
     def local_comment_reply_regenerate_batch(self) -> None:
         rows = self.conn.execute(
-            """SELECT c.comment_id,c.text,v.title AS video_title
+            """SELECT c.comment_id,c.text,c.category,c.author,v.title AS video_title
                FROM comments c
                JOIN videos v ON v.video_id=c.video_id
                WHERE v.profile=?
@@ -12828,6 +12865,8 @@ class MainWindow(QMainWindow):
             {
                 "comment_id": str(row["comment_id"]),
                 "comment_text": str(row["text"] or ""),
+                "stored_category": str(row["category"] or ""),
+                "author": str(row["author"] or ""),
                 "video_title": str(row["video_title"] or ""),
             }
             for row in rows
@@ -12849,6 +12888,7 @@ class MainWindow(QMainWindow):
                     self.current_profile,
                     item["comment_id"],
                     item["comment_text"],
+                    item.get("author", ""),
                 )
                 if candidate is None:
                     candidate = generate_comment_reply_candidate_local(
@@ -13330,9 +13370,8 @@ class MainWindow(QMainWindow):
         ]
         if not variants:
             variants = list(DEFAULT_REPLY_VARIANTS[category])
-        # Keep the list compact and predictable. More than 10 variants per
-        # category adds little value and makes accidental duplicates harder to notice.
-        variants = variants[:10]
+        # Keep the library broad enough to avoid repetitive automated replies.
+        variants = variants[:20]
         text = "\n".join(variants)
         set_setting(
             self.conn,
