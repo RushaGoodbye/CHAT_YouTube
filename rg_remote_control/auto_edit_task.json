@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_censor_pipeline_backup_span",
+  "action": "apply_auto_edit_censor_avlink_hotfix",
   "args": {},
-  "nonce": "inspect-good-censor-backup-20261006-12"
+  "nonce": "apply-censor-avlink-20261006-13"
 }
