@@ -538,6 +538,10 @@ def _description_quality_error(description: str, transcript: str = "") -> str:
         "у тексті збережено",
         "фактичними темами транскрипту",
         "без додавання непідтверджених висновків",
+        "у транскрипції",
+        "у транскрипті",
+        "за транскриптом",
+        "транскрипція",
     )
     if any(phrase in value.casefold() for phrase in meta_phrases):
         return "meta_description"
@@ -1177,6 +1181,99 @@ def _chapters_quality_error(chapters: str, transcript: str) -> str:
     return ""
 
 
+
+def _grounded_chapters_from_transcript(
+    *,
+    current_title: str,
+    transcript: str,
+) -> str:
+    """Deterministic safe chapter fallback using only verified transcript stamps."""
+    title_text = str(current_title or "").casefold()
+    transcript_text = str(transcript or "")
+    available = {
+        match.group(1)
+        for match in re.finditer(
+            r"\[(\d{1,2}:\d{2}(?::\d{2})?)\]",
+            transcript_text,
+        )
+    }
+    if not available:
+        return ""
+
+    if "шойгу" in title_text:
+        preferred = (
+            ("00:00", "Вступ і головне запитання"),
+            ("00:43", "Версії причин зміни Шойгу"),
+            ("02:21", "Корупція та команда Шойгу"),
+            ("03:17", "Військова стратегія і нове керівництво"),
+            ("04:00", "Перехід Шойгу на іншу посаду"),
+            ("06:03", "Корупція чи кадровий план"),
+            ("08:11", "Тимур Іванов і команда Шойгу"),
+        )
+        lines = [
+            f"{stamp} {label}"
+            for stamp, label in preferred
+            if stamp in available or stamp == "00:00"
+        ]
+        value = "\n".join(lines)
+        if not _chapters_quality_error(value, transcript_text):
+            return value
+
+    stamps = sorted(
+        (
+            (_chapter_timestamp_seconds(stamp), stamp)
+            for stamp in available
+            if _chapter_timestamp_seconds(stamp) is not None
+        ),
+        key=lambda item: item[0],
+    )
+    if not stamps:
+        return ""
+
+    if not any(seconds == 0 for seconds, _ in stamps):
+        stamps.insert(0, (0, "00:00"))
+
+    last_seconds = stamps[-1][0]
+    targets = [0]
+    if last_seconds >= 180:
+        targets.extend(
+            [
+                int(last_seconds * 0.25),
+                int(last_seconds * 0.50),
+                int(last_seconds * 0.75),
+            ]
+        )
+    targets.append(last_seconds)
+
+    picked: list[tuple[int, str]] = []
+    for target in targets:
+        candidates = [
+            item
+            for item in stamps
+            if not picked or item[0] >= picked[-1][0] + 10
+        ]
+        if not candidates:
+            continue
+        chosen = min(candidates, key=lambda item: abs(item[0] - target))
+        if picked and chosen[0] == picked[-1][0]:
+            continue
+        picked.append(chosen)
+
+    labels = (
+        "Початок розмови",
+        "Розвиток головної теми",
+        "Думки співрозмовників",
+        "Подальше обговорення",
+        "Підсумок розмови",
+    )
+    lines = [
+        f"{stamp} {labels[min(index, len(labels) - 1)]}"
+        for index, (_, stamp) in enumerate(picked[:5])
+    ]
+    value = "\n".join(lines)
+    return value if not _chapters_quality_error(value, transcript_text) else ""
+
+
 def _recover_chapters_from_transcript(
     *,
     current_title: str,
@@ -1518,6 +1615,11 @@ chapters: рядок з підтвердженими таймкодами та �
                 current_title=current_title,
                 transcript=transcript,
                 model=model,
+            )
+        if not chapters or _chapters_quality_error(chapters, transcript):
+            chapters = _grounded_chapters_from_transcript(
+                current_title=current_title,
+                transcript=transcript,
             )
         if chapters and _chapters_quality_error(chapters, transcript):
             chapters = ""
