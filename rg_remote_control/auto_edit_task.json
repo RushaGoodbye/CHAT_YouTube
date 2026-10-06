@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_pack25_stability_ux_update",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "build-ux25-retry3-20261006-2107"
+  "nonce": "inspect-hung-update-20261006-2110"
 }
