@@ -10183,13 +10183,24 @@ class MainWindow(QMainWindow):
 
 
     def _generate_local_seo_result(self, video_id: str) -> dict:
-        state = self.conn.execute(
-            """SELECT scheduled_publish_at,privacy_status,title,duration
-               FROM videos
-               WHERE video_id=? AND profile=?""",
-            (video_id, self.current_profile),
-        ).fetchone()
-        if state is not None and str(state["scheduled_publish_at"] or "").strip():
+        # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
+        # SQLite connection here: sqlite3 connections are thread-affine.
+        import sqlite3
+
+        state_conn = sqlite3.connect(
+            str(self.data_dir / "rg_youtube_control.db")
+        )
+        try:
+            state = state_conn.execute(
+                """SELECT scheduled_publish_at,privacy_status,title,duration
+                   FROM videos
+                   WHERE video_id=? AND profile=?""",
+                (video_id, self.current_profile),
+            ).fetchone()
+        finally:
+            state_conn.close()
+
+        if state is not None and str(state[0] or "").strip():
             raise RuntimeError(
                 "Відео визначено як запланований/майбутній стрім. "
                 "Архівний локальний SEO для нього заблоковано."
