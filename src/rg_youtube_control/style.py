@@ -375,7 +375,6 @@ QLabel#DeltaWarn {
     font-weight: 700;
 }
 
-"""
 /* 0.6 guided workspace polish */
 QFrame#ContextCard {
     background: #131313;
@@ -396,3 +395,5 @@ QPushButton:disabled {
     border-color: #282828;
     color: #666666;
 }
+
+"""
