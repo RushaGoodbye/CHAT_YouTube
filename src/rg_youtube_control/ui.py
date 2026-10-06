@@ -2014,7 +2014,18 @@ class MainWindow(QMainWindow):
                 if len(tags) < 8:
                     hard_errors.append("Потрібно щонайменше 8 тегів.")
 
-                status = "ready" if not hard_errors else "draft"
+                if hard_errors:
+                    blocked.append(video_id)
+                    log_action(
+                        self.conn,
+                        profile=profile,
+                        category="0-quota",
+                        action="Пакет заблоковано",
+                        details=f"{video_id}: {'; '.join(hard_errors)}",
+                    )
+                    progress.setValue(index)
+                    continue
+
                 save_optimization_draft(
                     self.conn,
                     video_id,
@@ -2022,13 +2033,20 @@ class MainWindow(QMainWindow):
                     description,
                     "",
                     tags,
-                    status=status,
+                    status="ready",
                     title_variants=[],
+                    generation="safe-metadata-0.6",
+                    quality_state="safe",
+                    quality_reason="Безпечні зміни опису/тегів",
+                    source_title=title,
+                    source_description=str(meta.get("description") or ""),
+                    source_tags=[
+                        str(item).strip()
+                        for item in (meta.get("tags") or [])
+                        if str(item).strip()
+                    ],
                 )
-                if status == "ready":
-                    prepared.append(video_id)
-                else:
-                    blocked.append(video_id)
+                prepared.append(video_id)
             except Exception as exc:
                 blocked.append(video_id)
                 log_action(
@@ -8586,6 +8604,13 @@ class MainWindow(QMainWindow):
                 status,
                 title_variants,
             ) = dialog.values()
+            quality_state, quality_reasons = self._package_quality_gate(
+                title=new_title,
+                description=description,
+                chapters=chapters,
+                tags=tags,
+                require_ukrainian=False,
+            )
             save_optimization_draft(
                 self.conn,
                 video_id,
@@ -8595,6 +8620,19 @@ class MainWindow(QMainWindow):
                 tags,
                 status,
                 title_variants,
+                generation=(
+                    str(draft["generation"] or "manual")
+                    if draft is not None
+                    else "manual"
+                ),
+                quality_state=(
+                    "safe" if quality_state == "safe" and status != "draft"
+                    else "review"
+                ),
+                quality_reason="; ".join(quality_reasons),
+                source_title=current_title,
+                source_description=current_description,
+                source_tags=current_tags,
             )
             self.reload_optimization_queue()
             self.statusBar().showMessage("Пакет оптимізації збережено")
@@ -11396,6 +11434,18 @@ class MainWindow(QMainWindow):
                     chapters,
                     variants,
                 ) = self._normalize_local_seo_package(item)
+                quality_state, quality_reasons = self._package_quality_gate(
+                    title=title,
+                    description=description,
+                    chapters=chapters,
+                    tags=tags,
+                    require_ukrainian=True,
+                )
+                if quality_state == "blocked":
+                    raise RuntimeError(
+                        "Автоперевірка пакета: " + "; ".join(quality_reasons)
+                    )
+                context = dict(item.get("context") or {})
                 save_optimization_draft(
                     self.conn,
                     video_id,
@@ -11405,6 +11455,12 @@ class MainWindow(QMainWindow):
                     tags,
                     "draft",
                     variants,
+                    generation="local-seo-0.6",
+                    quality_state="review",
+                    quality_reason="Автоперевірка пройдена; потрібне підтвердження",
+                    source_title=str(context.get("title") or ""),
+                    source_description=str(context.get("description") or ""),
+                    source_tags=list(context.get("tags") or []),
                 )
                 saved += 1
                 log_action(
@@ -11551,6 +11607,22 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
+        quality_state, quality_reasons = self._package_quality_gate(
+            title=title,
+            description=description,
+            chapters=chapters,
+            tags=tags,
+            require_ukrainian=True,
+        )
+        if quality_state == "blocked":
+            QMessageBox.warning(
+                self,
+                "Пакет заблоковано автоперевіркою",
+                "Пакет не збережено і YouTube не змінено.\n\n"
+                + "\n".join(f"- {item}" for item in quality_reasons),
+            )
+            return
+
         save_optimization_draft(
             self.conn,
             video_id,
@@ -11560,6 +11632,12 @@ class MainWindow(QMainWindow):
             tags,
             "ready",
             variants,
+            generation="local-seo-0.6",
+            quality_state="safe",
+            quality_reason="Переглянуто користувачем",
+            source_title=before_title,
+            source_description=before_description,
+            source_tags=before_tags,
         )
         log_action(
             self.conn,
