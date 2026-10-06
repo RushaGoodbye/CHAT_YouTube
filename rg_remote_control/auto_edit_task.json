@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "apply_auto_edit_boot_version_sync_hotfix",
   "args": {},
-  "nonce": "verify-physical-version-020201-20261007-0001"
+  "nonce": "boot-sync-020201"
 }
