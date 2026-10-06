@@ -4018,6 +4018,91 @@ def inspect_auto_edit_multi_resume_span() -> dict:
     return {"path":str(p),"size":p.stat().st_size,"spans":spans}
 
 
+
+def inspect_auto_edit_901_audio_outputs() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import subprocess, xml.etree.ElementTree as ET, re, shutil
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    folder=app/"901"
+    video=Path(r"\\Desktop-v7gg0en\record\901.mp4")
+    audio=Path(r"\\Desktop-v7gg0en\record\sound\901.mp3")
+    ffprobe=shutil.which("ffprobe") or str(Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime")/"ffmpeg"/"bin"/"ffprobe.exe")
+    out={"folder":str(folder),"video":str(video),"audio":str(audio),"ffprobe":ffprobe,"sources":{},"xmls":[],"censor":[],"code_hits":{}}
+
+    def probe(p):
+        p=Path(p)
+        row={"path":str(p),"exists":p.is_file(),"size":p.stat().st_size if p.is_file() else None}
+        if not p.is_file(): return row
+        try:
+            cp=subprocess.run([ffprobe,"-v","error","-show_streams","-show_format","-of","json",str(p)],
+                              capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+            row["returncode"]=cp.returncode
+            row["data"]=json.loads(cp.stdout) if cp.returncode==0 and cp.stdout.strip() else {"stderr":cp.stderr[-4000:]}
+        except Exception as exc: row["probe_error"]=repr(exc)
+        return row
+    out["sources"]["video"]=probe(video)
+    out["sources"]["audio"]=probe(audio)
+
+    if folder.is_dir():
+        for p in sorted(folder.glob("RG_EDITED_901*.xml")):
+            row={"name":p.name,"size":p.stat().st_size}
+            try:
+                txt=p.read_text(encoding="utf-8",errors="replace")
+                row["audio_tag_count"]=len(re.findall(r"<audio\b",txt,re.I))
+                row["enabled_false_count"]=len(re.findall(r"<enabled>\s*FALSE\s*</enabled>",txt,re.I))
+                row["enabled_true_count"]=len(re.findall(r"<enabled>\s*TRUE\s*</enabled>",txt,re.I))
+                row["pathurls"]=sorted(set(re.findall(r"<pathurl>(.*?)</pathurl>",txt,re.I|re.S)))[:30]
+                interesting=[]
+                for m in re.finditer(r"(?is).{0,350}(?:audio|volume|level|gain|mute|enabled|channel|pathurl).{0,700}",txt):
+                    sn=m.group(0)
+                    if any(k in sn.lower() for k in ("volume","gain","mute","enabled","audio")):
+                        interesting.append(sn[:1200])
+                    if len(interesting)>=40: break
+                row["snippets"]=interesting
+                tree=ET.fromstring(txt)
+                audios=[]
+                for track_i,track in enumerate(tree.findall(".//media/audio/track"),1):
+                    tr={"track":track_i,"enabled":track.findtext("enabled"),"clips":[]}
+                    for clip in track.findall("./clipitem"):
+                        cr={"id":clip.get("id"),"name":clip.findtext("name"),"enabled":clip.findtext("enabled"),
+                            "start":clip.findtext("start"),"end":clip.findtext("end"),"in":clip.findtext("in"),"out":clip.findtext("out")}
+                        fnode=clip.find("./file")
+                        if fnode is not None:
+                            cr["file_id"]=fnode.get("id");cr["pathurl"]=fnode.findtext("pathurl");cr["file_name"]=fnode.findtext("name")
+                        params=[]
+                        for param in clip.findall(".//filter/effect/parameter"):
+                            nm=(param.findtext("name") or param.findtext("parameterid") or "").strip()
+                            val=(param.findtext("value") or "").strip()
+                            if nm or val: params.append({"name":nm,"value":val})
+                        cr["effect_params"]=params
+                        tr["clips"].append(cr)
+                    audios.append(tr)
+                row["audio_tracks"]=audios
+            except Exception as exc:
+                row["parse_error"]=repr(exc)
+            out["xmls"].append(row)
+        for p in sorted(folder.glob("*CENSOR_AUDIO*")):
+            try:
+                out["censor"].append({"name":p.name,"size":p.stat().st_size,"text":p.read_text(encoding="utf-8",errors="replace")[-12000:]})
+            except Exception as exc:out["censor"].append({"name":p.name,"error":repr(exc)})
+
+    # Inspect live audio generation code without modifying it.
+    for name in ("rg_auto_edit_one_button.py","rg_multi_dialogue.py","rg_production_wrapper.py"):
+        p=app/name
+        if not p.is_file():continue
+        rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+        hits=[]
+        for i,line in enumerate(rows):
+            low=line.lower()
+            if any(k in low for k in ("audio","volume","gain","mute","pathurl","censor")):
+                a=max(0,i-5);b=min(len(rows),i+10)
+                hits.append("\n".join(f"{j+1}: {rows[j]}" for j in range(a,b)))
+                if len(hits)>=50:break
+        out["code_hits"][name]=hits
+    return out
+
+
 def inspect_auto_edit_stream_result() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_stream_result must run on AlexPC/Windows")
@@ -9727,6 +9812,7 @@ ACTIONS = {
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
+    "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
