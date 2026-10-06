@@ -1968,27 +1968,35 @@ chapters: рядок з підтвердженими таймкодами та �
     }
 
 
-def _comment_reply_overlap_ok(comment: str, reply: str) -> bool:
-    """Reject generic/hallucinated replies that do not track the source comment."""
-    source = re.findall(
-        r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+",
-        str(comment or "").casefold(),
+def _comment_reply_safe_novelty_ok(comment: str, reply: str) -> bool:
+    """Reject replies that introduce risky concrete topics absent from the comment.
+
+    Do not require lexical overlap because most source comments are Russian while
+    local drafts are intentionally Ukrainian.
+    """
+    source = str(comment or "").casefold()
+    target = str(reply or "").casefold()
+
+    risky_groups = (
+        ("weapon", ("збро", "оруж", "рушниц", "винтов", "пістолет", "пистолет", "гранат", "патрон", "боєприпас", "боеприпас")),
+        ("war", ("війн", "войн", "фронт", "зсу", "всу", "сво", "обстріл", "обстрел", "ракета", "дрон")),
+        ("health", ("лікар", "врач", "хвор", "болез", "здоров", "діагноз", "диагноз")),
+        ("crime", ("злочин", "преступ", "вбив", "убий", "краді", "воров", "шахрай", "мошен")),
+        ("money", ("донат", "донат", "грош", "деньг", "оплат", "переказ", "перевод", "реквізит", "реквизит")),
     )
-    target = re.findall(
-        r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+",
-        str(reply or "").casefold(),
-    )
-    stop = {
-        "это", "це", "как", "як", "что", "що", "и", "і", "а", "але",
-        "в", "у", "на", "не", "ні", "так", "да", "я", "мы", "ми", "вы",
-        "ви", "он", "она", "вони", "они", "за", "до", "по", "з", "с",
-        "the", "and", "you", "we", "is", "are",
-    }
-    source_terms = {word for word in source if len(word) >= 4 and word not in stop}
-    target_terms = {word for word in target if len(word) >= 4 and word not in stop}
-    if not source_terms:
-        return True
-    return bool(source_terms & target_terms)
+    for _name, needles in risky_groups:
+        source_has = any(item in source for item in needles)
+        target_has = any(item in target for item in needles)
+        if target_has and not source_has:
+            return False
+
+    # New numeric claims are especially risky in short comment replies.
+    source_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", source))
+    target_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", target))
+    if target_numbers - source_numbers:
+        return False
+
+    return True
 
 
 def generate_comment_reply_local(
@@ -2013,9 +2021,11 @@ def generate_comment_reply_local(
 Підготуй ОДНУ коротку чернетку відповіді на ОПУБЛІКОВАНИЙ YouTube-коментар
 від імені каналу «РАША ГУДБАЙ».
 
-Головне правило: НЕ ДОДУМУЙ зміст коментаря. Якщо він обірваний, незрозумілий,
-саркастичний без контексту, містить лише вигук/емодзі, провокує політичну
-суперечку або для коректної відповіді бракує фактів - обери SKIP.
+Головне правило: НЕ ДОДУМУЙ зміст коментаря. Якщо він справді незрозумілий,
+містить лише емодзі/випадковий уривок або для коректної відповіді потрібні
+факти, яких немає в коментарі чи контексті - обери SKIP.
+На зрозумілу думку, жарт, коротку реакцію або незгоду можна дати коротку
+нейтральну відповідь без нових фактів.
 
 Поверни ТІЛЬКИ JSON:
 {{"action":"reply","reply":"...","reason":"relevant"}}
@@ -2072,7 +2082,7 @@ def generate_comment_reply_local(
         return ""
     if len(reply) > 420:
         return ""
-    if not _comment_reply_overlap_ok(source, reply):
+    if not _comment_reply_safe_novelty_ok(source, reply):
         return ""
 
     banned = (
