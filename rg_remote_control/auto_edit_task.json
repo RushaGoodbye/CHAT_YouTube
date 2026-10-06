@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_direct_audio_unity_generator_fix",
+  "action": "inspect_auto_edit_901_audio_schema_compact",
   "args": {},
-  "nonce": "apply-direct-audio-unity-generator-20261006-1"
+  "nonce": "verify-901-audio-after-fix-20261006-1"
 }
