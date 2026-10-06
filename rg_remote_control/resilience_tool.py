@@ -113,15 +113,8 @@ def install_runner_persistence() -> dict:
     if svc_cmd.is_file():
         status = run([r"C:\Windows\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"], cwd=RUNNER, timeout=30)
         service["status_before"] = status
-        if status["exit_code"] == 0:
-            service["installed"] = True
-        else:
-            install = run([r"C:\Windows\System32\cmd.exe", "/d", "/c", str(svc_cmd), "install"], cwd=RUNNER, timeout=60)
-            service["install"] = install
-            status = run([r"C:\Windows\System32\cmd.exe", "/d", "/c", str(svc_cmd), "status"], cwd=RUNNER, timeout=30)
-            service["status_after_install"] = status
-            service["installed"] = status["exit_code"] == 0
-
+        service["installed"] = status["exit_code"] == 0
+        service["install_attempted"] = False
         if service["installed"]:
             start = run([r"C:\Windows\System32\cmd.exe", "/d", "/c", str(svc_cmd), "start"], cwd=RUNNER, timeout=30)
             service["start"] = start
@@ -182,11 +175,15 @@ try {
         "/SC", "MINUTE", "/MO", "2",
         "/TN", TASK_KEEPALIVE, "/TR", cmd, "/F"
     ], timeout=30)
-    boot = run([
-        r"C:\Windows\System32\schtasks.exe", "/Create",
-        "/SC", "ONLOGON",
-        "/TN", TASK_BOOT, "/TR", cmd, "/F"
-    ], timeout=30)
+    # ONLOGON task creation requires privileges on this machine.
+    # Use per-user Startup/HKCU instead of generating repeated Access denied noise.
+    boot = {
+        "exit_code": 2,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "reason": "per_user_startup_fallback",
+    }
 
     startup_vbs = None
     appdata = os.environ.get("APPDATA")
@@ -224,11 +221,20 @@ try {
             except Exception:
                 pass
 
+    runner_registry = run([
+        r"C:\Windows\System32\reg.exe",
+        "ADD",
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+        "/V", "RG_GITHUB_RUNNER_KEEPALIVE",
+        "/T", "REG_SZ",
+        "/D", cmd,
+        "/F",
+    ], timeout=20)
+
     if keep["exit_code"] == 0:
         run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", TASK_KEEPALIVE, "/ENABLE"], timeout=20)
         run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", OLD_TASK, "/DISABLE"], timeout=20)
-    if boot["exit_code"] == 0:
-        run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", TASK_BOOT, "/ENABLE"], timeout=20)
+    run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", TASK_BOOT, "/DISABLE"], timeout=20)
 
     # Apply the canonical guard immediately. It deduplicates any listeners left
     # behind by older watchdog/startup mechanisms.
@@ -244,6 +250,7 @@ try {
         "keepalive_task": keep,
         "boot_task": boot,
         "startup_fallback": str(startup_vbs) if startup_vbs else None,
+        "registry_autostart": runner_registry,
         "script": str(keepalive),
         "old_watchdog_disabled": keep["exit_code"] == 0,
         "first_keepalive": first,
@@ -361,22 +368,24 @@ try {{
         "/SC", "MINUTE", "/MO", "1",
         "/TN", TASK_AGENT_KEEPALIVE, "/TR", cmd, "/F"
     ], timeout=30)
-    boot = run([
-        r"C:\Windows\System32\schtasks.exe", "/Create",
-        "/SC", "ONLOGON",
-        "/TN", TASK_AGENT_BOOT, "/TR", cmd, "/F"
-    ], timeout=30)
+    boot = {
+        "exit_code": 2,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "reason": "per_user_startup_and_registry",
+    }
 
     if keep["exit_code"] == 0:
         run([
             r"C:\Windows\System32\schtasks.exe", "/Change",
             "/TN", TASK_AGENT_KEEPALIVE, "/ENABLE"
         ], timeout=20)
-    if boot["exit_code"] == 0:
-        run([
-            r"C:\Windows\System32\schtasks.exe", "/Change",
-            "/TN", TASK_AGENT_BOOT, "/ENABLE"
-        ], timeout=20)
+    # Retire any previously created privileged boot task; per-user startup owns boot.
+    run([
+        r"C:\Windows\System32\schtasks.exe", "/Change",
+        "/TN", TASK_AGENT_BOOT, "/DISABLE"
+    ], timeout=20)
 
     appdata = os.environ.get("APPDATA")
     startup_vbs = None
@@ -1196,8 +1205,8 @@ def probe(do_roundtrip: bool = True) -> dict:
         out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True
     )
     warnings = []
-    if not guard_fresh:
-        warnings.append("legacy_nas_shell_guard_stale")
+    # Legacy shell guard is retired from operational health. Docker restart
+    # policies plus the AlexPC Agent are the supported runtime recovery path.
     legacy_pending = 0
     try:
         legacy_pending = len(list((MCP_ROOT / "AUTO_EDIT_CALLS" / "requests").glob("*.json")))
