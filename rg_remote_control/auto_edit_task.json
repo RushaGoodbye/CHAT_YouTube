@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "finalize_rg_resilience",
+  "action": "probe_rg_resilience",
   "args": {},
-  "nonce": "finalize-resilience-clean-20261006-1"
+  "nonce": "verify-primary-nas-agent-youtube-20261006-1"
 }
