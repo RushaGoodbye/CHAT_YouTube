@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "bootstrap_youtube_runtime",
+  "action": "inspect_auto_edit_recovery_queue",
   "args": {},
-  "nonce": "nas-bootstrap-youtube-runtime-20261006-1"
+  "nonce": "inspect-901-recovery-queue-20261006-1"
 }
