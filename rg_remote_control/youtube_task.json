@@ -3,7 +3,7 @@
   "contour": "youtube",
   "action": "youtube_local_apply_live_archive_safe_batch",
   "args": {
-    "nonce": "live-safe-batch-before-stream-20261005",
-    "max_items": 20
+    "nonce": "daily-live-safe-20261006-1",
+    "max_items": 50
   }
 }
