@@ -270,3 +270,85 @@ def test_fast_mode_reuses_current_title_when_model_omits_title(monkeypatch):
     )
 
     assert result["title"] == "Хотел доказать, что бензин есть - и передумал"
+
+
+def test_fast_mode_strips_legacy_stream_branding(monkeypatch):
+    from rg_youtube_control import free_tools
+
+    monkeypatch.setattr(
+        free_tools,
+        "ollama_chat",
+        lambda *args, **kwargs: (
+            '{"title":"ЧАТ РУЛЕТКА. Беларусь и Украина | РАША ГУДБАЙ СТРИМ👍 @RUSSIAGOODBYE_LIVE",'
+            '"title_variants":["Беларусь и Украина","Лукашенко и Беларусь","Беларусь о войне"],'
+            '"description":"У цьому випуску чат-рулетки співрозмовники обговорюють Білорусь, Лукашенка та Україну. '
+            'Розмова стосується позиції Білорусі, оцінок війни та відповідальності за рішення. '
+            'Учасники висловлюють різні погляди й сперечаються про роль держави у подіях. '
+            'Формулювання передають позиції співрозмовників без додавання непідтверджених фактів.",'
+            '"tags":["РАША ГУДБАЙ","чат рулетка","Беларусь","Лукашенко","Украина",'
+            '"Беларусь и Украина","Россия","мнение россиян"],"chapters":""}'
+        ),
+    )
+
+    result = free_tools.generate_seo_package_local(
+        current_title="ЧАТ РУЛЕТКА. Беларусь и Украина | РАША ГУДБАЙ СТРИМ👍 @RUSSIAGOODBYE_LIVE",
+        transcript=(
+            "[00:00] Беларусь Лукашенко Украина война. "
+            "Собеседники спорят о роли Беларуси и ответственности."
+        ) * 20,
+        public_context={},
+        fast_mode=True,
+        timeout=1,
+    )
+
+    assert "@RUSSIAGOODBYE_LIVE" not in result["title"]
+    assert "РАША ГУДБАЙ СТРИМ" not in result["title"]
+
+
+def test_belarus_grounded_tags_are_specific() -> None:
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+
+    tags = _grounded_tags_from_transcript(
+        "ЧАТ РУЛЕТКА. Беларусь и Украина",
+        ("Лукашенко Беларусь Украина. " * 20),
+    )
+
+    assert "Лукашенко" in tags
+    assert "Беларусь" in tags
+    assert "Украина" in tags
+    assert "Беларусь и Украина" in tags
+
+
+def test_generic_fast_chapters_are_removed(monkeypatch):
+    from rg_youtube_control import free_tools
+
+    monkeypatch.setattr(
+        free_tools,
+        "ollama_chat",
+        lambda *args, **kwargs: (
+            '{"title":"Беларусь и Украина",'
+            '"title_variants":["Беларусь и Украина: разговор","Лукашенко и Беларусь","Беларусь о войне"],'
+            '"description":"У цьому випуску чат-рулетки співрозмовники обговорюють Білорусь, Лукашенка та Україну. '
+            'Розмова стосується позиції Білорусі, оцінок війни та відповідальності за рішення. '
+            'Учасники висловлюють різні погляди й сперечаються про роль держави у подіях. '
+            'Формулювання передають позиції співрозмовників без додавання непідтверджених фактів.",'
+            '"tags":["РАША ГУДБАЙ","чат рулетка","Беларусь","Лукашенко","Украина",'
+            '"Беларусь и Украина","Россия","мнение россиян"],'
+            '"chapters":"00:00 Вступ\\n05:20 Наступний блок\\n12:40 Фінальна частина"}'
+        ),
+    )
+
+    transcript = (
+        "[00:00] Беларусь Лукашенко Украина. "
+        "[05:20] разговор продолжается. "
+        "[12:40] финальная реплика. "
+    ) * 20
+    result = free_tools.generate_seo_package_local(
+        current_title="Беларусь и Украина",
+        transcript=transcript,
+        public_context={},
+        fast_mode=True,
+        timeout=1,
+    )
+
+    assert result["chapters"] == ""
