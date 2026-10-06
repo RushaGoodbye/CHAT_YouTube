@@ -549,8 +549,20 @@ def _description_quality_error(description: str, transcript: str = "") -> str:
     word_set = set(words)
     ru_hits = len(word_set & ru_markers)
     uk_hits = len(word_set & uk_markers)
-    if ru_hits >= 5 and uk_hits <= 2:
+    ukrainian_letters = len(re.findall(r"[іїєґ]", value.casefold()))
+    if ukrainian_letters == 0:
         return "wrong_language"
+    if ru_hits >= 4 and ru_hits > uk_hits * 2:
+        return "wrong_language"
+
+    # Do not promote garbled ASR tokens into an alleged source/outlet.
+    suspicious_source_patterns = (
+        r"\b(?:в|на)\s+эфире\s+[A-ZА-ЯІЇЄҐ]{2,8}\b",
+        r"\bефірі\s+[A-ZА-ЯІЇЄҐ]{2,8}\b",
+    )
+    for pattern in suspicious_source_patterns:
+        if re.search(pattern, value):
+            return "unverified_source_entity"
 
     # Detect near-verbatim transcript copying by n-gram overlap.
     transcript_words = re.findall(
@@ -592,11 +604,14 @@ def _recover_missing_description(
     base_prompt = f"""
 Створи КОРОТКИЙ SEO-ОПИС українською мовою за змістом транскрипту.
 ЦЕ НЕ ТРАНСКРИПТ. НЕ КОПІЮЙ репліки підряд і не вставляй сире розпізнавання мовлення.
-Стисни зміст своїми словами у 5-7 грамотних речень, приблизно 450-850 символів.
+Стисни зміст своїми словами у 4-6 грамотних речень, приблизно 420-750 символів.
 Перші 1-2 речення конкретно пояснюють, що відбувається у відео.
 Якщо в транскрипті є конкретна людина, посада, подія або рішення - назви їх прямо.
 Далі передай 2-4 реальні теми, тези або позиції співрозмовників.
 Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
+НЕ розширюй ім'я або посаду з зовнішніх знань: якщо в джерелі є лише «Шойгу», не пиши «Сергій Шойгу».
+Ігноруй уривки ASR, музику, лайку та нерозбірливі перші секунди. Не вигадуй назву телеканалу, ефіру, програми чи ЗМІ з випадкового токена транскрипту.
+Назву джерела/ефіру можна згадати лише якщо вона є в назві відео або чітко повторюється щонайменше двічі в осмисленому контексті.
 Не додавай універсальний CTA на кшталт «дивіться повну розмову».
 Не додавай посилання, хештеги, ENGLISH SUMMARY, заголовок, службові фрази чи таймкоди.
 Не повторюй довгі дослівні фрагменти транскрипту.
@@ -808,6 +823,12 @@ def _grounded_tags_from_transcript(
         add("Герасимов")
     if "пригож" in haystack:
         add("Пригожин")
+    if "белоусов" in haystack:
+        add("Белоусов")
+    if "тимур" in haystack and "иванов" in haystack:
+        add("Тимур Иванов")
+    if "совет" in haystack and "безопас" in haystack:
+        add("Совет безопасности России")
     if "министерств" in haystack and "оборон" in haystack:
         add("Министерство обороны России")
     if "коррупц" in haystack:
@@ -839,7 +860,7 @@ def _grounded_tags_from_transcript(
     if in_title or mentions >= 3:
         add("Путин")
     in_title, mentions = _source_mentions(
-        title, transcript, ("войн", "війн", "сво")
+        title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
         add("война России против Украины")
@@ -853,7 +874,7 @@ def _grounded_tags_from_transcript(
         add("санкции против России")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
         add("бензин в России")
-    in_title, mentions = _source_mentions(title, transcript, ("работ", "робот"))
+    in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
         add("работа в России")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
@@ -874,7 +895,7 @@ def _grounded_tags_from_transcript(
             break
         add(value)
 
-    return tags[:12]
+    return tags[:10]
 
 
 def _preserve_current_title_when_candidate_is_not_stronger(
@@ -938,6 +959,8 @@ def generate_seo_package_local(
 - опис: українською, 400-850 символів змістовного тексту до службових посилань;
 - головне джерело змісту - ТРАНСКРИПТ; назва лише задає тему, старий опис не є джерелом фактів;
 - перші 1-2 речення мають назвати конкретну тему, людину/подію/питання з відео, якщо це прямо є в транскрипті;
+- не розширюй імена зовнішніми знаннями: «Шойгу» не можна перетворювати на «Сергій Шойгу», якщо ім'я Сергій відсутнє в джерелі;
+- ігноруй шумні/обірвані ASR-фрагменти та не перетворюй випадкові токени на назви ефірів, ЗМІ чи організацій;
 - далі стисло передай 2-4 конкретні тези або позиції співрозмовників з транскрипту;
 - усі твердження про зарплати, економіку, соціальні гарантії, інфраструктуру, втрати, перемоги, санкції, ціни та інші факти дозволені ЛИШЕ якщо вони прямо підтверджені транскриптом або наданим контекстом;
 - якщо транскрипт суперечить старому опису, довіряй транскрипту;
