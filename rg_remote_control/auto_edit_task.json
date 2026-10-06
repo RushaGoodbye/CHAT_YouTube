@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_multi_resume_span",
+  "action": "inspect_auto_edit_901_delivery_vs_source",
   "args": {},
-  "nonce": "inspect-multi-publish-censor-20261006-3"
+  "nonce": "compare-901-source-delivery-censor-20261006-4"
 }
