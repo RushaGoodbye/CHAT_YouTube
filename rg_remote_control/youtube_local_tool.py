@@ -1314,41 +1314,38 @@ def validate_local_seo_rules() -> dict:
 
 
 def inspect_local_seo_source(task: dict) -> dict:
-    """Inspect locally stored metadata/transcript for one video without YouTube API."""
+    """Inspect public metadata and transcript without YouTube Data API quota."""
+    from rg_youtube_control.free_tools import (
+        fetch_public_metadata,
+        fetch_transcript,
+        transcript_sample_text,
+    )
+
     args = task.get("args") or {}
     video_id = str(args.get("video_id") or "").strip()
     if not video_id:
         raise RuntimeError("video_id required")
 
-    conn = sqlite3.connect(_db_path())
-    conn.row_factory = sqlite3.Row
-    try:
-        video = conn.execute(
-            """SELECT video_id,profile,title,description,tags_json,audit_json,
-                      scheduled_publish_at,privacy_status
-               FROM videos WHERE video_id=?""",
-            (video_id,),
-        ).fetchone()
-        transcript = conn.execute(
-            """SELECT transcript_text,source,updated_at
-               FROM transcripts WHERE video_id=?
-               ORDER BY updated_at DESC LIMIT 1""",
-            (video_id,),
-        ).fetchone()
-        return {
-            "youtube_api_calls": 0,
-            "video": dict(video) if video else None,
-            "transcript": (
-                {
-                    "source": transcript["source"],
-                    "updated_at": transcript["updated_at"],
-                    "text": str(transcript["transcript_text"] or "")[:24000],
-                }
-                if transcript else None
-            ),
-        }
-    finally:
-        conn.close()
+    context = fetch_public_metadata(video_id)
+    rows = fetch_transcript(video_id)
+    sample = transcript_sample_text(
+        rows,
+        max_chars=24000,
+        segments=10,
+    )
+    return {
+        "youtube_api_calls": 0,
+        "video_id": video_id,
+        "context": {
+            "title": context.get("title"),
+            "description": context.get("description"),
+            "tags": context.get("tags"),
+            "duration": context.get("duration"),
+            "upload_date": context.get("upload_date"),
+        },
+        "transcript_rows": len(rows),
+        "transcript_sample": sample,
+    }
 
 
 def runtime_status() -> dict:
