@@ -1348,6 +1348,62 @@ def inspect_local_seo_source(task: dict) -> dict:
     }
 
 
+
+def preview_local_seo_package(task: dict) -> dict:
+    """Generate one local SEO package for inspection without saving/applying it."""
+    from rg_youtube_control.free_tools import (
+        fetch_public_metadata,
+        fetch_transcript,
+        generate_seo_package_local,
+        transcript_sample_text,
+    )
+    from rg_youtube_control.optimization import (
+        safe_description_fix,
+        sanitize_imported_package_description,
+    )
+
+    args = task.get("args") or {}
+    video_id = str(args.get("video_id") or "").strip()
+    if not video_id:
+        raise RuntimeError("video_id required")
+
+    context = fetch_public_metadata(video_id)
+    current_title = str(context.get("title") or "")
+    raw_description = str(context.get("description") or "")
+    cleaned_description = safe_description_fix(
+        raw_description,
+        current_title,
+    ).after
+
+    rows = fetch_transcript(video_id)
+    transcript = transcript_sample_text(
+        rows,
+        max_chars=12000,
+        segments=6,
+    )
+    model_context = dict(context)
+    model_context["description"] = cleaned_description
+    package = generate_seo_package_local(
+        current_title=current_title,
+        current_description=cleaned_description,
+        current_tags=list(context.get("tags") or []),
+        transcript=transcript,
+        public_context=model_context,
+        is_short=int(context.get("duration") or 0) <= 70,
+    )
+    package["description"] = sanitize_imported_package_description(
+        str(package.get("description") or ""),
+        title=str(package.get("title") or current_title),
+        is_stream=False,
+    )
+    return {
+        "youtube_api_calls": 0,
+        "video_id": video_id,
+        "package": package,
+        "transcript_sample": transcript,
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3542,6 +3598,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_preview_local_seo":
+        result = preview_local_seo_package(task)
     elif action == "youtube_local_inspect_local_seo_source":
         result = inspect_local_seo_source(task)
     elif action == "youtube_local_validate_local_seo_rules":
