@@ -2062,7 +2062,7 @@ class MainWindow(QMainWindow):
             f"Чернеток/помилок: {len(blocked)}.\n"
             "YouTube Data API: 0.\n\n"
             + (
-                "Фільтр «Підготовлена черга» відкрито автоматично."
+                "Розділ «Готово до YouTube» відкрито автоматично."
                 if prepared
                 else "Деталі помилок дивіться у «Журналі»."
             ),
@@ -2392,8 +2392,8 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         self.archive_total_card = MetricCard("Всього в архіві")
         self.archive_done_card = MetricCard("Опрацьовано")
-        self.archive_safe_card = MetricCard("Safe залишилось")
-        self.archive_deep_card = MetricCard("Deep залишилось")
+        self.archive_safe_card = MetricCard("Безпечні зміни")
+        self.archive_deep_card = MetricCard("Потрібна перевірка")
         self.archive_ready_card = MetricCard("Готові пакети")
         self.archive_eta_card = MetricCard("Прогноз")
         for idx, card in enumerate((
@@ -2487,8 +2487,8 @@ class MainWindow(QMainWindow):
             f"Прогрес архівної кампанії · {pct}%"
         )
         phase_names = {
-            "safe": "SAFE",
-            "deep": "DEEP",
+            "safe": "БЕЗПЕЧНА ПІДГОТОВКА",
+            "deep": "РУЧНА ПЕРЕВІРКА",
             "complete": "ЗАВЕРШЕНО",
         }
         self.archive_phase_label.setText(
@@ -7025,7 +7025,7 @@ class MainWindow(QMainWindow):
 
         QMessageBox.information(
             self,
-            "Підготовлена черга",
+            "Готово до YouTube",
             f"Підготовлено відео: {len(queue)}.\n"
             "Черга збережена локально та готова до наступного квотного дня.",
         )
