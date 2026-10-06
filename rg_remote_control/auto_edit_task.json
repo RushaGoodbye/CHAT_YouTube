@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_validator_avlink_v2",
+  "action": "inspect_auto_edit_execution_functions",
   "args": {},
-  "nonce": "apply-validator-avlink-v2-20261006-2049"
+  "nonce": "inspect-execution-pack25-20261006-2051"
 }
