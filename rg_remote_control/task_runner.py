@@ -10740,6 +10740,191 @@ def inspect_auto_edit_901_muted_xml_sample() -> dict:
     return out
 
 
+
+def apply_auto_edit_visible_censor_fix() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime, json, py_compile, shutil, xml.etree.ElementTree as ET
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    helper=app/"rg_premiere_av_linkage.py"
+    if not helper.is_file():
+        raise FileNotFoundError(helper)
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=app/"release_backups"/f"visible_censor_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(helper,backup/helper.name)
+
+    code=helper.read_text(encoding="utf-8",errors="replace")
+
+    start=code.find("def _hard_disable_gain_mutes(seq):")
+    end=code.find("\ndef _coverage(track):",start)
+    if start<0 or end<0:
+        raise RuntimeError("old hard-disable censor helper not found")
+
+    replacement=r'''def _mute_gain_pieces_with_audiolevels(seq):
+    """
+    Keep every profanity split physically present in Premiere.
+    Censor pieces remain enabled and are muted with Premiere's native
+    Audio Levels effect (linear Level=0). The legacy -96 dB Gain effect
+    stays as a harmless fallback. Source MP3 is never modified.
+    """
+    muted=0
+    for clip in seq.findall("./media/audio/track/clipitem"):
+        is_censor=False
+        for par in clip.findall("./filter/effect/parameter"):
+            key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+            val=(par.findtext("value") or "").strip()
+            if "gain(db)" in key:
+                try:
+                    if float(val)<=-90.0:
+                        is_censor=True
+                except Exception:
+                    pass
+        if not is_censor:
+            continue
+
+        en=clip.find("enabled")
+        if en is None:
+            en=ET.Element("enabled")
+            clip.insert(2,en)
+        en.text="TRUE"
+
+        level_par=None
+        for eff in clip.findall("./filter/effect"):
+            if (eff.findtext("effectid") or "").strip().casefold()=="audiolevels":
+                for par in eff.findall("./parameter"):
+                    pid=(par.findtext("parameterid") or "").strip().casefold()
+                    name=(par.findtext("name") or "").strip().casefold()
+                    if pid=="level" or name=="level":
+                        level_par=par
+                        break
+                if level_par is not None:
+                    break
+
+        if level_par is None:
+            flt=ET.Element("filter")
+            eff=ET.SubElement(flt,"effect")
+            ET.SubElement(eff,"name").text="Audio Levels"
+            ET.SubElement(eff,"effectid").text="audiolevels"
+            ET.SubElement(eff,"effectcategory").text="audiolevels"
+            ET.SubElement(eff,"effecttype").text="audiolevels"
+            ET.SubElement(eff,"mediatype").text="audio"
+            ET.SubElement(eff,"pproBypass").text="false"
+            par=ET.SubElement(eff,"parameter",{"authoringApp":"PremierePro"})
+            ET.SubElement(par,"parameterid").text="level"
+            ET.SubElement(par,"name").text="Level"
+            ET.SubElement(par,"valuemin").text="0"
+            ET.SubElement(par,"valuemax").text="3.98109"
+            ET.SubElement(par,"value").text="0"
+            insert_at=0
+            children=list(clip)
+            for i,ch in enumerate(children):
+                if ch.tag=="link":
+                    insert_at=i
+                    break
+                insert_at=i+1
+            clip.insert(insert_at,flt)
+        else:
+            v=level_par.find("value")
+            if v is None:
+                v=ET.SubElement(level_par,"value")
+            v.text="0"
+
+        muted+=1
+    return muted
+
+'''
+    code=code[:start]+replacement+code[end+1:]
+    code=code.replace(
+        "disabled=_hard_disable_gain_mutes(seq) if hard_disable_censor else 0",
+        "muted=_mute_gain_pieces_with_audiolevels(seq) if hard_disable_censor else 0"
+    )
+    code=code.replace(
+        '"hard_disabled_censor_clipitems":disabled,',
+        '"visible_muted_censor_clipitems":muted,'
+    )
+    code=code.replace(
+        'VERSION="RG_PREMIERE_AV_LINKAGE_V1"',
+        'VERSION="RG_PREMIERE_AV_LINKAGE_V2_VISIBLE_CENSOR"'
+    )
+
+    compile(code,str(helper),"exec")
+    helper.write_text(code,encoding="utf-8")
+    py_compile.compile(str(helper),doraise=True)
+
+    import importlib.util
+    spec=importlib.util.spec_from_file_location("rg_premiere_av_linkage_visible",helper)
+    mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+
+    results=[]
+    for base in (app,app/"901"):
+        for i in range(1,7):
+            xp=base/f"RG_EDITED_901_{i}.xml"
+            if not xp.is_file():
+                continue
+            shutil.copy2(xp,backup/(f"{base.name}_{xp.name}.bak"))
+            res=mod.normalize_xml_av_links(xp,hard_disable_censor=True)
+
+            root=ET.parse(xp).getroot()
+            censor_rows=[]
+            disabled_gain_censor=0
+            active_gap_candidates=[]
+            for tr_i,tr in enumerate(root.findall(".//sequence/media/audio/track"),1):
+                for c in tr.findall("./clipitem"):
+                    gain96=False
+                    level=None
+                    for eff in c.findall("./filter/effect"):
+                        eid=(eff.findtext("effectid") or "").strip().casefold()
+                        for par in eff.findall("./parameter"):
+                            key=((par.findtext("parameterid") or "")+" "+(par.findtext("name") or "")).casefold()
+                            val=(par.findtext("value") or "").strip()
+                            if "gain(db)" in key:
+                                try:
+                                    if float(val)<=-90: gain96=True
+                                except Exception: pass
+                            if eid=="audiolevels" and ((par.findtext("parameterid") or "").strip().casefold()=="level"):
+                                level=val
+                    if gain96:
+                        en=(c.findtext("enabled") or "").strip().upper()
+                        if en!="TRUE":
+                            disabled_gain_censor+=1
+                        censor_rows.append({
+                            "track":tr_i,"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),
+                            "enabled":en,"audio_level":level
+                        })
+            bad=[r for r in censor_rows if r.get("enabled")!="TRUE" or r.get("audio_level") not in ("0","0.0")]
+            if bad:
+                raise RuntimeError(f"VISIBLE CENSOR QA failed for {xp}: {bad[:5]}")
+            res.update({
+                "location":str(base),
+                "censor_piece_count":len(censor_rows),
+                "disabled_censor_piece_count":disabled_gain_censor,
+                "visible_censor_qa":"PASS",
+                "censor_sample":censor_rows[:6],
+            })
+            results.append(res)
+
+            side=xp.with_name(xp.stem+"_CENSOR_AUDIO.json")
+            if side.is_file():
+                try:
+                    data=json.loads(side.read_text(encoding="utf-8-sig",errors="replace"))
+                    if data.get("enabled") and data.get("applied"):
+                        data["policy"]="TRUSTED_ONLY_SPLIT_VISIBLE_AUDIOLEVEL_ZERO_SOURCE_AUDIO_UNTOUCHED"
+                        data["premiere_execution"]="CLIP_ENABLED_TRUE_AUDIOLEVELS_ZERO"
+                        side.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                except Exception:
+                    pass
+
+    return {
+        "backup":str(backup),
+        "helper_compile":True,
+        "helper_version":"RG_PREMIERE_AV_LINKAGE_V2_VISIBLE_CENSOR",
+        "patched_xmls":results,
+    }
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10883,6 +11068,7 @@ ACTIONS = {
     "apply_auto_edit_censor_avlink_hotfix": apply_auto_edit_censor_avlink_hotfix,
     "inspect_auto_edit_censor_pipeline_backup_span": inspect_auto_edit_censor_pipeline_backup_span,
     "inspect_auto_edit_901_muted_xml_sample": inspect_auto_edit_901_muted_xml_sample,
+    "apply_auto_edit_visible_censor_fix": apply_auto_edit_visible_censor_fix,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
