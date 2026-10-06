@@ -1,9 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_local_preview_local_seo",
   "args": {
     "video_id": "MEitKm687xo",
-    "nonce": "preview-shoigu-seo-v7-20261006"
+    "nonce": "preview-shoigu-seo-v7b-20261006"
   }
 }
