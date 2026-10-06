@@ -1302,7 +1302,7 @@ class MainWindow(QMainWindow):
 
         today_stream_actions = QHBoxLayout()
         self.today_stream_optimize_btn = QPushButton("Оптимізувати")
-        self.today_stream_optimize_btn.setProperty("role", "primary")
+        self.today_stream_optimize_btn.setProperty("role", "success")
         self.today_stream_optimize_btn.clicked.connect(
             self.open_today_stream_optimization
         )
@@ -2751,7 +2751,6 @@ class MainWindow(QMainWindow):
         connect_btn = QPushButton("Підключити YouTube")
         connect_btn.clicked.connect(self.connect_youtube)
         sync_btn = QPushButton("Синхронізувати")
-        sync_btn.setProperty("role", "primary")
         sync_btn.clicked.connect(self.sync_video_list)
         sync_both_btn = QPushButton("Обидва канали")
         sync_both_btn.clicked.connect(self.sync_both_channels)
@@ -2989,7 +2988,7 @@ class MainWindow(QMainWindow):
         quick_filters.addWidget(quick_label)
 
         self.scheduled_quick_btn = QPushButton("Заплановані")
-        self.scheduled_quick_btn.setProperty("role", "primary")
+        self.scheduled_quick_btn.setProperty("role", "chip")
         self.scheduled_quick_btn.clicked.connect(
             lambda: self._set_optimization_queue_filter("scheduled")
         )
