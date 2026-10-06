@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_rg_resilience",
+  "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "probe-rg-resilience-after-smb-retry-20261006-1225"
+  "nonce": "apply-final-resilience-guard-dedup-20261006-1230"
 }
