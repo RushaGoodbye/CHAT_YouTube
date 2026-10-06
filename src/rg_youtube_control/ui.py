@@ -2987,9 +2987,13 @@ class MainWindow(QMainWindow):
         self.context_primary_btn = QPushButton("Продовжити")
         self.context_primary_btn.setProperty("role", "primary")
         self.context_primary_btn.clicked.connect(self._run_context_primary_action)
-        context_rollback = QPushButton("Відкотити")
+        self.context_discard_btn = QPushButton("Відхилити пакет")
+        self.context_discard_btn.setVisible(False)
+        self.context_discard_btn.clicked.connect(self._discard_selected_draft)
+        context_rollback = QPushButton("Відкотити зміни")
         context_rollback.clicked.connect(self.rollback_selected_metadata)
         cx.addWidget(self.context_primary_btn)
+        cx.addWidget(self.context_discard_btn)
         cx.addWidget(context_rollback)
 
         layout.addWidget(self.archive_campaign_summary)
@@ -3033,10 +3037,14 @@ class MainWindow(QMainWindow):
         if not video_id:
             self.optimization_context_title.setText("Виберіть відео")
             self.optimization_context_pipeline.setText(
-                "Аналіз → Транскрипт → SEO → Перевірка → Готово → YouTube → Контроль"
+                "Підготовка → Перевірка → Готово → YouTube → Контроль"
             )
-            self.optimization_context_note.setText("")
-            self.context_primary_btn.setText("Локальний SEO")
+            self.optimization_context_note.setText(
+                "Виберіть один рядок - програма покаже потрібну наступну дію."
+            )
+            self.context_primary_btn.setText("Продовжити")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
             return
 
         row = self.conn.execute(
@@ -3070,9 +3078,7 @@ class MainWindow(QMainWindow):
             transcript_ready = False
 
         stages = [
-            ("Аналіз", True),
-            ("Транскрипт", transcript_ready),
-            ("SEO", draft in {"draft", "ready", "applied"}),
+            ("Підготовка", draft in {"draft", "ready", "applied"}),
             ("Перевірка", draft in {"ready", "applied"}),
             ("Готово", draft in {"ready", "applied"}),
             ("YouTube", draft == "applied"),
@@ -3095,23 +3101,91 @@ class MainWindow(QMainWindow):
             f"{str(item['optimized_at'] or '')[:10]} {str(item['changed_fields'] or '')}"
             for item in history
         )
-        note = (
-            f"{video_id} · аудит {score} · пакет {draft or 'немає'}"
-            + (f" · історія: {history_text}" if history_text else "")
-        )
-        self.optimization_context_note.setText(note)
-
         if draft == "ready":
-            self.context_primary_btn.setText("Застосувати пакет")
+            next_text = "Перевірено. Можна застосувати зміни в YouTube."
+            self.context_primary_btn.setText("Застосувати в YouTube")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
         elif draft == "applied":
+            next_text = "Зміни вже застосовані. Далі - контроль результату."
             self.context_primary_btn.setText("Переглянути результат")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
         elif draft == "draft":
-            self.context_primary_btn.setText("Перевірити пакет")
+            next_text = "Пакет підготовлено. Потрібна перевірка перед YouTube."
+            self.context_primary_btn.setText("Перевірити")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(True)
         else:
-            self.context_primary_btn.setText("Локальний SEO · 0 квоти")
+            next_text = "Пакета ще немає. Спочатку потрібно підготувати метадані."
+            self.context_primary_btn.setText("Підготувати")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
+
+        note = f"{next_text} · Аудит {score}"
+        if history_text:
+            note += f" · Останні зміни: {history_text}"
+        self.optimization_context_note.setText(note)
 
         if hasattr(self, "pipeline_label"):
             self.pipeline_label.setText(pipeline)
+
+    def _discard_selected_draft(self) -> None:
+        video_id = self._selected_optimization_video_id()
+        if not video_id:
+            self._toast("Виберіть відео")
+            return
+        draft = get_optimization_draft(self.conn, video_id)
+        if draft is None or str(draft["status"] or "") != "draft":
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "У вибраного відео немає пакета, який очікує перевірки.",
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            "Відхилити пакет",
+            "Видалити цю локальну чернетку?\n\n"
+            "YouTube не буде змінено. Відео можна буде підготувати повторно.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.conn.execute(
+            "DELETE FROM optimization_drafts WHERE video_id=? AND status='draft'",
+            (video_id,),
+        )
+        raw_queue = get_setting(
+            self.conn,
+            f"prepared_safe_queue_{self.current_profile}",
+            "[]",
+        )
+        try:
+            queue_ids = [
+                str(item)
+                for item in (json.loads(raw_queue) or [])
+                if str(item) and str(item) != video_id
+            ]
+        except Exception:
+            queue_ids = []
+        set_setting(
+            self.conn,
+            f"prepared_safe_queue_{self.current_profile}",
+            json.dumps(queue_ids, ensure_ascii=False),
+        )
+        self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="оптимізація",
+            action="Пакет відхилено",
+            details=f"{video_id}: локальну чернетку видалено; YouTube не змінено",
+        )
+        self.reload_optimization_queue()
+        self.update_task_center()
+        self._toast("Пакет відхилено · YouTube не змінено")
 
     def _run_context_primary_action(self) -> None:
         video_id = self._selected_optimization_video_id()
@@ -7252,7 +7326,7 @@ class MainWindow(QMainWindow):
                 else ""
             )
             draft_status = {
-                "draft": "ЧЕРНЕТКА",
+                "draft": "ПЕРЕВІРИТИ",
                 "ready": "ГОТОВО",
                 "applied": "ЗАСТОСОВАНО",
             }.get(row["draft_status"] or "", "")
