@@ -2006,8 +2006,6 @@ def _comment_reply_precheck_reason(comment: str) -> str:
 
     if not source:
         return "empty_comment"
-    if len(words) < 3:
-        return "too_fragmentary"
 
     insult_markers = (
         "туп", "дебил", "дебіл", "идиот", "ідіот", "дурак", "дурень",
@@ -2025,20 +2023,32 @@ def _comment_reply_precheck_reason(comment: str) -> str:
     if len(words) <= 5 and any(marker in folded for marker in reaction_markers):
         return "low_information_reaction"
 
-    # For review-category comments, prefer explicit questions or clearly
-    # substantive text. Short declarative remarks are safer to skip.
-    question_words = (
-        "чому", "почему", "навіщо", "зачем", "коли", "когда", "де ", "где ",
-        "хто ", "кто ", "що ", "что ", "як ", "как ", "скільки", "сколько",
-        "можна", "можно", "правда ли", "чи ",
+    if len(words) < 3:
+        return "too_fragmentary"
+
+    # A question word only counts as a question when it starts the sentence
+    # (or follows sentence punctuation). This avoids treating phrases like
+    # "скажу де правда" as an actual question.
+    question_start = re.compile(
+        r"(?:^|[.!?]\s+)"
+        r"(?:чому|почему|навіщо|зачем|коли|когда|де|где|хто|кто|"
+        r"що|что|як|как|скільки|сколько|можна|можно|чи|правда\s+ли)\b",
+        re.I,
     )
-    has_question = "?" in source or any(marker in folded for marker in question_words)
+    has_question = "?" in source or bool(question_start.search(folded))
     if not has_question and len(words) < 9:
         return "short_non_question"
 
     # Long aphoristic/quoted text without a question is also better skipped.
     if not has_question and len(words) >= 9:
-        quote_markers = ("цитат", "как говорится", "як кажуть", "виростай", "будь міцн", "будь креп")
+        quote_markers = (
+            "цитат",
+            "как говорится",
+            "як кажуть",
+            "виростай",
+            "будь міцн",
+            "будь креп",
+        )
         if any(marker in folded for marker in quote_markers):
             return "quote_or_aphorism"
 
