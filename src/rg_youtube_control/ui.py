@@ -165,6 +165,7 @@ from .service import (
     reconcile_local_video_title,
     quota_exhausted,
     mark_quota_exhausted,
+    local_safe_template_candidate,
     YOUTUBE_DAILY_QUOTA_DEFAULT,
     VIDEO_UPDATE_COST,
     COMMENT_REPLY_COST,
@@ -12698,6 +12699,14 @@ class MainWindow(QMainWindow):
             return
 
         def task():
+            candidate = local_safe_template_candidate(
+                self.conn,
+                self.current_profile,
+                str(comment_id),
+                comment_text,
+            )
+            if candidate is not None:
+                return candidate
             return generate_comment_reply_candidate_local(
                 comment_text=comment_text,
                 video_title=video_title,
@@ -12714,6 +12723,13 @@ class MainWindow(QMainWindow):
                 state=state,
                 reason=reason,
             )
+            fresh_category = str(candidate.get("category") or "").strip()
+            if fresh_category:
+                self.conn.execute(
+                    "UPDATE comments SET category=? WHERE comment_id=?",
+                    (fresh_category, str(comment_id)),
+                )
+                self.conn.commit()
             log_action(
                 self.conn,
                 profile=self.current_profile,
@@ -12739,7 +12755,7 @@ class MainWindow(QMainWindow):
 
     def local_comment_reply_batch(self) -> None:
         rows = self.conn.execute(
-            """SELECT c.comment_id,c.text,v.title AS video_title
+            """SELECT c.comment_id,c.text,c.category,v.title AS video_title
                FROM comments c
                JOIN videos v ON v.video_id=c.video_id
                WHERE v.profile=?
@@ -12753,6 +12769,7 @@ class MainWindow(QMainWindow):
             {
                 "comment_id": str(row["comment_id"]),
                 "comment_text": str(row["text"] or ""),
+                "stored_category": str(row["category"] or ""),
                 "video_title": str(row["video_title"] or ""),
             }
             for row in rows
@@ -12769,10 +12786,17 @@ class MainWindow(QMainWindow):
         def task():
             result = []
             for item in items:
-                candidate = generate_comment_reply_candidate_local(
-                    comment_text=item["comment_text"],
-                    video_title=item["video_title"],
+                candidate = local_safe_template_candidate(
+                    self.conn,
+                    self.current_profile,
+                    item["comment_id"],
+                    item["comment_text"],
                 )
+                if candidate is None:
+                    candidate = generate_comment_reply_candidate_local(
+                        comment_text=item["comment_text"],
+                        video_title=item["video_title"],
+                    )
                 result.append(
                     {
                         "comment_id": item["comment_id"],
@@ -12820,10 +12844,17 @@ class MainWindow(QMainWindow):
         def task():
             result = []
             for item in items:
-                candidate = generate_comment_reply_candidate_local(
-                    comment_text=item["comment_text"],
-                    video_title=item["video_title"],
+                candidate = local_safe_template_candidate(
+                    self.conn,
+                    self.current_profile,
+                    item["comment_id"],
+                    item["comment_text"],
                 )
+                if candidate is None:
+                    candidate = generate_comment_reply_candidate_local(
+                        comment_text=item["comment_text"],
+                        video_title=item["video_title"],
+                    )
                 result.append(
                     {
                         "comment_id": item["comment_id"],
@@ -12855,6 +12886,13 @@ class MainWindow(QMainWindow):
                 state=state,
                 reason=reason,
             ):
+                fresh_category = str(item.get("category") or "").strip()
+                if fresh_category:
+                    self.conn.execute(
+                        "UPDATE comments SET category=? WHERE comment_id=?",
+                        (fresh_category, comment_id),
+                    )
+                    self.conn.commit()
                 written += 1
                 if state == "ready":
                     ready += 1
@@ -12903,6 +12941,13 @@ class MainWindow(QMainWindow):
                 state=state,
                 reason=reason,
             ):
+                fresh_category = str(item.get("category") or "").strip()
+                if fresh_category:
+                    self.conn.execute(
+                        "UPDATE comments SET category=? WHERE comment_id=?",
+                        (fresh_category, comment_id),
+                    )
+                    self.conn.commit()
                 written += 1
                 if state == "ready":
                     ready += 1
