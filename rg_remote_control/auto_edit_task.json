@@ -1,7 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_boot_version_sync_hotfix",
-  "args": {},
-  "nonce": "boot-sync-020201"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_thumbnail_mix_prep.py",
+      "rg_update_supervisor.py",
+      "rg_studio_postrun.py",
+      "rg_studio_preflight.py"
+    ]
+  },
+  "nonce": "inspect-stable-cycle-tools-020201"
 }
