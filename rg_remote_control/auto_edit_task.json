@@ -1,11 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_update_supervisor.py"
-    ]
-  },
-  "nonce": "verify-live-supervisor-master60-r1-20261006-2325"
+  "action": "inspect_auto_edit_update_install_state",
+  "args": {},
+  "nonce": "inspect-master60-r1-failed-install-20261006-2330"
 }
