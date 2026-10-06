@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
+  "action": "inspect_auto_edit_runtime_state",
   "args": {},
-  "nonce": "inspect-hung-update-20261006-2110"
+  "nonce": "inspect-runtime-after-hung-update-20261006-2112"
 }
