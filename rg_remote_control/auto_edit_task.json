@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_code",
+  "action": "inspect_auto_edit_update_format",
   "args": {},
-  "nonce": "inspect-live-after-hung-update-20261006-2114"
+  "nonce": "inspect-update-flow-hang-20261006-2116"
 }
