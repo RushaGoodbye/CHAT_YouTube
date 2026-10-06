@@ -11001,6 +11001,23 @@ def inspect_auto_edit_keyframe_support() -> dict:
     return out
 
 
+
+def inspect_auto_edit_profanity_module_full() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for name in ("rg_dialogue_profanity_audio.py","rg_auto_edit_one_button.py","rg_premiere_av_linkage.py"):
+        p=app/name
+        if p.is_file():
+            txt=p.read_text(encoding="utf-8",errors="replace")
+            if name=="rg_auto_edit_one_button.py":
+                i=txt.find("censor_audio_report=apply_dialogue_profanity_audio(")
+                out[name]=txt[max(0,i-4500):i+9000] if i>=0 else ""
+            else:
+                out[name]=txt
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11147,6 +11164,7 @@ ACTIONS = {
     "apply_auto_edit_visible_censor_fix": apply_auto_edit_visible_censor_fix,
     "inspect_auto_edit_901_censor_group_spans": inspect_auto_edit_901_censor_group_spans,
     "inspect_auto_edit_keyframe_support": inspect_auto_edit_keyframe_support,
+    "inspect_auto_edit_profanity_module_full": inspect_auto_edit_profanity_module_full,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
