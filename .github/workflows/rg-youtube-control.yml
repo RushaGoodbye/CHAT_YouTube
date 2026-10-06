@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   run:
-    runs-on: [self-hosted, rg, alexpc, windows]
+    runs-on: [self-hosted, windows]
     steps:
       - uses: actions/checkout@v4
       - name: Validate YouTube contour
