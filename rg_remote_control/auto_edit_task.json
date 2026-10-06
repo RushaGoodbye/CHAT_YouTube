@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_master60_update",
+  "action": "inspect_auto_edit_update_install_state",
   "args": {},
-  "nonce": "rebuild-master60-with-901-regression"
+  "nonce": "inspect-master60-failed-install-20261006-2306"
 }
