@@ -2806,3 +2806,54 @@ def test_specific_title_entity_hashtag_beats_broad_description_topic():
     )
 
     assert tags == ("#рашагудбай", "#чатрулетка", "#шойгу")
+
+
+def test_expanded_safe_comment_categories():
+    from rg_youtube_control.comment_rules import classify
+
+    cases = {
+        "Дякую за стрім!": "thanks",
+        "Підтримую ваш канал, продовжуйте так!": "support",
+        "Добрий вечір!": "greeting",
+        "Успіхів вам і гарного дня!": "wishes",
+        "Це було дуже смішно 😂": "humor",
+        "Де знайти ваше посилання на телеграм?": "links",
+        "Куди можна задонатити?": "donate",
+        "Коли наступний стрім?": "schedule",
+        "Вперше дивлюсь ваш канал": "new_viewer",
+        "Давно не дивився, радий знову бути з вами": "returning_viewer",
+        "Дуже цікавий випуск, супер!": "episode_praise",
+        "Бережіть себе і міцного здоров'я!": "health_wishes",
+        "Олександр супер ведучий!": "host_compliment",
+        "Дякую за ваші збори, підтримую": "fundraising_support",
+    }
+    for text, category in cases.items():
+        result = classify(text)
+        assert result.category == category, (text, result)
+        assert result.auto_allowed is True
+
+
+def test_support_is_not_misclassified_as_donation():
+    from rg_youtube_control.comment_rules import classify
+
+    result = classify("Підтримую вас і ваш канал!")
+    assert result.category == "support"
+    assert result.auto_allowed is True
+
+
+def test_expanded_reply_library_has_variants_and_standard_hyphen():
+    from rg_youtube_control.config import (
+        DEFAULT_REPLY_VARIANTS,
+        SAFE_AUTO_CATEGORIES,
+    )
+
+    assert SAFE_AUTO_CATEGORIES == set(DEFAULT_REPLY_VARIANTS)
+    assert len(DEFAULT_REPLY_VARIANTS["thanks"]) >= 15
+    for category in SAFE_AUTO_CATEGORIES:
+        variants = DEFAULT_REPLY_VARIANTS[category]
+        assert len(variants) >= 8, category
+        assert len(set(variants)) == len(variants), category
+        for reply in variants:
+            assert reply.strip()
+            assert "—" not in reply
+            assert "–" not in reply
