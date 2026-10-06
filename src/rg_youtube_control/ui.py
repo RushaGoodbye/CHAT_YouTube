@@ -780,6 +780,12 @@ class MainWindow(QMainWindow):
         self.dashboard_timer.timeout.connect(self.update_dashboard)
         self.dashboard_timer.start(15 * 1000)
 
+        self.background_sync_timer = QTimer(self)
+        self.background_sync_timer.timeout.connect(
+            self.background_metadata_sync
+        )
+        self.background_sync_timer.start(30 * 60 * 1000)
+
         self.statusBar().showMessage("СИСТЕМА ГОТОВА")
         self.reload_videos()
         self.reload_optimization_queue()
@@ -801,6 +807,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
         QTimer.singleShot(8000, self.check_quota_plan_ready)
         QTimer.singleShot(10000, self.run_background_maintenance)
+        QTimer.singleShot(9000, self._resume_saved_workflow)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
 
     def _set_tab_badge(self, index: int, base: str, count: int = 0) -> None:
@@ -2656,7 +2663,11 @@ class MainWindow(QMainWindow):
             int(budget["spendable"]),
             max(0, safe + deep),
         )
-        days = math.ceil((safe + deep) / max(1, capacity)) if safe + deep else 0
+        days = (
+            math.ceil((safe + deep) / capacity)
+            if safe + deep and capacity > 0
+            else 0
+        )
         phase, target = next_campaign_phase(stats)
         self.archive_total_card.set_value(f"{total:,}", "обидва канали")
         self.archive_done_card.set_value(f"{done:,}", f"{pct}% каталогу")
@@ -2664,8 +2675,12 @@ class MainWindow(QMainWindow):
         self.archive_deep_card.set_value(f"{deep:,}", "ручний перегляд")
         self.archive_ready_card.set_value(f"{ready:,}", f"застосовано {applied:,}")
         self.archive_eta_card.set_value(
-            f"≈{days} дн.",
-            f"сьогодні ≈{capacity} відео без резерву",
+            "Пауза" if (safe + deep and capacity <= 0) else f"≈{days} дн.",
+            (
+                "квота у захищеному резерві"
+                if (safe + deep and capacity <= 0)
+                else f"сьогодні ≈{capacity} відео без резерву"
+            ),
         )
         self.archive_main_progress.setValue(pct)
         self.archive_main_progress_label.setText(
@@ -11110,6 +11125,74 @@ class MainWindow(QMainWindow):
                 + ", ".join(summaries)
             )
         self.check_quota_plan_ready()
+
+    def _resume_saved_workflow(self) -> None:
+        ready = len(self._prepared_queue_ids())
+        drafts = int(
+            self.conn.execute(
+                """SELECT COUNT(*)
+                   FROM optimization_drafts d
+                   JOIN videos v ON v.video_id=d.video_id
+                   WHERE v.profile=? AND d.status='draft'""",
+                (self.current_profile,),
+            ).fetchone()[0]
+        )
+        if ready or drafts:
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="робота",
+                action="Чергу відновлено",
+                details=f"готово {ready}; на перевірці {drafts}",
+            )
+            self.update_task_center()
+            self._toast(
+                f"Чергу відновлено · готово {ready} · перевірити {drafts}",
+                5000,
+            )
+
+    def background_metadata_sync(self) -> None:
+        worker = getattr(self, "_local_tool_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        budget = quota_budget_status(self.conn)
+        if bool(budget["exhausted"]) or int(budget["spendable"]) < 6:
+            return
+
+        before = today_quota_units(self.conn)
+        changed = 0
+        for profile in PROFILE_TARGETS:
+            client = YouTubeClient(profile=profile)
+            try:
+                client.credentials()
+                rows = sync_videos(client, self.conn, limit=50)
+                streams = sync_upcoming_live_broadcasts(client, self.conn)
+                changed += len(rows) + len(streams)
+            except Exception as exc:
+                if _is_quota_exceeded_error(exc):
+                    mark_quota_exhausted(self.conn)
+                    break
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="діагностика",
+                    action="Фонова синхронізація пропущена",
+                    details=str(exc)[:500],
+                )
+
+        if changed:
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.update_dashboard()
+        consumed = max(0, today_quota_units(self.conn) - before)
+        if consumed:
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="робота",
+                action="Фонова синхронізація",
+                details=f"оновлено {changed}; читання API {consumed}",
+            )
 
     def background_scan_all_channels(self) -> None:
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
