@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
+  "action": "freeze_auto_edit_stable_020180",
   "args": {},
-  "nonce": "verify-processes-after-restart-wsvc"
+  "nonce": "freeze-stable-020180"
 }
