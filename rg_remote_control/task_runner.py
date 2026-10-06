@@ -11892,6 +11892,796 @@ def apply_auto_edit_validator_avlink_v2() -> dict:
             "compiled":True,"tests":tests}
 
 
+
+def build_auto_edit_pack25_stability_ux_update() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import hashlib,zipfile,tempfile,subprocess,time,shutil,py_compile,textwrap
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    downloads=Path.home()/"Downloads"; downloads.mkdir(parents=True,exist_ok=True)
+    packages=data/"PACKAGES"; packages.mkdir(parents=True,exist_ok=True)
+    nas_updates=Path(r"\\AlexLosServer\RG_AUTO_EDIT\UPDATES")
+    version="0.20.17.0"
+    name=f"RG_AUTO_EDIT_STUDIO_UPDATE_{version}_STABILITY_UX25.zip"
+    zip_path=downloads/name
+    local_copy=packages/name
+
+    installer=r'''from __future__ import annotations
+import os,sys,json,time,re,shutil,py_compile,traceback,subprocess,tempfile
+from pathlib import Path
+
+APP=Path.cwd()
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+DRY=bool(os.environ.get("RG_UX25_DRYRUN"))
+if DRY:
+    DATA=APP/"_UX25_DATA"
+VERSION="0.20.17.0"
+MARKER="RG_STABILITY_UX25_V1"
+
+def atomic_text(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".ux25.tmp")
+    t.write_text(text,encoding="utf-8")
+    os.replace(t,p)
+
+def backup(files):
+    root=DATA/"release_backups"/("PRE_UX25_"+time.strftime("%Y%m%d_%H%M%S"))
+    root.mkdir(parents=True,exist_ok=True)
+    existed={}
+    for p in files:
+        p=Path(p);existed[str(p)]=p.is_file()
+        if p.is_file():shutil.copy2(p,root/p.name)
+    return root,existed
+
+def restore(root,files,existed):
+    for p in files:
+        p=Path(p);b=root/p.name
+        try:
+            if b.is_file():shutil.copy2(b,p)
+            elif not existed.get(str(p),False) and p.exists():p.unlink()
+        except Exception:pass
+
+def patch_validator():
+    p=APP/"VALIDATE_PREMIERE_XML.py"
+    if not p.is_file():raise RuntimeError("VALIDATE_PREMIERE_XML.py missing")
+    s=p.read_text(encoding="utf-8")
+    if "RG_VALIDATOR_AVLINK_V2" not in s:
+        old='''        refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in clip.findall("link")
+        ]
+
+        partner_ids = [r for r in refs if r != cid]
+'''
+        new='''        # RG_VALIDATOR_AVLINK_V2: audio clipitems may also have a video link.
+        # Stereo partner detection must only consider audio links.
+        refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in clip.findall("link")
+            if (lk.findtext("mediatype") or "").strip().lower() == "audio"
+        ]
+
+        partner_ids = [r for r in refs if r != cid]
+'''
+        if old not in s:raise RuntimeError("validator partner block not found")
+        s=s.replace(old,new,1)
+    old2='''        partner_refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in partner.findall("link")
+        ]
+'''
+    new2='''        partner_refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in partner.findall("link")
+            if (lk.findtext("mediatype") or "").strip().lower() == "audio"
+        ]
+'''
+    if old2 in s:s=s.replace(old2,new2,1)
+    atomic_text(p,s)
+
+def write_helper():
+    code=r"""from __future__ import annotations
+import os,json,time,shutil,subprocess
+from pathlib import Path
+
+APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+SETTINGS=DATA/"ux25_settings.json"
+RECENT=DATA/"recent_runs_v2.json"
+LOCK_ROOT=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"RG_AUTO_EDIT"/"stream_locks"
+
+ERROR_MAP=(
+    ("LOCK",("double-run","lock","вже обробляється","подвійний запуск")),
+    ("DISK",("disk","вільного місця","no space","errno 28")),
+    ("GPU",("cuda","nvenc","nvdec","gpu","cudnn")),
+    ("AUDIO",("audio","stereo","sourcetrack","sound","mp3")),
+    ("XML",("xml","premiere","linkclipref","clipitem","validate")),
+    ("SOURCE",("source","video not found","audio not found","screenshot","file not found")),
+)
+
+def _json(path,default):
+    try:return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except Exception:return default
+
+def _atomic(path,obj):
+    p=Path(path);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".tmp");t.write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,p)
+
+def settings():
+    d=_json(SETTINGS,{})
+    if "sounds" not in d:d["sounds"]=True
+    if "windows_notifications" not in d:d["windows_notifications"]=True
+    return d
+
+def set_sounds(enabled):
+    d=settings();d["sounds"]=bool(enabled);_atomic(SETTINGS,d)
+
+def classify_error_human(text):
+    low=str(text or "").casefold()
+    for code,terms in ERROR_MAP:
+        if any(t.casefold() in low for t in terms):return code
+    return "UNKNOWN"
+
+def _pid_commandline(pid):
+    try:
+        ps=f"(Get-CimInstance Win32_Process -Filter \\\"ProcessId = {int(pid)}\\\").CommandLine"
+        cp=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],
+            capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=5,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+        if cp.returncode!=0:return None
+        return (cp.stdout or "").strip()
+    except Exception:return None
+
+def cleanup_stale_locks(stream=None):
+    LOCK_ROOT.mkdir(parents=True,exist_ok=True)
+    removed=[]
+    for p in LOCK_ROOT.glob("*.lock.json"):
+        if stream and p.stem.split(".")[0]!=str(stream):continue
+        try:d=_json(p,{})
+        except Exception:d={}
+        pid=int(d.get("pid") or 0)
+        cmd=_pid_commandline(pid) if pid else ""
+        stale=False
+        if not pid:stale=True
+        elif cmd is None:
+            stale=False
+        elif not cmd:
+            stale=True
+        else:
+            low=cmd.casefold()
+            if not any(x in low for x in ("rg_auto_edit","rg auto edit","rg_studio_main.py","rg_production_wrapper.py","rg_multi_dialogue.py")):
+                stale=True
+        if stale:
+            try:p.unlink();removed.append(str(p))
+            except Exception:pass
+    return removed
+
+def quick_preflight(host,stream):
+    stream=str(stream).strip()
+    if not stream.isdigit():raise RuntimeError("Некоректний номер стріму")
+    removed=cleanup_stale_locks(stream)
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    if not runtime.is_file():raise RuntimeError("RUNTIME: Python на F: не знайдено")
+    if not APP.is_dir():raise RuntimeError("BACKEND: F:\\RG_AUTO_EDIT\\RG Auto Edit App недоступний")
+    try:
+        free=shutil.disk_usage(r"F:\\").free/(1024**3)
+        if free<8:raise RuntimeError(f"DISK: на F: залишилось лише {free:.1f} GB")
+    except FileNotFoundError:raise RuntimeError("DISK: F: недоступний")
+    from rg_server_resolver import resolve_video,resolve_audio,resolve_screenshots
+    resolve_video(host.video_root.text().strip(),stream)
+    resolve_audio(host.audio_root.text().strip(),stream)
+    shots=resolve_screenshots(host.screen_root.text().strip(),stream)
+    if not shots:raise RuntimeError("SOURCE: скріншоти діалогів не знайдено")
+    return {"ok":True,"stale_locks_removed":removed,"screens":len(shots)}
+
+def health_snapshot():
+    issues=[]
+    if not APP.is_dir():issues.append("BACKEND")
+    if not Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe").is_file():issues.append("RUNTIME")
+    try:
+        if shutil.disk_usage(r"F:\\").free/(1024**3)<8:issues.append("DISK")
+    except Exception:issues.append("DISK")
+    try:
+        cleanup_stale_locks()
+    except Exception:pass
+    return {"ok":not issues,"issues":issues}
+
+def _sound(ok):
+    if not settings().get("sounds",True):return
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_ICONASTERISK if ok else winsound.MB_ICONHAND)
+    except Exception:
+        try:
+            from PySide6.QtWidgets import QApplication
+            QApplication.beep()
+        except Exception:pass
+
+def _notify(host,title,message,ok=True):
+    cfg=settings()
+    _sound(ok)
+    if not cfg.get("windows_notifications",True):return
+    try:
+        from PySide6.QtWidgets import QSystemTrayIcon
+        tray=getattr(host,"_ux25_tray",None)
+        if tray is None:
+            tray=QSystemTrayIcon(host.windowIcon(),host);tray.setToolTip("RG Auto Edit Studio");tray.show();host._ux25_tray=tray
+        icon=QSystemTrayIcon.Information if ok else QSystemTrayIcon.Critical
+        tray.showMessage(str(title),str(message),icon,8000)
+    except Exception:pass
+
+def begin_run(host,stream):
+    host._ux25_error_tail=""
+    host._ux25_error_class=""
+    host._ux25_notified_run=""
+    try:
+        if hasattr(host,"_ux25_error_buttons"):
+            for b in host._ux25_error_buttons:b.setVisible(False)
+    except Exception:pass
+
+def _append_recent(host,ok):
+    d=_json(RECENT,{"schema":"RG_RECENT_RUNS_V2","runs":[]})
+    rows=d.setdefault("runs",[])
+    rows.insert(0,{
+      "stream":str(host.metric_stream.text()).strip(),
+      "ok":bool(ok),"time":time.time(),
+      "elapsed":str(host.metric_elapsed.text()) if hasattr(host,"metric_elapsed") else "",
+      "error_class":str(getattr(host,"_ux25_error_class","") or ""),
+    })
+    del rows[12:];_atomic(RECENT,d)
+
+def _recent_text():
+    rows=_json(RECENT,{}).get("runs",[])[:3]
+    return "  ".join(f"{x.get('stream','?')} {'✓' if x.get('ok') else '×'}" for x in rows) or "Історія: —"
+
+def _open_log(host):
+    for a in ("_run_log_path","_run_compat_log_path"):
+        p=Path(str(getattr(host,a,"") or ""))
+        if p.is_file():
+            try:os.startfile(str(p));return
+            except Exception:pass
+
+def _copy_error(host):
+    try:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(str(getattr(host,"_ux25_error_tail","") or ""))
+        host.status.setText("ПОМИЛКУ СКОПІЙОВАНО")
+    except Exception:pass
+
+def fix_and_retry(host):
+    if getattr(host,"proc",None):return
+    stream=str(host.metric_stream.text()).strip()
+    if not stream.isdigit():return
+    try:
+        from rg_production_stability import release_stream_lock
+        release_stream_lock(stream)
+    except Exception:pass
+    cleanup_stale_locks(stream)
+    for p in (APP/"run_manifests"/stream).glob("*.tmp"):
+        try:p.unlink()
+        except Exception:pass
+    try:
+        for b in host._ux25_error_buttons:b.setVisible(False)
+    except Exception:pass
+    try:
+        from PySide6.QtCore import QTimer
+        host.status.setText(f"{stream} • САМОВІДНОВЛЕННЯ • повтор через checkpoint")
+        QTimer.singleShot(300,lambda:host._start_stream(stream))
+    except Exception:host._start_stream(stream)
+
+def should_auto_diag(error_class,tail=""):
+    return str(error_class or "").upper() in {"UNKNOWN","CRASH"}
+
+def on_backend_error(host,error_class,tail,code):
+    code_name=str(error_class or classify_error_human(tail)).upper()
+    host._ux25_error_class=code_name;host._ux25_error_tail=str(tail or "")
+    try:
+        host.run_summary.setText(
+          f"ПОМИЛКА {code_name} • stream {host.metric_stream.text()} • code {code}\\n"
+          "Можна повторити з checkpoint або відкрити поточний лог."
+        )
+    except Exception:pass
+    try:
+        for b in host._ux25_error_buttons:b.setVisible(True)
+    except Exception:pass
+    token=str(getattr(host,"_run_id","") or "")+"|ERR"
+    if getattr(host,"_ux25_notified_run","")!=token:
+        host._ux25_notified_run=token
+        _notify(host,f"RG Auto Edit • {host.metric_stream.text()} • ПОМИЛКА",f"{code_name} • code {code}",False)
+
+def on_postrun(host,passed,result=None):
+    if passed:
+        token=str(getattr(host,"_run_id","") or "")+"|OK"
+        if getattr(host,"_ux25_notified_run","")!=token:
+            host._ux25_notified_run=token
+            _notify(host,f"RG Auto Edit • {host.metric_stream.text()} • ГОТОВО","POST-RUN QA PASS",True)
+        try:
+            if hasattr(host,"_ux25_error_buttons"):
+                for b in host._ux25_error_buttons:b.setVisible(False)
+        except Exception:pass
+    else:
+        host._ux25_error_class="QA"
+        try:
+            for b in host._ux25_error_buttons:b.setVisible(True)
+        except Exception:pass
+        token=str(getattr(host,"_run_id","") or "")+"|QA"
+        if getattr(host,"_ux25_notified_run","")!=token:
+            host._ux25_notified_run=token
+            _notify(host,f"RG Auto Edit • {host.metric_stream.text()} • QA","Потрібна перевірка",False)
+
+def on_finalize(host,ok):
+    _append_recent(host,bool(ok))
+    try:
+        if ok:
+            host.run_summary.setStyleSheet("QLabel{background:#13251a;border:1px solid #1f7a3d;border-radius:10px;padding:12px;font-weight:600;}")
+        else:
+            host.run_summary.setStyleSheet("QLabel{background:#291516;border:1px solid #8b2b31;border-radius:10px;padding:12px;font-weight:600;}")
+    except Exception:pass
+
+def _pipeline_text(stage_text,percent):
+    s=str(stage_text or "").casefold()
+    stages=[("ПІДГОТОВКА",("pre","підготов","запуск","screen")),
+            ("АУДІО",("audio","ауді","sync","silence")),
+            ("AI АНАЛІЗ",("whisper","visual","speaker","asd","ecapa","аналіз")),
+            ("ДІАЛОГИ",("dialog","діалог","director")),
+            ("XML",("xml","premiere")),
+            ("QA",("qa","post-run","контроль")),
+            ("ГОТОВО",("готов","done"))]
+    active=0
+    for i,(_,keys) in enumerate(stages):
+        if any(k in s for k in keys):active=i
+    parts=[]
+    for i,(name,_) in enumerate(stages):
+        if i<active:parts.append("✓ "+name)
+        elif i==active:parts.append("● "+name)
+        else:parts.append("○ "+name)
+    return "   →   ".join(parts)+f"     {percent}"
+
+def _style_queue(host):
+    try:
+        from PySide6.QtGui import QColor,QBrush
+        table=host.batch_table
+        for r in range(table.rowCount()):
+            it=table.item(r,1)
+            if not it:continue
+            st=it.text().upper()
+            if "ПОМИЛКА" in st:c=QColor("#ef4444")
+            elif "ГОТОВО" in st or "ПРАЦЮЄ" in st or "ВИКОНУ" in st:c=QColor("#22c55e")
+            elif "ОЧІК" in st:c=QColor("#9aa1aa")
+            else:c=QColor("#d7d9dc")
+            it.setForeground(QBrush(c))
+            font=it.font();font.setBold(st in {"ПОМИЛКА","ГОТОВО","ПРАЦЮЄ"});it.setFont(font)
+    except Exception:pass
+
+def enhance_window(host):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QLabel,QCheckBox,QPushButton,QFrame
+    cleanup_stale_locks()
+
+    sb=host.statusBar()
+    health=QLabel("SYSTEM READY");health.setObjectName("UX25Health");sb.addPermanentWidget(health)
+    recent=QLabel(_recent_text());recent.setObjectName("UX25Recent");sb.addPermanentWidget(recent)
+    snd=QCheckBox("ЗВУК");snd.setChecked(bool(settings().get("sounds",True)));snd.toggled.connect(set_sounds);sb.addPermanentWidget(snd)
+
+    retry=QPushButton("ВИПРАВИТИ І ПОВТОРИТИ");retry.clicked.connect(lambda:fix_and_retry(host))
+    opn=QPushButton("ВІДКРИТИ ЛОГ");opn.clicked.connect(lambda:_open_log(host))
+    copy=QPushButton("СКОПІЮВАТИ ПОМИЛКУ");copy.clicked.connect(lambda:_copy_error(host))
+    diag=QPushButton("СТВОРИТИ ДІАГНОСТИКУ");diag.clicked.connect(lambda:host._create_auto_diagnostic("manual_user"))
+    host._ux25_error_buttons=[retry,opn,copy,diag]
+    for b in host._ux25_error_buttons:b.setVisible(False);sb.addWidget(b)
+
+    chain=QLabel("○ ПІДГОТОВКА   →   ○ АУДІО   →   ○ AI АНАЛІЗ   →   ○ ДІАЛОГИ   →   ○ XML   →   ○ QA   →   ○ ГОТОВО")
+    chain.setObjectName("UX25Pipeline")
+    chain.setStyleSheet("QLabel#UX25Pipeline{background:#101216;border:1px solid #2a2f37;border-radius:9px;padding:8px 12px;font-weight:600;}")
+    panel=host.findChild(QFrame,"VisualProductionPanel")
+    if panel is not None and panel.layout() is not None:
+        panel.layout().insertWidget(0,chain)
+    else:
+        chain.setParent(host);chain.hide()
+    host._ux25_pipeline=chain
+
+    def tick():
+        h=health_snapshot()
+        if h["ok"]:
+            health.setText("SYSTEM READY ✓");health.setStyleSheet("color:#22c55e;font-weight:700;")
+        else:
+            health.setText("SYSTEM • "+"/".join(h["issues"]));health.setStyleSheet("color:#ef4444;font-weight:700;")
+        recent.setText(_recent_text())
+        try:
+            chain.setText(_pipeline_text(host.stage.text(),host.percent.text()))
+        except Exception:pass
+        _style_queue(host)
+    t=QTimer(host);t.timeout.connect(tick);t.start(1500);host._ux25_timer=t;tick()
+
+    css="""
+    QLabel#UX25Health{padding:3px 8px;border-radius:7px;background:#15191d;}
+    QLabel#UX25Recent{padding:3px 8px;color:#9da5af;}
+    QTableWidget::item{padding:4px 6px;}
+    QProgressBar{min-height:12px;border-radius:6px;text-align:center;}
+    """
+    host.setStyleSheet((host.styleSheet() or "")+css)
+"""
+    atomic_text(APP/"rg_stability_ux25.py",code)
+
+def patch_stability():
+    p=APP/"rg_production_stability.py"
+    if not p.is_file():raise RuntimeError("rg_production_stability.py missing")
+    s=p.read_text(encoding="utf-8")
+    if "import subprocess" not in s:
+        if "from __future__ import annotations\n" in s:s=s.replace("from __future__ import annotations\n","from __future__ import annotations\nimport subprocess\n",1)
+        else:s="import subprocess\n"+s
+    if "RG_LOCK_PID_IDENTITY_V2" not in s:
+        anchor="def acquire_stream_lock(stream, *, owner_pid=None, run_id=None, owner=\"Studio\") -> dict:"
+        if anchor not in s:raise RuntimeError("acquire_stream_lock anchor missing")
+        helper='''# RG_LOCK_PID_IDENTITY_V2
+def _pid_is_rg_auto_edit(pid:int)->bool:
+    try:
+        ps=f'(Get-CimInstance Win32_Process -Filter "ProcessId = {int(pid)}").CommandLine'
+        cp=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],
+            capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=5,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+        if cp.returncode!=0:
+            return True
+        cmd=(cp.stdout or "").strip()
+        if not cmd:
+            return False
+        low=cmd.casefold()
+        return any(x in low for x in ("rg_auto_edit","rg auto edit","rg_studio_main.py","rg_production_wrapper.py","rg_multi_dialogue.py"))
+    except Exception:
+        return True
+
+
+'''
+        s=s.replace(anchor,helper+anchor,1)
+    old='''            if old_pid and process_alive(old_pid):
+                raise RuntimeError(
+'''
+    new='''            if old_pid and process_alive(old_pid):
+                if not _pid_is_rg_auto_edit(old_pid):
+                    try:path.unlink()
+                    except Exception:pass
+                    continue
+                raise RuntimeError(
+'''
+    if old in s:s=s.replace(old,new,1)
+    elif "_pid_is_rg_auto_edit(old_pid)" not in s:raise RuntimeError("live lock condition anchor missing")
+    atomic_text(p,s)
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py"
+    if not p.is_file():raise RuntimeError("rg_studio_ui.py missing")
+    s=p.read_text(encoding="utf-8")
+
+    # Canonical physical backend F: first; C: junction remains compatibility only.
+    old='BACKEND_DIR=Path(os.environ.get("RG_AUTO_EDIT_BACKEND") or (Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit"))'
+    new='_CANONICAL_BACKEND=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App")\nBACKEND_DIR=_CANONICAL_BACKEND if _CANONICAL_BACKEND.is_dir() else Path(os.environ.get("RG_AUTO_EDIT_BACKEND") or (Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit"))'
+    if old in s:s=s.replace(old,new,1)
+
+    oldrt='''    candidates=[
+        local/"Programs"/"RG Auto Edit Runtime"/"venv"/"Scripts"/"python.exe",
+        local/"Python"/"pythoncore-3.12-64"/"python.exe",
+    ]'''
+    newrt='''    candidates=[
+        Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe"),
+        local/"Programs"/"RG Auto Edit Runtime"/"venv"/"Scripts"/"python.exe",
+        local/"Python"/"pythoncore-3.12-64"/"python.exe",
+    ]'''
+    if oldrt in s:s=s.replace(oldrt,newrt,1)
+
+    imp='from rg_internal_browser import RGInternalBrowser\n'
+    add='''from rg_internal_browser import RGInternalBrowser
+from rg_stability_ux25 import (
+    enhance_window as ux25_enhance_window,quick_preflight as ux25_quick_preflight,
+    begin_run as ux25_begin_run,on_backend_error as ux25_on_backend_error,
+    on_postrun as ux25_on_postrun,on_finalize as ux25_on_finalize,
+    should_auto_diag as ux25_should_auto_diag
+)
+'''
+    if "from rg_stability_ux25 import" not in s:
+        if imp not in s:raise RuntimeError("UI import anchor missing")
+        s=s.replace(imp,add,1)
+
+    init='''        self._load_batch_ui_state()
+        try:
+            _rs=release_state()'''
+    initnew='''        self._load_batch_ui_state()
+        # RG_STABILITY_UX25_V1
+        try:ux25_enhance_window(self)
+        except Exception as e:
+            try:self.statusBar().showMessage("UX25 init warning: "+str(e),5000)
+            except Exception:pass
+        try:
+            _rs=release_state()'''
+    if "RG_STABILITY_UX25_V1" not in s:
+        if init not in s:raise RuntimeError("UI init anchor missing")
+        s=s.replace(init,initnew,1)
+
+    start='''        try:cmd=self._command(stream)
+        except Exception as e:
+            QMessageBox.critical(self,"RG Auto Edit",str(e));return'''
+    startnew='''        try:
+            ux25_quick_preflight(self,stream)
+        except Exception as e:
+            self.status.setText("PRECHECK • "+str(e))
+            if self.batch_running:
+                cur=getattr(self,"_batch_current_index",None)
+                if cur is not None:self._batch_set(cur,status="ПОМИЛКА",stage="PRECHECK",detail=str(e))
+                QTimer.singleShot(0,lambda:self._batch_next(None))
+            else:
+                QMessageBox.warning(self,"RG Auto Edit • PRECHECK",str(e))
+            return
+        try:cmd=self._command(stream)
+        except Exception as e:
+            QMessageBox.critical(self,"RG Auto Edit",str(e));return'''
+    if start in s:s=s.replace(start,startnew,1)
+
+    begin='''            self._run_id=str(self._stream_lock.get("run_id") or "")
+        except Exception as e:'''
+    beginnew='''            self._run_id=str(self._stream_lock.get("run_id") or "")
+            try:ux25_begin_run(self,stream)
+            except Exception:pass
+        except Exception as e:'''
+    if begin in s:s=s.replace(begin,beginnew,1)
+
+    logold='''        _logs=APP_DIR/"run_manifests"/stream;_logs.mkdir(parents=True,exist_ok=True)
+        self._run_log_path=_logs/"STUDIO_RUN.log"
+        self._perf_samples_path=_logs/"RG_PERFORMANCE_SAMPLES.jsonl"
+        self._perf_events_path=_logs/"RG_PERFORMANCE_EVENTS.jsonl"
+        self._perf_report_path=_logs/"RG_PERFORMANCE_PROFILE.json"
+        self._perf_stop_path=_logs/"RG_PERFORMANCE_STOP.flag"
+        for _p in (self._run_log_path,self._perf_samples_path,self._perf_events_path,self._perf_report_path,self._perf_stop_path):'''
+    lognew='''        _logs=APP_DIR/"run_manifests"/stream;_logs.mkdir(parents=True,exist_ok=True)
+        _run_stamp=time.strftime("%Y%m%d_%H%M%S")
+        _run_short=(str(getattr(self,"_run_id","") or "run")[:8] or "run")
+        self._run_log_path=_logs/f"{_run_stamp}_{_run_short}_RUN.log"
+        self._run_latest_log_path=_logs/"LATEST.log"
+        self._run_compat_log_path=_logs/"STUDIO_RUN.log"
+        self._perf_samples_path=_logs/"RG_PERFORMANCE_SAMPLES.jsonl"
+        self._perf_events_path=_logs/"RG_PERFORMANCE_EVENTS.jsonl"
+        self._perf_report_path=_logs/"RG_PERFORMANCE_PROFILE.json"
+        self._perf_stop_path=_logs/"RG_PERFORMANCE_STOP.flag"
+        for _p in (self._run_log_path,self._run_latest_log_path,self._run_compat_log_path,self._perf_samples_path,self._perf_events_path,self._perf_report_path,self._perf_stop_path):'''
+    if logold in s:s=s.replace(logold,lognew,1)
+
+    # Replace _log atomically so current, LATEST and compatibility logs are always the same run.
+    pat=r'    def _log\(self,s\):\n.*?(?=    def open_result_summary_native)'
+    repl='''    def _log(self,s):
+        msg=str(s);self.log.appendPlainText(msg)
+        for _a in ("_run_log_path","_run_latest_log_path","_run_compat_log_path"):
+            try:
+                p=getattr(self,_a,None)
+                if p:
+                    with Path(p).open("a",encoding="utf-8") as f:f.write(msg+"\\n")
+            except Exception:pass
+
+'''
+    if re.search(pat,s,re.S):s=re.sub(pat,repl,s,count=1,flags=re.S)
+    else:raise RuntimeError("UI _log block not found")
+
+    erranchor='''            self._log("BACKEND ERROR TAIL:\\n"+tail)
+            # RG_PACK500_JOURNAL_ERROR'''
+    errnew='''            self._log("BACKEND ERROR TAIL:\\n"+tail)
+            try:ux25_on_backend_error(self,_err_class,tail,int(code))
+            except Exception:pass
+            # RG_PACK500_JOURNAL_ERROR'''
+    if erranchor in s:s=s.replace(erranchor,errnew,1)
+
+    tech='''            self.process_tech.setPlainText(tail);self.process_tech.setVisible(True);self.tech_toggle.setText("СХОВАТИ ТЕХНІЧНІ ДЕТАЛІ")'''
+    technew='''            self.process_tech.setPlainText(tail);self.process_tech.setVisible(False);self.tech_toggle.setText("ТЕХНІЧНІ ДЕТАЛІ")'''
+    if tech in s:s=s.replace(tech,technew,1)
+
+    diag='''            self._create_auto_diagnostic("backend_error_"+str(code));self._finalize_run(False)'''
+    diagnew='''            if ux25_should_auto_diag(_err_class,tail):
+                self._create_auto_diagnostic("backend_error_"+str(code))
+            self._finalize_run(False)'''
+    if diag in s:s=s.replace(diag,diagnew,1)
+
+    passanchor='''        else:self.run_summary.setText("POST-RUN QA не повернув структурований результат.")
+        if passed:'''
+    passnew='''        else:self.run_summary.setText("POST-RUN QA не повернув структурований результат.")
+        try:ux25_on_postrun(self,passed,result)
+        except Exception:pass
+        if passed:'''
+    if passanchor in s:s=s.replace(passanchor,passnew,1)
+
+    qadiag='''            self._create_auto_diagnostic("postrun_qa_check")
+        self._finalize_run(passed)'''
+    qadiagnew='''            # UX25: QA CHECK is visible in UI; diagnostic ZIP is manual unless it is an unknown crash.
+            pass
+        self._finalize_run(passed)'''
+    if qadiag in s:s=s.replace(qadiag,qadiagnew,1)
+
+    fin='''        self._stream_lock=None
+        try:
+            p=getattr(self,"_perf_stop_path",None)'''
+    finnew='''        self._stream_lock=None
+        try:ux25_on_finalize(self,ok)
+        except Exception:pass
+        try:
+            p=getattr(self,"_perf_stop_path",None)'''
+    pos=s.find("    def _finalize_run(self,ok):")
+    if pos>=0:
+        head=s[:pos];tail=s[pos:]
+        if fin in tail:tail=tail.replace(fin,finnew,1);s=head+tail
+
+    atomic_text(p,s)
+
+def patch_version_config():
+    vp=APP/"rg_studio_version.py"
+    if vp.is_file():
+        s=vp.read_text(encoding="utf-8")
+        s=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"',f'STUDIO_VERSION = "{VERSION}"',s,count=1)
+        atomic_text(vp,s)
+    cp=APP/"rg_auto_edit_config.json"
+    d=json.loads(cp.read_text(encoding="utf-8-sig")) if cp.is_file() else {}
+    d["stability_ux25"]={
+      "schema":"RG_STABILITY_UX25_V1","version":VERSION,"enabled":True,
+      "coverage":{
+        "1":"stale-lock auto cleanup","2":"PID identity double-run guard","3":"success/error sound",
+        "4":"Windows notifications","5":"human error categories/actions","6":"run_id current-error isolation",
+        "7":"timestamped run logs + LATEST","8":"crash cleanup","9":"self-healing retry",
+        "10":"checkpoint retry","11":"early XML A/V validation","12":"XML regression gate",
+        "13":"installer rollback","14":"canonical F backend/runtime","15":"process pipeline visualization",
+        "16":"progress/stage visualization","17":"queue status styling","18":"launch state styling",
+        "19":"final result card","20":"technical details collapsed","21":"SYSTEM READY health chip",
+        "22":"fast preflight","23":"diagnostics manual for known errors","24":"FIX AND RETRY action",
+        "25":"recent run history"
+      },
+      "sounds_default":True,"diagnostics_policy":"UNKNOWN_CRASH_AUTO_OTHERWISE_MANUAL",
+      "canonical_backend":r"F:\RG_AUTO_EDIT\RG Auto Edit App",
+      "canonical_runtime":r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe"
+    }
+    atomic_text(cp,json.dumps(d,ensure_ascii=False,indent=2))
+
+def regression_gate():
+    checks=[]
+    for n in ["rg_stability_ux25.py","rg_studio_ui.py","rg_production_stability.py","VALIDATE_PREMIERE_XML.py","rg_studio_version.py"]:
+        p=APP/n
+        try:py_compile.compile(str(p),doraise=True);checks.append((n,True,"compile"))
+        except Exception as e:checks.append((n,False,str(e)))
+    # Existing known-good Premiere XML is the safest regression target.
+    good=APP/"894"/"RG_EDITED_894_4.xml"
+    if good.is_file() and not DRY:
+        cp=subprocess.run([sys.executable,"-X","utf8",str(APP/"VALIDATE_PREMIERE_XML.py"),str(good)],
+                          cwd=str(APP),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=90)
+        checks.append(("validator_894",cp.returncode==0,(cp.stdout+cp.stderr)[-2000:]))
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8")
+    for token in ["RG_STABILITY_UX25_V1","ux25_quick_preflight","_run_latest_log_path","ux25_should_auto_diag"]:
+        checks.append(("ui:"+token,token in ui,token))
+    val=(APP/"VALIDATE_PREMIERE_XML.py").read_text(encoding="utf-8")
+    checks.append(("validator_avlink_v2","RG_VALIDATOR_AVLINK_V2" in val,"marker"))
+    passed=all(x[1] for x in checks)
+    report={"schema":"RG_STABILITY_UX25_SELFTEST_V1","version":VERSION,"passed":passed,
+            "checks":[{"name":a,"ok":b,"detail":c} for a,b,c in checks],"time":time.time()}
+    out=DATA/"selftests"/f"UX25_{int(time.time())}.json";out.parent.mkdir(parents=True,exist_ok=True)
+    out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    if not passed:raise RuntimeError("UX25 regression gate failed: "+json.dumps(report,ensure_ascii=False))
+    return report
+
+def main():
+    files=[APP/"rg_studio_ui.py",APP/"rg_production_stability.py",APP/"VALIDATE_PREMIERE_XML.py",
+           APP/"rg_studio_version.py",APP/"rg_auto_edit_config.json",APP/"rg_stability_ux25.py"]
+    b,existed=backup(files)
+    try:
+        write_helper()
+        patch_validator()
+        patch_stability()
+        patch_ui()
+        patch_version_config()
+        report=regression_gate()
+        print("UX25_BACKUP|"+str(b))
+        print("UX25_FEATURES|1-25")
+        print("UX25_VERSION|"+VERSION)
+        print("UX25_SELFTEST|PASS")
+        print("UX25_INSTALL|PASS")
+        return 0
+    except Exception:
+        traceback.print_exc()
+        restore(b,files,existed)
+        print("UX25_INSTALL|ROLLBACK")
+        return 10
+
+if __name__=="__main__":
+    raise SystemExit(main())
+'''
+
+    notes="""RG Auto Edit Studio 0.20.17.0 - STABILITY + UX25
+
+25 changes included:
+1 stale-lock automatic cleanup
+2 PID identity validation for double-run protection
+3 completion/error sounds
+4 Windows notifications
+5 human-readable error categories and action buttons
+6 current run_id isolation
+7 timestamped per-run logs plus LATEST/STUDIO_RUN compatibility
+8 crash/finalize cleanup
+9 self-healing retry
+10 retry from checkpoints without full AI recalculation
+11 Premiere XML A/V validation repair
+12 regression validation gate
+13 automatic rollback if installer/self-test fails
+14 canonical F: backend/runtime
+15 process chain visualization
+16 live stage/progress visualization
+17 clearer queue state colors
+18 green launched/running state preserved
+19 final result card styling
+20 technical tracebacks collapsed by default
+21 SYSTEM READY health indicator
+22 fast preflight before expensive backend work
+23 diagnostic ZIP only automatic for unknown/crash cases
+24 FIX AND RETRY action
+25 recent run history in the status area
+
+Also includes RG_VALIDATOR_AVLINK_V2: video links are ignored when determining an audio stereo partner.
+No audio processing, normalization, compression, denoise, EQ, resampling or level changes are introduced.
+"""
+
+    with tempfile.TemporaryDirectory(prefix="rg_ux25_build_") as td:
+        root=Path(td)/"RG_UX25";root.mkdir()
+        inst=root/"INSTALL_STABILITY_UX25.py";inst.write_text(installer,encoding="utf-8")
+        rn=root/"RELEASE_NOTES_STABILITY_UX25.txt";rn.write_text(notes,encoding="utf-8")
+        files=[]
+        for p in [inst,rn]:
+            files.append({"path":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"size":p.stat().st_size})
+        manifest={
+          "schema":"RG_UPDATE_MANIFEST_V2","product":"RG Auto Edit Studio","studio_version":version,
+          "channel":"STABLE",
+          "summary":"Stability + UX25: stale-lock self-healing, sounds/notifications, run-isolated logs, safer retry, XML A/V validator V2, rollback, F: canonical paths and clearer process/queue UI.",
+          "created_at":time.time(),"files":files,"coverage":{"from":1,"to":25},
+          "update_contract":"RG_STUDIO_UPDATE_V2"
+        }
+        (root/"RG_UPDATE_MANIFEST.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+
+        # Dry-run against a copy of the current production sources.
+        dry=Path(td)/"dry_app";dry.mkdir()
+        for n in ["rg_studio_ui.py","rg_production_stability.py","VALIDATE_PREMIERE_XML.py",
+                  "rg_studio_version.py","rg_auto_edit_config.json"]:
+            p=app/n
+            if p.is_file():shutil.copy2(p,dry/n)
+        env=os.environ.copy();env["RG_UX25_DRYRUN"]="1";env["PYTHONUTF8"]="1"
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        py=str(runtime if runtime.is_file() else sys.executable)
+        cp=subprocess.run([py,"-X","utf8",str(inst)],cwd=str(dry),env=env,
+                          capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=180)
+        if cp.returncode!=0:
+            raise RuntimeError("UX25 dry-run failed:\n"+(cp.stdout or "")[-6000:]+"\n"+(cp.stderr or "")[-6000:])
+        for n in ["rg_stability_ux25.py","rg_studio_ui.py","rg_production_stability.py","VALIDATE_PREMIERE_XML.py"]:
+            p=dry/n
+            if p.is_file():py_compile.compile(str(p),doraise=True)
+
+        with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED) as zz:
+            for p in root.iterdir():zz.write(p,p.name)
+
+    shutil.copy2(zip_path,local_copy)
+    nas_copy=None
+    try:
+        nas_updates.mkdir(parents=True,exist_ok=True)
+        nas_copy=nas_updates/name
+        shutil.copy2(zip_path,nas_copy)
+    except Exception:
+        nas_copy=None
+
+    with zipfile.ZipFile(zip_path) as zz:
+        bad=zz.testzip()
+        if bad:raise RuntimeError("ZIP CRC failure: "+bad)
+        m=json.loads(zz.read("RG_UPDATE_MANIFEST.json").decode("utf-8"))
+        for row in m["files"]:
+            b=zz.read(row["path"])
+            if hashlib.sha256(b).hexdigest()!=row["sha256"]:raise RuntimeError("manifest sha mismatch "+row["path"])
+            if len(b)!=row["size"]:raise RuntimeError("manifest size mismatch "+row["path"])
+
+    return {
+      "status":"READY","version":version,"coverage":"1-25","zip":str(zip_path),
+      "package_copy":str(local_copy),"nas_copy":str(nas_copy) if nas_copy else None,
+      "size":zip_path.stat().st_size,"sha256":hashlib.sha256(zip_path.read_bytes()).hexdigest(),
+      "dry_run":"PASS","compile":"PASS","crc":"PASS","manifest":"PASS","installed":False
+    }
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11987,6 +12777,7 @@ ACTIONS = {
     "build_auto_edit_pack312_update": build_auto_edit_pack312_update,
     "build_auto_edit_pack400_update": build_auto_edit_pack400_update,
     "build_auto_edit_pack500_update": build_auto_edit_pack500_update,
+    "build_auto_edit_pack25_stability_ux_update": build_auto_edit_pack25_stability_ux_update,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
