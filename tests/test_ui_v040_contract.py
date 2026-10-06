@@ -28,8 +28,8 @@ def test_v040_dashboard_contract() -> None:
 def test_v040_quick_filters_and_context_actions_contract() -> None:
     source = _ui_source()
     for marker in (
-        '"Потрібна увага", "needs"',
-        '"Готово", "ready"',
+        '"Потрібно підготувати", "needs"',
+        '"Готово до YouTube", "ready"',
         '"Без тегів", "no_tags"',
         '"Низький CTR", "low_ctr"',
         'self.context_primary_btn',
@@ -170,3 +170,46 @@ def test_set_process_mirrors_into_optimization_tab() -> None:
     assert "optimization_process_title" in block
     assert "optimization_process_stage" in block
     assert "optimization_process_progress" in block
+
+
+def test_guided_next_action_contract() -> None:
+    source = _ui_source()
+    for marker in (
+        'next_action_caption = QLabel("Наступна дія")',
+        'self.next_action_button = QPushButton("Продовжити")',
+        'def _refresh_next_action_card',
+        'def _run_guided_next_action',
+        'self._refresh_next_action_card(safe_capacity)',
+        '"Підготувати сьогоднішній стрім"',
+        '"Перевірити підготовлені пакети: {draft_count}"',
+        '"Готово до YouTube: {len(ready_queue)} відео"',
+    ):
+        assert marker in source
+
+
+def test_guided_optimization_workspace_contract() -> None:
+    source = _ui_source()
+    start = source.index("    def _build_optimization_tab")
+    end = source.index("\n    def _set_optimization_queue_filter", start)
+    block = source[start:end]
+    for marker in (
+        'QPushButton("Підготувати без квоти")',
+        'QPushButton("Готово до YouTube")',
+        'advanced_btn.setText("Додатково ▾")',
+        'archive_campaign_summary.setVisible(False)',
+        'free_tools_status_label.setVisible(False)',
+        '"Етап"',
+        '"Підготовка → Перевірка → Готово → YouTube → Контроль"',
+    ):
+        assert marker in block
+
+
+def test_draft_can_be_discarded_without_youtube_mutation() -> None:
+    source = _ui_source()
+    start = source.index("    def _discard_selected_draft")
+    end = source.index("\n    def _run_context_primary_action", start)
+    block = source[start:end]
+    assert "DELETE FROM optimization_drafts" in block
+    assert "YouTube не буде змінено" in block
+    assert "_quota_update_video" not in block
+    assert "context_discard_btn" in source
