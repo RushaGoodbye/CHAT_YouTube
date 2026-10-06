@@ -352,3 +352,66 @@ def test_generic_fast_chapters_are_removed(monkeypatch):
     )
 
     assert result["chapters"] == ""
+
+
+def test_parse_srt_transcript_rows() -> None:
+    from rg_youtube_control.free_tools import parse_srt_transcript
+
+    rows = parse_srt_transcript(
+        "1\n00:00:01,000 --> 00:00:03,500\nПривіт світ\n\n"
+        "2\n00:00:05,000 --> 00:00:07,000\nДруга репліка\n"
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["text"] == "Привіт світ"
+    assert rows[0]["start"] == 1.0
+    assert rows[0]["duration"] == 2.5
+
+
+def test_fetch_transcript_from_public_metadata_uses_json3(monkeypatch) -> None:
+    import json as _json
+    from rg_youtube_control import free_tools
+
+    payload = {
+        "events": [
+            {
+                "tStartMs": 1000,
+                "dDurationMs": 1500,
+                "segs": [{"utf8": "Привіт "}, {"utf8": "світ"}],
+            }
+        ]
+    }
+
+    class _Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return _json.dumps(payload).encode("utf-8")
+
+    monkeypatch.setattr(
+        free_tools.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _Response(),
+    )
+
+    rows = free_tools.fetch_transcript_from_public_metadata(
+        {
+            "_caption_tracks": {
+                "manual": {},
+                "automatic": {
+                    "ru": [
+                        {
+                            "ext": "json3",
+                            "url": "https://example.invalid/captions",
+                        }
+                    ]
+                },
+            }
+        }
+    )
+
+    assert rows == [
+        {"text": "Привіт світ", "start": 1.0, "duration": 1.5}
+    ]
