@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_powershell_usage",
+  "action": "inspect_auto_edit_windows_service_targets",
   "args": {},
-  "nonce": "inspect-powershell-usage-20261006-2138"
+  "nonce": "inspect-windows-service-targets-20261006-2140"
 }
