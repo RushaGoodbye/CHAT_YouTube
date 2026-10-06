@@ -2,6 +2,8 @@
   "target": "alexpc",
   "contour": "auto_edit",
   "action": "inspect_auto_edit_run_log",
-  "args": {},
-  "nonce": "inspect-run-log-886-20261006-2042"
+  "args": {
+    "stream": "886"
+  },
+  "nonce": "inspect-run-log-886-20261006-2044"
 }
