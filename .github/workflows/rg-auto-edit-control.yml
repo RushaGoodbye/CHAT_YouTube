@@ -33,6 +33,9 @@ jobs:
           Write-Host "AUTO_EDIT_TASK_VALID"
       - name: Run Auto Edit contour task
         shell: powershell
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
           $task = Get-Content "rg_remote_control/auto_edit_task.json" -Raw | ConvertFrom-Json
           if ($task.action -in @("install_rg_resilience","probe_rg_resilience","repair_rg_resilience","inspect_rg_resilience_runtime")) {
