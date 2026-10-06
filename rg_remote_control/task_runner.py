@@ -7815,6 +7815,58 @@ $r=Get-CimInstance Win32_Process | Where-Object {
     }
 
 
+
+def run_auto_edit_preview_886_smoke() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import subprocess,py_compile,uuid
+    app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App")
+    data=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data")
+    runtime=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe")
+    src=Path(r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYЕ\\ГОТОВО\\YouTube\\ЕГОР")
+    job="_SMOKE_PREVIEW_886_"+uuid.uuid4().hex[:6]
+    root=app/job
+    try:
+        prep=app/"rg_thumbnail_mix_prep.py";py_compile.compile(str(prep),doraise=True)
+        candidates=[]
+        for ext in ("*.mp4","*.mov","*.mxf"):
+            candidates.extend(src.glob("886*"+ext[1:]))
+        candidates=[p for p in candidates if p.is_file() and "SHORTS" not in p.name.upper()]
+        if not candidates:raise RuntimeError("No final dialogue clip for stream 886 in ЕГОР")
+        # Use the smallest dialogue file for a short real frame-extraction smoke.
+        clip=min(candidates,key=lambda p:p.stat().st_size)
+        cf=data/f"{job}_clips.json";cf.write_text(json.dumps({"clips":[str(clip)]},ensure_ascii=False),encoding="utf-8")
+        cp=subprocess.run([str(runtime),"-u","-X","utf8",str(prep),"--app",str(app),"--job",job,"--clips-file",str(cf)],
+            cwd=str(app),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=600,creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+        mf=root/"THUMBNAIL"/"RG_THUMBNAIL_PREP.json"
+        if cp.returncode!=0 or not mf.is_file():raise RuntimeError("Thumbnail prep failed: "+((cp.stdout or "")+(cp.stderr or ""))[-3000:])
+        d=json.loads(mf.read_text(encoding="utf-8-sig"))
+        hosts=[Path(x) for x in d.get("host_candidates") or [] if Path(x).is_file()]
+        guests=[]
+        for row in d.get("dialogues") or []:
+            guests += [Path(x) for x in row.get("guest_candidates") or [] if Path(x).is_file()]
+        if not hosts or not guests:raise RuntimeError(f"Missing candidates host={len(hosts)} guest={len(guests)}")
+        ti=root/"THUMBNAIL"/"TOPAZ_INPUT";ti.mkdir(parents=True,exist_ok=True)
+        hdst=ti/("HOST_"+hosts[0].name);gdst=ti/("GUEST_"+guests[0].name)
+        shutil.copy2(hosts[0],hdst);shutil.copy2(guests[0],gdst)
+        topaz_scripts=list(app.glob("*topaz*.py"))+list(app.glob("*Topaz*.py"))
+        for p in topaz_scripts:py_compile.compile(str(p),doraise=True)
+        marker=root/"THUMBNAIL"/"RG_TOPAZ_SMOKE_SELECTION.json"
+        marker.write_text(json.dumps({"schema":"RG_TOPAZ_SMOKE_V1","host":str(hdst),"guest":str(gdst),"source_clip":str(clip)},ensure_ascii=False,indent=2),encoding="utf-8")
+        detail={"clip":str(clip),"host_candidates":len(hosts),"guest_candidates":len(guests),"topaz_input":2,"topaz_scripts":len(topaz_scripts),"manifest_schema":d.get("schema")}
+        _update_020201_test("PREVIEW_SMOKE","PASS",detail)
+        return {"status":"PASS",**detail,"stdout_tail":(cp.stdout or "")[-1200:]}
+    except Exception as exc:
+        _update_020201_test("PREVIEW_SMOKE","FAIL",repr(exc));raise
+    finally:
+        try:
+            cf=data/f"{job}_clips.json"
+            if cf.exists():cf.unlink()
+        except Exception:pass
+        try:
+            if root.exists():shutil.rmtree(root,ignore_errors=True)
+        except Exception:pass
+
+
 def inspect_auto_edit_thumbnail_final_render() -> dict:
     if os.name != "nt":
         raise RuntimeError("Windows only")
@@ -7997,7 +8049,6 @@ def retire_dialogue_sources(clips, registry_path=RG_USED_DIALOGUES_REGISTRY, ret
         tmp.write_text(src,encoding="utf-8")
         py_compile.compile(str(tmp),doraise=True)
         os.replace(tmp,comp)
-
         uis=ui.read_text(encoding="utf-8")
         if "RG_FINAL_USED_DIALOGUES_REFRESH" not in uis:
             anchor='''        if code==0 and result and result.get("passed") and result.get("rendered"):
@@ -8997,7 +9048,6 @@ def apply_auto_edit_guest_face_only_hotfix() -> dict:
     backup.mkdir(parents=True,exist_ok=True)
     for p in (prep,mix,ver):
         if p.is_file(): shutil.copy2(p,backup/p.name)
-
     try:
         ps=prep.read_text(encoding="utf-8")
         if "def _guest_face_only_crop(" not in ps:
@@ -13630,6 +13680,7 @@ ACTIONS = {
     "apply_auto_edit_thumbnail_v6_visibility_hotfix": apply_auto_edit_thumbnail_v6_visibility_hotfix,
     "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
     "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
+    "run_auto_edit_preview_886_smoke": run_auto_edit_preview_886_smoke,
     "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
     "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
     "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
