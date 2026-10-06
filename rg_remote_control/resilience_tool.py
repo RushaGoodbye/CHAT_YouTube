@@ -755,6 +755,104 @@ def queue_roundtrip(timeout: int = 85) -> dict:
 
 
 
+
+def alexpc_agent_call(
+    contour: str,
+    action: str,
+    args: dict | None = None,
+    timeout: int = 180,
+) -> dict:
+    base = AGENT_NAS / contour
+    req_root = base / "requests"
+    res_root = base / "results"
+    err_root = base / "errors"
+    req_root.mkdir(parents=True, exist_ok=True)
+    res_root.mkdir(parents=True, exist_ok=True)
+    err_root.mkdir(parents=True, exist_ok=True)
+
+    request_id = uuid.uuid4().hex
+    req = req_root / f"{request_id}.json"
+    result = res_root / f"{request_id}.json"
+    error = err_root / f"{request_id}.json"
+    atomic_json(req, {
+        "request_id": request_id,
+        "action": action,
+        "args": dict(args or {}),
+        "timeout_seconds": max(30, int(timeout)),
+    })
+
+    started = time.time()
+    while time.time() - started < timeout:
+        if smb_is_file(result):
+            try:
+                data = json.loads(smb_read_text(result))
+            except Exception as exc:
+                return {"ok": False, "request_id": request_id, "parse_error": repr(exc)}
+            return {
+                "ok": bool(data.get("ok")),
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "result": data,
+            }
+        if smb_is_file(error) and smb_size(error):
+            try:
+                data = json.loads(smb_read_text(error))
+            except Exception:
+                data = {"raw": smb_read_text(error, 12000)}
+            return {
+                "ok": False,
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "error": data,
+            }
+        time.sleep(1)
+    return {
+        "ok": False,
+        "request_id": request_id,
+        "elapsed_seconds": round(time.time() - started, 1),
+        "timeout": True,
+        "request_still_exists": smb_is_file(req),
+    }
+
+
+def bootstrap_youtube_runtime() -> dict:
+    """Update/relaunch RG YouTube Control strictly through the NAS AlexPC queue."""
+    sync_launch = alexpc_agent_call(
+        "youtube",
+        "youtube_local_sync_and_launch_source",
+        {},
+        timeout=240,
+    )
+    if not sync_launch.get("ok"):
+        return {
+            "ok": False,
+            "step": "sync_and_launch",
+            "sync_and_launch": sync_launch,
+            "github_required_at_runtime": False,
+        }
+
+    cleanup = alexpc_agent_call(
+        "youtube",
+        "youtube_local_cleanup_gui_processes",
+        {},
+        timeout=90,
+    )
+    status = alexpc_agent_call(
+        "youtube",
+        "youtube_local_runtime_status",
+        {},
+        timeout=90,
+    )
+    return {
+        "ok": bool(sync_launch.get("ok") and cleanup.get("ok") and status.get("ok")),
+        "sync_and_launch": sync_launch,
+        "cleanup": cleanup,
+        "status": status,
+        "github_required_at_runtime": False,
+    }
+
+
+
 def youtube_agent_roundtrip(timeout: int = 70) -> dict:
     base = AGENT_NAS / "youtube"
     req_root = base / "requests"
@@ -1141,6 +1239,7 @@ ACTIONS = {
     "repair_rg_resilience": repair,
     "inspect_rg_resilience_runtime": inspect_resilience_runtime,
     "finalize_rg_resilience": finalize_resilience,
+    "bootstrap_youtube_runtime": bootstrap_youtube_runtime,
 }
 
 
