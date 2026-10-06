@@ -14,6 +14,9 @@ SMOKE_LOG="$STATE/mcp-smoke.log"
 AUTO_ROOT_FILE="$STATE/mcp_auto_edit_host_root"
 
 mkdir -p "$STATE" "$MCP_ROOT"
+if [ -f "$ROOT/RG_NAS_MCP_GUARD.sh" ]; then
+  sh "$ROOT/RG_NAS_MCP_GUARD.sh" || true
+fi
 date -Iseconds > "$STATE/mcp_tick_heartbeat_at" 2>/dev/null || date > "$STATE/mcp_tick_heartbeat_at"
 
 detect_auto_root() {
