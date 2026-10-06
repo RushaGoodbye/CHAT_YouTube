@@ -4,12 +4,14 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__
+from .config import DEFAULT_NAS_UPDATES_PATH
 
 REPO = "RushaGoodbye/CHAT_YouTube"
 LATEST_MANIFEST_URL = f"https://github.com/{REPO}/releases/latest/download/latest.json"
@@ -63,7 +65,51 @@ def _from_manifest(data: dict) -> UpdateInfo | None:
     )
 
 
+def _nas_update_root() -> Path:
+    override = os.getenv("RG_YOUTUBE_UPDATES_PATH", "").strip()
+    return Path(override or DEFAULT_NAS_UPDATES_PATH)
+
+
+def _from_nas_manifest(path: Path) -> UpdateInfo | None:
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    remote = str(data.get("version") or "").lstrip("vV")
+    if not remote or _version_tuple(remote) <= _version_tuple(__version__):
+        return None
+
+    installer_name = str(data.get("installer_name") or "").strip()
+    if not installer_name:
+        raise RuntimeError("У NAS-маніфесті немає installer_name.")
+
+    installer = path.parent / installer_name
+    if not installer.is_file():
+        raise RuntimeError(f"На NAS немає інсталятора: {installer}")
+
+    checksum_name = str(data.get("checksum_name") or "").strip()
+    checksum = path.parent / (
+        checksum_name or f"{installer_name}.sha256"
+    )
+
+    return UpdateInfo(
+        version=remote,
+        installer_url=str(installer),
+        installer_name=installer_name,
+        checksum_url=str(checksum) if checksum.is_file() else None,
+        notes=str(data.get("notes") or "Оновлення з NAS"),
+    )
+
+
 def check_for_update() -> UpdateInfo | None:
+    nas_manifest = _nas_update_root() / "latest.json"
+    try:
+        if nas_manifest.is_file():
+            info = _from_nas_manifest(nas_manifest)
+            if info is not None:
+                return info
+    except Exception:
+        # NAS is primary, but update checks must stay usable if the share is
+        # temporarily unavailable. GitHub is only an emergency fallback.
+        pass
+
     try:
         manifest = _request_json(LATEST_MANIFEST_URL)
         return _from_manifest(manifest)
@@ -97,6 +143,11 @@ def check_for_update() -> UpdateInfo | None:
     )
 
 def _download(url: str, path: Path) -> None:
+    source = Path(str(url))
+    if source.is_file():
+        shutil.copy2(source, path)
+        return
+
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=120) as response, path.open("wb") as fh:
         while True:
