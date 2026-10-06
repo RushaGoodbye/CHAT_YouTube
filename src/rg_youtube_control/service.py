@@ -1185,14 +1185,22 @@ def manual_reply(
     reply_text: str,
 ) -> None:
     row = conn.execute(
-        "SELECT status FROM comments WHERE comment_id=?",
+        "SELECT status,raw_json FROM comments WHERE comment_id=?",
         (comment_id,),
     ).fetchone()
     if row is not None:
         local_status = str(row["status"] or "")
         if local_status == "replied":
             raise RuntimeError("На цей коментар вже надіслано відповідь.")
-        if local_status == "moderation_locked":
+        moderation_locked = local_status == "moderation_locked"
+        try:
+            raw = json.loads(str(row["raw_json"] or "{}"))
+            raw_status = _thread_moderation_status(raw)
+            if raw_status and raw_status != "published":
+                moderation_locked = True
+        except Exception:
+            pass
+        if moderation_locked:
             raise RuntimeError(
                 "Коментар знаходиться на модерації YouTube. "
                 "RG YouTube Control не буде відповідати або змінювати його статус."
