@@ -10159,8 +10159,42 @@ class MainWindow(QMainWindow):
             return
         video_id = video_ids[0]
 
+        state = self.conn.execute(
+            """SELECT scheduled_publish_at,privacy_status,title
+               FROM videos
+               WHERE video_id=? AND profile=?""",
+            (video_id, self.current_profile),
+        ).fetchone()
+        if state is not None and str(state["scheduled_publish_at"] or "").strip():
+            QMessageBox.information(
+                self,
+                "Запланований стрім",
+                "Для запланованих і майбутніх стрімів локальний SEO з архівної "
+                "черги заблоковано. Використовуйте окремий центр "
+                "«Заплановані стріми».",
+            )
+            self.statusBar().showMessage(
+                "Локальний SEO: пропущено запланований стрім"
+            )
+            return
+
         def task():
-            context = fetch_public_metadata(video_id)
+            try:
+                context = fetch_public_metadata(video_id)
+            except Exception as exc:
+                text = str(exc)
+                live_tokens = (
+                    "live event will begin",
+                    "premieres in",
+                    "upcoming live",
+                    "is live",
+                )
+                if any(token in text.casefold() for token in live_tokens):
+                    raise RuntimeError(
+                        "Відео визначено як майбутній/живий стрім. "
+                        "Архівний локальний SEO для нього заблоковано."
+                    ) from exc
+                raise
             current_title = str(context.get("title") or "")
             raw_description = str(context.get("description") or "")
             cleaned_description = safe_description_fix(
