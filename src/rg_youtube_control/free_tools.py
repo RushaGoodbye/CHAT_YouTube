@@ -450,6 +450,52 @@ def _grounded_description_from_transcript(
     return " ".join((intro, context, topic_sentence, closing))
 
 
+def _polish_generated_description(value: str) -> str:
+    """Remove repeated sentences and obvious LLM-style repetition."""
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?…])\s+", text)
+        if item.strip()
+    ]
+    result: list[str] = []
+    seen: set[str] = set()
+    opener_counts: dict[str, int] = {}
+
+    for sentence in sentences:
+        normalized = re.sub(
+            r"[^a-zа-яіїєґё0-9]+",
+            " ",
+            sentence.casefold(),
+        ).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+
+        opener = " ".join(normalized.split()[:2])
+        if opener:
+            opener_counts[opener] = opener_counts.get(opener, 0) + 1
+            if opener_counts[opener] > 2:
+                continue
+
+        # Drop low-information filler that often appears in local-model output.
+        filler = (
+            "відбувається згадка",
+            "відбувається обговорення",
+            "у спілкуванні говорять",
+            "у спілкуванні також",
+        )
+        if any(normalized.startswith(item) for item in filler) and len(result) >= 4:
+            continue
+
+        result.append(sentence)
+
+    return " ".join(result).strip()
+
+
 def _description_quality_error(description: str, transcript: str = "") -> str:
     """Return a machine-readable reason when a generated SEO description is unsafe."""
     value = " ".join(str(description or "").split()).strip()
@@ -459,9 +505,31 @@ def _description_quality_error(description: str, transcript: str = "") -> str:
         return "too_long"
 
     # A real description should be prose, not a pasted transcript stream.
-    sentence_marks = len(re.findall(r"[.!?…]", value))
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?…])\s+", value)
+        if item.strip()
+    ]
+    sentence_marks = len(sentences)
     if sentence_marks < 3:
         return "not_summary_prose"
+
+    normalized_sentences = [
+        re.sub(r"[^a-zа-яіїєґё0-9]+", " ", item.casefold()).strip()
+        for item in sentences
+    ]
+    if len(set(normalized_sentences)) < len(normalized_sentences):
+        return "duplicate_sentence"
+
+    repetitive_starts = (
+        "відбувається ",
+        "у спілкуванні ",
+        "обговорюють ",
+        "припускають ",
+    )
+    for prefix in repetitive_starts:
+        if sum(1 for item in sentences if item.casefold().startswith(prefix)) > 2:
+            return "repetitive_style"
 
     words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", value.casefold())
     if len(words) < 45:
@@ -610,6 +678,7 @@ def _recover_missing_description(
                 )
                 value = value.strip().strip('"').strip()
 
+            value = _polish_generated_description(value)
             if len(value) > len(last):
                 last = value
             last_error = _description_quality_error(value, transcript)
@@ -696,6 +765,18 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
     return hits >= required
 
 
+def _source_mentions(
+    title: str,
+    transcript: str,
+    needles: tuple[str, ...],
+) -> tuple[bool, int]:
+    title_text = str(title or "").casefold()
+    transcript_text = str(transcript or "").casefold()
+    in_title = any(needle in title_text for needle in needles)
+    count = sum(transcript_text.count(needle) for needle in needles)
+    return in_title, count
+
+
 def _grounded_tags_from_transcript(
     current_title: str,
     transcript: str,
@@ -751,19 +832,29 @@ def _grounded_tags_from_transcript(
         add("зарплаты в России")
     if "пенси" in haystack or "соцпакет" in haystack:
         add("пенсии в России")
-    if "эконом" in haystack or "економ" in haystack:
+    in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
+    if in_title or mentions >= 3:
         add("экономика России")
-    if "путин" in haystack or "путін" in haystack:
+    in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
+    if in_title or mentions >= 3:
         add("Путин")
-    if "войн" in haystack or "війн" in haystack or "сво" in haystack:
+    in_title, mentions = _source_mentions(
+        title, transcript, ("войн", "війн", "сво")
+    )
+    if in_title or mentions >= 3:
         add("война России против Украины")
-    if "мобилиз" in haystack or "мобіліз" in haystack:
+    in_title, mentions = _source_mentions(
+        title, transcript, ("мобилиз", "мобіліз")
+    )
+    if in_title or mentions >= 3:
         add("мобилизация в России")
-    if "санкц" in haystack:
+    in_title, mentions = _source_mentions(title, transcript, ("санкц",))
+    if in_title or mentions >= 3:
         add("санкции против России")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
         add("бензин в России")
-    if "работ" in haystack or "робот" in haystack:
+    in_title, mentions = _source_mentions(title, transcript, ("работ", "робот"))
+    if in_title or mentions >= 4:
         add("работа в России")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
         add("жилье в России")
@@ -783,7 +874,7 @@ def _grounded_tags_from_transcript(
             break
         add(value)
 
-    return tags[:15]
+    return tags[:12]
 
 
 def _preserve_current_title_when_candidate_is_not_stronger(
@@ -958,7 +1049,10 @@ chapters: рядок з підтвердженими таймкодами або
                 raise ValueError("need exactly 3 title variants")
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
-            description_candidate = str(candidate.get("description") or "").strip()
+            description_candidate = _polish_generated_description(
+                str(candidate.get("description") or "").strip()
+            )
+            candidate["description"] = description_candidate
             description_error = (
                 _description_quality_error(description_candidate, transcript)
                 if transcript.strip()
