@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "probe_auto_edit_mcp_bridge",
-  "args": {},
-  "nonce": "probe-auto-edit-mcp-bridge-20261006-1145"
+  "action": "inspect_auto_edit_stream_result",
+  "args": {"stream":"901"},
+  "nonce": "inspect-stream-901-after-bridge-restore-20261006-1146"
 }
