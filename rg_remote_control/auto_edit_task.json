@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
+  "action": "apply_auto_edit_service_process_stream_fix",
   "args": {},
-  "nonce": "inspect-service-process-update-20261006-2122"
+  "nonce": "apply-service-process-fix-20261006-2125"
 }
