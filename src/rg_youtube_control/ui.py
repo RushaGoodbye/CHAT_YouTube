@@ -10212,6 +10212,15 @@ class MainWindow(QMainWindow):
                    WHERE video_id=? AND profile=?""",
                 (video_id, self.current_profile),
             ).fetchone()
+            nas_row = state_conn.execute(
+                "SELECT value FROM settings WHERE key=?",
+                ("nas_transcripts_path",),
+            ).fetchone()
+            nas_transcripts_raw = (
+                str(nas_row[0]).strip()
+                if nas_row is not None and nas_row[0]
+                else DEFAULT_NAS_TRANSCRIPTS_PATH
+            )
         finally:
             state_conn.close()
 
@@ -10261,9 +10270,11 @@ class MainWindow(QMainWindow):
 
         transcript_rows = []
         transcript_source = ""
-        transcript_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        transcript_dir = Path(
+            normalize_nas_unc_path(
+                nas_transcripts_raw,
+                DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )
         )
         nas_transcript = transcript_dir / f"{video_id}.srt"
 
