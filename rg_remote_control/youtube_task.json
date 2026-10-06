@@ -3,7 +3,8 @@
   "contour": "youtube",
   "action": "youtube_local_apply_live_archive_safe_batch",
   "args": {
-    "nonce": "daily-live-safe-20261006-1",
+    "nonce": "daily-main-safe-20261006-1",
+    "profile": "main",
     "max_items": 50
   }
 }
