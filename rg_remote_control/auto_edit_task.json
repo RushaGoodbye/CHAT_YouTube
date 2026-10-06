@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_pack25_stability_ux_update",
+  "action": "restart_auto_edit_studio_ui",
   "args": {},
-  "nonce": "build-ux25-fix1-20261006-2128"
+  "nonce": "restart-ui-load-service-fix-20261006-2130"
 }
