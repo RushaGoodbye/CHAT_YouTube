@@ -11842,7 +11842,10 @@ class MainWindow(QMainWindow):
                 bool(tr.get("available")),
                 "Transcript",
             )
-            self._toast(text, 3500)
+            if bool(getattr(self, "advanced_mode", False)):
+                self._toast(text, 3500)
+            if hasattr(self, "diagnostics_text"):
+                self.refresh_diagnostics_panel()
             self.update_task_center()
         except Exception as exc:
             self._free_tools_last_probe = {}
