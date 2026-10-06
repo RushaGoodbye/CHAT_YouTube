@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_updater_supervisor_v3",
+  "action": "build_auto_edit_master60_update",
   "args": {},
-  "nonce": "apply-supervisor-v3-manifest-installer-verify-20261006-2322"
+  "nonce": "rebuild-master60-r1-installer-fix-20261006-2324"
 }
