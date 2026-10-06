@@ -12704,7 +12704,7 @@ class MainWindow(QMainWindow):
                JOIN videos v ON v.video_id=c.video_id
                WHERE v.profile=?
                  AND c.status='new'
-                 AND COALESCE(TRIM(c.reply_text),'')=''
+                 AND COALESCE(c.draft_state,'')=''
                ORDER BY c.published_at DESC
                LIMIT 20""",
             (self.current_profile,),
@@ -12722,30 +12722,31 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "У локальній базі немає нових коментарів без чернетки.",
+                "Немає нових коментарів без локальної перевірки.",
             )
             return
 
         def task():
             result = []
             for item in items:
-                reply = generate_comment_reply_local(
+                candidate = generate_comment_reply_candidate_local(
                     comment_text=item["comment_text"],
                     video_title=item["video_title"],
                 )
                 result.append(
                     {
                         "comment_id": item["comment_id"],
-                        "reply": reply,
+                        **candidate,
                     }
                 )
             return result
 
         self._run_local_tool(
-            f"Локальні чернетки для {len(items)} коментарів (0 квоти)",
+            f"Локальна перевірка {len(items)} коментарів · 0 квоти",
             task,
             self._save_local_comment_reply_batch,
         )
+
 
     def local_comment_reply_regenerate_batch(self) -> None:
         rows = self.conn.execute(
@@ -12754,8 +12755,8 @@ class MainWindow(QMainWindow):
                JOIN videos v ON v.video_id=c.video_id
                WHERE v.profile=?
                  AND c.status='new'
-                 AND COALESCE(TRIM(c.reply_text),'')<>''
-               ORDER BY c.published_at DESC
+                 AND COALESCE(c.draft_state,'') IN ('ready','skipped','error')
+               ORDER BY COALESCE(c.draft_updated_at,c.published_at) DESC
                LIMIT 20""",
             (self.current_profile,),
         ).fetchall()
@@ -12772,137 +12773,143 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "Немає нових коментарів із локальними чернетками для перегенерації.",
+                "Немає локально перевірених коментарів для перегенерації.",
             )
             return
 
         def task():
             result = []
             for item in items:
-                reply = generate_comment_reply_local(
+                candidate = generate_comment_reply_candidate_local(
                     comment_text=item["comment_text"],
                     video_title=item["video_title"],
                 )
                 result.append(
                     {
                         "comment_id": item["comment_id"],
-                        "reply": reply,
+                        **candidate,
                     }
                 )
             return result
 
         self._run_local_tool(
-            f"Перегенерація {len(items)} локальних чернеток (0 квоти)",
+            f"Перегенерація {len(items)} коментарів · 0 квоти",
             task,
             self._save_regenerated_comment_reply_batch,
         )
 
+
     def _save_regenerated_comment_reply_batch(self, items: list[dict]) -> None:
-        requested_ids: list[str] = []
-        skipped_by_gate = 0
+        ready = skipped = errors = written = 0
         for item in items:
             comment_id = str(item.get("comment_id") or "")
+            state = str(item.get("state") or "error")
             reply = str(item.get("reply") or "").strip()
+            reason = str(item.get("reason") or "")
             if not comment_id:
                 continue
-            cursor = self.conn.execute(
-                "UPDATE comments SET reply_text=? WHERE comment_id=? AND status='new'",
-                (reply, comment_id),
-            )
-            if cursor.rowcount:
-                requested_ids.append(comment_id)
-                if not reply:
-                    skipped_by_gate += 1
-        self.conn.commit()
+            if save_comment_draft(
+                self.conn,
+                comment_id,
+                reply,
+                state=state,
+                reason=reason,
+            ):
+                written += 1
+                if state == "ready":
+                    ready += 1
+                elif state == "skipped":
+                    skipped += 1
+                else:
+                    errors += 1
 
-        verified = 0
-        if requested_ids:
-            placeholders = ",".join("?" for _ in requested_ids)
-            verified = int(
-                self.conn.execute(
-                    f"""SELECT COUNT(*)
-                        FROM comments
-                        WHERE comment_id IN ({placeholders})
-                          AND status='new'
-                          AND COALESCE(TRIM(reply_text),'')<>''""",
-                    tuple(requested_ids),
-                ).fetchone()[0]
-            )
-        skipped = max(0, len(requested_ids) - verified)
-
+        stats = comment_draft_counts(self.conn, self.current_profile)
         log_action(
             self.conn,
             profile=self.current_profile,
             category="локально",
             action="Перегенерація чернеток · 0 квоти",
             details=(
-                f"записано {len(requested_ids)}; перевірено в БД {verified}; "
-                f"без чернетки {skipped}; quality-gate {skipped_by_gate}; "
-                "нічого не відправлено в YouTube"
+                f"оброблено {written}; готові {ready}; skip {skipped}; "
+                f"помилки {errors}; у базі готових {stats['ready']}; YouTube API: 0"
             ),
         )
         self.reload_comments()
         self.reload_action_log()
-
-        if verified == 0 and requested_ids:
-            QMessageBox.warning(
-                self,
-                APP_NAME,
-                "Чернетки не підтвердилися після запису в локальну базу.\n"
-                "Програма не буде показувати хибний результат.\n"
-                "YouTube не змінено. Квота YouTube API: 0.",
-            )
-            return
-
         QMessageBox.information(
             self,
             APP_NAME,
-            f"Підтверджено чернеток у базі: {verified}.\n"
-            f"Залишено без чернетки: {skipped}.\n"
+            f"Оброблено: {written}.\n"
+            f"Готові чернетки: {ready}.\n"
+            f"SKIP: {skipped}.\n"
+            f"Помилки: {errors}.\n\n"
             "У YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
 
+
     def _save_local_comment_reply_batch(self, items: list[dict]) -> None:
-        saved = 0
+        ready = skipped = errors = written = 0
         for item in items:
             comment_id = str(item.get("comment_id") or "")
+            state = str(item.get("state") or "error")
             reply = str(item.get("reply") or "").strip()
-            if not comment_id or not reply:
+            reason = str(item.get("reason") or "")
+            if not comment_id:
                 continue
-            self.conn.execute(
-                "UPDATE comments SET reply_text=? WHERE comment_id=? AND status='new'",
-                (reply, comment_id),
-            )
-            saved += 1
-        self.conn.commit()
+            if save_comment_draft(
+                self.conn,
+                comment_id,
+                reply,
+                state=state,
+                reason=reason,
+            ):
+                written += 1
+                if state == "ready":
+                    ready += 1
+                elif state == "skipped":
+                    skipped += 1
+                else:
+                    errors += 1
+
         log_action(
             self.conn,
             profile=self.current_profile,
             category="локально",
             action="Пакет чернеток відповідей · 0 квоти",
-            details=f"збережено {saved}; нічого не відправлено в YouTube",
+            details=(
+                f"оброблено {written}; готові {ready}; skip {skipped}; "
+                f"помилки {errors}; нічого не відправлено в YouTube"
+            ),
         )
         self.reload_comments()
         self.reload_action_log()
-        self.statusBar().showMessage(
-            f"Локальні чернетки: {saved} · не опубліковано · 0 квоти"
-        )
         QMessageBox.information(
             self,
             APP_NAME,
-            f"Створено локальних чернеток: {saved}.\n"
+            f"Оброблено локально: {written}.\n"
+            f"Готові: {ready}. SKIP: {skipped}. Помилки: {errors}.\n"
             "У YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
+
 
     def _save_local_comment_reply(self, comment_id: str, reply: str) -> None:
         text = (reply or "").strip()
         if not text:
-            raise RuntimeError("Локальна модель повернула порожню відповідь.")
-        self.conn.execute(
-            "UPDATE comments SET reply_text=? WHERE comment_id=?",
-            (text, comment_id),
-        )
-        self.conn.commit()
+            save_comment_draft(
+                self.conn,
+                comment_id,
+                "",
+                state="skipped",
+                reason="model_skip",
+            )
+        else:
+            save_comment_draft(
+                self.conn,
+                comment_id,
+                text,
+                state="ready",
+                reason="manual_local_generation",
+            )
         log_action(
             self.conn,
             profile=self.current_profile,
@@ -12913,8 +12920,9 @@ class MainWindow(QMainWindow):
         self.reload_comments()
         self.reload_action_log()
         self.statusBar().showMessage(
-            "Чернетку відповіді збережено · не опубліковано · 0 квоти"
+            "Локальну перевірку збережено · не опубліковано · 0 квоти"
         )
+
 
     def import_google_trends_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
