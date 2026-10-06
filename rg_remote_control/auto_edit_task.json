@@ -1,11 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_multi_dialogue.py"
-    ]
-  },
-  "nonce": "inspect-delivery-dir-901"
+  "action": "locate_auto_edit_901_xmls",
+  "args": {},
+  "nonce": "locate-901-xmls-final"
 }
