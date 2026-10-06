@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_format",
+  "action": "inspect_auto_edit_execution_functions",
   "args": {},
-  "nonce": "inspect-update-ui-after-hang-p40"
+  "nonce": "inspect-service-process-p40-hang"
 }
