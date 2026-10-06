@@ -11536,6 +11536,82 @@ def inspect_auto_edit_901_2_ripple_links() -> dict:
     return {"rows":out}
 
 
+
+def apply_auto_edit_all_v1_linkage_fix() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import datetime, hashlib, importlib.util, py_compile, shutil, sys
+    import xml.etree.ElementTree as ET
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    helper=app/"rg_premiere_av_linkage.py"
+    if not helper.is_file(): raise FileNotFoundError(helper)
+    if str(app) not in sys.path: sys.path.insert(0,str(app))
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=app/"release_backups"/f"all_v1_linkage_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(helper,backup/helper.name)
+
+    code=helper.read_text(encoding="utf-8",errors="replace")
+    old='base=[c for c in vtracks[0].findall("./clipitem") if str(c.get("id") or "").startswith("video-clip-")]'
+    if old not in code:
+        raise RuntimeError("V1 base selection anchor missing")
+    code=code.replace(old,'base=list(vtracks[0].findall("./clipitem"))')
+    old2='base=[c for c in v1.findall("./clipitem") if str(c.get("id") or "").startswith("video-clip-")]'
+    if old2 not in code:
+        raise RuntimeError("normalize V1 base selection anchor missing")
+    code=code.replace(old2,'base=list(v1.findall("./clipitem"))')
+    code=code.replace(
+        'VERSION="RG_PREMIERE_AV_LINKAGE_V2_VISIBLE_CENSOR"',
+        'VERSION="RG_PREMIERE_AV_LINKAGE_V3_ALL_V1_CLIPS"'
+    )
+    compile(code,str(helper),"exec")
+    helper.write_text(code,encoding="utf-8")
+    py_compile.compile(str(helper),doraise=True)
+
+    spec=importlib.util.spec_from_file_location("rg_premiere_av_linkage_v3",helper)
+    mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+
+    results=[]
+    for base_dir in (app, app/"901"):
+        for i in range(1,7):
+            xp=base_dir/f"RG_EDITED_901_{i}.xml"
+            if not xp.is_file(): continue
+            shutil.copy2(xp,backup/f"{base_dir.name}_{xp.name}.bak")
+            before=hashlib.sha256(xp.read_bytes()).hexdigest()
+            rep=mod.normalize_xml_av_links(xp,hard_disable_censor=False)
+            root=ET.parse(xp).getroot(); seq=root.find(".//sequence")
+            v1=seq.findall("./media/video/track")[0].findall("./clipitem")
+            linked=0; no=[]
+            for c in v1:
+                if any((lk.findtext("mediatype") or "").lower()=="audio" for lk in c.findall("./link")):
+                    linked+=1
+                else:
+                    no.append({"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end")})
+            if no:
+                raise RuntimeError(f"{xp}: V1 clips without audio links: {no[:5]}")
+            rep.update({
+              "location":str(base_dir),"v1_total":len(v1),"v1_with_audio_links":linked,
+              "v1_without_audio_links":len(no),
+              "before_sha256":before,"after_sha256":hashlib.sha256(xp.read_bytes()).hexdigest()
+            })
+            results.append(rep)
+
+    # Root and delivery must be byte-identical after normalization.
+    hash_pairs=[]
+    for i in range(1,7):
+        a=app/f"RG_EDITED_901_{i}.xml"; b=app/"901"/f"RG_EDITED_901_{i}.xml"
+        if a.is_file() and b.is_file():
+            ha=hashlib.sha256(a.read_bytes()).hexdigest(); hb=hashlib.sha256(b.read_bytes()).hexdigest()
+            if ha!=hb:
+                shutil.copy2(a,b); hb=hashlib.sha256(b.read_bytes()).hexdigest()
+            if ha!=hb: raise RuntimeError(f"901_{i}: root/delivery hash mismatch")
+            hash_pairs.append({"dialogue":i,"sha256":ha,"match":True})
+
+    return {"backup":str(backup),"helper_version":"RG_PREMIERE_AV_LINKAGE_V3_ALL_V1_CLIPS",
+            "compile":True,"results":results,"hash_pairs":hash_pairs}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11687,6 +11763,7 @@ ACTIONS = {
     "apply_auto_edit_keyframe_censor_v2": apply_auto_edit_keyframe_censor_v2,
     "inspect_auto_edit_901_all_final_qa": inspect_auto_edit_901_all_final_qa,
     "inspect_auto_edit_901_2_ripple_links": inspect_auto_edit_901_2_ripple_links,
+    "apply_auto_edit_all_v1_linkage_fix": apply_auto_edit_all_v1_linkage_fix,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
