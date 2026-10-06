@@ -75,3 +75,12 @@ def test_local_seo_batch_resilience_contract() -> None:
         'Фільтр «Чернетки» відкрито автоматично.',
     ):
         assert marker in source
+
+
+def test_local_seo_worker_uses_thread_local_sqlite_connection() -> None:
+    source = _ui_source()
+    start = source.index("    def _generate_local_seo_result")
+    end = source.index("\n    def _normalize_local_seo_package", start)
+    block = source[start:end]
+    assert "sqlite3.connect" in block
+    assert "self.conn.execute" not in block
