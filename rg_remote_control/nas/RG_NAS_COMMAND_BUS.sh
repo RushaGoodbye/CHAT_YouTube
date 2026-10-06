@@ -209,7 +209,7 @@ PY
     cat "$STATE/rg_telegram_control_app_deployed_at" 2>/dev/null || true
     printf '\n'
     if command -v curl >/dev/null 2>&1; then
-      curl -fsS --max-time 5 http://127.0.0.1:8788/healthz || true
+      curl -fsS --max-time 5 http://127.0.0.1:8791/healthz || true
       printf '\n'
     fi
     docker ps -a --format '{{.Names}}\t{{.Status}}' | grep '^rg-telegram-control' || true
