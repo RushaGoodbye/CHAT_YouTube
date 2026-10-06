@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS comments (
   status TEXT NOT NULL DEFAULT 'new',
   reply_text TEXT,
   replied_at TEXT,
+  draft_state TEXT NOT NULL DEFAULT '',
+  draft_reason TEXT NOT NULL DEFAULT '',
+  draft_updated_at TEXT,
   raw_json TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
@@ -144,6 +147,9 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "videos", "scheduled_publish_at", "TEXT")
     _ensure_column(conn, "videos", "duration", "TEXT")
     _ensure_column(conn, "videos", "profile", "TEXT")
+    _ensure_column(conn, "comments", "draft_state", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "comments", "draft_reason", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "comments", "draft_updated_at", "TEXT")
     _ensure_column(
         conn,
         "optimization_drafts",
@@ -296,6 +302,91 @@ def set_comment_status(conn: sqlite3.Connection, comment_id: str, status: str) -
         (status, comment_id),
     )
     conn.commit()
+
+
+def save_comment_draft(
+    conn: sqlite3.Connection,
+    comment_id: str,
+    reply_text: str,
+    *,
+    state: str,
+    reason: str = "",
+) -> bool:
+    if state not in {"ready", "skipped", "error", ""}:
+        raise ValueError(f"Unsupported draft state: {state}")
+    row = conn.execute(
+        "SELECT status FROM comments WHERE comment_id=?",
+        (comment_id,),
+    ).fetchone()
+    if row is None or str(row["status"] or "") != "new":
+        return False
+    reply = str(reply_text or "").strip()
+    if state == "ready" and not reply:
+        raise ValueError("Ready draft must contain text")
+    if state != "ready":
+        reply = ""
+    conn.execute(
+        """UPDATE comments
+           SET reply_text=?,draft_state=?,draft_reason=?,draft_updated_at=?
+           WHERE comment_id=? AND status='new'""",
+        (reply, state, str(reason or "")[:500], utc_now(), comment_id),
+    )
+    conn.commit()
+    return True
+
+
+def clear_comment_drafts(
+    conn: sqlite3.Connection,
+    profile: str,
+    *,
+    only_new: bool = True,
+) -> int:
+    query = """UPDATE comments
+               SET reply_text='',draft_state='',draft_reason='',draft_updated_at=NULL
+               WHERE video_id IN (SELECT video_id FROM videos WHERE profile=?)"""
+    params: list[Any] = [profile]
+    if only_new:
+        query += " AND status='new'"
+    cursor = conn.execute(query, tuple(params))
+    conn.commit()
+    return int(cursor.rowcount or 0)
+
+
+def comment_draft_counts(conn: sqlite3.Connection, profile: str) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT c.status,c.draft_state,c.reply_text
+           FROM comments c
+           JOIN videos v ON v.video_id=c.video_id
+           WHERE v.profile=?""",
+        (profile,),
+    ).fetchall()
+    return {
+        "total": len(rows),
+        "new": sum(1 for row in rows if str(row["status"] or "") == "new"),
+        "ready": sum(
+            1 for row in rows
+            if str(row["status"] or "") == "new"
+            and str(row["draft_state"] or "") == "ready"
+            and str(row["reply_text"] or "").strip()
+        ),
+        "skipped": sum(
+            1 for row in rows
+            if str(row["status"] or "") == "new"
+            and str(row["draft_state"] or "") == "skipped"
+        ),
+        "errors": sum(
+            1 for row in rows
+            if str(row["status"] or "") == "new"
+            and str(row["draft_state"] or "") == "error"
+        ),
+        "moderation_locked": sum(
+            1 for row in rows
+            if str(row["status"] or "") == "moderation_locked"
+        ),
+        "replied": sum(
+            1 for row in rows if str(row["status"] or "") == "replied"
+        ),
+    }
 
 
 def save_metadata_snapshot(
