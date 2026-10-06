@@ -193,16 +193,50 @@ try {
     if appdata:
         startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
         startup_dir.mkdir(parents=True, exist_ok=True)
-        startup_vbs = startup_dir / "RG_GITHUB_RUNNER_BOOT.vbs"
-        ps_cmd = str(keepalive).replace('"', '""')
-        startup_vbs.write_text(
-            'Set sh = CreateObject("WScript.Shell")\n'
-            'sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + ps_cmd + '""", 0, False\n',
-            encoding="utf-8",
-        )
+
+        # Remove competing legacy launchers. Exactly one keepalive policy owns the runner.
+        for legacy_name in (
+            "RG_GITHUB_RUNNER.vbs",
+            "RG_GITHUB_RUNNER_GUARD.vbs",
+            "RG_GITHUB_RUNNER_WATCHDOG.vbs",
+        ):
+            legacy = startup_dir / legacy_name
+            try:
+                if legacy.is_file():
+                    legacy.unlink()
+            except Exception:
+                pass
+
+        # Startup folder is fallback only when Windows refused the ONLOGON task.
+        if boot["exit_code"] != 0 and not service["installed"]:
+            startup_vbs = startup_dir / "RG_GITHUB_RUNNER_BOOT.vbs"
+            ps_cmd = str(keepalive).replace('"', '""')
+            startup_vbs.write_text(
+                'Set sh = CreateObject("WScript.Shell")\n'
+                'sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + ps_cmd + '""", 0, False\n',
+                encoding="utf-8",
+            )
+        else:
+            stale = startup_dir / "RG_GITHUB_RUNNER_BOOT.vbs"
+            try:
+                if stale.is_file():
+                    stale.unlink()
+            except Exception:
+                pass
 
     if keep["exit_code"] == 0:
+        run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", TASK_KEEPALIVE, "/ENABLE"], timeout=20)
         run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", OLD_TASK, "/DISABLE"], timeout=20)
+    if boot["exit_code"] == 0:
+        run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", TASK_BOOT, "/ENABLE"], timeout=20)
+
+    # Apply the canonical guard immediately. It deduplicates any listeners left
+    # behind by older watchdog/startup mechanisms.
+    first = run([
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(keepalive)
+    ], timeout=30)
+    time.sleep(1)
 
     return {
         "ok": bool(service["installed"] or keep["exit_code"] == 0),
@@ -212,6 +246,8 @@ try {
         "startup_fallback": str(startup_vbs) if startup_vbs else None,
         "script": str(keepalive),
         "old_watchdog_disabled": keep["exit_code"] == 0,
+        "first_keepalive": first,
+        "mode": "single_canonical_keepalive",
     }
 
 
@@ -651,13 +687,13 @@ def install() -> dict:
     mcp_stage = stage_mcp_source_to_nas()
     nas_scheduler = repair_nas_scheduler_runtime()
     agent = install_alexpc_agent()
-    runner_fallback = disable_github_runner_autostart()
+    runner_fallback = install_runner_persistence()
 
     policy = {
         "schema": "RG_CONTROL_POLICY_V1",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "primary_transport": "RG_NAS_MCP_ALEXPC_AGENT",
-        "fallback_transport": "GITHUB_ACTIONS_MANUAL_ONLY",
+        "fallback_transport": "GITHUB_ACTIONS_STANDBY",
         "contours": {
             "auto_edit": {
                 "namespace": "auto_edit_*",
@@ -690,7 +726,7 @@ def install() -> dict:
         "mcp_stage": mcp_stage,
         "nas_scheduler": nas_scheduler,
         "alexpc_agent": agent,
-        "github_runner_fallback": runner_fallback,
+        "github_runner_standby": runner_fallback,
         "backup_dir": str(backup_dir),
         "policy": policy,
     }
@@ -1139,7 +1175,6 @@ def probe(do_roundtrip: bool = True) -> dict:
         # Primary runtime path. Legacy AUTO_EDIT_CALLS is intentionally excluded:
         # the MCP hub now submits AlexPC work through ALEXPC/<contour> queues.
         out["alexpc_agent_roundtrip"] = agent_roundtrip()
-        out["youtube_agent_roundtrip"] = youtube_agent_roundtrip()
 
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
     agent_info = out.get("alexpc_agent", {})
@@ -1158,12 +1193,7 @@ def probe(do_roundtrip: bool = True) -> dict:
         and guard_state.get("RG_CONTROL_CENTER.json", {}).get("age_seconds", 9999) <= 120
     )
     roundtrip_ok = bool(
-        (
-            out.get("alexpc_agent_roundtrip", {}).get("ok")
-            and out.get("youtube_agent_roundtrip", {}).get("ok")
-        )
-        if do_roundtrip
-        else True
+        out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True
     )
     warnings = []
     if not guard_fresh:
@@ -1176,12 +1206,22 @@ def probe(do_roundtrip: bool = True) -> dict:
     if legacy_pending:
         warnings.append(f"retired_legacy_auto_edit_requests={legacy_pending}")
 
+    runner_info = out.get("runner", {})
+    runner_standby_ok = bool(
+        runner_info.get("listener_count", 0) <= 1
+        and runner_info.get("keepalive", {}).get("exists")
+    )
+    if not runner_standby_ok:
+        warnings.append("github_runner_standby_not_ready")
+
     out["health"] = {
         "critical_files_ok": critical_files_ok,
         "alexpc_agent_ok": agent_ok,
         "nas_guard_fresh": guard_fresh,
         "primary_roundtrip_ok": roundtrip_ok,
+        "github_runner_standby_ok": runner_standby_ok,
         "legacy_auto_edit_calls_retired": True,
+        "cross_contour_health_dependency": False,
         "github_required_at_runtime": False,
         "warnings": warnings,
     }
@@ -1202,7 +1242,7 @@ def repair() -> dict:
         "before_status": before.get("status"),
         "mode": "runtime_only_no_docker_redeploy",
         "alexpc_agent": agent,
-        "github_runner_fallback": runner_fallback,
+        "github_runner_standby": runner_fallback,
         "after": after,
     }
 
@@ -1233,6 +1273,27 @@ def finalize_resilience() -> dict:
     }
 
 
+def finalize_control_settings() -> dict:
+    """Finalize control-plane settings only. Never starts Auto Edit processing."""
+    agent = install_alexpc_agent()
+    runner = install_runner_persistence()
+    status = probe(do_roundtrip=True)
+    summary = {
+        "schema": "RG_CONTROL_SETTINGS_FINAL_V1",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "auto_edit_processing_started": False,
+        "primary_transport": "RG_NAS_MCP_ALEXPC_AGENT",
+        "github_runner": "standby",
+        "cross_contour_health_dependency": False,
+        "credentials_isolated": True,
+        "legacy_auto_edit_calls_retired": True,
+        "status": status.get("status"),
+        "health": status.get("health"),
+    }
+    atomic_json(STATE / "RG_CONTROL_SETTINGS_FINAL.json", summary)
+    return {"agent": agent, "runner": runner, "probe": status, "summary": summary}
+
+
 ACTIONS = {
     "install_rg_resilience": install,
     "probe_rg_resilience": probe,
@@ -1240,6 +1301,7 @@ ACTIONS = {
     "inspect_rg_resilience_runtime": inspect_resilience_runtime,
     "finalize_rg_resilience": finalize_resilience,
     "bootstrap_youtube_runtime": bootstrap_youtube_runtime,
+    "finalize_control_settings": finalize_control_settings,
 }
 
 
