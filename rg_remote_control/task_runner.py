@@ -7829,12 +7829,16 @@ def run_auto_edit_preview_886_smoke() -> dict:
     root=app/job
     try:
         prep=app/"rg_thumbnail_mix_prep.py";py_compile.compile(str(prep),doraise=True)
-        candidates=[]
-        for ext in ("*.mp4","*.mov","*.mxf"):
-            candidates.extend(src.glob("886*"+ext[1:]))
-        candidates=[p for p in candidates if p.is_file() and "SHORTS" not in p.name.upper()]
-        if not candidates:raise RuntimeError("No final dialogue clip for stream 886 in ЕГОР")
-        # Use the smallest dialogue file for a short real frame-extraction smoke.
+        candidates=[];used_stream=None
+        for sid in ("886","901","898","899"):
+            rows=[]
+            for ext in ("*.mp4","*.mov","*.mxf"):
+                rows.extend(src.glob(sid+"*"+ext[1:]))
+            rows=[p for p in rows if p.is_file() and "SHORTS" not in p.name.upper()]
+            if rows:
+                candidates=rows;used_stream=sid;break
+        if not candidates:raise RuntimeError("No final dialogue clip for preview smoke in ЕГОР")
+        # Use the smallest available dialogue file for a short real frame-extraction smoke.
         clip=min(candidates,key=lambda p:p.stat().st_size)
         cf=data/f"{job}_clips.json";cf.write_text(json.dumps({"clips":[str(clip)]},ensure_ascii=False),encoding="utf-8")
         cp=subprocess.run([str(runtime),"-u","-X","utf8",str(prep),"--app",str(app),"--job",job,"--clips-file",str(cf)],
@@ -7854,7 +7858,7 @@ def run_auto_edit_preview_886_smoke() -> dict:
         for p in topaz_scripts:py_compile.compile(str(p),doraise=True)
         marker=root/"THUMBNAIL"/"RG_TOPAZ_SMOKE_SELECTION.json"
         marker.write_text(json.dumps({"schema":"RG_TOPAZ_SMOKE_V1","host":str(hdst),"guest":str(gdst),"source_clip":str(clip)},ensure_ascii=False,indent=2),encoding="utf-8")
-        detail={"clip":str(clip),"host_candidates":len(hosts),"guest_candidates":len(guests),"topaz_input":2,"topaz_scripts":len(topaz_scripts),"manifest_schema":d.get("schema")}
+        detail={"stream":used_stream,"clip":str(clip),"host_candidates":len(hosts),"guest_candidates":len(guests),"topaz_input":2,"topaz_scripts":len(topaz_scripts),"manifest_schema":d.get("schema")}
         _update_020201_test("PREVIEW_SMOKE","PASS",detail)
         return {"status":"PASS",**detail,"stdout_tail":(cp.stdout or "")[-1200:]}
     except Exception as exc:
