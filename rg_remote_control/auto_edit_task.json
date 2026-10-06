@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "inspect-after-user-screenshot-master60-r1-20261006-2338"
+  "nonce": "inspect-process-tree-updater-parent-pid-20261006-2340"
 }
