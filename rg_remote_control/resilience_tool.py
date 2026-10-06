@@ -204,6 +204,218 @@ try {
     }
 
 
+
+AGENT_LOCAL = Path(r"C:\RG_AGENT")
+AGENT_NAS = MCP_ROOT / "ALEXPC"
+TASK_AGENT_KEEPALIVE = "RG_ALEXPC_AGENT_KEEPALIVE"
+TASK_AGENT_BOOT = "RG_ALEXPC_AGENT_BOOT"
+
+
+def _copy_tree_replace(source: Path, target: Path) -> None:
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def mirror_runtime_bundle_to_nas() -> dict:
+    bundle = AGENT_NAS / "BUNDLE"
+    bundle.mkdir(parents=True, exist_ok=True)
+
+    copied = {}
+    for rel in ("rg_remote_control", "src"):
+        source = ROOT / rel
+        target = bundle / rel
+        if not source.exists():
+            copied[rel] = {"ok": False, "reason": "missing", "source": str(source)}
+            continue
+        _copy_tree_replace(source, target)
+        copied[rel] = {"ok": True, "source": str(source), "target": str(target)}
+
+    for name in ("run_app.py", "pyproject.toml", "requirements.txt"):
+        source = ROOT / name
+        target = bundle / name
+        if source.is_file():
+            shutil.copy2(source, target)
+            copied[name] = {"ok": True, "target": str(target)}
+        else:
+            copied[name] = {"ok": False, "reason": "missing"}
+
+    manifest = {
+        "schema": "RG_ALEXPC_BUNDLE_V1",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "source_root": str(ROOT),
+        "github_required_at_runtime": False,
+    }
+    atomic_json(bundle / "bundle_manifest.json", manifest)
+    return {"bundle": str(bundle), "copied": copied, "manifest": manifest}
+
+
+def install_alexpc_agent() -> dict:
+    AGENT_LOCAL.mkdir(parents=True, exist_ok=True)
+    (AGENT_LOCAL / "state").mkdir(parents=True, exist_ok=True)
+
+    source = ROOT / "rg_remote_control" / "alexpc_agent.py"
+    if not source.is_file():
+        raise RuntimeError(f"AlexPC agent source missing: {source}")
+
+    mirror = mirror_runtime_bundle_to_nas()
+    local_agent = AGENT_LOCAL / "alexpc_agent.py"
+    shutil.copy2(source, local_agent)
+
+    python_exe = Path(sys.executable)
+    if not python_exe.is_file():
+        raise RuntimeError(f"Python executable missing: {python_exe}")
+
+    keepalive = AGENT_LOCAL / "agent_keepalive.ps1"
+    keepalive.write_text(
+        rf'''$ErrorActionPreference = 'SilentlyContinue'
+$agent = 'C:\RG_AGENT\alexpc_agent.py'
+$python = '{str(python_exe).replace("'", "''")}'
+$mutex = New-Object System.Threading.Mutex($false, 'Global\RG_ALEXPC_AGENT_KEEPALIVE')
+$locked = $false
+try {{
+  $locked = $mutex.WaitOne(0)
+  if (-not $locked) {{ exit 0 }}
+  $p = @(Get-CimInstance Win32_Process | Where-Object {{
+    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+    $_.CommandLine -like '*C:\RG_AGENT\alexpc_agent.py*'
+  }})
+  if ($p.Count -eq 0) {{
+    Start-Process -FilePath $python -ArgumentList ('"' + $agent + '"') -WindowStyle Hidden
+  }}
+}} finally {{
+  if ($locked) {{ $mutex.ReleaseMutex() | Out-Null }}
+  $mutex.Dispose()
+}}
+''',
+        encoding="utf-8",
+    )
+
+    cmd = (
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        f'-File "{keepalive}"'
+    )
+    keep = run([
+        r"C:\Windows\System32\schtasks.exe", "/Create",
+        "/SC", "MINUTE", "/MO", "1",
+        "/TN", TASK_AGENT_KEEPALIVE, "/TR", cmd, "/F"
+    ], timeout=30)
+    boot = run([
+        r"C:\Windows\System32\schtasks.exe", "/Create",
+        "/SC", "ONLOGON",
+        "/TN", TASK_AGENT_BOOT, "/TR", cmd, "/F"
+    ], timeout=30)
+
+    if keep["exit_code"] == 0:
+        run([
+            r"C:\Windows\System32\schtasks.exe", "/Change",
+            "/TN", TASK_AGENT_KEEPALIVE, "/ENABLE"
+        ], timeout=20)
+    if boot["exit_code"] == 0:
+        run([
+            r"C:\Windows\System32\schtasks.exe", "/Change",
+            "/TN", TASK_AGENT_BOOT, "/ENABLE"
+        ], timeout=20)
+
+    appdata = os.environ.get("APPDATA")
+    startup_vbs = None
+    if appdata:
+        startup = (
+            Path(appdata)
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
+        )
+        startup.mkdir(parents=True, exist_ok=True)
+        startup_vbs = startup / "RG_ALEXPC_AGENT.vbs"
+        ps = str(keepalive).replace('"', '""')
+        startup_vbs.write_text(
+            'Set sh = CreateObject("WScript.Shell")\n'
+            'sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass '
+            '-WindowStyle Hidden -File ""' + ps + '""", 0, False\n',
+            encoding="utf-8",
+        )
+
+    first = run([
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(keepalive)
+    ], timeout=30)
+    time.sleep(4)
+
+    probe = run([
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile", "-NonInteractive", "-Command",
+        r"$p=Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and $_.CommandLine -like '*C:\RG_AGENT\alexpc_agent.py*' }; $p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
+    ], timeout=20)
+
+    nas_status = AGENT_NAS / "status" / "alexpc_agent.json"
+    return {
+        "ok": bool(
+            keep["exit_code"] == 0
+            and boot["exit_code"] == 0
+            and probe["stdout"].strip()
+        ),
+        "python": str(python_exe),
+        "local_agent": str(local_agent),
+        "keepalive_script": str(keepalive),
+        "keepalive_task": keep,
+        "boot_task": boot,
+        "startup_fallback": str(startup_vbs) if startup_vbs else None,
+        "first_start": first,
+        "process_probe": probe,
+        "nas_status": str(nas_status),
+        "nas_status_exists": nas_status.is_file(),
+        "mirror": mirror,
+        "github_required_at_runtime": False,
+    }
+
+
+def disable_github_runner_autostart() -> dict:
+    schtasks = r"C:\Windows\System32\schtasks.exe"
+    disabled = {}
+    for name in (
+        "RG_GITHUB_RUNNER_KEEPALIVE",
+        "RG_GITHUB_RUNNER_BOOT",
+        "RG_GITHUB_RUNNER_WATCHDOG",
+    ):
+        row = run([schtasks, "/Change", "/TN", name, "/DISABLE"], timeout=20)
+        disabled[name] = row
+
+    appdata = os.environ.get("APPDATA")
+    removed = []
+    if appdata:
+        startup = (
+            Path(appdata)
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
+        )
+        for name in (
+            "RG_GITHUB_RUNNER_BOOT.vbs",
+            "RG_GITHUB_RUNNER.vbs",
+            "RG_GITHUB_RUNNER_GUARD.vbs",
+        ):
+            path = startup / name
+            try:
+                if path.is_file():
+                    path.unlink()
+                    removed.append(str(path))
+            except Exception:
+                pass
+
+    return {
+        "autostart_disabled": True,
+        "tasks": disabled,
+        "startup_files_removed": removed,
+        "manual_fallback": r"C:\RG_GITHUB_RUNNER\run.cmd",
+        "note": "GitHub runner remains installed for manual fallback, but is no longer a runtime dependency.",
+    }
+
+
 def patch_autodeploy_loop(loop_path: Path, backup_dir: Path) -> dict:
     if not loop_path.is_file():
         return {"patched": False, "reason": "loop missing", "path": str(loop_path)}
@@ -262,13 +474,14 @@ def install() -> dict:
         copied[name] = {"live": str(live), "golden": str(GOLDEN / name)}
 
     loop = patch_autodeploy_loop(NAS_ROOT / "RG_NAS_AUTODEPLOY_LOOP.sh", backup_dir)
-    runner = install_runner_persistence()
+    agent = install_alexpc_agent()
+    runner_fallback = disable_github_runner_autostart()
 
     policy = {
         "schema": "RG_CONTROL_POLICY_V1",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "primary_transport": "RG_NAS_MCP",
-        "fallback_transport": "GITHUB_ACTIONS",
+        "primary_transport": "RG_NAS_MCP_ALEXPC_AGENT",
+        "fallback_transport": "GITHUB_ACTIONS_MANUAL_ONLY",
         "contours": {
             "auto_edit": {
                 "namespace": "auto_edit_*",
@@ -288,7 +501,8 @@ def install() -> dict:
         },
         "credential_rule": "No user PAT is shared between contours. Auto Edit and Telegram checkout credentials are non-persistent.",
         "rollback": "backup-before-write",
-        "self_heal": "NAS guard before every MCP tick",
+        "self_heal": "NAS guard + local AlexPC agent keepalive",
+        "github_required_at_runtime": False,
     }
     atomic_json(STATE / "RG_CONTROL_POLICY.json", policy)
 
@@ -297,7 +511,8 @@ def install() -> dict:
         "installed_at": datetime.now(timezone.utc).isoformat(),
         "copied": copied,
         "autodeploy_loop": loop,
-        "runner": runner,
+        "alexpc_agent": agent,
+        "github_runner_fallback": runner_fallback,
         "backup_dir": str(backup_dir),
         "policy": policy,
     }
@@ -416,11 +631,19 @@ def probe(do_roundtrip: bool = True) -> dict:
             "keepalive": _task_query(TASK_KEEPALIVE),
             "boot": _task_query(TASK_BOOT),
         },
+        "alexpc_agent": {
+            "keepalive": _task_query(TASK_AGENT_KEEPALIVE),
+            "boot": _task_query(TASK_AGENT_BOOT),
+            "nas_status_exists": (AGENT_NAS / "status" / "alexpc_agent.json").is_file(),
+        },
     }
     if do_roundtrip:
         out["auto_edit_roundtrip"] = queue_roundtrip()
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
-    runner_ok = bool(out["runner"]["keepalive"]["exists"] or out["runner"]["boot"]["exists"])
+    runner_ok = bool(
+        out.get("alexpc_agent", {}).get("keepalive", {}).get("exists")
+        and out.get("alexpc_agent", {}).get("boot", {}).get("exists")
+    )
     roundtrip_ok = bool(out.get("auto_edit_roundtrip", {}).get("ok")) if do_roundtrip else True
     out["status"] = "ok" if critical_files_ok and runner_ok and roundtrip_ok else "degraded"
     atomic_json(STATE / "RG_CONTROL_PROBE.json", out)
