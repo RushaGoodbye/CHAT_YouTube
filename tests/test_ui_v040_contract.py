@@ -63,3 +63,15 @@ def test_scheduled_stream_shortcuts_contract() -> None:
         'elif queue_filter == "scheduled":',
     ):
         assert marker in source
+
+
+def test_local_seo_batch_resilience_contract() -> None:
+    source = _ui_source()
+    for marker in (
+        'max_attempts = min(len(candidate_ids), max(limit * 3, limit))',
+        'if len(prepared) >= limit:',
+        'action="SEO-чернетка batch · пропуск"',
+        'self.optimization_status_filter.findData("draft")',
+        'Фільтр «Чернетки» відкрито автоматично.',
+    ):
+        assert marker in source
