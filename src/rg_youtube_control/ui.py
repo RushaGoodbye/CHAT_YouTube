@@ -3994,6 +3994,8 @@ class MainWindow(QMainWindow):
         local_reply_btn.clicked.connect(self.local_comment_reply_selected)
         local_reply_batch_btn = QPushButton("Чернетки нових x20 · 0 квоти")
         local_reply_batch_btn.clicked.connect(self.local_comment_reply_batch)
+        local_reply_regen_btn = QPushButton("Перегенерувати x20 · 0 квоти")
+        local_reply_regen_btn.clicked.connect(self.local_comment_reply_regenerate_batch)
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
         queue_btn = QPushButton("Повернути в чергу")
@@ -4022,6 +4024,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(reply_btn)
         controls.addWidget(local_reply_btn)
         controls.addWidget(local_reply_batch_btn)
+        controls.addWidget(local_reply_regen_btn)
         controls.addWidget(ignore_btn)
         controls.addWidget(queue_btn)
         controls.addWidget(self.comment_status_filter)
@@ -12659,6 +12662,93 @@ class MainWindow(QMainWindow):
             f"Локальні чернетки для {len(items)} коментарів (0 квоти)",
             task,
             self._save_local_comment_reply_batch,
+        )
+
+    def local_comment_reply_regenerate_batch(self) -> None:
+        rows = self.conn.execute(
+            """SELECT c.comment_id,c.text,v.title AS video_title
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=?
+                 AND c.status='new'
+                 AND COALESCE(TRIM(c.reply_text),'')<>''
+               ORDER BY c.published_at DESC
+               LIMIT 20""",
+            (self.current_profile,),
+        ).fetchall()
+        items = [
+            {
+                "comment_id": str(row["comment_id"]),
+                "comment_text": str(row["text"] or ""),
+                "video_title": str(row["video_title"] or ""),
+            }
+            for row in rows
+            if str(row["text"] or "").strip()
+        ]
+        if not items:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Немає нових коментарів із локальними чернетками для перегенерації.",
+            )
+            return
+
+        def task():
+            result = []
+            for item in items:
+                reply = generate_comment_reply_local(
+                    comment_text=item["comment_text"],
+                    video_title=item["video_title"],
+                )
+                result.append(
+                    {
+                        "comment_id": item["comment_id"],
+                        "reply": reply,
+                    }
+                )
+            return result
+
+        self._run_local_tool(
+            f"Перегенерація {len(items)} локальних чернеток (0 квоти)",
+            task,
+            self._save_regenerated_comment_reply_batch,
+        )
+
+    def _save_regenerated_comment_reply_batch(self, items: list[dict]) -> None:
+        replaced = 0
+        skipped = 0
+        for item in items:
+            comment_id = str(item.get("comment_id") or "")
+            reply = str(item.get("reply") or "").strip()
+            if not comment_id:
+                continue
+            self.conn.execute(
+                "UPDATE comments SET reply_text=? WHERE comment_id=? AND status='new'",
+                (reply, comment_id),
+            )
+            if reply:
+                replaced += 1
+            else:
+                skipped += 1
+        self.conn.commit()
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="локально",
+            action="Перегенерація чернеток · 0 квоти",
+            details=(
+                f"оновлено {replaced}; відхилено quality-gate {skipped}; "
+                "нічого не відправлено в YouTube"
+            ),
+        )
+        self.reload_comments()
+        self.reload_action_log()
+        QMessageBox.information(
+            self,
+            APP_NAME,
+            f"Перегенеровано: {replaced}.\n"
+            f"Відхилено як ненадійні: {skipped}.\n"
+            "У YouTube нічого не відправлено. Квота YouTube API: 0.",
         )
 
     def _save_local_comment_reply_batch(self, items: list[dict]) -> None:
