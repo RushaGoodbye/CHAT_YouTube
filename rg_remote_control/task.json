@@ -1,6 +1,6 @@
 {
-  "target": "alexpc",
+  "target": "nas",
   "action": "sync_nas_scheduler_tick",
   "args": {},
-  "nonce": "20261006-sync-host-scheduler-direct-autodeploy"
+  "nonce": "20261006-sync-host-scheduler-via-nas-runner"
 }
