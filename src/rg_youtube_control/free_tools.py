@@ -2036,21 +2036,8 @@ def _comment_reply_precheck_reason(comment: str) -> str:
         re.I,
     )
     has_question = "?" in source or bool(question_start.search(folded))
-    if not has_question and len(words) < 9:
-        return "short_non_question"
-
-    # Long aphoristic/quoted text without a question is also better skipped.
-    if not has_question and len(words) >= 9:
-        quote_markers = (
-            "цитат",
-            "как говорится",
-            "як кажуть",
-            "виростай",
-            "будь міцн",
-            "будь креп",
-        )
-        if any(marker in folded for marker in quote_markers):
-            return "quote_or_aphorism"
+    if not has_question:
+        return "non_question_review"
 
     return ""
 
