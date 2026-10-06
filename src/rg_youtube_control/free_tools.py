@@ -587,10 +587,33 @@ def _description_quality_error(description: str, transcript: str = "") -> str:
     word_set = set(words)
     ru_hits = len(word_set & ru_markers)
     uk_hits = len(word_set & uk_markers)
-    ukrainian_letters = len(re.findall(r"[іїєґ]", value.casefold()))
-    if ukrainian_letters == 0:
+    folded_value = value.casefold()
+    ukrainian_letters = len(re.findall(r"[іїєґ]", folded_value))
+    russian_only_letters = len(re.findall(r"[ыэъё]", folded_value))
+    russian_function_words = len(
+        re.findall(
+            r"\b(?:что|это|как|вот|если|почему|также|или|был|была|были|"
+            r"упоминается|обсуждает|затрагиваются|возможн\w*|причин\w*)\b",
+            folded_value,
+        )
+    )
+    ukrainian_function_words = len(
+        re.findall(
+            r"\b(?:що|це|як|але|якщо|чому|також|або|був|була|були|"
+            r"згад\w*|обговор\w*|можлив\w*|причин\w*)\b",
+            folded_value,
+        )
+    )
+    if ukrainian_letters < 4:
+        return "wrong_language"
+    if russian_only_letters >= 2:
         return "wrong_language"
     if ru_hits >= 4 and ru_hits > uk_hits * 2:
+        return "wrong_language"
+    if (
+        russian_function_words >= 4
+        and russian_function_words > ukrainian_function_words * 2
+    ):
         return "wrong_language"
 
     # Do not promote garbled ASR tokens into an alleged source/outlet.
@@ -647,6 +670,7 @@ def _repair_description_to_ukrainian(
 - не перетворюй припущення співрозмовників на встановлений факт і не додавай причинно-наслідкових висновків від себе;
 - якщо твердження про мотиви Путіна, Шойгу, кадрові рішення чи причини звучить лише як думка співрозмовника, обов'язково пиши «деякі співрозмовники вважають/припускають», а не стверджуй це від автора;
 - не розширюй імена із зовнішніх знань: якщо є лише «Шойгу», залиш «Шойгу»;
+- написання ключових імен та власних назв бери з НАЗВИ відео, якщо вони там є; не перетворюй «Шойгу» на «Шагу», «Шайгу» чи іншу ASR-помилку;
 - не перетворюй шумні/обірвані ASR-фрагменти на назви джерел;
 - без CTA, без службових фраз, без посилань, хештегів і таймкодів;
 - не повторюй речення;
@@ -716,6 +740,7 @@ def _recover_missing_description(
 Далі передай 2-4 реальні теми, тези або позиції співрозмовників.
 Не вигадуй фактів. Не використовуй старий опис як джерело фактів.
 НЕ розширюй ім'я або посаду з зовнішніх знань: якщо в джерелі є лише «Шойгу», не пиши «Сергій Шойгу».
+Написання ключових імен бери з НАЗВИ відео; не використовуй ASR-помилки «Шагу/Шайгу» замість «Шойгу».
 Ігноруй уривки ASR, музику, лайку та нерозбірливі перші секунди. Не вигадуй назву телеканалу, ефіру, програми чи ЗМІ з випадкового токена транскрипту.
 Назву джерела/ефіру можна згадати лише якщо вона є в назві відео або чітко повторюється щонайменше двічі в осмисленому контексті.
 Не додавай універсальний CTA на кшталт «дивіться повну розмову».
