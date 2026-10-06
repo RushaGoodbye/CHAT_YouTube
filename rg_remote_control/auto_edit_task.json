@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "finalize_rg_resilience",
   "args": {},
-  "nonce": "repair-nas-scheduler-20261006-1"
+  "nonce": "finalize-resilience-clean-20261006-1"
 }
