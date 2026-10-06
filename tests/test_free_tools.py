@@ -219,3 +219,26 @@ def test_accept_stronger_candidate_title_with_new_meaningful_words() -> None:
         )
         == candidate
     )
+
+
+def test_specific_shoigu_tags_beat_generic_model_words() -> None:
+    from rg_youtube_control.free_tools import (
+        _grounded_tags_from_transcript,
+        _tag_is_grounded,
+    )
+
+    title = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
+    transcript = (
+        "Обсуждаем Шойгу, увольнение, Министерство обороны России и коррупцию. "
+        "Собеседники спорят о причинах кадровых решений. "
+    ) * 12
+
+    tags = _grounded_tags_from_transcript(title, transcript)
+
+    assert "Шойгу" in tags
+    assert "увольнение Шойгу" in tags
+    assert "Министерство обороны России" in tags
+    assert "коррупция в России" in tags
+    assert _tag_is_grounded("план", title, transcript) is False
+    assert _tag_is_grounded("стратегия", title, transcript) is False
+    assert _tag_is_grounded("Шойгу", title, transcript) is True
