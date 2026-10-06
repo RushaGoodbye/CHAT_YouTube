@@ -1119,10 +1119,11 @@ def test_reply_template_fields_show_from_start():
     from rg_youtube_control.ui import MainWindow
 
     source = inspect.getsource(MainWindow._build_settings_tab)
-    assert "edit.setCursorPosition(0)" in source
+    assert "QPlainTextEdit(raw)" in source
+    assert 'edit.setPlaceholderText("Один варіант відповіді на рядок")' in source
 
     switch_source = inspect.getsource(MainWindow._activate_profile)
-    assert "edit.setCursorPosition(0)" in switch_source
+    assert "edit.setPlainText(raw)" in switch_source
 
 
 def test_settings_polish_avoids_duplicate_channel_selector_and_wide_spins():
