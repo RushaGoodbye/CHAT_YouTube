@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "freeze_auto_edit_stable_020180",
+  "action": "inspect_auto_edit_ui_class",
   "args": {},
-  "nonce": "freeze-stable-020180"
+  "nonce": "inspect-ui-for-production40"
 }
