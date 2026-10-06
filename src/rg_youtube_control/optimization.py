@@ -81,6 +81,7 @@ TITLE_TOPIC_STOPWORDS = {
     "this", "that", "these", "those", "what", "who", "where", "when", "why",
     "how", "your", "you", "they", "their", "his", "her", "our", "my", "not",
     "favorite", "real", "critique", "past", "found", "origin", "identity",
+    "сильный", "сильная", "сильное", "сильные", "сильний", "сильна", "сильне",
     "crisis", "video", "live", "stream", "character", "question", "answer",
     "story", "presidents", "president", "people", "thing", "things",
 }
