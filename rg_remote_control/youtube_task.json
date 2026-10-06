@@ -3,6 +3,7 @@
   "contour": "youtube",
   "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "deploy-local-seo-v6-20261006"
+    "video_id": "MEitKm687xo",
+    "nonce": "preview-shoigu-seo-v7-20261006"
   }
 }
