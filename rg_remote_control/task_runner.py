@@ -3246,6 +3246,74 @@ def launch_auto_edit_studio() -> dict:
     }
 
 
+
+def restart_auto_edit_studio_ui() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("restart_auto_edit_studio_ui must run on AlexPC/Windows")
+    import subprocess, time
+
+    # Never restart the UI while any production backend is active.
+    backend_query = (
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_production_wrapper.py*') -or "
+        "($_.CommandLine -like '*rg_multi_dialogue.py*') -or "
+        "($_.CommandLine -like '*rg_auto_edit_one_button.py*')) "
+        "}; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    )
+    active = run(["powershell.exe","-NoProfile","-NonInteractive","-Command",backend_query],timeout=30)
+    active_text=(active.get("stdout") or "").strip()
+    if active_text and active_text not in {"null","[]"}:
+        raise RuntimeError("Studio UI restart blocked because Auto Edit backend is active: "+active_text)
+
+    ui_query = (
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_studio_main.py*') -or "
+        "($_.CommandLine -like '*rg_studio_ui.py*')) "
+        "}; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    )
+    before=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ui_query],timeout=30)
+    before_text=(before.get("stdout") or "").strip()
+
+    stop_cmd = (
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_studio_main.py*') -or "
+        "($_.CommandLine -like '*rg_studio_ui.py*')) "
+        "}; foreach($x in @($p)){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    run(["powershell.exe","-NoProfile","-NonInteractive","-Command",stop_cmd],timeout=30)
+    time.sleep(1)
+
+    launcher=Path(r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_studio_main.py")
+    if not launcher.is_file():
+        raise RuntimeError(f"RG Auto Edit launcher not found: {launcher}")
+    pythonw=Path(sys.executable).with_name("pythonw.exe")
+    exe=pythonw if pythonw.is_file() else Path(sys.executable)
+    env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None)
+    creationflags=getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"DETACHED_PROCESS",0)
+    proc=subprocess.Popen(
+        [str(exe),str(launcher)],cwd=str(launcher.parent),env=env,creationflags=creationflags,
+        close_fds=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,stdin=subprocess.DEVNULL,
+    )
+    time.sleep(5)
+    after=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ui_query],timeout=30)
+    after_text=(after.get("stdout") or "").strip()
+    if not after_text or after_text in {"null","[]"}:
+        raise RuntimeError("Studio UI was not detected after safe restart")
+    return {
+        "restarted": True,
+        "backend_active": False,
+        "before": before_text,
+        "after": after_text,
+        "pid": proc.pid,
+        "launcher": str(launcher),
+    }
+
+
 def inspect_auto_edit_live_code() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_live_code must run on AlexPC/Windows")
@@ -9548,6 +9616,7 @@ ACTIONS = {
     "youtube_program_local_status": youtube_program_local_status,
     "auto_edit_mcp_call": auto_edit_mcp_call,
     "launch_auto_edit_studio": launch_auto_edit_studio,
+    "restart_auto_edit_studio_ui": restart_auto_edit_studio_ui,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
