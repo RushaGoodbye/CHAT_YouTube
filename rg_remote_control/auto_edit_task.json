@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
+  "action": "apply_auto_edit_updater_detach_fix_v2",
   "args": {},
-  "nonce": "inspect-service-process-p40-hang"
+  "nonce": "apply-updater-detach-v2"
 }
