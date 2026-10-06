@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_audio_schema_compact",
+  "action": "inspect_auto_edit_901_audio_gaps_and_censor",
   "args": {},
-  "nonce": "verify-901-audio-after-fix-20261006-1"
+  "nonce": "inspect-901-audio-gaps-censor-20261006-1"
 }
