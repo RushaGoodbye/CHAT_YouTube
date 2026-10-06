@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_master60_update",
-  "args": {},
-  "nonce": "rebuild-master60-r1-installer-fix-20261006-2324"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_update_supervisor.py"
+    ]
+  },
+  "nonce": "verify-live-supervisor-master60-r1-20261006-2325"
 }
