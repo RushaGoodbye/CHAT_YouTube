@@ -244,7 +244,7 @@ def test_upsert_does_not_downgrade_replied_or_ignored(tmp_path):
         conn.close()
 
 
-def test_legacy_reply_text_is_migrated_to_ready_draft(tmp_path):
+def test_legacy_reply_text_is_invalidated_for_regeneration(tmp_path):
     db = tmp_path / "rg.db"
     conn = connect(db)
     try:
@@ -261,9 +261,9 @@ def test_legacy_reply_text_is_migrated_to_ready_draft(tmp_path):
         row = conn.execute(
             "SELECT draft_state,draft_reason,reply_text FROM comments WHERE comment_id='c1'"
         ).fetchone()
-        assert row["draft_state"] == "ready"
-        assert row["draft_reason"] == "legacy_reply_text_migrated"
-        assert row["reply_text"] == "Старий локальний текст"
+        assert row["draft_state"] == ""
+        assert row["draft_reason"] == "legacy_requires_regeneration"
+        assert row["reply_text"] == ""
     finally:
         conn.close()
 
@@ -304,5 +304,84 @@ def test_manual_reply_blocks_raw_held_for_review(tmp_path):
         else:
             raise AssertionError("heldForReview comment was allowed")
         assert client.sent == []
+    finally:
+        conn.close()
+
+
+def test_saved_draft_normalizes_long_dash(tmp_path):
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        assert save_comment_draft(
+            conn,
+            "c1",
+            "Дякуємо — раді вас бачити – завжди.",
+            state="ready",
+            reason="test",
+        )
+        row = conn.execute(
+            "SELECT reply_text FROM comments WHERE comment_id='c1'"
+        ).fetchone()
+        assert row["reply_text"] == "Дякуємо - раді вас бачити - завжди."
+        assert "—" not in row["reply_text"]
+        assert "–" not in row["reply_text"]
+    finally:
+        conn.close()
+
+
+def test_safe_template_candidate_uses_fresh_text_classification(tmp_path):
+    from rg_youtube_control.service import local_safe_template_candidate
+
+    conn = connect(tmp_path / "rg.db")
+    try:
+        result = local_safe_template_candidate(
+            conn,
+            "main",
+            "comment-safe-1",
+            "Дякую за стрім!",
+        )
+        assert result is not None
+        assert result["state"] == "ready"
+        assert result["category"] == "thanks"
+        assert result["reply"]
+        assert "—" not in result["reply"]
+        assert "–" not in result["reply"]
+
+        unsafe = local_safe_template_candidate(
+            conn,
+            "main",
+            "comment-review-1",
+            "А що ви думаєте про цю ситуацію?",
+        )
+        assert unsafe is None
+    finally:
+        conn.close()
+
+
+def test_outgoing_manual_reply_normalizes_long_dash(tmp_path):
+    from rg_youtube_control.service import manual_reply
+
+    class FakeClient:
+        profile = "main"
+
+        def __init__(self):
+            self.sent = []
+
+        def reply(self, comment_id, text):
+            self.sent.append((comment_id, text))
+
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        client = FakeClient()
+        manual_reply(
+            client,
+            conn,
+            "c1",
+            "Дякуємо — гарного дня – і до зустрічі.",
+        )
+        assert client.sent == [
+            ("c1", "Дякуємо - гарного дня - і до зустрічі.")
+        ]
     finally:
         conn.close()
