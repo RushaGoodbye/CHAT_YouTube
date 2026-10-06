@@ -242,7 +242,7 @@ def install() -> dict:
             },
             "youtube": {
                 "namespace": "youtube_*",
-                "github_permissions": "contents:write-only-for-result-publish",
+                "github_permissions": "contents:read",
                 "shared_auto_edit_credentials": False,
             },
         },
@@ -363,7 +363,7 @@ def probe(do_roundtrip: bool = True) -> dict:
     listener = run([
         r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
         "-NoProfile", "-NonInteractive", "-Command",
-        r"$p=Get-CimInstance Win32_Process -Filter \"Name='Runner.Listener.exe'\" | Where-Object { $_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' -or $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*' }; $p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+        r"$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Runner.Listener.exe' -and ($_.CommandLine -like '*C:\RG_GITHUB_RUNNER*' -or $_.ExecutablePath -like 'C:\RG_GITHUB_RUNNER\*') }; $p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
     ], timeout=20)
 
     out = {
