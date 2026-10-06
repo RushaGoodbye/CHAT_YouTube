@@ -54,7 +54,7 @@ fi
 OK=0
 I=0
 while [ "$I" -lt 30 ]; do
-  if curl -fsS --max-time 3 http://127.0.0.1:8788/healthz >/tmp/rg-telegram-control-health.$$ 2>/dev/null \
+  if curl -fsS --max-time 3 http://127.0.0.1:8791/healthz >/tmp/rg-telegram-control-health.$$ 2>/dev/null \
      && grep -q '"ok":true' /tmp/rg-telegram-control-health.$$; then
     OK=1
     break
@@ -73,6 +73,6 @@ fi
 
 printf '%s\n' "OK" > "$STATE/rg_telegram_control_app_status"
 printf '%s\n' "$(date -Iseconds)" > "$STATE/rg_telegram_control_app_checked_at"
-printf '%s\n' "8788" > "$STATE/rg_telegram_control_app_port"
+printf '%s\n' "8791" > "$STATE/rg_telegram_control_app_port"
 rm -f "$STATE/rg_telegram_control_app_error_at" 2>/dev/null || true
-echo "RG_TELEGRAM_CONTROL_APP_OK port=8788"
+echo "RG_TELEGRAM_CONTROL_APP_OK port=8791"
