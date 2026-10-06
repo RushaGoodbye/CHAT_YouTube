@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_censor_avlink_hotfix",
+  "action": "inspect_auto_edit_901_link_samples",
   "args": {},
-  "nonce": "apply-censor-avlink-20261006-13"
+  "nonce": "verify-901-link-censor-final-20261006-14"
 }
