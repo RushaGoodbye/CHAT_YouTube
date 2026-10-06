@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_update_worker.py",
-      "rg_stability_ux25.py"
-    ]
-  },
-  "nonce": "inspect-worker-ux-production40"
+  "action": "build_auto_edit_production40_update",
+  "args": {},
+  "nonce": "build-production40-v020190"
 }
