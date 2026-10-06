@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_all_final_qa",
+  "action": "inspect_auto_edit_901_2_ripple_links",
   "args": {},
-  "nonce": "final-qa-901-all-20261006-24b"
+  "nonce": "inspect-901-2-ripple-links-20261006-25"
 }
