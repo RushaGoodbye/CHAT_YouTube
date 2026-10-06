@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
-  "args": {"stream":"901"},
-  "nonce": "inspect-stream-901-after-bridge-restore-20261006-1146"
+  "action": "inspect_auto_edit_live_code",
+  "args": {},
+  "nonce": "inspect-live-code-resume-901-20261006-1147"
 }
