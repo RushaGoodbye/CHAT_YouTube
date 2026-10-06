@@ -4,8 +4,9 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_studio_main.py"
+      "rg_studio_update_worker.py",
+      "rg_stability_ux25.py"
     ]
   },
-  "nonce": "inspect-main-production40"
+  "nonce": "inspect-worker-ux-production40"
 }
