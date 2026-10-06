@@ -1,6 +1,6 @@
 {
-  "target": "nas",
-  "action": "sync_nas_scheduler_tick",
+  "target": "alexpc",
+  "action": "sync_nas_command_bus_mcp",
   "args": {},
-  "nonce": "20261006-sync-host-scheduler-via-nas-runner"
+  "nonce": "20261006-rgtc-stage1-bootstrap-1747"
 }
