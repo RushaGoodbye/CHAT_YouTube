@@ -2,8 +2,6 @@ name: RG AlexPC Control
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/5 * * * *"
   push:
     branches:
       - main
@@ -12,7 +10,7 @@ on:
       - ".github/workflows/rg-alexpc-control.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: rg-alexpc-control
@@ -22,7 +20,9 @@ jobs:
   run:
     runs-on: [self-hosted, rg, alexpc, windows]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Validate target
         shell: powershell
         run: |
@@ -46,15 +46,14 @@ jobs:
           $doc | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 rg_remote_control/last_result.json
           "task_exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           exit 0
-      - name: Persist restricted task result
-        shell: powershell
-        run: |
-          git config user.name "rg-control-bot"
-          git config user.email "rg-control-bot@users.noreply.github.com"
-          git add rg_remote_control/last_result.json
-          if (git diff --cached --quiet) { exit 0 }
-          git commit -m "Record RG remote control result [skip ci]"
-          git push
+      - name: Upload restricted task result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alexpc-task-result-${{ github.run_id }}
+          path: rg_remote_control/last_result.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Fail workflow when restricted task failed
         if: steps.restricted.outputs.task_exit_code != '0'
         shell: powershell
