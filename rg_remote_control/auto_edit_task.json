@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_install_state",
+  "action": "inspect_auto_edit_updater_state",
   "args": {},
-  "nonce": "inspect-master60-r1-failed-install-20261006-2330"
+  "nonce": "inspect-updater-transaction-master60-r1-20261006-2332"
 }
