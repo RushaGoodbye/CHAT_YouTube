@@ -72,7 +72,7 @@ def test_local_seo_batch_resilience_contract() -> None:
         'if len(prepared) >= limit:',
         'action="SEO-чернетка batch · пропуск"',
         'self.optimization_status_filter.findData("draft")',
-        'Фільтр «Чернетки» відкрито автоматично.',
+        'Розділ «Потрібно перевірити» відкрито автоматично.',
     ):
         assert marker in source
 
@@ -377,3 +377,19 @@ def test_v060_guided_action_avoids_useless_extra_prep() -> None:
     assert "elif ready_queue and safe_capacity <= 0:" in block
     assert "Нові архівні пакети зараз готувати не потрібно" in block
     assert 'self._guided_next_action = "comments"' in block
+
+
+def test_v060_metric_cards_are_navigable() -> None:
+    source = _ui_source()
+    for marker in (
+        'self.metric_videos.clicked.connect',
+        'self.metric_scheduled.clicked.connect',
+        'self.metric_attention.clicked.connect',
+        'self.metric_comments.clicked.connect',
+        'self.center_prepared.clicked.connect',
+        'self.center_comments.clicked.connect',
+        'self.center_quota.clicked.connect',
+        'self.archive_ready_card.clicked.connect',
+        'def _open_optimization_status',
+    ):
+        assert marker in source
