@@ -38,7 +38,14 @@ $checksumName = "$($installer.Name).sha256"
 $checksumPath = Join-Path $NasRoot $checksumName
 $targetInstaller = Join-Path $NasRoot $installer.Name
 
-Copy-Item $installer.FullName $targetInstaller -Force
+$tmpInstaller = "$targetInstaller.tmp"
+Copy-Item $installer.FullName $tmpInstaller -Force
+$copiedHash = (Get-FileHash $tmpInstaller -Algorithm SHA256).Hash.ToLower()
+if ($copiedHash -ne $hash) {
+    Remove-Item $tmpInstaller -Force -ErrorAction SilentlyContinue
+    throw "NAS installer checksum mismatch after copy"
+}
+Move-Item $tmpInstaller $targetInstaller -Force
 "$hash  $($installer.Name)" | Set-Content -Encoding ascii $checksumPath
 
 $manifest = [ordered]@{
@@ -48,7 +55,21 @@ $manifest = [ordered]@{
     notes = "NAS update $version"
     published_at = (Get-Date).ToUniversalTime().ToString("o")
 }
-$manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $NasRoot "latest.json")
+$manifestJson = $manifest | ConvertTo-Json
+$manifestVersioned = Join-Path $NasRoot "manifest_$version.json"
+$manifestJson | Set-Content -Encoding utf8 $manifestVersioned
+$latestTmp = Join-Path $NasRoot "latest.json.tmp"
+$latest = Join-Path $NasRoot "latest.json"
+$manifestJson | Set-Content -Encoding utf8 $latestTmp
+Move-Item $latestTmp $latest -Force
+
+$ready = Join-Path $NasRoot "READY_$version.txt"
+@(
+    "version=$version"
+    "installer=$($installer.Name)"
+    "sha256=$hash"
+    "published_at=$($manifest.published_at)"
+) | Set-Content -Encoding utf8 $ready
 
 Write-Host "NAS UPDATE READY: $version"
 Write-Host $targetInstaller
