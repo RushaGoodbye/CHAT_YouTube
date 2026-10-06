@@ -1255,6 +1255,43 @@ def recent_local_errors(task: dict) -> dict:
         conn.close()
 
 
+
+def validate_local_seo_rules() -> dict:
+    """Smoke-test transcript-first SEO specificity without YouTube API."""
+    from rg_youtube_control.free_tools import (
+        _grounded_tags_from_transcript,
+        _tag_is_grounded,
+    )
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    title = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
+    transcript = (
+        "Обсуждаем Шойгу, увольнение, Министерство обороны России и коррупцию. "
+        "Собеседники спорят о причинах кадровых решений. "
+    ) * 12
+    tags = _grounded_tags_from_transcript(title, transcript)
+    hashtags = optimized_hashtags(
+        title,
+        "Співрозмовники також згадують економіку Росії.",
+    )
+    checks = {
+        "has_shoigu": "Шойгу" in tags,
+        "has_shoigu_dismissal": "увольнение Шойгу" in tags,
+        "has_defense_ministry": "Министерство обороны России" in tags,
+        "has_corruption": "коррупция в России" in tags,
+        "reject_plan": not _tag_is_grounded("план", title, transcript),
+        "reject_strategy": not _tag_is_grounded("стратегия", title, transcript),
+        "precise_hashtag": hashtags[-1] == "#шойгу",
+    }
+    return {
+        "youtube_api_calls": 0,
+        "ok": all(checks.values()),
+        "checks": checks,
+        "hashtags": list(hashtags),
+        "tags": tags,
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3449,6 +3486,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_validate_local_seo_rules":
+        result = validate_local_seo_rules()
     elif action == "youtube_local_recent_errors":
         result = recent_local_errors(task)
     elif action == "youtube_local_cleanup_redundant_nas_agent":
