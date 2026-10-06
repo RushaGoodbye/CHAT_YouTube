@@ -1,0 +1,30 @@
+RG Auto Edit Studio 0.20.8.0 - PACK400 PRODUCTIVITY 1-50
+
+Кумулятивний productivity-пакет для поточної RG Auto Edit Studio.
+
+Головне:
+- штатний resume без повторної обробки готових діалогів;
+- захист готових XML/checkpoint;
+- single-dialogue retry через RG_ONLY_DIALOGUE_INDEX;
+- класифікація помилок та safe transient retry policy;
+- maintenance mode;
+- low-disk preflight guard;
+- автоматичний пропуск повністю готових стрімів у черзі;
+- історія останніх 20 прогонів та priority store;
+- зелена кнопка ЗАПУЩЕНО під час роботи;
+- ВИКОНУЄТЬСЯ зеленим, ПОМИЛКА червоним, ГОТОВО зеленим;
+- existing PACK300/310 функції timeline, ETA, ресурсів, recovery, QA, history, rollback зберігаються;
+- atomic XML publish / no partial XML / cache contracts / child-process model isolation зберігаються;
+- LONG STREAM policy 6-13 годин;
+- updater rollback: будь-яка помилка під час встановлення повертає попередній стан.
+
+Безпека:
+- пакет не встановлюється під час збірки;
+- dry-run виконується на копії поточної живої Studio;
+- Python compile gate;
+- offscreen import/UI smoke gate;
+- 50-feature matrix gate;
+- SHA256 manifest + ZIP CRC;
+- backup перед зміною кожного критичного файла;
+- монтажне аудіо-правило не змінюється;
+- ORIGINAL SOURCE DIRECT не змінюється.
