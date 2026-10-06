@@ -10122,6 +10122,92 @@ def inspect_auto_edit_901_audio_gaps_and_censor() -> dict:
     return out
 
 
+
+def inspect_auto_edit_901_delivery_vs_source() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import hashlib, re, xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    delivery=app/"901"
+    out={"pairs":[],"censor_code":[],"premiere_code":[]}
+
+    def file_info(p):
+        p=Path(p)
+        row={"path":str(p),"exists":p.is_file()}
+        if not p.is_file(): return row
+        b=p.read_bytes()
+        row.update(size=len(b),mtime=p.stat().st_mtime,sha256=hashlib.sha256(b).hexdigest())
+        txt=b.decode("utf-8","replace")
+        row["rg_censor_marker_count"]=txt.count("RG CENSOR:")
+        row["minus96_text_count"]=txt.count("-96")
+        row["audiolevels_values"]={}
+        row["all_effects"]={}
+        try:
+            root=ET.fromstring(txt)
+            vals={}
+            effects={}
+            muted=[]
+            for clip in root.findall(".//sequence/media/audio/track/clipitem"):
+                params=[]
+                for eff in clip.findall("./filter/effect"):
+                    eid=(eff.findtext("effectid") or "").strip()
+                    ename=(eff.findtext("name") or "").strip()
+                    effects[eid or ename]=effects.get(eid or ename,0)+1
+                    for par in eff.findall("./parameter"):
+                        pid=(par.findtext("parameterid") or par.findtext("name") or "").strip()
+                        val=(par.findtext("value") or "").strip()
+                        params.append((eid,pid,val))
+                        if eid=="audiolevels":
+                            vals[val]=vals.get(val,0)+1
+                suspicious=[x for x in params if x[2] not in ("","1","1.0","0","0.0","0.5")]
+                if suspicious:
+                    muted.append({"id":clip.get("id"),"start":clip.findtext("start"),"end":clip.findtext("end"),
+                                  "in":clip.findtext("in"),"out":clip.findtext("out"),"params":suspicious[:8]})
+            row["audiolevels_values"]=vals
+            row["all_effects"]=effects
+            row["non_unity_audio_clips"]=muted[:80]
+            row["non_unity_audio_clip_count"]=len(muted)
+        except Exception as exc:
+            row["parse_error"]=repr(exc)
+        return row
+
+    for i in range(1,7):
+        name=f"RG_EDITED_901_{i}.xml"
+        src=app/name
+        dst=delivery/name
+        side_src=app/f"RG_EDITED_901_{i}_CENSOR_AUDIO.json"
+        side_dst=delivery/f"RG_EDITED_901_{i}_CENSOR_AUDIO.json"
+        row={"dialogue":i,"source":file_info(src),"delivery":file_info(dst)}
+        for label,p in (("side_source",side_src),("side_delivery",side_dst)):
+            q={"path":str(p),"exists":p.is_file()}
+            if p.is_file():
+                try:
+                    d=json.loads(p.read_text(encoding="utf-8-sig",errors="replace"))
+                    q.update(enabled=d.get("enabled"),applied=d.get("applied"),
+                             event_count=len(d.get("events") or []),xml=d.get("xml"),backup_xml=d.get("backup_xml"),
+                             mute_db=d.get("mute_db"),event_rows=(d.get("event_rows") or [])[:10])
+                except Exception as exc:q["error"]=repr(exc)
+            row[label]=q
+        out["pairs"].append(row)
+
+    cp=app/"rg_dialogue_profanity_audio.py"
+    if cp.is_file():
+        rows=cp.read_text(encoding="utf-8",errors="replace").splitlines()
+        for i,line in enumerate(rows):
+            low=line.casefold()
+            if any(k in low for k in ("mute_db","audiolevels","level","split","filter","apply_to_xml")):
+                a=max(0,i-7);b=min(len(rows),i+15)
+                out["censor_code"].append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+                if len(out["censor_code"])>=35:break
+
+    pp=app/"rg_premiere_native_xml.py"
+    if pp.is_file():
+        rows=pp.read_text(encoding="utf-8",errors="replace").splitlines()
+        for a,b in ((250,390),(390,535)):
+            out["premiere_code"].append({"span":f"{a}-{b}","snippet":"\n".join(f"{i+1}: {rows[i]}" for i in range(max(0,a-1),min(len(rows),b)))})
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10259,6 +10345,7 @@ ACTIONS = {
     "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_901_audio_gaps_and_censor": inspect_auto_edit_901_audio_gaps_and_censor,
+    "inspect_auto_edit_901_delivery_vs_source": inspect_auto_edit_901_delivery_vs_source,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
