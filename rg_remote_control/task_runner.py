@@ -4412,7 +4412,7 @@ def _update_020201_test(name,status,detail=None):
 
 def run_auto_edit_886_short_smoke() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
-    import subprocess,xml.etree.ElementTree as ET,py_compile
+    import subprocess,xml.etree.ElementTree as ET,py_compile,time
     app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App")
     runtime=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe")
     local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
