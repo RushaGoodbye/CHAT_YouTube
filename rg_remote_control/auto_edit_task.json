@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_audio_generator_code",
+  "action": "apply_auto_edit_validator_avlink_v2",
   "args": {},
-  "nonce": "inspect-validator-partner-20261006-2047"
+  "nonce": "apply-validator-avlink-v2-20261006-2049"
 }
