@@ -1312,6 +1312,45 @@ def validate_local_seo_rules() -> dict:
     }
 
 
+
+def inspect_local_seo_source(task: dict) -> dict:
+    """Inspect locally stored metadata/transcript for one video without YouTube API."""
+    args = task.get("args") or {}
+    video_id = str(args.get("video_id") or "").strip()
+    if not video_id:
+        raise RuntimeError("video_id required")
+
+    conn = sqlite3.connect(_db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        video = conn.execute(
+            """SELECT video_id,profile,title,description,tags_json,audit_json,
+                      scheduled_publish_at,privacy_status
+               FROM videos WHERE video_id=?""",
+            (video_id,),
+        ).fetchone()
+        transcript = conn.execute(
+            """SELECT transcript_text,source,updated_at
+               FROM transcripts WHERE video_id=?
+               ORDER BY updated_at DESC LIMIT 1""",
+            (video_id,),
+        ).fetchone()
+        return {
+            "youtube_api_calls": 0,
+            "video": dict(video) if video else None,
+            "transcript": (
+                {
+                    "source": transcript["source"],
+                    "updated_at": transcript["updated_at"],
+                    "text": str(transcript["transcript_text"] or "")[:24000],
+                }
+                if transcript else None
+            ),
+        }
+    finally:
+        conn.close()
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3506,6 +3545,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_inspect_local_seo_source":
+        result = inspect_local_seo_source(task)
     elif action == "youtube_local_validate_local_seo_rules":
         result = validate_local_seo_rules()
     elif action == "youtube_local_recent_errors":
