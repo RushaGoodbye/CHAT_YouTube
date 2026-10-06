@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_censor_avlink_hotfix",
+  "action": "inspect_auto_edit_901_audio_gaps_and_censor",
   "args": {},
-  "nonce": "apply-censor-avlink-20261006-8"
+  "nonce": "inspect-current-censor-code-20261006-9"
 }
