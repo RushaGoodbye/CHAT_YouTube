@@ -12019,6 +12019,17 @@ def apply_auto_edit_ui_responsiveness_hotfix() -> dict:
     files=[app/"rg_studio_ui.py",app/"rg_production40.py",app/"rg_master60.py",app/"rg_stability_ux25.py",app/"rg_studio_version.py"]
     for p in files:
         if not p.is_file():raise RuntimeError("Missing "+str(p))
+    # Recover automatically if a previous hotfix attempt left UI source invalid.
+    try:
+        py_compile.compile(str(app/"rg_studio_ui.py"),doraise=True)
+    except Exception:
+        roots=sorted((data/"release_backups").glob("PRE_UI_RESPONSIVENESS_*"),key=lambda x:x.stat().st_mtime,reverse=True)
+        if not roots:raise RuntimeError("UI source invalid and no PRE_UI_RESPONSIVENESS backup found")
+        srcroot=roots[0]
+        for p in files:
+            b=srcroot/p.name
+            if b.is_file():shutil.copy2(b,p)
+        py_compile.compile(str(app/"rg_studio_ui.py"),doraise=True)
     stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup=data/"release_backups"/f"PRE_UI_RESPONSIVENESS_{stamp}"
     backup.mkdir(parents=True,exist_ok=True)
@@ -12154,26 +12165,27 @@ def install(host,runtime_py,app_dir,studio_version=""):
         s=s.replace(anchor,patch,1)
     s=s.replace('        self._system_timer.start(15000);self._refresh_system()\n',
                 '        self._system_timer.start(60000);QTimer.singleShot(250,self._refresh_system)\n',1)
-    pat=r'(?ms)^    def _refresh_system\(self\):\n.*?(?=^    def |\Z)'
+    pat=r'(?ms)^    def _refresh_system\\(self\\):\\n.*?(?=^    def |\\Z)'
     repl='''    def _refresh_system(self):
         # RG_UI_RESPONSIVE_MONITOR_V1: UI thread only renders cached data.
         h=getattr(self,"_rg_health_snapshot",{}) or {}
         if not h:
-            try:self.system_text.setPlainText(f"STUDIO: {STUDIO_VERSION}\\nMONITOR: запуск фонового процесу…")
+            try:self.system_text.setPlainText(chr(10).join([f"STUDIO: {STUDIO_VERSION}","MONITOR: запуск фонового процесу…"]))
             except Exception:pass
             return
         try:
             score=h.get("score","—");ready=bool(h.get("ready"));nas=h.get("nas") or {};gpu=h.get("gpu") or {};checks=h.get("checks") or {}
             self.nas_chip.setText("NAS • "+("ОНЛАЙН" if checks.get("nas") else "ОФЛАЙН"))
             self.gpu_chip.setText("GPU • "+("CUDA" if checks.get("gpu") else "CHECK"))
-            self.system_text.setPlainText(
-                f"STUDIO: {STUDIO_VERSION} ({STUDIO_CHANNEL})\\n"
-                f"РУШІЙ: {APP_VERSION}\\n"
-                f"HEALTH: {score}/100 • {'READY' if ready else 'CHECK'}\\n"
-                f"NAS: {nas.get('latency_ms','—')} ms\\n"
-                f"GPU: {gpu.get('util_pct','—')}%\\n"
-                "MONITOR: BACKGROUND PROCESS"
-            )
+            rows=[
+                f"STUDIO: {STUDIO_VERSION} ({STUDIO_CHANNEL})",
+                f"РУШІЙ: {APP_VERSION}",
+                f"HEALTH: {score}/100 • {'READY' if ready else 'CHECK'}",
+                f"NAS: {nas.get('latency_ms','—')} ms",
+                f"GPU: {gpu.get('util_pct','—')}%",
+                "MONITOR: BACKGROUND PROCESS",
+            ]
+            self.system_text.setPlainText(chr(10).join(rows))
         except Exception:pass
 
 '''
@@ -12267,8 +12279,18 @@ def install(host,runtime_py,app_dir,studio_version=""):
     if "RG_UI_RESPONSIVE_MONITOR_V1" not in vs:vs+="\nRG_UI_RESPONSIVE_MONITOR_V1=True\n"
     vp.write_text(vs,encoding="utf-8")
 
-    for p in [app/"rg_ui_health_worker.py",app/"rg_ui_health_monitor.py",app/"rg_studio_ui.py",p40,m,ux,vp]:
-        py_compile.compile(str(p),doraise=True)
+    try:
+        for p in [app/"rg_ui_health_worker.py",app/"rg_ui_health_monitor.py",app/"rg_studio_ui.py",p40,m,ux,vp]:
+            py_compile.compile(str(p),doraise=True)
+    except Exception:
+        # Never leave live production files in a half-patched state.
+        for p in files:
+            b=backup/p.name
+            if b.is_file():shutil.copy2(b,p)
+        for hp in (app/"rg_ui_health_worker.py",app/"rg_ui_health_monitor.py"):
+            try:hp.unlink()
+            except Exception:pass
+        raise
 
     # Restart UI only. Never touch montage/backend processes.
     try:
