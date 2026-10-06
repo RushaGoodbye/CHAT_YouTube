@@ -9338,7 +9338,42 @@ print("LOCAL_SCAN_CAP_TEST_PASS",c0,c1,margin)
             if bp.is_file(): shutil.copy2(bp,p)
         raise
 
+
+
+def telegram_local_status() -> dict:
+    """Read Telegram/NAS control state without external API calls."""
+    import time
+
+    root = Path(r"\\\\AlexLosServer\\docker")
+    state = root / "RG_NAS_STATE"
+    mcp = root / "RG_NAS_MCP"
+
+    def info(path: Path) -> dict:
+        try:
+            if not path.exists():
+                return {"exists": False}
+            st = path.stat()
+            return {
+                "exists": True,
+                "age_seconds": max(0, int(time.time() - st.st_mtime)),
+                "size": st.st_size if path.is_file() else None,
+            }
+        except Exception as exc:
+            return {"exists": False, "error": repr(exc)}
+
+    return {
+        "youtube_api_calls": 0,
+        "nas_root": str(root),
+        "nas_reachable": root.is_dir(),
+        "telegram_calls": info(mcp / "TELEGRAM_CALLS"),
+        "telegram_worker_source": info(mcp / "SOURCE" / "rg_remote_mcp" / "server.py"),
+        "agent_status": info(mcp / "ALEXPC" / "status" / "alexpc_agent.json"),
+        "control_policy": info(state / "RG_CONTROL_POLICY.json"),
+        "github_required": False,
+    }
+
 ACTIONS = {
+    "telegram_local_status": telegram_local_status,
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
     "probe_environment": probe_environment,
