@@ -1,0 +1,47 @@
+name: RG YouTube NAS Publish
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "rg_remote_control/youtube_nas_publish_request.json"
+      - ".github/workflows/rg-youtube-nas-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-nas-publish
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Publish update directly to NAS
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish_windows_update_to_nas.ps1
+
+      - name: Verify NAS manifest and installer
+        shell: powershell
+        run: |
+          $root = "\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\UPDATES"
+          $manifestPath = Join-Path $root "latest.json"
+          if (-not (Test-Path $manifestPath)) { throw "NAS latest.json missing" }
+          $m = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $installer = Join-Path $root $m.installer_name
+          $checksum = Join-Path $root $m.checksum_name
+          if (-not (Test-Path $installer)) { throw "NAS installer missing: $installer" }
+          if (-not (Test-Path $checksum)) { throw "NAS checksum missing: $checksum" }
+          $expected = ((Get-Content $checksum -Raw).Trim() -split "\s+")[0].ToLower()
+          $actual = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "NAS checksum verification failed" }
+          Write-Host "NAS publish verified: $($m.version)"
