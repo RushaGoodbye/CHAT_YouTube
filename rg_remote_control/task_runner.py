@@ -11502,6 +11502,40 @@ def inspect_auto_edit_901_all_final_qa() -> dict:
     return {"dialogues":rows}
 
 
+
+def inspect_auto_edit_901_2_ripple_links() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\901\RG_EDITED_901_2.xml")
+    root=ET.parse(p).getroot(); seq=root.find(".//sequence")
+    v1=seq.findall("./media/video/track")[0]
+    ats=seq.findall("./media/audio/track")[:2]
+    out=[]
+    def iv(c):
+        try:return int(float(c.findtext("start"))),int(float(c.findtext("end")))
+        except:return None
+    def links(c):
+        return [{"ref":x.findtext("linkclipref"),"media":x.findtext("mediatype"),
+                 "track":x.findtext("trackindex"),"clip":x.findtext("clipindex")}
+                for x in c.findall("./link")]
+    for vi,c in enumerate(v1.findall("./clipitem"),1):
+        cid=str(c.get("id") or "")
+        if cid.startswith("video-clip-"): continue
+        x=iv(c)
+        row={"video_index":vi,"video_id":cid,"start":c.findtext("start"),"end":c.findtext("end"),
+             "in":c.findtext("in"),"out":c.findtext("out"),"links":links(c),"audio":[]}
+        if x:
+            for ti,tr in enumerate(ats,1):
+                for ai,a in enumerate(tr.findall("./clipitem"),1):
+                    if iv(a)==x:
+                        row["audio"].append({"track":ti,"index":ai,"id":a.get("id"),
+                                             "start":a.findtext("start"),"end":a.findtext("end"),
+                                             "in":a.findtext("in"),"out":a.findtext("out"),
+                                             "links":links(a)})
+        out.append(row)
+    return {"rows":out}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11652,6 +11686,7 @@ ACTIONS = {
     "inspect_auto_edit_901_uncensored_bases": inspect_auto_edit_901_uncensored_bases,
     "apply_auto_edit_keyframe_censor_v2": apply_auto_edit_keyframe_censor_v2,
     "inspect_auto_edit_901_all_final_qa": inspect_auto_edit_901_all_final_qa,
+    "inspect_auto_edit_901_2_ripple_links": inspect_auto_edit_901_2_ripple_links,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
