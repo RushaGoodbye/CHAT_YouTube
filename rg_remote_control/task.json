@@ -1,6 +1,6 @@
 {
   "target": "alexpc",
-  "action": "sync_nas_command_bus_mcp",
+  "action": "health",
   "args": {},
-  "nonce": "20261006-rgtc-stage1-bootstrap-1747"
+  "nonce": "20261006-rgtc-stage1-bootstrap-neutralized"
 }
