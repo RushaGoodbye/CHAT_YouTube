@@ -178,3 +178,131 @@ def test_preview_reads_draft_directly_from_sqlite():
     source = inspect.getsource(MainWindow._update_comment_draft_preview)
     assert "SELECT reply_text,draft_state,draft_reason,status" in source
     assert "FROM comments WHERE comment_id=?" in source
+
+
+def test_upsert_updates_existing_comment_to_moderation_locked(tmp_path):
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        upsert_comment(
+            conn,
+            {
+                "comment_id": "c1",
+                "video_id": "v1",
+                "author": "viewer",
+                "text": "Спасибо за эфир!",
+                "published_at": "2026-10-06T19:00:00Z",
+                "category": "review",
+                "status": "moderation_locked",
+                "reply_text": "",
+                "raw": {
+                    "snippet": {
+                        "topLevelComment": {
+                            "snippet": {"moderationStatus": "heldForReview"}
+                        }
+                    }
+                },
+            },
+        )
+        row = conn.execute(
+            "SELECT status FROM comments WHERE comment_id='c1'"
+        ).fetchone()
+        assert row["status"] == "moderation_locked"
+    finally:
+        conn.close()
+
+
+def test_upsert_does_not_downgrade_replied_or_ignored(tmp_path):
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        conn.execute("UPDATE comments SET status='replied' WHERE comment_id='c1'")
+        conn.execute("UPDATE comments SET status='ignored' WHERE comment_id='c2'")
+        conn.commit()
+        for cid in ("c1", "c2"):
+            upsert_comment(
+                conn,
+                {
+                    "comment_id": cid,
+                    "video_id": "v1",
+                    "author": "viewer",
+                    "text": "sync",
+                    "published_at": "2026-10-06T19:00:00Z",
+                    "category": "review",
+                    "status": "new",
+                    "reply_text": "",
+                    "raw": {},
+                },
+            )
+        assert conn.execute(
+            "SELECT status FROM comments WHERE comment_id='c1'"
+        ).fetchone()["status"] == "replied"
+        assert conn.execute(
+            "SELECT status FROM comments WHERE comment_id='c2'"
+        ).fetchone()["status"] == "ignored"
+    finally:
+        conn.close()
+
+
+def test_legacy_reply_text_is_migrated_to_ready_draft(tmp_path):
+    db = tmp_path / "rg.db"
+    conn = connect(db)
+    try:
+        _seed(conn)
+        conn.execute(
+            "UPDATE comments SET reply_text='Старий локальний текст' WHERE comment_id='c1'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    conn = connect(db)
+    try:
+        row = conn.execute(
+            "SELECT draft_state,draft_reason,reply_text FROM comments WHERE comment_id='c1'"
+        ).fetchone()
+        assert row["draft_state"] == "ready"
+        assert row["draft_reason"] == "legacy_reply_text_migrated"
+        assert row["reply_text"] == "Старий локальний текст"
+    finally:
+        conn.close()
+
+
+def test_manual_reply_blocks_raw_held_for_review(tmp_path):
+    from rg_youtube_control.service import manual_reply
+
+    class FakeClient:
+        profile = "main"
+
+        def __init__(self):
+            self.sent = []
+
+        def reply(self, comment_id, text):
+            self.sent.append((comment_id, text))
+
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _seed(conn)
+        raw = {
+            "snippet": {
+                "topLevelComment": {
+                    "snippet": {"moderationStatus": "heldForReview"}
+                }
+            }
+        }
+        conn.execute(
+            "UPDATE comments SET raw_json=? WHERE comment_id='c1'",
+            (json.dumps(raw),),
+        )
+        conn.commit()
+
+        client = FakeClient()
+        try:
+            manual_reply(client, conn, "c1", "Тест")
+        except RuntimeError as exc:
+            assert "модерації YouTube" in str(exc)
+        else:
+            raise AssertionError("heldForReview comment was allowed")
+        assert client.sent == []
+    finally:
+        conn.close()
