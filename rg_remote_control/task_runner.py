@@ -10260,6 +10260,40 @@ def inspect_auto_edit_901_linkage() -> dict:
     return {"xmls":out}
 
 
+
+def inspect_auto_edit_901_link_samples() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\901\RG_EDITED_901_1.xml")
+    root=ET.parse(p).getroot()
+    seq=root.find(".//sequence")
+    out={"video_tracks":[],"audio_tracks":[]}
+    def links(c):
+        return [{
+            "linkclipref":lk.findtext("linkclipref"),
+            "mediatype":lk.findtext("mediatype"),
+            "trackindex":lk.findtext("trackindex"),
+            "clipindex":lk.findtext("clipindex"),
+            "groupindex":lk.findtext("groupindex"),
+        } for lk in c.findall("./link")]
+    for ti,tr in enumerate(seq.findall("./media/video/track"),1):
+        clips=tr.findall("./clipitem")
+        out["video_tracks"].append({
+          "track":ti,"count":len(clips),
+          "samples":[{"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),"links":links(c)} for c in clips[:8]]
+        })
+    for ti,tr in enumerate(seq.findall("./media/audio/track"),1):
+        clips=tr.findall("./clipitem")
+        pick=clips[:5]
+        muted=[c for c in clips if any((p.findtext("value") or "").strip()=="-96.0" for p in c.findall("./filter/effect/parameter"))][:4]
+        out["audio_tracks"].append({
+          "track":ti,"count":len(clips),
+          "samples":[{"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),"enabled":c.findtext("enabled"),"links":links(c)} for c in pick],
+          "muted_samples":[{"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),"enabled":c.findtext("enabled"),"links":links(c)} for c in muted],
+        })
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10399,6 +10433,7 @@ ACTIONS = {
     "inspect_auto_edit_901_audio_gaps_and_censor": inspect_auto_edit_901_audio_gaps_and_censor,
     "inspect_auto_edit_901_delivery_vs_source": inspect_auto_edit_901_delivery_vs_source,
     "inspect_auto_edit_901_linkage": inspect_auto_edit_901_linkage,
+    "inspect_auto_edit_901_link_samples": inspect_auto_edit_901_link_samples,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
