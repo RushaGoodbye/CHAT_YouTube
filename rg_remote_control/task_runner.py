@@ -12109,7 +12109,7 @@ def apply_auto_edit_windows_service_layer_v1() -> dict:
         pat=rf"(?ms)^def {re.escape(name)}\([^\n]*\)[^:\n]*:.*?(?=^def |\Z)"
         if not re.search(pat,src):
             raise RuntimeError("function not found: "+name)
-        return re.sub(pat,new.rstrip()+"\n\n",src,count=1)
+        return re.sub(pat,lambda _m:new.rstrip()+"\n\n",src,count=1)
 
     try:
         atomic(app/"rg_windows_service.py",module_code)
