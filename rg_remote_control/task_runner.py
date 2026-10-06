@@ -4020,6 +4020,122 @@ def inspect_auto_edit_multi_resume_span() -> dict:
 
 
 
+
+def apply_auto_edit_premiere_audio_unity_hotfix() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, xml.etree.ElementTree as ET, re, hashlib
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    gen=app/"rg_premiere_native_xml.py"
+    if not gen.is_file(): raise RuntimeError("rg_premiere_native_xml.py missing")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_PREMIERE_AUDIO_UNITY_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(gen,backup/gen.name)
+    folder=app/"901"
+    xmls=sorted(folder.glob("RG_EDITED_901_[1-6].xml"))
+    for p in xmls: shutil.copy2(p,backup/p.name)
+
+    src=gen.read_text(encoding="utf-8")
+    guard="# RG_PREMIERE_AUDIO_UNITY_V1"
+    if guard not in src:
+        # Match the schema of the proven working Premiere XML: no inverted panner,
+        # English Balance token, explicit unity Audio Levels effect.
+        src=src.replace('        "PannerIsInverted": "true",\n','',1)
+        src=src.replace('        "PannerName": "Баланс",','        "PannerName": "Balance",',1)
+
+        insert_anchor='def _audio_track(parent, exploded_index, output_index, targeted="1"):\n'
+        if insert_anchor not in src: raise RuntimeError("audio track anchor missing")
+        helper=r'''# RG_PREMIERE_AUDIO_UNITY_V1
+def _ensure_unity_audio_levels(clip):
+    """Premiere-compatible explicit 0 dB/unity clip level. No gain processing."""
+    if clip.find("./filter/effect[effectid='audiolevels']") is not None:
+        return clip
+    flt=ET.SubElement(clip,"filter")
+    eff=ET.SubElement(flt,"effect")
+    _text(eff,"name","Audio Levels")
+    _text(eff,"effectid","audiolevels")
+    _text(eff,"effectcategory","audiolevels")
+    _text(eff,"effecttype","audiolevels")
+    _text(eff,"mediatype","audio")
+    _text(eff,"pproBypass","false")
+    par=ET.SubElement(eff,"parameter",{"authoringApp":"PremierePro"})
+    _text(par,"parameterid","level")
+    _text(par,"name","Level")
+    _text(par,"valuemin","0")
+    _text(par,"valuemax","3.98109")
+    _text(par,"value","1")
+    return clip
+
+
+'''
+        src=src.replace(insert_anchor,helper+insert_anchor,1)
+
+        # Ensure all audio clip constructors get explicit unity level.
+        # Generic pattern: after sourcetrack trackindex has been added, add unity.
+        replacements=[
+          ('        _text(st, "trackindex", source_track_index)\n\n        for ref,track_idx',
+           '        _text(st, "trackindex", source_track_index)\n        _ensure_unity_audio_levels(ac)\n\n        for ref,track_idx'),
+          ("        _text(st, 'trackindex', 1)\n\n        right =",
+           "        _text(st, 'trackindex', 1)\n        _ensure_unity_audio_levels(left)\n\n        right ="),
+          ("        _text(st, 'trackindex', 2)\n\n        for owner in (left, right):",
+           "        _text(st, 'trackindex', 2)\n        _ensure_unity_audio_levels(right)\n\n        for owner in (left, right):"),
+          ('            ET.SubElement(st,"trackindex").text=str(source_track_index)\n            return ac',
+           '            ET.SubElement(st,"trackindex").text=str(source_track_index)\n            _ensure_unity_audio_levels(ac)\n            return ac'),
+        ]
+        for old,new in replacements:
+            if old in src: src=src.replace(old,new,1)
+
+        tmp=gen.with_suffix(".py.audio-unity.tmp")
+        tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,gen)
+    py_compile.compile(str(gen),doraise=True)
+
+    # Repair already-created 901 XMLs without touching timing, cuts, video or source audio.
+    patched=[]
+    def add_text(parent,tag,text): ET.SubElement(parent,tag).text=str(text)
+    for p in xmls:
+        tree=ET.parse(p);root=tree.getroot();changed=0
+        for tr in root.findall(".//sequence/media/audio/track"):
+            if tr.attrib.pop("PannerIsInverted",None) is not None: changed+=1
+            if tr.get("PannerName")=="Баланс": tr.set("PannerName","Balance");changed+=1
+            for clip in tr.findall("./clipitem"):
+                # Only audio clipitems; sequence audio tracks contain no video clips.
+                if clip.find("./filter/effect[effectid='audiolevels']") is None:
+                    flt=ET.SubElement(clip,"filter");eff=ET.SubElement(flt,"effect")
+                    add_text(eff,"name","Audio Levels");add_text(eff,"effectid","audiolevels")
+                    add_text(eff,"effectcategory","audiolevels");add_text(eff,"effecttype","audiolevels")
+                    add_text(eff,"mediatype","audio");add_text(eff,"pproBypass","false")
+                    par=ET.SubElement(eff,"parameter",{"authoringApp":"PremierePro"})
+                    add_text(par,"parameterid","level");add_text(par,"name","Level")
+                    add_text(par,"valuemin","0");add_text(par,"valuemax","3.98109");add_text(par,"value","1")
+                    changed+=1
+        if changed:
+            tree.write(p,encoding="UTF-8",xml_declaration=True)
+            # Restore xmeml doctype required by Premiere.
+            txt=p.read_text(encoding="utf-8")
+            if "<!DOCTYPE xmeml>" not in txt:
+                txt=txt.replace("?>","?>\n<!DOCTYPE xmeml>",1)
+                p.write_text(txt,encoding="utf-8")
+        # Validate the repaired audio schema.
+        rr=ET.parse(p).getroot()
+        clips=rr.findall(".//sequence/media/audio/track/clipitem")
+        missing=[x.get("id") for x in clips if x.find("./filter/effect[effectid='audiolevels']/parameter/value") is None]
+        bad_values=[]
+        for x in clips:
+            v=x.findtext("./filter/effect[effectid='audiolevels']/parameter/value")
+            if v is not None and str(v).strip()!="1": bad_values.append({"id":x.get("id"),"value":v})
+        inv=[dict(t.attrib) for t in rr.findall(".//sequence/media/audio/track") if "PannerIsInverted" in t.attrib]
+        if missing or bad_values or inv:
+            raise RuntimeError(f"Audio schema validation failed {p.name}: missing={len(missing)} bad={bad_values[:3]} inverted={len(inv)}")
+        patched.append({"name":p.name,"size":p.stat().st_size,"audio_clips":len(clips),
+                        "sha256":hashlib.sha256(p.read_bytes()).hexdigest()})
+
+    return {"status":"APPLIED","guard":"RG_PREMIERE_AUDIO_UNITY_V1","generator":str(gen),"backup":str(backup),
+            "xmls":patched,"audio_policy":"ORIGINAL_SOURCE_DIRECT + explicit Premiere unity level 1.0; no normalization/compression/EQ/resample/gain change"}
+
+
 def inspect_auto_edit_audio_generator_code() -> dict:
     if os.name!="nt": raise RuntimeError("Windows only")
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
@@ -9890,6 +10006,7 @@ ACTIONS = {
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
     "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
+    "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
