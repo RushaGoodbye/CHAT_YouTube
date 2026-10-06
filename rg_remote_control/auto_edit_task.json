@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "apply_auto_edit_updater_supervisor_v3",
   "args": {},
-  "nonce": "inspect-updater-transaction-master60-r1-20261006-2332"
+  "nonce": "apply-stuck-studio-close-fix-20261006-2336"
 }
