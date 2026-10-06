@@ -12008,6 +12008,31 @@ def inspect_auto_edit_update_install_state() -> dict:
     return out
 
 
+
+def apply_auto_edit_service_process_stream_fix() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,shutil,py_compile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"rg_studio_ui.py"
+    if not p.is_file(): raise RuntimeError("rg_studio_ui.py missing")
+    src=p.read_text(encoding="utf-8")
+    old='env.insert("RG_STREAM_ID",str(stream))'
+    new='env.insert("RG_STREAM_ID",str(getattr(self,"_run_stream","") or (self.metric_stream.text().strip() if hasattr(self,"metric_stream") else "")))'
+    if "RG_SERVICE_PROCESS_STREAM_FIX_V1" not in src:
+        if old not in src: raise RuntimeError("service-process stream anchor missing")
+        src=src.replace('        env.insert("RG_RUN_ID",str(getattr(self,"_run_id","") or ""))\n        '+old,
+                        '        env.insert("RG_RUN_ID",str(getattr(self,"_run_id","") or ""))\n        # RG_SERVICE_PROCESS_STREAM_FIX_V1\n        '+new,1)
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    b=data/"release_backups"/f"PRE_SERVICE_PROCESS_STREAM_FIX_{stamp}"
+    b.mkdir(parents=True,exist_ok=True);shutil.copy2(p,b/p.name)
+    compile(src,str(p),"exec")
+    p.write_text(src,encoding="utf-8")
+    py_compile.compile(str(p),doraise=True)
+    return {"status":"PASS","marker":"RG_SERVICE_PROCESS_STREAM_FIX_V1","backup":str(b),"compiled":True}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12164,6 +12189,7 @@ ACTIONS = {
     "apply_auto_edit_all_v1_linkage_fix": apply_auto_edit_all_v1_linkage_fix,
     "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
     "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
+    "apply_auto_edit_service_process_stream_fix": apply_auto_edit_service_process_stream_fix,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
