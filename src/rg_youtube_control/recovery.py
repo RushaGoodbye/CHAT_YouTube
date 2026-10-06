@@ -10,7 +10,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import APP_NAME
+from .config import APP_NAME, DEFAULT_NAS_UPDATES_PATH
 
 REPO = "RushaGoodbye/CHAT_YouTube"
 USER_AGENT = "RG-YouTube-Control-Recovery"
@@ -94,9 +94,12 @@ def create_recovery_backup(
     installer_error = ""
     if include_installer:
         cached = data_dir / "updates" / installer_name
+        nas_installer = Path(DEFAULT_NAS_UPDATES_PATH) / installer_name
         try:
             if cached.is_file():
                 shutil.copy2(cached, installer_target)
+            elif nas_installer.is_file():
+                shutil.copy2(nas_installer, installer_target)
             else:
                 _download(_installer_url(version), installer_target)
             installer_saved = installer_target.is_file()
