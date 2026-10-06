@@ -1091,6 +1091,163 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     return candidate
 
 
+
+def _chapter_timestamp_seconds(value: str) -> int | None:
+    parts = str(value or "").strip().split(":")
+    if len(parts) not in {2, 3}:
+        return None
+    try:
+        numbers = [int(part) for part in parts]
+    except ValueError:
+        return None
+    if any(number < 0 for number in numbers):
+        return None
+    if len(numbers) == 2:
+        minutes, seconds = numbers
+        if seconds >= 60:
+            return None
+        return minutes * 60 + seconds
+    hours, minutes, seconds = numbers
+    if minutes >= 60 or seconds >= 60:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _chapter_lines(chapters: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for raw_line in str(chapters or "").splitlines():
+        line = raw_line.strip()
+        match = re.match(r"^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+(.+?)\s*$", line)
+        if not match:
+            continue
+        rows.append((match.group(1), match.group(2).strip()))
+    return rows
+
+
+def _chapters_quality_error(chapters: str, transcript: str) -> str:
+    if not str(chapters or "").strip():
+        return "missing_chapters"
+
+    rows = _chapter_lines(chapters)
+    if len(rows) < 3:
+        return "too_few_chapters"
+    if len(rows) > 12:
+        return "too_many_chapters"
+
+    allowed = {
+        match.group(1)
+        for match in re.finditer(
+            r"\[(\d{1,2}:\d{2}(?::\d{2})?)\]",
+            str(transcript or ""),
+        )
+    }
+    if not allowed:
+        return "no_transcript_timestamps"
+
+    seconds: list[int] = []
+    for stamp, label in rows:
+        sec = _chapter_timestamp_seconds(stamp)
+        if sec is None:
+            return "invalid_timestamp"
+        if stamp not in allowed and sec != 0:
+            return "unverified_timestamp"
+        seconds.append(sec)
+
+        folded = label.casefold()
+        if len(label) < 4 or len(label) > 90:
+            return "bad_chapter_label"
+        if re.search(r"[ыэъё]", folded):
+            return "chapter_wrong_language"
+        russian_words = re.findall(
+            r"\b(?:вступление|обсуждение|мнение|причина|причины|увольнение|"
+            r"увольнения|отношения|перевод|должность|заключение|вопрос|ответы|"
+            r"стратегия|коррупция|россии|путина|военной)\b",
+            folded,
+        )
+        ukrainian_letters = len(re.findall(r"[іїєґ]", folded))
+        if len(russian_words) >= 1 and ukrainian_letters == 0:
+            return "chapter_wrong_language"
+
+    if seconds[0] != 0:
+        return "chapter_must_start_zero"
+    if any(b <= a for a, b in zip(seconds, seconds[1:])):
+        return "chapters_not_increasing"
+    if any((b - a) < 10 for a, b in zip(seconds, seconds[1:])):
+        return "chapters_too_close"
+    return ""
+
+
+def _recover_chapters_from_transcript(
+    *,
+    current_title: str,
+    transcript: str,
+    model: str,
+) -> str:
+    """Build conservative Ukrainian chapters using only transcript timestamps."""
+    if not str(transcript or "").strip():
+        return ""
+
+    prompt = f"""
+Створи таймкоди YouTube для цього відео ВИКЛЮЧНО за наданим транскриптом.
+
+Правила:
+- 6-10 глав;
+- перша глава ОБОВ'ЯЗКОВО 00:00;
+- використовуй лише таймкоди, які буквально є у транскрипті;
+- кожна наступна глава щонайменше через 10 секунд;
+- назви глав ТІЛЬКИ українською;
+- назва 3-8 слів, конкретна й нейтральна;
+- не вигадуй причин, висновків, посад, відносин чи подій;
+- припущення співрозмовника не перетворюй на факт;
+- ігноруй [музыка], [аплодисменты], лайку й ASR-сміття;
+- написання ключових імен бери з назви відео;
+- поверни тільки рядки формату:
+00:00 Коротка українська назва
+
+НАЗВА ВІДЕО:
+{current_title}
+
+ТРАНСКРИПТ:
+{transcript[:12000]}
+""".strip()
+
+    last = ""
+    for attempt in range(2):
+        raw = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ти редактор YouTube-таймкодів. "
+                        "Не додавай нічого, чого немає у транскрипті."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            model=model,
+            temperature=0.02,
+            json_mode=False,
+        )
+        value = str(raw or "").strip()
+        fence = chr(96) * 3
+        if value.startswith(fence):
+            value = value[len(fence):].lstrip()
+        if value.endswith(fence):
+            value = value[:-len(fence)].rstrip()
+        lines: list[str] = []
+        for stamp, label in _chapter_lines(value):
+            lines.append(f"{stamp} {label.replace('—', '-').replace('–', '-')}")
+        value = "\n".join(lines).strip()
+        last = value
+        if not _chapters_quality_error(value, transcript):
+            return value
+        prompt += (
+            "\nПОПЕРЕДНІЙ ВАРІАНТ НЕ ПРОЙШОВ ПЕРЕВІРКУ. "
+            "Використовуй лише точні таймкоди транскрипту і українські назви."
+        )
+    return last if not _chapters_quality_error(last, transcript) else ""
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -1353,6 +1510,17 @@ chapters: рядок з підтвердженими таймкодами та �
         chapters = "\n".join(lines)
     else:
         chapters = ""
+
+    if not is_short and transcript.strip():
+        chapter_error = _chapters_quality_error(chapters, transcript)
+        if chapter_error:
+            chapters = _recover_chapters_from_transcript(
+                current_title=current_title,
+                transcript=transcript,
+                model=model,
+            )
+        if chapters and _chapters_quality_error(chapters, transcript):
+            chapters = ""
 
     if not title:
         raise ValueError("Локальна модель не створила назву.")
