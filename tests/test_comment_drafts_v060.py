@@ -112,8 +112,8 @@ def test_structured_local_reply_ready(monkeypatch):
         return json.dumps(
             {
                 "action": "reply",
-                "reply": "Дякуємо за підтримку!",
-                "reason": "thanks",
+                "reply": "Так, це справді помітно.",
+                "reason": "clear_question",
             },
             ensure_ascii=False,
         )
@@ -123,11 +123,11 @@ def test_structured_local_reply_ready(monkeypatch):
         fake_chat,
     )
     result = generate_comment_reply_candidate_local(
-        comment_text="Спасибо за эфир и работу!",
+        comment_text="Почему снова такие очереди на заправках?",
         video_title="Стрім",
     )
     assert result["state"] == "ready"
-    assert result["reply"] == "Дякуємо за підтримку!"
+    assert result["reply"] == "Так, це справді помітно."
 
 
 def test_structured_local_reply_skip(monkeypatch):
