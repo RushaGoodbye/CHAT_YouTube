@@ -1968,6 +1968,29 @@ chapters: рядок з підтвердженими таймкодами та �
     }
 
 
+def _comment_reply_overlap_ok(comment: str, reply: str) -> bool:
+    """Reject generic/hallucinated replies that do not track the source comment."""
+    source = re.findall(
+        r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+",
+        str(comment or "").casefold(),
+    )
+    target = re.findall(
+        r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+",
+        str(reply or "").casefold(),
+    )
+    stop = {
+        "это", "це", "как", "як", "что", "що", "и", "і", "а", "але",
+        "в", "у", "на", "не", "ні", "так", "да", "я", "мы", "ми", "вы",
+        "ви", "он", "она", "вони", "они", "за", "до", "по", "з", "с",
+        "the", "and", "you", "we", "is", "are",
+    }
+    source_terms = {word for word in source if len(word) >= 4 and word not in stop}
+    target_terms = {word for word in target if len(word) >= 4 and word not in stop}
+    if not source_terms:
+        return True
+    return bool(source_terms & target_terms)
+
+
 def generate_comment_reply_local(
     *,
     comment_text: str,
@@ -1975,37 +1998,98 @@ def generate_comment_reply_local(
     video_context: str = "",
     model: str = DEFAULT_OLLAMA_MODEL,
 ) -> str:
+    source = " ".join(str(comment_text or "").split()).strip()
+    if not source:
+        return ""
+
+    # Extremely short, emoji-only or fragmentary comments are poor candidates
+    # for free-form generation. Leave them for manual review instead of
+    # manufacturing meaning.
+    words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", source)
+    if len(source) < 4 or (len(words) == 0 and len(source) < 24):
+        return ""
+
     prompt = f"""
-Підготуй ОДНУ коротку чернетку відповіді на опублікований YouTube-коментар
+Підготуй ОДНУ коротку чернетку відповіді на ОПУБЛІКОВАНИЙ YouTube-коментар
 від імені каналу «РАША ГУДБАЙ».
 
-Вимоги:
-- українською мовою, якщо коментар не просить інше;
-- 1-3 речення;
-- спокійно, без образ і погроз;
-- не вигадуй фактів;
-- не пиши, що відповідь автоматична або створена ШІ;
-- якщо коментар політичний/спірний, не вигадуй доказів і не приписуй людині мотиви;
-- поверни тільки готовий текст відповіді, без лапок і пояснень;
-- це ЛИШЕ ЧЕРНЕТКА: її не буде автоматично опубліковано.
+Головне правило: НЕ ДОДУМУЙ зміст коментаря. Якщо він обірваний, незрозумілий,
+саркастичний без контексту, містить лише вигук/емодзі, провокує політичну
+суперечку або для коректної відповіді бракує фактів - обери SKIP.
 
-Відео: {video_title}
-Контекст відео: {video_context[:4000]}
-Коментар:
-{comment_text}
+Поверни ТІЛЬКИ JSON:
+{{"action":"reply","reply":"...","reason":"relevant"}}
+або
+{{"action":"skip","reply":"","reason":"..."}}
+
+Правила для reply:
+- 1-2 короткі речення;
+- відповідай лише на те, що прямо є в коментарі;
+- не вигадуй факти, події, мотиви, людей, предмети, цитати чи обставини;
+- не додавай зброю, війну, політику, здоров'я, моральні оцінки чи інші теми,
+  якщо їх прямо немає в коментарі;
+- не приписуй автору емоції чи наміри;
+- не сперечайся від імені каналу і не повчай;
+- не пиши канцелярські фрази на кшталт «ми прагнемо», «давайте зберігати повагу»,
+  «кожен має право», якщо це не відповідає конкретному тексту;
+- не пиши «підготував, як просили», «відео створене з любов'ю» та подібні
+  універсальні фрази;
+- якщо це подяка - коротко подякуй;
+- якщо це питання і відповіді немає у наданому контексті - SKIP;
+- мова відповіді: українська, якщо коментар не просить інше;
+- це лише чернетка, вона не буде автоматично опублікована.
+
+ВІДЕО:
+{video_title}
+
+КОНТЕКСТ:
+{video_context[:3000]}
+
+КОМЕНТАР:
+{source}
 """.strip()
-    return ollama_chat(
+
+    raw = ollama_chat(
         [
             {
                 "role": "system",
-                "content": "Створюй лише безпечну чернетку відповіді для ручної перевірки.",
+                "content": (
+                    "Ти обережний редактор коментарів. Краще SKIP, ніж "
+                    "нерелевантна або вигадана відповідь."
+                ),
             },
             {"role": "user", "content": prompt},
         ],
         model=model,
-        temperature=0.25,
-    ).strip()
+        temperature=0.05,
+        json_mode=True,
+    )
+    payload = _extract_json_object(raw)
+    action = str(payload.get("action") or "").strip().casefold()
+    reply = " ".join(str(payload.get("reply") or "").split()).strip()
 
+    if action != "reply" or not reply:
+        return ""
+    if len(reply) > 420:
+        return ""
+    if not _comment_reply_overlap_ok(source, reply):
+        return ""
+
+    banned = (
+        "відео створене з любов",
+        "підготував, як просили",
+        "підготували, як просили",
+        "ми прагнемо",
+        "давайте зберігати повагу",
+        "кожен має право",
+        "не збираємося вступати",
+        "не звертаємо уваги",
+    )
+    folded = reply.casefold()
+    if any(item in folded for item in banned):
+        return ""
+
+    return reply
 
 def parse_google_trends_csv_text(text: str) -> list[dict[str, Any]]:
     """Parse a downloaded Google Trends CSV without network/API calls."""
