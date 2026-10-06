@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
+  "action": "apply_auto_edit_run_state_colors_hotfix",
   "args": {},
-  "nonce": "inspect-ui-state-labels-20261006-1"
+  "nonce": "apply-run-state-colors-20261006-1"
 }
