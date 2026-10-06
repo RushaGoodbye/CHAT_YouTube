@@ -3761,6 +3761,18 @@ publish()
 
 
 
+
+def inspect_auto_edit_multi_resume_span() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_multi_dialogue.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    spans={}
+    for a,b in ((540,680),(680,840),(840,930)):
+        spans[f"{a}-{b}"]="\n".join(f"{i+1}: {rows[i]}" for i in range(max(0,a-1),min(len(rows),b)))
+    return {"path":str(p),"size":p.stat().st_size,"spans":spans}
+
+
 def inspect_auto_edit_stream_result() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_stream_result must run on AlexPC/Windows")
@@ -9466,6 +9478,7 @@ ACTIONS = {
     "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
+    "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
