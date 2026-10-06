@@ -271,7 +271,21 @@ def install_alexpc_agent() -> dict:
 
     mirror = mirror_runtime_bundle_to_nas()
     local_agent = AGENT_LOCAL / "alexpc_agent.py"
+    try:
+        old_agent_bytes = local_agent.read_bytes() if local_agent.is_file() else b""
+    except Exception:
+        old_agent_bytes = b""
+    new_agent_bytes = source.read_bytes()
+    agent_changed = old_agent_bytes != new_agent_bytes
     shutil.copy2(source, local_agent)
+
+    if agent_changed:
+        run([
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            "-NoProfile", "-NonInteractive", "-Command",
+            r"$p=Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and $_.CommandLine -like '*C:\RG_AGENT\alexpc_agent.py*' }; foreach($x in @($p)){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }"
+        ], timeout=20)
+        time.sleep(1)
 
     python_exe = Path(sys.executable)
     if not python_exe.is_file():
@@ -362,12 +376,16 @@ try {{
     ], timeout=20)
 
     nas_status = AGENT_NAS / "status" / "alexpc_agent.json"
+    startup_ready = bool(startup_vbs and startup_vbs.is_file())
     return {
         "ok": bool(
             keep["exit_code"] == 0
-            and boot["exit_code"] == 0
+            and (boot["exit_code"] == 0 or startup_ready)
             and probe["stdout"].strip()
+            and nas_status.is_file()
         ),
+        "agent_changed": agent_changed,
+        "startup_ready": startup_ready,
         "python": str(python_exe),
         "local_agent": str(local_agent),
         "keepalive_script": str(keepalive),
@@ -610,6 +628,60 @@ def queue_roundtrip(timeout: int = 85) -> dict:
     }
 
 
+def agent_roundtrip(timeout: int = 70) -> dict:
+    base = AGENT_NAS / "auto_edit"
+    req_root = base / "requests"
+    res_root = base / "results"
+    err_root = base / "errors"
+    req_root.mkdir(parents=True, exist_ok=True)
+    res_root.mkdir(parents=True, exist_ok=True)
+    err_root.mkdir(parents=True, exist_ok=True)
+
+    request_id = uuid.uuid4().hex
+    req = req_root / f"{request_id}.json"
+    result = res_root / f"{request_id}.json"
+    error = err_root / f"{request_id}.json"
+    atomic_json(req, {
+        "request_id": request_id,
+        "action": "inspect_auto_edit_stream_result",
+        "args": {"stream": "901"},
+        "timeout_seconds": 180,
+    })
+
+    started = time.time()
+    while time.time() - started < timeout:
+        if smb_is_file(result):
+            try:
+                data = json.loads(smb_read_text(result))
+            except Exception as exc:
+                return {"ok": False, "request_id": request_id, "parse_error": repr(exc)}
+            return {
+                "ok": bool(data.get("ok")),
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "result": data,
+            }
+        if smb_is_file(error) and smb_size(error):
+            try:
+                data = json.loads(smb_read_text(error))
+            except Exception:
+                data = {"raw": smb_read_text(error, 12000)}
+            return {
+                "ok": False,
+                "request_id": request_id,
+                "elapsed_seconds": round(time.time() - started, 1),
+                "error": data,
+            }
+        time.sleep(1)
+    return {
+        "ok": False,
+        "request_id": request_id,
+        "elapsed_seconds": round(time.time() - started, 1),
+        "timeout": True,
+        "request_still_exists": smb_is_file(req),
+    }
+
+
 def probe(do_roundtrip: bool = True) -> dict:
     files = {}
     requirements = {
@@ -678,20 +750,53 @@ def probe(do_roundtrip: bool = True) -> dict:
         "alexpc_agent": {
             "keepalive": _task_query(TASK_AGENT_KEEPALIVE),
             "boot": _task_query(TASK_AGENT_BOOT),
+            "startup_fallback_exists": bool(
+                os.environ.get("APPDATA")
+                and (
+                    Path(os.environ["APPDATA"])
+                    / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+                    / "RG_ALEXPC_AGENT.vbs"
+                ).is_file()
+            ),
             "nas_status_exists": (AGENT_NAS / "status" / "alexpc_agent.json").is_file(),
+            "nas_status_age_seconds": (
+                max(0, int(time.time() - (AGENT_NAS / "status" / "alexpc_agent.json").stat().st_mtime))
+                if (AGENT_NAS / "status" / "alexpc_agent.json").is_file()
+                else None
+            ),
         },
     }
     if do_roundtrip:
         out["auto_edit_roundtrip"] = queue_roundtrip()
+        out["alexpc_agent_roundtrip"] = agent_roundtrip()
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
-    runner_ok = bool(
-        out.get("runner", {}).get("listener_count") == 1
-        and out.get("runner", {}).get("keepalive", {}).get("exists")
-        and out.get("alexpc_agent", {}).get("keepalive", {}).get("exists")
-        and out.get("alexpc_agent", {}).get("boot", {}).get("exists")
+    agent_info = out.get("alexpc_agent", {})
+    agent_ok = bool(
+        agent_info.get("keepalive", {}).get("exists")
+        and (agent_info.get("boot", {}).get("exists") or agent_info.get("startup_fallback_exists"))
+        and agent_info.get("nas_status_exists")
+        and agent_info.get("nas_status_age_seconds") is not None
+        and agent_info.get("nas_status_age_seconds") <= 30
     )
-    roundtrip_ok = bool(out.get("auto_edit_roundtrip", {}).get("ok")) if do_roundtrip else True
-    out["status"] = "ok" if critical_files_ok and runner_ok and roundtrip_ok else "degraded"
+    guard_state = out.get("state", {})
+    guard_ok = bool(
+        guard_state.get("rg_resilience_heartbeat_at", {}).get("exists")
+        and guard_state.get("rg_resilience_heartbeat_at", {}).get("age_seconds", 9999) <= 120
+        and guard_state.get("RG_CONTROL_CENTER.json", {}).get("exists")
+        and guard_state.get("RG_CONTROL_CENTER.json", {}).get("age_seconds", 9999) <= 120
+    )
+    roundtrip_ok = bool(
+        (out.get("auto_edit_roundtrip", {}).get("ok") if do_roundtrip else True)
+        and (out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True)
+    )
+    out["health"] = {
+        "critical_files_ok": critical_files_ok,
+        "alexpc_agent_ok": agent_ok,
+        "nas_guard_ok": guard_ok,
+        "roundtrip_ok": roundtrip_ok,
+        "github_required_at_runtime": False,
+    }
+    out["status"] = "ok" if critical_files_ok and agent_ok and guard_ok and roundtrip_ok else "degraded"
     atomic_json(STATE / "RG_CONTROL_PROBE.json", out)
     return out
 
