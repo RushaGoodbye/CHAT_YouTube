@@ -7852,10 +7852,10 @@ def run_auto_edit_preview_886_smoke() -> dict:
                 if tb is not None and tb.text:rate=float(tb.text)
                 clipitem=root_xml.find(".//video/track/clipitem")
                 if clipitem is not None:
-                    st=clipitem.findtext("start") or clipitem.findtext("in") or "750"
-                    en=clipitem.findtext("end") or clipitem.findtext("out") or ""
+                    st=clipitem.findtext("in") or clipitem.findtext("start") or "750"
+                    en=clipitem.findtext("out") or clipitem.findtext("end") or ""
                     start_sec=max(0.0,float(st)/max(rate,1.0))
-                    if en:dur_sec=max(8.0,min(30.0,(float(en)-float(st))/max(rate,1.0)))
+                    if en:dur_sec=max(15.0,min(60.0,(float(en)-float(st))/max(rate,1.0)))
             except Exception:pass
             ffmpeg=_shutil.which("ffmpeg.exe") or _shutil.which("ffmpeg")
             if not ffmpeg:raise RuntimeError("ffmpeg missing for preview smoke fallback")
