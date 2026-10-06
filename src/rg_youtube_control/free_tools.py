@@ -1460,7 +1460,13 @@ chapters: рядок з підтвердженими таймкодами та �
                 if isinstance(variants_candidate, list) and variants_candidate:
                     candidate["title"] = str(variants_candidate[0]).strip()
             if not str(candidate.get("title") or "").strip():
-                raise ValueError("missing title")
+                if fast_mode and str(current_title or "").strip():
+                    # The current published title is already grounded and safe.
+                    # Batch mode may reuse it instead of rejecting an otherwise
+                    # valid package only because the local model omitted "title".
+                    candidate["title"] = str(current_title).strip()
+                else:
+                    raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
                 if fast_mode:
                     recovered_description = _grounded_description_from_transcript(
@@ -1601,7 +1607,11 @@ chapters: рядок з підтвердженими таймкодами та �
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
     if not payload:
-        raise ValueError(f"Локальна SEO-генерація не пройшла валідацію після повтору: {last_error}")
+        mode_text = "швидкого проходу" if fast_mode else "повторів"
+        raise ValueError(
+            "Локальна SEO-генерація не пройшла валідацію після "
+            f"{mode_text}: {last_error}"
+        )
 
     title = str(payload.get("title") or "").strip()
     title = _preserve_current_title_when_candidate_is_not_stronger(
