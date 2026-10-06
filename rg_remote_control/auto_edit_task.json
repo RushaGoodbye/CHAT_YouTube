@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "probe_rg_resilience",
   "args": {},
-  "nonce": "repair-rg-resilience-final-20261006-1215"
+  "nonce": "probe-rg-resilience-final-20261006-1220"
 }
