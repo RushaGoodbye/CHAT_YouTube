@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_audio_outputs",
-  "args": {},
-  "nonce": "locate-901-for-master60-regression"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_multi_dialogue.py"
+    ]
+  },
+  "nonce": "inspect-delivery-dir-901"
 }
