@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_901_muted_xml_sample",
+  "action": "apply_auto_edit_visible_censor_fix",
   "args": {},
-  "nonce": "inspect-901-muted-sample-20261006-15"
+  "nonce": "apply-visible-censor-20261006-16"
 }
