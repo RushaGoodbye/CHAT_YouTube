@@ -12106,7 +12106,7 @@ def apply_auto_edit_windows_service_layer_v1() -> dict:
         tmp.write_text(text,encoding="utf-8");os.replace(tmp,p)
 
     def replace_func(src,name,new):
-        pat=rf"(?ms)^def {re.escape(name)}\([^\n]*\):.*?(?=^def |\Z)"
+        pat=rf"(?ms)^def {re.escape(name)}\([^\n]*\)[^:\n]*:.*?(?=^def |\Z)"
         if not re.search(pat,src):
             raise RuntimeError("function not found: "+name)
         return re.sub(pat,new.rstrip()+"\n\n",src,count=1)
