@@ -10321,6 +10321,8 @@ class MainWindow(QMainWindow):
         changed_ids: list[str] = []
         skipped_ids: list[str] = []
         blocked_ids: list[str] = []
+        expected_after: dict[str, dict[str, object]] = {}
+        verification_failed: list[str] = []
         error_text = ""
         progress = None
         if daily and notify:
@@ -10455,6 +10457,11 @@ class MainWindow(QMainWindow):
                             safe_mode=True,
                             respect_reserve=True,
                         )
+                        expected_after[video_id] = {
+                            "description": prepared_description,
+                            "tags": prepared_tags,
+                            "prepared": True,
+                        }
                         record_optimization_event(
                             self.conn,
                             history_id=history_id,
@@ -10509,6 +10516,11 @@ class MainWindow(QMainWindow):
                             safe_mode=True,
                             respect_reserve=True,
                         )
+                        expected_after[video_id] = {
+                            "description": fix.after,
+                            "tags": list(tags or []),
+                            "prepared": False,
+                        }
                         record_optimization_event(
                             self.conn,
                             history_id=history_id,
@@ -10561,8 +10573,58 @@ class MainWindow(QMainWindow):
                 )
 
             refresh_ids = changed_ids + skipped_ids
+            refreshed_rows: list[dict] = []
             if refresh_ids and error_text not in {"quota_exceeded", "cancelled"}:
-                sync_specific_videos(self.client, self.conn, refresh_ids)
+                refreshed_rows = sync_specific_videos(
+                    self.client,
+                    self.conn,
+                    refresh_ids,
+                )
+
+            refreshed_map = {
+                str(item.get("video_id") or ""): item
+                for item in refreshed_rows
+            }
+            for video_id in list(changed_ids):
+                expected = expected_after.get(video_id)
+                if not expected:
+                    continue
+                actual = refreshed_map.get(video_id)
+                if actual is None:
+                    verification_failed.append(video_id)
+                else:
+                    same_description = str(
+                        actual.get("description") or ""
+                    ).strip() == str(expected.get("description") or "").strip()
+                    same_tags = self._normalized_tag_set(
+                        list(actual.get("tags") or [])
+                    ) == self._normalized_tag_set(
+                        list(expected.get("tags") or [])
+                    )
+                    if not (same_description and same_tags):
+                        verification_failed.append(video_id)
+                if video_id in verification_failed:
+                    if bool(expected.get("prepared")):
+                        set_optimization_draft_status(
+                            self.conn,
+                            video_id,
+                            "ready",
+                        )
+                    log_action(
+                        self.conn,
+                        profile=self.current_profile,
+                        category="діагностика",
+                        action="Контроль batch не пройдено",
+                        details=f"{video_id}: метадані після запису не збіглися",
+                    )
+                elif bool(expected.get("prepared")):
+                    annotate_optimization_draft(
+                        self.conn,
+                        video_id,
+                        quality_state="safe",
+                        quality_reason="Застосовано і підтверджено batch-контролем",
+                    )
+
             self.reload_videos()
             self.reload_optimization_queue()
             self._advance_archive_campaign()
@@ -10574,11 +10636,17 @@ class MainWindow(QMainWindow):
                 - len(skipped_ids)
                 - len(blocked_ids),
             )
+            verified_count = max(
+                0,
+                len(changed_ids) - len(verification_failed),
+            )
             message = (
-                f"Готово. Змінено: {len(changed_ids)}. "
-                f"Без змін: {len(skipped_ids)}. "
-                f"Некоректний опис: {len(blocked_ids)}.\n"
-                f"Залишилося в черзі безпечних правок: ≈{remaining}."
+                f"Зроблено: {len(changed_ids)} змін, "
+                f"контроль пройдено: {verified_count}.\n"
+                f"Не змінено: {len(skipped_ids)}; "
+                f"заблоковано: {len(blocked_ids)}; "
+                f"контроль не пройдено: {len(verification_failed)}.\n"
+                f"Далі в черзі: ≈{remaining}."
             )
             if notify:
                 if error_text == "cancelled":
@@ -10608,6 +10676,12 @@ class MainWindow(QMainWindow):
                 else:
                     self._set_process_idle("Архівний пакет завершено")
                     self._toast("✓ " + message.replace("\n", " · "), 8000)
+                    QMessageBox.information(
+                        self,
+                        "Пакет завершено",
+                        message
+                        + "\n\nНаступний крок програма визначить автоматично.",
+                    )
             return len(changed_ids)
         except Exception as exc:
             if progress is not None:
