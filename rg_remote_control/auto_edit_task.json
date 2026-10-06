@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_master60_update",
+  "action": "inspect_auto_edit_901_audio_outputs",
   "args": {},
-  "nonce": "build-master60-v020200"
+  "nonce": "locate-901-for-master60-regression"
 }
