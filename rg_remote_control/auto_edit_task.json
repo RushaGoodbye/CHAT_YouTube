@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_premiere_audio_unity_hotfix",
+  "action": "inspect_auto_edit_audio_generator_code",
   "args": {},
-  "nonce": "apply-premiere-audio-unity-901-20261006-1"
+  "nonce": "verify-audio-generator-unity-20261006-1"
 }
