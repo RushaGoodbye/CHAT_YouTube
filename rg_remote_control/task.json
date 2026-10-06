@@ -1,11 +1,6 @@
 {
   "target": "alexpc",
-  "action": "telegram_mcp_call",
-  "args": {
-    "tool": "telegram_fs_list",
-    "tool_args": {
-      "relative": ""
-    }
-  },
-  "nonce": "20261004-telegram-root-2"
+  "action": "sync_nas_scheduler_tick",
+  "args": {},
+  "nonce": "20261006-sync-host-scheduler-direct-autodeploy"
 }
