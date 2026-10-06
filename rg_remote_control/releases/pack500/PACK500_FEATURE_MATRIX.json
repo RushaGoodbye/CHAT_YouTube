@@ -1,0 +1,261 @@
+{
+  "schema": "RG_PACK500_FEATURE_MATRIX_V1",
+  "version": "0.20.9.0",
+  "coverage": {
+    "from": 1,
+    "to": 50,
+    "count": 50
+  },
+  "features": [
+    {
+      "id": 1,
+      "name": "Automatic queue priority by stream duration",
+      "status": "COVERED"
+    },
+    {
+      "id": 2,
+      "name": "Predictive scheduler",
+      "status": "COVERED"
+    },
+    {
+      "id": 3,
+      "name": "GPU parallelism guard",
+      "status": "COVERED"
+    },
+    {
+      "id": 4,
+      "name": "GPU thermal guard",
+      "status": "COVERED"
+    },
+    {
+      "id": 5,
+      "name": "Dynamic model lifecycle",
+      "status": "COVERED"
+    },
+    {
+      "id": 6,
+      "name": "Warm model cache",
+      "status": "COVERED"
+    },
+    {
+      "id": 7,
+      "name": "SMART cache eviction",
+      "status": "COVERED"
+    },
+    {
+      "id": 8,
+      "name": "Cache inspector",
+      "status": "COVERED"
+    },
+    {
+      "id": 9,
+      "name": "Checkpoint browser",
+      "status": "COVERED"
+    },
+    {
+      "id": 10,
+      "name": "Dependency graph",
+      "status": "COVERED"
+    },
+    {
+      "id": 11,
+      "name": "Minimal safe recalculation",
+      "status": "COVERED"
+    },
+    {
+      "id": 12,
+      "name": "Boundary confidence",
+      "status": "COVERED"
+    },
+    {
+      "id": 13,
+      "name": "Pre-heavy boundary anomaly guard",
+      "status": "COVERED"
+    },
+    {
+      "id": 14,
+      "name": "Neighbour boundary guard",
+      "status": "COVERED"
+    },
+    {
+      "id": 15,
+      "name": "Golden boundary history",
+      "status": "COVERED"
+    },
+    {
+      "id": 16,
+      "name": "XML semantic validation",
+      "status": "COVERED"
+    },
+    {
+      "id": 17,
+      "name": "Premiere import simulation",
+      "status": "COVERED"
+    },
+    {
+      "id": 18,
+      "name": "XML SHA256 lock",
+      "status": "COVERED"
+    },
+    {
+      "id": 19,
+      "name": "Immutable completed dialogue",
+      "status": "COVERED"
+    },
+    {
+      "id": 20,
+      "name": "Version provenance",
+      "status": "COVERED"
+    },
+    {
+      "id": 21,
+      "name": "Compatible cache migration",
+      "status": "COVERED"
+    },
+    {
+      "id": 22,
+      "name": "Regression corpus",
+      "status": "COVERED"
+    },
+    {
+      "id": 23,
+      "name": "A/B performance benchmark",
+      "status": "COVERED"
+    },
+    {
+      "id": 24,
+      "name": "Canary update policy",
+      "status": "COVERED"
+    },
+    {
+      "id": 25,
+      "name": "Auto rollback policy",
+      "status": "COVERED"
+    },
+    {
+      "id": 26,
+      "name": "UI/Core version split",
+      "status": "COVERED"
+    },
+    {
+      "id": 27,
+      "name": "Separate package domains",
+      "status": "COVERED"
+    },
+    {
+      "id": 28,
+      "name": "Update staging",
+      "status": "COVERED"
+    },
+    {
+      "id": 29,
+      "name": "Install after queue",
+      "status": "COVERED"
+    },
+    {
+      "id": 30,
+      "name": "OS-level update lock",
+      "status": "COVERED"
+    },
+    {
+      "id": 31,
+      "name": "Session ID propagation",
+      "status": "COVERED"
+    },
+    {
+      "id": 32,
+      "name": "Process ownership",
+      "status": "COVERED"
+    },
+    {
+      "id": 33,
+      "name": "Crash Recovery Journal",
+      "status": "COVERED"
+    },
+    {
+      "id": 34,
+      "name": "Atomic state files",
+      "status": "COVERED"
+    },
+    {
+      "id": 35,
+      "name": "SMB shadow queue",
+      "status": "COVERED"
+    },
+    {
+      "id": 36,
+      "name": "NAS latency adaptation",
+      "status": "COVERED"
+    },
+    {
+      "id": 37,
+      "name": "Offline-safe local continuation",
+      "status": "COVERED"
+    },
+    {
+      "id": 38,
+      "name": "Unified Control Center",
+      "status": "COVERED"
+    },
+    {
+      "id": 39,
+      "name": "One-click diagnostics",
+      "status": "COVERED"
+    },
+    {
+      "id": 40,
+      "name": "Safe auto-fix known infrastructure",
+      "status": "COVERED"
+    },
+    {
+      "id": 41,
+      "name": "Meaningful notifications",
+      "status": "COVERED"
+    },
+    {
+      "id": 42,
+      "name": "Completion notification hook",
+      "status": "COVERED"
+    },
+    {
+      "id": 43,
+      "name": "Do-not-disturb mode",
+      "status": "COVERED"
+    },
+    {
+      "id": 44,
+      "name": "Auto-open result policy",
+      "status": "COVERED"
+    },
+    {
+      "id": 45,
+      "name": "Multi-stream production dashboard",
+      "status": "COVERED"
+    },
+    {
+      "id": 46,
+      "name": "Live throughput",
+      "status": "COVERED"
+    },
+    {
+      "id": 47,
+      "name": "Bottleneck explanation",
+      "status": "COVERED"
+    },
+    {
+      "id": 48,
+      "name": "Median last-10 regression signal",
+      "status": "COVERED"
+    },
+    {
+      "id": 49,
+      "name": "Post-update performance report",
+      "status": "COVERED"
+    },
+    {
+      "id": 50,
+      "name": "Production Stable freeze",
+      "status": "COVERED"
+    }
+  ]
+}

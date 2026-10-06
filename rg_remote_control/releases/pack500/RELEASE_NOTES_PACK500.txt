@@ -1,0 +1,25 @@
+RG Auto Edit Studio 0.20.9.0 - PACK500 Reliability + Performance 1-50
+
+Кумулятивний пакет: PACK400 входить у PACK500, тому PACK400 окремо встановлювати не потрібно.
+
+Ключове:
+- OS-level update lock блокує установку, якщо працює production wrapper, multi-dialogue або one-button backend.
+- Пакет можна вибрати під час монтажу: він буде відкладений і встановлений після завершення активної обробки/черги.
+- RG_RUN_ID та RG_STREAM_ID передаються дочірнім процесам.
+- Append-only Crash Recovery Journal.
+- Boundary confidence + pre-heavy anomaly gate.
+- Semantic Premiere XML validation перед publish.
+- SHA256 lock готового XML та version provenance.
+- Cache/checkpoint inspector, dependency graph та minimal safe recalculation helpers.
+- GPU thermal/VRAM policy, predictive scheduler, performance regression та bottleneck analysis.
+- SMB shadow queue, NAS latency adaptation та offline-safe локальна політика.
+- Control Center + safe auto-fix.
+- Regression/canary/A-B/rollback/Production Stable policy.
+
+Безпека:
+- активний 901 під час збірки не змінюється;
+- dry-run виконується на точній копії поточної Studio;
+- Python compile, import smoke, offscreen UI probe та selftest обов'язкові;
+- ZIP CRC + SHA256 manifest;
+- backup/rollback перед зміною критичних файлів;
+- аудіо-правила монтажу та ORIGINAL SOURCE DIRECT не змінюються.

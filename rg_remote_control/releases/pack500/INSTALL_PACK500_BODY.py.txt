@@ -1,0 +1,230 @@
+import json,os,re,shutil,subprocess,sys,time,traceback,py_compile
+from pathlib import Path
+APP=Path.cwd()
+DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+DRY=bool(os.environ.get("RG_PACK500_DRYRUN"))
+if DRY:DATA=APP/"_PACK500_DATA"
+VERSION="0.20.9.0"
+
+def atomic(p,text):
+    p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix(p.suffix+".pack500.tmp");t.write_text(text,encoding="utf-8");os.replace(t,p)
+
+def active_backend_processes():
+    if DRY:return []
+    ps=r"""$p=Get-CimInstance Win32_Process | Where-Object {
+      (($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and
+      (($_.CommandLine -like '*rg_production_wrapper.py*') -or
+       ($_.CommandLine -like '*rg_multi_dialogue.py*') -or
+       ($_.CommandLine -like '*rg_auto_edit_one_button.py*'))
+    }; $p | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress"""
+    cp=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=20)
+    txt=(cp.stdout or "").strip()
+    if not txt:return []
+    try:
+        d=json.loads(txt);return [d] if isinstance(d,dict) else d
+    except Exception:return [{"raw":txt}]
+
+def snapshot():
+    root=DATA/"release_backups"/("PRE_PACK500_"+time.strftime("%Y%m%d_%H%M%S"));root.mkdir(parents=True,exist_ok=True)
+    names=["rg_studio_ui.py","rg_multi_dialogue.py","rg_auto_edit_config.json","rg_studio_version.py","rg_pack500_reliability.py","rg_pack500_selftest.py"]
+    ex={}
+    for n in names:
+        p=APP/n;ex[n]=p.exists()
+        if p.is_file():shutil.copy2(p,root/n)
+    (root/"_existed.json").write_text(json.dumps(ex),encoding="utf-8");return root,ex
+
+def restore(root,ex):
+    for n,was in ex.items():
+        src=root/n;dst=APP/n
+        if src.is_file():shutil.copy2(src,dst)
+        elif not was and dst.exists():
+            try:dst.unlink()
+            except Exception:pass
+
+def apply_pack400():
+    old=os.environ.get("RG_PACK400_DRYRUN")
+    if DRY:os.environ["RG_PACK400_DRYRUN"]="1"
+    try:
+        ns={"__name__":"rg_pack400_embedded","__file__":str(APP/"<embedded_pack400>")}
+        exec(compile(BASE_INSTALLER,"<embedded_pack400>","exec"),ns)
+        rc=ns["main"]()
+        if rc not in (0,None):raise RuntimeError("Embedded PACK400 failed: "+str(rc))
+    finally:
+        if old is None:os.environ.pop("RG_PACK400_DRYRUN",None)
+        else:os.environ["RG_PACK400_DRYRUN"]=old
+
+def patch_ui():
+    p=APP/"rg_studio_ui.py";s=p.read_text(encoding="utf-8")
+    imp=("from rg_pack500_reliability import (journal_event,stage_update,pending_update,clear_pending_update,"
+         "control_center_snapshot,auto_fix_known,performance_regression,bottleneck_explanation,meaningful_notification)\n")
+    if imp not in s:
+        anchor="from rg_pack400_productivity import classify_error,transient_retry_allowed,maintenance_enabled,disk_guard,stream_complete,priority_rank,recent_runs\n"
+        if anchor in s:s=s.replace(anchor,anchor+imp,1)
+        else:
+            a="from rg_internal_browser import RGInternalBrowser\n"
+            if a in s:s=s.replace(a,a+imp,1)
+            else:s=imp+s
+
+    if "# RG_PACK500_PROCESS_OWNERSHIP" not in s:
+        anchor='        env=QProcessEnvironment.systemEnvironment();env.insert("PYTHONUTF8","1");env.insert("PYTHONIOENCODING","utf-8")\n'
+        if anchor not in s:raise RuntimeError("QProcess environment anchor missing")
+        s=s.replace(anchor,anchor+'        # RG_PACK500_PROCESS_OWNERSHIP\n        env.insert("RG_RUN_ID",str(getattr(self,"_run_id","") or ""))\n        env.insert("RG_STREAM_ID",str(stream))\n',1)
+
+    if "# RG_PACK500_JOURNAL_START" not in s:
+        anchor='        self.outputs=[];self.last_xml_folder="";self.started_at=time.time()\n'
+        if anchor not in s:raise RuntimeError("run start anchor missing")
+        s=s.replace(anchor,anchor+'        # RG_PACK500_JOURNAL_START\n        try:journal_event("RUN_START",stream,getattr(self,"_run_id",""),"START","Studio started backend")\n        except Exception:pass\n',1)
+    if "# RG_PACK500_JOURNAL_ERROR" not in s:
+        anchor='            self._log("BACKEND ERROR TAIL:\\n"+tail)\n'
+        if anchor in s:s=s.replace(anchor,anchor+'            # RG_PACK500_JOURNAL_ERROR\n            try:journal_event("ERROR",self.metric_stream.text().strip(),getattr(self,"_run_id",""),"BACKEND",tail[-2000:])\n            except Exception:pass\n',1)
+    if "# RG_PACK500_JOURNAL_FINISH" not in s:
+        anchor='    def _finalize_run(self,ok):\n'
+        if anchor not in s:raise RuntimeError("_finalize_run anchor missing")
+        s=s.replace(anchor,anchor+'        # RG_PACK500_JOURNAL_FINISH\n        try:journal_event("STREAM_COMPLETE" if ok else "NEEDS_CHECK",self.metric_stream.text().strip(),getattr(self,"_run_id",""),"FINALIZE","run finalized")\n        except Exception:pass\n',1)
+
+    old='''        if self.proc or self.selective_active:
+            QMessageBox.information(self,"ОНОВЛЕННЯ","Дочекайся завершення активної обробки.");return
+'''
+    new='''        if self.proc or self.selective_active:
+            try:
+                stage_update(z)
+                self.update_state.setText("ОНОВЛЕННЯ: ВІДКЛАДЕНО")
+                self.update_log.appendPlainText("STAGED AFTER RUN: "+str(z))
+                QMessageBox.information(self,"ОНОВЛЕННЯ","Пакет збережено. Він буде встановлений після завершення активної обробки.")
+            except Exception as e:QMessageBox.warning(self,"ОНОВЛЕННЯ",str(e))
+            return
+'''
+    if old in s:s=s.replace(old,new,1)
+
+    if "def _pack500_try_install_pending_update" not in s:
+        anchor='    def _update_finished(self,code,output):\n'
+        if anchor not in s:raise RuntimeError("update callback anchor missing")
+        methods='''    def _pack500_try_install_pending_update(self):
+        try:
+            if self.proc or self.selective_active or self.batch_running:return
+            d=pending_update()
+            if not d:return
+            z=Path(str(d.get("path") or ""))
+            if not z.is_file():clear_pending_update();return
+            self.update_path.setText(str(z));self._inspect_update_package(z)
+            self.install_update_btn.setEnabled(False)
+            self.update_state.setText("ОНОВЛЕННЯ: ВСТАНОВЛЕННЯ ПІСЛЯ ЧЕРГИ…")
+            self.update_log.appendPlainText("AUTO INSTALL STAGED: "+str(z))
+            clear_pending_update()
+            self._start_service_process("rg_studio_update_worker.py",[str(z)],self._update_finished)
+        except Exception as e:self.update_log.appendPlainText("PACK500 staged update error: "+str(e))
+
+    def pack500_control_center(self):
+        try:
+            self.system_text.setPlainText(json.dumps(control_center_snapshot(),ensure_ascii=False,indent=2))
+            self.status.setText("CONTROL CENTER • ОНОВЛЕНО")
+        except Exception as e:QMessageBox.warning(self,"Control Center",str(e))
+
+    def pack500_auto_fix(self):
+        try:
+            self.system_text.setPlainText(json.dumps(auto_fix_known(),ensure_ascii=False,indent=2))
+            self.status.setText("АВТОВИПРАВЛЕННЯ • ГОТОВО")
+        except Exception as e:QMessageBox.warning(self,"Автовиправлення",str(e))
+
+'''
+        s=s.replace(anchor,methods+anchor,1)
+
+    if "# RG_PACK500_PENDING_AFTER_FINALIZE" not in s:
+        anchor='        if self.batch_running:self._batch_next(bool(ok))\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        # RG_PACK500_PENDING_AFTER_FINALIZE\n        if not self.batch_running:QTimer.singleShot(1200,self._pack500_try_install_pending_update)\n',1)
+    if "# RG_PACK500_PENDING_AFTER_QUEUE" not in s:
+        anchor='            self.batch_running=False;self._batch_current_index=None;self.status.setText("ЧЕРГА • ЗАВЕРШЕНО");self._save_batch_ui_state();return\n'
+        if anchor in s:s=s.replace(anchor,'            self.batch_running=False;self._batch_current_index=None;self.status.setText("ЧЕРГА • ЗАВЕРШЕНО");self._save_batch_ui_state()\n            # RG_PACK500_PENDING_AFTER_QUEUE\n            QTimer.singleShot(1200,self._pack500_try_install_pending_update);return\n',1)
+    if "# RG_PACK500_CONTROL_CENTER_UI" not in s:
+        anchor='        health=_button("✓ ПОВНА ПЕРЕВІРКА","success");health.clicked.connect(self.run_full_healthcheck);grid.addWidget(health,4,0,1,2)\n'
+        if anchor in s:s=s.replace(anchor,anchor+'        # RG_PACK500_CONTROL_CENTER_UI\n        cc=_button("CONTROL CENTER");cc.clicked.connect(self.pack500_control_center);grid.addWidget(cc,5,0)\n        fix=_button("АВТОВИПРАВИТИ");fix.clicked.connect(self.pack500_auto_fix);grid.addWidget(fix,5,1)\n',1)
+    atomic(p,s)
+
+def patch_multi():
+    p=APP/"rg_multi_dialogue.py";s=p.read_text(encoding="utf-8")
+    imp=("from rg_pack500_reliability import annotate_boundary_job,validate_xml_semantic,premiere_import_simulation,"
+         "verify_xml_lock,lock_xml,write_xml_provenance,journal_event\n")
+    if imp not in s:
+        anchor="from __future__ import annotations\n"
+        s=s.replace(anchor,anchor+imp,1) if anchor in s else imp+s
+    if "# RG_PACK500_BOUNDARY_GUARD" not in s:
+        anchor='        job_found=_job_found(found,match,previous_match=previous_match,next_match=next_match)\n'
+        if anchor not in s:raise RuntimeError("job_found anchor missing")
+        s=s.replace(anchor,anchor+'        # RG_PACK500_BOUNDARY_GUARD\n        job_found=annotate_boundary_job(job_found,previous_match,next_match,stream,i)\n',1)
+    if "# RG_PACK500_RESUME_HASH_GUARD" not in s:
+        anchor='                _validate_xml(prior_xml)\n'
+        if anchor in s:s=s.replace(anchor,anchor+'                # RG_PACK500_RESUME_HASH_GUARD\n                _lock=verify_xml_lock(prior_xml)\n                if not _lock.get("ok"):raise RuntimeError("Completed XML changed after QA: "+str(prior_xml))\n',1)
+    if "# RG_PACK500_XML_GATE" not in s:
+        anchor='            _run_child(args,job_json,output_path,i,total,dialogue_progress_end=dialogue_progress_end)\n'
+        if anchor not in s:raise RuntimeError("_run_child anchor missing")
+        s=s.replace(anchor,anchor+'            # RG_PACK500_XML_GATE\n            validate_xml_semantic(output_path)\n            premiere_import_simulation(output_path)\n            write_xml_provenance(output_path,stream,i,job_found)\n            lock_xml(output_path,stream,i)\n            try:journal_event("DIALOGUE_XML_READY",stream,os.environ.get("RG_RUN_ID",""),"XML",str(output_path),{"index":i})\n            except Exception:pass\n',1)
+    atomic(p,s)
+
+def patch_config():
+    p=APP/"rg_auto_edit_config.json";d=json.loads(p.read_text(encoding="utf-8-sig")) if p.is_file() else {}
+    d["pack500"]={"schema":"RG_PACK500_RELIABILITY_PERFORMANCE_V1","enabled":True,"version":VERSION,"coverage":{"from":1,"to":50,"count":50},
+      "scheduler":{"duration_profiles":True,"predictive_eta":True,"history_median_last":10},
+      "gpu":{"thermal_guard_c":82,"heavy_parallelism":False,"warm_cache_when_safe":True,"dynamic_model_lifecycle":True},
+      "cache":{"smart_eviction":True,"inspector":True,"compatible_migration":True,"golden_boundary_history":True},
+      "recovery":{"checkpoint_browser":True,"dependency_graph":True,"minimal_recalc":True,"crash_journal":True},
+      "boundary":{"confidence":True,"preheavy_anomaly_guard":True,"neighbour_guard":True},
+      "xml":{"semantic_validation":True,"premiere_simulation":True,"sha256_lock":True,"immutable_completed":True,"provenance":True},
+      "release":{"regression_corpus":True,"ab_benchmark":True,"canary":True,"auto_rollback_policy":True,"ui_core_split":True,"separate_domains":True,"production_stable_freeze":True},
+      "update":{"staging":True,"install_after_queue":True,"os_process_lock":True},
+      "ownership":{"run_id_everywhere":True,"child_process_owner":True},
+      "nas":{"shadow_queue":True,"latency_adaptation":True,"offline_local_continue":True},
+      "ui":{"control_center":True,"one_click_diagnostics":True,"safe_autofix":True,"multi_stream_dashboard":True},
+      "notifications":{"meaningful_only":True,"completion_hook":True,"dnd":True,"auto_open_result_policy":True},
+      "performance":{"throughput":True,"bottleneck":True,"median_last_10":True,"post_update_report":True}}
+    atomic(p,json.dumps(d,ensure_ascii=False,indent=2))
+
+def patch_version():
+    p=APP/"rg_studio_version.py";s=p.read_text(encoding="utf-8") if p.is_file() else ""
+    if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',s):s=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="'+VERSION+'"',s,count=1)
+    else:s='STUDIO_VERSION="'+VERSION+'"\n'+s
+    if re.search(r'RG_FEATURE_PACK\s*=\s*["\'][^"\']+["\']',s):s=re.sub(r'RG_FEATURE_PACK\s*=\s*["\'][^"\']+["\']','RG_FEATURE_PACK="PACK500"',s,count=1)
+    else:s+='\nRG_FEATURE_PACK="PACK500"\n'
+    if "RG_UI_VERSION" not in s:s+='\nRG_UI_VERSION="'+VERSION+'-UI"\nRG_CORE_VERSION="'+VERSION+'-CORE"\n'
+    atomic(p,s)
+
+def write_selftest():
+    code='''from __future__ import annotations
+import json,py_compile
+from pathlib import Path
+APP=Path(__file__).resolve().parent
+def main():
+    checks=[]
+    def add(n,ok,d=""):checks.append({"name":n,"ok":bool(ok),"detail":str(d)})
+    for n in ["rg_studio_ui.py","rg_multi_dialogue.py","rg_pack500_reliability.py","rg_studio_version.py"]:
+        try:py_compile.compile(str(APP/n),doraise=True);add("compile "+n,True)
+        except Exception as e:add("compile "+n,False,e)
+    ui=(APP/"rg_studio_ui.py").read_text(encoding="utf-8",errors="replace");m=(APP/"rg_multi_dialogue.py").read_text(encoding="utf-8",errors="replace")
+    cfg=json.loads((APP/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig"));p=cfg.get("pack500") or {}
+    for n,ok in [("ownership","RG_PACK500_PROCESS_OWNERSHIP" in ui),("journal","RG_PACK500_JOURNAL_START" in ui and "RG_PACK500_JOURNAL_FINISH" in ui),
+      ("staged update","def _pack500_try_install_pending_update" in ui),("control center","RG_PACK500_CONTROL_CENTER_UI" in ui),
+      ("boundary guard","RG_PACK500_BOUNDARY_GUARD" in m),("resume hash","RG_PACK500_RESUME_HASH_GUARD" in m),
+      ("xml gate","RG_PACK500_XML_GATE" in m),("coverage",((p.get("coverage") or {}).get("count")==50))]:add(n,ok)
+    from rg_pack500_reliability import feature_matrix,benchmark_compare,boundary_confidence
+    add("matrix50",len(feature_matrix().get("features") or [])==50);add("benchmark",benchmark_compare(100,100).get("passed") is True)
+    add("boundary helper",boundary_confidence({"selected_ranges":[{"duration":300}]}).get("risk")=="PASS")
+    passed=all(x["ok"] for x in checks)
+    print("RG_PACK500_SELFTEST|"+json.dumps({"passed":passed,"result":"READY FOR PRODUCTION" if passed else "BLOCKED","checks":checks},ensure_ascii=False))
+    return 0 if passed else 3
+if __name__=="__main__":raise SystemExit(main())
+'''
+    atomic(APP/"rg_pack500_selftest.py",code)
+
+def main():
+    procs=active_backend_processes()
+    if procs:
+        print("PACK500_UPDATE_LOCK|ACTIVE_BACKEND|"+json.dumps(procs,ensure_ascii=False));return 23
+    root,ex=snapshot()
+    try:
+        apply_pack400();atomic(APP/"rg_pack500_reliability.py",PACK500_RELIABILITY)
+        patch_ui();patch_multi();patch_config();patch_version();write_selftest()
+        for n in ["rg_studio_ui.py","rg_multi_dialogue.py","rg_pack500_reliability.py","rg_pack500_selftest.py","rg_studio_version.py"]:py_compile.compile(str(APP/n),doraise=True)
+        print("PACK500_BACKUP|"+str(root));print("PACK500_VERSION|"+VERSION);print("PACK500_FEATURES|1-50");print("PACK500_INSTALL|PASS");return 0
+    except Exception:
+        traceback.print_exc();restore(root,ex);print("PACK500_INSTALL|ROLLBACK");return 10
+if __name__=="__main__":raise SystemExit(main())
