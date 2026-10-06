@@ -12009,6 +12009,30 @@ def inspect_auto_edit_update_install_state() -> dict:
 
 
 
+def apply_auto_edit_boot_version_sync_hotfix() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,py_compile,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App");data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"rg_production40.py";vp=app/"rg_studio_version.py"
+    if not p.is_file() or not vp.is_file():raise RuntimeError("required file missing")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_BOOT_VERSION_SYNC_{stamp}";backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(p,backup/p.name)
+    s=p.read_text(encoding="utf-8")
+    old='STUDIO_VERSION="0.20.19.0"\n'
+    new='try:\n    from rg_studio_version import STUDIO_VERSION\nexcept Exception:\n    STUDIO_VERSION="0.20.20.1"\n'
+    if old in s:s=s.replace(old,new,1)
+    elif "from rg_studio_version import STUDIO_VERSION" not in s:raise RuntimeError("production40 version anchor missing")
+    tmp=p.with_suffix(".boot_sync.tmp.py");tmp.write_text(s,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True);os.replace(tmp,p)
+    vs=vp.read_text(encoding="utf-8",errors="replace")
+    import re
+    m=re.search(r'STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',vs);ver=m.group(1) if m else "0.20.20.1"
+    boot=data/"boot_ok.json"
+    t=boot.with_suffix(".tmp");t.write_text(json.dumps({"schema":"RG_BOOT_OK_V2","version":ver,"pid":0,"ts":time.time(),"source":"BOOT_VERSION_SYNC"},ensure_ascii=False,indent=2),encoding="utf-8");os.replace(t,boot)
+    return {"status":"PASS","version":ver,"production40_dynamic_version":True,"boot_ok":str(boot),"backup":str(backup)}
+
+
 def apply_auto_edit_ui_responsiveness_hotfix() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import datetime,py_compile,re,subprocess,time
@@ -13413,6 +13437,7 @@ ACTIONS = {
     "inspect_auto_edit_ui_freeze_runtime": inspect_auto_edit_ui_freeze_runtime,
     "inspect_auto_edit_startup_hotspots": inspect_auto_edit_startup_hotspots,
     "apply_auto_edit_ui_responsiveness_hotfix": apply_auto_edit_ui_responsiveness_hotfix,
+    "apply_auto_edit_boot_version_sync_hotfix": apply_auto_edit_boot_version_sync_hotfix,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
