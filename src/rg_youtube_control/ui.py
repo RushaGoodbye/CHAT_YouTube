@@ -1115,7 +1115,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(header)
 
         next_action = QFrame()
-        next_action.setObjectName("QueueCard")
+        next_action.setObjectName("NextActionCard")
         next_action_layout = QVBoxLayout(next_action)
         next_action_layout.setContentsMargins(18, 14, 18, 14)
         next_action_layout.setSpacing(8)
