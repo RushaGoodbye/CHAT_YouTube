@@ -13559,7 +13559,7 @@ def run_auto_edit_updater_smoke_020201() -> dict:
         state=json.loads((data/"update_supervisor_state.json").read_text(encoding="utf-8-sig"))
         marker=json.loads((data/"updater_smoke_020201.json").read_text(encoding="utf-8-sig"))
         vp=(app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
-        m=re.search(r'STUDIO_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']',vp);actual=m.group(1) if m else ""
+        m=re.search(r"STUDIO_VERSION\\s*=\\s*[\"']([^\"']+)[\"']",vp);actual=m.group(1) if m else ""
         if not (cp.returncode==0 and state.get("phase")=="PASS" and state.get("target_version")==version and marker.get("version")==version and actual==version):
             raise RuntimeError("Updater smoke verification failed")
         detail={"request_id":req,"phase":"PASS","version":actual,"snapshot":state.get("snapshot")}
