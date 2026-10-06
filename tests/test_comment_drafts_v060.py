@@ -464,3 +464,27 @@ def test_comment_background_tasks_do_not_touch_ui_sqlite_connection():
                 )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 assert node.func.id != "local_safe_template_candidate"
+
+
+def test_review_long_statement_is_skipped():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason(
+        "Правду узкий говорит! Очереди на заправках минут на сорок, бензина почти нет."
+    ) == "non_question_review"
+
+
+def test_review_aphorism_without_question_is_skipped():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason(
+        "Глухому не расскажешь, слепому не покажешь, а дураку ничего не докажешь"
+    ) == "non_question_review"
+
+
+def test_review_clear_question_still_passes_gate():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason(
+        "Почему снова такие очереди на заправках?"
+    ) == ""
