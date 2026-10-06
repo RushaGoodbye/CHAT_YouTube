@@ -254,6 +254,8 @@ def sync_specific_videos(
             "profile": client.profile,
             "channel_id": snippet.get("channelId"),
             "title": snippet.get("title", ""),
+            "description": snippet.get("description", ""),
+            "tags": snippet.get("tags", []) or [],
             "published_at": snippet.get("publishedAt"),
             "scheduled_publish_at": status.get("publishAt"),
             "privacy_status": status.get("privacyStatus"),
