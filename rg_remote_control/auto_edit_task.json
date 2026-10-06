@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_windows_service.py",
-      "rg_update_supervisor.py"
-    ]
-  },
-  "nonce": "inspect-terminate-process-and-supervisor-20261006-2342"
+  "action": "apply_auto_edit_updater_supervisor_v3",
+  "args": {},
+  "nonce": "deploy-all-studio-process-close-and-runner-independent-relaunch-20261006-2345"
 }
