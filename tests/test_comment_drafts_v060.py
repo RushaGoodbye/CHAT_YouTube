@@ -488,3 +488,19 @@ def test_review_clear_question_still_passes_gate():
     assert _comment_reply_precheck_reason(
         "Почему снова такие очереди на заправках?"
     ) == ""
+
+
+def test_comment_analysis_export_is_zero_quota_local_csv():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.export_comments_for_analysis)
+    assert "FROM comments c" in source
+    assert "JOIN videos v" in source
+    assert "raw_json" in source
+    assert "draft_reason" in source
+    assert "moderation_status" in source
+    assert "like_count" in source
+    assert "viewer_rating" in source
+    assert "YouTube API: 0" in source
+    assert "self.client" not in source
