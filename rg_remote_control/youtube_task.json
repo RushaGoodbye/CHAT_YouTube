@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_install_nas_first",
+  "action": "youtube_local_cleanup_redundant_nas_agent",
   "args": {
-    "nonce": "nas-first-migration-20261006-v2"
+    "nonce": "cleanup-temp-youtube-agent-20261006"
   }
 }
