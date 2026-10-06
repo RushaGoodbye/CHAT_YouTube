@@ -11,12 +11,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: rg-youtube-control
+  cancel-in-progress: false
+
 
 jobs:
   run:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
       - name: Validate YouTube contour
         shell: powershell
         run: |
