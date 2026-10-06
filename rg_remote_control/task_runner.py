@@ -2788,35 +2788,44 @@ def ensure_github_runner_persistence() -> dict:
 
     if not service["installed"]:
         appdata = os.environ.get("APPDATA")
-        if not appdata:
-            raise RuntimeError("APPDATA is unavailable; cannot install startup fallback")
-
-        startup_dir = (
-            Path(appdata)
-            / "Microsoft"
-            / "Windows"
-            / "Start Menu"
-            / "Programs"
-            / "Startup"
-        )
-        startup_dir.mkdir(parents=True, exist_ok=True)
-        startup_file = startup_dir / "RG_GITHUB_RUNNER.vbs"
-        vbs = (
-            'Set WshShell = CreateObject("WScript.Shell")\r\n'
-            'WshShell.Run "cmd.exe /c ""cd /d C:\\RG_GITHUB_RUNNER && call run.cmd""", 0, False\r\n'
-        )
-        startup_file.write_text(vbs, encoding="utf-8", newline="")
-        fallback_enabled = startup_file.is_file()
+        if appdata:
+            startup_file = (
+                Path(appdata)
+                / "Microsoft"
+                / "Windows"
+                / "Start Menu"
+                / "Programs"
+                / "Startup"
+                / "RG_GITHUB_RUNNER.vbs"
+            )
+            # Old persistence used both Startup and a minute watchdog, which
+            # could race and create duplicate Runner.Listener sessions.
+            try:
+                if startup_file.is_file():
+                    startup_file.unlink()
+            except Exception:
+                pass
 
         watchdog_script = runner_dir / "runner_watchdog.ps1"
         watchdog_script.write_text(
             (
                 "$ErrorActionPreference = 'SilentlyContinue'\n"
-                "$root = 'C:\\RG_GITHUB_RUNNER'\n"
-                "$listener = Get-CimInstance Win32_Process -Filter \"Name='Runner.Listener.exe'\" | "
-                "Where-Object { $_.CommandLine -like '*C:\\RG_GITHUB_RUNNER*' }\n"
-                "if (-not $listener) {\n"
-                "  Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','cd /d C:\\RG_GITHUB_RUNNER && call run.cmd' -WindowStyle Hidden\n"
+                "$mutex = New-Object System.Threading.Mutex($false, 'Global\\RG_GITHUB_RUNNER_WATCHDOG_MUTEX')\n"
+                "$locked = $false\n"
+                "try {\n"
+                "  $locked = $mutex.WaitOne(0)\n"
+                "  if (-not $locked) { exit 0 }\n"
+                "  $root = 'C:\\RG_GITHUB_RUNNER'\n"
+                "  $listener = Get-CimInstance Win32_Process -Filter \"Name='Runner.Listener.exe'\" | "
+                "Where-Object { $_.ExecutablePath -like 'C:\\RG_GITHUB_RUNNER\\*' -or $_.CommandLine -like '*C:\\RG_GITHUB_RUNNER*' }\n"
+                "  $launcher = Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\" | "
+                "Where-Object { $_.CommandLine -like '*C:\\RG_GITHUB_RUNNER*run.cmd*' }\n"
+                "  if (-not $listener -and -not $launcher) {\n"
+                "    Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','cd /d C:\\RG_GITHUB_RUNNER && call run.cmd' -WindowStyle Hidden\n"
+                "  }\n"
+                "} finally {\n"
+                "  if ($locked) { $mutex.ReleaseMutex() | Out-Null }\n"
+                "  $mutex.Dispose()\n"
                 "}\n"
             ),
             encoding="utf-8",
@@ -2842,6 +2851,7 @@ def ensure_github_runner_persistence() -> dict:
         watchdog["stdout"] = task["stdout"][-4000:]
         watchdog["stderr"] = task["stderr"][-4000:]
         watchdog["task_created"] = task["exit_code"] == 0
+        fallback_enabled = watchdog["task_created"]
 
     persistent = bool(
         service["installed"]
@@ -2861,9 +2871,9 @@ def ensure_github_runner_persistence() -> dict:
             "Service is installed and will start with Windows."
             if service["installed"]
             else (
-                "Per-user startup fallback and one-minute watchdog are installed."
+                "Single one-minute watchdog is installed with duplicate-session protection."
                 if watchdog["task_created"]
-                else "Hidden per-user startup fallback is installed and will start at next sign-in."
+                else "Runner persistence could not be installed."
             )
         ),
     }
