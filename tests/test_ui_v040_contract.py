@@ -111,3 +111,12 @@ def test_local_seo_batch_has_candidate_timeout() -> None:
     assert "daemon=True" in block
     assert "fast_mode=True" in block
     assert "Кандидат пропущено автоматично." in block
+
+
+def test_batch_seo_requires_transcript_grounding() -> None:
+    source = _ui_source()
+    start = source.index("    def _generate_local_seo_result")
+    end = source.index("\n    def _normalize_local_seo_package", start)
+    block = source[start:end]
+    assert "if fast_mode and not transcript.strip():" in block
+    assert "немає транскрипту для фактчекінгу" in block
