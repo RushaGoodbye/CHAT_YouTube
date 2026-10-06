@@ -1230,6 +1230,31 @@ def cleanup_redundant_youtube_nas_agent() -> dict:
     }
 
 
+
+def recent_local_errors(task: dict) -> dict:
+    """Return recent local-tool errors from the RG YouTube Control action log."""
+    limit = max(1, min(int((task.get("args") or {}).get("limit") or 20), 100))
+    conn = sqlite3.connect(_db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT log_id,profile,category,action,details,created_at
+               FROM action_log
+               WHERE category='локально'
+                 AND action='Помилка локального інструмента'
+               ORDER BY log_id DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return {
+            "youtube_api_calls": 0,
+            "count": len(rows),
+            "items": [dict(row) for row in rows],
+        }
+    finally:
+        conn.close()
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3424,6 +3449,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_recent_errors":
+        result = recent_local_errors(task)
     elif action == "youtube_local_cleanup_redundant_nas_agent":
         result = cleanup_redundant_youtube_nas_agent()
     elif action == "youtube_local_install_boot_ready":
