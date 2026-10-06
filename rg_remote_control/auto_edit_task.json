@@ -4,14 +4,8 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_studio_main.py",
-      "rg_stability_ux25.py",
-      "rg_windows_service.py",
-      "rg_studio_update_worker.py",
-      "rg_studio_version.py",
-      "rg_process_cleanup.py",
-      "rg_pack500_reliability.py"
+      "rg_studio_main.py"
     ]
   },
-  "nonce": "inspect-production40-files"
+  "nonce": "inspect-main-production40"
 }
