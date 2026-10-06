@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.6.3 safe auto-reply library finalized."""
+"""RG YouTube Control package. 0.6.3 SQLite-safe comment workers."""
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
