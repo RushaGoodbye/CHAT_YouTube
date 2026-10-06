@@ -4136,6 +4136,21 @@ def _ensure_unity_audio_levels(clip):
             "xmls":patched,"audio_policy":"ORIGINAL_SOURCE_DIRECT + explicit Premiere unity level 1.0; no normalization/compression/EQ/resample/gain change"}
 
 
+
+def inspect_auto_edit_premiere_audio_direct_branch() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_premiere_native_xml.py")
+    rows=p.read_text(encoding="utf-8",errors="replace").splitlines()
+    a=535;b=min(len(rows),730)
+    return {
+      "path":str(p),
+      "compile":True,
+      "span":"\n".join(f"{i+1}: {rows[i]}" for i in range(a-1,b)),
+      "unity_call_lines":[i+1 for i,x in enumerate(rows) if "_ensure_unity_audio_levels(" in x],
+      "panner_inverted_lines":[i+1 for i,x in enumerate(rows) if "PannerIsInverted" in x],
+    }
+
+
 def inspect_auto_edit_audio_generator_code() -> dict:
     if os.name!="nt": raise RuntimeError("Windows only")
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
@@ -10006,6 +10021,7 @@ ACTIONS = {
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
     "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
+    "inspect_auto_edit_premiere_audio_direct_branch": inspect_auto_edit_premiere_audio_direct_branch,
     "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
