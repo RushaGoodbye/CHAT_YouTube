@@ -350,6 +350,7 @@ def save_comment_draft(
     if row is None or str(row["status"] or "") != "new":
         return False
     reply = str(reply_text or "").strip()
+    reply = reply.replace("—", "-").replace("–", "-")
     if state == "ready" and not reply:
         raise ValueError("Ready draft must contain text")
     if state != "ready":
