@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "install_rg_resilience",
+  "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "install-rg-resilience-20261006-1201"
+  "nonce": "repair-rg-resilience-20261006-1210"
 }
