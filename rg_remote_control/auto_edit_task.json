@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_updater_supervisor_v3",
+  "action": "install_auto_edit_master60_r1_direct",
   "args": {},
-  "nonce": "deploy-all-studio-process-close-and-runner-independent-relaunch-20261006-2345"
+  "nonce": "direct-install-master60-r1-after-process-fix-20261006-2343"
 }
