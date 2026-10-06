@@ -11263,6 +11263,8 @@ def _apply_events_to_clean_xml(xml_path, mapped_events, *, mute_db=DEFAULT_MUTE_
 
 '''
     new_code=code[:start]+replacement+code[end+1:]
+    if "\nimport math\n" not in new_code:
+        new_code=new_code.replace("import json\n", "import json\nimport math\n", 1)
     new_code=new_code.replace(
         'VERSION = "RG_DIALOGUE_PROFANITY_AUDIO_V1_REVERSIBLE"',
         'VERSION = "RG_DIALOGUE_PROFANITY_AUDIO_V2_KEYFRAMES"'
