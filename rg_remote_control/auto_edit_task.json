@@ -1,7 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_ui_freeze_runtime",
-  "args": {},
-  "nonce": "inspect-ui-freeze-runtime-020200-20261006-2351"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_studio_ui.py",
+      "rg_master60.py",
+      "rg_production40.py",
+      "rg_stability_ux25.py"
+    ]
+  },
+  "nonce": "inspect-freeze-functions-master60-020200-20261006-2353"
 }
