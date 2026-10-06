@@ -4401,6 +4401,7 @@ def inspect_auto_edit_901_audio_schema_compact() -> dict:
 
 
 def _update_020201_test(name,status,detail=None):
+    import time
     p=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\stabilization_020201.json")
     try:d=json.loads(p.read_text(encoding="utf-8-sig"))
     except Exception:d={"schema":"RG_020201_STABILIZATION_V1","version":"0.20.20.1","tests":{}}
@@ -4416,6 +4417,7 @@ def run_auto_edit_886_short_smoke() -> dict:
     runtime=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe")
     local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
     stream="886"; folder=app/stream
+    if str(app) not in sys.path:sys.path.insert(0,str(app))
     try:
         for n in ("rg_production_wrapper.py","rg_multi_dialogue.py","rg_studio_postrun.py","VALIDATE_PREMIERE_XML.py"):
             py_compile.compile(str(app/n),doraise=True)
