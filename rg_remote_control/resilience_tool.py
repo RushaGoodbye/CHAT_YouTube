@@ -493,6 +493,115 @@ def patch_autodeploy_loop(loop_path: Path, backup_dir: Path) -> dict:
 
 
 
+
+def repair_nas_scheduler_runtime() -> dict:
+    """Ensure NAS autodeploy, guard and MCP tick are alive without GitHub."""
+    ssh = r"C:\WINDOWS\System32\OpenSSH\ssh.exe"
+    if not Path(ssh).is_file():
+        return {
+            "ok": False,
+            "reason": "ssh_missing",
+            "ssh": ssh,
+        }
+
+    script = r'''
+set -eu
+ROOT=/volume1/docker
+STATE="$ROOT/RG_NAS_STATE"
+HB="$STATE/rg_resilience_heartbeat_at"
+CENTER="$STATE/RG_CONTROL_CENTER.json"
+
+age_file() {
+  P="$1"
+  if [ ! -f "$P" ]; then
+    echo 999999
+    return
+  fi
+  NOW="$(date +%s)"
+  MT="$(stat -c %Y "$P" 2>/dev/null || echo 0)"
+  echo $((NOW-MT))
+}
+
+BEFORE="$(age_file "$HB")"
+CONTAINER="missing"
+RESTARTED="false"
+
+if docker inspect rg-nas-autodeploy >/dev/null 2>&1; then
+  CONTAINER="$(docker inspect -f '{{.State.Status}}' rg-nas-autodeploy 2>/dev/null || echo unknown)"
+  if [ "$CONTAINER" != "running" ] || [ "$BEFORE" -gt 120 ]; then
+    docker restart rg-nas-autodeploy >/dev/null
+    RESTARTED="true"
+    sleep 3
+    CONTAINER="$(docker inspect -f '{{.State.Status}}' rg-nas-autodeploy 2>/dev/null || echo unknown)"
+  fi
+fi
+
+# A direct guard/tick pass makes recovery immediate even if the loop is
+# between iterations. These scripts are NAS-local and do not use GitHub.
+if [ -f "$ROOT/RG_NAS_MCP_GUARD.sh" ]; then
+  sh "$ROOT/RG_NAS_MCP_GUARD.sh" >/tmp/rg_guard_repair.log 2>&1 || true
+fi
+if [ -f "$ROOT/RG_NAS_MCP_TICK.sh" ]; then
+  sh "$ROOT/RG_NAS_MCP_TICK.sh" >/tmp/rg_tick_repair.log 2>&1 || true
+fi
+
+sleep 2
+AFTER="$(age_file "$HB")"
+CENTER_AGE="$(age_file "$CENTER")"
+
+printf 'container=%s\n' "$CONTAINER"
+printf 'restarted=%s\n' "$RESTARTED"
+printf 'heartbeat_age_before=%s\n' "$BEFORE"
+printf 'heartbeat_age_after=%s\n' "$AFTER"
+printf 'control_center_age=%s\n' "$CENTER_AGE"
+printf '%s\n' '---guard---'
+tail -n 80 /tmp/rg_guard_repair.log 2>/dev/null || true
+printf '%s\n' '---tick---'
+tail -n 80 /tmp/rg_tick_repair.log 2>/dev/null || true
+'''
+    result = run(
+        [
+            ssh,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=yes",
+            "AlexLosServer",
+            "sh", "-c", script,
+        ],
+        timeout=180,
+    )
+
+    values = {}
+    for line in (result.get("stdout") or "").splitlines():
+        if "=" in line and not line.startswith("---"):
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+
+    try:
+        hb_after = int(values.get("heartbeat_age_after", "999999"))
+    except Exception:
+        hb_after = 999999
+    try:
+        center_after = int(values.get("control_center_age", "999999"))
+    except Exception:
+        center_after = 999999
+
+    return {
+        "ok": bool(
+            result["exit_code"] == 0
+            and values.get("container") == "running"
+            and hb_after <= 120
+            and center_after <= 120
+        ),
+        "values": values,
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"][-12000:],
+        "stderr": result["stderr"][-12000:],
+        "github_required": False,
+    }
+
+
+
 def stage_mcp_source_to_nas() -> dict:
     source = ROOT / "rg_remote_mcp"
     target = MCP_ROOT / "SOURCE"
@@ -540,6 +649,7 @@ def install() -> dict:
 
     loop = patch_autodeploy_loop(NAS_ROOT / "RG_NAS_AUTODEPLOY_LOOP.sh", backup_dir)
     mcp_stage = stage_mcp_source_to_nas()
+    nas_scheduler = repair_nas_scheduler_runtime()
     agent = install_alexpc_agent()
     runner_fallback = disable_github_runner_autostart()
 
@@ -578,6 +688,7 @@ def install() -> dict:
         "copied": copied,
         "autodeploy_loop": loop,
         "mcp_stage": mcp_stage,
+        "nas_scheduler": nas_scheduler,
         "alexpc_agent": agent,
         "github_runner_fallback": runner_fallback,
         "backup_dir": str(backup_dir),
