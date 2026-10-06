@@ -3,5 +3,5 @@
   "contour": "auto_edit",
   "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "migrate-control-plane-to-nas-20261006-1"
+  "nonce": "deploy-direct-agent-health-20261006-1240"
 }
