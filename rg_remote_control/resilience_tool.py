@@ -137,6 +137,19 @@ try {
         "/TN", TASK_BOOT, "/TR", cmd, "/F"
     ], timeout=30)
 
+    startup_vbs = None
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        startup_dir.mkdir(parents=True, exist_ok=True)
+        startup_vbs = startup_dir / "RG_GITHUB_RUNNER_BOOT.vbs"
+        ps_cmd = str(keepalive).replace('"', '""')
+        startup_vbs.write_text(
+            'Set sh = CreateObject("WScript.Shell")\n'
+            'sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + ps_cmd + '""", 0, False\n',
+            encoding="utf-8",
+        )
+
     if keep["exit_code"] == 0:
         run([r"C:\Windows\System32\schtasks.exe", "/Change", "/TN", OLD_TASK, "/DISABLE"], timeout=20)
 
@@ -145,6 +158,7 @@ try {
         "service": service,
         "keepalive_task": keep,
         "boot_task": boot,
+        "startup_fallback": str(startup_vbs) if startup_vbs else None,
         "script": str(keepalive),
         "old_watchdog_disabled": keep["exit_code"] == 0,
     }
