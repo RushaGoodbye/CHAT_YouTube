@@ -3378,21 +3378,36 @@ class MainWindow(QMainWindow):
             for item in history
         )
         if draft == "ready":
-            next_text = "Перевірено. Можна застосувати зміни в YouTube."
-            self.context_primary_btn.setText("Застосувати в YouTube")
+            can_write = self._quota_write_available(
+                VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
+            )
+            if can_write:
+                next_text = "Перевірено. Можна застосувати зміни в YouTube."
+                self.context_primary_btn.setText("Застосувати в YouTube")
+                self.context_primary_btn.setEnabled(True)
+            else:
+                next_text = (
+                    "Пакет готовий, але квота зараз у захищеному резерві. "
+                    "Застосування автоматично розблокується після відновлення квоти."
+                )
+                self.context_primary_btn.setText("Квота в резерві")
+                self.context_primary_btn.setEnabled(False)
             if hasattr(self, "context_discard_btn"):
                 self.context_discard_btn.setVisible(False)
         elif draft == "applied":
+            self.context_primary_btn.setEnabled(True)
             next_text = "Зміни вже застосовані. Далі - контроль результату."
             self.context_primary_btn.setText("Переглянути результат")
             if hasattr(self, "context_discard_btn"):
                 self.context_discard_btn.setVisible(False)
         elif draft == "draft":
+            self.context_primary_btn.setEnabled(True)
             next_text = "Пакет підготовлено. Потрібна перевірка перед YouTube."
             self.context_primary_btn.setText("Перевірити")
             if hasattr(self, "context_discard_btn"):
                 self.context_discard_btn.setVisible(True)
         else:
+            self.context_primary_btn.setEnabled(True)
             next_text = "Пакета ще немає. Спочатку потрібно підготувати метадані."
             self.context_primary_btn.setText("Підготувати")
             if hasattr(self, "context_discard_btn"):
@@ -9039,12 +9054,59 @@ class MainWindow(QMainWindow):
 
         return dialog.exec() == QDialog.DialogCode.Accepted
 
+    def _quota_write_available(self, cost: int = VIDEO_UPDATE_COST) -> bool:
+        budget = quota_budget_status(self.conn)
+        return (
+            not bool(budget["exhausted"])
+            and int(budget["spendable"]) >= max(1, int(cost))
+        )
+
+    @staticmethod
+    def _normalized_tag_set(tags: list[str]) -> list[str]:
+        return sorted(
+            {
+                " ".join(str(item or "").split()).casefold()
+                for item in (tags or [])
+                if str(item or "").strip()
+            }
+        )
+
+    def _verify_applied_metadata(
+        self,
+        video_id: str,
+        *,
+        expected_title: str | None = None,
+        expected_description: str | None = None,
+        expected_tags: list[str] | None = None,
+    ) -> tuple[bool, str]:
+        actual_title, actual_description, actual_tags = (
+            self._current_video_metadata(video_id)
+        )
+        mismatches: list[str] = []
+        if expected_title is not None and actual_title.strip() != str(
+            expected_title
+        ).strip():
+            mismatches.append("назва")
+        if expected_description is not None and actual_description.strip() != str(
+            expected_description
+        ).strip():
+            mismatches.append("опис")
+        if expected_tags is not None and self._normalized_tag_set(
+            actual_tags
+        ) != self._normalized_tag_set(expected_tags):
+            mismatches.append("теги")
+        if mismatches:
+            return False, ", ".join(mismatches)
+        return True, "OK"
+
     def apply_content_package(self) -> None:
-        if quota_exhausted(self.conn):
+        required_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
+        if not self._quota_write_available(required_cost):
             QMessageBox.information(
                 self,
-                "Квоту YouTube вичерпано",
-                "Застосування пакета заблоковано до наступного квотного дня.",
+                "Квота в резерві",
+                "Застосування заблоковано, щоб не витрачати захищений резерв.\n\n"
+                "Пакет залишиться готовим і буде доступний після відновлення квоти.",
             )
             return
         video_ids = self._selected_optimization_video_ids()
@@ -9155,12 +9217,44 @@ class MainWindow(QMainWindow):
                 description=final_description,
                 tags=new_tags,
             )
+            verified, verify_reason = self._verify_applied_metadata(
+                video_id,
+                expected_title=new_title,
+                expected_description=final_description,
+                expected_tags=new_tags,
+            )
+            if not verified:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="діагностика",
+                    action="Контроль після запису не пройдено",
+                    details=f"{video_id}: {verify_reason}",
+                )
+                raise RuntimeError(
+                    "YouTube відповів на запис, але контрольне читання не "
+                    f"підтвердило поля: {verify_reason}. Точка відкату збережена."
+                )
+
             record_optimization_event(
                 self.conn, history_id=history_id, video_id=video_id,
                 profile=self.current_profile, reason="content_package",
                 changed_fields="назва + опис + теги",
             )
             set_optimization_draft_status(self.conn, video_id, "applied")
+            annotate_optimization_draft(
+                self.conn,
+                video_id,
+                quality_state="safe",
+                quality_reason="Застосовано і підтверджено контрольним читанням",
+            )
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="рішення",
+                action="Пакет застосовано",
+                details=f"{video_id}: контроль YouTube OK",
+            )
             deep_state = deep_review_state_map(
                 self.conn,
                 self.current_profile,
@@ -9177,11 +9271,17 @@ class MainWindow(QMainWindow):
             self.reload_videos()
             self.reload_optimization_queue()
             self._advance_archive_campaign()
-            self._set_process_idle("YouTube оновлено · точка відкату збережена")
+            self._set_process_idle("YouTube оновлено · контроль пройдено")
             self._toast(
-                "✓ Пакет застосовано · точка відкату збережена · "
-                "кнопка «Відкотити» доступна для вибраного відео",
+                "✓ Застосовано · контроль YouTube OK · точка відкату збережена",
                 7000,
+            )
+            QMessageBox.information(
+                self,
+                "Готово",
+                "Зроблено: пакет застосовано і перевірено контрольним читанням.\n"
+                "Не зроблено: інші відео не змінювались.\n"
+                "Далі: програма визначить наступну дію на екрані «Сьогодні».",
             )
         except Exception as exc:
             self._error("Помилка застосування пакета", exc)
