@@ -12033,6 +12033,29 @@ def apply_auto_edit_service_process_stream_fix() -> dict:
     return {"status":"PASS","marker":"RG_SERVICE_PROCESS_STREAM_FIX_V1","backup":str(b),"compiled":True}
 
 
+
+def inspect_auto_edit_powershell_usage() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for p in sorted(app.glob("*.py")):
+        try:
+            txt=p.read_text(encoding="utf-8",errors="replace")
+        except Exception:
+            continue
+        rows=txt.splitlines()
+        hits=[]
+        for i,row in enumerate(rows):
+            low=row.lower()
+            if "powershell.exe" in low or "get-ciminstance" in low or "tasklist" in low or "stop-process" in low or "start-process" in low:
+                a=max(0,i-5);b=min(len(rows),i+8)
+                hits.append({"line":i+1,"snippet":"\n".join(f"{k+1}: {rows[k]}" for k in range(a,b))})
+        if hits:
+            out[p.name]={"size":p.stat().st_size,"hits":hits[:30]}
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12109,6 +12132,7 @@ ACTIONS = {
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
+    "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
