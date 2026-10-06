@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - "rg_remote_control/youtube_task.json"
-      - ".github/workflows/rg-youtube-control.yml"
   workflow_dispatch:
 
 permissions:
