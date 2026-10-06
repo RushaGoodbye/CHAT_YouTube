@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS optimization_drafts (
   tags_json TEXT NOT NULL DEFAULT '[]',
   title_variants_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'draft',
+  generation TEXT NOT NULL DEFAULT 'legacy',
+  quality_state TEXT NOT NULL DEFAULT '',
+  quality_reason TEXT NOT NULL DEFAULT '',
+  source_title TEXT NOT NULL DEFAULT '',
+  source_description TEXT NOT NULL DEFAULT '',
+  source_tags_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_optimization_drafts_status
@@ -144,6 +150,15 @@ def connect(path: Path) -> sqlite3.Connection:
         "title_variants_json",
         "TEXT NOT NULL DEFAULT '[]'",
     )
+    for column, definition in (
+        ("generation", "TEXT NOT NULL DEFAULT 'legacy'"),
+        ("quality_state", "TEXT NOT NULL DEFAULT ''"),
+        ("quality_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("source_title", "TEXT NOT NULL DEFAULT ''"),
+        ("source_description", "TEXT NOT NULL DEFAULT ''"),
+        ("source_tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ):
+        _ensure_column(conn, "optimization_drafts", column, definition)
     for profile, channel_id in PROFILE_TARGETS.items():
         conn.execute(
             "UPDATE videos SET profile=? "
@@ -364,12 +379,59 @@ def save_optimization_draft(
     tags: list[str] | None,
     status: str = "draft",
     title_variants: list[str] | None = None,
+    *,
+    generation: str | None = None,
+    quality_state: str | None = None,
+    quality_reason: str | None = None,
+    source_title: str | None = None,
+    source_description: str | None = None,
+    source_tags: list[str] | None = None,
 ) -> None:
+    existing = conn.execute(
+        """SELECT generation,quality_state,quality_reason,
+                  source_title,source_description,source_tags_json
+           FROM optimization_drafts WHERE video_id=?""",
+        (video_id,),
+    ).fetchone()
+
+    generation_value = str(
+        generation
+        if generation is not None
+        else (existing["generation"] if existing else "manual")
+    )
+    quality_state_value = str(
+        quality_state
+        if quality_state is not None
+        else (existing["quality_state"] if existing else "")
+    )
+    quality_reason_value = str(
+        quality_reason
+        if quality_reason is not None
+        else (existing["quality_reason"] if existing else "")
+    )
+    source_title_value = str(
+        source_title
+        if source_title is not None
+        else (existing["source_title"] if existing else "")
+    )
+    source_description_value = str(
+        source_description
+        if source_description is not None
+        else (existing["source_description"] if existing else "")
+    )
+    if source_tags is not None:
+        source_tags_json = json.dumps(source_tags, ensure_ascii=False)
+    elif existing:
+        source_tags_json = str(existing["source_tags_json"] or "[]")
+    else:
+        source_tags_json = "[]"
+
     conn.execute(
         """INSERT INTO optimization_drafts(
             video_id,new_title,description,chapters,tags_json,title_variants_json,
-            status,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?)
+            status,generation,quality_state,quality_reason,source_title,
+            source_description,source_tags_json,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(video_id) DO UPDATE SET
           new_title=excluded.new_title,
           description=excluded.description,
@@ -377,6 +439,12 @@ def save_optimization_draft(
           tags_json=excluded.tags_json,
           title_variants_json=excluded.title_variants_json,
           status=excluded.status,
+          generation=excluded.generation,
+          quality_state=excluded.quality_state,
+          quality_reason=excluded.quality_reason,
+          source_title=excluded.source_title,
+          source_description=excluded.source_description,
+          source_tags_json=excluded.source_tags_json,
           updated_at=excluded.updated_at""",
         (
             video_id,
@@ -386,8 +454,57 @@ def save_optimization_draft(
             json.dumps(tags or [], ensure_ascii=False),
             json.dumps(title_variants or [], ensure_ascii=False),
             status,
+            generation_value,
+            quality_state_value,
+            quality_reason_value,
+            source_title_value,
+            source_description_value,
+            source_tags_json,
             utc_now(),
         ),
+    )
+    conn.commit()
+
+
+def annotate_optimization_draft(
+    conn: sqlite3.Connection,
+    video_id: str,
+    *,
+    generation: str | None = None,
+    quality_state: str | None = None,
+    quality_reason: str | None = None,
+    source_title: str | None = None,
+    source_description: str | None = None,
+    source_tags: list[str] | None = None,
+) -> None:
+    fields: list[str] = []
+    values: list[Any] = []
+    if generation is not None:
+        fields.append("generation=?")
+        values.append(str(generation))
+    if quality_state is not None:
+        fields.append("quality_state=?")
+        values.append(str(quality_state))
+    if quality_reason is not None:
+        fields.append("quality_reason=?")
+        values.append(str(quality_reason))
+    if source_title is not None:
+        fields.append("source_title=?")
+        values.append(str(source_title))
+    if source_description is not None:
+        fields.append("source_description=?")
+        values.append(str(source_description))
+    if source_tags is not None:
+        fields.append("source_tags_json=?")
+        values.append(json.dumps(source_tags, ensure_ascii=False))
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(utc_now())
+    values.append(video_id)
+    conn.execute(
+        f"UPDATE optimization_drafts SET {', '.join(fields)} WHERE video_id=?",
+        values,
     )
     conn.commit()
 
@@ -397,7 +514,9 @@ def get_optimization_draft(
 ) -> sqlite3.Row | None:
     return conn.execute(
         """SELECT video_id,new_title,description,chapters,tags_json,
-                  title_variants_json,status,updated_at
+                  title_variants_json,status,generation,quality_state,
+                  quality_reason,source_title,source_description,
+                  source_tags_json,updated_at
            FROM optimization_drafts
            WHERE video_id=?""",
         (video_id,),
