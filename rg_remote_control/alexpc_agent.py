@@ -21,6 +21,20 @@ POLL_SECONDS = 3
 CONTOURS = ("youtube", "telegram", "auto_edit")
 
 
+def acquire_single_instance():
+    if os.name != "nt":
+        return None
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.CreateMutexW(None, False, "Global\\RG_ALEXPC_AGENT_V1")
+    if not handle:
+        raise RuntimeError("Could not create RG AlexPC Agent mutex")
+    if kernel32.GetLastError() == 183:
+        kernel32.CloseHandle(handle)
+        return False
+    return handle
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -238,4 +252,7 @@ def run_loop() -> None:
 
 
 if __name__ == "__main__":
+    _mutex = acquire_single_instance()
+    if _mutex is False:
+        raise SystemExit(0)
     run_loop()
