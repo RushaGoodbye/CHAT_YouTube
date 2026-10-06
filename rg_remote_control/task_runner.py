@@ -12964,6 +12964,48 @@ def prepare_auto_edit_020201_candidate_snapshot() -> dict:
             "local":str(local),"files":len(rows),"compiled":len(compiled),"zip_crc":"PASS","state":str(sp)}
 
 
+
+def finalize_auto_edit_020201_stable() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import hashlib,zipfile,re,time
+    app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App");data=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data")
+    nas_root=Path(r"\\\\AlexLosServer\\RG_AUTO_EDIT\\BACKUPS");version="0.20.20.1"
+    sp=data/"stabilization_020201.json"
+    state=json.loads(sp.read_text(encoding="utf-8-sig"))
+    required=("886_PRODUCTION_SMOKE","PREVIEW_SMOKE","UPDATER_SMOKE")
+    bad=[k for k in required if (state.get("tests",{}).get(k) or {}).get("status")!="PASS"]
+    if bad:raise RuntimeError("Cannot promote, tests not PASS: "+",".join(bad))
+    vp=(app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
+    m=re.search(r'STUDIO_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']',vp)
+    if not m or m.group(1)!=version:raise RuntimeError("Current Studio version mismatch")
+    old_nas=Path(state["nas"]);old_local=Path(state["local"]);old_zip=Path(state["zip"])
+    stable_name=str(state["candidate"]).replace("_CANDIDATE_","_STABLE_")
+    nas=nas_root/stable_name;local=data/"LAST_KNOWN_GOOD"/stable_name;zpath=nas_root/(stable_name+".zip")
+    if nas.exists() or local.exists() or zpath.exists():raise RuntimeError("Stable target already exists")
+    shutil.move(str(old_nas),str(nas));shutil.move(str(old_local),str(local));shutil.move(str(old_zip),str(zpath))
+    cm=nas/"CANDIDATE_MARKER.json";marker=json.loads(cm.read_text(encoding="utf-8-sig"))
+    marker.update({"schema":"RG_AUTO_EDIT_STABLE_SNAPSHOT_V1","status":"STABLE_VERIFIED","version":version,"control_stream":"886",
+                   "tests":state.get("tests",{}),"promoted_at":time.time(),"nas_backup":str(nas),"local_last_known_good":str(local),"stable_zip":str(zpath)})
+    for root in (nas,local):(root/"STABLE_MARKER.json").write_text(json.dumps(marker,ensure_ascii=False,indent=2),encoding="utf-8")
+    with zipfile.ZipFile(zpath,"a",zipfile.ZIP_DEFLATED) as z:z.writestr("STABLE_MARKER.json",json.dumps(marker,ensure_ascii=False,indent=2).encode("utf-8"))
+    with zipfile.ZipFile(zpath) as z:
+        if z.testzip():raise RuntimeError("Stable ZIP CRC failed")
+    rs_path=data/"release_state.json"
+    try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
+    except Exception:rs={}
+    rs.update({"channel":"STABLE","studio_version":version,"test_version":version,"last_golden":version,"last_pass_stream":"886",
+               "stable_snapshot":str(nas),"stable_zip":str(zpath),"stable_control_stream":"886","stable_verified":True,"updated":time.time()})
+    rs_path.write_text(json.dumps(rs,ensure_ascii=False,indent=2),encoding="utf-8")
+    pointer={"schema":"RG_AUTO_EDIT_CURRENT_STABLE_V1","version":version,"backup":str(nas),"zip":str(zpath),"control_stream":"886",
+             "verified":True,"golden":True,"tests":state.get("tests",{}),"updated_at":time.time()}
+    (data/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (nas_root/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (data/"boot_ok.json").write_text(json.dumps({"schema":"RG_BOOT_OK_V2","version":version,"pid":0,"ts":time.time(),"source":"STABLE_PROMOTION"},ensure_ascii=False,indent=2),encoding="utf-8")
+    state.update({"status":"GOLDEN_STABLE","stable_name":stable_name,"nas":str(nas),"local":str(local),"zip":str(zpath),"promoted_at":time.time()})
+    sp.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+    return {"status":"GOLDEN_STABLE","version":version,"stable":stable_name,"nas":str(nas),"zip":str(zpath),"tests":state.get("tests",{})}
+
+
 def freeze_auto_edit_stable_020180() -> dict:
     if os.name!="nt":
         raise RuntimeError("Windows only")
@@ -13762,6 +13804,7 @@ ACTIONS = {
     "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
     "freeze_auto_edit_stable_020180": freeze_auto_edit_stable_020180,
     "prepare_auto_edit_020201_candidate_snapshot": prepare_auto_edit_020201_candidate_snapshot,
+    "finalize_auto_edit_020201_stable": finalize_auto_edit_020201_stable,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
