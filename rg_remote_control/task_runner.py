@@ -12480,6 +12480,24 @@ def freeze_auto_edit_stable_020180() -> dict:
     }
 
 
+
+def inspect_auto_edit_files_generic() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    task_path=Path(sys.argv[1] if len(sys.argv)>1 else "rg_remote_control/auto_edit_task.json")
+    task=json.loads(task_path.read_text(encoding="utf-8"))
+    names=[str(x) for x in ((task.get("args") or {}).get("files") or [])]
+    if not names or len(names)>20:raise RuntimeError("files requires 1..20 names")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for n in names:
+        p=(app/n).resolve()
+        if app.resolve() not in p.parents and p!=app.resolve():raise RuntimeError("outside app")
+        if not p.is_file():out[n]={"missing":True};continue
+        txt=p.read_text(encoding="utf-8-sig",errors="replace")
+        out[n]={"size":p.stat().st_size,"content":txt[:100000]}
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12558,6 +12576,7 @@ ACTIONS = {
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
+    "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
