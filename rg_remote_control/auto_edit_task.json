@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_windows_service_layer_v1",
+  "action": "restart_auto_edit_studio_ui",
   "args": {},
-  "nonce": "windows-service-v1-retry2"
+  "nonce": "restart-after-windows-service-v1"
 }
