@@ -13497,6 +13497,40 @@ def build_auto_edit_master60_update() -> dict:
             "regression":regression,"updater_required":"RG_UPDATE_SUPERVISOR_V3","installed":False}
 
 
+
+def run_auto_edit_updater_smoke_020201() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import hashlib,zipfile,subprocess,uuid,re
+    app=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit App");data=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Data")
+    runtime=Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe")
+    src=Path(__file__).resolve().parent/"INSTALL_UPDATER_SMOKE_020201.py"
+    version="0.20.20.1";pkg=data/"PACKAGES"/"RG_AUTO_EDIT_STUDIO_UPDATE_0.20.20.1_UPDATER_SMOKE.zip";pkg.parent.mkdir(parents=True,exist_ok=True)
+    b=src.read_bytes()
+    manifest={"schema":"RG_STUDIO_UPDATE_V2","product":"RG Auto Edit Studio","studio_version":version,"channel":"STABLE_CANDIDATE",
+              "summary":"Updater transaction smoke only","installer":src.name,
+              "files":[{"path":src.name,"size":len(b),"sha256":hashlib.sha256(b).hexdigest()}]}
+    with zipfile.ZipFile(pkg,"w",zipfile.ZIP_DEFLATED) as z:
+        z.writestr(src.name,b);z.writestr("RG_UPDATE_MANIFEST.json",json.dumps(manifest,ensure_ascii=False,indent=2).encode("utf-8"))
+    req="smoke_"+uuid.uuid4().hex[:10]
+    try:
+        cp=subprocess.run([str(runtime),"-u","-X","utf8",str(app/"rg_update_supervisor.py"),"--zip",str(pkg),"--parent-pid","0","--request-id",req],
+            cwd=str(app),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=300,creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+        state=json.loads((data/"update_supervisor_state.json").read_text(encoding="utf-8-sig"))
+        marker=json.loads((data/"updater_smoke_020201.json").read_text(encoding="utf-8-sig"))
+        vp=(app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
+        m=re.search(r'STUDIO_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']',vp);actual=m.group(1) if m else ""
+        if not (cp.returncode==0 and state.get("phase")=="PASS" and state.get("target_version")==version and marker.get("version")==version and actual==version):
+            raise RuntimeError("Updater smoke verification failed")
+        detail={"request_id":req,"phase":"PASS","version":actual,"snapshot":state.get("snapshot")}
+        _update_020201_test("UPDATER_SMOKE","PASS",detail)
+        return {"status":"PASS",**detail}
+    except Exception as exc:
+        _update_020201_test("UPDATER_SMOKE","FAIL",repr(exc));raise
+    finally:
+        try:pkg.unlink()
+        except Exception:pass
+
+
 def install_auto_edit_master60_r1_direct() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import re,subprocess,time,uuid
@@ -13660,6 +13694,7 @@ ACTIONS = {
     "build_auto_edit_production40_update": build_auto_edit_production40_update,
     "build_auto_edit_master60_update": build_auto_edit_master60_update,
     "install_auto_edit_master60_r1_direct": install_auto_edit_master60_r1_direct,
+    "run_auto_edit_updater_smoke_020201": run_auto_edit_updater_smoke_020201,
     "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
     "apply_auto_edit_pack100": apply_auto_edit_pack100,
     "verify_auto_edit_pack100": verify_auto_edit_pack100,
