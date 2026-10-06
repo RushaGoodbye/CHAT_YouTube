@@ -12056,6 +12056,27 @@ def inspect_auto_edit_powershell_usage() -> dict:
     return out
 
 
+
+def inspect_auto_edit_windows_service_targets() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    names=[
+      "rg_production_stability.py","rg_stability_ux25.py","rg_pack500_reliability.py",
+      "rg_process_cleanup.py","rg_studio_restart.py","rg_studio_update_worker.py",
+      "rg_gpu_scheduler.py","rg_mediapipe_tasks.py"
+    ]
+    out={}
+    for n in names:
+        p=app/n
+        if p.is_file():
+            txt=p.read_text(encoding="utf-8",errors="replace")
+            out[n]={"size":p.stat().st_size,"content":txt[:60000]}
+        else:
+            out[n]={"missing":True}
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12133,6 +12154,7 @@ ACTIONS = {
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
+    "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
