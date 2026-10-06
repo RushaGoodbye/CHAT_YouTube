@@ -140,3 +140,13 @@ def test_batch_seo_prioritizes_nas_transcripts() -> None:
     block = source[start:end]
     assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
     assert 'f"{video_id}.srt"' in block
+
+
+def test_local_seo_worker_never_uses_gui_nas_path() -> None:
+    source = _ui_source()
+    start = source.index("    def _generate_local_seo_result")
+    end = source.index("\n    def _normalize_local_seo_package", start)
+    block = source[start:end]
+    assert "self._nas_path(" not in block
+    assert 'SELECT value FROM settings WHERE key=?' in block
+    assert "normalize_nas_unc_path" in block
