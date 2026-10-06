@@ -221,6 +221,44 @@ def load_srt_transcript(path: str | Path) -> list[dict[str, Any]]:
     )
 
 
+def parse_webvtt_transcript(text: str) -> list[dict[str, Any]]:
+    """Parse a WebVTT caption track returned by YouTube."""
+    lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    rows: list[dict[str, Any]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if "-->" not in line:
+            index += 1
+            continue
+        left, right = [part.strip() for part in line.split("-->", 1)]
+        right = right.split()[0]
+        try:
+            start = _subtitle_timestamp_seconds(left)
+            end = _subtitle_timestamp_seconds(right)
+        except Exception:
+            index += 1
+            continue
+        index += 1
+        text_lines: list[str] = []
+        while index < len(lines) and lines[index].strip():
+            text_lines.append(lines[index].strip())
+            index += 1
+        caption = " ".join(text_lines)
+        caption = re.sub(r"<[^>]+>", "", caption)
+        caption = " ".join(caption.split())
+        if caption:
+            rows.append(
+                {
+                    "text": caption,
+                    "start": start,
+                    "duration": max(0.0, end - start),
+                }
+            )
+        index += 1
+    return rows
+
+
 def fetch_transcript_from_public_metadata(
     context: dict[str, Any],
     languages: Iterable[str] = ("uk", "ru", "en"),
@@ -247,19 +285,23 @@ def fetch_transcript_from_public_metadata(
                 key for key in keys
                 if key.casefold().startswith(wanted + "-") and key not in ordered
             )
+        # If YouTube exposes captions only under an unexpected locale, use
+        # them rather than treating the video as transcript-less.
+        ordered.extend(key for key in keys if key not in ordered)
 
         for language in ordered:
             formats = list(source.get(language) or [])
             formats.sort(
                 key=lambda item: (
-                    0 if str(item.get("ext") or "").casefold() == "json3" else 1,
-                    0 if "json3" in str(item.get("url") or "").casefold() else 1,
+                    0 if str(item.get("ext") or "").casefold() == "json3" else
+                    1 if str(item.get("ext") or "").casefold() in {"vtt", "webvtt"} else
+                    2
                 )
             )
             for item in formats:
                 url = str(item.get("url") or "").strip()
                 ext = str(item.get("ext") or "").casefold()
-                if not url or ext != "json3":
+                if not url or ext not in {"json3", "vtt", "webvtt"}:
                     continue
                 req = urllib.request.Request(
                     url,
@@ -272,12 +314,20 @@ def fetch_transcript_from_public_metadata(
                 )
                 try:
                     with urllib.request.urlopen(req, timeout=timeout) as response:
-                        payload = json.loads(
-                            response.read().decode("utf-8", errors="replace")
-                        )
+                        body = response.read().decode("utf-8", errors="replace")
                 except Exception:
                     continue
 
+                if ext in {"vtt", "webvtt"}:
+                    rows = parse_webvtt_transcript(body)
+                    if rows:
+                        return rows
+                    continue
+
+                try:
+                    payload = json.loads(body)
+                except Exception:
+                    continue
                 rows: list[dict[str, Any]] = []
                 for event in payload.get("events") or []:
                     segments = event.get("segs") or []
@@ -305,15 +355,65 @@ def fetch_transcript(
     video: str,
     languages: Iterable[str] = ("uk", "ru", "en"),
 ) -> list[dict[str, Any]]:
-    """Fetch an available YouTube transcript without YouTube Data API quota."""
+    """Fetch any usable YouTube transcript without YouTube Data API quota.
+
+    Prefer the requested languages, but do not reject a video merely because
+    YouTube labels its only caption track with another locale. When possible,
+    translate that track to Russian for a stable fact-grounding input.
+    """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
     except Exception as exc:
         raise RuntimeError("youtube-transcript-api не встановлено.") from exc
 
+    video_id = _video_id(video)
+    preferred = [str(item) for item in languages]
     api = YouTubeTranscriptApi()
-    transcript = api.fetch(_video_id(video), languages=list(languages))
-    rows = transcript.to_raw_data()
+
+    transcript_obj = None
+    transcript_list = api.list(video_id)
+    try:
+        transcript_obj = transcript_list.find_transcript(preferred)
+    except Exception:
+        candidates = list(transcript_list)
+        if candidates:
+            def rank(item: Any) -> tuple[int, int, str]:
+                code = str(getattr(item, "language_code", "") or "").casefold()
+                prefix_rank = min(
+                    (
+                        index
+                        for index, wanted in enumerate(preferred)
+                        if code == wanted.casefold()
+                        or code.startswith(wanted.casefold() + "-")
+                    ),
+                    default=len(preferred),
+                )
+                generated = 1 if bool(getattr(item, "is_generated", False)) else 0
+                return (prefix_rank, generated, code)
+
+            transcript_obj = sorted(candidates, key=rank)[0]
+
+    if transcript_obj is None:
+        return []
+
+    code = str(getattr(transcript_obj, "language_code", "") or "").casefold()
+    preferred_codes = {item.casefold() for item in preferred}
+    preferred_match = any(
+        code == wanted or code.startswith(wanted + "-")
+        for wanted in preferred_codes
+    )
+    if not preferred_match and bool(
+        getattr(transcript_obj, "is_translatable", False)
+    ):
+        for target in ("ru", "uk", "en"):
+            try:
+                transcript_obj = transcript_obj.translate(target)
+                break
+            except Exception:
+                continue
+
+    fetched = transcript_obj.fetch()
+    rows = fetched.to_raw_data()
     return [
         {
             "text": str(item.get("text") or ""),
