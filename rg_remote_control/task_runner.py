@@ -10571,28 +10571,75 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
         code=code.replace(old,new,1)
 
     link_marker="RG_FINAL_AV_LINKAGE_V1"
+
+    # The previous guarded attempt may have left only the active one-button file
+    # syntactically invalid. Recover the newest compiling pre-change backup first.
     pipeline_code=pipeline.read_text(encoding="utf-8",errors="replace")
+    try:
+        compile(pipeline_code,str(pipeline),"exec")
+    except Exception:
+        recovered=None
+        for d in sorted((app/"release_backups").glob("censor_avlink_*"), reverse=True):
+            cand=d/pipeline.name
+            if not cand.is_file():
+                continue
+            txt=cand.read_text(encoding="utf-8",errors="replace")
+            try:
+                compile(txt,str(cand),"exec")
+            except Exception:
+                continue
+            recovered=txt
+            break
+        if recovered is None:
+            raise RuntimeError("No compiling rg_auto_edit_one_button.py backup found")
+        pipeline_code=recovered
+
     if link_marker not in pipeline_code:
-        start=pipeline_code.find("censor_audio_report=apply_dialogue_profanity_audio(")
-        if start<0:
+        lines=pipeline_code.splitlines(True)
+        call_idx=None
+        for i,line in enumerate(lines):
+            if "censor_audio_report=apply_dialogue_profanity_audio(" in line:
+                call_idx=i
+                break
+        if call_idx is None:
             raise RuntimeError("post-censor call start not found in active one-button pipeline")
-        close=pipeline_code.find("\n        )",start)
-        if close<0:
-            close=pipeline_code.find("\n\t\t)",start)
-        if close<0:
-            raise RuntimeError("post-censor call end not found in active one-button pipeline")
-        line_end=pipeline_code.find("\n",close+1)
-        if line_end<0:
-            line_end=len(pipeline_code)
-        insertion='''\n    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
+
+        # Find the first real statement dedented back to function level (4 spaces)
+        # after the entire audio-censor block. Insert immediately before it.
+        insert_idx=None
+        seen_call_close=False
+        for i in range(call_idx+1,len(lines)):
+            raw=lines[i]
+            stripped=raw.strip()
+            if not stripped:
+                continue
+            indent=len(raw)-len(raw.lstrip(" \t"))
+            if stripped==")" and indent>=8:
+                seen_call_close=True
+                continue
+            if seen_call_close and indent==4 and not stripped.startswith("#"):
+                insert_idx=i
+                break
+        if insert_idx is None:
+            raise RuntimeError("end of active censor block not found")
+
+        insertion='''    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
     # explicitly linked to the actual final A1/A2 clipitems.
     from rg_premiere_av_linkage import normalize_xml_av_links as _normalize_xml_av_links
     _av_link_report=_normalize_xml_av_links(out,hard_disable_censor=True)
-    emit(99.72,'AV_LINKAGE',f"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}")'''
-        pipeline_code=pipeline_code[:line_end]+insertion+pipeline_code[line_end:]
+    emit(99.72,'AV_LINKAGE',f"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}")
+'''
+        lines.insert(insert_idx,insertion)
+        pipeline_code="".join(lines)
+
+    # Compile ALL generated source in memory before touching production files.
+    compile(code,str(core),"exec")
+    compile(pipeline_code,str(pipeline),"exec")
+    compile(helper_code,str(helper),"exec")
 
     core.write_text(code,encoding="utf-8")
     pipeline.write_text(pipeline_code,encoding="utf-8")
+    helper.write_text(helper_code,encoding="utf-8")
     py_compile.compile(str(core),doraise=True)
     py_compile.compile(str(pipeline),doraise=True)
     py_compile.compile(str(helper),doraise=True)
