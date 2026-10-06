@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_production40_update",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "build-production40-v020190"
+  "nonce": "inspect-hung-production40-update"
 }
