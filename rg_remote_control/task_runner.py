@@ -12990,10 +12990,13 @@ def prepare_auto_edit_020201_candidate_snapshot() -> dict:
     with zipfile.ZipFile(zpath) as z:
         badcrc=z.testzip()
         if badcrc:raise RuntimeError("Candidate ZIP CRC failed: "+str(badcrc))
+    sp=data/"stabilization_020201.json"
+    try:prev=json.loads(sp.read_text(encoding="utf-8-sig"))
+    except Exception:prev={}
     state={"schema":"RG_020201_STABILIZATION_V1","version":version,"candidate_name":name,
            "candidate_local":str(local),"candidate_nas":str(nas),"candidate_zip":str(zpath),
-           "candidate_verified":True,"tests":{},"updated_at":time.time()}
-    sp=data/"stabilization_020201.json";tmp=sp.with_suffix(".tmp");tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,sp)
+           "candidate_verified":True,"tests":dict(prev.get("tests") or {}),"updated_at":time.time()}
+    tmp=sp.with_suffix(".tmp");tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,sp)
     return {"status":"CANDIDATE_VERIFIED","version":version,"candidate":name,"nas":str(nas),"zip":str(zpath),
             "local":str(local),"files":len(rows),"compiled":len(compiled),"zip_crc":"PASS","state":str(sp)}
 
