@@ -255,6 +255,16 @@ QFrame#QueueCard, QFrame#ArchiveCard, QFrame#ActivityCard {
     border: 1px solid #2b2b2b;
     border-radius: 12px;
 }
+QFrame#NextActionCard {
+    background: #181818;
+    border: 2px solid #ff0033;
+    border-radius: 14px;
+}
+QFrame#NextActionCard QPushButton[role="primary"] {
+    font-size: 11pt;
+    font-weight: 700;
+    min-height: 28px;
+}
 QLabel#SectionTitle {
     color: #ffffff;
     font-size: 12pt;
