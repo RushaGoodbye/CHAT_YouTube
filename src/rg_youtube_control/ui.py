@@ -1671,6 +1671,15 @@ class MainWindow(QMainWindow):
                     self.next_action_button.setText("Почати перевірку")
             else:
                 ready_queue = self._prepared_queue_ids()
+                queued_comments = int(
+                    self.conn.execute(
+                        """SELECT COUNT(*) FROM comments c
+                           JOIN videos v ON v.video_id=c.video_id
+                           WHERE v.profile=? AND c.status='new'""",
+                        (profile,),
+                    ).fetchone()[0]
+                )
+
                 if ready_queue and safe_capacity > 0:
                     self._guided_next_action = "ready_queue"
                     self.next_action_state.setText("ГОТОВО")
@@ -1683,6 +1692,33 @@ class MainWindow(QMainWindow):
                         "безпечних оновлень понад резерв квоти."
                     )
                     self.next_action_button.setText("Застосувати готове")
+                elif ready_queue and safe_capacity <= 0:
+                    if queued_comments:
+                        self._guided_next_action = "comments"
+                        self.next_action_state.setText("КВОТА В РЕЗЕРВІ")
+                        self.next_action_state.setObjectName("StatusWarn")
+                        self.next_action_title.setText(
+                            f"Черга YouTube вже готова: {len(ready_queue)} · "
+                            f"перевірити коментарі: {queued_comments}"
+                        )
+                        self.next_action_explanation.setText(
+                            "Нові архівні пакети зараз готувати не потрібно: "
+                            "готової черги вже достатньо. Поки квота відновлюється, "
+                            "краще опрацювати коментарі."
+                        )
+                        self.next_action_button.setText("Відкрити коментарі")
+                    else:
+                        self._guided_next_action = "ready_queue"
+                        self.next_action_state.setText("ГОТОВО НА ЗАВТРА")
+                        self.next_action_state.setObjectName("StatusGood")
+                        self.next_action_title.setText(
+                            f"Підготовлено {len(ready_queue)} відео"
+                        )
+                        self.next_action_explanation.setText(
+                            "Квота у резерві. Черга збережена і автоматично "
+                            "залишиться наступною задачею після відновлення квоти."
+                        )
+                        self.next_action_button.setText("Переглянути чергу")
                 else:
                     local_count = self._safe_local_prepare_candidate_count(10)
                     if local_count:
@@ -1707,48 +1743,27 @@ class MainWindow(QMainWindow):
                         self.next_action_button.setText(
                             f"Підготувати {local_count}"
                         )
-                    elif ready_queue:
-                        self._guided_next_action = "ready_queue"
-                        self.next_action_state.setText("ГОТОВО НА ЗАВТРА")
+                    elif queued_comments:
+                        self._guided_next_action = "comments"
+                        self.next_action_state.setText("Є РОБОТА")
                         self.next_action_state.setObjectName("StatusGood")
                         self.next_action_title.setText(
-                            f"Підготовлено {len(ready_queue)} відео"
+                            f"Перевірити нові коментарі: {queued_comments}"
                         )
                         self.next_action_explanation.setText(
-                            "Безпечна квота зараз у резерві. "
-                            "Черга вже готова і може чекати наступного квотного дня."
+                            "Архівна черга не потребує термінової дії. "
+                            "Можна перейти до коментарів."
                         )
-                        self.next_action_button.setText("Переглянути чергу")
+                        self.next_action_button.setText("Відкрити коментарі")
                     else:
-                        queued_comments = int(
-                            self.conn.execute(
-                                """SELECT COUNT(*) FROM comments c
-                                   JOIN videos v ON v.video_id=c.video_id
-                                   WHERE v.profile=? AND c.status='new'""",
-                                (profile,),
-                            ).fetchone()[0]
+                        self._guided_next_action = "none"
+                        self.next_action_state.setText("ГОТОВО")
+                        self.next_action_state.setObjectName("StatusGood")
+                        self.next_action_title.setText("На зараз обов'язкових дій немає")
+                        self.next_action_explanation.setText(
+                            "Програма не бачить задач, які потребують вашого рішення."
                         )
-                        if queued_comments:
-                            self._guided_next_action = "comments"
-                            self.next_action_state.setText("Є РОБОТА")
-                            self.next_action_state.setObjectName("StatusGood")
-                            self.next_action_title.setText(
-                                f"Перевірити нові коментарі: {queued_comments}"
-                            )
-                            self.next_action_explanation.setText(
-                                "Архівна черга не потребує термінової дії. "
-                                "Можна перейти до коментарів."
-                            )
-                            self.next_action_button.setText("Відкрити коментарі")
-                        else:
-                            self._guided_next_action = "none"
-                            self.next_action_state.setText("ГОТОВО")
-                            self.next_action_state.setObjectName("StatusGood")
-                            self.next_action_title.setText("На зараз обов'язкових дій немає")
-                            self.next_action_explanation.setText(
-                                "Програма не бачить задач, які потребують вашого рішення."
-                            )
-                            self.next_action_button.setText("Оновити стан")
+                        self.next_action_button.setText("Оновити стан")
 
         self.next_action_state.style().unpolish(self.next_action_state)
         self.next_action_state.style().polish(self.next_action_state)
