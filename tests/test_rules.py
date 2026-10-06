@@ -2794,3 +2794,14 @@ def test_safe_description_strips_trailing_tags_label() -> None:
 
     assert not fixed.after.rstrip().endswith("ТЕГИ")
     assert "ТЕГИ" not in fixed.after.splitlines()[-1:]
+
+
+def test_specific_title_entity_hashtag_beats_broad_description_topic():
+    from rg_youtube_control.optimization import optimized_hashtags
+
+    tags = optimized_hashtags(
+        "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ",
+        "Співрозмовники говорять про економіку Росії та кадрові рішення.",
+    )
+
+    assert tags == ("#рашагудбай", "#чатрулетка", "#шойгу")
