@@ -385,3 +385,34 @@ def test_outgoing_manual_reply_normalizes_long_dash(tmp_path):
         ]
     finally:
         conn.close()
+
+
+def test_review_precheck_skips_low_value_reactions():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason("Мдаа!!! 😳😳") == "low_information_reaction"
+    assert _comment_reply_precheck_reason("Орк тупий і ржачний") == "insult_or_abuse"
+    assert _comment_reply_precheck_reason("Лол 😂😂😂") in {"too_fragmentary", "low_information_reaction"}
+
+
+def test_review_precheck_skips_aphoristic_text():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    text = "Виростай, мій сину, будь міцний, як криця, виростеш - скажу де правда"
+    assert _comment_reply_precheck_reason(text) == "quote_or_aphorism"
+
+
+def test_review_precheck_allows_clear_question():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason(
+        "Почему у них снова такие очереди на заправках?"
+    ) == ""
+
+
+def test_review_precheck_skips_short_statement():
+    from rg_youtube_control.free_tools import _comment_reply_precheck_reason
+
+    assert _comment_reply_precheck_reason(
+        "Бензина нет, но он есть"
+    ) == "short_non_question"
