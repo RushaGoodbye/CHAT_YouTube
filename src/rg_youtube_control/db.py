@@ -150,6 +150,19 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "comments", "draft_state", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "comments", "draft_reason", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "comments", "draft_updated_at", "TEXT")
+    conn.execute(
+        """UPDATE comments
+           SET draft_state='ready',
+               draft_reason=CASE
+                   WHEN COALESCE(draft_reason,'')='' THEN 'legacy_reply_text_migrated'
+                   ELSE draft_reason
+               END,
+               draft_updated_at=COALESCE(draft_updated_at,?)
+           WHERE status='new'
+             AND COALESCE(TRIM(reply_text),'')<>''
+             AND COALESCE(draft_state,'')=''""",
+        (utc_now(),),
+    )
     _ensure_column(
         conn,
         "optimization_drafts",
@@ -278,7 +291,13 @@ def upsert_comment(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
         """INSERT INTO comments(comment_id,video_id,parent_id,author,text,published_at,category,status,reply_text,raw_json)
         VALUES(?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(comment_id) DO UPDATE SET
-          author=excluded.author,text=excluded.text,category=excluded.category,
+          author=excluded.author,
+          text=excluded.text,
+          category=excluded.category,
+          status=CASE
+              WHEN comments.status IN ('replied','ignored') THEN comments.status
+              ELSE excluded.status
+          END,
           raw_json=excluded.raw_json""",
         (
             item["comment_id"], item["video_id"], item.get("parent_id"),
