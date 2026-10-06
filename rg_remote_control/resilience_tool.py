@@ -40,10 +40,50 @@ def run(argv: list[str], cwd: Path | None = None, timeout: int = 90) -> dict:
 
 
 def atomic_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    last = None
+    for attempt in range(5):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except OSError as exc:
+            last = exc
+            time.sleep(0.5 * (attempt + 1))
+    raise last or OSError("atomic_json failed")
+
+
+def smb_is_file(path: Path) -> bool:
+    for attempt in range(5):
+        try:
+            return path.is_file()
+        except OSError:
+            time.sleep(0.4 * (attempt + 1))
+    return False
+
+
+def smb_size(path: Path) -> int:
+    for attempt in range(5):
+        try:
+            return path.stat().st_size
+        except OSError:
+            time.sleep(0.4 * (attempt + 1))
+    return 0
+
+
+def smb_read_text(path: Path, limit: int | None = None) -> str:
+    last = None
+    for attempt in range(5):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            return text[-limit:] if limit else text
+        except OSError as exc:
+            last = exc
+            time.sleep(0.4 * (attempt + 1))
+    if last:
+        raise last
+    return ""
 
 
 def backup_file(path: Path, backup_dir: Path) -> str | None:
@@ -293,9 +333,9 @@ def queue_roundtrip(timeout: int = 85) -> dict:
     })
     started = time.time()
     while time.time() - started < timeout:
-        if result.is_file():
+        if smb_is_file(result):
             try:
-                data = json.loads(result.read_text(encoding="utf-8-sig", errors="replace"))
+                data = json.loads(smb_read_text(result))
             except Exception as exc:
                 return {"ok": False, "request_id": request_id, "parse_error": repr(exc)}
             return {
@@ -304,12 +344,12 @@ def queue_roundtrip(timeout: int = 85) -> dict:
                 "elapsed_seconds": round(time.time() - started, 1),
                 "result": data,
             }
-        if error.is_file() and error.stat().st_size:
+        if smb_is_file(error) and smb_size(error):
             return {
                 "ok": False,
                 "request_id": request_id,
                 "elapsed_seconds": round(time.time() - started, 1),
-                "error": error.read_text(encoding="utf-8", errors="replace")[-12000:],
+                "error": smb_read_text(error, 12000),
             }
         time.sleep(2)
     return {
@@ -317,7 +357,7 @@ def queue_roundtrip(timeout: int = 85) -> dict:
         "request_id": request_id,
         "elapsed_seconds": round(time.time() - started, 1),
         "timeout": True,
-        "request_still_exists": req.exists(),
+        "request_still_exists": smb_is_file(req),
     }
 
 
