@@ -1403,6 +1403,27 @@ def preview_local_seo_package(task: dict) -> dict:
     }
 
 
+
+def validate_source_compile() -> dict:
+    """Compile key RG YouTube Control sources before deployment."""
+    import py_compile
+
+    files = [
+        ROOT / "src" / "rg_youtube_control" / "ui.py",
+        ROOT / "src" / "rg_youtube_control" / "free_tools.py",
+        ROOT / "src" / "rg_youtube_control" / "optimization.py",
+    ]
+    compiled = []
+    for path in files:
+        py_compile.compile(str(path), doraise=True)
+        compiled.append(str(path))
+    return {
+        "youtube_api_calls": 0,
+        "ok": True,
+        "compiled": compiled,
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -3597,6 +3618,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_validate_source_compile":
+        result = validate_source_compile()
     elif action == "youtube_local_preview_local_seo":
         result = preview_local_seo_package(task)
     elif action == "youtube_local_inspect_local_seo_source":
