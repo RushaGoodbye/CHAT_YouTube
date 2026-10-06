@@ -144,32 +144,46 @@ def optimized_hashtags(
     title: str,
     description: str = "",
 ) -> tuple[str, ...]:
-    """Return exactly two project hashtags plus one thematic hashtag.
+    """Return two project hashtags plus one precise thematic hashtag.
 
-    Prefer a specific topic found in the title. If the title is generic,
-    fall back to the description. This keeps the safe archive pass compact
-    and avoids a universal third hashtag on unrelated videos.
+    The title is the strongest topic signal. A concrete high-confidence title
+    entity (for example ШОЙГУ) must not be displaced by a broad word that only
+    appears in the generated description (for example экономика).
     """
-    combined_text = f"{title or ''}\n{description or ''}".casefold()
+    title_text = str(title or "").casefold()
+    description_text = str(description or "").casefold()
 
-    topic = ""
-    generic_topic = ""
+    title_topic = ""
+    title_generic = ""
     for needles, hashtag in TOPIC_HASHTAGS:
-        if not any(needle in combined_text for needle in needles):
+        if not any(needle in title_text for needle in needles):
             continue
         if hashtag in GENERIC_TOPIC_HASHTAGS:
-            if not generic_topic:
-                generic_topic = hashtag
+            if not title_generic:
+                title_generic = hashtag
             continue
-        topic = hashtag
+        title_topic = hashtag
         break
 
-    if not topic:
-        topic = _title_topic_hashtag(title)
+    if not title_topic:
+        title_topic = _title_topic_hashtag(title)
 
-    if not topic:
-        topic = generic_topic or "#россия"
+    if title_topic:
+        return (*BASE_HASHTAGS, title_topic)
 
+    description_topic = ""
+    description_generic = ""
+    for needles, hashtag in TOPIC_HASHTAGS:
+        if not any(needle in description_text for needle in needles):
+            continue
+        if hashtag in GENERIC_TOPIC_HASHTAGS:
+            if not description_generic:
+                description_generic = hashtag
+            continue
+        description_topic = hashtag
+        break
+
+    topic = description_topic or title_generic or description_generic or "#россия"
     return (*BASE_HASHTAGS, topic)
 
 def _optimize_hashtag_lines(description: str, title: str) -> tuple[str, bool]:
