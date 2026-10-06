@@ -1770,6 +1770,11 @@ class MainWindow(QMainWindow):
                 "YouTube Data API: 0"
             ),
         )
+        if prepared and hasattr(self, "optimization_filter"):
+            prepared_index = self.optimization_filter.findData("prepared")
+            if prepared_index >= 0:
+                self.optimization_filter.setCurrentIndex(prepared_index)
+
         self.reload_optimization_queue()
         self.update_dashboard()
         self._set_process_idle("0-quota підготовка завершена")
@@ -1777,6 +1782,19 @@ class MainWindow(QMainWindow):
             f"✓ 0-quota: готово {len(prepared)} · "
             f"чернеток/помилок {len(blocked)} · API 0",
             7000,
+        )
+        QMessageBox.information(
+            self,
+            "0-quota підготовка завершена",
+            f"Перевірено відео: {len(prepared) + len(blocked)}.\n"
+            f"Готових пакетів: {len(prepared)}.\n"
+            f"Чернеток/помилок: {len(blocked)}.\n"
+            "YouTube Data API: 0.\n\n"
+            + (
+                "Фільтр «Підготовлена черга» відкрито автоматично."
+                if prepared
+                else "Деталі помилок дивіться у «Журналі»."
+            ),
         )
 
     def show_quota_planner(self) -> None:
