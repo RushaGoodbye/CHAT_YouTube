@@ -12077,6 +12077,243 @@ def inspect_auto_edit_windows_service_targets() -> dict:
     return out
 
 
+
+def apply_auto_edit_windows_service_layer_v1() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    module_code="from __future__ import annotations\nimport ctypes\nimport json\nimport os\nimport shutil\nimport subprocess\nimport sys\nfrom pathlib import Path\n\nVERSION = \"RG_WINDOWS_SERVICE_LAYER_V1\"\nRG_MARKERS = (\n    \"rg_auto_edit\", \"rg auto edit\", \"rg_studio_main.py\",\n    \"rg_production_wrapper.py\", \"rg_multi_dialogue.py\",\n    \"rg_auto_edit_one_button.py\", \"rg_batch_queue.py\",\n)\nBACKEND_MARKERS = (\n    \"rg_production_wrapper.py\", \"rg_multi_dialogue.py\", \"rg_auto_edit_one_button.py\",\n)\n\ntry:\n    import psutil as _psutil\nexcept Exception:\n    _psutil = None\n\nCREATE_NO_WINDOW = getattr(subprocess, \"CREATE_NO_WINDOW\", 0)\nDETACHED_PROCESS = getattr(subprocess, \"DETACHED_PROCESS\", 0)\nCREATE_NEW_PROCESS_GROUP = getattr(subprocess, \"CREATE_NEW_PROCESS_GROUP\", 0)\n\ndef psutil_available() -> bool:\n    return _psutil is not None\n\ndef _win_pid_exists(pid:int) -> bool:\n    if os.name != \"nt\":\n        return False\n    try:\n        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000\n        h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))\n        if h:\n            ctypes.windll.kernel32.CloseHandle(h)\n            return True\n        return False\n    except Exception:\n        return False\n\ndef process_exists(pid:int) -> bool:\n    try:\n        pid=int(pid)\n    except Exception:\n        return False\n    if pid <= 0:\n        return False\n    if _psutil is not None:\n        try:\n            return bool(_psutil.pid_exists(pid))\n        except Exception:\n            pass\n    return _win_pid_exists(pid)\n\ndef _psutil_info(proc):\n    try:\n        with proc.oneshot():\n            cmd=proc.cmdline() or []\n            return {\n                \"pid\": int(proc.pid),\n                \"ppid\": int(proc.ppid()),\n                \"name\": str(proc.name() or \"\"),\n                \"exe\": str(proc.exe() or \"\"),\n                \"cmdline\": \" \".join(str(x) for x in cmd),\n            }\n    except Exception:\n        return None\n\ndef _powershell_exe():\n    app=Path(__file__).resolve().parent\n    candidates=[\n        app/\"vendor\"/\"powershell\"/\"pwsh.exe\",\n        Path(shutil.which(\"pwsh.exe\") or \"\"),\n        Path(shutil.which(\"powershell.exe\") or \"\"),\n    ]\n    for p in candidates:\n        try:\n            if p and str(p) not in (\".\",\"\") and p.is_file():\n                return str(p)\n        except Exception:\n            pass\n    return None\n\ndef run_hidden_powershell(script:str,args=None,timeout=20):\n    exe=_powershell_exe()\n    if not exe:\n        return {\"returncode\":127,\"stdout\":\"\",\"stderr\":\"PowerShell fallback unavailable\",\"backend\":\"none\"}\n    cmd=[exe,\"-NoProfile\",\"-NonInteractive\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",str(script)]\n    cmd.extend(str(x) for x in (args or []))\n    try:\n        cp=subprocess.run(cmd,capture_output=True,text=True,encoding=\"utf-8\",errors=\"replace\",\n                          timeout=timeout,creationflags=CREATE_NO_WINDOW)\n        return {\"returncode\":int(cp.returncode),\"stdout\":cp.stdout or \"\",\"stderr\":cp.stderr or \"\",\n                \"backend\":\"internal_hidden_powershell\"}\n    except Exception as exc:\n        return {\"returncode\":126,\"stdout\":\"\",\"stderr\":str(exc),\"backend\":\"internal_hidden_powershell\"}\n\ndef process_info(pid:int):\n    try:\n        pid=int(pid)\n    except Exception:\n        return None\n    if _psutil is not None:\n        try:\n            return _psutil_info(_psutil.Process(pid))\n        except _psutil.NoSuchProcess:\n            return None\n        except _psutil.AccessDenied:\n            pass\n        except Exception:\n            pass\n    if not process_exists(pid):\n        return None\n    ps='''$p=Get-CimInstance Win32_Process -Filter (\"ProcessId = \"+$args[0]); if($p){$p | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress}'''\n    cp=run_hidden_powershell(ps,[str(pid)],timeout=8)\n    if cp[\"returncode\"]!=0 or not cp[\"stdout\"].strip():\n        return {\"pid\":pid,\"ppid\":0,\"name\":\"\",\"exe\":\"\",\"cmdline\":\"\",\"fallback_unknown\":True}\n    try:\n        d=json.loads(cp[\"stdout\"].strip())\n        return {\"pid\":int(d.get(\"ProcessId\") or pid),\"ppid\":int(d.get(\"ParentProcessId\") or 0),\n                \"name\":str(d.get(\"Name\") or \"\"),\"exe\":str(d.get(\"ExecutablePath\") or \"\"),\n                \"cmdline\":str(d.get(\"CommandLine\") or \"\"),\"fallback\":\"powershell\"}\n    except Exception:\n        return {\"pid\":pid,\"ppid\":0,\"name\":\"\",\"exe\":\"\",\"cmdline\":\"\",\"fallback_unknown\":True}\n\ndef pid_commandline(pid:int):\n    info=process_info(pid)\n    if info is None:\n        return \"\"\n    if info.get(\"fallback_unknown\"):\n        return None\n    return str(info.get(\"cmdline\") or \"\")\n\ndef list_processes():\n    rows=[]\n    if _psutil is not None:\n        try:\n            for proc in _psutil.process_iter():\n                info=_psutil_info(proc)\n                if info is not None:\n                    rows.append(info)\n            return rows\n        except Exception:\n            rows=[]\n    ps='''Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress'''\n    cp=run_hidden_powershell(ps,timeout=15)\n    if cp[\"returncode\"]!=0 or not cp[\"stdout\"].strip():\n        return rows\n    try:\n        d=json.loads(cp[\"stdout\"].strip())\n        if isinstance(d,dict): d=[d]\n        for x in d or []:\n            rows.append({\"pid\":int(x.get(\"ProcessId\") or 0),\"ppid\":int(x.get(\"ParentProcessId\") or 0),\n                         \"name\":str(x.get(\"Name\") or \"\"),\"exe\":str(x.get(\"ExecutablePath\") or \"\"),\n                         \"cmdline\":str(x.get(\"CommandLine\") or \"\"),\"fallback\":\"powershell\"})\n    except Exception:\n        pass\n    return rows\n\ndef list_matching_processes(markers=(),names=()):\n    ms=tuple(str(x).casefold() for x in (markers or ()))\n    ns=tuple(str(x).casefold() for x in (names or ()))\n    out=[]\n    for row in list_processes():\n        name=str(row.get(\"name\") or \"\").casefold()\n        cmd=str(row.get(\"cmdline\") or \"\").casefold()\n        if ns and name not in ns:\n            continue\n        if ms and not any(m in cmd for m in ms):\n            continue\n        out.append(row)\n    return out\n\ndef is_rg_process(pid:int,markers=RG_MARKERS) -> bool:\n    cmd=pid_commandline(pid)\n    if cmd is None:\n        return True\n    if not cmd:\n        return False\n    low=cmd.casefold()\n    return any(str(x).casefold() in low for x in markers)\n\ndef backend_processes():\n    return list_matching_processes(BACKEND_MARKERS,(\"python.exe\",\"pythonw.exe\"))\n\ndef any_process_name_contains(text:str) -> bool:\n    t=str(text or \"\").casefold()\n    return any(t in str(x.get(\"name\") or \"\").casefold() for x in list_processes())\n\ndef terminate_process(pid:int,tree:bool=True,timeout:float=5.0) -> bool:\n    try: pid=int(pid)\n    except Exception: return False\n    if pid<=0 or pid==os.getpid(): return False\n    if _psutil is not None:\n        try:\n            p=_psutil.Process(pid)\n            targets=[]\n            if tree:\n                try: targets.extend(p.children(recursive=True))\n                except Exception: pass\n            targets.append(p)\n            for q in reversed(targets):\n                try:q.terminate()\n                except Exception:pass\n            try:\n                _,alive=_psutil.wait_procs(targets,timeout=max(0.2,float(timeout)))\n            except Exception:\n                alive=targets\n            for q in alive:\n                try:q.kill()\n                except Exception:pass\n            return not process_exists(pid)\n        except _psutil.NoSuchProcess:\n            return True\n        except Exception:\n            pass\n    try:\n        cp=subprocess.run([\"taskkill\",\"/PID\",str(pid)]+([\"/T\"] if tree else [])+[\"/F\"],\n                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=max(5,int(timeout)+2),\n                          creationflags=CREATE_NO_WINDOW)\n        return cp.returncode==0 or not process_exists(pid)\n    except Exception:\n        return not process_exists(pid)\n\ndef terminate_matching(markers,names=(\"python.exe\",\"pythonw.exe\"),exclude_pids=()):\n    excluded={int(x) for x in (exclude_pids or ())}\n    matched=list_matching_processes(markers,names)\n    terminated=[];failed=[]\n    for row in matched:\n        pid=int(row.get(\"pid\") or 0)\n        if pid in excluded or pid==os.getpid():\n            continue\n        if terminate_process(pid,tree=True):\n            terminated.append(row)\n        else:\n            failed.append(row)\n    return {\"terminated\":terminated,\"failed\":failed,\"matched\":matched}\n\ndef service_status():\n    return {\"version\":VERSION,\"psutil\":psutil_available(),\"powershell_fallback\":bool(_powershell_exe()),\n            \"mode\":\"PSUTIL_PRIMARY\" if psutil_available() else \"WINAPI+HIDDEN_POWERSHELL_FALLBACK\"}\n"
+    targets=[
+      app/"rg_windows_service.py",
+      app/"rg_production_stability.py",app/"rg_stability_ux25.py",
+      app/"rg_pack500_reliability.py",app/"rg_process_cleanup.py",
+      app/"rg_studio_restart.py",app/"rg_studio_update_worker.py",
+      app/"rg_gpu_scheduler.py",app/"rg_mediapipe_tasks.py",
+      app/"rg_studio_version.py",app/"rg_auto_edit_config.json",
+    ]
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_WINDOWS_SERVICE_V1_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    existed={}
+    for p in targets:
+        existed[str(p)]=p.is_file()
+        if p.is_file(): shutil.copy2(p,backup/p.name)
+
+    def atomic(p,text):
+        p=Path(p);tmp=p.with_suffix(p.suffix+".wsvc.tmp")
+        tmp.write_text(text,encoding="utf-8");os.replace(tmp,p)
+
+    def replace_func(src,name,new):
+        pat=rf"(?ms)^def {re.escape(name)}\([^\n]*\):.*?(?=^def |\Z)"
+        if not re.search(pat,src):
+            raise RuntimeError("function not found: "+name)
+        return re.sub(pat,new.rstrip()+"\n\n",src,count=1)
+
+    try:
+        atomic(app/"rg_windows_service.py",module_code)
+
+        p=app/"rg_production_stability.py";src=p.read_text(encoding="utf-8")
+        src=replace_func(src,"_pid_is_rg_auto_edit",'''def _pid_is_rg_auto_edit(pid:int)->bool:
+    try:
+        from rg_windows_service import is_rg_process
+        return bool(is_rg_process(pid))
+    except Exception:
+        return True''')
+        atomic(p,src)
+
+        p=app/"rg_stability_ux25.py";src=p.read_text(encoding="utf-8")
+        src=replace_func(src,"_pid_commandline",'''def _pid_commandline(pid):
+    try:
+        from rg_windows_service import pid_commandline
+        return pid_commandline(pid)
+    except Exception:
+        return None''')
+        atomic(p,src)
+
+        p=app/"rg_pack500_reliability.py";src=p.read_text(encoding="utf-8")
+        src=replace_func(src,"_ps_json",'''def _ps_json(script,timeout=20):
+    try:
+        from rg_windows_service import run_hidden_powershell
+        cp=run_hidden_powershell(script,timeout=timeout)
+        txt=str(cp.get("stdout") or "").strip()
+        if not txt:return []
+        return json.loads(txt)
+    except Exception:return []''')
+        src=replace_func(src,"active_backend_processes",'''def active_backend_processes():
+    try:
+        from rg_windows_service import backend_processes
+        rows=backend_processes()
+        return [{"ProcessId":x.get("pid"),"ParentProcessId":x.get("ppid"),"Name":x.get("name"),
+                 "ExecutablePath":x.get("exe"),"CommandLine":x.get("cmdline")} for x in rows]
+    except Exception:
+        return []''')
+        src=replace_func(src,"_pid_alive",'''def _pid_alive(pid):
+    try:
+        from rg_windows_service import process_exists
+        return bool(process_exists(pid))
+    except Exception:return True''')
+        atomic(p,src)
+
+        p=app/"rg_process_cleanup.py"
+        atomic(p,'''from __future__ import annotations
+import os,time
+from rg_windows_service import list_matching_processes,terminate_process
+VERSION="RG_PROCESS_CLEANUP_V2_WINDOWS_SERVICE"
+WORKERS=("rg_multi_dialogue.py","rg_auto_edit_one_button.py","rg_batch_queue.py")
+GUIS=("rg_auto_edit_gui.py","RG_AUTO_EDIT_LAUNCH.pyw","rg_studio_main.py")
+def list_rg_processes():
+    rows=list_matching_processes(WORKERS+GUIS,("python.exe","pythonw.exe"))
+    return [{"pid":x.get("pid"),"ppid":x.get("ppid"),"cmd":x.get("cmdline",""),
+             "name":x.get("name",""),"exe":x.get("exe","")} for x in rows]
+def cleanup_orphan_workers(current_gui_pid=None):
+    rows=list_rg_processes();gui={int(x["pid"]) for x in rows if any(m.lower() in str(x.get("cmd","")).lower() for m in GUIS)}
+    if current_gui_pid:gui.add(int(current_gui_pid))
+    killed=[];kept=[]
+    for x in rows:
+        cmd=str(x.get("cmd","")).lower()
+        if not any(m.lower() in cmd for m in WORKERS):continue
+        pid=int(x["pid"]);ppid=int(x.get("ppid") or 0)
+        if ppid in gui:kept.append(pid);continue
+        if terminate_process(pid,tree=True):killed.append(pid)
+        else:kept.append(pid)
+    return {"version":VERSION,"killed":killed,"kept":kept,"at":time.time()}
+''')
+
+        p=app/"rg_studio_restart.py"
+        atomic(p,'''from __future__ import annotations
+from pathlib import Path
+import argparse,os,subprocess,time,sys
+APP=Path(__file__).resolve().parent
+if str(APP) not in sys.path:sys.path.insert(0,str(APP))
+from rg_windows_service import process_exists
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument("--pid",type=int,required=True);args=ap.parse_args()
+    end=time.time()+20
+    while time.time()<end and process_exists(args.pid):time.sleep(0.25)
+    time.sleep(0.35)
+    pf=Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+    exe=pf/"RG Auto Edit Studio"/"RG Auto Edit Studio.exe"
+    if not exe.is_file():return 2
+    subprocess.Popen([str(exe)],cwd=str(exe.parent),
+                     creationflags=getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0),close_fds=True)
+    return 0
+if __name__=="__main__":raise SystemExit(main())
+''')
+
+        p=app/"rg_studio_update_worker.py";src=p.read_text(encoding="utf-8-sig")
+        src=replace_func(src,"_restart_studio",'''def _restart_studio():
+    try:
+        try:(Path(tempfile.gettempdir())/"RG_Auto_Edit_Studio.lock").unlink(missing_ok=True)
+        except Exception:pass
+        candidates=[
+            Path(r"F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\pythonw.exe"),
+            LOCAL/"Programs"/"RG Auto Edit Runtime"/"venv"/"Scripts"/"pythonw.exe",
+        ]
+        py=next((str(x) for x in candidates if x.is_file()),str(Path(sys.executable)))
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([py,"-X","utf8",str(APP/"rg_studio_main.py")],cwd=str(APP),creationflags=flags,close_fds=True)
+    except Exception:pass''')
+        src=replace_func(src,"_close_studio_for_update",'''def _close_studio_for_update():
+    try:
+        from rg_windows_service import terminate_matching
+        r=terminate_matching(("rg_studio_main.py",),("python.exe","pythonw.exe"),exclude_pids=(os.getpid(),))
+        n=len(r.get("terminated") or [])
+    except Exception:
+        n=0
+    if n>0:
+        print("RGUPDATE|INFO|studio closed by RG Windows Service Layer",flush=True)
+        time.sleep(1.2)
+        atexit.register(_restart_studio)''')
+        atomic(p,src)
+
+        p=app/"rg_gpu_scheduler.py";src=p.read_text(encoding="utf-8")
+        old='''    # nvidia-smi may not list D3D apps on Windows. tasklist is a second signal.
+    if os.name == "nt" and not info["premiere_detected"]:
+        rc, out = _run(["tasklist", "/FO", "CSV", "/NH"], timeout=6)
+        if rc == 0 and "premiere" in out.lower():
+            info["premiere_detected"] = True'''
+        new='''    # RG_WINDOWS_SERVICE_LAYER_V1: no tasklist dependency in production path.
+    if os.name == "nt" and not info["premiere_detected"]:
+        try:
+            from rg_windows_service import any_process_name_contains
+            info["premiere_detected"] = bool(any_process_name_contains("premiere"))
+        except Exception:
+            pass'''
+        if old in src:src=src.replace(old,new,1)
+        atomic(p,src)
+
+        p=app/"rg_mediapipe_tasks.py";src=p.read_text(encoding="utf-8")
+        src=replace_func(src,"_download_powershell",'''def _download_powershell(url: str, tmp: Path) -> None:
+    # Emergency fallback only. PowerShell is encapsulated by RG Windows Service Layer
+    # and always runs hidden; normal path remains Python urllib -> Windows curl.
+    from rg_windows_service import run_hidden_powershell
+    script=("$ProgressPreference='SilentlyContinue';"
+            "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;"
+            "Invoke-WebRequest -UseBasicParsing -Uri $args[0] -OutFile $args[1]")
+    cp=run_hidden_powershell(script,[url,str(tmp)],timeout=260)
+    if int(cp.get("returncode") or 0)!=0:
+        raise RuntimeError(str(cp.get("stderr") or cp.get("stdout") or "PowerShell fallback failed"))''')
+        atomic(p,src)
+
+        # Version/config
+        vp=app/"rg_studio_version.py";v=vp.read_text(encoding="utf-8")
+        v=re.sub(r'STUDIO_VERSION\s*=\s*"[^"]+"','STUDIO_VERSION = "0.20.18.0"',v,count=1)
+        atomic(vp,v)
+        cp=app/"rg_auto_edit_config.json"
+        cfg=json.loads(cp.read_text(encoding="utf-8-sig"))
+        cfg["windows_service_layer"]={
+            "schema":"RG_WINDOWS_SERVICE_LAYER_V1","version":"0.20.18.0","enabled":True,
+            "primary":"psutil+WinAPI","powershell":"internal_hidden_fallback_only",
+            "user_console_required":False,"external_powershell_ui":False,
+            "modules":["locks","process_enumeration","process_cleanup","updater","restart","gpu_process_detection","download_fallback"]
+        }
+        atomic(cp,json.dumps(cfg,ensure_ascii=False,indent=2))
+
+        # Compile/import gate in RG runtime.
+        for p in targets:
+            if p.suffix==".py" and p.is_file():py_compile.compile(str(p),doraise=True)
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        test='''import json,os,sys
+sys.path.insert(0,r"F:\\RG_AUTO_EDIT\\RG Auto Edit App")
+import rg_windows_service as w
+s=w.service_status()
+assert w.process_exists(os.getpid())
+i=w.process_info(os.getpid())
+assert i and int(i.get("pid"))==os.getpid()
+print(json.dumps(s,ensure_ascii=False))
+'''
+        rr=subprocess.run([str(runtime),"-X","utf8","-c",test],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+        if rr.returncode!=0:raise RuntimeError("Windows Service self-test failed: "+(rr.stdout+rr.stderr)[-3000:])
+
+        # Critical production modules may not invoke powershell.exe directly anymore.
+        critical=["rg_production_stability.py","rg_stability_ux25.py","rg_pack500_reliability.py",
+                  "rg_process_cleanup.py","rg_studio_restart.py","rg_studio_update_worker.py","rg_gpu_scheduler.py","rg_mediapipe_tasks.py"]
+        direct={}
+        for n in critical:
+            txt=(app/n).read_text(encoding="utf-8-sig",errors="replace").lower()
+            direct[n]=txt.count("powershell.exe")
+        bad={k:v for k,v in direct.items() if v}
+        if bad:raise RuntimeError("Direct PowerShell dependency remains in critical modules: "+str(bad))
+
+        report={"schema":"RG_WINDOWS_SERVICE_LAYER_SELFTEST_V1","passed":True,"version":"0.20.18.0",
+                "backup":str(backup),"service_status":json.loads((rr.stdout or "{}").strip().splitlines()[-1]),
+                "direct_powershell_refs":direct,"created_at":time.time()}
+        out=data/"selftests"/f"WINDOWS_SERVICE_V1_{int(time.time())}.json";out.parent.mkdir(parents=True,exist_ok=True)
+        out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+        return report
+    except Exception:
+        # rollback every touched production file
+        for p in targets:
+            b=backup/p.name
+            try:
+                if b.is_file():shutil.copy2(b,p)
+                elif not existed.get(str(p),False) and p.exists():p.unlink()
+            except Exception:pass
+        raise
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12236,6 +12473,7 @@ ACTIONS = {
     "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
     "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
     "apply_auto_edit_service_process_stream_fix": apply_auto_edit_service_process_stream_fix,
+    "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
