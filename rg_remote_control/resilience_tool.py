@@ -953,6 +953,17 @@ def youtube_agent_roundtrip(timeout: int = 70) -> dict:
 
 
 
+
+def telegram_agent_roundtrip(timeout: int = 70) -> dict:
+    return alexpc_agent_call(
+        "telegram",
+        "telegram_local_status",
+        {},
+        timeout=timeout,
+    )
+
+
+
 def agent_roundtrip(timeout: int = 70) -> dict:
     base = AGENT_NAS / "auto_edit"
     req_root = base / "requests"
@@ -1150,6 +1161,16 @@ def probe(do_roundtrip: bool = True) -> dict:
     except Exception:
         listener_count = 0
 
+    agent_status_payload = {}
+    agent_status_path = AGENT_NAS / "status" / "alexpc_agent.json"
+    if agent_status_path.is_file():
+        try:
+            agent_status_payload = json.loads(
+                agent_status_path.read_text(encoding="utf-8-sig", errors="replace")
+            )
+        except Exception:
+            agent_status_payload = {}
+
     out = {
         "schema": "RG_CONTROL_PROBE_V1",
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -1178,21 +1199,31 @@ def probe(do_roundtrip: bool = True) -> dict:
                 if (AGENT_NAS / "status" / "alexpc_agent.json").is_file()
                 else None
             ),
+            "services": agent_status_payload.get("services", {}),
+            "state": agent_status_payload.get("state"),
         },
     }
     if do_roundtrip:
         # Primary runtime path. Legacy AUTO_EDIT_CALLS is intentionally excluded:
         # the MCP hub now submits AlexPC work through ALEXPC/<contour> queues.
         out["alexpc_agent_roundtrip"] = agent_roundtrip()
+        out["youtube_agent_roundtrip"] = youtube_agent_roundtrip()
+        out["telegram_agent_roundtrip"] = telegram_agent_roundtrip()
 
     critical_files_ok = all(v.get("exists") and v.get("marker_ok") for v in files.values())
     agent_info = out.get("alexpc_agent", {})
+    services = agent_info.get("services", {}) or {}
+    gui_service = services.get("youtube_gui", {}) or {}
+    ollama_service = services.get("ollama", {}) or {}
     agent_ok = bool(
         agent_info.get("keepalive", {}).get("exists")
         and (agent_info.get("boot", {}).get("exists") or agent_info.get("startup_fallback_exists"))
         and agent_info.get("nas_status_exists")
         and agent_info.get("nas_status_age_seconds") is not None
         and agent_info.get("nas_status_age_seconds") <= 30
+        and gui_service.get("ok")
+        and ollama_service.get("ok")
+        and ollama_service.get("qwen3_8b")
     )
     guard_state = out.get("state", {})
     guard_fresh = bool(
@@ -1202,7 +1233,13 @@ def probe(do_roundtrip: bool = True) -> dict:
         and guard_state.get("RG_CONTROL_CENTER.json", {}).get("age_seconds", 9999) <= 120
     )
     roundtrip_ok = bool(
-        out.get("alexpc_agent_roundtrip", {}).get("ok") if do_roundtrip else True
+        (
+            out.get("alexpc_agent_roundtrip", {}).get("ok")
+            and out.get("youtube_agent_roundtrip", {}).get("ok")
+            and out.get("telegram_agent_roundtrip", {}).get("ok")
+        )
+        if do_roundtrip
+        else True
     )
     warnings = []
     # Legacy shell guard is retired from operational health. Docker restart
