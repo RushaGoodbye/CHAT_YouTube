@@ -1096,6 +1096,168 @@ finally {
     }
 
 
+
+def install_nas_first_youtube() -> dict:
+    """Install NAS-first YouTube host agent and remove daily GitHub dependency."""
+    import subprocess
+    import time
+
+    sync = sync_source_only()
+    target = Path.home() / "CHAT_YouTube-main"
+    agent = target / "rg_remote_control" / "youtube_nas_agent.py"
+    pythonw = target / ".venv" / "Scripts" / "pythonw.exe"
+    if not agent.is_file():
+        raise RuntimeError(f"NAS YouTube agent missing after sync: {agent}")
+    if not pythonw.is_file():
+        raise RuntimeError(f"Private pythonw runtime missing: {pythonw}")
+
+    appdata = Path(
+        os.environ.get(
+            "APPDATA",
+            str(Path.home() / "AppData" / "Roaming"),
+        )
+    )
+    startup = (
+        appdata
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+    startup.mkdir(parents=True, exist_ok=True)
+
+    launcher = target / "rg_remote_control" / "start_youtube_nas_agent.vbs"
+    launcher.write_text(
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        'sh.Run """'
+        + str(pythonw).replace('"', '""')
+        + '"" ""'
+        + str(agent).replace('"', '""')
+        + '""", 0, False\r\n',
+        encoding="utf-8",
+        newline="",
+    )
+
+    startup_link = startup / "RG_YOUTUBE_NAS_AGENT.vbs"
+    shutil.copy2(launcher, startup_link)
+
+    task_name = "RG_YOUTUBE_NAS_AGENT"
+    task_cmd = f'wscript.exe "{launcher}"'
+    schtasks = r"C:\Windows\System32\schtasks.exe"
+    task = subprocess.run(
+        [
+            schtasks,
+            "/Create",
+            "/SC", "ONLOGON",
+            "/TN", task_name,
+            "/TR", task_cmd,
+            "/F",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    # Start the agent now in the interactive user session.
+    start = subprocess.run(
+        ["wscript.exe", str(launcher)],
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    time.sleep(6)
+
+    heartbeat = (
+        Path(r"\\AlexLosServer\docker")
+        / "RG_NAS_MCP"
+        / "YOUTUBE_HOST_CALLS"
+        / "state"
+        / "alexpc.json"
+    )
+    heartbeat_payload = {}
+    if heartbeat.is_file():
+        try:
+            heartbeat_payload = json.loads(
+                heartbeat.read_text(encoding="utf-8-sig", errors="replace")
+            )
+        except Exception:
+            heartbeat_payload = {
+                "raw": heartbeat.read_text(
+                    encoding="utf-8-sig", errors="replace"
+                )[-3000:]
+            }
+
+    # GitHub runner remains installed as emergency fallback, but its automatic
+    # persistence is disabled so daily operation no longer depends on it.
+    disabled = {}
+    for legacy_task in (
+        "RG_GITHUB_RUNNER_WATCHDOG",
+        "RG_GITHUB_RUNNER_KEEPALIVE",
+        "RG_GITHUB_RUNNER_BOOT",
+    ):
+        proc = subprocess.run(
+            [schtasks, "/Change", "/TN", legacy_task, "/DISABLE"],
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        disabled[legacy_task] = {
+            "exit_code": proc.returncode,
+            "stdout": (proc.stdout or "")[-1000:],
+            "stderr": (proc.stderr or "")[-1000:],
+        }
+
+    for old_name in (
+        "RG_GITHUB_RUNNER.vbs",
+        "RG_GITHUB_RUNNER_BOOT.vbs",
+        "RG_GITHUB_RUNNER_GUARD.vbs",
+    ):
+        try:
+            old = startup / old_name
+            if old.is_file():
+                old.unlink()
+        except Exception:
+            pass
+
+    gui = ensure_gui_startup()
+
+    return {
+        "youtube_api_calls": 0,
+        "transport": "NAS-first",
+        "github_required_for_daily_work": False,
+        "nas_root": r"\\AlexLosServer\docker",
+        "queue_root": r"\\AlexLosServer\docker\RG_NAS_MCP\YOUTUBE_HOST_CALLS",
+        "agent": str(agent),
+        "agent_exists": agent.is_file(),
+        "launcher": str(launcher),
+        "startup_launcher": str(startup_link),
+        "startup_launcher_exists": startup_link.is_file(),
+        "scheduled_task": {
+            "name": task_name,
+            "exit_code": task.returncode,
+            "stdout": (task.stdout or "")[-2000:],
+            "stderr": (task.stderr or "")[-2000:],
+        },
+        "start_now": {
+            "exit_code": start.returncode,
+            "stdout": (start.stdout or "")[-1000:],
+            "stderr": (start.stderr or "")[-1000:],
+        },
+        "heartbeat_exists": heartbeat.is_file(),
+        "heartbeat": heartbeat_payload,
+        "github_runner_autostart_disabled": disabled,
+        "gui": gui,
+        "ready": bool(
+            agent.is_file()
+            and startup_link.is_file()
+            and task.returncode == 0
+            and heartbeat.is_file()
+            and gui.get("startup_shortcut_exists")
+        ),
+    }
+
+
 def runtime_status() -> dict:
     """Read the installed RG YouTube Control version from Windows registry."""
     import subprocess
@@ -1678,6 +1840,13 @@ def sync_source_only() -> dict:
         src_file = ROOT / name
         if src_file.is_file():
             shutil.copy2(src_file, target / name)
+
+    target_remote = target / "rg_remote_control"
+    target_remote.mkdir(parents=True, exist_ok=True)
+    for name in ("youtube_local_tool.py", "youtube_nas_agent.py"):
+        src_file = ROOT / "rg_remote_control" / name
+        if src_file.is_file():
+            shutil.copy2(src_file, target_remote / name)
 
     prepared = prepare_source_runtime()
     return {
@@ -3283,6 +3452,8 @@ def main() -> int:
         result = quota_plan_status()
     elif action == "youtube_local_runtime_status":
         result = runtime_status()
+    elif action == "youtube_local_install_nas_first":
+        result = install_nas_first_youtube()
     elif action == "youtube_local_install_boot_ready":
         result = install_boot_ready()
     elif action == "youtube_local_daily_autopilot":
