@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_install_state",
+  "action": "restart_auto_edit_studio_ui",
   "args": {},
-  "nonce": "probe-install-state-20261006-2118"
+  "nonce": "restart-ui-after-hung-update-20261006-2120"
 }
