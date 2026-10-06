@@ -415,3 +415,55 @@ def test_fetch_transcript_from_public_metadata_uses_json3(monkeypatch) -> None:
     assert rows == [
         {"text": "Привіт світ", "start": 1.0, "duration": 1.5}
     ]
+
+
+def test_fetch_transcript_accepts_unexpected_available_language(monkeypatch) -> None:
+    from rg_youtube_control import free_tools
+
+    class _Fetched:
+        def to_raw_data(self):
+            return [{"text": "текст", "start": 1.0, "duration": 2.0}]
+
+    class _Transcript:
+        language_code = "be"
+        is_generated = True
+        is_translatable = False
+        def fetch(self):
+            return _Fetched()
+
+    class _List:
+        def find_transcript(self, _languages):
+            raise RuntimeError("no preferred language")
+        def __iter__(self):
+            return iter([_Transcript()])
+
+    class _Api:
+        def list(self, _video_id):
+            return _List()
+
+    import youtube_transcript_api
+    monkeypatch.setattr(
+        youtube_transcript_api,
+        "YouTubeTranscriptApi",
+        lambda: _Api(),
+    )
+
+    rows = free_tools.fetch_transcript("abc123XYZ")
+
+    assert rows == [{"text": "текст", "start": 1.0, "duration": 2.0}]
+
+
+def test_parse_webvtt_transcript_rows() -> None:
+    from rg_youtube_control.free_tools import parse_webvtt_transcript
+
+    rows = parse_webvtt_transcript(
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:03.000\n"
+        "Перша репліка\n\n"
+        "00:00:04.500 --> 00:00:06.000\n"
+        "<c>Друга репліка</c>\n"
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["text"] == "Перша репліка"
+    assert rows[1]["text"] == "Друга репліка"
