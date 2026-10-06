@@ -14,7 +14,7 @@ def test_v040_dashboard_contract() -> None:
         'self.process_progress = QProgressBar()',
         'self.activity_list = QListWidget()',
         'self.issue_list = QListWidget()',
-        'self.center_quota = ProgressMetricCard("YouTube API")',
+        'self.center_quota = ProgressMetricCard("Квота YouTube на сьогодні")',
         'self.center_vidiq = ProgressMetricCard("vidIQ · AIR Boost")',
         'self.optimization_search = QLineEdit()',
         'self.optimization_density = QComboBox()',
@@ -262,3 +262,118 @@ def test_idle_process_strip_is_hidden() -> None:
     end = source.index("\n    def _toast", start)
     block = source[start:end]
     assert 'self.today_process_frame.setVisible(False)' in block
+
+
+def test_v060_guided_release_contract() -> None:
+    source = _ui_source()
+    for marker in (
+        'self.next_action_why_btn = QPushButton("Чому?")',
+        'def _explain_guided_next_action',
+        'def _discard_all_legacy_drafts',
+        'def review_draft_queue',
+        'QPushButton("Прийняти")',
+        'QPushButton("Відхилити")',
+        'generation="local-seo-0.6"',
+        'generation="safe-metadata-0.6"',
+        'def _package_quality_gate',
+        '"SEO-опис не українською"',
+        '"старий рекламний хвіст у назві"',
+    ):
+        assert marker in source
+
+
+def test_v060_normal_mode_hides_technical_ui() -> None:
+    source = _ui_source()
+    for marker in (
+        'self.advanced_mode = get_setting(',
+        'self.advanced_mode_box = QCheckBox("Розширений режим")',
+        'self.optimization_table.setColumnHidden(7, not advanced)',
+        'self.advanced_batch_seo_action.setVisible',
+        'self.settings_sections.setTabVisible(index, advanced)',
+        'self.optimization_process_frame.setVisible(False)',
+    ):
+        assert marker in source
+
+
+def test_v060_smart_workspace_state_and_search() -> None:
+    source = _ui_source()
+    for marker in (
+        'optimization_queue_filter_{self.current_profile}',
+        'optimization_status_filter_{self.current_profile}',
+        'optimization_density',
+        '"готовые": "ready"',
+        '"черновики": "draft"',
+        '"нужно подготовить": "needs"',
+        'def _restore_optimization_view_state',
+    ):
+        assert marker in source
+
+
+def test_v060_quota_protection_and_write_verification() -> None:
+    source = _ui_source()
+    start = source.index("    def apply_content_package")
+    end = source.index("\n    @staticmethod\n    def _dedupe_tags", start)
+    block = source[start:end]
+    assert "_quota_write_available" in source
+    assert "_verify_applied_metadata" in block
+    assert "Контроль після запису не пройдено" in block
+    assert "контроль YouTube OK" in block
+    assert "Квота в резерві" in source
+
+
+def test_v060_batch_verification_reuses_refresh() -> None:
+    source = _ui_source()
+    start = source.index("    def apply_next_safe_archive_batch")
+    end = source.index("\n    def apply_safe_optimization", start)
+    block = source[start:end]
+    assert "expected_after" in block
+    assert "refreshed_rows = sync_specific_videos" in block
+    assert "verification_failed" in block
+    assert "Контроль batch не пройдено" in block
+
+
+def test_v060_logs_split_work_and_diagnostics() -> None:
+    source = _ui_source()
+    start = source.index("    def _build_log_tab")
+    end = source.index("\n    def _build_settings_tab", start)
+    block = source[start:end]
+    assert 'self.log_sections.addTab(work_page, "Робота")' in block
+    assert 'self.log_sections.addTab(diagnostic_page, "Діагностика")' in block
+    assert "def reload_action_log" in block
+    assert "def _diagnostic_family" in source
+    assert 'f"×{int(info[\'count\'])}"' in block
+
+
+def test_v060_background_resume_and_sync() -> None:
+    source = _ui_source()
+    assert "self.background_sync_timer = QTimer(self)" in source
+    assert "def background_metadata_sync" in source
+    assert "def _resume_saved_workflow" in source
+    assert 'action="Чергу відновлено"' in source
+
+
+def test_v060_user_facing_status_and_badges() -> None:
+    source = _ui_source()
+    assert '["Відео", "Назва", "Перегляди", "Стан", "Проблеми"]' in source
+    assert '"Потрібно покращити"' in source
+    assert '"Критично"' in source
+    assert 'def _refresh_tab_badges' in source
+    assert 'self._set_tab_badge(3, "Коментарі", comments)' in source
+
+
+def test_v060_diagnostics_are_in_settings() -> None:
+    source = _ui_source()
+    assert 'self.settings_sections.addTab(diagnostics_page, "Діагностика")' in source
+    assert 'def refresh_diagnostics_panel' in source
+    assert 'def _open_diagnostics_log' in source
+    assert 'refresh_diagnostics_btn = QPushButton("Оновити діагностику")' in source
+
+
+def test_v060_guided_action_avoids_useless_extra_prep() -> None:
+    source = _ui_source()
+    start = source.index("    def _refresh_next_action_card")
+    end = source.index("\n    def _run_guided_next_action", start)
+    block = source[start:end]
+    assert "elif ready_queue and safe_capacity <= 0:" in block
+    assert "Нові архівні пакети зараз готувати не потрібно" in block
+    assert 'self._guided_next_action = "comments"' in block
