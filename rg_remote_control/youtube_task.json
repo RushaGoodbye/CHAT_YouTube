@@ -1,8 +1,9 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_sync_and_launch_source",
+  "action": "youtube_local_recent_errors",
   "args": {
-    "nonce": "apply-invalid-description-fix-20261006"
+    "limit": 10,
+    "nonce": "diagnose-local-seo-error-20261006"
   }
 }
