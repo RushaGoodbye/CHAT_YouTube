@@ -3624,7 +3624,7 @@ def inspect_auto_edit_execution_functions() -> dict:
     rows = source.splitlines()
     tree = ast.parse(source)
     wanted = {
-        "_start_stream","_command","_finished","start","start_process","on_finished",
+        "_start_stream","_command","_finished","_start_service_process","start","start_process","on_finished",
         "_save_batch_ui_state","_load_batch_ui_state","_batch_next",
         "_run_postrun","_archive_run","_finish_run","_start_process","_collect_outputs","_start_postrun_qa","_postrun_finished","_finalize_run",
     }
