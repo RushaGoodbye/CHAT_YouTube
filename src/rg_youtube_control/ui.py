@@ -1128,6 +1128,10 @@ class MainWindow(QMainWindow):
         next_action_head.addWidget(next_action_caption)
         next_action_head.addWidget(self.next_action_state)
         next_action_head.addStretch()
+        self.next_action_why_btn = QPushButton("Чому?")
+        self.next_action_why_btn.setProperty("role", "chip")
+        self.next_action_why_btn.clicked.connect(self._explain_guided_next_action)
+        next_action_head.addWidget(self.next_action_why_btn)
         next_action_layout.addLayout(next_action_head)
         self.next_action_title = QLabel("Перевіряю стан каналу...")
         self.next_action_title.setObjectName("MetricValue")
@@ -1566,17 +1570,30 @@ class MainWindow(QMainWindow):
                 ).fetchone()[0]
             )
             if draft_count:
-                self._guided_next_action = "review_drafts"
-                self.next_action_state.setText("ПОТРІБНА ПЕРЕВІРКА")
-                self.next_action_state.setObjectName("StatusWarn")
-                self.next_action_title.setText(
-                    f"Перевірити підготовлені пакети: {draft_count}"
-                )
-                self.next_action_explanation.setText(
-                    "Ці зміни ще не підуть у YouTube. "
-                    "Спочатку перегляньте їх і залиште тільки коректні."
-                )
-                self.next_action_button.setText("Відкрити на перевірку")
+                legacy_count = self._legacy_draft_count()
+                if legacy_count:
+                    self._guided_next_action = "discard_legacy"
+                    self.next_action_state.setText("ОЧИЩЕННЯ")
+                    self.next_action_state.setObjectName("StatusWarn")
+                    self.next_action_title.setText(
+                        f"Прибрати старі експериментальні чернетки: {legacy_count}"
+                    )
+                    self.next_action_explanation.setText(
+                        "Ці пакети створені старими версіями генератора. "
+                        "Вони не будуть застосовані до YouTube."
+                    )
+                    self.next_action_button.setText("Очистити старі")
+                else:
+                    self._guided_next_action = "review_drafts"
+                    self.next_action_state.setText("ПОТРІБНА ПЕРЕВІРКА")
+                    self.next_action_state.setObjectName("StatusWarn")
+                    self.next_action_title.setText(
+                        f"Перевірити підготовлені пакети: {draft_count}"
+                    )
+                    self.next_action_explanation.setText(
+                        "Перевірка йде послідовно: ДО/ПІСЛЯ → Прийняти/Відхилити → Наступне."
+                    )
+                    self.next_action_button.setText("Почати перевірку")
             else:
                 ready_queue = self._prepared_queue_ids()
                 if ready_queue and safe_capacity > 0:
@@ -1590,7 +1607,7 @@ class MainWindow(QMainWindow):
                         f"Сьогодні доступно приблизно {safe_capacity} "
                         "безпечних оновлень понад резерв квоти."
                     )
-                    self.next_action_button.setText("Відкрити готові")
+                    self.next_action_button.setText("Застосувати готове")
                 else:
                     local_count = self._safe_local_prepare_candidate_count(10)
                     if local_count:
@@ -1665,25 +1682,67 @@ class MainWindow(QMainWindow):
         action = getattr(self, "_guided_next_action", "none")
         if action == "today_stream":
             self.open_today_stream_optimization()
+        elif action == "discard_legacy":
+            self._discard_all_legacy_drafts()
         elif action == "review_drafts":
-            if hasattr(self, "optimization_filter"):
-                index = self.optimization_filter.findData("all")
-                if index >= 0:
-                    self.optimization_filter.setCurrentIndex(index)
-            if hasattr(self, "optimization_status_filter"):
-                index = self.optimization_status_filter.findData("draft")
-                if index >= 0:
-                    self.optimization_status_filter.setCurrentIndex(index)
-            self.tabs.setCurrentIndex(2)
-            self.reload_optimization_queue()
+            self.review_draft_queue()
         elif action == "ready_queue":
-            self._open_ready_work_queue()
+            budget = quota_budget_status(self.conn)
+            if int(budget["spendable"]) >= SAFE_METADATA_ITEM_COST:
+                self._open_ready_work_queue()
+                self.apply_next_safe_archive_batch(
+                    daily=False,
+                    confirm=True,
+                    notify=True,
+                )
+            else:
+                self._open_ready_work_queue()
         elif action == "prepare_local":
             self.prepare_zero_quota_batch()
         elif action == "comments":
             self.tabs.setCurrentIndex(3)
         else:
             self.update_task_center()
+
+    def _explain_guided_next_action(self) -> None:
+        action = getattr(self, "_guided_next_action", "none")
+        explanations = {
+            "today_stream": (
+                "Сьогоднішній запланований стрім має пріоритет над архівом, "
+                "щоб він був готовий до ефіру."
+            ),
+            "discard_legacy": (
+                "Старі експериментальні чернетки створені попередніми версіями "
+                "генератора і не повинні змішуватися з новими перевіреними пакетами."
+            ),
+            "review_drafts": (
+                "Є локальні пакети, які ще не підтверджені. "
+                "Поки ви їх не приймете, YouTube не змінюється."
+            ),
+            "ready_queue": (
+                "Пакети вже перевірені. Програма застосує лише ту кількість, "
+                "яку дозволяє поточна квота понад захищений резерв."
+            ),
+            "prepare_local": (
+                "Локальна підготовка не витрачає YouTube Data API, "
+                "тому це безпечна робота навіть коли квота майже закінчилась."
+            ),
+            "comments": (
+                "Критичних задач по відео немає, тому наступна корисна черга - коментарі."
+            ),
+            "wait": (
+                "Зараз уже виконується операція. Друга паралельна дія може створити "
+                "конфлікт або дублювати роботу."
+            ),
+            "none": (
+                "Програма не бачить незавершеної задачі, яка потребує вашого рішення."
+            ),
+        }
+        QMessageBox.information(
+            self,
+            "Чому саме ця дія?",
+            explanations.get(action, explanations["none"]),
+        )
 
     def update_task_center(self) -> None:
         if not hasattr(self, "center_scheduled"):
