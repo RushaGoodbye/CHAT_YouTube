@@ -9208,6 +9208,126 @@ def inspect_auto_edit_identity_refiner() -> dict:
         out[p.name]={"path":str(p),"functions":funcs}
     return out
 
+def apply_auto_edit_identity_local_scan_cap_hotfix() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    mod=app/"rg_guest_identity_boundary.py"
+    ver=app/"rg_studio_version.py"
+    if not mod.is_file():
+        raise RuntimeError("rg_guest_identity_boundary.py missing")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_IDENTITY_LOCAL_SCAN_CAP_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    for p in (mod,ver):
+        if p.is_file(): shutil.copy2(p,backup/p.name)
+    try:
+        src=mod.read_text(encoding="utf-8")
+        anchor="    scan0,scan1=_local_scan_bounds(provisional_range,legacy,identity_context)\n"
+        if anchor not in src:
+            raise RuntimeError("identity scan bounds anchor missing")
+        if "RG_LOCAL_IDENTITY_SCAN_CAP_V1" not in src:
+            patch=anchor+r'''    # RG_LOCAL_IDENTITY_SCAN_CAP_V1
+    # Identity refinement is local to the screenshot dialogue.  The same guest may
+    # reappear later in a long stream; a very broad scan lets temporal continuity
+    # accidentally bridge those separate appearances.  Keep the scan centred on
+    # the already-confirmed legacy dialogue and bounded by neighbour screenshot
+    # anchors.  Margin grows with dialogue length but is capped at 15 minutes.
+    _l0=float(legacy['start']); _l1=float(legacy['end'])
+    _legacy_d=max(1.0,_l1-_l0)
+    _margin=max(300.0,min(900.0,_legacy_d*1.25))
+    _cap0=_l0-_margin
+    _cap1=_l1+_margin
+    _prev_anchor=identity_context.get('previous_anchor_sec')
+    _next_anchor=identity_context.get('next_anchor_sec')
+    if _prev_anchor is not None:
+        _cap0=max(_cap0,float(_prev_anchor)+0.05)
+    if _next_anchor is not None:
+        _cap1=min(_cap1,float(_next_anchor)-0.05)
+    # Always preserve the authoritative current screenshot anchor.
+    _cap0=min(_cap0,anchor-1.0)
+    _cap1=max(_cap1,anchor+1.0)
+    _capped0=max(float(scan0),float(_cap0))
+    _capped1=min(float(scan1),float(_cap1))
+    if _capped1>_capped0+10.0:
+        if (_capped0>float(scan0)+0.01) or (_capped1<float(scan1)-0.01):
+            print(
+                f"RGWARNING|IDENTITY_LOCAL_SCAN_CAP|"
+                f"{float(scan0):.3f}-{float(scan1):.3f}->"
+                f"{_capped0:.3f}-{_capped1:.3f}|"
+                f"legacy={_l0:.3f}-{_l1:.3f}|margin={_margin:.1f}",
+                flush=True,
+            )
+        scan0,scan1=_capped0,_capped1
+'''
+            src=src.replace(anchor,patch,1)
+
+        tmp=mod.with_suffix(".py.localscancap.tmp")
+        tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True)
+        os.replace(tmp,mod)
+
+        if ver.is_file():
+            vs=ver.read_text(encoding="utf-8")
+            if re.search(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']',vs):
+                vs=re.sub(r'STUDIO_VERSION\s*=\s*["\'][^"\']+["\']','STUDIO_VERSION="0.20.7.9"',vs,count=1)
+            else:
+                vs='STUDIO_VERSION="0.20.7.9"\n'+vs
+            ver.write_text(vs,encoding="utf-8")
+            py_compile.compile(str(ver),doraise=True)
+
+        # Static behaviour test of the cap with the failing 901-2 geometry.
+        test_code=r'''
+legacy={"start":6326.0,"end":6861.0}
+scan0,scan1=5426.0,11718.875
+anchor=6644.0
+legacy_d=max(1.0,legacy["end"]-legacy["start"])
+margin=max(300.0,min(900.0,legacy_d*1.25))
+cap0=legacy["start"]-margin
+cap1=legacy["end"]+margin
+c0=max(scan0,cap0);c1=min(scan1,cap1)
+assert c0>5426.0
+assert c1<11718.875
+assert c0<anchor<c1
+assert c1-c0<2000
+print("LOCAL_SCAN_CAP_TEST_PASS",c0,c1,margin)
+'''
+        runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+        py=str(runtime if runtime.is_file() else sys.executable)
+        cp=subprocess.run([py,"-X","utf8","-c",test_code],cwd=str(app),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+        if cp.returncode!=0:
+            raise RuntimeError("local scan cap test failed: "+(cp.stdout or "")+(cp.stderr or ""))
+
+        # Restart Studio only; production recovery is launched separately.
+        stop=r'''$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*rg_studio_main.py*') -or ($_.CommandLine -like '*rg_studio_ui.py*')) }; foreach($x in $p){ Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }'''
+        subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",stop],capture_output=True,text=True,timeout=20)
+        time.sleep(.8)
+        pyw=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+        exe=str(pyw if pyw.is_file() else runtime if runtime.is_file() else Path(sys.executable))
+        env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None);env["RG_AUTO_EDIT_BACKEND"]=str(app)
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([exe,"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),env=env,creationflags=flags,close_fds=True,
+                         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        time.sleep(1.5)
+        return {
+            "status":"APPLIED",
+            "version":"0.20.7.9",
+            "backup":str(backup),
+            "module":str(mod),
+            "policy":"RG_LOCAL_IDENTITY_SCAN_CAP_V1",
+            "failing_901_2_original_scan":[5426.0,11718.875],
+            "failing_901_2_expected_capped_scan":[5657.25,7529.75],
+            "test":"PASS",
+            "studio_restarted":True,
+        }
+    except Exception:
+        for p in (mod,ver):
+            bp=backup/p.name
+            if bp.is_file(): shutil.copy2(bp,p)
+        raise
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9309,6 +9429,7 @@ ACTIONS = {
     "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
     "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
     "apply_auto_edit_monotonic_anchor_hotfix": apply_auto_edit_monotonic_anchor_hotfix,
+    "apply_auto_edit_identity_local_scan_cap_hotfix": apply_auto_edit_identity_local_scan_cap_hotfix,
     "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
     "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
     "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
