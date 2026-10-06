@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_install_state",
+  "action": "inspect_auto_edit_powershell_usage",
   "args": {},
-  "nonce": "verify-ux25-install-20261006-2132"
+  "nonce": "inspect-powershell-usage-20261006-2138"
 }
