@@ -10208,6 +10208,58 @@ def inspect_auto_edit_901_delivery_vs_source() -> dict:
     return out
 
 
+
+def inspect_auto_edit_901_linkage() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\901")
+    out=[]
+    for i in range(1,7):
+        p=app/f"RG_EDITED_901_{i}.xml"
+        if not p.is_file():
+            out.append({"dialogue":i,"missing":True}); continue
+        root=ET.parse(p).getroot()
+        vclips=root.findall(".//sequence/media/video/track/clipitem")
+        atracks=root.findall(".//sequence/media/audio/track")
+        aclips=[c for t in atracks for c in t.findall("./clipitem")]
+        def iv(c):
+            try:return (int(c.findtext("start")),int(c.findtext("end")))
+            except:return None
+        vb=sorted({x for c in vclips for x in (iv(c) or ())})
+        ab=sorted({x for c in aclips for x in (iv(c) or ())})
+        aset_by_track=[]
+        for t in atracks:
+            aset_by_track.append({iv(c) for c in t.findall("./clipitem") if iv(c)})
+        v_with_audio_link=0; v_with_any_link=0; v_exact_both=0; misses=[]
+        for c in vclips:
+            links=c.findall("./link")
+            if links:v_with_any_link+=1
+            if any((lk.findtext("mediatype") or "").lower()=="audio" for lk in links):v_with_audio_link+=1
+            x=iv(c)
+            if x and len(aset_by_track)>=2 and x in aset_by_track[0] and x in aset_by_track[1]:
+                v_exact_both+=1
+            elif x and len(misses)<80:
+                misses.append({"id":c.get("id"),"start":x[0],"end":x[1]})
+        a_with_video_link=sum(
+            1 for c in aclips
+            if any((lk.findtext("mediatype") or "").lower()=="video" for lk in c.findall("./link"))
+        )
+        out.append({
+          "dialogue":i,"video_clips":len(vclips),"audio_tracks":len(atracks),
+          "audio_clips_per_track":[len(t.findall("./clipitem")) for t in atracks],
+          "video_boundary_count":len(vb),"audio_boundary_count":len(ab),
+          "video_boundaries_missing_in_audio":len(set(vb)-set(ab)),
+          "missing_boundary_sample":sorted(set(vb)-set(ab))[:80],
+          "video_with_any_link":v_with_any_link,
+          "video_with_audio_link":v_with_audio_link,
+          "audio_with_video_link":a_with_video_link,
+          "video_exact_audio_pair":v_exact_both,
+          "video_without_exact_audio_pair":len(vclips)-v_exact_both,
+          "video_without_exact_audio_pair_sample":misses,
+        })
+    return {"xmls":out}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10346,6 +10398,7 @@ ACTIONS = {
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_901_audio_gaps_and_censor": inspect_auto_edit_901_audio_gaps_and_censor,
     "inspect_auto_edit_901_delivery_vs_source": inspect_auto_edit_901_delivery_vs_source,
+    "inspect_auto_edit_901_linkage": inspect_auto_edit_901_linkage,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
