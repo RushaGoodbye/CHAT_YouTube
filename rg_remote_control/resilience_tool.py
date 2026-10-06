@@ -363,6 +363,20 @@ try {{
             encoding="utf-8",
         )
 
+    run_value = (
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        f'-File "{keepalive}"'
+    )
+    registry = run([
+        r"C:\Windows\System32\reg.exe",
+        "ADD",
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+        "/V", "RG_ALEXPC_AGENT",
+        "/T", "REG_SZ",
+        "/D", run_value,
+        "/F",
+    ], timeout=20)
+
     first = run([
         r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(keepalive)
@@ -392,6 +406,7 @@ try {{
         "keepalive_task": keep,
         "boot_task": boot,
         "startup_fallback": str(startup_vbs) if startup_vbs else None,
+        "registry_autostart": registry,
         "first_start": first,
         "process_probe": probe,
         "nas_status": str(nas_status),
