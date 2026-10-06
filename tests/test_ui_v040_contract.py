@@ -120,3 +120,23 @@ def test_batch_seo_requires_transcript_grounding() -> None:
     block = source[start:end]
     assert "if fast_mode and not transcript.strip():" in block
     assert "немає транскрипту для фактчекінгу" in block
+
+
+def test_batch_seo_uses_transcript_fallback_chain() -> None:
+    source = _ui_source()
+    start = source.index("    def _generate_local_seo_result")
+    end = source.index("\n    def _normalize_local_seo_package", start)
+    block = source[start:end]
+    assert "load_srt_transcript" in block
+    assert "fetch_transcript(video_id)" in block
+    assert "fetch_transcript_from_public_metadata" in block
+    assert 'context["transcript_source"] = transcript_source' in block
+
+
+def test_batch_seo_prioritizes_nas_transcripts() -> None:
+    source = _ui_source()
+    start = source.index("    def local_seo_batch")
+    end = source.index("\n    def _save_local_seo_batch", start)
+    block = source[start:end]
+    assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
+    assert 'f"{video_id}.srt"' in block
