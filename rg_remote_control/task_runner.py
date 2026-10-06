@@ -12770,6 +12770,88 @@ print(json.dumps(s,ensure_ascii=False))
 
 
 
+def prepare_auto_edit_020201_candidate_snapshot() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,hashlib,py_compile,shutil,subprocess,zipfile,time,re
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    nas_root=Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS")
+    version="0.20.20.1"
+    if not app.is_dir() or not runtime.is_file() or not nas_root.exists():
+        raise RuntimeError("Required App/Runtime/NAS path unavailable")
+    vp=app/"rg_studio_version.py"
+    vs=vp.read_text(encoding="utf-8-sig",errors="replace") if vp.is_file() else ""
+    m=re.search(r'STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',vs)
+    actual=m.group(1).strip() if m else ""
+    if actual!=version:raise RuntimeError(f"Version mismatch: {actual} != {version}")
+    try:
+        sys.path.insert(0,str(app))
+        from rg_windows_service import backend_processes
+        active=backend_processes()
+    except Exception:active=[]
+    if active:raise RuntimeError("Candidate snapshot blocked: backend active: "+str(active[:4]))
+    # Compile every top-level production module before snapshot.
+    compiled=[]
+    for p in sorted(app.glob("*.py")):
+        py_compile.compile(str(p),doraise=True);compiled.append(p.name)
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name=f"RG_AUTO_EDIT_{version}_CANDIDATE_{stamp}"
+    local=data/"LAST_KNOWN_GOOD"/name
+    nas=nas_root/name
+    for root in (local,nas):root.mkdir(parents=True,exist_ok=False)
+    ignore_names={"__pycache__",".rg_cache","run_manifests",".rg_revisions",".git","diagnostics","crash_bundles","temp","tmp"}
+    ignore_suffix={".pyc",".pyo",".tmp",".log"}
+    def skip(rel):
+        if any(x in ignore_names for x in rel.parts):return True
+        if rel.suffix.lower() in ignore_suffix:return True
+        if rel.name.isdigit() or rel.name.startswith("RG_EDITED_"):return True
+        return False
+    def sha256(p):
+        h=hashlib.sha256()
+        with Path(p).open("rb") as f:
+            for b in iter(lambda:f.read(4*1024*1024),b""):h.update(b)
+        return h.hexdigest()
+    rows=[]
+    for src in app.rglob("*"):
+        if not src.is_file():continue
+        rel=src.relative_to(app)
+        if skip(rel):continue
+        try:size=src.stat().st_size
+        except Exception:continue
+        if size>250*1024*1024 and rel.parts and rel.parts[0].lower() in {"models","assets"}:continue
+        h=sha256(src);rows.append({"path":str(rel).replace("\\","/"),"size":size,"sha256":h})
+        for root in (local,nas):
+            dst=root/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
+    marker={
+      "schema":"RG_AUTO_EDIT_CANDIDATE_SNAPSHOT_V1","status":"CANDIDATE",
+      "version":version,"control_stream":"886","created_at":time.time(),"source":str(app),
+      "local":str(local),"nas":str(nas),"file_count":len(rows),"files":rows,
+      "required_tests":["886_PRODUCTION_SMOKE","PREVIEW_SMOKE","UPDATER_SMOKE"],
+      "compiled_modules":len(compiled)
+    }
+    for root in (local,nas):
+        (root/"CANDIDATE_MARKER.json").write_text(json.dumps(marker,ensure_ascii=False,indent=2),encoding="utf-8")
+    bad=[]
+    for row in rows:
+        p=nas/Path(row["path"])
+        if not p.is_file() or p.stat().st_size!=row["size"] or sha256(p)!=row["sha256"]:bad.append(row["path"])
+    if bad:raise RuntimeError("Candidate NAS verify failed: "+str(bad[:10]))
+    zpath=nas_root/(name+".zip")
+    with zipfile.ZipFile(zpath,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+        for row in rows:z.write(nas/Path(row["path"]),row["path"])
+        z.write(nas/"CANDIDATE_MARKER.json","CANDIDATE_MARKER.json")
+    with zipfile.ZipFile(zpath) as z:
+        badcrc=z.testzip()
+        if badcrc:raise RuntimeError("Candidate ZIP CRC failed: "+str(badcrc))
+    state={"schema":"RG_020201_STABILIZATION_V1","version":version,"candidate_name":name,
+           "candidate_local":str(local),"candidate_nas":str(nas),"candidate_zip":str(zpath),
+           "candidate_verified":True,"tests":{},"updated_at":time.time()}
+    sp=data/"stabilization_020201.json";tmp=sp.with_suffix(".tmp");tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,sp)
+    return {"status":"CANDIDATE_VERIFIED","version":version,"candidate":name,"nas":str(nas),"zip":str(zpath),
+            "local":str(local),"files":len(rows),"compiled":len(compiled),"zip_crc":"PASS","state":str(sp)}
+
+
 def freeze_auto_edit_stable_020180() -> dict:
     if os.name!="nt":
         raise RuntimeError("Windows only")
@@ -13530,6 +13612,7 @@ ACTIONS = {
     "apply_auto_edit_updater_supervisor_v3": apply_auto_edit_updater_supervisor_v3,
     "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
     "freeze_auto_edit_stable_020180": freeze_auto_edit_stable_020180,
+    "prepare_auto_edit_020201_candidate_snapshot": prepare_auto_edit_020201_candidate_snapshot,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
