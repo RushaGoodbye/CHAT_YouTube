@@ -3,5 +3,5 @@
   "contour": "auto_edit",
   "action": "inspect_rg_resilience_runtime",
   "args": {},
-  "nonce": "inspect-resilience-runtime-after-queue-cleanup-20261006-1"
+  "nonce": "inspect-settled-runtime-utf8-20261006-1"
 }
