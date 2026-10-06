@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_pack400_update",
+  "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "build-pack400-productivity-20261006-1"
+  "nonce": "deploy-invalid-description-fix-20261006"
 }
