@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 from rg_youtube_control.optimization import (  # noqa: E402
     safe_description_fix,
     validate_content_package,
+    youtube_description_errors,
 )
 
 HASHTAG_LINE_RE = re.compile(
@@ -40,6 +41,37 @@ def _data_dir() -> Path:
 
 def _db_path() -> Path:
     return _data_dir() / "rg_youtube_control.db"
+
+
+def _mark_invalid_description_issue(
+    conn: sqlite3.Connection,
+    video_id: str,
+    profile: str,
+    errors: list[str] | tuple[str, ...],
+) -> None:
+    row = conn.execute(
+        "SELECT audit_json FROM videos WHERE video_id=? AND profile=?",
+        (video_id, profile),
+    ).fetchone()
+    payload = {}
+    if row is not None:
+        try:
+            payload = json.loads(row["audit_json"] or "{}")
+        except Exception:
+            payload = {}
+    issues = list(payload.get("issues") or [])
+    if "invalid_description" not in issues:
+        issues.append("invalid_description")
+    payload["issues"] = issues
+    payload["invalid_description_errors"] = list(errors)
+    payload["invalid_description_checked_at"] = datetime.now(
+        timezone.utc
+    ).isoformat()
+    conn.execute(
+        "UPDATE videos SET audit_json=? WHERE video_id=? AND profile=?",
+        (json.dumps(payload, ensure_ascii=False), video_id, profile),
+    )
+    conn.commit()
 
 
 def _latin_ratio(text: str) -> float:
@@ -649,6 +681,21 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
                 skipped.append({"video_id": video_id, "reason": "already_safe"})
                 continue
 
+            description_errors = youtube_description_errors(fix.after)
+            if description_errors:
+                _mark_invalid_description_issue(
+                    conn,
+                    video_id,
+                    profile,
+                    description_errors,
+                )
+                skipped.append({
+                    "video_id": video_id,
+                    "reason": "invalid_description",
+                    "errors": list(description_errors),
+                })
+                continue
+
             fresh = quota_budget_status(conn)
             if int(fresh["spendable"]) < VIDEO_UPDATE_COST:
                 break
@@ -684,10 +731,24 @@ def apply_live_archive_safe_batch(task: dict) -> dict:
                     "changes": list(fix.changes),
                 })
             except Exception as exc:
-                if "quotaexceeded" in str(exc).casefold():
+                error_text = str(exc)
+                if "quotaexceeded" in error_text.casefold():
                     mark_quota_exhausted(conn)
-                errors.append({"video_id": video_id, "error": str(exc)})
-                if "quota" in str(exc).casefold():
+                if "invaliddescription" in error_text.casefold():
+                    _mark_invalid_description_issue(
+                        conn,
+                        video_id,
+                        profile,
+                        (error_text,),
+                    )
+                    skipped.append({
+                        "video_id": video_id,
+                        "reason": "invalid_description",
+                        "errors": [error_text],
+                    })
+                    continue
+                errors.append({"video_id": video_id, "error": error_text})
+                if "quota" in error_text.casefold():
                     break
 
         after = quota_budget_status(conn)
