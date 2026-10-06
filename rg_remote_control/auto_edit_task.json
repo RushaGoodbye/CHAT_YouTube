@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "final-verify-master60-r1-installed-20261006-2344"
+  "nonce": "inspect-freeze-process-tree-020200-20261006-2348"
 }
