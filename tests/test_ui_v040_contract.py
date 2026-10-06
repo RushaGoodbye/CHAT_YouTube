@@ -100,3 +100,14 @@ def test_local_seo_batch_lifecycle_is_logged() -> None:
     source = _ui_source()
     assert 'action="SEO-чернетка batch · старт"' in source
     assert 'action="SEO-чернетка batch · результат"' in source
+
+
+def test_local_seo_batch_has_candidate_timeout() -> None:
+    source = _ui_source()
+    start = source.index("    def local_seo_batch")
+    end = source.index("\n    def _save_local_seo_batch", start)
+    block = source[start:end]
+    assert "candidate_timeout_seconds = 75" in block
+    assert "daemon=True" in block
+    assert "fast_mode=True" in block
+    assert "Кандидат пропущено автоматично." in block
