@@ -3,5 +3,5 @@
   "contour": "auto_edit",
   "action": "finalize_auto_edit_020201_stable",
   "args": {},
-  "nonce": "finalize-golden-stable-020201-clean-runner"
+  "nonce": "finalize-golden-stable-020201-unc-fixed"
 }
