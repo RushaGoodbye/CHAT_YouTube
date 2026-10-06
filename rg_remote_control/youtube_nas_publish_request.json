@@ -1,0 +1,7 @@
+{
+  "target": "alexpc",
+  "purpose": "Publish RG YouTube Control 0.4.7 directly to NAS update repository",
+  "version": "0.4.7",
+  "nas_path": "\\\\AlexLosServer\\RG_AUTO_EDIT\\YOUTUBE_CONTROL\\UPDATES",
+  "requested_at": "2026-10-06T15:05:00Z"
+}
