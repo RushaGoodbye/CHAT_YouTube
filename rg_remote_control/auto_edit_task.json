@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "bootstrap_youtube_runtime",
   "args": {},
-  "nonce": "mirror-safe-gui-cleanup-20261006-1"
+  "nonce": "nas-bootstrap-youtube-runtime-20261006-2"
 }
