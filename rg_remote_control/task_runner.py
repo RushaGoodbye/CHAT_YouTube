@@ -12009,6 +12009,32 @@ def inspect_auto_edit_update_install_state() -> dict:
 
 
 
+def inspect_auto_edit_startup_hotspots() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import ast
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    targets={
+      "rg_studio_ui.py":{"_refresh_system","__init__"},
+      "rg_master60.py":{"enhance_window","system_line","latest_new_update","recovery_points","premiere_snapshot","_format_recovery","_update_ui"},
+      "rg_production40.py":{"enhance_window","startup_self_test","health_snapshot","_nas","_gpu"},
+      "rg_stability_ux25.py":{"enhance_window","quick_preflight"}
+    }
+    out={}
+    for fn,names in targets.items():
+        p=app/fn
+        if not p.is_file():out[fn]={"missing":True};continue
+        src=p.read_text(encoding="utf-8",errors="replace");rows=src.splitlines()
+        try:tree=ast.parse(src)
+        except Exception as exc:out[fn]={"parse_error":repr(exc)};continue
+        got={}
+        for node in ast.walk(tree):
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in names:
+                a=max(0,node.lineno-1);b=min(len(rows),getattr(node,"end_lineno",node.lineno))
+                got[node.name]="\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))
+        out[fn]=got
+    return out
+
+
 def inspect_auto_edit_ui_freeze_runtime() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import time
@@ -13084,6 +13110,7 @@ ACTIONS = {
     "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
     "inspect_auto_edit_updater_state": inspect_auto_edit_updater_state,
     "inspect_auto_edit_ui_freeze_runtime": inspect_auto_edit_ui_freeze_runtime,
+    "inspect_auto_edit_startup_hotspots": inspect_auto_edit_startup_hotspots,
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
