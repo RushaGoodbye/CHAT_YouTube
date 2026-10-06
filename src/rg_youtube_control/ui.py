@@ -1166,6 +1166,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(health)
 
         process = QFrame()
+        self.today_process_frame = process
         process.setObjectName("ProcessStrip")
         process_layout = QVBoxLayout(process)
         process_layout.setContentsMargins(14, 10, 14, 10)
@@ -1186,6 +1187,7 @@ class MainWindow(QMainWindow):
         self.process_progress.setTextVisible(False)
         process_layout.addLayout(process_top)
         process_layout.addWidget(self.process_progress)
+        process.setVisible(False)
         layout.addWidget(process)
 
         today_stream = QFrame()
@@ -1237,14 +1239,16 @@ class MainWindow(QMainWindow):
         self.center_prepared = MetricCard("Готово до YouTube")
         self.center_comments = MetricCard("Коментарі")
         self.center_results = MetricCard("Контроль 7/28/90")
-        self.center_quota = ProgressMetricCard("YouTube API")
+        self.center_quota = ProgressMetricCard("Квота YouTube на сьогодні")
         self.center_vidiq = ProgressMetricCard("vidIQ · AIR Boost")
-        grid.addWidget(self.center_scheduled, 0, 0)
-        grid.addWidget(self.center_prepared, 0, 1)
-        grid.addWidget(self.center_comments, 0, 2)
-        grid.addWidget(self.center_results, 0, 3)
-        grid.addWidget(self.center_quota, 1, 0, 1, 2)
-        grid.addWidget(self.center_vidiq, 1, 2, 1, 2)
+
+        self.center_scheduled.setVisible(False)
+        self.center_results.setVisible(False)
+        self.center_vidiq.setVisible(False)
+
+        grid.addWidget(self.center_prepared, 0, 0, 1, 2)
+        grid.addWidget(self.center_comments, 0, 2, 1, 2)
+        grid.addWidget(self.center_quota, 1, 0, 1, 4)
         layout.addLayout(grid)
 
         pipeline = QFrame()
@@ -1259,6 +1263,7 @@ class MainWindow(QMainWindow):
         self.pipeline_label.setProperty("muted", True)
         pipeline_layout.addWidget(pipeline_title)
         pipeline_layout.addWidget(self.pipeline_label)
+        pipeline.setVisible(False)
         layout.addWidget(pipeline)
 
         lower = QHBoxLayout()
@@ -1284,6 +1289,7 @@ class MainWindow(QMainWindow):
         open_archive = QPushButton("Відкрити кампанію")
         open_archive.clicked.connect(self.show_archive_campaign_center)
         archive_layout.addWidget(open_archive)
+        archive_card.setVisible(False)
         lower.addWidget(archive_card, 1)
 
         activity_card = QFrame()
@@ -1305,6 +1311,7 @@ class MainWindow(QMainWindow):
         self.activity_list.setObjectName("ActivityList")
         self.activity_list.setMaximumHeight(165)
         activity_layout.addWidget(self.activity_list)
+        activity_card.setVisible(False)
         lower.addWidget(activity_card, 2)
 
         issues_card = QFrame()
@@ -1317,6 +1324,7 @@ class MainWindow(QMainWindow):
         self.issue_list.setMaximumHeight(165)
         issues_layout.addWidget(issues_title)
         issues_layout.addWidget(self.issue_list)
+        issues_card.setVisible(False)
         lower.addWidget(issues_card, 1)
         layout.addLayout(lower)
 
@@ -1387,6 +1395,13 @@ class MainWindow(QMainWindow):
                 f"{when} · {privacy} · ID {row['video_id']}"
             )
             self.today_stream_optimize_btn.setEnabled(True)
+            self.today_stream_optimize_btn.setText(
+                "Переглянути"
+                if status == "applied"
+                else "Перевірити"
+                if status in {"ready", "draft"}
+                else "Підготувати"
+            )
         self.today_stream_state.style().unpolish(self.today_stream_state)
         self.today_stream_state.style().polish(self.today_stream_state)
 
@@ -1711,11 +1726,11 @@ class MainWindow(QMainWindow):
         quota_percent = round(used / max(1, YOUTUBE_DAILY_QUOTA_DEFAULT) * 100)
         safe_capacity = max(0, (remaining - reserve) // max(1, SAFE_METADATA_ITEM_COST))
         self.center_quota.set_value(
-            f"{remaining:,} / {YOUTUBE_DAILY_QUOTA_DEFAULT:,}",
+            f"Залишилось {remaining:,}",
             percent=quota_percent,
             note=(
-                f"використано {used:,} · резерв {reserve:,} · "
-                f"≈{safe_capacity} безпечних оновлень"
+                f"використано {used:,} з {YOUTUBE_DAILY_QUOTA_DEFAULT:,} · "
+                f"резерв {reserve:,} · доступно зараз ≈{safe_capacity} безпечних оновлень"
             ),
             role="danger" if bool(budget["exhausted"]) else "warning" if quota_percent >= 75 else "",
         )
@@ -1760,13 +1775,20 @@ class MainWindow(QMainWindow):
             f"{completed:,} / {total_archive:,} · {archive_pct}%"
         )
         self.archive_today_bar.setValue(archive_pct)
-        daily_capacity = max(1, safe_capacity)
         remaining_total = safe_remaining + deep_remaining
-        days = math.ceil(remaining_total / daily_capacity) if remaining_total else 0
-        self.archive_today_note.setText(
-            f"залишилось опрацювати: {remaining_total:,} · "
-            f"застосовано: {applied:,} · прогноз ≈{days} дн."
-        )
+        if safe_capacity <= 0 and remaining_total:
+            archive_note = (
+                f"залишилось опрацювати: {remaining_total:,} · "
+                f"застосовано: {applied:,} · пауза через резерв квоти"
+            )
+        else:
+            daily_capacity = max(1, safe_capacity)
+            days = math.ceil(remaining_total / daily_capacity) if remaining_total else 0
+            archive_note = (
+                f"залишилось опрацювати: {remaining_total:,} · "
+                f"застосовано: {applied:,} · прогноз ≈{days} дн."
+            )
+        self.archive_today_note.setText(archive_note)
 
         channel_id = get_setting(self.conn, f"channel_id_{profile}", "")
         self._set_health_state("youtube", bool(channel_id), "YouTube")
@@ -1823,10 +1845,18 @@ class MainWindow(QMainWindow):
             rows = recent_action_log(self.conn, profile=profile, limit=80)
             bad = []
             for row in rows:
-                hay = (
-                    str(row["action"] or "") + " " + str(row["details"] or "")
-                ).casefold()
-                if any(key in hay for key in ("помил", "error", "failed", "403", "timeout")):
+                action_text = str(row["action"] or "").casefold()
+                details_text = str(row["details"] or "").casefold()
+                action_is_error = any(
+                    key in action_text
+                    for key in ("помилка", "error", "failed", "403", "timeout")
+                )
+                details_is_error = (
+                    details_text.startswith(("error", "failed", "403", "timeout"))
+                    or "sqlite objects created in a thread" in details_text
+                    or "traceback" in details_text
+                )
+                if action_is_error or details_is_error:
                     bad.append(row)
                 if len(bad) >= 5:
                     break
@@ -2293,6 +2323,10 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not hasattr(self, "process_title"):
             return
+        if hasattr(self, "today_process_frame"):
+            self.today_process_frame.setVisible(
+                bool(stage) or bool(error) or percent is None
+            )
         self.process_title.setText(title)
         self.process_stage.setText(stage or "очікування")
         self.process_stage.setObjectName(
@@ -2336,6 +2370,8 @@ class MainWindow(QMainWindow):
         self.process_progress.setRange(0, 100)
         self.process_progress.setValue(0)
         self._set_process(message, "", percent=0)
+        if hasattr(self, "today_process_frame"):
+            self.today_process_frame.setVisible(False)
 
     def _toast(self, message: str, timeout_ms: int = 5500) -> None:
         self.statusBar().showMessage(message, timeout_ms)
