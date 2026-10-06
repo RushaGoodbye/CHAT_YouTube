@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_audio_integrity_guard",
+  "action": "inspect_auto_edit_update_worker",
   "args": {},
-  "nonce": "apply-audio-integrity-guard-20261006-27"
+  "nonce": "inspect-update-worker-20261006-2035"
 }
