@@ -213,3 +213,52 @@ def test_draft_can_be_discarded_without_youtube_mutation() -> None:
     assert "YouTube не буде змінено" in block
     assert "_quota_update_video" not in block
     assert "context_discard_btn" in source
+
+
+def test_today_screen_is_decision_focused() -> None:
+    source = _ui_source()
+    start = source.index("    def _build_task_center_tab")
+    end = source.index("\n    def _today_scheduled_row", start)
+    block = source[start:end]
+    for marker in (
+        'self.today_process_frame = process',
+        'process.setVisible(False)',
+        'self.center_scheduled.setVisible(False)',
+        'self.center_results.setVisible(False)',
+        'self.center_vidiq.setVisible(False)',
+        'grid.addWidget(self.center_quota, 1, 0, 1, 4)',
+        'pipeline.setVisible(False)',
+        'archive_card.setVisible(False)',
+        'activity_card.setVisible(False)',
+        'issues_card.setVisible(False)',
+        'ProgressMetricCard("Квота YouTube на сьогодні")',
+    ):
+        assert marker in block
+
+
+def test_today_stream_action_matches_state() -> None:
+    source = _ui_source()
+    start = source.index("    def _refresh_today_stream_card")
+    end = source.index("\n    def open_today_stream_optimization", start)
+    block = source[start:end]
+    assert '"Переглянути"' in block
+    assert '"Перевірити"' in block
+    assert '"Підготувати"' in block
+
+
+def test_today_problem_list_ignores_success_summary_words() -> None:
+    source = _ui_source()
+    start = source.index('if hasattr(self, "issue_list")')
+    end = source.index("\n\n\n    def prepare_zero_quota_batch", start)
+    block = source[start:end]
+    assert 'action_is_error' in block
+    assert 'details_is_error' in block
+    assert 'for key in ("помил", "error"' not in block
+
+
+def test_idle_process_strip_is_hidden() -> None:
+    source = _ui_source()
+    start = source.index("    def _set_process_idle")
+    end = source.index("\n    def _toast", start)
+    block = source[start:end]
+    assert 'self.today_process_frame.setVisible(False)' in block
