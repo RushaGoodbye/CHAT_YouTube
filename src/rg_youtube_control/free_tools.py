@@ -840,15 +840,19 @@ def generate_seo_package_local(
 - основна назва та РІВНО 3 різні A/B варіанти назви: російською;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
-- опис: українською, 350-900 символів змістовного тексту до службових посилань;
-- перші 1-2 речення мають конкретно пояснювати, що відбувається у відео;
+- опис: українською, 400-850 символів змістовного тексту до службових посилань;
+- головне джерело змісту - ТРАНСКРИПТ; назва лише задає тему, старий опис не є джерелом фактів;
+- перші 1-2 речення мають назвати конкретну тему, людину/подію/питання з відео, якщо це прямо є в транскрипті;
+- далі стисло передай 2-4 конкретні тези або позиції співрозмовників з транскрипту;
 - усі твердження про зарплати, економіку, соціальні гарантії, інфраструктуру, втрати, перемоги, санкції, ціни та інші факти дозволені ЛИШЕ якщо вони прямо підтверджені транскриптом або наданим контекстом;
 - якщо транскрипт суперечить старому опису, довіряй транскрипту;
 - старий опис використовуй лише як технічний контекст, а не як джерело фактів;
-- не пиши загальні рекламні фрази на кшталт «обговорюються основні теми», якщо можеш назвати конкретні теми з транскрипту;
+- не пиши універсальні фрази на кшталт «учасники відповідають на запитання», «обговорюються основні теми», «дивіться повну розмову», якщо транскрипт дозволяє назвати конкретний зміст;
+- не додавай загальних висновків, яких немає в транскрипті;
 - не додавай ENGLISH SUMMARY, англомовний дубль або переклад опису;
 - без клікбейту, який не підтверджується контекстом;
-- теги без #, 8-15 штук, без дублювань, релевантні конкретному відео;
+- теги без #, 8-15 штук, без дублювань; спочатку конкретні сутності та тема відео, потім формат/канал;
+- не використовуй самостійні надто загальні теги «план», «стратегия», «политика», «должность», «перевод», «власть», «новости», якщо вони не є конкретною пошуковою фразою;
 - не змінюй thumbnail;
 - для Shorts не вигадуй глави;
 - chapters дозволені тільки за наявності підтверджених таймкодів у транскрипті;
@@ -893,8 +897,8 @@ SHORTS: {is_short}
 Поверни ТІЛЬКИ валідний JSON з ключами title, title_variants, description, tags, chapters.
 title: російською, до 100 символів, конкретний і підтверджений транскриптом.
 title_variants: РІВНО 3 різні варіанти, кожен до 100 символів.
-description: українською, 350-900 символів, конкретно за змістом транскрипту, без ENGLISH SUMMARY.
-tags: масив 8-15 рядків без #, без дублікатів.
+description: українською, 400-850 символів, конкретно за змістом транскрипту, без шаблонних фраз і без ENGLISH SUMMARY.
+tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
 chapters: рядок з підтвердженими таймкодами або порожній рядок.
 Не вигадуй фактів. Не роби тверджень про економіку, зарплати, соцгарантії чи інші результати, якщо цього немає в транскрипті.
 
@@ -951,18 +955,14 @@ chapters: рядок з підтвердженими таймкодами або
             if len({item.casefold() for item in variants_candidate[:3]}) < 3:
                 raise ValueError("title variants must be distinct")
             description_candidate = str(candidate.get("description") or "").strip()
-            if transcript.strip():
-                description_candidate = _grounded_description_from_transcript(
-                    current_title,
-                    transcript,
-                )
-                candidate["description"] = description_candidate
             description_error = (
                 _description_quality_error(description_candidate, transcript)
                 if transcript.strip()
                 else ""
             )
-            if transcript.strip() and description_error:
+            if transcript.strip():
+                # A dedicated transcript-summary pass is more specific than the
+                # old deterministic template and remains 0-quota.
                 recovered_description = _recover_missing_description(
                     current_title=current_title,
                     transcript=transcript,
@@ -976,6 +976,17 @@ chapters: рядок з підтвердженими таймкодами або
                         description_candidate,
                         transcript,
                     )
+                elif description_error:
+                    fallback_description = _grounded_description_from_transcript(
+                        current_title,
+                        transcript,
+                    )
+                    candidate["description"] = fallback_description
+                    description_candidate = fallback_description
+                    description_error = _description_quality_error(
+                        description_candidate,
+                        transcript,
+                    )
             if transcript.strip() and description_error:
                 raise ValueError(
                     "description quality failed: " + description_error
@@ -985,6 +996,11 @@ chapters: рядок з підтвердженими таймкодами або
                 str(item).strip().lstrip("#")
                 for item in (candidate.get("tags") or [])
                 if str(item).strip()
+                and _tag_is_grounded(
+                    str(item),
+                    current_title,
+                    transcript,
+                )
             ]
             grounded_tags = _grounded_tags_from_transcript(
                 current_title,
@@ -992,7 +1008,7 @@ chapters: рядок з підтвердженими таймкодами або
             )
             merged_tags: list[str] = []
             seen_tags: set[str] = set()
-            for item in model_tags + grounded_tags:
+            for item in grounded_tags + model_tags:
                 key = item.casefold()
                 if not key or key in seen_tags:
                     continue
