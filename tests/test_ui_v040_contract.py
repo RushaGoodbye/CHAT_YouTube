@@ -288,7 +288,7 @@ def test_v060_normal_mode_hides_technical_ui() -> None:
         'self.advanced_mode = get_setting(',
         'self.advanced_mode_box = QCheckBox("Розширений режим")',
         'self.optimization_table.setColumnHidden(7, not advanced)',
-        'self.advanced_batch_seo_action.setVisible',
+        'action.setVisible(advanced)',
         'self.settings_sections.setTabVisible(index, advanced)',
         'self.optimization_process_frame.setVisible(False)',
     ):
