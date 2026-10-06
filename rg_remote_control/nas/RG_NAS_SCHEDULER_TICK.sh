@@ -12,6 +12,14 @@ printf '%s\n' "$NOW" > "$STATE/scheduler_last_check_at"
 printf '%s\n' "RUNNING" > "$STATE/scheduler_last_check_status"
 printf '%s\n' "$NOW" > "$STATE/scheduler_dispatch_at"
 
+# Synology Task Scheduler is the only deploy owner. Remove the obsolete
+# restart-policy container so it cannot enter a restart loop or race the host scheduler.
+if docker inspect rg-nas-autodeploy >/dev/null 2>&1; then
+  docker update --restart=no rg-nas-autodeploy >/dev/null 2>&1 || true
+  docker rm -f rg-nas-autodeploy >/dev/null 2>&1 || true
+  printf '%s\n' "$NOW" > "$STATE/obsolete_autodeploy_removed_at"
+fi
+
 if [ -f "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" ]; then
   sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || true
 fi
@@ -43,7 +51,7 @@ fi
 # on the NAS host; the deploy script has its own lock and safely exits when
 # another deploy is already active. This removes rg-nas-autodeploy as a
 # critical dependency.
-if RG_AUTODEPLOY_OWNER=scheduler "$AUTODEPLOY" >> "$LOG" 2>&1; then
+if RG_AUTODEPLOY_OWNER=scheduler RG_AUTODEPLOY_EXECUTOR=1 "$AUTODEPLOY" >> "$LOG" 2>&1; then
   printf '%s\n' "$NOW" > "$STATE/scheduler_dispatch_ok_at"
   printf '%s\n' "OK" > "$STATE/scheduler_last_check_status"
   rm -f "$STATE/scheduler_dispatch_error" 2>/dev/null || true
