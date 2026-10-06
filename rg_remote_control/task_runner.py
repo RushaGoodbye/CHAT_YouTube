@@ -9958,6 +9958,170 @@ print("LOCAL_SCAN_CAP_TEST_PASS",c0,c1,margin)
 
 
 
+
+def inspect_auto_edit_901_audio_gaps_and_censor() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET
+    import re
+
+    app = Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    folder = app / "901"
+    out = {"folder": str(folder), "xmls": [], "censor_files": [], "code_hits": {}, "config_hits": {}}
+
+    def _ival(node):
+        try:
+            a = int(float(node.findtext("start") or "0"))
+            b = int(float(node.findtext("end") or "0"))
+            if b > a:
+                return (a, b)
+        except Exception:
+            pass
+        return None
+
+    def _merge(items):
+        xs = sorted(x for x in items if x and x[1] > x[0])
+        merged = []
+        for a, b in xs:
+            if not merged or a > merged[-1][1]:
+                merged.append([a, b])
+            elif b > merged[-1][1]:
+                merged[-1][1] = b
+        return merged
+
+    def _subtract(base, cover):
+        cover = _merge(cover)
+        gaps = []
+        for a, b in _merge(base):
+            cur = a
+            for c, d in cover:
+                if d <= cur:
+                    continue
+                if c >= b:
+                    break
+                if c > cur:
+                    gaps.append((cur, min(c, b)))
+                cur = max(cur, d)
+                if cur >= b:
+                    break
+            if cur < b:
+                gaps.append((cur, b))
+        return [(a, b) for a, b in gaps if b > a]
+
+    for xp in sorted(folder.glob("RG_EDITED_901_[1-6].xml")):
+        row = {"name": xp.name, "size": xp.stat().st_size}
+        try:
+            root = ET.parse(xp).getroot()
+            rate = 30.0
+            try:
+                tb = float(root.findtext(".//sequence/rate/timebase") or "30")
+                ntsc = (root.findtext(".//sequence/rate/ntsc") or "FALSE").strip().upper() == "TRUE"
+                rate = tb * (1000.0 / 1001.0) if ntsc else tb
+            except Exception:
+                pass
+
+            video = []
+            for clip in root.findall(".//sequence/media/video/track/clipitem"):
+                iv = _ival(clip)
+                if iv:
+                    video.append(iv)
+
+            audio_tracks = []
+            all_audio = []
+            for ti, tr in enumerate(root.findall(".//sequence/media/audio/track"), 1):
+                ints = []
+                for clip in tr.findall("./clipitem"):
+                    iv = _ival(clip)
+                    if iv:
+                        ints.append(iv)
+                        all_audio.append(iv)
+                merged = _merge(ints)
+                track_gaps = _subtract(video, ints)
+                audio_tracks.append({
+                    "track": ti,
+                    "clip_count": len(ints),
+                    "merged_spans": len(merged),
+                    "gap_count_vs_video": len(track_gaps),
+                    "gap_frames_vs_video": sum(b-a for a,b in track_gaps),
+                    "gaps_vs_video": [
+                        {"start": a, "end": b, "frames": b-a, "seconds": round((b-a)/rate, 3)}
+                        for a,b in sorted(track_gaps, key=lambda x:(x[0],x[1]))[:120]
+                    ],
+                })
+
+            gaps = _subtract(video, all_audio)
+            row.update({
+                "fps": rate,
+                "video_clip_count": len(video),
+                "video_merged_spans": len(_merge(video)),
+                "audio_track_count": len(audio_tracks),
+                "audio_tracks": audio_tracks,
+                "union_audio_gap_count": len(gaps),
+                "union_audio_gap_frames": sum(b-a for a,b in gaps),
+                "union_audio_gap_seconds": round(sum(b-a for a,b in gaps)/rate, 3) if rate else None,
+                "union_audio_gaps": [
+                    {"start": a, "end": b, "frames": b-a, "seconds": round((b-a)/rate, 3)}
+                    for a,b in sorted(gaps, key=lambda x:(x[0],x[1]))[:200]
+                ],
+            })
+        except Exception as exc:
+            row["error"] = repr(exc)
+        out["xmls"].append(row)
+
+    if folder.is_dir():
+        seen = set()
+        for pat in ("*CENSOR*", "*UNCENSORED*", "*PROFAN*", "*SWEAR*", "*MUTE*"):
+            for fp in sorted(folder.glob(pat)):
+                key = str(fp).casefold()
+                if key in seen or not fp.is_file():
+                    continue
+                seen.add(key)
+                item = {"name": fp.name, "size": fp.stat().st_size}
+                if fp.suffix.lower() in {".json", ".txt", ".log", ".xml"} and fp.stat().st_size <= 2_000_000:
+                    try:
+                        txt = fp.read_text(encoding="utf-8", errors="replace")
+                        item["tail"] = txt[-12000:]
+                    except Exception as exc:
+                        item["read_error"] = repr(exc)
+                out["censor_files"].append(item)
+
+    needles = ("censor", "profan", "swear", "badword", "bleep", "dog.wav", "uncensored", "censor_audio", "mute", "мат")
+    for fp in sorted(app.glob("*.py")):
+        try:
+            rows = fp.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        hits = []
+        for i, line in enumerate(rows):
+            low = line.casefold()
+            if any(n in low for n in needles):
+                a=max(0,i-4); b=min(len(rows),i+9)
+                hits.append({"line": i+1, "snippet": "\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+                if len(hits) >= 40:
+                    break
+        if hits:
+            out["code_hits"][fp.name] = hits
+
+    for fp in sorted(app.glob("*.json")):
+        try:
+            txt = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        lines = txt.splitlines()
+        hits = []
+        for i, line in enumerate(lines):
+            low = line.casefold()
+            if any(n in low for n in needles):
+                a=max(0,i-3); b=min(len(lines),i+6)
+                hits.append("\n".join(f"{j+1}: {lines[j]}" for j in range(a,b)))
+                if len(hits) >= 20:
+                    break
+        if hits:
+            out["config_hits"][fp.name] = hits
+
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -10094,6 +10258,7 @@ ACTIONS = {
     "apply_auto_edit_direct_audio_unity_generator_fix": apply_auto_edit_direct_audio_unity_generator_fix,
     "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
     "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
+    "inspect_auto_edit_901_audio_gaps_and_censor": inspect_auto_edit_901_audio_gaps_and_censor,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
