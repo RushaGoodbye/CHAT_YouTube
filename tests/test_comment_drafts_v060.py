@@ -435,3 +435,24 @@ def test_template_rotation_avoids_immediate_repeat(tmp_path):
         assert "—" not in second and "–" not in second
     finally:
         conn.close()
+
+
+def test_comment_background_tasks_do_not_touch_ui_sqlite_connection():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    for method in (
+        MainWindow.local_comment_reply_selected,
+        MainWindow.local_comment_reply_batch,
+        MainWindow.local_comment_reply_regenerate_batch,
+    ):
+        source = inspect.getsource(method)
+        task_pos = source.find("def task")
+        assert task_pos >= 0
+        task_source = source[task_pos:]
+        # SQLite/template selection must happen before the worker task starts.
+        first_run_tool = task_source.find("self._run_local_tool")
+        if first_run_tool >= 0:
+            task_source = task_source[:first_run_tool]
+        assert "self.conn" not in task_source
+        assert "local_safe_template_candidate(" not in task_source
