@@ -4103,6 +4103,62 @@ def inspect_auto_edit_901_audio_outputs() -> dict:
     return out
 
 
+
+def inspect_auto_edit_901_audio_schema_compact() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import xml.etree.ElementTree as ET, subprocess, shutil, re
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App");folder=app/"901"
+    audio=Path(r"\\Desktop-v7gg0en\record\sound\901.mp3")
+    ffmpeg=shutil.which("ffmpeg") or str(Path(r"C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffmpeg.exe"))
+    out={"audio":str(audio),"xmls":[]}
+    def volume_at(sec):
+        try:
+            cp=subprocess.run([ffmpeg,"-hide_banner","-nostats","-ss",f"{sec:.3f}","-t","12","-i",str(audio),
+                               "-af","volumedetect","-f","null","NUL"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=40)
+            txt=(cp.stderr or "")+(cp.stdout or "")
+            mean=re.findall(r"mean_volume:\s*([-\w.]+)\s*dB",txt)
+            peak=re.findall(r"max_volume:\s*([-\w.]+)\s*dB",txt)
+            return {"sec":round(sec,3),"mean_db":mean[-1] if mean else None,"max_db":peak[-1] if peak else None,"rc":cp.returncode}
+        except Exception as exc:return {"sec":round(sec,3),"error":repr(exc)}
+    for p in sorted(folder.glob("RG_EDITED_901_[1-6].xml")):
+        row={"name":p.name,"size":p.stat().st_size}
+        try:
+            root=ET.parse(p).getroot()
+            media_audio=root.find(".//sequence/media/audio")
+            row["sequence_audio_attrs"]=dict(media_audio.attrib) if media_audio is not None else {}
+            tracks=[]
+            first_in=None
+            for ti,tr in enumerate(root.findall(".//sequence/media/audio/track"),1):
+                clips=[]
+                for ci,clip in enumerate(tr.findall("./clipitem"),1):
+                    st=clip.find("./sourcetrack")
+                    eff=[]
+                    for e in clip.findall("./filter/effect"):
+                        params={}
+                        for pa in e.findall("./parameter"):
+                            key=(pa.findtext("parameterid") or pa.findtext("name") or "").strip()
+                            params[key]=(pa.findtext("value") or "").strip()
+                        eff.append({"name":e.findtext("name"),"effectid":e.findtext("effectid"),"params":params})
+                    cr={"id":clip.get("id"),"attrs":dict(clip.attrib),"name":clip.findtext("name"),"enabled":clip.findtext("enabled"),
+                        "in":clip.findtext("in"),"out":clip.findtext("out"),
+                        "sourcetrack":{"mediatype":st.findtext("mediatype"),"trackindex":st.findtext("trackindex")} if st is not None else None,
+                        "filters":eff,"links":len(clip.findall("./link"))}
+                    if first_in is None and cr["name"]=="901.mp3":
+                        try:first_in=float(cr["in"])/30.0
+                        except Exception:pass
+                    clips.append(cr)
+                    if len(clips)>=3:break
+                tracks.append({"index":ti,"attrs":dict(tr.attrib),"enabled":tr.findtext("enabled"),
+                               "locked":tr.findtext("locked"),"outputchannelindex":tr.findtext("outputchannelindex"),
+                               "clip_count":len(tr.findall("./clipitem")),"first_clips":clips})
+            row["tracks"]=tracks
+            row["first_audio_sec"]=first_in
+            if first_in is not None:row["volume_probe"]=volume_at(first_in)
+        except Exception as exc:row["error"]=repr(exc)
+        out["xmls"].append(row)
+    return out
+
+
 def inspect_auto_edit_stream_result() -> dict:
     if os.name != "nt":
         raise RuntimeError("inspect_auto_edit_stream_result must run on AlexPC/Windows")
@@ -9813,6 +9869,7 @@ ACTIONS = {
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
+    "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
