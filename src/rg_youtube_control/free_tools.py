@@ -1999,6 +1999,52 @@ def _comment_reply_safe_novelty_ok(comment: str, reply: str) -> bool:
     return True
 
 
+def _comment_reply_precheck_reason(comment: str) -> str:
+    source = " ".join(str(comment or "").split()).strip()
+    folded = source.casefold()
+    words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", source)
+
+    if not source:
+        return "empty_comment"
+    if len(words) < 3:
+        return "too_fragmentary"
+
+    insult_markers = (
+        "туп", "дебил", "дебіл", "идиот", "ідіот", "дурак", "дурень",
+        "мраз", "сволоч", "урод", "кретин", "гнид", "чмо", "орк ",
+        "рашист", "нацист", "пидор", "підор",
+    )
+    if any(marker in folded for marker in insult_markers):
+        return "insult_or_abuse"
+
+    # Obvious low-information reactions should not receive a generated answer.
+    reaction_markers = (
+        "мдаа", "мда ", "лол", "ахаха", "хаха", "😂", "🤣", "😁", "😆",
+        "👍", "👏", "🔥",
+    )
+    if len(words) <= 5 and any(marker in folded for marker in reaction_markers):
+        return "low_information_reaction"
+
+    # For review-category comments, prefer explicit questions or clearly
+    # substantive text. Short declarative remarks are safer to skip.
+    question_words = (
+        "чому", "почему", "навіщо", "зачем", "коли", "когда", "де ", "где ",
+        "хто ", "кто ", "що ", "что ", "як ", "как ", "скільки", "сколько",
+        "можна", "можно", "правда ли", "чи ",
+    )
+    has_question = "?" in source or any(marker in folded for marker in question_words)
+    if not has_question and len(words) < 9:
+        return "short_non_question"
+
+    # Long aphoristic/quoted text without a question is also better skipped.
+    if not has_question and len(words) >= 9:
+        quote_markers = ("цитат", "как говорится", "як кажуть", "виростай", "будь міцн", "будь креп")
+        if any(marker in folded for marker in quote_markers):
+            return "quote_or_aphorism"
+
+    return ""
+
+
 def generate_comment_reply_candidate_local(
     *,
     comment_text: str,
@@ -2010,9 +2056,9 @@ def generate_comment_reply_candidate_local(
     if not source:
         return {"state": "skipped", "reply": "", "reason": "empty_comment"}
 
-    words = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", source)
-    if len(source) < 4 or (len(words) == 0 and len(source) < 24):
-        return {"state": "skipped", "reply": "", "reason": "too_fragmentary"}
+    precheck = _comment_reply_precheck_reason(source)
+    if precheck:
+        return {"state": "skipped", "reply": "", "reason": precheck}
 
     prompt = f"""
 Підготуй ОДНУ коротку чернетку відповіді на ОПУБЛІКОВАНИЙ YouTube-коментар
@@ -2021,8 +2067,9 @@ def generate_comment_reply_candidate_local(
 Головне правило: НЕ ДОДУМУЙ зміст коментаря. Якщо він справді незрозумілий,
 містить лише емодзі/випадковий уривок або для коректної відповіді потрібні
 факти, яких немає в коментарі чи контексті - обери SKIP.
-На зрозумілу думку, жарт, коротку реакцію або незгоду можна дати коротку
-нейтральну відповідь без нових фактів.
+Відповідай лише тоді, коли коментар містить зрозуміле конкретне питання
+або змістовну репліку, на яку можна відповісти без домислів. Короткі реакції,
+лозунги, образи, провокації, цитати та афористичні фрази повинні бути SKIP.
 
 Поверни ТІЛЬКИ JSON:
 {{"action":"reply","reply":"...","reason":"relevant"}}
