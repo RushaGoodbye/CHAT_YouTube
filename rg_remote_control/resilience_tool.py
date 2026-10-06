@@ -696,7 +696,7 @@ def install() -> dict:
     mcp_stage = stage_mcp_source_to_nas()
     nas_scheduler = repair_nas_scheduler_runtime()
     agent = install_alexpc_agent()
-    runner_fallback = install_runner_persistence()
+    runner_fallback = disable_github_runner_autostart()
 
     policy = {
         "schema": "RG_CONTROL_POLICY_V1",
@@ -1252,20 +1252,14 @@ def probe(do_roundtrip: bool = True) -> dict:
     if legacy_pending:
         warnings.append(f"retired_legacy_auto_edit_requests={legacy_pending}")
 
-    runner_info = out.get("runner", {})
-    runner_standby_ok = bool(
-        runner_info.get("listener_count", 0) <= 1
-        and runner_info.get("keepalive", {}).get("exists")
-    )
-    if not runner_standby_ok:
-        warnings.append("github_runner_standby_not_ready")
+    runner_standby_ok = bool((RUNNER / "run.cmd").is_file())
 
     out["health"] = {
         "critical_files_ok": critical_files_ok,
         "alexpc_agent_ok": agent_ok,
         "nas_guard_fresh": guard_fresh,
         "primary_roundtrip_ok": roundtrip_ok,
-        "github_runner_standby_ok": runner_standby_ok,
+        "github_runner_manual_fallback_available": runner_standby_ok,
         "legacy_auto_edit_calls_retired": True,
         "cross_contour_health_dependency": False,
         "github_required_at_runtime": False,
@@ -1322,14 +1316,14 @@ def finalize_resilience() -> dict:
 def finalize_control_settings() -> dict:
     """Finalize control-plane settings only. Never starts Auto Edit processing."""
     agent = install_alexpc_agent()
-    runner = install_runner_persistence()
+    runner = disable_github_runner_autostart()
     status = probe(do_roundtrip=True)
     summary = {
         "schema": "RG_CONTROL_SETTINGS_FINAL_V1",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "auto_edit_processing_started": False,
         "primary_transport": "RG_NAS_MCP_ALEXPC_AGENT",
-        "github_runner": "standby",
+        "github_runner": "manual_fallback_only",
         "cross_contour_health_dependency": False,
         "credentials_isolated": True,
         "legacy_auto_edit_calls_retired": True,
