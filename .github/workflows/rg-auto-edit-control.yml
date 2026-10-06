@@ -6,9 +6,6 @@ on:
       - main
     paths:
       - "rg_remote_control/auto_edit_task.json"
-      - ".github/workflows/rg-auto-edit-control.yml"
-      - "rg_remote_control/nas/RG_NAS_MCP_AUTO_EDIT_CALL.py"
-      - "rg_remote_control/task_runner.py"
   workflow_dispatch:
 
 permissions:
