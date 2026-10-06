@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "restart_auto_edit_studio_ui",
+  "action": "inspect_auto_edit_update_install_state",
   "args": {},
-  "nonce": "restart-ui-load-service-fix-20261006-2130"
+  "nonce": "verify-ux25-install-20261006-2132"
 }
