@@ -4243,7 +4243,7 @@ def inspect_auto_edit_premiere_audio_direct_branch() -> dict:
 def inspect_auto_edit_audio_generator_code() -> dict:
     if os.name!="nt": raise RuntimeError("Windows only")
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
-    needles=("rg-final-mix-L","file-audio","PannerIsInverted","premiereChannelType","sourcetrack","Audio Levels","audiolevels","outputchannelindex")
+    needles=("rg-final-mix-L","file-audio","PannerIsInverted","premiereChannelType","sourcetrack","Audio Levels","audiolevels","outputchannelindex","Cannot determine stereo partner")
     out={}
     for p in sorted(app.glob("*.py")):
         try:
