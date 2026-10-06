@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_rg_resilience_runtime",
+  "action": "repair_rg_resilience",
   "args": {},
-  "nonce": "inspect-settled-runtime-utf8-20261006-1"
+  "nonce": "repair-nas-scheduler-20261006-1"
 }
