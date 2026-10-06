@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_keyframe_censor_v2",
+  "action": "inspect_auto_edit_901_all_final_qa",
   "args": {},
-  "nonce": "apply-keyframe-censor-v2-20261006-23"
+  "nonce": "final-qa-901-all-20261006-24b"
 }
