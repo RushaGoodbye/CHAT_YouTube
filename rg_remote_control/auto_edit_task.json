@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_premiere_audio_direct_branch",
+  "action": "inspect_auto_edit_multi_resume_span",
   "args": {},
-  "nonce": "inspect-premiere-audio-direct-20261006-2"
+  "nonce": "inspect-multi-publish-censor-20261006-3"
 }
