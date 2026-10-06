@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_format",
+  "action": "build_auto_edit_pack500_update",
   "args": {},
-  "nonce": "inspect-update-hooks-pack500-20261006-1"
+  "nonce": "build-pack500-reliability-performance-20261006-1"
 }
