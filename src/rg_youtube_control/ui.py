@@ -2661,7 +2661,7 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem("Лише заплановані", "scheduled")
         self.optimization_filter.addItem("Архів", "archive")
         self.optimization_filter.addItem("Архів: ТОП потенціал", "archive_top")
-        self.optimization_filter.addItem("Підготовлена черга", "prepared")
+        self.optimization_filter.addItem("Готові до YouTube", "prepared")
         self.optimization_filter.addItem("Англомовні назви", "latin_titles")
         self.optimization_filter.addItem("Глибока оптимізація", "deep_review")
         self.optimization_filter.currentIndexChanged.connect(
@@ -2670,9 +2670,9 @@ class MainWindow(QMainWindow):
 
         self.optimization_status_filter = QComboBox()
         self.optimization_status_filter.addItem("Усі статуси", "all")
-        self.optimization_status_filter.addItem("Потрібна увага", "needs")
-        self.optimization_status_filter.addItem("Чернетки", "draft")
-        self.optimization_status_filter.addItem("Готово", "ready")
+        self.optimization_status_filter.addItem("Потрібно підготувати", "needs")
+        self.optimization_status_filter.addItem("Потрібно перевірити", "draft")
+        self.optimization_status_filter.addItem("Готово до YouTube", "ready")
         self.optimization_status_filter.addItem("Застосовано", "applied")
         self.optimization_status_filter.addItem("Без тегів", "no_tags")
         self.optimization_status_filter.addItem("Низький CTR", "low_ctr")
@@ -2720,9 +2720,9 @@ class MainWindow(QMainWindow):
         quick_filters.addWidget(today_quick_btn)
 
         for label, key in (
-            ("Потрібна увага", "needs"),
-            ("Чернетки", "draft"),
-            ("Готово", "ready"),
+            ("Потрібно підготувати", "needs"),
+            ("Потрібно перевірити", "draft"),
+            ("Готово до YouTube", "ready"),
             ("Без тегів", "no_tags"),
             ("Низький CTR", "low_ctr"),
             ("Застосовано", "applied"),
@@ -2822,7 +2822,7 @@ class MainWindow(QMainWindow):
             lambda: self.apply_next_safe_archive_batch(daily=True)
         )
 
-        for button in (
+        for hidden_button in (
             scheduled_center_btn,
             local_seo_btn,
             local_seo_batch_btn,
@@ -2832,6 +2832,44 @@ class MainWindow(QMainWindow):
             archive_menu,
             content_menu,
             titles_menu,
+        ):
+            hidden_button.setVisible(False)
+
+        prepare_guided_btn = QPushButton("Підготувати без квоти")
+        prepare_guided_btn.setProperty("role", "success")
+        prepare_guided_btn.clicked.connect(self.prepare_zero_quota_batch)
+
+        ready_guided_btn = QPushButton("Готово до YouTube")
+        ready_guided_btn.setProperty("role", "primary")
+        ready_guided_btn.clicked.connect(self._open_ready_work_queue)
+
+        scheduled_guided_btn = QPushButton("Заплановані")
+        scheduled_guided_btn.clicked.connect(self.show_scheduled_center)
+
+        advanced_btn = QToolButton()
+        advanced_btn.setText("Додатково ▾")
+        advanced_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        advanced_menu = QMenu(advanced_btn)
+        for text_value, callback in (
+            ("Локальний SEO вибраного", self.local_seo_selected),
+            ("Експериментальні SEO-чернетки x10", lambda: self.local_seo_batch(limit=10)),
+            ("Редагувати пакет", self.edit_content_package),
+            ("Відкотити зміни", self.rollback_selected_metadata),
+            ("Центр архівної кампанії", self.show_archive_campaign_center),
+            ("Перевірити локальні інструменти", self.refresh_free_tools_status),
+        ):
+            action = QAction(text_value, advanced_menu)
+            action.triggered.connect(
+                lambda _checked=False, cb=callback: cb()
+            )
+            advanced_menu.addAction(action)
+        advanced_btn.setMenu(advanced_menu)
+
+        for button in (
+            prepare_guided_btn,
+            ready_guided_btn,
+            scheduled_guided_btn,
+            advanced_btn,
         ):
             actions.addWidget(button)
         actions.addStretch()
@@ -2870,12 +2908,14 @@ class MainWindow(QMainWindow):
         self.archive_campaign_summary.setProperty("muted", True)
         self.archive_campaign_summary.setWordWrap(True)
         self._refresh_archive_campaign_summary()
+        self.archive_campaign_summary.setVisible(False)
 
         self.free_tools_status_label = QLabel(
             "0-quota: перевірка локальних інструментів..."
         )
         self.free_tools_status_label.setProperty("muted", True)
         self.free_tools_status_label.setWordWrap(True)
+        self.free_tools_status_label.setVisible(False)
 
         self.optimization_table = FrozenColumnsTable(
             0,
@@ -2892,7 +2932,7 @@ class MainWindow(QMainWindow):
                 "Перегляди",
                 "Аудит",
                 "Транскрипт",
-                "Пакет",
+                "Етап",
                 "Остання оптимізація",
                 "Контроль 7/28/90",
                 "Проблеми",
@@ -2933,7 +2973,7 @@ class MainWindow(QMainWindow):
         self.optimization_context_title.setObjectName("StickyVideoTitle")
         self.optimization_context_title.setWordWrap(True)
         self.optimization_context_pipeline = QLabel(
-            "Аналіз → Транскрипт → SEO → Перевірка → Готово → YouTube → Контроль"
+            "Підготовка → Перевірка → Готово → YouTube → Контроль"
         )
         self.optimization_context_pipeline.setWordWrap(True)
         self.optimization_context_pipeline.setProperty("muted", True)
@@ -2944,7 +2984,7 @@ class MainWindow(QMainWindow):
         text_box.addWidget(self.optimization_context_pipeline)
         text_box.addWidget(self.optimization_context_note)
         cx.addLayout(text_box, 1)
-        self.context_primary_btn = QPushButton("Локальний SEO")
+        self.context_primary_btn = QPushButton("Продовжити")
         self.context_primary_btn.setProperty("role", "primary")
         self.context_primary_btn.clicked.connect(self._run_context_primary_action)
         context_rollback = QPushButton("Відкотити")
