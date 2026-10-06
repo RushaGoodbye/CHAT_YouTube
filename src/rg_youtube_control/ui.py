@@ -2018,6 +2018,29 @@ class MainWindow(QMainWindow):
             self.process_progress.setRange(0, 100)
             self.process_progress.setValue(max(0, min(100, int(percent))))
 
+        # Mirror the live operation inside the Optimization workspace so the
+        # user never has to leave the tab where the action was started.
+        if hasattr(self, "optimization_process_title"):
+            self.optimization_process_title.setText(title)
+            self.optimization_process_stage.setText(stage or "очікування")
+            self.optimization_process_stage.setObjectName(
+                "StatusBad" if error else "StatusWork" if stage else "StatusGood"
+            )
+            self.optimization_process_stage.style().unpolish(
+                self.optimization_process_stage
+            )
+            self.optimization_process_stage.style().polish(
+                self.optimization_process_stage
+            )
+            self.optimization_process_eta.setText(eta)
+            if percent is None:
+                self.optimization_process_progress.setRange(0, 0)
+            else:
+                self.optimization_process_progress.setRange(0, 100)
+                self.optimization_process_progress.setValue(
+                    max(0, min(100, int(percent)))
+                )
+
     def _set_process_idle(self, message: str = "Система готова") -> None:
         if not hasattr(self, "process_progress"):
             return
@@ -2524,6 +2547,34 @@ class MainWindow(QMainWindow):
             actions.addWidget(button)
         actions.addStretch()
         layout.addLayout(actions)
+
+        optimization_process = QFrame()
+        optimization_process.setObjectName("ProcessStrip")
+        optimization_process_layout = QVBoxLayout(optimization_process)
+        optimization_process_layout.setContentsMargins(14, 8, 14, 8)
+        optimization_process_layout.setSpacing(6)
+        optimization_process_top = QHBoxLayout()
+        optimization_process_caption = QLabel("Поточна операція")
+        optimization_process_caption.setObjectName("SectionTitle")
+        self.optimization_process_title = QLabel("Система готова")
+        self.optimization_process_title.setProperty("muted", True)
+        self.optimization_process_stage = QLabel("очікування")
+        self.optimization_process_stage.setObjectName("StatusGood")
+        self.optimization_process_eta = QLabel("")
+        self.optimization_process_eta.setProperty("muted", True)
+        optimization_process_top.addWidget(optimization_process_caption)
+        optimization_process_top.addSpacing(8)
+        optimization_process_top.addWidget(self.optimization_process_title)
+        optimization_process_top.addWidget(self.optimization_process_stage)
+        optimization_process_top.addStretch()
+        optimization_process_top.addWidget(self.optimization_process_eta)
+        self.optimization_process_progress = QProgressBar()
+        self.optimization_process_progress.setRange(0, 100)
+        self.optimization_process_progress.setValue(0)
+        self.optimization_process_progress.setTextVisible(False)
+        optimization_process_layout.addLayout(optimization_process_top)
+        optimization_process_layout.addWidget(self.optimization_process_progress)
+        layout.addWidget(optimization_process)
 
         self.archive_campaign_summary = QLabel()
         self.archive_campaign_summary.setObjectName("ArchiveCampaignSummary")
