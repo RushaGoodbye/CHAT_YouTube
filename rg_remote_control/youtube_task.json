@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_validate_source_compile",
+  "action": "youtube_local_sync_and_launch_source",
   "args": {
-    "nonce": "validate-seo-batch-source-20261006"
+    "nonce": "deploy-seo-batch-x10-20261006"
   }
 }
