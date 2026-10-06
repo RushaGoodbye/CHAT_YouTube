@@ -59,6 +59,7 @@ from .config import (
     DEFAULT_MAX_AUTO_REPLIES_PER_DAY,
     DEFAULT_MAX_AUTO_REPLIES_PER_SCAN,
     DEFAULT_REPLY_TEMPLATES,
+    DEFAULT_REPLY_VARIANTS,
     DEFAULT_SCAN_MINUTES,
     DEFAULT_NAS_PACKAGES_PATH,
     DEFAULT_NAS_TRANSCRIPTS_PATH,
@@ -1121,18 +1122,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "reply_template_edits"):
             for category, (_label, edit) in self.reply_template_edits.items():
                 edit.blockSignals(True)
-                edit.setText(
-                    get_setting(
-                        self.conn,
-                        f"reply_template_{profile}_{category}",
-                        get_setting(
-                            self.conn,
-                            f"reply_template_{category}",
-                            DEFAULT_REPLY_TEMPLATES[category],
-                        ),
-                    )
-                )
-                edit.setCursorPosition(0)
+                raw = get_setting(
+                    self.conn,
+                    f"reply_template_variants_{profile}_{category}",
+                    "",
+                ).strip()
+                if not raw:
+                    raw = "\n".join(DEFAULT_REPLY_VARIANTS[category])
+                edit.setPlainText(raw)
                 edit.blockSignals(False)
 
         if hasattr(self, "channel_label"):
@@ -5575,27 +5572,27 @@ class MainWindow(QMainWindow):
 
         self.reply_template_edits = {}
         template_labels = {
-            "thanks": "Відповідь на подяку",
-            "links": "Відповідь із посиланнями",
-            "donate": "Відповідь про донат",
-            "schedule": "Відповідь про розклад",
+            "thanks": "Подяка",
+            "links": "Посилання",
+            "donate": "Донат",
+            "schedule": "Розклад",
         }
         for category, label in template_labels.items():
-            edit = QLineEdit(
-                get_setting(
-                    self.conn,
-                    f"reply_template_{self.current_profile}_{category}",
-                    get_setting(
-                        self.conn,
-                        f"reply_template_{category}",
-                        DEFAULT_REPLY_TEMPLATES[category],
-                    ),
+            raw = get_setting(
+                self.conn,
+                f"reply_template_variants_{self.current_profile}_{category}",
+                "",
+            ).strip()
+            if not raw:
+                raw = "\n".join(DEFAULT_REPLY_VARIANTS[category])
+            edit = QPlainTextEdit(raw)
+            edit.setPlaceholderText("Один варіант відповіді на рядок")
+            edit.setMinimumHeight(92)
+            edit.setMaximumHeight(118)
+            edit.textChanged.connect(
+                lambda c=category, e=edit: self.save_reply_templates(
+                    c, e.toPlainText()
                 )
-            )
-            edit.setPlaceholderText(label)
-            edit.setCursorPosition(0)
-            edit.editingFinished.connect(
-                lambda c=category, e=edit: self.save_reply_template(c, e.text())
             )
             self.reply_template_edits[category] = (label, edit)
 
@@ -5802,7 +5799,8 @@ class MainWindow(QMainWindow):
         templates_card = settings_card(
             comments_right,
             "Шаблони автовідповідей",
-            "Тексти можна редагувати. Зміни зберігаються автоматично.",
+            "Один варіант на рядок. Програма чергує їх автоматично. "
+            "Політичні та спірні коментарі залишаються лише на ручну перевірку.",
         )
         templates_form = compact_form()
         templates_form.setFieldGrowthPolicy(
@@ -12874,17 +12872,26 @@ class MainWindow(QMainWindow):
         }
         self.statusBar().showMessage(labels.get(status, "Статус оновлено"))
 
-    def save_reply_template(self, category: str, value: str) -> None:
-        text = value.strip() or DEFAULT_REPLY_TEMPLATES[category]
+    def save_reply_templates(self, category: str, value: str) -> None:
+        variants = [
+            line.strip()
+            for line in str(value or "").splitlines()
+            if line.strip()
+        ]
+        if not variants:
+            variants = list(DEFAULT_REPLY_VARIANTS[category])
+        # Keep the list compact and predictable. More than 10 variants per
+        # category adds little value and makes accidental duplicates harder to notice.
+        variants = variants[:10]
+        text = "\n".join(variants)
         set_setting(
             self.conn,
-            f"reply_template_{self.current_profile}_{category}",
+            f"reply_template_variants_{self.current_profile}_{category}",
             text,
         )
-        if category in self.reply_template_edits:
-            self.reply_template_edits[category][1].setText(text)
         self.statusBar().showMessage(
-            f"Шаблон автовідповіді збережено для {PROFILE_LABELS[self.current_profile]}"
+            f"Шаблони автовідповідей збережено: {len(variants)} · "
+            f"{PROFILE_LABELS[self.current_profile]}"
         )
 
     def save_auto_limits(self, _value: int = 0) -> None:
