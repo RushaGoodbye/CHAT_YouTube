@@ -10546,6 +10546,10 @@ class MainWindow(QMainWindow):
             chapters,
             variants,
         ) = self._normalize_local_seo_package(result)
+        description = sanitize_imported_package_description(
+            description,
+            title,
+        ).after
 
         before_title = str(context.get("title") or "")
         before_description = str(context.get("description") or "")
