@@ -10306,10 +10306,14 @@ def apply_auto_edit_censor_avlink_hotfix() -> dict:
     backup.mkdir(parents=True,exist_ok=True)
 
     core=app/"rg_auto_edit.py"
+    pipeline=app/"rg_auto_edit_one_button.py"
     helper=app/"rg_premiere_av_linkage.py"
     if not core.is_file():
         raise FileNotFoundError(core)
+    if not pipeline.is_file():
+        raise FileNotFoundError(pipeline)
     shutil.copy2(core,backup/core.name)
+    shutil.copy2(pipeline,backup/pipeline.name)
     if helper.is_file():
         shutil.copy2(helper,backup/helper.name)
 
@@ -10567,27 +10571,30 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
         code=code.replace(old,new,1)
 
     link_marker="RG_FINAL_AV_LINKAGE_V1"
-    if link_marker not in code:
-        start=code.find("censor_audio_report=apply_dialogue_profanity_audio(")
+    pipeline_code=pipeline.read_text(encoding="utf-8",errors="replace")
+    if link_marker not in pipeline_code:
+        start=pipeline_code.find("censor_audio_report=apply_dialogue_profanity_audio(")
         if start<0:
-            raise RuntimeError("post-censor call start not found")
-        close=code.find("\n        )",start)
+            raise RuntimeError("post-censor call start not found in active one-button pipeline")
+        close=pipeline_code.find("\n        )",start)
         if close<0:
-            close=code.find("\n\t\t)",start)
+            close=pipeline_code.find("\n\t\t)",start)
         if close<0:
-            raise RuntimeError("post-censor call end not found")
-        line_end=code.find("\n",close+1)
+            raise RuntimeError("post-censor call end not found in active one-button pipeline")
+        line_end=pipeline_code.find("\n",close+1)
         if line_end<0:
-            line_end=len(code)
+            line_end=len(pipeline_code)
         insertion='''\n    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
     # explicitly linked to the actual final A1/A2 clipitems.
     from rg_premiere_av_linkage import normalize_xml_av_links as _normalize_xml_av_links
     _av_link_report=_normalize_xml_av_links(out,hard_disable_censor=True)
     emit(99.72,'AV_LINKAGE',f"V1={_av_link_report.get('linked_base_video_clips',0)} audio={_av_link_report.get('audio_clipitems',0)}")'''
-        code=code[:line_end]+insertion+code[line_end:]
+        pipeline_code=pipeline_code[:line_end]+insertion+pipeline_code[line_end:]
 
     core.write_text(code,encoding="utf-8")
+    pipeline.write_text(pipeline_code,encoding="utf-8")
     py_compile.compile(str(core),doraise=True)
+    py_compile.compile(str(pipeline),doraise=True)
     py_compile.compile(str(helper),doraise=True)
 
     # Patch completed 901 XMLs in-place. This is XML-only: no stream/dialogue recompute.
@@ -10623,9 +10630,10 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
     return {
         "backup":str(backup),
         "core_compile":True,
+        "pipeline_compile":True,
         "helper_compile":True,
         "hard_disable_marker":hard_marker in core.read_text(encoding="utf-8",errors="replace"),
-        "av_link_marker":link_marker in core.read_text(encoding="utf-8",errors="replace"),
+        "av_link_marker":link_marker in pipeline.read_text(encoding="utf-8",errors="replace"),
         "patched_xmls":results,
     }
 
