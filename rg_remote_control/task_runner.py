@@ -3513,6 +3513,7 @@ def start_auto_edit_recovery_queue() -> dict:
     task = json.loads(task_path.read_text(encoding="utf-8"))
     requested = [str(x).strip() for x in ((task.get("args") or {}).get("streams") or [])]
     streams = list(dict.fromkeys(x for x in requested if x.isdigit()))
+    protect_completed_prefix = int(((task.get("args") or {}).get("protect_completed_prefix") or 0))
     if not streams or len(streams) > 12:
         raise RuntimeError("Recovery queue requires 1..12 numeric stream ids")
 
@@ -3558,6 +3559,7 @@ def start_auto_edit_recovery_queue() -> dict:
         "queue_state": str(local / "RG_Auto_Edit" / "studio_batch_queue.json"),
         "status_file": str(run_dir / "RECOVERY_QUEUE_STATUS.json"),
         "run_dir": str(run_dir),
+        "protect_completed_prefix": protect_completed_prefix,
     }
     plan_path = run_dir / "plan.json"
     plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -3658,6 +3660,7 @@ for stream in streams:
              "--model","large-v3","--device","auto","--stream-start","auto"]
         env=os.environ.copy();env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8"
         env["RG_BATCH_MODE"]="1";env["RG_BATCH_SESSION_ID"]=plan["session_id"]
+        env["RG_RESUME_PROTECT_PREFIX"]=str(int(plan.get("protect_completed_prefix") or 0))
         with log_path.open("w",encoding="utf-8") as lf:
             p=subprocess.Popen(cmd,cwd=str(app),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                                text=True,encoding="utf-8",errors="replace",bufsize=1)
@@ -3760,6 +3763,47 @@ publish()
     }
 
 
+
+
+
+def apply_auto_edit_resume_protection_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"rg_multi_dialogue.py"
+    if not p.is_file():
+        raise RuntimeError("rg_multi_dialogue.py missing")
+    src=p.read_text(encoding="utf-8")
+    marker="# RG_RESUME_PROTECT_PREFIX_V1"
+    if marker in src:
+        py_compile.compile(str(p),doraise=True)
+        return {"status":"ALREADY_APPLIED","path":str(p),"guard":"RG_RESUME_PROTECT_PREFIX_V1"}
+    anchor="        if can_resume:\n            output_path=prior_xml\n"
+    if anchor not in src:
+        raise RuntimeError("resume protection anchor missing")
+    block=r'''        # RG_RESUME_PROTECT_PREFIX_V1
+        _rg_protect_prefix=int(os.environ.get('RG_RESUME_PROTECT_PREFIX','0') or 0)
+        if i <= _rg_protect_prefix and not can_resume:
+            raise RuntimeError(
+                f'Protected resume checkpoint {i}/{total} is not reusable. '
+                f'Existing completed dialogue must not be recomputed: {prior_xml}'
+            )
+        if can_resume:
+            output_path=prior_xml
+'''
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_RESUME_PROTECT_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(p,backup/p.name)
+    src=src.replace(anchor,block,1)
+    tmp=p.with_suffix(".py.resumeprotect.tmp")
+    tmp.write_text(src,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True)
+    os.replace(tmp,p)
+    py_compile.compile(str(p),doraise=True)
+    return {"status":"APPLIED","path":str(p),"backup":str(backup),"guard":"RG_RESUME_PROTECT_PREFIX_V1"}
 
 
 def inspect_auto_edit_multi_resume_span() -> dict:
@@ -9479,6 +9523,7 @@ ACTIONS = {
     "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
+    "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
