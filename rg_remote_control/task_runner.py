@@ -11975,6 +11975,39 @@ def build_auto_edit_pack25_stability_ux_update() -> dict:
             "dry_run":"PASS","compile":"PASS","crc":"PASS","manifest":"PASS","installed":False}
 
 
+
+def inspect_auto_edit_update_install_state() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={"app":str(app)}
+    ver=app/"rg_studio_version.py"
+    cfg=app/"rg_auto_edit_config.json"
+    ui=app/"rg_studio_ui.py"
+    helper=app/"rg_stability_ux25.py"
+    val=app/"VALIDATE_PREMIERE_XML.py"
+    for name,p in [("version",ver),("config",cfg),("ui",ui),("helper",helper),("validator",val)]:
+        row={"path":str(p),"exists":p.is_file()}
+        if p.is_file():
+            row["size"]=p.stat().st_size;row["mtime"]=p.stat().st_mtime
+            txt=p.read_text(encoding="utf-8",errors="replace")
+            row["ux25_marker"]="RG_STABILITY_UX25_V1" in txt
+            row["validator_v2"]="RG_VALIDATOR_AVLINK_V2" in txt
+            if name=="version": row["content"]=txt[:1000]
+            if name=="config":
+                try:
+                    d=json.loads(txt)
+                    row["stability_ux25"]=d.get("stability_ux25")
+                except Exception as exc: row["parse_error"]=repr(exc)
+        out[name]=row
+    downloads=Path.home()/"Downloads"
+    pkg=downloads/"RG_AUTO_EDIT_STUDIO_UPDATE_0.20.17.0_STABILITY_UX25.zip"
+    out["package"]={"path":str(pkg),"exists":pkg.is_file(),"size":pkg.stat().st_size if pkg.is_file() else None}
+    local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    out["frontend_backup_root"]=str(local/"RG_AUTO_EDIT"/"release_backups")
+    return out
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -12050,6 +12083,7 @@ ACTIONS = {
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
     "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
+    "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
