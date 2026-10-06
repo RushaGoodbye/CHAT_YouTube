@@ -10604,24 +10604,15 @@ def normalize_xml_av_links(xml_path, hard_disable_censor=True):
         if call_idx is None:
             raise RuntimeError("post-censor call start not found in active one-button pipeline")
 
-        # Find the first real statement dedented back to function level (4 spaces)
-        # after the entire audio-censor block. Insert immediately before it.
+        # Stable post-censor insertion point: immediately before final
+        # Premiere end-metadata normalization, after both IF and ELSE censor branches.
         insert_idx=None
-        seen_call_close=False
         for i in range(call_idx+1,len(lines)):
-            raw=lines[i]
-            stripped=raw.strip()
-            if not stripped:
-                continue
-            indent=len(raw)-len(raw.lstrip(" \t"))
-            if stripped==")" and indent>=8:
-                seen_call_close=True
-                continue
-            if seen_call_close and indent==4 and not stripped.startswith("#"):
+            if "# Normalize Premiere work/export end metadata" in lines[i]:
                 insert_idx=i
                 break
         if insert_idx is None:
-            raise RuntimeError("end of active censor block not found")
+            raise RuntimeError("stable post-censor end-metadata anchor not found")
 
         insertion='''    # RG_FINAL_AV_LINKAGE_V1: after all audio surgery/censor splits, make V1
     # explicitly linked to the actual final A1/A2 clipitems.
