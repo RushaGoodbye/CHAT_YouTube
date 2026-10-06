@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "inspect_auto_edit_update_format",
   "args": {},
-  "nonce": "refresh-nas-local-seo-final-20261006"
+  "nonce": "inspect-update-hooks-pack500-20261006-1"
 }
