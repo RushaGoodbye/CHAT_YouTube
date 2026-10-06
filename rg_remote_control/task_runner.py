@@ -7837,7 +7837,33 @@ def run_auto_edit_preview_886_smoke() -> dict:
             rows=[p for p in rows if p.is_file() and "SHORTS" not in p.name.upper()]
             if rows:
                 candidates=rows;used_stream=sid;break
-        if not candidates:raise RuntimeError("No final dialogue clip for preview smoke in ЕГОР")
+        temp_clip=None
+        if not candidates:
+            import xml.etree.ElementTree as ET,shutil as _shutil
+            xmls=[p for p in sorted((app/"886").glob("RG_EDITED_886*.xml")) if "_SHORTS" not in p.name.upper() and "_UNCENSORED" not in p.name.upper()]
+            if not xmls:raise RuntimeError("No 886 XML available for preview smoke fallback")
+            source=Path(r"\\Desktop-v7gg0en\record\886.mp4")
+            if not source.is_file():raise RuntimeError("886 source video missing for preview smoke fallback")
+            start_sec=30.0;dur_sec=20.0
+            try:
+                root_xml=ET.parse(xmls[0]).getroot()
+                rate=25.0
+                tb=root_xml.find(".//timebase")
+                if tb is not None and tb.text:rate=float(tb.text)
+                clipitem=root_xml.find(".//video/track/clipitem")
+                if clipitem is not None:
+                    st=clipitem.findtext("start") or clipitem.findtext("in") or "750"
+                    en=clipitem.findtext("end") or clipitem.findtext("out") or ""
+                    start_sec=max(0.0,float(st)/max(rate,1.0))
+                    if en:dur_sec=max(8.0,min(30.0,(float(en)-float(st))/max(rate,1.0)))
+            except Exception:pass
+            ffmpeg=_shutil.which("ffmpeg.exe") or _shutil.which("ffmpeg")
+            if not ffmpeg:raise RuntimeError("ffmpeg missing for preview smoke fallback")
+            temp_clip=data/f"{job}_886_dialogue_smoke.mp4"
+            cut=subprocess.run([ffmpeg,"-y","-ss",f"{start_sec:.3f}","-i",str(source),"-t",f"{dur_sec:.3f}","-c:v","libx264","-preset","ultrafast","-crf","23","-an",str(temp_clip)],
+                capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=180,creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+            if cut.returncode!=0 or not temp_clip.is_file():raise RuntimeError("Failed to create preview smoke clip: "+((cut.stdout or "")+(cut.stderr or ""))[-1500:])
+            candidates=[temp_clip];used_stream="886"
         # Use the smallest available dialogue file for a short real frame-extraction smoke.
         clip=min(candidates,key=lambda p:p.stat().st_size)
         cf=data/f"{job}_clips.json";cf.write_text(json.dumps({"clips":[str(clip)]},ensure_ascii=False),encoding="utf-8")
@@ -7867,6 +7893,9 @@ def run_auto_edit_preview_886_smoke() -> dict:
         try:
             cf=data/f"{job}_clips.json"
             if cf.exists():cf.unlink()
+        except Exception:pass
+        try:
+            if 'temp_clip' in locals() and temp_clip and Path(temp_clip).exists():Path(temp_clip).unlink()
         except Exception:pass
         try:
             if root.exists():shutil.rmtree(root,ignore_errors=True)
