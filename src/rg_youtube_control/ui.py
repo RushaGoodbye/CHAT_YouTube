@@ -10190,7 +10190,12 @@ class MainWindow(QMainWindow):
             self._set_health_state("transcript", False, "Transcript")
 
 
-    def _generate_local_seo_result(self, video_id: str) -> dict:
+    def _generate_local_seo_result(
+        self,
+        video_id: str,
+        *,
+        fast_mode: bool = False,
+    ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
         import sqlite3
@@ -10278,6 +10283,8 @@ class MainWindow(QMainWindow):
             transcript=transcript,
             public_context=context_for_model,
             is_short=int(context.get("duration") or 0) <= 70,
+            fast_mode=fast_mode,
+            timeout=55.0 if fast_mode else 300.0,
         )
         return {
             "video_id": video_id,
@@ -10390,9 +10397,50 @@ class MainWindow(QMainWindow):
         max_attempts = min(len(candidate_ids), max(limit * 3, limit))
 
         def task():
+            import queue
+            import threading
+
+            candidate_timeout_seconds = 75
             prepared: list[dict] = []
             skipped: list[dict] = []
             attempted = 0
+
+            def generate_with_timeout(video_id: str) -> dict:
+                result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+                def target() -> None:
+                    try:
+                        result_queue.put(
+                            (
+                                True,
+                                self._generate_local_seo_result(
+                                    video_id,
+                                    fast_mode=True,
+                                ),
+                            )
+                        )
+                    except BaseException as exc:
+                        result_queue.put((False, exc))
+
+                thread = threading.Thread(
+                    target=target,
+                    name=f"rg-local-seo-{video_id}",
+                    daemon=True,
+                )
+                thread.start()
+                try:
+                    ok, payload = result_queue.get(
+                        timeout=candidate_timeout_seconds
+                    )
+                except queue.Empty as exc:
+                    raise TimeoutError(
+                        f"Ліміт {candidate_timeout_seconds} с на одне відео. "
+                        "Кандидат пропущено автоматично."
+                    ) from exc
+                if ok:
+                    return payload
+                raise payload
+
             for video_id in candidate_ids[:max_attempts]:
                 if len(prepared) >= limit:
                     break
@@ -10401,12 +10449,11 @@ class MainWindow(QMainWindow):
                 if worker_ref is not None:
                     worker_ref.progress.emit(
                         f"готово {len(prepared)}/{limit} · "
-                        f"спроба {attempted}/{max_attempts} · {video_id}"
+                        f"спроба {attempted}/{max_attempts} · {video_id} · "
+                        f"ліміт {candidate_timeout_seconds}с"
                     )
                 try:
-                    prepared.append(
-                        self._generate_local_seo_result(video_id)
-                    )
+                    prepared.append(generate_with_timeout(video_id))
                 except Exception as exc:
                     skipped.append(
                         {
