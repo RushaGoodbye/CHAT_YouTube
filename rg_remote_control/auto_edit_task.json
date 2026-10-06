@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "restart_auto_edit_studio_ui",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "restart-studio-ui-state-colors-20261006-1"
+  "nonce": "inspect-active-901-tree-20261006-1"
 }
