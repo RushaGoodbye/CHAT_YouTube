@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "restart_auto_edit_studio_ui",
+  "action": "inspect_auto_edit_execution_functions",
   "args": {},
-  "nonce": "restart-ui-after-hung-update-20261006-2120"
+  "nonce": "inspect-service-process-update-20261006-2122"
 }
