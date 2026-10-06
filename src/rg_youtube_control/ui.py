@@ -2513,6 +2513,10 @@ class MainWindow(QMainWindow):
 
         # Mirror the live operation inside the Optimization workspace so the
         # user never has to leave the tab where the action was started.
+        if hasattr(self, "optimization_process_frame"):
+            self.optimization_process_frame.setVisible(
+                bool(stage) or bool(error) or percent is None
+            )
         if hasattr(self, "optimization_process_title"):
             self.optimization_process_title.setText(title)
             self.optimization_process_stage.setText(stage or "очікування")
@@ -2542,6 +2546,8 @@ class MainWindow(QMainWindow):
         self._set_process(message, "", percent=0)
         if hasattr(self, "today_process_frame"):
             self.today_process_frame.setVisible(False)
+        if hasattr(self, "optimization_process_frame"):
+            self.optimization_process_frame.setVisible(False)
 
     def _toast(self, message: str, timeout_ms: int = 5500) -> None:
         self.statusBar().showMessage(message, timeout_ms)
@@ -3100,18 +3106,43 @@ class MainWindow(QMainWindow):
         advanced_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         advanced_menu = QMenu(advanced_btn)
         for text_value, callback in (
-            ("Локальний SEO вибраного", self.local_seo_selected),
-            ("Експериментальні SEO-чернетки x10", lambda: self.local_seo_batch(limit=10)),
             ("Редагувати пакет", self.edit_content_package),
             ("Відкотити зміни", self.rollback_selected_metadata),
             ("Центр архівної кампанії", self.show_archive_campaign_center),
-            ("Перевірити локальні інструменти", self.refresh_free_tools_status),
         ):
             action = QAction(text_value, advanced_menu)
             action.triggered.connect(
                 lambda _checked=False, cb=callback: cb()
             )
             advanced_menu.addAction(action)
+
+        advanced_menu.addSeparator()
+        self.advanced_local_seo_action = QAction(
+            "Локальний SEO вибраного",
+            advanced_menu,
+        )
+        self.advanced_local_seo_action.triggered.connect(
+            self.local_seo_selected
+        )
+        advanced_menu.addAction(self.advanced_local_seo_action)
+
+        self.advanced_batch_seo_action = QAction(
+            "Експериментальні SEO-чернетки x10",
+            advanced_menu,
+        )
+        self.advanced_batch_seo_action.triggered.connect(
+            lambda: self.local_seo_batch(limit=10)
+        )
+        advanced_menu.addAction(self.advanced_batch_seo_action)
+
+        self.advanced_tools_probe_action = QAction(
+            "Перевірити локальні інструменти",
+            advanced_menu,
+        )
+        self.advanced_tools_probe_action.triggered.connect(
+            self.refresh_free_tools_status
+        )
+        advanced_menu.addAction(self.advanced_tools_probe_action)
         advanced_btn.setMenu(advanced_menu)
 
         for button in (
@@ -3125,6 +3156,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(actions)
 
         optimization_process = QFrame()
+        self.optimization_process_frame = optimization_process
         optimization_process.setObjectName("ProcessStrip")
         optimization_process_layout = QVBoxLayout(optimization_process)
         optimization_process_layout.setContentsMargins(14, 8, 14, 8)
@@ -3150,6 +3182,7 @@ class MainWindow(QMainWindow):
         self.optimization_process_progress.setTextVisible(False)
         optimization_process_layout.addLayout(optimization_process_top)
         optimization_process_layout.addWidget(self.optimization_process_progress)
+        optimization_process.setVisible(False)
         layout.addWidget(optimization_process)
 
         self.archive_campaign_summary = QLabel()
@@ -3326,6 +3359,22 @@ class MainWindow(QMainWindow):
             for index in range(self.settings_sections.count()):
                 if self.settings_sections.tabText(index).startswith("Сховища / API"):
                     self.settings_sections.setTabVisible(index, advanced)
+        for name in (
+            "advanced_local_seo_action",
+            "advanced_batch_seo_action",
+            "advanced_tools_probe_action",
+        ):
+            action = getattr(self, name, None)
+            if action is not None:
+                action.setVisible(advanced)
+        if hasattr(self, "optimization_filter"):
+            for key in ("archive_top", "latin_titles", "deep_review"):
+                index = self.optimization_filter.findData(key)
+                if index >= 0:
+                    self.optimization_filter.view().setRowHidden(
+                        index,
+                        not advanced,
+                    )
         self.reload_optimization_queue()
 
     def save_advanced_mode_setting(self, state: int) -> None:
