@@ -11818,6 +11818,80 @@ def audit_xml_av_integrity(xml_path, *, require_links=True, fail=True):
             "guard_version":"RG_AUDIO_INTEGRITY_GUARD_V1","qa":qa}
 
 
+
+def apply_auto_edit_validator_avlink_v2() -> dict:
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil, subprocess
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"VALIDATE_PREMIERE_XML.py"
+    if not p.is_file():
+        raise RuntimeError(f"Validator missing: {p}")
+    src=p.read_text(encoding="utf-8")
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_VALIDATOR_AVLINK_V2_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(p,backup/p.name)
+
+    old='''        refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in clip.findall("link")
+        ]
+
+        partner_ids = [r for r in refs if r != cid]
+'''
+    new='''        # RG_VALIDATOR_AVLINK_V2: Premiere audio clipitems may also carry
+        # a video link. Stereo partner detection must only consider audio links.
+        refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in clip.findall("link")
+            if (lk.findtext("mediatype") or "").strip().lower() == "audio"
+        ]
+
+        partner_ids = [r for r in refs if r != cid]
+'''
+    if "RG_VALIDATOR_AVLINK_V2" not in src:
+        if old not in src:
+            raise RuntimeError("validator partner block not found")
+        src=src.replace(old,new,1)
+
+    old2='''        partner_refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in partner.findall("link")
+        ]
+'''
+    new2='''        partner_refs = [
+            (lk.findtext("linkclipref") or "").strip()
+            for lk in partner.findall("link")
+            if (lk.findtext("mediatype") or "").strip().lower() == "audio"
+        ]
+'''
+    if old2 in src:
+        src=src.replace(old2,new2,1)
+
+    compile(src,str(p),"exec")
+    p.write_text(src,encoding="utf-8")
+    py_compile.compile(str(p),doraise=True)
+
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    tests=[]
+    for candidate in [
+        app/"901"/"RG_EDITED_901_1.xml",
+        app/"894"/"RG_EDITED_894_4.xml",
+    ]:
+        if candidate.is_file() and runtime.is_file():
+            cp=subprocess.run([str(runtime),"-X","utf8",str(p),str(candidate)],
+                              capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=60)
+            tests.append({"xml":str(candidate),"exit_code":cp.returncode,
+                          "stdout":cp.stdout[-2000:],"stderr":cp.stderr[-2000:]})
+            if cp.returncode!=0:
+                raise RuntimeError("validator regression test failed: "+str(tests[-1]))
+            break
+    return {"status":"PASS","marker":"RG_VALIDATOR_AVLINK_V2","backup":str(backup),
+            "compiled":True,"tests":tests}
+
+
 def telegram_local_status() -> dict:
     """Read Telegram/NAS control state without external API calls."""
     import time
@@ -11971,6 +12045,7 @@ ACTIONS = {
     "inspect_auto_edit_901_2_ripple_links": inspect_auto_edit_901_2_ripple_links,
     "apply_auto_edit_all_v1_linkage_fix": apply_auto_edit_all_v1_linkage_fix,
     "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
+    "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
     "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
