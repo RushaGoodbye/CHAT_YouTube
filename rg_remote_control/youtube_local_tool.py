@@ -1394,8 +1394,7 @@ def preview_local_seo_package(task: dict) -> dict:
     package["description"] = sanitize_imported_package_description(
         str(package.get("description") or ""),
         title=str(package.get("title") or current_title),
-        is_stream=False,
-    )
+    ).after
     return {
         "youtube_api_calls": 0,
         "video_id": video_id,
