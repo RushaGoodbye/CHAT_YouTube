@@ -12165,8 +12165,7 @@ def install(host,runtime_py,app_dir,studio_version=""):
         s=s.replace(anchor,patch,1)
     s=s.replace('        self._system_timer.start(15000);self._refresh_system()\n',
                 '        self._system_timer.start(60000);QTimer.singleShot(250,self._refresh_system)\n',1)
-    pat=r'(?ms)^    def _refresh_system\\(self\\):\\n.*?(?=^    def |\\Z)'
-    repl='''    def _refresh_system(self):
+    refresh_src='''    def _refresh_system(self):
         # RG_UI_RESPONSIVE_MONITOR_V1: UI thread only renders cached data.
         h=getattr(self,"_rg_health_snapshot",{}) or {}
         if not h:
@@ -12189,8 +12188,12 @@ def install(host,runtime_py,app_dir,studio_version=""):
         except Exception:pass
 
 '''
-    s,n=re.subn(pat,repl,s,count=1)
-    if n!=1:raise RuntimeError("_refresh_system patch failed")
+    a=s.find("    def _refresh_system(self):")
+    if a<0:raise RuntimeError("_refresh_system start missing")
+    b=s.find("\n    def ",a+5)
+    if b<0:b=len(s)
+    else:b+=1
+    s=s[:a]+refresh_src+s[b:]
     p.write_text(s,encoding="utf-8")
 
     # Production40: no NAS/GPU probe in the UI thread.
