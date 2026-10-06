@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
-  "args": {
-    "stream": "886"
-  },
-  "nonce": "smoke-886-020201-20261007"
+  "action": "run_auto_edit_886_short_smoke",
+  "args": {},
+  "nonce": "run-886-short-smoke-020201"
 }
