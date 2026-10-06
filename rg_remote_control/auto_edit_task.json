@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_code",
+  "action": "install_rg_resilience",
   "args": {},
-  "nonce": "inspect-live-code-resume-901-20261006-1147"
+  "nonce": "install-rg-resilience-20261006-1201"
 }
