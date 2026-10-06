@@ -3766,6 +3766,89 @@ publish()
 
 
 
+
+def apply_auto_edit_run_state_colors_hotfix() -> dict:
+    if os.name != "nt":
+        raise RuntimeError("Windows only")
+    import datetime, py_compile, shutil
+
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    p=app/"rg_studio_ui.py"
+    if not p.is_file():
+        raise RuntimeError("rg_studio_ui.py missing")
+
+    src=p.read_text(encoding="utf-8")
+    guard="# RG_RUN_STATE_COLORS_V1"
+    if guard in src:
+        py_compile.compile(str(p),doraise=True)
+        return {"status":"ALREADY_APPLIED","path":str(p),"guard":"RG_RUN_STATE_COLORS_V1"}
+
+    original=src
+    replacements=[
+        (
+            '        self.progress.setValue(0);self.percent.setText("0%");self.metric_state.setText("ВИКОНУЄТЬСЯ")',
+            '        self.progress.setValue(0);self.percent.setText("0%");self.metric_state.setText("ВИКОНУЄТЬСЯ");self.metric_state.setStyleSheet("color:#22c55e;font-weight:700;")'
+        ),
+        (
+            '        self.run_btn.setEnabled(False);self.stop_btn.setEnabled(True)',
+            '        self.run_btn.setText("ЗАПУЩЕНО");self.run_btn.setStyleSheet("QPushButton{background:#16a34a;color:#ffffff;border:1px solid #22c55e;font-weight:700;} QPushButton:disabled{background:#16a34a;color:#ffffff;border:1px solid #22c55e;font-weight:700;}");self.run_btn.setEnabled(False);self.stop_btn.setEnabled(True)'
+        ),
+        (
+            '            self.metric_state.setText("ПОМИЛКА");self.stage.setText("Помилка production backend")',
+            '            self.metric_state.setText("ПОМИЛКА");self.metric_state.setStyleSheet("color:#ef4444;font-weight:700;");self.stage.setText("Помилка production backend")'
+        ),
+        (
+            '            self.metric_state.setText("ГОТОВО");self.status.setText(f"СТРІМ {self.metric_stream.text()} • POST-RUN QA PASS")',
+            '            self.metric_state.setText("ГОТОВО");self.metric_state.setStyleSheet("color:#22c55e;font-weight:700;");self.status.setText(f"СТРІМ {self.metric_stream.text()} • POST-RUN QA PASS")'
+        ),
+        (
+            '            self.metric_state.setText("ПЕРЕВІРКА");self.status.setText("POST-RUN QA • ПОТРІБНА ПЕРЕВІРКА")',
+            '            self.metric_state.setText("ПЕРЕВІРКА");self.metric_state.setStyleSheet("");self.status.setText("POST-RUN QA • ПОТРІБНА ПЕРЕВІРКА")'
+        ),
+        (
+            '        self.run_btn.setText("ПОТРІБНА ПЕРЕВІРКА");self.run_btn.setEnabled(False)',
+            '        self.run_btn.setStyleSheet("");self.run_btn.setText("ПОТРІБНА ПЕРЕВІРКА");self.run_btn.setEnabled(False)'
+        ),
+    ]
+    for old,new in replacements:
+        if old not in src:
+            raise RuntimeError("UI state-color anchor missing: "+old[:90])
+        src=src.replace(old,new,1)
+
+    # Add an explicit marker without changing executable behavior.
+    src=src.replace(
+        '    def _start_stream(self,stream):',
+        '    '+guard+'\n    def _start_stream(self,stream):',
+        1
+    )
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_RUN_STATE_COLORS_{stamp}"
+    backup.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(p,backup/p.name)
+
+    tmp=p.with_suffix(".py.statecolors.tmp")
+    tmp.write_text(src,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True)
+    os.replace(tmp,p)
+    py_compile.compile(str(p),doraise=True)
+
+    return {
+        "status":"APPLIED",
+        "path":str(p),
+        "backup":str(backup),
+        "guard":"RG_RUN_STATE_COLORS_V1",
+        "changes":[
+            "ЗАПУСТИТИ -> ЗАПУЩЕНО + green while running",
+            "ВИКОНУЄТЬСЯ -> green",
+            "ПОМИЛКА -> red",
+            "ГОТОВО -> green",
+            "running button style cleared after finalize"
+        ]
+    }
+
+
 def apply_auto_edit_resume_protection_hotfix() -> dict:
     if os.name != "nt":
         raise RuntimeError("Windows only")
@@ -9524,6 +9607,7 @@ ACTIONS = {
     "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
     "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
     "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
+    "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
