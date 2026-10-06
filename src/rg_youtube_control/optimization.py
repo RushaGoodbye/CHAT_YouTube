@@ -95,6 +95,8 @@ def _title_topic_hashtag(title: str) -> str:
     cleaned = TITLE_BOILERPLATE_RE.sub(" ", title or "")
     generic_places = {
         "россия", "россии", "россию", "украина", "украине", "украину",
+        "россиянин", "россиянина", "россиянином", "россияне", "россиянами",
+        "россиянка", "россиянки",
         "russia", "russian", "ukraine", "ukrainian",
     }
     candidates: list[tuple[int, int, str]] = []
