@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_updater_detach_fix_v2",
+  "action": "apply_auto_edit_updater_supervisor_v3",
   "args": {},
-  "nonce": "apply-updater-detach-v2"
+  "nonce": "apply-updater-supervisor-v3"
 }
