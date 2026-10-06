@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "build_auto_edit_pack500_update",
+  "action": "inspect_auto_edit_901_audio_outputs",
   "args": {},
-  "nonce": "build-pack500-reliability-performance-20261006-1"
+  "nonce": "inspect-901-audio-20261006-1"
 }
