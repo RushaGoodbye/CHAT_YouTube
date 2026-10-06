@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.6.2 expanded safe auto-reply library."""
+"""RG YouTube Control package. 0.6.2 safe auto-reply library finalized."""
 
 __version__ = "0.6.2"
