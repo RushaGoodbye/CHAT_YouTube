@@ -9188,6 +9188,26 @@ def inspect_auto_edit_one_button_boundary_gate() -> dict:
         spans[str(center)]="\n".join(f"{i+1}: {rows[i]}" for i in range(a,b))
     return {"path":str(p),"spans":spans}
 
+def inspect_auto_edit_identity_refiner() -> dict:
+    if os.name!="nt": raise RuntimeError("Windows only")
+    import ast
+    root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    out={}
+    for p in root.glob("*.py"):
+        try:
+            src=p.read_text(encoding="utf-8",errors="replace")
+        except Exception:
+            continue
+        if "def refine_dialogue_range" not in src:
+            continue
+        rows=src.splitlines();tree=ast.parse(src);funcs={}
+        for node in ast.walk(tree):
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {"refine_dialogue_range","_recover","_find","_scan"}:
+                a=max(0,int(node.lineno)-1);b=min(len(rows),int(getattr(node,"end_lineno",node.lineno)))
+                funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+        out[p.name]={"path":str(p),"functions":funcs}
+    return out
+
 ACTIONS = {
     "health": health,
     "ensure_github_runner_persistence": ensure_github_runner_persistence,
@@ -9284,6 +9304,7 @@ ACTIONS = {
     "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
     "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
     "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
+    "inspect_auto_edit_identity_refiner": inspect_auto_edit_identity_refiner,
     "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
     "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
     "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
