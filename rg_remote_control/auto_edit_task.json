@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "repair_rg_resilience",
+  "action": "build_auto_edit_pack400_update",
   "args": {},
-  "nonce": "nas-first-finalize-20261006"
+  "nonce": "build-pack400-productivity-20261006-1"
 }
