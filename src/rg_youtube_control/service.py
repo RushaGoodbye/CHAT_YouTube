@@ -558,6 +558,7 @@ def _reply_template_for(
     profile: str,
     category: str,
     comment_id: str,
+    author: str = "",
 ) -> str:
     variants_key = f"reply_template_variants_{profile}_{category}"
     raw_variants = get_setting(conn, variants_key, "").strip()
@@ -584,14 +585,56 @@ def _reply_template_for(
             category,
             (DEFAULT_REPLY_TEMPLATES[category],),
         )
-    checksum = sum(ord(ch) for ch in str(comment_id))
-    return _validated_reply_text(variants[checksum % len(variants)])
+
+    normalized = tuple(_validated_reply_text(value) for value in variants)
+    base_index = sum(ord(ch) for ch in str(comment_id)) % len(normalized)
+
+    avoid: set[str] = set()
+    last_global = get_setting(
+        conn,
+        f"reply_template_last_{profile}_{category}",
+        "",
+    ).strip()
+    if last_global:
+        avoid.add(_validated_reply_text(last_global))
+
+    clean_author = str(author or "").strip()
+    if clean_author:
+        recent = conn.execute(
+            """SELECT c.reply_text
+               FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=?
+                 AND c.author=?
+                 AND c.category=?
+                 AND COALESCE(TRIM(c.reply_text),'')<>''
+               ORDER BY c.published_at DESC
+               LIMIT 5""",
+            (profile, clean_author, category),
+        ).fetchall()
+        for row in recent:
+            avoid.add(_validated_reply_text(str(row["reply_text"] or "")))
+
+    chosen = normalized[base_index]
+    for offset in range(len(normalized)):
+        candidate = normalized[(base_index + offset) % len(normalized)]
+        if candidate not in avoid:
+            chosen = candidate
+            break
+
+    set_setting(
+        conn,
+        f"reply_template_last_{profile}_{category}",
+        chosen,
+    )
+    return chosen
 
 def local_safe_template_candidate(
     conn: sqlite3.Connection,
     profile: str,
     comment_id: str,
     comment_text: str,
+    author: str = "",
 ) -> dict[str, str] | None:
     """Return a deterministic zero-AI draft only for freshly classified safe intents."""
     decision = classify(str(comment_text or ""))
@@ -604,6 +647,7 @@ def local_safe_template_candidate(
             profile,
             decision.category,
             str(comment_id),
+            str(author or ""),
         ),
         "reason": f"safe_template:{decision.category}",
         "category": decision.category,
@@ -745,7 +789,11 @@ def scan_channel_comments(
         reply_text = decision.reply
         if decision.category in SAFE_AUTO_CATEGORIES:
             reply_text = _reply_template_for(
-                conn, profile, decision.category, comment_id
+                conn,
+                profile,
+                decision.category,
+                comment_id,
+                str(snippet.get("authorDisplayName") or ""),
             )
 
         try:
@@ -1130,7 +1178,11 @@ def reply_one_queued_safe_comment(
         reply_text = str(row["reply_text"] or "").strip()
         if not reply_text:
             reply_text = _reply_template_for(
-                conn, profile, category, comment_id
+                conn,
+                profile,
+                category,
+                comment_id,
+                str(row["author"] or ""),
             )
         safe_reply = _validated_reply_text(reply_text)
 
