@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_install_state",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "verify-after-restart-wsvc-v1"
+  "nonce": "verify-processes-after-restart-wsvc"
 }
