@@ -310,6 +310,24 @@ def ensure_ollama() -> dict:
     return {"ok": False, "started": True, "reason": "ollama_start_timeout"}
 
 
+def service_snapshot() -> dict:
+    checks = {
+        "youtube_gui": ensure_youtube_gui,
+        "ollama": ensure_ollama,
+    }
+    out = {}
+    for name, fn in checks.items():
+        try:
+            out[name] = fn()
+        except Exception as exc:
+            out[name] = {
+                "ok": False,
+                "error": repr(exc),
+                "traceback": traceback.format_exc()[-4000:],
+            }
+    return out
+
+
 def ensure_dirs() -> None:
     LOCAL_ROOT.mkdir(parents=True, exist_ok=True)
     LOCAL_STATE.mkdir(parents=True, exist_ok=True)
@@ -357,16 +375,16 @@ def run_loop() -> None:
     ensure_dirs()
     sync_bundle_if_changed()
     last_heartbeat = 0.0
-    write_status("ready")
+    last_service_check = 0.0
+    services = service_snapshot()
+    last_service_check = time.time()
+    write_status("ready", services=services)
 
     while True:
         try:
             ensure_dirs()
             if time.time() - last_service_check >= 60:
-                services = {
-                    "youtube_gui": ensure_youtube_gui(),
-                    "ollama": ensure_ollama(),
-                }
+                services = service_snapshot()
                 last_service_check = time.time()
             if time.time() - last_heartbeat >= HEARTBEAT_SECONDS:
                 write_status("ready", services=services)
