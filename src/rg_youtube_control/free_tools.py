@@ -144,6 +144,9 @@ def fetch_public_metadata(video: str) -> dict[str, Any]:
         "skip_download": True,
         "noplaylist": True,
         "extract_flat": False,
+        "socket_timeout": 15,
+        "retries": 1,
+        "extractor_retries": 1,
     }
     with yt_dlp.YoutubeDL(options) as downloader:
         info = downloader.extract_info(_video_url(video), download=False)
@@ -1356,6 +1359,8 @@ def generate_seo_package_local(
     public_context: dict[str, Any] | None = None,
     is_short: bool = False,
     model: str = DEFAULT_OLLAMA_MODEL,
+    fast_mode: bool = False,
+    timeout: float = 300.0,
 ) -> dict[str, Any]:
     context = public_context or {}
     prompt = f"""
@@ -1410,7 +1415,7 @@ SHORTS: {is_short}
 
     payload: dict[str, Any] = {}
     last_error: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(1 if fast_mode else 3):
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -1445,6 +1450,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     {"role": "user", "content": attempt_prompt},
                 ],
                 model=model,
+                timeout=timeout,
                 temperature=0.05 if attempt else 0.15,
                 json_mode=True,
             )
@@ -1456,12 +1462,18 @@ chapters: рядок з підтвердженими таймкодами та �
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
-                recovered_description = _recover_missing_description(
-                    current_title=current_title,
-                    transcript=transcript,
-                    public_context=context,
-                    model=model,
-                )
+                if fast_mode:
+                    recovered_description = _grounded_description_from_transcript(
+                        current_title,
+                        transcript,
+                    )
+                else:
+                    recovered_description = _recover_missing_description(
+                        current_title=current_title,
+                        transcript=transcript,
+                        public_context=context,
+                        model=model,
+                    )
                 if recovered_description:
                     candidate["description"] = recovered_description
             if not str(candidate.get("description") or "").strip():
@@ -1475,6 +1487,8 @@ chapters: рядок з підтвердженими таймкодами та �
                 len(variants_candidate) < 3
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
+                if fast_mode:
+                    raise ValueError("need exactly 3 title variants")
                 variants_candidate = _recover_title_variants(
                     current_title=current_title,
                     transcript=transcript,
@@ -1495,32 +1509,45 @@ chapters: рядок з підтвердженими таймкодами та �
                 else ""
             )
             if transcript.strip():
-                # A dedicated transcript-summary pass is more specific than the
-                # old deterministic template and remains 0-quota.
-                recovered_description = _recover_missing_description(
-                    current_title=current_title,
-                    transcript=transcript,
-                    public_context=context,
-                    model=model,
-                )
-                if recovered_description:
-                    candidate["description"] = recovered_description
-                    description_candidate = recovered_description
-                    description_error = _description_quality_error(
-                        description_candidate,
-                        transcript,
+                if fast_mode:
+                    if description_error:
+                        fallback_description = _grounded_description_from_transcript(
+                            current_title,
+                            transcript,
+                        )
+                        candidate["description"] = fallback_description
+                        description_candidate = fallback_description
+                        description_error = _description_quality_error(
+                            description_candidate,
+                            transcript,
+                        )
+                else:
+                    # Full-quality mode may spend extra local model passes on
+                    # description recovery. Batch mode intentionally avoids it.
+                    recovered_description = _recover_missing_description(
+                        current_title=current_title,
+                        transcript=transcript,
+                        public_context=context,
+                        model=model,
                     )
-                elif description_error:
-                    fallback_description = _grounded_description_from_transcript(
-                        current_title,
-                        transcript,
-                    )
-                    candidate["description"] = fallback_description
-                    description_candidate = fallback_description
-                    description_error = _description_quality_error(
-                        description_candidate,
-                        transcript,
-                    )
+                    if recovered_description:
+                        candidate["description"] = recovered_description
+                        description_candidate = recovered_description
+                        description_error = _description_quality_error(
+                            description_candidate,
+                            transcript,
+                        )
+                    elif description_error:
+                        fallback_description = _grounded_description_from_transcript(
+                            current_title,
+                            transcript,
+                        )
+                        candidate["description"] = fallback_description
+                        description_candidate = fallback_description
+                        description_error = _description_quality_error(
+                            description_candidate,
+                            transcript,
+                        )
             if transcript.strip() and description_error:
                 raise ValueError(
                     "description quality failed: " + description_error
@@ -1612,7 +1639,7 @@ chapters: рядок з підтвердженими таймкодами та �
 
     if not is_short and transcript.strip():
         chapter_error = _chapters_quality_error(chapters, transcript)
-        if chapter_error:
+        if chapter_error and not fast_mode:
             chapters = _recover_chapters_from_transcript(
                 current_title=current_title,
                 transcript=transcript,
