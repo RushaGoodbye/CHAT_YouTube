@@ -150,3 +150,23 @@ def test_local_seo_worker_never_uses_gui_nas_path() -> None:
     assert "self._nas_path(" not in block
     assert 'SELECT value FROM settings WHERE key=?' in block
     assert "normalize_nas_unc_path" in block
+
+
+def test_optimization_tab_contains_live_process_strip() -> None:
+    source = _ui_source()
+    start = source.index("    def _build_optimization_tab")
+    end = source.index("\n    def ", start + 20)
+    block = source[start:end]
+    assert 'QLabel("Поточна операція")' in block
+    assert "optimization_process_progress" in block
+    assert "ProcessStrip" in block
+
+
+def test_set_process_mirrors_into_optimization_tab() -> None:
+    source = _ui_source()
+    start = source.index("    def _set_process")
+    end = source.index("\n    def _set_process_idle", start)
+    block = source[start:end]
+    assert "optimization_process_title" in block
+    assert "optimization_process_stage" in block
+    assert "optimization_process_progress" in block
