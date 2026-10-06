@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.6.4 SQLite-safe comment workers."""
+"""RG YouTube Control package. 0.6.4 question-only review replies."""
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
