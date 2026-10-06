@@ -854,11 +854,9 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "metrics_wrapper"):
             return
         current = self.tabs.currentWidget() if hasattr(self, "tabs") else None
-        hide_global_metrics = current in {
-            getattr(self, "today_page", None),
-            getattr(self, "archive_page", None),
-        }
-        self.metrics_wrapper.setVisible(not hide_global_metrics)
+        self.metrics_wrapper.setVisible(
+            current is getattr(self, "video_page", None)
+        )
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -2698,6 +2696,7 @@ class MainWindow(QMainWindow):
 
     def _build_videos_tab(self) -> None:
         page = QWidget()
+        self.video_page = page
         layout = QVBoxLayout(page)
         controls = QHBoxLayout()
 
@@ -7880,6 +7879,9 @@ class MainWindow(QMainWindow):
             f"""SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
                        v.privacy_status,v.views,v.audit_json,
                        d.status AS draft_status,
+                       d.generation AS draft_generation,
+                       d.quality_state AS draft_quality_state,
+                       d.quality_reason AS draft_quality_reason,
                        a.analytics_views,a.impressions,a.ctr_percent,
                        a.avd_seconds,a.subs_gained,
                        a.updated_at AS analytics_updated_at,
@@ -8134,11 +8136,17 @@ class MainWindow(QMainWindow):
                 if (transcript_dir / f"{row['video_id']}.srt").exists()
                 else ""
             )
+            draft_key = str(row["draft_status"] or "")
+            draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
-                "draft": "ПЕРЕВІРИТИ",
+                "draft": (
+                    "СТАРИЙ ПАКЕТ"
+                    if draft_generation == "legacy"
+                    else "ПЕРЕВІРИТИ"
+                ),
                 "ready": "ГОТОВО",
                 "applied": "ЗАСТОСОВАНО",
-            }.get(row["draft_status"] or "", "")
+            }.get(draft_key, "")
             last_optimized, checkpoint_text = (
                 self._optimization_checkpoint_text(row["last_optimized_at"])
             )
@@ -8223,12 +8231,28 @@ class MainWindow(QMainWindow):
                     elif draft_status == "ГОТОВО":
                         fg = QColor("#8ecbff")
                         bg = QColor("#142b3c")
+                    elif draft_status == "СТАРИЙ ПАКЕТ":
+                        fg = QColor("#ff8ca1")
+                        bg = QColor("#431821")
                     else:
                         fg = QColor(WARNING)
                         bg = QColor("#3b3012")
                     item.setForeground(fg)
                     item.setBackground(bg)
                     item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    quality_reason = str(
+                        row["draft_quality_reason"] or ""
+                    ).strip()
+                    item.setToolTip(
+                        (
+                            f"Покоління: {draft_generation}"
+                            + (
+                                f" · {quality_reason}"
+                                if quality_reason
+                                else ""
+                            )
+                        )
+                    )
                 elif column == 10 and checkpoint_text != "—":
                     item.setForeground(
                         QColor(
