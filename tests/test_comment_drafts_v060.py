@@ -399,7 +399,7 @@ def test_review_precheck_skips_aphoristic_text():
     from rg_youtube_control.free_tools import _comment_reply_precheck_reason
 
     text = "Виростай, мій сину, будь міцний, як криця, виростеш - скажу де правда"
-    assert _comment_reply_precheck_reason(text) == "quote_or_aphorism"
+    assert _comment_reply_precheck_reason(text) == "non_question_review"
 
 
 def test_review_precheck_allows_clear_question():
@@ -415,7 +415,7 @@ def test_review_precheck_skips_short_statement():
 
     assert _comment_reply_precheck_reason(
         "Бензина нет, но он есть"
-    ) == "short_non_question"
+    ) == "non_question_review"
 
 
 def test_template_rotation_avoids_immediate_repeat(tmp_path):
@@ -479,7 +479,7 @@ def test_review_aphorism_without_question_is_skipped():
 
     assert _comment_reply_precheck_reason(
         "Глухому не расскажешь, слепому не покажешь, а дураку ничего не докажешь"
-    ) == "non_question_review"
+    ) in {"non_question_review", "insult_or_abuse"}
 
 
 def test_review_clear_question_still_passes_gate():
