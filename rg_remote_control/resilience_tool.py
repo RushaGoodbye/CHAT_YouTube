@@ -697,6 +697,84 @@ def agent_roundtrip(timeout: int = 70) -> dict:
     }
 
 
+
+def inspect_resilience_runtime() -> dict:
+    def safe_text(path: Path, limit: int = 12000):
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")[-limit:] if path.is_file() else None
+        except Exception as exc:
+            return {"error": repr(exc)}
+
+    def inventory(path: Path):
+        rows=[]
+        try:
+            if not path.exists():
+                return {"exists": False, "items": []}
+            for p in sorted(path.iterdir(), key=lambda x: x.name.casefold()):
+                try:
+                    rows.append({
+                        "name": p.name,
+                        "type": "dir" if p.is_dir() else "file",
+                        "size": p.stat().st_size if p.is_file() else None,
+                        "age_seconds": max(0, int(time.time()-p.stat().st_mtime)),
+                    })
+                except Exception as exc:
+                    rows.append({"name": p.name, "error": repr(exc)})
+            return {"exists": True, "items": rows[:200]}
+        except Exception as exc:
+            return {"exists": False, "error": repr(exc), "items": rows}
+
+    agent_status = AGENT_NAS / "status" / "alexpc_agent.json"
+    local_error = AGENT_LOCAL / "state" / "last_error.json"
+    local_status = AGENT_LOCAL / "state" / "agent_status.json"
+    deploy_status = STATE / "mcp_deploy_status"
+    deploy_log = STATE / "mcp-deploy.log"
+    tick_log = STATE / "mcp-tick.log"
+    auto_loop = NAS_ROOT / "RG_NAS_AUTODEPLOY_LOOP.sh"
+    tick = NAS_ROOT / "RG_NAS_MCP_TICK.sh"
+
+    proc = run([
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "-NoProfile","-NonInteractive","-Command",
+        r"$p=Get-CimInstance Win32_Process | Where-Object { "
+        r"(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        r"$_.CommandLine -like '*C:\RG_AGENT\alexpc_agent.py*' }; "
+        r"$p | Select-Object ProcessId,CreationDate,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
+    ], timeout=20)
+
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "agent_process": proc,
+        "agent_status": safe_text(agent_status),
+        "agent_local_status": safe_text(local_status),
+        "agent_last_error": safe_text(local_error),
+        "agent_queues": {
+            contour: {
+                name: inventory(AGENT_NAS / contour / name)
+                for name in ("requests","processing","results","errors")
+            }
+            for contour in ("auto_edit","youtube","telegram")
+        },
+        "legacy_auto_edit_queues": {
+            name: inventory(MCP_ROOT / "AUTO_EDIT_CALLS" / name)
+            for name in ("requests","results","errors")
+        },
+        "deploy": {
+            "request_exists": (MCP_ROOT / "DEPLOY_REQUEST").exists(),
+            "status": safe_text(deploy_status),
+            "log": safe_text(deploy_log, 20000),
+        },
+        "nas_runtime": {
+            "tick_log": safe_text(tick_log, 20000),
+            "guard_heartbeat": safe_text(STATE / "rg_resilience_heartbeat_at"),
+            "failover_heartbeat": safe_text(STATE / "failover_heartbeat_at"),
+            "control_center": safe_text(STATE / "RG_CONTROL_CENTER.json"),
+            "autodeploy_loop_exists": auto_loop.is_file(),
+            "tick_exists": tick.is_file(),
+        },
+    }
+
+
 def probe(do_roundtrip: bool = True) -> dict:
     files = {}
     requirements = {
@@ -831,6 +909,7 @@ ACTIONS = {
     "install_rg_resilience": install,
     "probe_rg_resilience": probe,
     "repair_rg_resilience": repair,
+    "inspect_rg_resilience_runtime": inspect_resilience_runtime,
 }
 
 
