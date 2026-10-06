@@ -1,7 +1,12 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
-  "args": {},
-  "nonce": "inspect-process-tree-updater-parent-pid-20261006-2340"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_windows_service.py",
+      "rg_update_supervisor.py"
+    ]
+  },
+  "nonce": "inspect-terminate-process-and-supervisor-20261006-2342"
 }
