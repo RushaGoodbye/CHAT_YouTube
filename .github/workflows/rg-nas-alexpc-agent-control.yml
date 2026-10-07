@@ -1,0 +1,119 @@
+name: RG NAS AlexPC Agent Control
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "rg_remote_control/nas_agent_task.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-nas-alexpc-agent-control
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: [self-hosted, rg, nas]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Dispatch Auto Edit task through NAS-first AlexPC agent
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import time
+          from pathlib import Path
+
+          task_path = Path("rg_remote_control/nas_agent_task.json")
+          task = json.loads(task_path.read_text(encoding="utf-8-sig"))
+
+          if task.get("target") != "alexpc":
+              raise SystemExit("target must be alexpc")
+          if task.get("contour") != "auto_edit":
+              raise SystemExit("contour must be auto_edit")
+
+          action = str(task.get("action") or "").strip()
+          prefixes = (
+              "auto_edit_", "inspect_auto_edit_", "apply_auto_edit_",
+              "build_auto_edit_", "start_auto_edit_", "launch_auto_edit_",
+              "verify_auto_edit_", "audit_auto_edit_", "finalize_auto_edit_",
+              "locate_auto_edit_", "search_auto_edit_",
+          )
+          exact = {"install_rg_resilience", "probe_rg_resilience", "repair_rg_resilience"}
+          if not (action.startswith(prefixes) or action in exact):
+              raise SystemExit(f"action not allowed for auto_edit: {action}")
+
+          args = task.get("args") or {}
+          if not isinstance(args, dict):
+              raise SystemExit("args must be an object")
+
+          root = Path("/volume1/docker/RG_NAS_MCP/ALEXPC")
+          base = root / "auto_edit"
+          requests = base / "requests"
+          results = base / "results"
+          errors = base / "errors"
+          status_file = root / "status" / "alexpc_agent.json"
+
+          requests.mkdir(parents=True, exist_ok=True)
+          results.mkdir(parents=True, exist_ok=True)
+          errors.mkdir(parents=True, exist_ok=True)
+
+          rid = f"gh-{os.environ.get('GITHUB_RUN_ID','0')}-{os.environ.get('GITHUB_RUN_ATTEMPT','1')}"
+          if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", rid):
+              raise SystemExit("invalid generated request id")
+
+          request = {
+              "request_id": rid,
+              "action": action,
+              "args": args,
+              "timeout_seconds": int(task.get("timeout_seconds") or 3600),
+          }
+
+          dst = requests / f"{rid}.json"
+          tmp = dst.with_suffix(".json.tmp")
+          tmp.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+          os.replace(tmp, dst)
+          print("RG_NAS_AGENT_DISPATCH|" + json.dumps({
+              "request_id": rid,
+              "action": action,
+              "request": str(dst),
+          }, ensure_ascii=False), flush=True)
+
+          deadline = time.time() + 180
+          result_file = results / f"{rid}.json"
+          error_file = errors / f"{rid}.json"
+          while time.time() < deadline:
+              if result_file.is_file():
+                  doc = json.loads(result_file.read_text(encoding="utf-8-sig"))
+                  print("RG_NAS_AGENT_RESULT|" + json.dumps(doc, ensure_ascii=False), flush=True)
+                  raise SystemExit(0 if doc.get("ok") else 2)
+              if error_file.is_file():
+                  doc = json.loads(error_file.read_text(encoding="utf-8-sig"))
+                  print("RG_NAS_AGENT_ERROR|" + json.dumps(doc, ensure_ascii=False), flush=True)
+                  raise SystemExit(3)
+              time.sleep(2)
+
+          status = {}
+          if status_file.is_file():
+              try:
+                  status = json.loads(status_file.read_text(encoding="utf-8-sig"))
+              except Exception as exc:
+                  status = {"status_read_error": repr(exc)}
+          print("RG_NAS_AGENT_TIMEOUT|" + json.dumps({
+              "request_id": rid,
+              "agent_status": status,
+          }, ensure_ascii=False), flush=True)
+          raise SystemExit(4)
+          PY
