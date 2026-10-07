@@ -247,13 +247,67 @@ def _processes_json(filter_script: str) -> str:
 
 
 def ensure_youtube_gui() -> dict:
+    # Prefer the installed desktop build. The old behavior launched run_app.py
+    # from CHAT_YouTube-main every 60 seconds, which could reopen an outdated
+    # source build after an installer/update had just replaced the app.
+    installed_candidates = [
+        Path(os.environ.get("ProgramFiles", r"C:\\Program Files"))
+        / "RG YouTube Control"
+        / "RG YouTube Control.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\\Program Files (x86)"))
+        / "RG YouTube Control"
+        / "RG YouTube Control.exe",
+    ]
+    installed_exe = next((p for p in installed_candidates if p.is_file()), None)
+
+    if installed_exe is not None:
+        probe_cmd = (
+            "$p=Get-CimInstance Win32_Process | Where-Object { "
+            "$_.Name -eq 'RG YouTube Control.exe' "
+            "-or ($_.ExecutablePath -and $_.ExecutablePath -eq '"
+            + str(installed_exe).replace("'", "''")
+            + "') }; "
+            "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
+            "ConvertTo-Json -Compress"
+        )
+        before = _processes_json(probe_cmd)
+        started = False
+        if not before or before in {"null", "[]"}:
+            flags = 0
+            if os.name == "nt":
+                flags = (
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    | getattr(subprocess, "DETACHED_PROCESS", 0)
+                )
+            subprocess.Popen(
+                [str(installed_exe)],
+                cwd=str(installed_exe.parent),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+                close_fds=True,
+            )
+            started = True
+            time.sleep(3)
+        after = _processes_json(probe_cmd)
+        return {
+            "ok": bool(after and after not in {"null", "[]"}),
+            "started": started,
+            "mode": "installed",
+            "executable": str(installed_exe),
+            "processes": after,
+        }
+
+    # Fallback for development/recovery PCs where no installer build exists.
     target = Path.home() / "CHAT_YouTube-main"
     run_app = target / "run_app.py"
     pythonw = target / ".venv" / "Scripts" / "pythonw.exe"
     if not run_app.is_file() or not pythonw.is_file():
         return {
             "ok": False,
-            "reason": "local_gui_runtime_missing",
+            "reason": "youtube_gui_runtime_missing",
+            "installed_candidates": [str(p) for p in installed_candidates],
             "run_app": str(run_app),
             "pythonw": str(pythonw),
         }
@@ -294,6 +348,7 @@ def ensure_youtube_gui() -> dict:
     return {
         "ok": bool(after and after not in {"null", "[]"}),
         "started": started,
+        "mode": "source_fallback",
         "processes": after,
     }
 
