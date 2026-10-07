@@ -174,12 +174,27 @@ def process_request(path: Path, contour: str) -> dict:
 
 
 
+def _windows_hidden_process_kwargs() -> dict:
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    return {
+        "startupinfo": startupinfo,
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+
+
 def _processes_json(filter_script: str) -> str:
     proc = subprocess.run(
         [
             "powershell.exe",
+            "-NoLogo",
             "-NoProfile",
             "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-Command",
             filter_script,
         ],
@@ -188,6 +203,7 @@ def _processes_json(filter_script: str) -> str:
         encoding="utf-8",
         errors="replace",
         timeout=20,
+        **_windows_hidden_process_kwargs(),
     )
     return (proc.stdout or "").strip()
 
