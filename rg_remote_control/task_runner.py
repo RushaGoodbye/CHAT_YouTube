@@ -15591,6 +15591,7 @@ def apply_auto_edit_cigarette_validator_hotfix_v1() -> dict:
     roots=[
         app/stream,
         app/"run_manifests"/stream,
+        data/"validation"/"cigarette_blur_real_886",
         Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР"),
     ]
     candidates=[]
