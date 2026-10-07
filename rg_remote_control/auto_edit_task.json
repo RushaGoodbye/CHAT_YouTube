@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_runtime_state",
+  "action": "finalize_auto_edit_020201_stable",
   "args": {},
-  "nonce": "inspect-stable-state-after-cancel-20261007"
+  "nonce": "finalize-golden-stable-020201-r2"
 }
