@@ -13350,6 +13350,73 @@ def freeze_auto_edit_stable_020180() -> dict:
 
 
 
+
+def prepare_auto_edit_cigarette_detector_v1() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import subprocess,shutil,time,hashlib
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    site=data/"workers"/"cigarette_blur"/"site"
+    models=data/"models"/"cigarette_blur"
+    site.mkdir(parents=True,exist_ok=True);models.mkdir(parents=True,exist_ok=True)
+    if not runtime.is_file():raise RuntimeError("Runtime missing")
+    env=os.environ.copy();env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8";env["PIP_DISABLE_PIP_VERSION_CHECK"]="1"
+    # Isolated target site: main Studio sys.path remains unchanged.
+    code=r'''
+import importlib.util,sys,json
+mods=["yaml","requests","scipy","matplotlib","psutil","torchvision","pandas","polars"]
+print(json.dumps({m:bool(importlib.util.find_spec(m)) for m in mods}))
+'''
+    cp=subprocess.run([str(runtime),"-X","utf8","-c",code],cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=90)
+    base={}
+    try:base=json.loads((cp.stdout or "").strip().splitlines()[-1])
+    except Exception:pass
+    marker=site/"ultralytics"/"__init__.py"
+    if not marker.is_file():
+        cmd=[str(runtime),"-m","pip","install","--target",str(site),"--upgrade","--no-warn-script-location",
+             "ultralytics==8.3.203"]
+        cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=900)
+        if cp.returncode!=0:raise RuntimeError("Ultralytics isolated install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
+    test=r'''
+import os,sys,json,shutil
+from pathlib import Path
+site=Path(sys.argv[1]);models=Path(sys.argv[2])
+sys.path.insert(0,str(site))
+os.environ["YOLO_CONFIG_DIR"]=str(models/"config")
+from ultralytics import YOLOWorld
+import torch,ultralytics
+name="yolov8s-worldv2.pt"
+model=YOLOWorld(name)
+model.set_classes(["cigarette","lit cigarette","cigarette in hand","smoking cigarette"])
+src=Path(getattr(model,"ckpt_path",name))
+dst=models/name
+if src.is_file() and src.resolve()!=dst.resolve():shutil.copy2(src,dst)
+# Reload exact cached file, prove open-vocabulary classes and CUDA.
+m2=YOLOWorld(str(dst if dst.is_file() else src))
+m2.set_classes(["cigarette","lit cigarette","cigarette in hand","smoking cigarette"])
+print(json.dumps({"ultralytics":ultralytics.__version__,"torch":torch.__version__,
+ "cuda":bool(torch.cuda.is_available()),"device":torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+ "model":str(dst if dst.is_file() else src),"model_exists":bool((dst if dst.is_file() else src).is_file()),
+ "classes":["cigarette","lit cigarette","cigarette in hand","smoking cigarette"]},ensure_ascii=False))
+'''
+    env2=env.copy();env2["PYTHONPATH"]=str(site)
+    cp=subprocess.run([str(runtime),"-X","utf8","-c",test,str(site),str(models)],cwd=str(models),env=env2,
+                      capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=1200)
+    if cp.returncode!=0:raise RuntimeError("YOLO-World model prep failed: "+((cp.stdout or "")+(cp.stderr or ""))[-12000:])
+    try:detail=json.loads((cp.stdout or "").strip().splitlines()[-1])
+    except Exception as exc:raise RuntimeError("Detector prep parse failed: "+repr(exc)+" output="+(cp.stdout or "")[-4000:])
+    if not detail.get("cuda"):raise RuntimeError("Cigarette detector CUDA unavailable")
+    mp=Path(detail.get("model") or "")
+    if not mp.is_file():raise RuntimeError("Cigarette detector model missing after prep")
+    manifest={"schema":"RG_CIGARETTE_DETECTOR_V1","status":"READY","mandatory":True,"worker_site":str(site),
+              "model":str(mp),"sha256":hashlib.sha256(mp.read_bytes()).hexdigest(),"size":mp.stat().st_size,
+              "classes":detail.get("classes"),"cuda":detail.get("cuda"),"device":detail.get("device"),
+              "ultralytics":detail.get("ultralytics"),"torch":detail.get("torch"),"prepared_at":time.time()}
+    out=data/"cigarette_detector_v1.json";tmp=out.with_suffix(".tmp");tmp.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,out)
+    return {"status":"PASS",**manifest,"base_dependencies":base}
+
+
 def inspect_auto_edit_cigarette_blur_targets() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import subprocess,shutil
@@ -13947,6 +14014,7 @@ ACTIONS = {
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
+    "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
