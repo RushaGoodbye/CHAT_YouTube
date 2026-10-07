@@ -16179,6 +16179,7 @@ ACTIONS = {
     "apply_auto_edit_cigarette_validator_hotfix_v1": apply_auto_edit_cigarette_validator_hotfix_v1,
     "audit_auto_edit_post_cigarette_v1": audit_auto_edit_post_cigarette_v1,
     "reconcile_auto_edit_post_cigarette_v1": reconcile_auto_edit_post_cigarette_v1,
+    "apply_auto_edit_post_cigarette_reconcile_v1": reconcile_auto_edit_post_cigarette_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
