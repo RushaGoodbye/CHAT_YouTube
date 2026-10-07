@@ -12932,7 +12932,7 @@ def main():
     end=time.time()+20
     while time.time()<end and process_exists(args.pid):time.sleep(0.25)
     time.sleep(0.35)
-    pf=Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+    pf=Path(os.environ.get("ProgramFiles") or r"C:\\Program Files")
     exe=pf/"RG Auto Edit Studio"/"RG Auto Edit Studio.exe"
     if not exe.is_file():return 2
     subprocess.Popen([str(exe)],cwd=str(exe.parent),
