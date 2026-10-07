@@ -266,7 +266,16 @@ def regression_gate(require_real_fixture: bool = True) -> dict:
     checks.append({"name": "source_audio_untouched", "ok": cig.get("source_audio_untouched") is True, "detail": cig.get("source_audio_untouched")})
 
     stable = _read(DATA / "CURRENT_STABLE.json", {})
-    checks.append({"name": "golden_020202", "ok": stable.get("version") == "0.20.20.2" and stable.get("golden") is True and stable.get("verified") is True, "detail": stable.get("version")})
+    checks.append({
+        "name": "current_golden",
+        "ok": bool(stable.get("version")) and stable.get("golden") is True and stable.get("verified") is True,
+        "detail": stable.get("version"),
+    })
+    checks.append({
+        "name": "cigarette_e2e_stable",
+        "ok": stable.get("cigarette_blur_e2e") in {"PASS", True},
+        "detail": stable.get("cigarette_blur_e2e"),
+    })
 
     fixture_path = DATA / "validation" / "cigarette_blur_real_886" / "REAL_886_CIGARETTE_E2E_QA.json"
     fixture = _read(fixture_path, {}) if fixture_path.is_file() else {}
