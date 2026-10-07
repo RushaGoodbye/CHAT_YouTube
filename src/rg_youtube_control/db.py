@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import PROFILE_TARGETS
+from .comment_actions import decide_comment_action
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -179,6 +180,7 @@ def connect(path: Path) -> sqlite3.Connection:
              AND draft_reason='legacy_reply_text_migrated'""",
         (utc_now(),),
     )
+    reclassify_comment_actions(conn)
     _ensure_column(
         conn,
         "optimization_drafts",
@@ -202,6 +204,34 @@ def connect(path: Path) -> sqlite3.Connection:
         )
     conn.commit()
     return conn
+
+def reclassify_comment_actions(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        "SELECT comment_id,text,status FROM comments"
+    ).fetchall()
+    counts = {"reply": 0, "like": 0, "review": 0, "skip": 0}
+    now = utc_now()
+    for row in rows:
+        decision = decide_comment_action(
+            str(row["text"] or ""),
+            status=str(row["status"] or "new"),
+        )
+        conn.execute(
+            """UPDATE comments
+               SET action=?,action_reason=?,action_updated_at=?,category=?
+               WHERE comment_id=?""",
+            (
+                decision.action,
+                decision.reason,
+                now,
+                decision.category,
+                str(row["comment_id"]),
+            ),
+        )
+        counts[decision.action] = counts.get(decision.action, 0) + 1
+    conn.commit()
+    return counts
+
 
 def upsert_video_analytics(
     conn: sqlite3.Connection,
@@ -303,9 +333,14 @@ def upsert_video(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
     conn.commit()
 
 def upsert_comment(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
+    status = str(item.get("status", "new") or "new")
+    decision = decide_comment_action(str(item.get("text", "") or ""), status=status)
     conn.execute(
-        """INSERT INTO comments(comment_id,video_id,parent_id,author,text,published_at,category,status,reply_text,raw_json)
-        VALUES(?,?,?,?,?,?,?,?,?,?)
+        """INSERT INTO comments(
+            comment_id,video_id,parent_id,author,text,published_at,category,status,
+            reply_text,action,action_reason,action_updated_at,raw_json
+        )
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(comment_id) DO UPDATE SET
           author=excluded.author,
           text=excluded.text,
@@ -314,12 +349,23 @@ def upsert_comment(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
               WHEN comments.status IN ('replied','ignored') THEN comments.status
               ELSE excluded.status
           END,
+          action=CASE
+              WHEN comments.status IN ('replied','ignored') THEN 'skip'
+              ELSE excluded.action
+          END,
+          action_reason=CASE
+              WHEN comments.status IN ('replied','ignored')
+                THEN 'status:' || comments.status
+              ELSE excluded.action_reason
+          END,
+          action_updated_at=excluded.action_updated_at,
           raw_json=excluded.raw_json""",
         (
             item["comment_id"], item["video_id"], item.get("parent_id"),
             item.get("author"), item.get("text", ""), item.get("published_at"),
-            item.get("category", "review"), item.get("status", "new"),
-            item.get("reply_text"), json.dumps(item.get("raw", {}), ensure_ascii=False),
+            decision.category, status,
+            item.get("reply_text"), decision.action, decision.reason, utc_now(),
+            json.dumps(item.get("raw", {}), ensure_ascii=False),
         ),
     )
     conn.commit()
