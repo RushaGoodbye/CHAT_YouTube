@@ -205,30 +205,55 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.commit()
     return conn
 
+def _normalized_comment_key(author: str, text: str) -> tuple[str, str]:
+    clean_author = " ".join(str(author or "").casefold().split())
+    clean_text = " ".join(str(text or "").casefold().split())
+    clean_text = clean_text.replace("ё", "е")
+    return clean_author, clean_text
+
+
 def reclassify_comment_actions(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute(
-        "SELECT comment_id,text,status FROM comments"
+        """SELECT comment_id,author,text,status,published_at
+           FROM comments
+           ORDER BY published_at DESC, comment_id DESC"""
     ).fetchall()
     counts = {"reply": 0, "like": 0, "review": 0, "skip": 0}
+    seen: set[tuple[str, str]] = set()
     now = utc_now()
     for row in rows:
-        decision = decide_comment_action(
+        key = _normalized_comment_key(
+            str(row["author"] or ""),
             str(row["text"] or ""),
-            status=str(row["status"] or "new"),
         )
+        status = str(row["status"] or "new")
+        if key[1] and key in seen and status == "new":
+            action = "skip"
+            category = "duplicate"
+            reason = "duplicate_same_author_text"
+        else:
+            decision = decide_comment_action(
+                str(row["text"] or ""),
+                status=status,
+            )
+            action = decision.action
+            category = decision.category
+            reason = decision.reason
+        if key[1]:
+            seen.add(key)
         conn.execute(
             """UPDATE comments
                SET action=?,action_reason=?,action_updated_at=?,category=?
                WHERE comment_id=?""",
             (
-                decision.action,
-                decision.reason,
+                action,
+                reason,
                 now,
-                decision.category,
+                category,
                 str(row["comment_id"]),
             ),
         )
-        counts[decision.action] = counts.get(decision.action, 0) + 1
+        counts[action] = counts.get(action, 0) + 1
     conn.commit()
     return counts
 
