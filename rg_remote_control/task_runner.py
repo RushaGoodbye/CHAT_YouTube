@@ -13508,6 +13508,267 @@ def freeze_auto_edit_stable_020180() -> dict:
 
 
 
+
+def finalize_auto_edit_020202_stable() -> dict:
+    """Promote live 0.20.20.2 after real cigarette E2E PASS, preserving prior GOLDEN."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,hashlib,py_compile,shutil,subprocess,time,zipfile
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    nas_root=Path(r"\\AlexLosServer\RG_AUTO_EDIT\BACKUPS")
+    version="0.20.20.2"
+    control_stream="886"
+    qa_path=data/"validation"/"cigarette_blur_real_886"/"REAL_886_CIGARETTE_E2E_QA.json"
+
+    if not app.is_dir():raise RuntimeError("App directory missing")
+    if not runtime.is_file():raise RuntimeError("Runtime python missing")
+    if not nas_root.is_dir():raise RuntimeError("NAS backup root unavailable")
+    if not qa_path.is_file():raise RuntimeError("Real cigarette E2E QA report missing")
+
+    qa=json.loads(qa_path.read_text(encoding="utf-8-sig"))
+    xmlqa=qa.get("xml_qa") or {}
+    cov=xmlqa.get("coverage_qa") or {}
+    struct=qa.get("structural_qa") or {}
+    qa_checks={
+        "overall_passed":bool(qa.get("overall_passed")),
+        "detection_passed":bool(qa.get("detection_passed")),
+        "status_tracked":str(qa.get("status"))=="TRACKED",
+        "production_behavior":str(qa.get("production_behavior"))=="TRACKED_OBJECT_ONLY_BLUR",
+        "confirmed_track":int(qa.get("confirmed_track_count") or 0)>=1,
+        "xml_passed":bool(xmlqa.get("passed")),
+        "structural_passed":bool(struct.get("passed")),
+        "coverage_passed":bool(cov.get("passed")),
+        "coverage_100":abs(float(cov.get("coverage_ratio") or 0.0)-1.0)<1e-9,
+        "missing_frames_zero":int(cov.get("missing_frames") or 0)==0,
+        "whole_frame_blur_forbidden":bool(qa.get("whole_frame_blur_forbidden")),
+        "source_audio_untouched":bool(qa.get("source_audio_untouched")),
+    }
+    failed=[k for k,v in qa_checks.items() if not v]
+    if failed:
+        raise RuntimeError("0.20.20.2 promotion blocked by cigarette E2E: "+",".join(failed))
+
+    # Never freeze while a production backend job is active.
+    try:
+        sys.path.insert(0,str(app))
+        from rg_windows_service import backend_processes
+        active=backend_processes()
+    except Exception:
+        active=[]
+    if active:
+        raise RuntimeError("Stable promotion blocked: backend active: "+str(active[:4]))
+
+    vp=app/"rg_studio_version.py"
+    if not vp.is_file():raise RuntimeError("rg_studio_version.py missing")
+    vsrc=vp.read_text(encoding="utf-8-sig",errors="replace")
+    live_ver=next((ln.split("=",1)[1].strip().strip("\"'") for ln in vsrc.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
+    if live_ver!=version:
+        raise RuntimeError(f"Live Studio version mismatch: {live_ver} != {version}")
+    if "RG_CIGARETTE_BLUR_V1=True" not in vsrc.replace(" ",""):
+        raise RuntimeError("RG_CIGARETTE_BLUR_V1 feature flag missing")
+
+    cfg_path=app/"rg_auto_edit_config.json"
+    cfg=json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    cig=cfg.get("cigarette_blur") or {}
+    if not all([
+        cig.get("enabled") is True,
+        cig.get("mandatory") is True,
+        cig.get("fail_closed") is True,
+        cig.get("whole_frame_blur_forbidden") is True,
+        cig.get("source_audio_untouched") is True,
+        str(cig.get("policy"))=="MANDATORY_OBJECT_ONLY_MOVING_CROP_GAUSSIAN_BLUR_FAIL_CLOSED",
+    ]):
+        raise RuntimeError("Cigarette blur production policy mismatch")
+
+    # Promote the live version marker from stable-candidate to stable.
+    rows=vsrc.splitlines()
+    out=[];channel_found=False
+    for row in rows:
+        s=row.strip()
+        if s.startswith("STUDIO_CHANNEL=") or s.startswith("STUDIO_CHANNEL ="):
+            out.append('STUDIO_CHANNEL="stable"');channel_found=True
+        else:
+            out.append(row)
+    if not channel_found:out.append('STUDIO_CHANNEL="stable"')
+    stable_vsrc="\n".join(out)+"\n"
+    tmp=vp.with_suffix(".020202-promote.tmp.py")
+    tmp.write_text(stable_vsrc,encoding="utf-8")
+    py_compile.compile(str(tmp),doraise=True)
+    os.replace(tmp,vp)
+
+    critical=[
+        "rg_studio_version.py","rg_auto_edit_config.json","rg_auto_edit_one_button.py",
+        "rg_cigarette_blur.py","rg_cigarette_detector_worker.py",
+        "rg_final_release_gate.py","rg_final_timeline_audit.py","rg_studio_postrun.py",
+        "rg_windows_service.py","VALIDATE_PREMIERE_XML.py",
+    ]
+    missing=[x for x in critical if not (app/x).is_file()]
+    if missing:raise RuntimeError("Critical files missing: "+",".join(missing))
+    for name in critical:
+        p=app/name
+        if p.suffix.lower()==".py":
+            py_compile.compile(str(p),doraise=True)
+
+    def sha256(p):
+        h=hashlib.sha256()
+        with Path(p).open("rb") as fh:
+            for b in iter(lambda:fh.read(4*1024*1024),b""):
+                h.update(b)
+        return h.hexdigest()
+
+    # Preserve the previous canonical pointer before switching GOLDEN.
+    current_path=data/"CURRENT_STABLE.json"
+    previous={}
+    if current_path.is_file():
+        try:previous=json.loads(current_path.read_text(encoding="utf-8-sig"))
+        except Exception:previous={}
+    if previous:
+        prev_path=data/"PREVIOUS_STABLE.json"
+        prev_path.write_text(json.dumps(previous,ensure_ascii=False,indent=2),encoding="utf-8")
+        try:
+            (nas_root/"PREVIOUS_STABLE.json").write_text(json.dumps(previous,ensure_ascii=False,indent=2),encoding="utf-8")
+        except Exception:
+            pass
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name=f"RG_AUTO_EDIT_{version}_STABLE_{stamp}"
+    local_lkg=data/"LAST_KNOWN_GOOD"/name
+    nas_dir=nas_root/name
+    local_lkg.mkdir(parents=True,exist_ok=False)
+    nas_dir.mkdir(parents=True,exist_ok=False)
+
+    ignore_names={"__pycache__",".rg_cache","run_manifests",".rg_revisions",".git","diagnostics","crash_bundles","temp","tmp"}
+    ignore_suffix={".pyc",".pyo",".tmp",".log"}
+    def skip(rel:Path):
+        if any(part in ignore_names for part in rel.parts):return True
+        if rel.suffix.lower() in ignore_suffix:return True
+        if rel.name.isdigit() or rel.name.startswith("RG_EDITED_"):return True
+        if rel.name.startswith(("RG_DIAGNOSTIC_","RG_CRASH_BUNDLE_")):return True
+        return False
+
+    manifest_files=[]
+    for src in app.rglob("*"):
+        if not src.is_file():continue
+        rel=src.relative_to(app)
+        if skip(rel):continue
+        try:size=src.stat().st_size
+        except Exception:continue
+        if size>250*1024*1024 and rel.parts and rel.parts[0].lower() in {"models","assets"}:
+            continue
+        row={"path":str(rel).replace("\\","/"),"size":size,"sha256":sha256(src)}
+        manifest_files.append(row)
+        for root in (local_lkg,nas_dir):
+            dst=root/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
+
+    det_manifest_path=data/"cigarette_detector_v1.json"
+    det_manifest=json.loads(det_manifest_path.read_text(encoding="utf-8-sig")) if det_manifest_path.is_file() else {}
+    model=Path(det_manifest.get("model") or "")
+    detector_meta={
+        "manifest":str(det_manifest_path),
+        "status":det_manifest.get("status"),
+        "cuda":det_manifest.get("cuda"),
+        "device":det_manifest.get("device"),
+        "ultralytics":det_manifest.get("ultralytics"),
+        "worker_site":det_manifest.get("worker_site"),
+        "model":str(model),
+        "model_exists":model.is_file(),
+        "model_size":model.stat().st_size if model.is_file() else None,
+        "model_sha256":sha256(model) if model.is_file() else None,
+    }
+    if detector_meta["status"]!="READY" or detector_meta["cuda"] is not True or not detector_meta["model_exists"]:
+        raise RuntimeError("Detector metadata not READY during stable promotion")
+
+    pyver=subprocess.run([str(runtime),"--version"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=20)
+    marker={
+        "schema":"RG_AUTO_EDIT_STABLE_SNAPSHOT_V2",
+        "status":"GOLDEN_STABLE",
+        "version":version,
+        "channel":"STABLE",
+        "control_stream":control_stream,
+        "previous_golden":previous.get("version") if isinstance(previous,dict) else None,
+        "created_at":time.time(),
+        "created_local":stamp,
+        "source":str(app),
+        "local_last_known_good":str(local_lkg),
+        "nas_backup":str(nas_dir),
+        "file_count":len(manifest_files),
+        "files":manifest_files,
+        "runtime":{"python":(pyver.stdout or pyver.stderr or "").strip(),"runtime_path":str(runtime)},
+        "cigarette_blur":{
+            "qa_report":str(qa_path),
+            "qa_checks":qa_checks,
+            "raw_detection_count":qa.get("raw_detection_count"),
+            "confirmed_track_count":qa.get("confirmed_track_count"),
+            "interval_count":qa.get("interval_count"),
+            "overlay_count":xmlqa.get("overlay_count"),
+            "coverage_ratio":cov.get("coverage_ratio"),
+            "missing_frames":cov.get("missing_frames"),
+            "policy":xmlqa.get("policy"),
+            "detector":detector_meta,
+        },
+    }
+    for root in (local_lkg,nas_dir):
+        (root/"STABLE_MARKER.json").write_text(json.dumps(marker,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    bad=[]
+    for row in manifest_files:
+        p=nas_dir/Path(row["path"])
+        if not p.is_file() or p.stat().st_size!=int(row["size"]) or sha256(p)!=row["sha256"]:
+            bad.append(row["path"])
+    if bad:
+        raise RuntimeError("NAS snapshot verification failed: "+str(bad[:10]))
+
+    zip_path=nas_root/(name+".zip")
+    with zipfile.ZipFile(zip_path,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+        for row in manifest_files:
+            z.write(nas_dir/Path(row["path"]),row["path"])
+        z.write(nas_dir/"STABLE_MARKER.json","STABLE_MARKER.json")
+    with zipfile.ZipFile(zip_path) as z:
+        badcrc=z.testzip()
+        if badcrc:raise RuntimeError("Stable ZIP CRC failed: "+str(badcrc))
+
+    rs_path=data/"release_state.json"
+    try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
+    except Exception:rs={}
+    rs.update({
+        "channel":"STABLE","studio_version":version,"test_version":version,
+        "last_golden":version,"previous_golden":previous.get("version") if isinstance(previous,dict) else None,
+        "last_pass_stream":control_stream,"stable_snapshot":str(nas_dir),
+        "stable_zip":str(zip_path),"stable_control_stream":control_stream,
+        "stable_verified":True,"cigarette_blur_e2e":"PASS","updated":time.time(),
+    })
+    rs_path.write_text(json.dumps(rs,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    pointer={
+        "schema":"RG_AUTO_EDIT_CURRENT_STABLE_V2","version":version,
+        "backup":str(nas_dir),"zip":str(zip_path),"control_stream":control_stream,
+        "verified":True,"golden":True,"cigarette_blur_e2e":"PASS",
+        "previous_version":previous.get("version") if isinstance(previous,dict) else None,
+        "updated_at":time.time(),
+    }
+    current_path.write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (nas_root/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
+    (data/"boot_ok.json").write_text(json.dumps({
+        "schema":"RG_BOOT_OK_V2","version":version,"pid":0,"ts":time.time(),
+        "source":"020202_CIGARETTE_E2E_STABLE_PROMOTION"
+    },ensure_ascii=False,indent=2),encoding="utf-8")
+
+    final={
+        "status":"GOLDEN_STABLE","version":version,"channel":"STABLE",
+        "previous_golden":pointer.get("previous_version"),
+        "nas_backup":str(nas_dir),"nas_zip":str(zip_path),
+        "local_last_known_good":str(local_lkg),
+        "files":len(manifest_files),"zip_crc":"PASS",
+        "cigarette_blur_e2e":"PASS","coverage_ratio":cov.get("coverage_ratio"),
+        "missing_frames":cov.get("missing_frames"),
+        "confirmed_track_count":qa.get("confirmed_track_count"),
+        "overlay_count":xmlqa.get("overlay_count"),
+    }
+    (data/"CIGARETTE_BLUR_GOLDEN.json").write_text(json.dumps(final,ensure_ascii=False,indent=2),encoding="utf-8")
+    return final
+
+
 def apply_auto_edit_cigarette_blur_v1() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import datetime,py_compile,shutil,subprocess,time,xml.etree.ElementTree as ET
@@ -14784,6 +15045,7 @@ ACTIONS = {
     "verify_auto_edit_cigarette_worker_real_sample": verify_auto_edit_cigarette_worker_real_sample,
     "verify_auto_edit_cigarette_tracking_and_xml_real": verify_auto_edit_cigarette_tracking_and_xml_real,
     "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
+    "finalize_auto_edit_020202_stable": finalize_auto_edit_020202_stable,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
