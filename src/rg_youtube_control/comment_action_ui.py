@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
+from .comment_action_runtime import prepare_action_reply_drafts
 from .db import comment_action_counts, reclassify_comment_actions
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
 
@@ -69,12 +70,20 @@ def install_comment_action_ui(window) -> None:
     bar.addWidget(summary)
     bar.addStretch()
 
+    prepare_replies = QPushButton("Підготувати ВІДПОВІДІ x20 · 0 квоти")
+    prepare_replies.setProperty("role", "success")
+    bar.addWidget(prepare_replies)
+
     recalc = QPushButton("Перерахувати рішення · 0 квоти")
-    recalc.setProperty("role", "success")
     bar.addWidget(recalc)
 
     comments_page = window.tabs.widget(3)
     comments_layout = comments_page.layout()
+
+    for button in comments_page.findChildren(QPushButton):
+        if button.text().startswith("Створити x20") or button.text().startswith("Перегенерувати x20"):
+            button.setVisible(False)
+
     comments_layout.insertLayout(0, bar)
 
     original_reload = window.reload_comments
