@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "switch_github_runner_hidden_mode",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "switch-runner-hidden-20261007-1320"
+  "nonce": "verify-hidden-runner-20261007-1322"
 }
