@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -73,6 +74,41 @@ def sync_bundle() -> dict:
     return {"ok": copied > 0, "copied": copied}
 
 
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _bundle_control_files_changed() -> bool:
+    # The manifest is an optimization, not a source of truth. Control files
+    # can be updated independently during recovery/hotfix work, so compare
+    # the critical handlers too and force a full bundle refresh on mismatch.
+    rels = (
+        Path("rg_remote_control") / "task_runner.py",
+        Path("rg_remote_control") / "resilience_tool.py",
+        Path("rg_remote_control") / "youtube_local_tool.py",
+        Path("rg_remote_control") / "alexpc_agent.py",
+    )
+    for rel in rels:
+        remote = NAS_ROOT / "BUNDLE" / rel
+        local = LOCAL_CACHE / rel
+        if remote.is_file() != local.is_file():
+            return True
+        if not remote.is_file():
+            continue
+        try:
+            if remote.stat().st_size != local.stat().st_size:
+                return True
+            if _sha256(remote) != _sha256(local):
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def sync_bundle_if_changed() -> dict:
     nas_manifest = NAS_ROOT / "BUNDLE" / "bundle_manifest.json"
     local_manifest = LOCAL_STATE / "bundle_manifest.json"
@@ -86,14 +122,16 @@ def sync_bundle_if_changed() -> dict:
         local_text = ""
 
     cache_ready = (LOCAL_CACHE / "rg_remote_control" / "task_runner.py").is_file()
-    if nas_text and nas_text == local_text and cache_ready:
-        return {"ok": True, "changed": False}
+    control_changed = _bundle_control_files_changed()
+    if nas_text and nas_text == local_text and cache_ready and not control_changed:
+        return {"ok": True, "changed": False, "control_files_changed": False}
 
     result = sync_bundle()
     if result.get("ok") and nas_text:
         LOCAL_STATE.mkdir(parents=True, exist_ok=True)
         local_manifest.write_text(nas_text, encoding="utf-8")
     result["changed"] = True
+    result["control_files_changed"] = control_changed
     return result
 
 
