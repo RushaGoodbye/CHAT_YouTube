@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$commit='680332753839e983c640215a8d503bd7c7145fab'
+$commit='503249dad5ae7510154824f554745dfdc6c11015'
 $url="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$commit/rg_remote_control/task_runner.py"
 $tmp=Join-Path $env:TEMP 'rg_task_runner_operations_ui_status.py'
 $runtime='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
