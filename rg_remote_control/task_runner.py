@@ -14024,6 +14024,143 @@ print(json.dumps({"duration":dur,"fps":fps,"frames":frames}))
     }
 
 
+
+def verify_auto_edit_cigarette_tracking_and_xml_real() -> dict:
+    """Real-media end-to-end validation: detector -> tracking -> object-only XML blur on a disposable XML."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import time,sys,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    video=app/".rg_cache"/"886"/"visual_proxy_966b70c2fedf943e8c4e.mp4"
+    cfg_path=app/"rg_auto_edit_config.json"
+    if not video.is_file():
+        raise RuntimeError("Real cigarette candidate proxy missing: "+str(video))
+    if not cfg_path.is_file():
+        raise RuntimeError("RG Auto Edit config missing")
+    sys.path.insert(0,str(app))
+    from rg_cigarette_blur import scan_cigarettes,inject_cigarette_blur,verify_cigarette_blur,VERSION
+
+    cfg=json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    opts=dict(cfg.get("cigarette_blur") or {})
+    opts["enabled"]=True
+    opts["mandatory"]=True
+    opts["fail_closed"]=True
+    ranges=[
+        {"source_start_sec":13.77,"source_end_sec":25.77},
+        {"source_start_sec":82.62,"source_end_sec":94.62},
+        {"source_start_sec":159.732,"source_end_sec":171.732},
+        {"source_start_sec":231.336,"source_end_sec":243.336},
+    ]
+    detection=scan_cigarettes(video,ranges,opts)
+    base={
+        "version":VERSION,
+        "video":str(video),
+        "detection_passed":bool(detection.get("passed")),
+        "status":detection.get("status"),
+        "raw_detection_count":int(detection.get("raw_detection_count",0)),
+        "confirmed_track_count":int(detection.get("confirmed_track_count",0)),
+        "rejected_track_count":int(detection.get("rejected_track_count",0)),
+        "unconfirmed_detection_count":int(detection.get("unconfirmed_detection_count",0)),
+        "interval_count":int(detection.get("interval_count",0)),
+        "failures":list(detection.get("failures") or []),
+        "video_decode_backends":detection.get("video_decode_backends") or [],
+        "tracks":detection.get("tracks") or [],
+        "rejected_tracks":detection.get("rejected_tracks") or [],
+    }
+
+    validation=data/"validation"/"cigarette_blur_real_886"
+    validation.mkdir(parents=True,exist_ok=True)
+    det_path=validation/"REAL_886_CIGARETTE_DETECTION.json"
+    det_path.write_text(json.dumps(detection,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    # If raw candidates cannot form a valid track, production correctly fails closed.
+    if not detection.get("passed"):
+        base.update({
+            "overall_passed":False,
+            "production_behavior":"FAIL_CLOSED_EXPORT_BLOCKED",
+            "detection_report":str(det_path),
+            "xml_test":"SKIPPED_NO_CONFIRMED_TRACK",
+        })
+        (validation/"REAL_886_CIGARETTE_E2E_QA.json").write_text(
+            json.dumps(base,ensure_ascii=False,indent=2),encoding="utf-8")
+        return base
+
+    if not detection.get("intervals"):
+        base.update({
+            "overall_passed":True,
+            "production_behavior":"NO_CONFIRMED_CIGARETTE",
+            "detection_report":str(det_path),
+            "xml_test":"SKIPPED_NO_INTERVALS",
+        })
+        (validation/"REAL_886_CIGARETTE_E2E_QA.json").write_text(
+            json.dumps(base,ensure_ascii=False,indent=2),encoding="utf-8")
+        return base
+
+    # Disposable one-clip Premiere/FCP XML spanning the real proxy source.
+    # This validates the exact production XML injector without touching user XML.
+    import cv2
+    cap=cv2.VideoCapture(str(video))
+    fps0=float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    frames0=float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+    cap.release()
+    duration=frames0/fps0 if fps0>0 and frames0>0 else 275.4
+    fps=30
+    total=max(1,int(round(duration*fps)))
+    ticks=254016000000
+    xml_path=validation/"REAL_886_CIGARETTE_BLUR_TEST.xml"
+    name=video.name
+    xml=f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="5">
+  <sequence id="real-886-cigarette-test">
+    <name>REAL 886 CIGARETTE BLUR TEST</name>
+    <duration>{total}</duration>
+    <rate><timebase>{fps}</timebase><ntsc>FALSE</ntsc></rate>
+    <media>
+      <video>
+        <track>
+          <clipitem id="real-886-base">
+            <name>{name}</name>
+            <duration>{total}</duration>
+            <rate><timebase>{fps}</timebase><ntsc>FALSE</ntsc></rate>
+            <start>0</start><end>{total}</end><in>0</in><out>{total}</out>
+            <pproTicksIn>0</pproTicksIn>
+            <pproTicksOut>{int(round(duration*ticks))}</pproTicksOut>
+            <file id="real-886-file">
+              <name>{name}</name>
+              <pathurl>file://localhost/{str(video).replace(chr(92),'/')}</pathurl>
+              <rate><timebase>{fps}</timebase><ntsc>FALSE</ntsc></rate>
+              <duration>{total}</duration>
+              <media><video/></media>
+            </file>
+          </clipitem>
+          <enabled>TRUE</enabled><locked>FALSE</locked>
+        </track>
+      </video>
+    </media>
+  </sequence>
+</xmeml>
+'''
+    xml_path.write_text(xml,encoding="utf-8")
+    qa=inject_cigarette_blur(xml_path,detection,opts,fps=fps)
+    structural=verify_cigarette_blur(xml_path,qa.get("overlay_count"))
+    base.update({
+        "overall_passed":bool(qa.get("passed")) and bool(structural.get("passed")),
+        "production_behavior":"TRACKED_OBJECT_ONLY_BLUR",
+        "detection_report":str(det_path),
+        "test_xml":str(xml_path),
+        "xml_qa":qa,
+        "structural_qa":structural,
+        "whole_frame_blur_forbidden":bool(opts.get("whole_frame_blur_forbidden",False)),
+        "source_audio_untouched":bool(opts.get("source_audio_untouched",False)),
+    })
+    qa_path=validation/"REAL_886_CIGARETTE_E2E_QA.json"
+    qa_path.write_text(json.dumps(base,ensure_ascii=False,indent=2),encoding="utf-8")
+    base["qa_report"]=str(qa_path)
+    return base
+
+
 def inspect_auto_edit_cigarette_blur_targets() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import subprocess,shutil
@@ -14624,6 +14761,7 @@ ACTIONS = {
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
     "verify_auto_edit_cigarette_worker_real_sample": verify_auto_edit_cigarette_worker_real_sample,
+    "verify_auto_edit_cigarette_tracking_and_xml_real": verify_auto_edit_cigarette_tracking_and_xml_real,
     "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
