@@ -1,7 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_cigarette_blur_targets",
-  "args": {},
-  "nonce": "inspect-cigarette-blur-targets-20261007"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_privacy_blur.py",
+      "rg_norfair_worker.py",
+      "rg_privacy_coverage_qa.py",
+      "rg_final_timeline_audit.py",
+      "rg_final_release_gate.py"
+    ]
+  },
+  "nonce": "inspect-privacy-blur-cigarette-extension-20261007"
 }
