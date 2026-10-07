@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.0 four-state comment workflow."""
+"""RG YouTube Control package. 0.7.1 updater loop fix."""
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
