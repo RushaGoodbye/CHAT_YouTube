@@ -15967,63 +15967,114 @@ def reconcile_auto_edit_post_cigarette_v1() -> dict:
     if not cig_clips or structural_fail:
         raise RuntimeError("Fixture cigarette structural QA failed: "+str(structural_fail))
 
-    # Find an already-existing real 886 production XML that passes the current validator
-    # and still has room for the dedicated cigarette track.
+    # First preference: validate the real 886 production XMLs that already contain
+    # the cigarette V5 track. These were rejected only by the old validator.
     folder=app/"886"
-    bases=[]
+    direct_candidates=[]
+    inventory=[]
     if folder.is_dir():
         for p in sorted(folder.glob("RG_EDITED_886*.xml"),key=lambda x:x.stat().st_mtime,reverse=True):
             n=p.name.upper()
             if "_SHORTS" in n or "_UNCENSORED" in n:continue
+            row={"path":str(p),"mtime":p.stat().st_mtime}
             try:
                 root=parse_xml(p)
                 video=root.find(".//sequence/media/video")
                 tracks=video.findall("track") if video is not None else []
-                ids=[str(c.get("id","")) for c in root.findall(".//clipitem")]
-                if any(x.startswith("rg-cigarette-") for x in ids):continue
-                if not (3<=len(tracks)<=4):continue
-                validate_fn(p)
-                bases.append((p,len(tracks)))
-            except Exception:
-                continue
-    if not bases:
-        raise RuntimeError("No existing validated 886 production XML with 3-4 video tracks was found")
+                cig=[c for c in root.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+                row["video_tracks"]=len(tracks)
+                row["cigarette_clip_count"]=len(cig)
+                failures=[]
+                for c in cig:
+                    effects=[]
+                    for flt in c.findall("filter"):
+                        eff=flt.find("effect")
+                        if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
+                    if "crop" not in effects:failures.append(str(c.get("id"))+":CROP_MISSING")
+                    if "Gaussian Blur" not in effects:failures.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+                row["structural_failures"]=failures
+                try:
+                    validate_fn(p)
+                    row["validator_pass"]=True
+                except Exception as exc:
+                    row["validator_pass"]=False
+                    row["validator_error"]=repr(exc)
+                if cig and not failures and row["validator_pass"]:
+                    direct_candidates.append((p,len(tracks),len(cig)))
+            except Exception as exc:
+                row["parse_error"]=repr(exc)
+            inventory.append(row)
 
-    base_path,base_track_count=bases[0]
-    broot=parse_xml(base_path)
-    bvideo=broot.find(".//sequence/media/video")
-    if bvideo is None:raise RuntimeError("Base production video node missing")
-    bvideo.append(copy.deepcopy(cig_track))
+    validation_mode=None
+    validated_path=None
+    smoke_checks=None
+    hybrid=None
+    base_path=None
 
-    outdir=data/"validation"/"operations_targeted_886"
-    outdir.mkdir(parents=True,exist_ok=True)
-    hybrid=outdir/"REAL_886_PRODUCTION_SHAPED_CIGARETTE_V5.xml"
-    xml_bytes=ET.tostring(broot,encoding="utf-8",xml_declaration=True)
-    hybrid.write_bytes(xml_bytes.replace(b"?>",b"?>\n<!DOCTYPE xmeml>",1))
-    validate_fn(hybrid)
+    if direct_candidates:
+        validated_path,track_count,cig_count=direct_candidates[0]
+        validation_mode="REAL_CURRENT_886_XML"
+        smoke_checks={
+            "real_xml":str(validated_path),
+            "video_track_count":track_count,
+            "cigarette_clip_count":cig_count,
+            "fixture_crop_gaussian_pass":not structural_fail,
+            "full_validator_pass":True,
+            "real_current_xml":True,
+        }
+    else:
+        # Fallback only: synthesize a production-shaped validator fixture from a
+        # previously valid 886 XML and the real cigarette V5 fixture.
+        bases=[]
+        for row in inventory:
+            if row.get("cigarette_clip_count"):continue
+            if not row.get("validator_pass"):continue
+            tc=int(row.get("video_tracks") or 0)
+            if 3<=tc<=4:
+                bases.append((Path(row["path"]),tc))
+        if not bases:
+            raise RuntimeError(
+                "No real 886 cigarette XML passed the patched validator and no validated 3-4 track base exists. Inventory: "
+                +json.dumps(inventory,ensure_ascii=False)[:9000]
+            )
 
-    hroot=parse_xml(hybrid)
-    hvideo=hroot.find(".//sequence/media/video")
-    htracks=hvideo.findall("track") if hvideo is not None else []
-    hids=[str(c.get("id","")) for c in htracks[-1].findall("clipitem")] if htracks else []
-    hybrid_checks={
-        "base_xml":str(base_path),
-        "base_track_count":base_track_count,
-        "hybrid_track_count":len(htracks),
-        "cigarette_last_track":bool(hids and all(x.startswith("rg-cigarette-") for x in hids)),
-        "cigarette_clip_count":len(hids),
-        "fixture_crop_gaussian_pass":not structural_fail,
-        "full_validator_pass":True,
-    }
-    if not all([
-        3<=hybrid_checks["hybrid_track_count"]<=5,
-        hybrid_checks["cigarette_last_track"],
-        hybrid_checks["cigarette_clip_count"]>=1,
-        hybrid_checks["fixture_crop_gaussian_pass"],
-        hybrid_checks["full_validator_pass"],
-    ]):
-        raise RuntimeError("Production-shaped cigarette smoke checks failed: "+json.dumps(hybrid_checks))
+        base_path,base_track_count=bases[0]
+        broot=parse_xml(base_path)
+        bvideo=broot.find(".//sequence/media/video")
+        if bvideo is None:raise RuntimeError("Base production video node missing")
+        bvideo.append(copy.deepcopy(cig_track))
 
+        outdir=data/"validation"/"operations_targeted_886"
+        outdir.mkdir(parents=True,exist_ok=True)
+        hybrid=outdir/"REAL_886_PRODUCTION_SHAPED_CIGARETTE_V5.xml"
+        xml_bytes=ET.tostring(broot,encoding="utf-8",xml_declaration=True)
+        hybrid.write_bytes(xml_bytes.replace(b"?>",b"?>\n<!DOCTYPE xmeml>",1))
+        validate_fn(hybrid)
+
+        hroot=parse_xml(hybrid)
+        hvideo=hroot.find(".//sequence/media/video")
+        htracks=hvideo.findall("track") if hvideo is not None else []
+        hids=[str(c.get("id","")) for c in htracks[-1].findall("clipitem")] if htracks else []
+        smoke_checks={
+            "base_xml":str(base_path),
+            "base_track_count":base_track_count,
+            "hybrid_track_count":len(htracks),
+            "cigarette_last_track":bool(hids and all(x.startswith("rg-cigarette-") for x in hids)),
+            "cigarette_clip_count":len(hids),
+            "fixture_crop_gaussian_pass":not structural_fail,
+            "full_validator_pass":True,
+            "real_current_xml":False,
+        }
+        if not all([
+            3<=smoke_checks["hybrid_track_count"]<=5,
+            smoke_checks["cigarette_last_track"],
+            smoke_checks["cigarette_clip_count"]>=1,
+            smoke_checks["fixture_crop_gaussian_pass"],
+            smoke_checks["full_validator_pass"],
+        ]):
+            raise RuntimeError("Production-shaped cigarette smoke checks failed: "+json.dumps(smoke_checks))
+        validation_mode="HYBRID_PRODUCTION_SHAPED_XML"
+        validated_path=hybrid
     # Preserve the failed full-production smoke as history. Do NOT rewrite it to PASS.
     stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     hist=data/"operations_v1"/"history"
@@ -16036,12 +16087,15 @@ def reconcile_auto_edit_post_cigarette_v1() -> dict:
         "schema":"RG_OPERATIONS_TARGETED_SMOKE_V1",
         "stream":"886",
         "passed":True,
-        "scope":"PRODUCTION_SHAPED_XML_VALIDATOR_AFTER_CIGARETTE_HOTFIX",
+        "scope":"REAL_OR_PRODUCTION_SHAPED_XML_VALIDATOR_AFTER_CIGARETTE_HOTFIX",
+        "validation_mode":validation_mode,
         "full_production_run":False,
         "does_not_promote_golden":True,
-        "base_xml":str(base_path),
-        "hybrid_xml":str(hybrid),
-        "checks":hybrid_checks,
+        "validated_xml":str(validated_path) if validated_path else None,
+        "base_xml":str(base_path) if base_path else None,
+        "hybrid_xml":str(hybrid) if hybrid else None,
+        "checks":smoke_checks,
+        "inventory":inventory[:12],
         "supersedes_failure_reason":"Unexpected clip class on V5 rg-cigarette-*",
         "current_golden_preserved":stable.get("version"),
         "finished_at":time.time(),
