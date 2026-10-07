@@ -13836,6 +13836,194 @@ print(json.dumps({"ultralytics":ultralytics.__version__,"torch":torch.__version_
     return {"status":"PASS",**manifest,"base_dependencies":base}
 
 
+
+def validate_auto_edit_cigarette_worker_real_sample() -> dict:
+    """Read-only validation of the isolated cigarette detector on recent real video files."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import tempfile,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    manifest_path=data/"cigarette_detector_v1.json"
+    worker=app/"rg_cigarette_detector_worker.py"
+    if not runtime.is_file():
+        raise RuntimeError("Runtime missing")
+    if not manifest_path.is_file():
+        raise RuntimeError("cigarette_detector_v1.json missing")
+    if not worker.is_file():
+        raise RuntimeError("rg_cigarette_detector_worker.py missing")
+    manifest=json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    site=Path(manifest.get("worker_site") or "")
+    model=Path(manifest.get("model") or "")
+    if manifest.get("status")!="READY" or not manifest.get("cuda"):
+        raise RuntimeError("Cigarette detector manifest is not READY on CUDA")
+    if not site.is_dir() or not (site/"ultralytics"/"__init__.py").is_file():
+        raise RuntimeError("Isolated ultralytics worker site missing")
+    if not model.is_file():
+        raise RuntimeError("Cigarette detector model missing")
+
+    # Verify the exact isolated environment used by the production worker.
+    probe=r'''
+import os,sys,json
+from pathlib import Path
+site=Path(sys.argv[1]); app=Path(sys.argv[2])
+sys.path.insert(0,str(site)); sys.path.insert(1,str(app))
+from ultralytics import YOLOWorld
+import ultralytics,torch
+print(json.dumps({
+ "ultralytics":ultralytics.__version__,
+ "torch":torch.__version__,
+ "cuda":bool(torch.cuda.is_available()),
+ "device":torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+ "site":str(site)
+},ensure_ascii=False))
+'''
+    env=os.environ.copy()
+    env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8"
+    env["PYTHONPATH"]=str(site)+os.pathsep+str(app)
+    cp=subprocess.run([str(runtime),"-X","utf8","-c",probe,str(site),str(app)],
+                      cwd=str(app),env=env,capture_output=True,text=True,
+                      encoding="utf-8",errors="replace",timeout=120)
+    if cp.returncode!=0:
+        raise RuntimeError("Isolated worker probe failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
+    worker_probe=json.loads((cp.stdout or "").strip().splitlines()[-1])
+    if not worker_probe.get("cuda"):
+        raise RuntimeError("Isolated cigarette worker CUDA unavailable")
+
+    # Search recent production/source video files. This is read-only and bounded.
+    roots=[
+        Path(r"D:\YOUTUBE\RUSHA GOODBYE"),
+        Path(r"D:\YOUTUBE"),
+        Path(r"F:\RG_AUTO_EDIT"),
+    ]
+    exts={".mp4",".mkv",".mov",".m4v",".avi"}
+    rows=[]
+    seen=set()
+    cutoff=time.time()-120*86400
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            for base,dirs,files in os.walk(root):
+                low=str(base).casefold()
+                if any(x in low for x in ("\\cache","\\temp","\\tmp","\\render","\\proxy","\\proxies")):
+                    dirs[:] = []
+                    continue
+                # Avoid scanning huge dependency/runtime trees.
+                dirs[:]=[d for d in dirs if d.casefold() not in {
+                    ".git","node_modules","site-packages","bundle_cache","release_backups","models"
+                }]
+                for name in files:
+                    p=Path(base)/name
+                    if p.suffix.casefold() not in exts:
+                        continue
+                    try:
+                        st=p.stat()
+                    except Exception:
+                        continue
+                    if st.st_mtime<cutoff or st.st_size<5_000_000:
+                        continue
+                    key=str(p).casefold()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append((st.st_mtime,st.st_size,p))
+        except Exception:
+            continue
+    rows=sorted(rows,key=lambda x:x[0],reverse=True)[:12]
+
+    # Duration is queried cheaply with OpenCV in the production runtime.
+    dur_code=r'''
+import cv2,sys,json
+p=sys.argv[1]
+cap=cv2.VideoCapture(p)
+fps=float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+frames=float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+dur=frames/fps if fps>0 and frames>0 else 0.0
+cap.release()
+print(json.dumps({"duration":dur,"fps":fps,"frames":frames}))
+'''
+    checked=[]
+    found=None
+    for _,size,p in rows:
+        cp=subprocess.run([str(runtime),"-X","utf8","-c",dur_code,str(p)],cwd=str(app),env=env,
+                          capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+        try:
+            meta=json.loads((cp.stdout or "").strip().splitlines()[-1])
+            dur=float(meta.get("duration") or 0.0)
+        except Exception:
+            checked.append({"video":str(p),"status":"duration_failed","size":size})
+            continue
+        if dur<6:
+            checked.append({"video":str(p),"status":"too_short","duration":dur,"size":size})
+            continue
+
+        # Four bounded real-video windows, max 12 sec each, spread across the file.
+        starts=[max(0.0,min(dur-3.0,x)) for x in (0.05*dur,0.30*dur,0.58*dur,0.84*dur)]
+        ranges=[]
+        for a in starts:
+            b=min(dur,a+12.0)
+            if b-a>=3.0:
+                ranges.append({"source_start_sec":round(a,3),"source_end_sec":round(b,3)})
+        payload={
+            "video":str(p),
+            "model":str(model),
+            "ranges":ranges,
+            "opts":{
+                "classes":["cigarette","lit cigarette","cigarette in hand","smoking cigarette"],
+                "confidence":0.08,"single_hit_strong_confidence":0.34,
+                "coarse_fps":3.0,"refine_fps":12.0,"refine_margin_sec":1.1,
+                "imgsz":1280,"nms_iou":0.5,"dedupe_iou":0.45,
+                "max_detections_per_frame":8,"max_box_area_fraction":0.055,
+                "video_decode_device":"auto"
+            }
+        }
+        with tempfile.TemporaryDirectory(prefix="rg_cig_real_") as td:
+            td=Path(td); inp=td/"input.json"; outp=td/"output.json"
+            inp.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
+            cp=subprocess.run([str(runtime),"-X","utf8",str(worker),"--input",str(inp),"--output",str(outp)],
+                              cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",
+                              errors="replace",timeout=900)
+            if cp.returncode!=0 or not outp.is_file():
+                checked.append({
+                    "video":str(p),"status":"worker_failed","duration":round(dur,3),"size":size,
+                    "stderr":(cp.stderr or "")[-3000:],"stdout":(cp.stdout or "")[-3000:]
+                })
+                continue
+            result=json.loads(outp.read_text(encoding="utf-8-sig"))
+            raw=int(result.get("raw_detection_count") or 0)
+            hit_frames=[x for x in result.get("frames") or [] if x.get("boxes")]
+            item={
+                "video":str(p),"status":"detected" if raw else "no_detection",
+                "duration":round(dur,3),"size":size,"raw_detection_count":raw,
+                "video_decode_backends":result.get("video_decode_backends") or [],
+                "sample_ranges":ranges,
+            }
+            if hit_frames:
+                first=hit_frames[0]
+                item["first_hit_time_sec"]=first.get("t")
+                item["first_hit_boxes"]=first.get("boxes")
+            checked.append(item)
+            if raw>0:
+                found=item
+                break
+
+    return {
+        "status":"PASS",
+        "worker_probe":worker_probe,
+        "manifest":{
+            "status":manifest.get("status"),"cuda":manifest.get("cuda"),
+            "device":manifest.get("device"),"ultralytics":manifest.get("ultralytics"),
+            "model":str(model),"worker_site":str(site)
+        },
+        "candidate_count":len(rows),
+        "checked":checked,
+        "real_cigarette_candidate":found,
+        "note":"Read-only real-video sampling. No XML/video was modified."
+    }
+
+
 def inspect_auto_edit_cigarette_blur_targets() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import subprocess,shutil
@@ -14435,6 +14623,7 @@ ACTIONS = {
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
+    "validate_auto_edit_cigarette_worker_real_sample": validate_auto_edit_cigarette_worker_real_sample,
     "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
