@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+ACTION_RULES_VERSION = "1"
+
 
 @dataclass(frozen=True)
 class CommentActionDecision:
