@@ -372,7 +372,37 @@ def upsert_video(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
 
 def upsert_comment(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
     status = str(item.get("status", "new") or "new")
-    decision = decide_comment_action(str(item.get("text", "") or ""), status=status)
+    text = str(item.get("text", "") or "")
+    author = str(item.get("author") or "")
+    decision = decide_comment_action(text, status=status)
+    action = decision.action
+    category = decision.category
+    reason = decision.reason
+
+    if status == "new" and text.strip():
+        duplicate = conn.execute(
+            """SELECT 1
+               FROM comments c
+               JOIN videos existing_v ON existing_v.video_id=c.video_id
+               JOIN videos incoming_v ON incoming_v.video_id=?
+               WHERE existing_v.profile=incoming_v.profile
+                 AND c.comment_id<>?
+                 AND COALESCE(c.author,'')=?
+                 AND c.text=?
+                 AND c.status='new'
+               LIMIT 1""",
+            (
+                item["video_id"],
+                str(item["comment_id"]),
+                author,
+                text,
+            ),
+        ).fetchone()
+        if duplicate is not None:
+            action = "skip"
+            category = "duplicate"
+            reason = "duplicate_same_author_text"
+
     conn.execute(
         """INSERT INTO comments(
             comment_id,video_id,parent_id,author,text,published_at,category,status,
@@ -401,8 +431,8 @@ def upsert_comment(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
         (
             item["comment_id"], item["video_id"], item.get("parent_id"),
             item.get("author"), item.get("text", ""), item.get("published_at"),
-            decision.category, status,
-            item.get("reply_text"), decision.action, decision.reason, utc_now(),
+            category, status,
+            item.get("reply_text"), action, reason, utc_now(),
             json.dumps(item.get("raw", {}), ensure_ascii=False),
         ),
     )
