@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_cigarette_blur_v1",
+  "action": "inspect_auto_edit_active_process_tree",
   "args": {},
-  "nonce": "apply-cigarette-blur-v1-020202"
+  "nonce": "inspect-console-flicker-disk-d-20261007"
 }
