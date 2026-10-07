@@ -91,8 +91,7 @@ jobs:
           $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
           $version = $line.Matches[0].Groups[1].Value
           $file = Get-ChildItem installer\*.exe | Select-Object -First 1
-          $tag = "v$version"
-          $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag"
+          $base = "https://rushagoodbye.github.io/CHAT_YouTube/updates"
           $manifest = [ordered]@{
             version = $version
             installer_name = $file.Name
@@ -102,7 +101,8 @@ jobs:
           }
           $manifest | ConvertTo-Json | Set-Content -Encoding utf8 installer\latest.json
 
-      - name: Publish release
+      - name: Publish GitHub release (optional)
+        continue-on-error: true
         if: >-
           github.event_name == 'workflow_dispatch' ||
           startsWith(github.ref, 'refs/tags/v') ||
@@ -128,19 +128,19 @@ jobs:
           }
 
           $ok = $false
-          foreach ($attempt in 1..4) {
-            Write-Host "Release publish attempt $attempt/4"
+          foreach ($attempt in 1..2) {
+            Write-Host "Release publish attempt $attempt/2"
             $code = Invoke-ReleasePublish
             if ($code -eq 0) {
               $ok = $true
               break
             }
-            if ($attempt -lt 4) {
-              Start-Sleep -Seconds (10 * $attempt)
+            if ($attempt -lt 2) {
+              Start-Sleep -Seconds 10
             }
           }
           if (-not $ok) {
-            throw "Failed to publish GitHub Release $tag after 4 attempts."
+            Write-Warning "GitHub Release $tag was not published. Build artifacts and GitHub Pages update feed remain authoritative."
           }
 
       - uses: actions/upload-artifact@v4
