@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
+from .comment_action_ai import review_comment_actions_local
 from .comment_action_runtime import prepare_action_reply_drafts
 from .db import comment_action_counts, reclassify_comment_actions
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
@@ -73,6 +74,9 @@ def install_comment_action_ui(window) -> None:
     prepare_replies = QPushButton("Підготувати ВІДПОВІДІ x20 · 0 квоти")
     prepare_replies.setProperty("role", "success")
     bar.addWidget(prepare_replies)
+
+    ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
+    bar.addWidget(ai_review)
 
     recalc = QPushButton("Перерахувати рішення · 0 квоти")
     bar.addWidget(recalc)
@@ -201,11 +205,32 @@ def install_comment_action_ui(window) -> None:
 
     prepare_replies.clicked.connect(prepare_replies_action)
 
+    def ai_review_action() -> None:
+        stats = review_comment_actions_local(
+            window.conn,
+            window.current_profile,
+            limit=20,
+        )
+        window.reload_comments()
+        QMessageBox.information(
+            window,
+            "AI REVIEW",
+            f"Оброблено: {stats['processed']}.\n"
+            f"ЛАЙК: {stats['like']}.\n"
+            f"REVIEW: {stats['review']}.\n"
+            f"SKIP: {stats['skip']}.\n"
+            f"Помилки Ollama: {stats['errors']}.\n\n"
+            "YouTube API: 0 квоти. Нічого не відправлено.",
+        )
+
+    ai_review.clicked.connect(ai_review_action)
+
     recalc.clicked.connect(recalc_actions)
 
     window._comment_action_filter = action_filter
     window._comment_action_summary = summary
     window._comment_action_prepare_replies = prepare_replies
+    window._comment_action_ai_review = ai_review
     window._comment_action_recalc = recalc
     decorate_table()
 
