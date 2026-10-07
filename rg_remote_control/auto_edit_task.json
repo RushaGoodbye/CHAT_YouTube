@@ -1,16 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_multi_dialogue.py",
-      "rg_production_wrapper.py",
-      "rg_auto_edit_one_button.py",
-      "rg_premiere_native_xml.py",
-      "rg_studio_postrun.py",
-      "rg_auto_edit_config.json"
-    ]
-  },
-  "nonce": "inspect-cigarette-blur-integration-20261007"
+  "action": "inspect_auto_edit_cigarette_blur_targets",
+  "args": {},
+  "nonce": "inspect-cigarette-blur-targets-20261007"
 }
