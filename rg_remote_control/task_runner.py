@@ -15736,6 +15736,164 @@ def apply_auto_edit_cigarette_validator_hotfix_v1() -> dict:
         "restart_required":False,
     }
 
+
+def audit_auto_edit_post_cigarette_v1() -> dict:
+    """Read-only audit after the cigarette-validator hotfix. Does not launch or modify production."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import re,time,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+
+    def read_json(p):
+        try:
+            return json.loads(Path(p).read_text(encoding="utf-8-sig")) if Path(p).is_file() else {}
+        except Exception as exc:
+            return {"_read_error":repr(exc)}
+
+    # Live version/channel.
+    version={"version":None,"channel":None}
+    vp=app/"rg_studio_version.py"
+    if vp.is_file():
+        txt=vp.read_text(encoding="utf-8-sig",errors="replace")
+        mv=re.search(r'(?m)^\s*STUDIO_VERSION\s*=\s*["\']([^"\']+)["\']',txt)
+        mc=re.search(r'(?m)^\s*STUDIO_CHANNEL\s*=\s*["\']([^"\']+)["\']',txt)
+        version={"version":mv.group(1) if mv else None,"channel":mc.group(1) if mc else None}
+
+    ops_state=read_json(data/"OPERATIONS_V1_STATE.json")
+    smoke=read_json(data/"OPERATIONS_PRODUCTION_SMOKE.json")
+    stable=read_json(data/"CURRENT_STABLE.json")
+    cfg=read_json(app/"rg_auto_edit_config.json")
+
+    # Validator patch is present and compiled file exists.
+    validator=app/"VALIDATE_PREMIERE_XML.py"
+    vtxt=validator.read_text(encoding="utf-8-sig",errors="replace") if validator.is_file() else ""
+    validator_status={
+        "path":str(validator),
+        "exists":validator.is_file(),
+        "hotfix_guard":"RG_CIGARETTE_VALIDATOR_HOTFIX_V1" in vtxt,
+        "allows_only_rg_cigarette":'all(str(_rg_id).startswith("rg-cigarette-") for _rg_id in ids)' in vtxt,
+    }
+
+    # Extract all cigarette-related config sections without assuming one historical key name.
+    cigarette_cfg={}
+    def walk(obj,prefix=""):
+        if isinstance(obj,dict):
+            for k,v in obj.items():
+                key=(prefix+"."+str(k)).strip(".")
+                if "cigarette" in str(k).lower():
+                    cigarette_cfg[key]=v
+                walk(v,key)
+        elif isinstance(obj,list):
+            for i,v in enumerate(obj):
+                walk(v,f"{prefix}[{i}]")
+    walk(cfg)
+
+    # Real failed 886 production log evidence + progress telemetry.
+    logp=app/"run_manifests"/"886"/"STUDIO_RUN.log"
+    logtxt=logp.read_text(encoding="utf-8",errors="replace") if logp.is_file() else ""
+    log_lines=logtxt.splitlines()
+    old_v5="Unexpected clip class on V5: ['rg-cigarette-1', 'rg-cigarette-2', 'rg-cigarette-3']"
+    run886={
+        "path":str(logp),"exists":logp.is_file(),
+        "mtime":logp.stat().st_mtime if logp.is_file() else None,
+        "lines":len(log_lines),
+        "old_cigarette_validator_failure":old_v5 in logtxt,
+        "traceback":any("Traceback (most recent call last)" in x for x in log_lines),
+        "progress_count":sum("RGPROGRESS|" in x for x in log_lines),
+        "heartbeat_count":sum("RGHEARTBEAT|" in x for x in log_lines),
+        "eta_count":sum("RGETA|" in x for x in log_lines),
+        "tail":log_lines[-25:],
+    }
+
+    # Real cigarette E2E structural fixture.
+    fixture=data/"validation"/"cigarette_blur_real_886"/"REAL_886_CIGARETTE_BLUR_TEST.xml"
+    fixture_info={"path":str(fixture),"exists":fixture.is_file()}
+    if fixture.is_file():
+        try:
+            text0=fixture.read_text(encoding="utf-8-sig",errors="replace")
+            body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
+            root=ET.fromstring(body)
+            clips=[c for c in root.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+            bad=[]
+            for c in clips:
+                effects=[]
+                for flt in c.findall("filter"):
+                    eff=flt.find("effect")
+                    if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
+                if "crop" not in effects:bad.append(str(c.get("id"))+":CROP_MISSING")
+                if "Gaussian Blur" not in effects:bad.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+            fixture_info.update({"cigarette_clip_count":len(clips),"structural_failures":bad,"structural_pass":bool(clips and not bad)})
+        except Exception as exc:
+            fixture_info["error"]=repr(exc)
+
+    # Latest recovery queue status only.
+    control_runs=data/"control_runs"
+    latest_recovery=None
+    try:
+        roots=sorted(control_runs.glob("RECOVERY_*"),key=lambda p:p.stat().st_mtime,reverse=True)
+        if roots:
+            rp=roots[0]
+            latest_recovery={"session":rp.name,"mtime":rp.stat().st_mtime,"status":read_json(rp/"RECOVERY_QUEUE_STATUS.json")}
+    except Exception as exc:
+        latest_recovery={"error":repr(exc)}
+
+    hotfix_pass=str(ops_state.get("cigarette_validator_hotfix_status") or "").startswith("PASS_")
+    cigarette_pass=bool(
+        validator_status["hotfix_guard"] and
+        validator_status["allows_only_rg_cigarette"] and
+        fixture_info.get("structural_pass") and
+        hotfix_pass
+    )
+
+    ops_status=str(ops_state.get("status") or "")
+    smoke_pass=smoke.get("passed") is True
+    stable_version=str(stable.get("version") or "")
+    stale_validation=bool(
+        ops_status=="PRODUCTION_VALIDATION_RUNNING" and
+        run886.get("old_cigarette_validator_failure") and
+        cigarette_pass and
+        not smoke_pass
+    )
+
+    blockers=[]
+    if not cigarette_pass:blockers.append("CIGARETTE_VALIDATOR_NOT_FULLY_CONFIRMED")
+    if stale_validation:blockers.append("STALE_FAILED_886_VALIDATION_STATE")
+    if not smoke_pass:blockers.append("OPERATIONS_PRODUCTION_SMOKE_NOT_PASS")
+    if stable_version!="0.20.20.3":blockers.append("0.20.20.3_NOT_GOLDEN_STABLE")
+    if run886.get("progress_count",0)==0:blockers.append("RUN_TELEMETRY_PROGRESS_MISSING")
+    if run886.get("heartbeat_count",0)==0:blockers.append("RUN_TELEMETRY_HEARTBEAT_MISSING")
+    if run886.get("eta_count",0)==0:blockers.append("RUN_TELEMETRY_ETA_MISSING")
+
+    if stale_validation:
+        next_action="RECONCILE_STALE_FAILED_886_STATE_THEN_RUN_TARGETED_POSTRUN_SMOKE"
+    elif not smoke_pass:
+        next_action="RUN_TARGETED_POSTRUN_SMOKE"
+    elif stable_version!="0.20.20.3":
+        next_action="PROMOTE_AFTER_REGRESSION_GATE"
+    else:
+        next_action="NO_BLOCKING_ACTION"
+
+    return {
+        "schema":"RG_AUTO_EDIT_POST_CIGARETTE_AUDIT_V1",
+        "read_only":True,
+        "version":version,
+        "cigarette_pass":cigarette_pass,
+        "validator":validator_status,
+        "fixture":fixture_info,
+        "operations_state":ops_state,
+        "production_smoke":smoke,
+        "current_stable":stable,
+        "run_886":run886,
+        "latest_recovery":latest_recovery,
+        "cigarette_config_sections":cigarette_cfg,
+        "stale_validation_state":stale_validation,
+        "blockers":blockers,
+        "next_action":next_action,
+        "audited_at":time.time(),
+    }
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -15815,6 +15973,7 @@ ACTIONS = {
     "inspect_auto_edit_progress_functions": inspect_auto_edit_progress_functions,
     "inspect_auto_edit_run_log": inspect_auto_edit_run_log,
     "apply_auto_edit_cigarette_validator_hotfix_v1": apply_auto_edit_cigarette_validator_hotfix_v1,
+    "audit_auto_edit_post_cigarette_v1": audit_auto_edit_post_cigarette_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
