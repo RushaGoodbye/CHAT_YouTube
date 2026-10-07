@@ -1,7 +1,12 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_cigarette_blur_targets",
-  "args": {},
-  "nonce": "inspect-cigarette-blur-targets-20261007-1310"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_cigarette_blur.py",
+      "rg_cigarette_detector_worker.py"
+    ]
+  },
+  "nonce": "inspect-cigarette-tracking-20261007-1315"
 }
