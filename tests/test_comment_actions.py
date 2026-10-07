@@ -141,3 +141,72 @@ def test_action_counts(tmp_path):
         assert counts["skip"] == 1
     finally:
         conn.close()
+
+
+def test_semantic_action_question_stays_review():
+    from rg_youtube_control.comment_action_ai import semantic_action_candidate
+
+    result = semantic_action_candidate("Чому вони знову це роблять?")
+    assert result["action"] == "review"
+    assert result["category"] == "question"
+
+
+def test_semantic_action_like(monkeypatch):
+    from rg_youtube_control import comment_action_ai
+
+    monkeypatch.setattr(
+        comment_action_ai,
+        "ollama_chat",
+        lambda *args, **kwargs: '{"action":"like","reason":"supportive","category":"supportive"}',
+    )
+    result = comment_action_ai.semantic_action_candidate(
+        "Дуже сильний випуск, дивлюся вас давно."
+    )
+    assert result["action"] == "like"
+
+
+def test_semantic_action_skip(monkeypatch):
+    from rg_youtube_control import comment_action_ai
+
+    monkeypatch.setattr(
+        comment_action_ai,
+        "ollama_chat",
+        lambda *args, **kwargs: '{"action":"skip","reason":"provocation","category":"provocation"}',
+    )
+    result = comment_action_ai.semantic_action_candidate(
+        "Черговий беззмістовний вкид без питання."
+    )
+    assert result["action"] == "skip"
+
+
+def test_semantic_action_ollama_error_falls_back_to_review(monkeypatch):
+    from rg_youtube_control import comment_action_ai
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(comment_action_ai, "ollama_chat", fail)
+    result = comment_action_ai.semantic_action_candidate(
+        "Неоднозначний змістовний коментар без питання."
+    )
+    assert result["action"] == "review"
+    assert result["reason"].startswith("ollama_error:")
+
+
+def test_action_ui_is_installed_from_main():
+    import inspect
+    from rg_youtube_control import main
+
+    source = inspect.getsource(main.main)
+    assert "install_comment_action_ui(window)" in source
+
+
+def test_action_ui_hides_legacy_broad_batches():
+    import inspect
+    from rg_youtube_control.comment_action_ui import install_comment_action_ui
+
+    source = inspect.getsource(install_comment_action_ui)
+    assert 'startswith("Створити x20")' in source
+    assert 'startswith("Перегенерувати x20")' in source
+    assert "AI REVIEW x20" in source
+    assert "Підготувати ВІДПОВІДІ x20" in source
