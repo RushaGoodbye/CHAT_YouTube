@@ -3288,6 +3288,63 @@ def launch_auto_edit_studio() -> dict:
 
 
 
+
+def inspect_auto_edit_console_and_disk_io() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import time
+    try:
+        import psutil
+    except Exception as exc:
+        raise RuntimeError("psutil unavailable: "+repr(exc))
+    watch_names={"powershell.exe","pwsh.exe","cmd.exe","conhost.exe","python.exe","pythonw.exe","ffmpeg.exe","ffprobe.exe"}
+    rows=[]
+    snap={}
+    procs=[]
+    for p in psutil.process_iter(["pid","ppid","name","exe","cmdline","cwd"]):
+        try:
+            info=p.info
+            io=p.io_counters()
+            snap[p.pid]=(io.read_bytes,io.write_bytes,io.read_count,io.write_count)
+            procs.append((p,info))
+        except Exception:
+            continue
+    time.sleep(2.0)
+    for p,info in procs:
+        try:
+            io2=p.io_counters()
+            io1=snap.get(p.pid,(0,0,0,0))
+            dr=max(0,io2.read_bytes-io1[0]);dw=max(0,io2.write_bytes-io1[1])
+            cmd=" ".join(info.get("cmdline") or [])
+            name=(info.get("name") or "").lower()
+            exe=info.get("exe") or ""
+            cwd=info.get("cwd") or ""
+            opens=[]
+            try:
+                for of in p.open_files():
+                    pp=str(of.path)
+                    if pp.lower().startswith("d:\\"):
+                        opens.append(pp)
+                    if len(opens)>=20:break
+            except Exception:pass
+            relevant=bool(opens) or name in watch_names or "rg_auto_edit" in cmd.lower() or "rg auto edit" in cmd.lower()
+            if relevant and (dr or dw or opens or name in watch_names):
+                rows.append({
+                    "pid":p.pid,"ppid":p.ppid(),"name":info.get("name"),"exe":exe,"cwd":cwd,"cmdline":cmd,
+                    "read_mb_s":round(dr/2/1048576,3),"write_mb_s":round(dw/2/1048576,3),
+                    "read_ops_s":round(max(0,io2.read_count-io1[2])/2,1),
+                    "write_ops_s":round(max(0,io2.write_count-io1[3])/2,1),
+                    "d_open_files":opens
+                })
+        except Exception:pass
+    rows.sort(key=lambda x:(x["read_mb_s"]+x["write_mb_s"],x["read_ops_s"]+x["write_ops_s"]),reverse=True)
+    disks={}
+    try:
+        for k,v in psutil.disk_io_counters(perdisk=True).items():
+            disks[k]={"read_mb":round(v.read_bytes/1048576,1),"write_mb":round(v.write_bytes/1048576,1),
+                      "read_time_ms":v.read_time,"write_time_ms":v.write_time,"busy_time_ms":getattr(v,"busy_time",None)}
+    except Exception as exc:disks={"error":repr(exc)}
+    return {"status":"PASS","sample_seconds":2,"top_processes":rows[:40],"disks":disks}
+
 def inspect_auto_edit_active_process_tree() -> dict:
     if os.name != "nt":
         raise RuntimeError("Windows only")
@@ -14263,6 +14320,7 @@ ACTIONS = {
     "launch_auto_edit_studio": launch_auto_edit_studio,
     "restart_auto_edit_studio_ui": restart_auto_edit_studio_ui,
     "inspect_auto_edit_active_process_tree": inspect_auto_edit_active_process_tree,
+    "inspect_auto_edit_console_and_disk_io": inspect_auto_edit_console_and_disk_io,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
