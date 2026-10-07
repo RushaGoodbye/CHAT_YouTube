@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$commit='a66098882fe4b10f6e56fd1d4c1e47dad3549cfa'
+$commit='e322e1dea1653b3b8c52406214043a37b6abdd41'
 $url="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$commit/rg_remote_control/task_runner.py"
 $tmp=Join-Path $env:TEMP 'rg_task_runner_post_cigarette_audit_v1.py'
 $runtime='F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe'
@@ -24,7 +24,7 @@ $err="\\AlexLosServer\docker\RG_NAS_MCP\ALEXPC\auto_edit\errors\$id.json"
 
 @{
   request_id=$id
-  action='reconcile_auto_edit_post_cigarette_v1'
+  action='apply_auto_edit_post_cigarette_reconcile_v1'
   args=@{}
   timeout_seconds=300
 } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 (Join-Path $req "$id.json")
