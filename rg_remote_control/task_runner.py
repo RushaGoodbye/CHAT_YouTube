@@ -3289,6 +3289,66 @@ def launch_auto_edit_studio() -> dict:
 
 
 
+
+def switch_github_runner_hidden_mode() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import subprocess,time
+    runner=Path(r"C:\RG_GITHUB_RUNNER")
+    run_cmd=runner/"run.cmd"
+    if not run_cmd.is_file():raise RuntimeError("C:\\RG_GITHUB_RUNNER\\run.cmd missing")
+    app_runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts")
+    pyw=app_runtime/"pythonw.exe"
+    if not pyw.is_file():raise RuntimeError("pythonw runtime missing")
+    starter=runner/"rg_runner_hidden_start.pyw"
+    switcher=runner/"rg_runner_hidden_switch.pyw"
+    starter.write_text(r'''from __future__ import annotations
+import os,subprocess,time
+from pathlib import Path
+RUNNER=Path(r"C:\RG_GITHUB_RUNNER")
+def running():
+    try:
+        cp=subprocess.run(["tasklist","/FI","IMAGENAME eq Runner.Listener.exe","/NH","/FO","CSV"],
+                          capture_output=True,text=True,encoding="utf-8",errors="replace",
+                          creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),timeout=10)
+        return "Runner.Listener.exe" in (cp.stdout or "")
+    except Exception:return False
+if not running():
+    env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None)
+    flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+    subprocess.Popen(["cmd.exe","/d","/s","/c",str(RUNNER/"run.cmd")],cwd=str(RUNNER),env=env,
+                     creationflags=flags,close_fds=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+''',encoding="utf-8")
+    switcher.write_text(r'''from __future__ import annotations
+import os,subprocess,time
+from pathlib import Path
+RUNNER=Path(r"C:\RG_GITHUB_RUNNER")
+PYW=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+time.sleep(12)
+flags=getattr(subprocess,"CREATE_NO_WINDOW",0)
+try:
+    subprocess.run(["taskkill","/IM","Runner.Listener.exe","/F"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                   creationflags=flags,timeout=20)
+except Exception:pass
+time.sleep(3)
+env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None)
+flags2=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+subprocess.Popen([str(PYW),str(RUNNER/"rg_runner_hidden_start.pyw")],cwd=str(RUNNER),env=env,
+                 creationflags=flags2,close_fds=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+''',encoding="utf-8")
+    # Per-user autostart, no elevation and no visible shell window.
+    import winreg
+    key=winreg.CreateKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Run")
+    cmd=f'"{pyw}" "{starter}"'
+    winreg.SetValueEx(key,"RG_GITHUB_RUNNER_HIDDEN",0,winreg.REG_SZ,cmd)
+    winreg.CloseKey(key)
+    env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None)
+    flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+    subprocess.Popen([str(pyw),str(switcher)],cwd=str(runner),env=env,creationflags=flags,
+                     close_fds=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    return {"status":"SWITCH_SCHEDULED","runner":str(runner),"delay_sec":12,
+            "hidden_start":str(starter),"hidden_switch":str(switcher),"autostart":"HKCU_RUN",
+            "visible_console_expected":False}
+
 def inspect_auto_edit_console_and_disk_io() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import time
@@ -14321,6 +14381,7 @@ ACTIONS = {
     "restart_auto_edit_studio_ui": restart_auto_edit_studio_ui,
     "inspect_auto_edit_active_process_tree": inspect_auto_edit_active_process_tree,
     "inspect_auto_edit_console_and_disk_io": inspect_auto_edit_console_and_disk_io,
+    "switch_github_runner_hidden_mode": switch_github_runner_hidden_mode,
     "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
     "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
     "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
