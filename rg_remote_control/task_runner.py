@@ -13351,6 +13351,250 @@ def freeze_auto_edit_stable_020180() -> dict:
 
 
 
+
+def apply_auto_edit_cigarette_blur_v1() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,py_compile,shutil,subprocess,time,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    runtimew=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    manifest=data/"cigarette_detector_v1.json"
+    det=json.loads(manifest.read_text(encoding="utf-8-sig")) if manifest.is_file() else {}
+    if det.get("status")!="READY" or not det.get("cuda") or not Path(det.get("model") or "").is_file():
+        raise RuntimeError("Mandatory cigarette detector is not READY on CUDA")
+    template_root=Path(__file__).resolve().parent/"cigarette_blur_v1"
+    worker_tpl=template_root/"rg_cigarette_detector_worker.py"
+    module_tpl=template_root/"rg_cigarette_blur.py"
+    if not worker_tpl.is_file() or not module_tpl.is_file():
+        raise RuntimeError("Cigarette blur templates missing")
+    targets=[
+        app/"rg_cigarette_detector_worker.py",app/"rg_cigarette_blur.py",
+        app/"rg_auto_edit_one_button.py",app/"rg_auto_edit_config.json",
+        app/"rg_final_release_gate.py",app/"rg_final_timeline_audit.py",
+        app/"rg_studio_postrun.py",app/"rg_studio_version.py",
+    ]
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_CIGARETTE_BLUR_V1_{stamp}"
+    backup.mkdir(parents=True,exist_ok=False)
+    existed={}
+    for p in targets:
+        existed[str(p)]=p.is_file()
+        if p.is_file():shutil.copy2(p,backup/p.name)
+    try:
+        shutil.copy2(worker_tpl,app/"rg_cigarette_detector_worker.py")
+        shutil.copy2(module_tpl,app/"rg_cigarette_blur.py")
+
+        # Mandatory technical configuration. There is intentionally no normal UI OFF switch.
+        cp=app/"rg_auto_edit_config.json"
+        cfg=json.loads(cp.read_text(encoding="utf-8-sig"))
+        cfg["cigarette_blur"]={
+          "enabled":True,"mandatory":True,"fail_closed":True,
+          "version":"RG_CIGARETTE_BLUR_V1_TRACKED_MANDATORY",
+          "detector":"YOLO_WORLD_V2_OPEN_VOCABULARY_ISOLATED_WORKER",
+          "classes":["cigarette","lit cigarette","cigarette in hand","smoking cigarette"],
+          "confidence":0.08,"single_hit_strong_confidence":0.34,
+          "coarse_fps":3.0,"refine_fps":12.0,"refine_margin_sec":1.1,
+          "imgsz":1280,"nms_iou":0.5,"dedupe_iou":0.45,
+          "max_detections_per_frame":8,"max_box_area_fraction":0.055,
+          "track_max_gap_sec":0.65,"track_max_center_distance":4.2,
+          "min_track_hits":2,"min_track_span_sec":0.10,
+          "slice_fps":10.0,"start_pad_sec":0.12,"end_hold_sec":0.22,
+          "bbox_padding_px":18,"bbox_padding_ratio":0.35,
+          "blur_radius":62.0,"blur_passes":2,
+          "frame_width":1920,"frame_height":1080,
+          "max_overlay_slices":6000,"video_decode_device":"auto",
+          "policy":"MANDATORY_OBJECT_ONLY_MOVING_CROP_GAUSSIAN_BLUR_FAIL_CLOSED",
+          "source_audio_untouched":True,"whole_frame_blur_forbidden":True,
+        }
+        tmp=cp.with_suffix(".cig.tmp");tmp.write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,cp)
+
+        # Production pipeline integration immediately after existing Privacy Blur.
+        p=app/"rg_auto_edit_one_button.py";src=p.read_text(encoding="utf-8")
+        imp="from rg_privacy_blur import scan_privacy_messages, inject_privacy_blur, human_text as privacy_blur_human_text, VERSION as PRIVACY_BLUR_VERSION\n"
+        addimp=imp+"from rg_cigarette_blur import scan_cigarettes, inject_cigarette_blur, human_text as cigarette_blur_human_text, VERSION as CIGARETTE_BLUR_VERSION\n"
+        if "from rg_cigarette_blur import" not in src:
+            if imp not in src:raise RuntimeError("one-button privacy import anchor missing")
+            src=src.replace(imp,addimp,1)
+        marker="    # v0.19.9.38 unified ERROR MARKERS."
+        if "RG_CIGARETTE_BLUR_PIPELINE_V1" not in src:
+            if marker not in src:raise RuntimeError("one-button marker anchor missing")
+            block=r'''    # RG_CIGARETTE_BLUR_PIPELINE_V1
+    # Mandatory: scan every retained source range. The user-facing workflow has no OFF switch.
+    cigarette_opts=dict(director_cfg.get('cigarette_blur',{}) or {})
+    cigarette_opts['enabled']=True
+    cigarette_opts['mandatory']=True
+    cigarette_opts['fail_closed']=True
+    cigarette_key=object_sig({
+        'version':CIGARETTE_BLUR_VERSION,'vsig':vsig,
+        'mapped':[(round(float(x.get('source_start_sec',0.0)),3),round(float(x.get('source_end_sec',0.0)),3)) for x in mapped],
+        'opts':cigarette_opts,
+    })
+    cigarette_cache=cdir/f'cigarette_blur_{cigarette_key}.json'
+    if cigarette_cache.exists():
+        cigarette_detection=load_json(cigarette_cache)
+        emit(99.46,'CIGARETTE_BLUR',f"cache | tracks={cigarette_detection.get('confirmed_track_count',0)}")
+    else:
+        emit(99.46,'CIGARETTE_BLUR','mandatory cigarette scan')
+        def _cig_progress(frac,phase):
+            emit(99.46+0.16*float(frac),'CIGARETTE_BLUR',phase)
+        cigarette_detection=scan_cigarettes(video,mapped,cigarette_opts,progress_cb=_cig_progress)
+        save_json(cigarette_cache,cigarette_detection)
+    cigarette_det_path=work/f'{out.stem}_CIGARETTE_BLUR_DETECTIONS.json'
+    save_json(cigarette_det_path,cigarette_detection)
+    if not cigarette_detection.get('passed',False):
+        raise RuntimeError(
+            'CIGARETTE BLUR DETECTION QA FAILED. Export blocked so a possible cigarette cannot pass unblurred. '
+            + ', '.join(cigarette_detection.get('failures') or ['UNCONFIRMED_DETECTION'])
+        )
+    if cigarette_detection.get('intervals'):
+        emit(99.63,'CIGARETTE_BLUR','inject moving object-only blur')
+        cigarette_qa=inject_cigarette_blur(
+            out,cigarette_detection,cigarette_opts,
+            fps=int(director_cfg.get('fps',30)),
+        )
+    else:
+        cigarette_qa={
+            'version':CIGARETTE_BLUR_VERSION,'passed':True,'mandatory':True,
+            'raw_detection_count':int(cigarette_detection.get('raw_detection_count',0)),
+            'confirmed_track_count':0,'detected_interval_count':0,'overlay_count':0,
+            'expected_overlay_count':0,'expected_overlay_sec':0.0,'failures':[],
+            'coverage_qa':{'passed':True,'coverage_ratio':1.0,'missing_frames':0,'failures':[]},
+            'policy':'MANDATORY_SCAN_PASS_NO_CIGARETTE_DETECTED',
+        }
+    cigarette_qa_path=work/f'{out.stem}_CIGARETTE_BLUR_QA.json'
+    cigarette_qa_txt=work/f'{out.stem}_CIGARETTE_BLUR_QA.txt'
+    save_json(cigarette_qa_path,cigarette_qa)
+    cigarette_qa_txt.write_text(cigarette_blur_human_text(cigarette_qa,title=f'{out.stem} — CIGARETTE BLUR QA'),encoding='utf-8')
+    emit(99.66,'CIGARETTE_BLUR',
+         f"raw={cigarette_qa.get('raw_detection_count',0)} tracks={cigarette_qa.get('confirmed_track_count',0)} overlays={cigarette_qa.get('overlay_count',0)} QA={'PASS' if cigarette_qa.get('passed') else 'FAIL'}")
+    resume.mark('CIGARETTE_BLUR',cigarette_key,
+        artifacts=[cigarette_det_path,cigarette_qa_path,cigarette_qa_txt],
+        detail={'raw':cigarette_qa.get('raw_detection_count',0),'tracks':cigarette_qa.get('confirmed_track_count',0),
+                'overlays':cigarette_qa.get('overlay_count',0),'passed':bool(cigarette_qa.get('passed'))},
+        cache_hit=cigarette_cache.exists())
+    if not cigarette_qa.get('passed',False):
+        raise RuntimeError(
+            'CIGARETTE BLUR QA FAILED. XML/export blocked. '
+            + ', '.join(cigarette_qa.get('failures') or ['TRACK_OR_COVERAGE_FAILURE'])
+        )
+
+'''
+            src=src.replace(marker,block+marker,1)
+        p.write_text(src,encoding="utf-8")
+
+        # Final release gate always requires the cigarette QA sidecar.
+        p=app/"rg_final_release_gate.py";src=p.read_text(encoding="utf-8")
+        if "CIGARETTE_QA_MISSING" not in src:
+            a="    if kind=='dialogue':\n"
+            common="""    cig=_read(x.with_name(stem+'_CIGARETTE_BLUR_QA.json')); checks['cigarette_blur']=cig
+    if not cig: failures.append('CIGARETTE_QA_MISSING')
+    elif not cig.get('passed',False): failures.append('CIGARETTE_QA')
+"""
+            if a not in src:raise RuntimeError("release gate anchor missing")
+            src=src.replace(a,common+a,1)
+        p.write_text(src,encoding="utf-8")
+
+        # Final timeline audit recognizes cigarette overlay clips as bounded overlays.
+        p=app/"rg_final_timeline_audit.py";src=p.read_text(encoding="utf-8")
+        old="if cid.startswith(('rg-privacy-','rg-shorts-caption-')):"
+        new="if cid.startswith(('rg-privacy-','rg-cigarette-','rg-shorts-caption-')):"
+        if "rg-cigarette-" not in src:
+            if old not in src:raise RuntimeError("timeline overlay anchor missing")
+            src=src.replace(old,new,1)
+        p.write_text(src,encoding="utf-8")
+
+        # Post-run completion is also fail-closed for every new dialogue XML.
+        p=app/"rg_studio_postrun.py";src=p.read_text(encoding="utf-8")
+        if "CIGARETTE_BLUR_QA" not in src:
+            a='    add("Аудіо ORIGINAL SOURCE",not bad_audio,"; ".join(bad_audio[:5]) if bad_audio else "PASS")\n'
+            block='''    cigarette_bad=[]
+    for _x in outs:
+        if not _x.is_file():continue
+        _q=_x.with_name(_x.stem+"_CIGARETTE_BLUR_QA.json")
+        try:_d=json.loads(_q.read_text(encoding="utf-8-sig")) if _q.is_file() else {}
+        except Exception:_d={}
+        if not _d or not _d.get("passed",False):cigarette_bad.append(_x.name)
+    add("Блюр сигарети",not cigarette_bad,
+        ("PASS" if not cigarette_bad else "CIGARETTE_BLUR_QA FAIL/MISSING: "+",".join(cigarette_bad[:8])),True)
+'''
+            if a not in src:raise RuntimeError("postrun audio anchor missing")
+            src=src.replace(a,a+block,1)
+        p.write_text(src,encoding="utf-8")
+
+        # Bump candidate version only. GOLDEN 0.20.20.1 pointers remain untouched.
+        p=app/"rg_studio_version.py";src=p.read_text(encoding="utf-8")
+        import re
+        for key in ("STUDIO_VERSION","RG_UI_VERSION","RG_CORE_VERSION"):
+            src=re.sub(rf'{key}\s*=\s*["\'][^"\']+["\']',f'{key}="0.20.20.2"',src,count=1)
+        src=re.sub(r'STUDIO_CHANNEL\s*=\s*["\'][^"\']+["\']','STUDIO_CHANNEL="stable-candidate"',src,count=1)
+        if "RG_CIGARETTE_BLUR_V1" not in src:src+="\nRG_CIGARETTE_BLUR_V1=True\n"
+        p.write_text(src,encoding="utf-8")
+
+        # Compile all touched Python before any smoke test or restart.
+        for p in targets:
+            if p.suffix==".py" and p.is_file():py_compile.compile(str(p),doraise=True)
+
+        # Real detector load/inference smoke. No detection is required, only a clean mandatory scan.
+        sys.path.insert(0,str(app))
+        from rg_cigarette_blur import scan_cigarettes,inject_cigarette_blur
+        video=Path(r"\\Desktop-v7gg0en\record\886.mp4")
+        if not video.is_file():raise RuntimeError("886 source video missing for cigarette detector smoke")
+        det_smoke=scan_cigarettes(video,[{"start":60.0,"end":63.0}],cfg["cigarette_blur"])
+        if not isinstance(det_smoke,dict) or "raw_detection_count" not in det_smoke:
+            raise RuntimeError("Cigarette detector smoke returned invalid report")
+
+        # Structural injection smoke on a copy of a real 886 Premiere XML.
+        candidates=list((app/"886").glob("RG_EDITED_886*.xml"))+list(app.glob("RG_EDITED_886*.xml"))
+        candidates=[x for x in candidates if "_SHORTS" not in x.name.upper() and "_UNCENSORED" not in x.name.upper()]
+        if not candidates:raise RuntimeError("886 XML missing for cigarette overlay smoke")
+        src_xml=max(candidates,key=lambda x:x.stat().st_mtime)
+        smoke=data/"CIGARETTE_BLUR_V1_SMOKE.xml";shutil.copy2(src_xml,smoke)
+        text=smoke.read_text(encoding="utf-8");body=text.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text else text
+        root=ET.fromstring(body);base=root.find("./sequence/media/video/track/clipitem")
+        if base is None:raise RuntimeError("886 XML base clip missing")
+        fps=float(root.findtext("./sequence/rate/timebase","30") or 30)
+        sin=float(base.findtext("in","0"))/fps;sout=float(base.findtext("out","0"))/fps
+        a=sin+min(0.2,max(0.0,(sout-sin)*0.15));b=min(sout,a+0.45)
+        if b<=a:b=a+0.1
+        synthetic={"version":"SMOKE","passed":True,"raw_detection_count":1,"confirmed_track_count":1,
+                   "intervals":[{"source_start_sec":a,"source_end_sec":b,"bbox":[1080,300,1140,340],"kind":"CIGARETTE","track_id":1}]}
+        qa=inject_cigarette_blur(smoke,synthetic,cfg["cigarette_blur"],fps=int(fps))
+        if not qa.get("passed") or int(qa.get("overlay_count",0))<1:
+            raise RuntimeError("Cigarette overlay structural smoke failed: "+json.dumps(qa,ensure_ascii=False))
+        smoke.unlink(missing_ok=True)
+
+        # Candidate release state, without changing CURRENT_STABLE/GOLDEN.
+        rs=data/"release_state.json"
+        try:rd=json.loads(rs.read_text(encoding="utf-8-sig"))
+        except Exception:rd={}
+        rd["channel"]="STABLE_CANDIDATE";rd["test_version"]="0.20.20.2";rd["updated"]=time.time()
+        tmp=rs.with_suffix(".cig.tmp");tmp.write_text(json.dumps(rd,ensure_ascii=False,indent=2),encoding="utf-8");os.replace(tmp,rs)
+
+        # Restart UI only; processing/backend is never terminated.
+        try:
+            from rg_windows_service import terminate_matching
+            terminate_matching(("rg_studio_main.py",),("python.exe","pythonw.exe"),exclude_pids=(os.getpid(),))
+        except Exception:pass
+        time.sleep(.8)
+        py=runtimew if runtimew.is_file() else runtime
+        env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None);env["PYTHONUTF8"]="1";env["PYTHONIOENCODING"]="utf-8"
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        subprocess.Popen([str(py),"-X","utf8",str(app/"rg_studio_main.py")],cwd=str(app),env=env,creationflags=flags,close_fds=True)
+        return {"status":"PASS","version":"0.20.20.2","channel":"STABLE_CANDIDATE",
+                "mandatory":True,"detector_smoke":det_smoke.get("status"),
+                "detector_raw":det_smoke.get("raw_detection_count",0),
+                "overlay_smoke":qa,"backup":str(backup),"golden_preserved":"0.20.20.1"}
+    except Exception:
+        for p in targets:
+            b=backup/p.name
+            try:
+                if b.is_file():shutil.copy2(b,p)
+                elif not existed.get(str(p),False) and p.exists():p.unlink()
+            except Exception:pass
+        raise
+
+
 def prepare_auto_edit_cigarette_detector_v1() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import subprocess,shutil,time,hashlib
@@ -14034,6 +14278,7 @@ ACTIONS = {
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
     "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
+    "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
