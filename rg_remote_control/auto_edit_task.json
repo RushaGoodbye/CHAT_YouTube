@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "prepare_auto_edit_cigarette_detector_v1",
+  "action": "apply_auto_edit_cigarette_blur_v1",
   "args": {},
-  "nonce": "prepare-cigarette-detector-v1-20261007"
+  "nonce": "reverify-apply-cigarette-blur-v1-020202"
 }
