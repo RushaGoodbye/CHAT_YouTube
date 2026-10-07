@@ -6,6 +6,7 @@ from PySide6.QtCore import QLibraryInfo, QLocale, QLockFile, QStandardPaths, QTi
 from PySide6.QtWidgets import QApplication
 
 from .config import APP_NAME
+from .comment_action_ui import install_comment_action_ui
 from .service import archive_priority_enabled
 from .ui import MainWindow
 
@@ -31,6 +32,7 @@ def main() -> int:
         app.installTranslator(qt_translator)
 
     window = MainWindow()
+    install_comment_action_ui(window)
     window.show()
 
     campaign_timer = QTimer(window)
