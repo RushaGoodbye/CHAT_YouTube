@@ -61,7 +61,7 @@ INFO_LINKS = re.compile(
     re.I,
 )
 INFO_SCHEDULE = re.compile(
-    r"(коли\s+(?:стрім|ефір)|когда\s+(?:стрим|эфир)|"
+    r"(коли\s+(?:наступн\w*\s+)?(?:стрім|ефір)|когда\s+(?:следующ\w*\s+)?(?:стрим|эфир)|"
     r"розклад\w*|расписан\w*|во\s+сколько\s+(?:стрим|эфир)|"
     r"о\s+котрій\s+(?:стрім|ефір))",
     re.I,
@@ -91,7 +91,7 @@ def _alpha_count(text: str) -> int:
 def decide_comment_action(text: str, *, status: str = "new") -> CommentActionDecision:
     value = " ".join(str(text or "").split())
     if status == "moderation_locked":
-        return CommentActionDecision("skip", "moderation_locked", "youtube_moderation", "high")
+        return CommentActionDecision("skip", "review", "youtube_moderation", "high")
     if status in {"replied", "ignored"}:
         return CommentActionDecision("skip", status, f"status:{status}", "high")
     if not value:
