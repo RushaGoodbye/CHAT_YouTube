@@ -210,3 +210,81 @@ def test_action_ui_hides_legacy_broad_batches():
     assert 'startswith("Перегенерувати x20")' in source
     assert "AI REVIEW x20" in source
     assert "Підготувати ВІДПОВІДІ x20" in source
+
+
+def test_semantic_decision_survives_reopen(tmp_path):
+    from rg_youtube_control.db import save_comment_action
+
+    path = tmp_path / "rg.db"
+    conn = connect(path)
+    try:
+        _video(conn)
+        upsert_comment(
+            conn,
+            {
+                "comment_id": "persist",
+                "video_id": "v1",
+                "author": "viewer",
+                "text": "Змістовний коментар без питання",
+                "published_at": "2026-10-07T10:00:00Z",
+                "status": "new",
+                "raw": {},
+            },
+        )
+        assert save_comment_action(
+            conn,
+            "persist",
+            action="like",
+            reason="semantic:supportive",
+            category="supportive",
+        )
+    finally:
+        conn.close()
+
+    conn = connect(path)
+    try:
+        row = conn.execute(
+            "SELECT action,action_reason,category FROM comments WHERE comment_id='persist'"
+        ).fetchone()
+        assert row["action"] == "like"
+        assert row["action_reason"] == "semantic:supportive"
+        assert row["category"] == "supportive"
+    finally:
+        conn.close()
+
+
+def test_new_duplicate_is_skipped_immediately(tmp_path):
+    conn = connect(tmp_path / "rg.db")
+    try:
+        _video(conn)
+        first = {
+            "video_id": "v1",
+            "author": "viewer",
+            "text": "Дякую за вашу працю!",
+            "status": "new",
+            "raw": {},
+        }
+        upsert_comment(
+            conn,
+            {
+                **first,
+                "comment_id": "first",
+                "published_at": "2026-10-07T10:00:00Z",
+            },
+        )
+        upsert_comment(
+            conn,
+            {
+                **first,
+                "comment_id": "second",
+                "published_at": "2026-10-07T10:05:00Z",
+            },
+        )
+        row = conn.execute(
+            "SELECT action,action_reason,category FROM comments WHERE comment_id='second'"
+        ).fetchone()
+        assert row["action"] == "skip"
+        assert row["action_reason"] == "duplicate_same_author_text"
+        assert row["category"] == "duplicate"
+    finally:
+        conn.close()
