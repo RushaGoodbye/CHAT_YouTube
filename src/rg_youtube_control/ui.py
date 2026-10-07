@@ -1449,7 +1449,7 @@ class MainWindow(QMainWindow):
                WHERE v.profile=?
                  AND v.scheduled_publish_at IS NOT NULL
                ORDER BY v.scheduled_publish_at ASC""",
-            (self.current_profile,),
+            ("live",),
         ).fetchall()
         local_today = datetime.now().astimezone().date()
         today_rows = []
@@ -9799,7 +9799,7 @@ class MainWindow(QMainWindow):
 
     def show_scheduled_center(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Центр запланованих стрімів")
+        dialog.setWindowTitle("Центр запланованих стрімів · РАША ГУДБАЙ LIVE")
         dialog.resize(1450, 720)
         layout = QVBoxLayout(dialog)
 
@@ -9847,7 +9847,7 @@ class MainWindow(QMainWindow):
                    WHERE v.profile=?
                      AND v.scheduled_publish_at IS NOT NULL
                    ORDER BY v.scheduled_publish_at ASC""",
-                (self.current_profile,),
+                ("live",),
             ).fetchall()
             table.setRowCount(len(rows))
             for row_index, row in enumerate(rows):
