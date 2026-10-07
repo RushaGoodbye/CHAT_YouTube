@@ -7,13 +7,33 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from pack200_builder import build_auto_edit_pack200_update
-from pack300_builder import build_auto_edit_pack300_update
-from pack310_builder import build_auto_edit_pack310_update
-from pack311_builder import build_auto_edit_pack311_update
-from pack312_builder import build_auto_edit_pack312_update
-from pack400_builder import build_auto_edit_pack400_update
-from pack500_builder import build_auto_edit_pack500_update
+def build_auto_edit_pack200_update(*args, **kwargs):
+    from pack200_builder import build_auto_edit_pack200_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack300_update(*args, **kwargs):
+    from pack300_builder import build_auto_edit_pack300_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack310_update(*args, **kwargs):
+    from pack310_builder import build_auto_edit_pack310_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack311_update(*args, **kwargs):
+    from pack311_builder import build_auto_edit_pack311_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack312_update(*args, **kwargs):
+    from pack312_builder import build_auto_edit_pack312_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack400_update(*args, **kwargs):
+    from pack400_builder import build_auto_edit_pack400_update as _impl
+    return _impl(*args, **kwargs)
+
+def build_auto_edit_pack500_update(*args, **kwargs):
+    from pack500_builder import build_auto_edit_pack500_update as _impl
+    return _impl(*args, **kwargs)
 
 
 ROOT = Path(__file__).resolve().parents[1]
