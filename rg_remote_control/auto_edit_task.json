@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
+  "action": "inspect_auto_edit_powershell_usage",
   "args": {},
-  "nonce": "inspect-console-flicker-disk-d-20261007"
+  "nonce": "inspect-powershell-flicker-20261007"
 }
