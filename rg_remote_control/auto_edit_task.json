@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "finalize_auto_edit_020201_stable",
+  "action": "sync_auto_edit_020201_stable_metadata",
   "args": {},
-  "nonce": "finalize-golden-stable-020201-r2"
+  "nonce": "sync-stable-metadata-020201"
 }
