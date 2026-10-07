@@ -19,6 +19,8 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+CloseApplications=yes
+RestartApplications=no
 
 [Files]
 Source: "..\dist\RG YouTube Control\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
