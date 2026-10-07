@@ -10,9 +10,13 @@ from .free_tools import DEFAULT_OLLAMA_MODEL, ollama_chat
 
 def _json_object(text: str) -> dict:
     value = str(text or "").strip()
-    if value.startswith("\`\`\`"):
-        value = re.sub(r"^\s*\`\`\`(?:json)?\s*", "", value, flags=re.I)
-        value = re.sub(r"\s*\`\`\`\s*$", "", value)
+    fence = chr(96) * 3
+    if value.startswith(fence):
+        value = value[len(fence):].lstrip()
+        if value[:4].casefold() == "json":
+            value = value[4:].lstrip()
+        if value.endswith(fence):
+            value = value[:-len(fence)].rstrip()
     try:
         payload = json.loads(value)
     except json.JSONDecodeError:
