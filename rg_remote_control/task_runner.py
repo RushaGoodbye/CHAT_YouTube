@@ -13390,6 +13390,13 @@ print(json.dumps({m:bool(importlib.util.find_spec(m)) for m in mods}))
          "ftfy==6.3.1","regex>=2024.0.0","tqdm>=4.66.0"]
     cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=600)
     if cp.returncode!=0:raise RuntimeError("CLIP tokenizer deps install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
+    # Never shadow the production CUDA Torch with wheels pulled into --target.
+    for pat in ("torch","torch-*","torchvision","torchvision-*","torchaudio","torchaudio-*","functorch","functorch-*"):
+        for q in site.glob(pat):
+            try:
+                if q.is_dir():shutil.rmtree(q)
+                else:q.unlink()
+            except Exception:pass
     test=r'''
 import os,sys,json,shutil
 from pathlib import Path
@@ -13418,7 +13425,7 @@ print(json.dumps({"ultralytics":ultralytics.__version__,"torch":torch.__version_
     if cp.returncode!=0:raise RuntimeError("YOLO-World model prep failed: "+((cp.stdout or "")+(cp.stderr or ""))[-12000:])
     try:detail=json.loads((cp.stdout or "").strip().splitlines()[-1])
     except Exception as exc:raise RuntimeError("Detector prep parse failed: "+repr(exc)+" output="+(cp.stdout or "")[-4000:])
-    if not detail.get("cuda"):raise RuntimeError("Cigarette detector CUDA unavailable")
+    if not detail.get("cuda"):raise RuntimeError("Cigarette detector CUDA unavailable: "+json.dumps(detail,ensure_ascii=False))
     mp=Path(detail.get("model") or "")
     if not mp.is_file():raise RuntimeError("Cigarette detector model missing after prep")
     manifest={"schema":"RG_CIGARETTE_DETECTOR_V1","status":"READY","mandatory":True,"worker_site":str(site),
