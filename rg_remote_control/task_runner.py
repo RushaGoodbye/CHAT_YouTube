@@ -13385,6 +13385,11 @@ print(json.dumps({m:bool(importlib.util.find_spec(m)) for m in mods}))
         cmd=[str(runtime),"-m","pip","install","--target",str(site),"--no-deps","--no-warn-script-location",clip_url]
         cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=900)
         if cp.returncode!=0:raise RuntimeError("Ultralytics CLIP isolated install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
+    # CLIP tokenizer dependencies, isolated as well.
+    cmd=[str(runtime),"-m","pip","install","--target",str(site),"--upgrade","--no-warn-script-location",
+         "ftfy==6.3.1","regex>=2024.0.0","tqdm>=4.66.0"]
+    cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=600)
+    if cp.returncode!=0:raise RuntimeError("CLIP tokenizer deps install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
     test=r'''
 import os,sys,json,shutil
 from pathlib import Path
