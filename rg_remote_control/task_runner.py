@@ -14167,7 +14167,7 @@ def verify_auto_edit_operations_v1() -> dict:
 def apply_auto_edit_operations_ui_status_hotfix_v1() -> dict:
     """UI-only hotfix: neutral idle CTA, visible 886 validation, unambiguous update-channel label."""
     if os.name!="nt":raise RuntimeError("Windows only")
-    import datetime,py_compile,re,shutil
+    import datetime,py_compile,re,shutil,time
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
     ui=app/"rg_studio_ui.py"
