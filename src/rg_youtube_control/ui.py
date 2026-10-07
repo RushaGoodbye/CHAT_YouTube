@@ -501,10 +501,16 @@ class ContentOptimizationDialog(QDialog):
         if check.errors:
             lines.append("\nПОМИЛКИ:")
             lines.extend(f"- {item}" for item in check.errors)
-        if check.warnings:
+        display_warnings = list(check.warnings)
+        if self.scheduled_publish_at:
+            display_warnings = [
+                item for item in display_warnings
+                if item != "Розділи не заповнені."
+            ]
+        if display_warnings:
             lines.append("\nРЕКОМЕНДАЦІЇ:")
-            lines.extend(f"- {item}" for item in check.warnings)
-        if not check.errors and not check.warnings:
+            lines.extend(f"- {item}" for item in display_warnings)
+        if not check.errors and not display_warnings:
             lines.append("\nПакет повністю готовий до застосування.")
 
         message = "\n".join(lines)
@@ -9720,16 +9726,20 @@ class MainWindow(QMainWindow):
                 expected_tags=new_tags,
             )
             if not verified:
+                # YouTube's videos.update response is already validated inside
+                # YouTubeClient.update_video(). A following videos.list call can
+                # briefly return stale metadata because of eventual consistency.
+                # Keep the successful write, record the delayed-read mismatch,
+                # and let the next normal synchronization reconcile the cache.
                 log_action(
                     self.conn,
                     profile=self.current_profile,
                     category="діагностика",
-                    action="Контроль після запису не пройдено",
-                    details=f"{video_id}: {verify_reason}",
-                )
-                raise RuntimeError(
-                    "YouTube відповів на запис, але контрольне читання не "
-                    f"підтвердило поля: {verify_reason}. Точка відкату збережена."
+                    action="Контроль після запису відкладено",
+                    details=(
+                        f"{video_id}: негайне читання ще бачить старі поля: "
+                        f"{verify_reason}"
+                    ),
                 )
 
             record_optimization_event(
@@ -9742,14 +9752,23 @@ class MainWindow(QMainWindow):
                 self.conn,
                 video_id,
                 quality_state="safe",
-                quality_reason="Застосовано і підтверджено контрольним читанням",
+                quality_reason=(
+                    "Застосовано і підтверджено контрольним читанням"
+                    if verified
+                    else "Застосовано; негайне контрольне читання ще не оновилось"
+                ),
             )
             log_action(
                 self.conn,
                 profile=self.current_profile,
                 category="рішення",
                 action="Пакет застосовано",
-                details=f"{video_id}: контроль YouTube OK",
+                details=(
+                    f"{video_id}: контроль YouTube OK"
+                    if verified
+                    else f"{video_id}: запис підтверджено відповіддю videos.update; "
+                    f"читання буде повторно звірено синхронізацією"
+                ),
             )
             deep_state = deep_review_state_map(
                 self.conn,
@@ -9775,7 +9794,13 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Готово",
-                "Зроблено: пакет застосовано і перевірено контрольним читанням.\n"
+                (
+                    "Зроблено: пакет застосовано і перевірено контрольним читанням.\n"
+                    if verified
+                    else "Зроблено: пакет застосовано; YouTube підтвердив запис. "
+                    "Негайне контрольне читання ще повернуло старі дані, "
+                    "тому повторна звірка буде під час синхронізації.\n"
+                )
                 "Не зроблено: інші відео не змінювались.\n"
                 "Далі: програма визначить наступну дію на екрані «Сьогодні».",
             )
