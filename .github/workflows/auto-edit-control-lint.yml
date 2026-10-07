@@ -1,0 +1,40 @@
+name: Auto Edit Control Lint
+
+on:
+  push:
+    paths:
+      - 'rg_remote_control/task_runner.py'
+      - 'rg_remote_control/alexpc_agent.py'
+      - 'rg_remote_control/operations_v1/**'
+      - '.github/workflows/auto-edit-control-lint.yml'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile control layer
+        run: |
+          python -m py_compile rg_remote_control/task_runner.py
+          python -m py_compile rg_remote_control/alexpc_agent.py
+          python -m py_compile rg_remote_control/operations_v1/rg_operations_guard.py
+      - name: Verify operations actions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('rg_remote_control/task_runner.py').read_text(encoding='utf-8')
+          required=[
+            'apply_auto_edit_operations_v1',
+            'start_auto_edit_operations_validation',
+            'finalize_auto_edit_020203_operations_stable',
+            'verify_auto_edit_operations_v1',
+          ]
+          missing=[x for x in required if f'"{x}":' not in s]
+          if missing:
+              raise SystemExit('Missing ACTIONS entries: '+','.join(missing))
+          print('OPERATIONS_ACTION_MAP=PASS')
+          PY
