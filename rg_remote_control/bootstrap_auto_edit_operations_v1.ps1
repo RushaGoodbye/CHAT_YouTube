@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$commit='e94c570cc03ba859f1a23bcb74d97b61838f825d'
+$commit='f4740d237d25327a4d873e225df9cd6518e6081e'
 $base="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$commit/rg_remote_control"
 
 $tmp=Join-Path $env:TEMP 'RG_AUTO_EDIT_OPERATIONS_V1'
