@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -13724,6 +13725,11 @@ class MainWindow(QMainWindow):
         )
 
     def check_for_updates_silent(self) -> None:
+        # An installer can update only the frozen installed EXE. A legacy
+        # python/pythonw source launch would reopen the old code after every
+        # installer run and create an endless update loop.
+        if not bool(getattr(sys, "frozen", False)):
+            return
         try:
             info = check_for_update()
         except Exception:
@@ -13744,6 +13750,17 @@ class MainWindow(QMainWindow):
         self._offer_update(info, manual=False)
 
     def check_for_updates_manual(self) -> None:
+        if not bool(getattr(sys, "frozen", False)):
+            QMessageBox.warning(
+                self,
+                "Оновлення недоступне для Python-запуску",
+                "RG YouTube Control запущено через Python, а не з установленого EXE.\n\n"
+                f"Python: {sys.executable}\n"
+                f"Код: {Path(__file__).resolve()}\n\n"
+                "Автоматичне оновлення для цієї копії вимкнено, щоб не створювати "
+                "цикл повторних оновлень. Запустіть встановлену версію RG YouTube Control.",
+            )
+            return
         self.statusBar().showMessage("Перевіряю оновлення...")
         QApplication.processEvents()
         try:
