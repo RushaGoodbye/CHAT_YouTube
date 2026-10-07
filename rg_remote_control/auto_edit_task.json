@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_console_and_disk_io",
+  "action": "inspect_auto_edit_powershell_usage",
   "args": {},
-  "nonce": "diag-console-diskio-20261007-1302"
+  "nonce": "inspect-black-console-flashes-20261007-1305"
 }
