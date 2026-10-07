@@ -504,3 +504,29 @@ def test_comment_analysis_export_is_zero_quota_local_csv():
     assert "viewer_rating" in source
     assert "YouTube API: 0" in source
     assert "self.client" not in source
+
+
+def test_silent_updater_suppresses_same_dismissed_version():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.check_for_updates_silent)
+    assert "update_dismissed_version" in source
+    assert "_update_prompted_version_session" in source
+
+
+def test_source_python_launch_does_not_silent_update():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.check_for_updates_silent)
+    assert 'getattr(sys, "frozen", False)' in source
+
+
+def test_manual_update_explains_python_source_launch():
+    import inspect
+    from rg_youtube_control.ui import MainWindow
+
+    source = inspect.getsource(MainWindow.check_for_updates_manual)
+    assert "Оновлення недоступне для Python-запуску" in source
+    assert "sys.executable" in source
