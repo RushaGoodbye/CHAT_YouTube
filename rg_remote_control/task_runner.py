@@ -16152,6 +16152,164 @@ def reconcile_auto_edit_post_cigarette_v1() -> dict:
     }
 
 
+
+def locate_auto_edit_886_artifacts_v2() -> dict:
+    """Read-only locator for surviving 886 XML/QA artifacts plus telemetry source map."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import importlib.util,py_compile,time,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    roots=[
+        app,
+        data,
+        Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"RG_AUTO_EDIT",
+        Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
+        Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР"),
+    ]
+    validator=app/"VALIDATE_PREMIERE_XML.py"
+    validate_fn=None
+    if validator.is_file():
+        try:
+            py_compile.compile(str(validator),doraise=True)
+            spec=importlib.util.spec_from_file_location("rg_locator_validator_886",str(validator))
+            if spec and spec.loader:
+                mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+                vf=getattr(mod,"validate",None)
+                if callable(vf):validate_fn=vf
+        except Exception:
+            validate_fn=None
+
+    rows=[];seen=set();scan_errors=[]
+    patterns=("RG_EDITED_886*.xml","*886*CIGARETTE*.xml","*886*.xml")
+    for root in roots:
+        if not root.exists():continue
+        for pat in patterns:
+            try:
+                for p in root.rglob(pat):
+                    try:
+                        if not p.is_file():continue
+                        rp=str(p.resolve()).casefold()
+                        if rp in seen:continue
+                        seen.add(rp)
+                        st=p.stat()
+                        row={"path":str(p),"root":str(root),"size":st.st_size,"mtime":st.st_mtime}
+                        text0=p.read_text(encoding="utf-8-sig",errors="replace")
+                        row["has_cigarette"]=("rg-cigarette-" in text0)
+                        try:
+                            body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
+                            xr=ET.fromstring(body)
+                            video=xr.find(".//sequence/media/video")
+                            tracks=video.findall("track") if video is not None else []
+                            cig=[c for c in xr.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+                            row["video_tracks"]=len(tracks)
+                            row["cigarette_clip_count"]=len(cig)
+                            bad=[]
+                            for c in cig:
+                                effects=[]
+                                for flt in c.findall("filter"):
+                                    eff=flt.find("effect")
+                                    if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
+                                if "crop" not in effects:bad.append(str(c.get("id"))+":CROP_MISSING")
+                                if "Gaussian Blur" not in effects:bad.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+                            row["cigarette_structural_failures"]=bad
+                            row["cigarette_structural_pass"]=bool(cig and not bad)
+                        except Exception as exc:
+                            row["parse_error"]=repr(exc)
+                        if validate_fn is not None:
+                            try:
+                                validate_fn(p);row["validator_pass"]=True
+                            except Exception as exc:
+                                row["validator_pass"]=False;row["validator_error"]=repr(exc)
+                        rows.append(row)
+                        if len(rows)>=250:break
+                    except Exception as exc:
+                        scan_errors.append({"path":str(p),"error":repr(exc)})
+                if len(rows)>=250:break
+            except Exception as exc:
+                scan_errors.append({"root":str(root),"pattern":pat,"error":repr(exc)})
+        if len(rows)>=250:break
+    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
+
+    # Nearby run/QA evidence, including the failed production session.
+    evidence=[]
+    evidence_patterns=("*.json","*.log","*.txt")
+    evidence_roots=[
+        app/"run_manifests"/"886",
+        data/"validation"/"cigarette_blur_real_886",
+        data/"control_runs",
+    ]
+    for root in evidence_roots:
+        if not root.exists():continue
+        for pat in evidence_patterns:
+            try:
+                for p in root.rglob(pat):
+                    try:
+                        if not p.is_file() or p.stat().st_size>5_000_000:continue
+                        txt=p.read_text(encoding="utf-8",errors="replace")
+                        if "886" not in txt and "cigarette" not in txt.lower() and "RGPROGRESS" not in txt:continue
+                        evidence.append({
+                            "path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime,
+                            "has_old_v5_error":"Unexpected clip class on V5" in txt,
+                            "has_progress":"RGPROGRESS|" in txt,
+                            "has_heartbeat":"RGHEARTBEAT|" in txt,
+                            "has_eta":"RGETA|" in txt,
+                            "tail":txt.splitlines()[-20:],
+                        })
+                        if len(evidence)>=80:break
+                    except Exception:pass
+            except Exception:pass
+            if len(evidence)>=80:break
+        if len(evidence)>=80:break
+    evidence.sort(key=lambda x:x.get("mtime",0),reverse=True)
+
+    telemetry={}
+    for name in ("rg_production_wrapper.py","rg_multi_dialogue.py","rg_auto_edit_one_button.py","rg_studio_ui.py"):
+        p=app/name
+        row={"path":str(p),"exists":p.is_file()}
+        if p.is_file():
+            src=p.read_text(encoding="utf-8",errors="replace")
+            lines=src.splitlines()
+            row.update({
+                "size":p.stat().st_size,
+                "RGPROGRESS":src.count("RGPROGRESS"),
+                "RGHEARTBEAT":src.count("RGHEARTBEAT"),
+                "RGETA":src.count("RGETA"),
+                "RGSTAGE":src.count("RGSTAGE"),
+                "RGPOS":src.count("RGPOS"),
+                "print_calls":src.count("print("),
+                "popen_calls":src.count("Popen("),
+            })
+            hits=[]
+            for i,line in enumerate(lines):
+                if any(x in line for x in ("RGPROGRESS","RGHEARTBEAT","RGETA","RGSTAGE","RGPOS","Popen(","readyReadStandardOutput")):
+                    a=max(0,i-3);b=min(len(lines),i+6)
+                    hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {lines[j]}" for j in range(a,b))})
+                    if len(hits)>=18:break
+            row["hits"]=hits
+        telemetry[name]=row
+
+    direct=[x for x in rows if x.get("cigarette_structural_pass") and x.get("validator_pass")]
+    any_xml=bool(rows)
+    return {
+        "schema":"RG_LOCATE_886_ARTIFACTS_V2",
+        "read_only":True,
+        "roots":[str(x) for x in roots],
+        "xml_count":len(rows),
+        "direct_full_validator_pass_count":len(direct),
+        "best_direct":direct[:8],
+        "xmls":rows[:120],
+        "evidence":evidence[:60],
+        "telemetry_map":telemetry,
+        "scan_errors":scan_errors[:20],
+        "next_action":(
+            "USE_SURVIVING_REAL_XML" if direct else
+            ("ANALYZE_FOUND_XML_VALIDATOR_FAILURES" if any_xml else "NO_886_XML_SURVIVES_USE_LOG_PLUS_FIX_TELEMETRY")
+        ),
+        "audited_at":time.time(),
+    }
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16218,6 +16376,7 @@ ACTIONS = {
     "apply_auto_edit_operations_ui_status_hotfix_v1": apply_auto_edit_operations_ui_status_hotfix_v1,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
+    "locate_auto_edit_886_artifacts_v2": locate_auto_edit_886_artifacts_v2,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
     "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
