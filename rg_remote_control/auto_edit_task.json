@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_active_process_tree",
+  "action": "inspect_auto_edit_runtime_state",
   "args": {},
-  "nonce": "verify-hidden-runner-20261007-1322"
+  "nonce": "inspect-stable-state-after-cancel-20261007"
 }
