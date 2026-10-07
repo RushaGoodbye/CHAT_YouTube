@@ -16,6 +16,20 @@ ACTION_LABELS = {
     "": "",
 }
 
+CATEGORY_LABELS = {
+    "patriotic_support": "патріотична підтримка",
+    "reaction_or_humor": "реакція / гумор",
+    "question": "питання",
+    "substantive_comment": "змістовний коментар",
+    "duplicate": "дубль",
+    "toxic_or_risky": "токсичний / ризиковий",
+    "spam": "спам",
+    "moderation_locked": "модерація YouTube",
+    "empty": "порожній",
+    "replied": "вже відповіли",
+    "ignored": "проігноровано",
+}
+
 ACTION_COLORS = {
     "reply": SUCCESS,
     "like": "#4da3ff",
@@ -81,10 +95,12 @@ def install_comment_action_ui(window) -> None:
 
         action_map = {}
         reason_map = {}
+        category_map = {}
         if ids:
             placeholders = ",".join("?" for _ in ids)
             rows = window.conn.execute(
                 f"""SELECT comment_id,action,action_reason
+                    ,category
                     FROM comments
                     WHERE comment_id IN ({placeholders})""",
                 tuple(ids),
@@ -93,6 +109,7 @@ def install_comment_action_ui(window) -> None:
                 cid = str(db_row["comment_id"])
                 action_map[cid] = str(db_row["action"] or "")
                 reason_map[cid] = str(db_row["action_reason"] or "")
+                category_map[cid] = str(db_row["category"] or "")
 
         wanted = str(action_filter.currentData() or "")
         for row in range(table.rowCount()):
@@ -103,6 +120,10 @@ def install_comment_action_ui(window) -> None:
                 else ""
             )
             action = action_map.get(cid, "")
+            category = category_map.get(cid, "")
+            category_item = table.item(row, 4)
+            if category_item is not None and category in CATEGORY_LABELS:
+                category_item.setText(CATEGORY_LABELS[category])
             item = _item(ACTION_LABELS.get(action, action))
             item.setForeground(QColor(ACTION_COLORS.get(action, MUTED)))
             if reason_map.get(cid):
