@@ -13728,8 +13728,20 @@ class MainWindow(QMainWindow):
             info = check_for_update()
         except Exception:
             return
-        if info is not None:
-            self._offer_update(info)
+        if info is None:
+            return
+        dismissed = get_setting(
+            self.conn,
+            "update_dismissed_version",
+            "",
+        ).strip()
+        if dismissed == str(info.version).strip():
+            return
+        prompted = getattr(self, "_update_prompted_version_session", "")
+        if prompted == str(info.version).strip():
+            return
+        self._update_prompted_version_session = str(info.version).strip()
+        self._offer_update(info, manual=False)
 
     def check_for_updates_manual(self) -> None:
         self.statusBar().showMessage("Перевіряю оновлення...")
@@ -13747,9 +13759,9 @@ class MainWindow(QMainWindow):
                 f"Встановлено актуальну версію {__version__}.",
             )
             return
-        self._offer_update(info)
+        self._offer_update(info, manual=True)
 
-    def _offer_update(self, info: UpdateInfo) -> None:
+    def _offer_update(self, info: UpdateInfo, *, manual: bool = False) -> None:
         answer = QMessageBox.question(
             self,
             "Доступне оновлення",
@@ -13760,7 +13772,14 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes,
         )
         if answer != QMessageBox.StandardButton.Yes:
+            if not manual:
+                set_setting(
+                    self.conn,
+                    "update_dismissed_version",
+                    str(info.version).strip(),
+                )
             return
+        set_setting(self.conn, "update_dismissed_version", "")
         self.statusBar().showMessage(
             f"Завантажую RG YouTube Control {info.version}..."
         )
