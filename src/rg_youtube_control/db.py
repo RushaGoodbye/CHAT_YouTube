@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import PROFILE_TARGETS
-from .comment_actions import decide_comment_action
+from .comment_actions import ACTION_RULES_VERSION, decide_comment_action
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -180,7 +180,17 @@ def connect(path: Path) -> sqlite3.Connection:
              AND draft_reason='legacy_reply_text_migrated'""",
         (utc_now(),),
     )
-    reclassify_comment_actions(conn)
+    current_rules = conn.execute(
+        "SELECT value FROM settings WHERE key='comment_action_rules_version'"
+    ).fetchone()
+    if current_rules is None or str(current_rules["value"] or "") != ACTION_RULES_VERSION:
+        reclassify_comment_actions(conn)
+        conn.execute(
+            """INSERT INTO settings(key,value) VALUES('comment_action_rules_version',?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+            (ACTION_RULES_VERSION,),
+        )
+        conn.commit()
     _ensure_column(
         conn,
         "optimization_drafts",
@@ -214,20 +224,23 @@ def _normalized_comment_key(author: str, text: str) -> tuple[str, str]:
 
 def reclassify_comment_actions(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute(
-        """SELECT comment_id,author,text,status,published_at
-           FROM comments
-           ORDER BY published_at DESC, comment_id DESC"""
+        """SELECT c.comment_id,c.author,c.text,c.status,c.published_at,
+                  COALESCE(v.profile,'') AS profile
+           FROM comments c
+           LEFT JOIN videos v ON v.video_id=c.video_id
+           ORDER BY c.published_at DESC,c.comment_id DESC"""
     ).fetchall()
     counts = {"reply": 0, "like": 0, "review": 0, "skip": 0}
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     now = utc_now()
     for row in rows:
-        key = _normalized_comment_key(
+        author_key, text_key = _normalized_comment_key(
             str(row["author"] or ""),
             str(row["text"] or ""),
         )
+        key = (str(row["profile"] or ""), author_key, text_key)
         status = str(row["status"] or "new")
-        if key[1] and key in seen and status == "new":
+        if key[2] and key in seen and status == "new":
             action = "skip"
             category = "duplicate"
             reason = "duplicate_same_author_text"
@@ -239,7 +252,7 @@ def reclassify_comment_actions(conn: sqlite3.Connection) -> dict[str, int]:
             action = decision.action
             category = decision.category
             reason = decision.reason
-        if key[1]:
+        if key[2]:
             seen.add(key)
         conn.execute(
             """UPDATE comments
