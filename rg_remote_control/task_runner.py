@@ -13378,6 +13378,13 @@ print(json.dumps({m:bool(importlib.util.find_spec(m)) for m in mods}))
              "ultralytics==8.3.203"]
         cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=900)
         if cp.returncode!=0:raise RuntimeError("Ultralytics isolated install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
+    # YOLO-World text prompts require Ultralytics' CLIP fork. Install it only
+    # into the isolated worker site, never into the Studio Runtime site-packages.
+    if not (site/"clip").is_dir():
+        clip_url="https://github.com/ultralytics/CLIP/archive/refs/heads/main.zip"
+        cmd=[str(runtime),"-m","pip","install","--target",str(site),"--no-deps","--no-warn-script-location",clip_url]
+        cp=subprocess.run(cmd,cwd=str(app),env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=900)
+        if cp.returncode!=0:raise RuntimeError("Ultralytics CLIP isolated install failed: "+((cp.stdout or "")+(cp.stderr or ""))[-8000:])
     test=r'''
 import os,sys,json,shutil
 from pathlib import Path
