@@ -13837,7 +13837,7 @@ print(json.dumps({"ultralytics":ultralytics.__version__,"torch":torch.__version_
 
 
 
-def validate_auto_edit_cigarette_worker_real_sample() -> dict:
+def verify_auto_edit_cigarette_worker_real_sample() -> dict:
     """Read-only validation of the isolated cigarette detector on recent real video files."""
     if os.name!="nt":
         raise RuntimeError("Windows only")
@@ -14623,7 +14623,7 @@ ACTIONS = {
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
     "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
-    "validate_auto_edit_cigarette_worker_real_sample": validate_auto_edit_cigarette_worker_real_sample,
+    "verify_auto_edit_cigarette_worker_real_sample": verify_auto_edit_cigarette_worker_real_sample,
     "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
