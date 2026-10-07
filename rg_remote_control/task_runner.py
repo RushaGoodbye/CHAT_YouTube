@@ -13349,6 +13349,60 @@ def freeze_auto_edit_stable_020180() -> dict:
 
 
 
+
+def inspect_auto_edit_cigarette_blur_targets() -> dict:
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import subprocess,shutil
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
+    out={"modules":[],"runtime":{},"models":[],"ffmpeg":shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")}
+    needles=("privacy_blur","norfair","build_native_xml","overlay","final_timeline_audit","blur_radius")
+    for p in sorted(app.glob("*.py")):
+        try:txt=p.read_text(encoding="utf-8",errors="replace")
+        except Exception:continue
+        hits=[n for n in needles if n.casefold() in txt.casefold()]
+        if hits:
+            out["modules"].append({"name":p.name,"size":p.stat().st_size,"hits":hits})
+    if runtime.is_file():
+        code=r'''
+import json,importlib.util,sys
+mods=["cv2","numpy","torch","ultralytics","norfair","onnxruntime","PIL"]
+out={}
+for m in mods:
+    try:
+        spec=importlib.util.find_spec(m)
+        if not spec:out[m]={"available":False};continue
+        mod=__import__(m)
+        out[m]={"available":True,"version":str(getattr(mod,"__version__",""))}
+    except Exception as e:out[m]={"available":False,"error":repr(e)}
+try:
+    import torch
+    out["cuda"]={"available":bool(torch.cuda.is_available()),"device":torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}
+except Exception as e:out["cuda"]={"available":False,"error":repr(e)}
+print(json.dumps(out,ensure_ascii=False))
+'''
+        cp=subprocess.run([str(runtime),"-X","utf8","-c",code],cwd=str(app),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=90)
+        try:out["runtime"]=json.loads((cp.stdout or "").strip().splitlines()[-1])
+        except Exception:out["runtime"]={"rc":cp.returncode,"stdout":(cp.stdout or "")[-3000:],"stderr":(cp.stderr or "")[-3000:]}
+    roots=[app/"models",Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\models"),Path.home()/".cache"]
+    seen=set()
+    for root in roots:
+        if not root.exists():continue
+        try:
+            for p in root.rglob("*"):
+                if not p.is_file():continue
+                low=p.name.casefold()
+                if p.suffix.lower() in {".pt",".onnx",".engine"} and any(k in low for k in ("yolo","world","detect","sam","cig","object")):
+                    q=str(p)
+                    if q not in seen:
+                        seen.add(q);out["models"].append({"path":q,"size":p.stat().st_size})
+                        if len(out["models"])>=50:break
+        except Exception as exc:
+            out.setdefault("model_errors",[]).append({"root":str(root),"error":repr(exc)})
+        if len(out["models"])>=50:break
+    return out
+
+
 def inspect_auto_edit_files_generic() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     task_path=Path(sys.argv[1] if len(sys.argv)>1 else "rg_remote_control/auto_edit_task.json")
@@ -13892,6 +13946,7 @@ ACTIONS = {
     "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
     "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
     "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
+    "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
     "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
