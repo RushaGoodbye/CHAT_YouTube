@@ -15518,6 +15518,395 @@ def telegram_local_status() -> dict:
         "github_required": False,
     }
 
+
+def apply_auto_edit_cigarette_validator_hotfix_v1() -> dict:
+    """Allow only RG cigarette overlay clips on the extra video track, then validate a real saved stream XML."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,importlib.util,py_compile,re,shutil,time,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    validator=app/"VALIDATE_PREMIERE_XML.py"
+    if not validator.is_file():
+        raise RuntimeError("VALIDATE_PREMIERE_XML.py missing")
+
+    src=validator.read_text(encoding="utf-8-sig",errors="replace")
+    guard="# RG_CIGARETTE_VALIDATOR_HOTFIX_V1"
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_CIGARETTE_VALIDATOR_{stamp}"
+    backup_path=None
+    changed=False
+
+    if guard not in src:
+        backup.mkdir(parents=True,exist_ok=False)
+        backup_path=backup/validator.name
+        shutil.copy2(validator,backup_path)
+
+        pat=re.compile(
+            r'(?m)^(?P<indent>[ \t]*)raise RuntimeError\(f"Unexpected clip class on V\{extra_index\}: \{ids\[:3\]\}"\)\s*    "telegram_local_status": telegram_local_status,
+    "health": health,
+    "ensure_github_runner_persistence": ensure_github_runner_persistence,
+    "probe_environment": probe_environment,
+    "stage_remote_mcp_to_nas": stage_remote_mcp_to_nas,
+    "probe_ssh_config": probe_ssh_config,
+    "probe_nas_ssh_auth": probe_nas_ssh_auth,
+    "probe_nas_mcp_inventory": probe_nas_mcp_inventory,
+    "probe_nas_telegram_mcp_fast": probe_nas_telegram_mcp_fast,
+    "probe_contour_mounts": probe_contour_mounts,
+    "probe_nas_cached_identity": probe_nas_cached_identity,
+    "request_local_mcp_deploy": request_local_mcp_deploy,
+    "probe_local_mcp_deploy": probe_local_mcp_deploy,
+    "probe_remote_commander_runtime": probe_remote_commander_runtime,
+    "install_live_mcp_autodeploy_hook": install_live_mcp_autodeploy_hook,
+    "probe_live_mcp_hook": probe_live_mcp_hook,
+    "probe_nas_autodeploy_runtime": probe_nas_autodeploy_runtime,
+    "stage_mcp_to_docker_root": stage_mcp_to_docker_root,
+    "migrate_live_mcp_hook_to_docker_root": migrate_live_mcp_hook_to_docker_root,
+    "probe_docker_root_mcp_deploy": probe_docker_root_mcp_deploy,
+    "wait_docker_root_mcp_deploy": wait_docker_root_mcp_deploy,
+    "upgrade_live_mcp_hook_autodetect_volume": upgrade_live_mcp_hook_autodetect_volume,
+    "install_mcp_protocol_smoke_hook": install_mcp_protocol_smoke_hook,
+    "request_mcp_protocol_smoke": request_mcp_protocol_smoke,
+    "enable_one_minute_mcp_tick": enable_one_minute_mcp_tick,
+    "probe_cloudflare_mcp_gateway_options": probe_cloudflare_mcp_gateway_options,
+    "run_telegram_mcp_smoke": run_telegram_mcp_smoke,
+    "enable_telegram_mcp_bridge": enable_telegram_mcp_bridge,
+    "probe_telegram_mcp_bridge": probe_telegram_mcp_bridge,
+    "telegram_mcp_batch": telegram_mcp_batch,
+    "telegram_mcp_call": telegram_mcp_call,
+    "youtube_mcp_call": youtube_mcp_call,
+    "youtube_mcp_batch": youtube_mcp_batch,
+    "youtube_program_local_status": youtube_program_local_status,
+    "auto_edit_mcp_call": auto_edit_mcp_call,
+    "launch_auto_edit_studio": launch_auto_edit_studio,
+    "restart_auto_edit_studio_ui": restart_auto_edit_studio_ui,
+    "inspect_auto_edit_active_process_tree": inspect_auto_edit_active_process_tree,
+    "inspect_auto_edit_console_and_disk_io": inspect_auto_edit_console_and_disk_io,
+    "switch_github_runner_hidden_mode": switch_github_runner_hidden_mode,
+    "inspect_auto_edit_live_code": inspect_auto_edit_live_code,
+    "inspect_auto_edit_pack100_targets": inspect_auto_edit_pack100_targets,
+    "inspect_auto_edit_update_format": inspect_auto_edit_update_format,
+    "inspect_auto_edit_update_worker": inspect_auto_edit_update_worker,
+    "inspect_auto_edit_update_install_state": inspect_auto_edit_update_install_state,
+    "inspect_auto_edit_updater_state": inspect_auto_edit_updater_state,
+    "inspect_auto_edit_ui_freeze_runtime": inspect_auto_edit_ui_freeze_runtime,
+    "inspect_auto_edit_startup_hotspots": inspect_auto_edit_startup_hotspots,
+    "apply_auto_edit_ui_responsiveness_hotfix": apply_auto_edit_ui_responsiveness_hotfix,
+    "apply_auto_edit_boot_version_sync_hotfix": apply_auto_edit_boot_version_sync_hotfix,
+    "inspect_auto_edit_powershell_usage": inspect_auto_edit_powershell_usage,
+    "inspect_auto_edit_windows_service_targets": inspect_auto_edit_windows_service_targets,
+    "inspect_auto_edit_files_generic": inspect_auto_edit_files_generic,
+    "inspect_auto_edit_cigarette_blur_targets": inspect_auto_edit_cigarette_blur_targets,
+    "verify_auto_edit_cigarette_worker_real_sample": verify_auto_edit_cigarette_worker_real_sample,
+    "verify_auto_edit_cigarette_tracking_and_xml_real": verify_auto_edit_cigarette_tracking_and_xml_real,
+    "prepare_auto_edit_cigarette_detector_v1": prepare_auto_edit_cigarette_detector_v1,
+    "finalize_auto_edit_020202_stable": finalize_auto_edit_020202_stable,
+    "apply_auto_edit_operations_v1": apply_auto_edit_operations_v1,
+    "start_auto_edit_operations_validation": start_auto_edit_operations_validation,
+    "finalize_auto_edit_020203_operations_stable": finalize_auto_edit_020203_operations_stable,
+    "verify_auto_edit_operations_v1": verify_auto_edit_operations_v1,
+    "apply_auto_edit_operations_ui_status_hotfix_v1": apply_auto_edit_operations_ui_status_hotfix_v1,
+    "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
+    "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
+    "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
+    "build_auto_edit_pack130_update": build_auto_edit_pack130_update,
+    "build_auto_edit_pack140_update": build_auto_edit_pack140_update,
+    "build_auto_edit_pack150_update": build_auto_edit_pack150_update,
+    "apply_auto_edit_pack150_ui_hotfix": apply_auto_edit_pack150_ui_hotfix,
+    "probe_auto_edit_studio_startup": probe_auto_edit_studio_startup,
+    "inspect_auto_edit_ui_class": inspect_auto_edit_ui_class,
+    "inspect_auto_edit_visual_targets": inspect_auto_edit_visual_targets,
+    "inspect_auto_edit_montage_visual_block": inspect_auto_edit_montage_visual_block,
+    "inspect_auto_edit_progress_pipeline": inspect_auto_edit_progress_pipeline,
+    "inspect_auto_edit_progress_functions": inspect_auto_edit_progress_functions,
+    "inspect_auto_edit_run_log": inspect_auto_edit_run_log,
+    "apply_auto_edit_cigarette_validator_hotfix_v1": apply_auto_edit_cigarette_validator_hotfix_v1,
+    "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
+    "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
+    "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
+    "build_auto_edit_pack310_update": build_auto_edit_pack310_update,
+    "build_auto_edit_pack311_update": build_auto_edit_pack311_update,
+    "build_auto_edit_pack312_update": build_auto_edit_pack312_update,
+    "build_auto_edit_pack400_update": build_auto_edit_pack400_update,
+    "build_auto_edit_pack500_update": build_auto_edit_pack500_update,
+    "build_auto_edit_pack25_stability_ux_update": build_auto_edit_pack25_stability_ux_update,
+    "build_auto_edit_production40_update": build_auto_edit_production40_update,
+    "build_auto_edit_master60_update": build_auto_edit_master60_update,
+    "install_auto_edit_master60_r1_direct": install_auto_edit_master60_r1_direct,
+    "run_auto_edit_updater_smoke_020201": run_auto_edit_updater_smoke_020201,
+    "build_auto_edit_pack160_update": build_auto_edit_pack160_update,
+    "apply_auto_edit_pack100": apply_auto_edit_pack100,
+    "verify_auto_edit_pack100": verify_auto_edit_pack100,
+    "audit_auto_edit_pack100_features": audit_auto_edit_pack100_features,
+    "inspect_auto_edit_pack100_missing_targets": inspect_auto_edit_pack100_missing_targets,
+    "apply_auto_edit_pack100_ui_completion": apply_auto_edit_pack100_ui_completion,
+    "finalize_auto_edit_pack100": finalize_auto_edit_pack100,
+    "inspect_auto_edit_runtime_state": inspect_auto_edit_runtime_state,
+    "locate_auto_edit_missing_screens": locate_auto_edit_missing_screens,
+    "apply_auto_edit_completeness_hotfix": apply_auto_edit_completeness_hotfix,
+    "apply_auto_edit_preview_sort_hotfix": apply_auto_edit_preview_sort_hotfix,
+    "apply_auto_edit_final_compilation_retirement_hotfix": apply_auto_edit_final_compilation_retirement_hotfix,
+    "apply_auto_edit_topaz_all_selected_hotfix": apply_auto_edit_topaz_all_selected_hotfix,
+    "apply_auto_edit_guest_face_only_hotfix": apply_auto_edit_guest_face_only_hotfix,
+    "apply_auto_edit_clean_guest_portraits_hotfix": apply_auto_edit_clean_guest_portraits_hotfix,
+    "rebuild_auto_edit_clean_guest_candidates": rebuild_auto_edit_clean_guest_candidates,
+    "apply_auto_edit_strict_guest_face_v2": apply_auto_edit_strict_guest_face_v2,
+    "apply_auto_edit_thumbnail_v6_visibility_hotfix": apply_auto_edit_thumbnail_v6_visibility_hotfix,
+    "verify_auto_edit_preview_hotfix_state": verify_auto_edit_preview_hotfix_state,
+    "inspect_auto_edit_thumbnail_final_render": inspect_auto_edit_thumbnail_final_render,
+    "run_auto_edit_preview_886_smoke": run_auto_edit_preview_886_smoke,
+    "inspect_auto_edit_final_compilation_code": inspect_auto_edit_final_compilation_code,
+    "inspect_auto_edit_topaz_flow": inspect_auto_edit_topaz_flow,
+    "inspect_auto_edit_thumbnail_candidate_writers": inspect_auto_edit_thumbnail_candidate_writers,
+    "inspect_auto_edit_thumbnail_mix_source": inspect_auto_edit_thumbnail_mix_source,
+    "inspect_auto_edit_thumbnail_mix_main": inspect_auto_edit_thumbnail_mix_main,
+    "inspect_auto_edit_latest_thumbnail_state": inspect_auto_edit_latest_thumbnail_state,
+    "inspect_auto_edit_thumbnail_paths": inspect_auto_edit_thumbnail_paths,
+    "inspect_auto_edit_backend_path_identity": inspect_auto_edit_backend_path_identity,
+    "inspect_auto_edit_topaz_automation_and_prep": inspect_auto_edit_topaz_automation_and_prep,
+    "inspect_auto_edit_chatgpt_collage_flow": inspect_auto_edit_chatgpt_collage_flow,
+    "inspect_auto_edit_chatgpt_browser_automation": inspect_auto_edit_chatgpt_browser_automation,
+    "cleanup_auto_edit_duplicate_studio": cleanup_auto_edit_duplicate_studio,
+    "inspect_auto_edit_execution_functions": inspect_auto_edit_execution_functions,
+    "start_auto_edit_recovery_queue": start_auto_edit_recovery_queue,
+    "inspect_auto_edit_stream_result": inspect_auto_edit_stream_result,
+    "run_auto_edit_886_short_smoke": run_auto_edit_886_short_smoke,
+    "inspect_auto_edit_901_audio_outputs": inspect_auto_edit_901_audio_outputs,
+    "inspect_auto_edit_audio_generator_code": inspect_auto_edit_audio_generator_code,
+    "inspect_auto_edit_premiere_audio_direct_branch": inspect_auto_edit_premiere_audio_direct_branch,
+    "apply_auto_edit_direct_audio_unity_generator_fix": apply_auto_edit_direct_audio_unity_generator_fix,
+    "apply_auto_edit_premiere_audio_unity_hotfix": apply_auto_edit_premiere_audio_unity_hotfix,
+    "inspect_auto_edit_901_audio_schema_compact": inspect_auto_edit_901_audio_schema_compact,
+    "inspect_auto_edit_901_audio_gaps_and_censor": inspect_auto_edit_901_audio_gaps_and_censor,
+    "inspect_auto_edit_901_delivery_vs_source": inspect_auto_edit_901_delivery_vs_source,
+    "inspect_auto_edit_901_linkage": inspect_auto_edit_901_linkage,
+    "inspect_auto_edit_901_link_samples": inspect_auto_edit_901_link_samples,
+    "apply_auto_edit_censor_avlink_hotfix": apply_auto_edit_censor_avlink_hotfix,
+    "inspect_auto_edit_censor_pipeline_backup_span": inspect_auto_edit_censor_pipeline_backup_span,
+    "inspect_auto_edit_901_muted_xml_sample": inspect_auto_edit_901_muted_xml_sample,
+    "apply_auto_edit_visible_censor_fix": apply_auto_edit_visible_censor_fix,
+    "inspect_auto_edit_901_censor_group_spans": inspect_auto_edit_901_censor_group_spans,
+    "inspect_auto_edit_keyframe_support": inspect_auto_edit_keyframe_support,
+    "inspect_auto_edit_profanity_module_full": inspect_auto_edit_profanity_module_full,
+    "inspect_auto_edit_901_uncensored_bases": inspect_auto_edit_901_uncensored_bases,
+    "apply_auto_edit_keyframe_censor_v2": apply_auto_edit_keyframe_censor_v2,
+    "inspect_auto_edit_901_all_final_qa": inspect_auto_edit_901_all_final_qa,
+    "inspect_auto_edit_901_2_ripple_links": inspect_auto_edit_901_2_ripple_links,
+    "apply_auto_edit_all_v1_linkage_fix": apply_auto_edit_all_v1_linkage_fix,
+    "apply_auto_edit_audio_integrity_guard": apply_auto_edit_audio_integrity_guard,
+    "apply_auto_edit_validator_avlink_v2": apply_auto_edit_validator_avlink_v2,
+    "apply_auto_edit_service_process_stream_fix": apply_auto_edit_service_process_stream_fix,
+    "apply_auto_edit_updater_detach_fix_v2": apply_auto_edit_updater_detach_fix_v2,
+    "apply_auto_edit_updater_supervisor_v3": apply_auto_edit_updater_supervisor_v3,
+    "apply_auto_edit_windows_service_layer_v1": apply_auto_edit_windows_service_layer_v1,
+    "freeze_auto_edit_stable_020180": freeze_auto_edit_stable_020180,
+    "prepare_auto_edit_020201_candidate_snapshot": prepare_auto_edit_020201_candidate_snapshot,
+    "finalize_auto_edit_020201_stable": finalize_auto_edit_020201_stable,
+    "sync_auto_edit_020201_stable_metadata": sync_auto_edit_020201_stable_metadata,
+    "inspect_auto_edit_multi_resume_span": inspect_auto_edit_multi_resume_span,
+    "apply_auto_edit_resume_protection_hotfix": apply_auto_edit_resume_protection_hotfix,
+    "apply_auto_edit_run_state_colors_hotfix": apply_auto_edit_run_state_colors_hotfix,
+    "inspect_auto_edit_901_diagnostic": inspect_auto_edit_901_diagnostic,
+    "inspect_auto_edit_clock_boundary_code": inspect_auto_edit_clock_boundary_code,
+    "inspect_auto_edit_one_button_boundary_gate": inspect_auto_edit_one_button_boundary_gate,
+    "inspect_auto_edit_identity_refiner": inspect_auto_edit_identity_refiner,
+    "inspect_auto_edit_901_temp_artifacts": inspect_auto_edit_901_temp_artifacts,
+    "search_auto_edit_901_anchor_artifacts": search_auto_edit_901_anchor_artifacts,
+    "inspect_auto_edit_901_anchor_sequence": inspect_auto_edit_901_anchor_sequence,
+    "apply_auto_edit_monotonic_anchor_hotfix": apply_auto_edit_monotonic_anchor_hotfix,
+    "apply_auto_edit_identity_local_scan_cap_hotfix": apply_auto_edit_identity_local_scan_cap_hotfix,
+    "inspect_auto_edit_recovery_queue": inspect_auto_edit_recovery_queue,
+    "enable_auto_edit_mcp_bridge": enable_auto_edit_mcp_bridge,
+    "probe_auto_edit_mcp_bridge": probe_auto_edit_mcp_bridge,
+    "enable_youtube_mcp_bridge": enable_youtube_mcp_bridge,
+    "probe_youtube_mcp_bridge": probe_youtube_mcp_bridge,
+    "probe_youtube_tick_runtime": probe_youtube_tick_runtime,
+    "probe_autodeploy_container_layout": probe_autodeploy_container_layout,
+    "list_nas_project_roots": list_nas_project_roots,
+    "probe_nas_shares": probe_nas_shares,
+    "probe_nas_telegram_locations": probe_nas_telegram_locations,
+    "probe_telegram_production_layout": probe_telegram_production_layout,
+    "probe_nas_identity": probe_nas_identity,
+    "probe_nas_home_connection": probe_nas_home_connection,
+    "install_and_probe_nas_ssh_key": install_and_probe_nas_ssh_key,
+    "probe_nas_command_bus": probe_nas_command_bus,
+    "sync_nas_command_bus_mcp": sync_nas_command_bus_mcp,
+    "probe_command_bus_state": probe_command_bus_state,
+    "sync_nas_scheduler_tick": sync_nas_scheduler_tick,
+    "wait_for_mcp_command_bus": wait_for_mcp_command_bus,
+    "probe_scheduler_history": probe_scheduler_history,
+    "deploy_remote_mcp": deploy_remote_mcp,
+    "remote_mcp_status": remote_mcp_status,
+}
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    task_path = Path(sys.argv[1] if len(sys.argv) > 1 else "rg_remote_control/task.json")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    action = str(task.get("action") or "")
+    fn = ACTIONS.get(action)
+    if fn is None:
+        raise SystemExit(f"Unsupported action: {action}")
+    result = fn()
+    print(json.dumps({"action": action, "result": result}, ensure_ascii=False, indent=2))
+    if isinstance(result, dict) and int(result.get("exit_code", 0)) != 0:
+        return int(result["exit_code"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+# PACK300_RETRY_2
+
+# PACK300_RETRY_3
+
+        )
+        m=pat.search(src)
+        if not m:
+            raise RuntimeError("Cigarette validator error anchor missing")
+        ind=m.group("indent")
+        repl=(
+            ind+guard+"\n"
+            +ind+'if not (ids and all(str(_rg_id).startswith("rg-cigarette-") for _rg_id in ids)):\n'
+            +ind+'    raise RuntimeError(f"Unexpected clip class on V{extra_index}: {ids[:3]}")'
+        )
+        src,n=pat.subn(repl,src,count=1)
+        if n!=1:
+            raise RuntimeError("Cigarette validator patch count mismatch")
+        tmp=validator.with_suffix(".cig-validator.tmp.py")
+        tmp.write_text(src,encoding="utf-8")
+        try:
+            py_compile.compile(str(tmp),doraise=True)
+        except Exception:
+            if backup_path and backup_path.is_file():
+                shutil.copy2(backup_path,validator)
+            raise
+        os.replace(tmp,validator)
+        changed=True
+    else:
+        py_compile.compile(str(validator),doraise=True)
+
+    # Load the patched validator in a fresh module.
+    spec=importlib.util.spec_from_file_location("rg_validator_cigarette_hotfix",str(validator))
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load patched validator")
+    mod=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    validate_fn=getattr(mod,"validate",None)
+    if not callable(validate_fn):
+        raise RuntimeError("validate() missing in patched validator")
+
+    # Prefer the failed control stream, but accept a caller-supplied numeric stream.
+    stream="886"
+    try:
+        task_path=Path(sys.argv[1] if len(sys.argv)>1 else "rg_remote_control/auto_edit_task.json")
+        task=json.loads(task_path.read_text(encoding="utf-8"))
+        v=str(((task.get("args") or {}).get("stream") or "886")).strip()
+        if v.isdigit():stream=v
+    except Exception:
+        pass
+
+    roots=[
+        app/stream,
+        app/"run_manifests"/stream,
+        Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР"),
+    ]
+    candidates=[]
+    seen=set()
+    for root in roots:
+        if not root.exists():continue
+        try:
+            it=root.rglob(f"*{stream}*.xml")
+            for p in it:
+                try:
+                    rp=str(p.resolve()).casefold()
+                    if rp in seen:continue
+                    seen.add(rp)
+                    text0=p.read_text(encoding="utf-8-sig",errors="replace")
+                    if "rg-cigarette-" not in text0:continue
+                    candidates.append(p)
+                    if len(candidates)>=30:break
+                except Exception:pass
+        except Exception:pass
+        if len(candidates)>=30:break
+    candidates=sorted(candidates,key=lambda p:p.stat().st_mtime,reverse=True)
+
+    tested=[]
+    passed_path=None
+    structural=None
+    for p in candidates[:12]:
+        row={"path":str(p),"mtime":p.stat().st_mtime}
+        try:
+            text0=p.read_text(encoding="utf-8-sig",errors="replace")
+            body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
+            root=ET.fromstring(body)
+            clips=[c for c in root.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+            failures=[]
+            for c in clips:
+                effects=[]
+                for flt in c.findall("filter"):
+                    eff=flt.find("effect")
+                    if eff is not None:
+                        effects.append((eff.findtext("effectid") or "").strip())
+                if "crop" not in effects:failures.append(str(c.get("id"))+":CROP_MISSING")
+                if "Gaussian Blur" not in effects:failures.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+            row["cigarette_clip_count"]=len(clips)
+            row["structural_failures"]=failures
+            if not clips or failures:
+                row["passed"]=False
+                tested.append(row)
+                continue
+            validate_fn(p)
+            row["passed"]=True
+            passed_path=str(p)
+            structural={"cigarette_clip_count":len(clips),"failures":[]}
+            tested.append(row)
+            break
+        except Exception as exc:
+            row["passed"]=False
+            row["error"]=repr(exc)
+            tested.append(row)
+
+    if candidates and not passed_path:
+        if changed and backup_path and backup_path.is_file():
+            shutil.copy2(backup_path,validator)
+        raise RuntimeError("Patched validator did not pass any saved cigarette XML: "+json.dumps(tested,ensure_ascii=False)[:6000])
+
+    # Persist operational evidence. Lack of a saved XML is not a patch failure, but is reported clearly.
+    statep=data/"OPERATIONS_V1_STATE.json"
+    try:state=json.loads(statep.read_text(encoding="utf-8-sig")) if statep.is_file() else {}
+    except Exception:state={}
+    state["cigarette_validator_hotfix"]="RG_CIGARETTE_VALIDATOR_HOTFIX_V1"
+    state["cigarette_validator_hotfix_status"]="PASS_REAL_XML" if passed_path else "PATCH_COMPILED_NO_SAVED_XML"
+    state["cigarette_validator_hotfix_stream"]=stream
+    state["cigarette_validator_hotfix_xml"]=passed_path
+    state["updated_at"]=time.time()
+    statep.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    return {
+        "status":"PASS_REAL_XML" if passed_path else "PATCH_COMPILED_NO_SAVED_XML",
+        "stream":stream,
+        "validator":str(validator),
+        "changed":changed,
+        "guard":"RG_CIGARETTE_VALIDATOR_HOTFIX_V1",
+        "backup":str(backup_path) if backup_path else None,
+        "saved_xml_candidates":len(candidates),
+        "validated_xml":passed_path,
+        "structural":structural,
+        "tested":tested[:6],
+        "policy":"ALLOW_ONLY_RG_CIGARETTE_IDS_ON_EXTRA_TRACK; MIXED_OR_UNKNOWN_IDS_STILL_FAIL",
+        "cigarette_blur_disabled":False,
+        "whole_frame_blur_allowed":False,
+        "restart_required":False,
+    }
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
