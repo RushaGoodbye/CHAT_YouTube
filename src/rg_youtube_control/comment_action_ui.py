@@ -181,10 +181,31 @@ def install_comment_action_ui(window) -> None:
                 "YouTube API: 0"
             )
 
+    def prepare_replies_action() -> None:
+        stats = prepare_action_reply_drafts(
+            window.conn,
+            window.current_profile,
+            limit=20,
+        )
+        window.reload_comments()
+        QMessageBox.information(
+            window,
+            "Чернетки відповідей",
+            f"Оброблено: {stats['processed']}.\n"
+            f"Готові: {stats['ready']}.\n"
+            f"SKIP: {stats['skipped']}.\n"
+            f"Помилки: {stats['errors']}.\n\n"
+            "Оброблялися лише коментарі з рішенням ВІДПОВІСТИ.\n"
+            "YouTube API: 0 квоти. Нічого не відправлено.",
+        )
+
+    prepare_replies.clicked.connect(prepare_replies_action)
+
     recalc.clicked.connect(recalc_actions)
 
     window._comment_action_filter = action_filter
     window._comment_action_summary = summary
+    window._comment_action_prepare_replies = prepare_replies
     window._comment_action_recalc = recalc
     decorate_table()
 
