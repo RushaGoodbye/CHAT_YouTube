@@ -14137,9 +14137,15 @@ def finalize_auto_edit_020203_operations_stable() -> dict:
     state.update({"status":"GOLDEN_STABLE","version":"0.20.20.3","stable":pointer,"updated_at":time.time()})
     statep.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
     ops.write_operations_status({"phase":"GOLDEN_STABLE","version":"0.20.20.3","production_smoke":"PASS"})
+    ui_restart={"restarted":False,"deferred":False}
+    try:
+        ui_restart=restart_auto_edit_studio_ui()
+    except Exception as exc:
+        # Stable promotion must not be rolled back only because the UI could not restart.
+        ui_restart={"restarted":False,"deferred":True,"error":repr(exc)}
     return {"status":"GOLDEN_STABLE","version":"0.20.20.3","previous_golden":prev.get("version"),
             "production_smoke":"PASS","operations_v1":"PASS","zip_crc":"PASS",
-            "nas_backup":str(remote),"nas_zip":str(zp)}
+            "nas_backup":str(remote),"nas_zip":str(zp),"ui_restart":ui_restart}
 
 
 def verify_auto_edit_operations_v1() -> dict:
