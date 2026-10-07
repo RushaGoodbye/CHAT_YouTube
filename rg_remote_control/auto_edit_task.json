@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_updater_state",
+  "action": "finalize_auto_edit_020201_stable",
   "args": {},
-  "nonce": "verify-stable-pointer-after-cigarette-20261007-1325"
+  "nonce": "finalize-golden-stable-020201-r3"
 }
