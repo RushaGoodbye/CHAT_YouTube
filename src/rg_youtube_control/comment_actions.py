@@ -107,6 +107,9 @@ def decide_comment_action(text: str, *, status: str = "new") -> CommentActionDec
     if INFO_SCHEDULE.search(value):
         return CommentActionDecision("reply", "schedule", "safe_info_request:schedule", "high")
 
+    if PATRIOTIC_SUPPORT.search(value):
+        return CommentActionDecision("like", "patriotic_support", "supportive_patriotic_reaction", "high")
+
     if THANKS.search(value):
         return CommentActionDecision("reply", "thanks", "safe_social:thanks", "high")
     if SUPPORT.search(value):
@@ -117,9 +120,6 @@ def decide_comment_action(text: str, *, status: str = "new") -> CommentActionDec
         return CommentActionDecision("reply", "greeting", "safe_social:greeting", "high")
     if PRAISE.search(value):
         return CommentActionDecision("reply", "episode_praise", "safe_social:praise", "medium")
-
-    if PATRIOTIC_SUPPORT.search(value):
-        return CommentActionDecision("like", "patriotic_support", "supportive_patriotic_reaction", "high")
 
     if HUMOR_OR_REACTION.search(value) or _alpha_count(value) == 0:
         return CommentActionDecision("like", "reaction_or_humor", "reaction_better_than_template_reply", "high")
