@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS comments (
   draft_state TEXT NOT NULL DEFAULT '',
   draft_reason TEXT NOT NULL DEFAULT '',
   draft_updated_at TEXT,
+  action TEXT NOT NULL DEFAULT '',
+  action_reason TEXT NOT NULL DEFAULT '',
+  action_updated_at TEXT,
   raw_json TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
@@ -150,6 +153,9 @@ def connect(path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "comments", "draft_state", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "comments", "draft_reason", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "comments", "draft_updated_at", "TEXT")
+    _ensure_column(conn, "comments", "action", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "comments", "action_reason", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "comments", "action_updated_at", "TEXT")
     conn.execute(
         """UPDATE comments
            SET draft_state='ready',
@@ -363,6 +369,86 @@ def save_comment_draft(
     )
     conn.commit()
     return True
+
+
+def save_comment_action(
+    conn: sqlite3.Connection,
+    comment_id: str,
+    *,
+    action: str,
+    reason: str = "",
+    category: str | None = None,
+) -> bool:
+    if action not in {"reply", "like", "review", "skip", ""}:
+        raise ValueError(f"Unsupported comment action: {action}")
+    row = conn.execute(
+        "SELECT status FROM comments WHERE comment_id=?",
+        (comment_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    status = str(row["status"] or "")
+    if status in {"replied", "ignored", "moderation_locked"}:
+        if action not in {"skip", ""}:
+            return False
+    if category:
+        conn.execute(
+            """UPDATE comments
+               SET action=?,action_reason=?,action_updated_at=?,category=?
+               WHERE comment_id=?""",
+            (action, str(reason or "")[:500], utc_now(), str(category), comment_id),
+        )
+    else:
+        conn.execute(
+            """UPDATE comments
+               SET action=?,action_reason=?,action_updated_at=?
+               WHERE comment_id=?""",
+            (action, str(reason or "")[:500], utc_now(), comment_id),
+        )
+    conn.commit()
+    return True
+
+
+def clear_comment_actions(
+    conn: sqlite3.Connection,
+    profile: str,
+) -> int:
+    cursor = conn.execute(
+        """UPDATE comments
+           SET action='',action_reason='',action_updated_at=NULL
+           WHERE video_id IN (SELECT video_id FROM videos WHERE profile=?)""",
+        (profile,),
+    )
+    conn.commit()
+    return int(cursor.rowcount or 0)
+
+
+def comment_action_counts(
+    conn: sqlite3.Connection,
+    profile: str,
+) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT c.action,c.status
+           FROM comments c
+           JOIN videos v ON v.video_id=c.video_id
+           WHERE v.profile=?""",
+        (profile,),
+    ).fetchall()
+    counts = {
+        "total": len(rows),
+        "reply": 0,
+        "like": 0,
+        "review": 0,
+        "skip": 0,
+        "unclassified": 0,
+    }
+    for row in rows:
+        action = str(row["action"] or "")
+        if action in counts:
+            counts[action] += 1
+        else:
+            counts["unclassified"] += 1
+    return counts
 
 
 def clear_comment_drafts(
