@@ -9805,6 +9805,7 @@ class MainWindow(QMainWindow):
                 "Далі: програма визначить наступну дію на екрані «Сьогодні».",
             )
         except Exception as exc:
+            self._set_process_idle("Операцію завершено з помилкою")
             self._error("Помилка застосування пакета", exc)
 
     @staticmethod
