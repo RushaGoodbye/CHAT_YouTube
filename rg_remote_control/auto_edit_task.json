@@ -1,16 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_version.py",
-      "rg_auto_edit_config.json",
-      "rg_auto_edit_one_button.py",
-      "rg_final_release_gate.py",
-      "rg_studio_postrun.py",
-      "rg_cigarette_blur.py"
-    ]
-  },
-  "nonce": "final-verify-cigarette-blur-020202"
+  "action": "inspect_auto_edit_updater_state",
+  "args": {},
+  "nonce": "final-state-golden-and-cigarette-020202"
 }
