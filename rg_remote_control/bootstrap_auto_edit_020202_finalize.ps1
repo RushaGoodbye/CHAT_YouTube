@@ -75,8 +75,27 @@ if($oldPid){
 }
 Start-Sleep 1
 try{schtasks /Run /TN "RG_ALEXPC_AGENT_KEEPALIVE" | Out-Null}catch{}
-Start-Sleep 4
+
+$agentDeadline=(Get-Date).AddSeconds(30)
+$newStatus=$null
+while((Get-Date) -lt $agentDeadline){
+  Start-Sleep 2
+  if(Test-Path $statusPath){
+    try{
+      $candidate=Get-Content $statusPath -Raw | ConvertFrom-Json
+      if($candidate.state -eq 'ready' -and (!$oldPid -or [int]$candidate.pid -ne $oldPid)){
+        $newStatus=$candidate
+        break
+      }
+    }catch{}
+  }
+}
 
 Write-Host '=== AGENT STATUS ==='
 if(Test-Path $statusPath){Get-Content $statusPath -Raw}
+if(-not $newStatus){throw 'AlexPC agent did not restart into READY state with a new PID'}
+if((Get-Content $localAgent -Raw) -notmatch '_bundle_control_files_changed'){
+  throw 'AlexPC agent autosync fix is not installed locally'
+}
+Write-Host 'AGENT AUTOSYNC FIX: OK'
 Write-Host 'RG AUTO EDIT 0.20.20.2 FINALIZATION COMPLETE'
