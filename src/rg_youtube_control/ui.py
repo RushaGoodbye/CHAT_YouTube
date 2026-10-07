@@ -2935,6 +2935,7 @@ class MainWindow(QMainWindow):
         self.optimization_filter.addItem("Лише заплановані", "scheduled")
         self.optimization_filter.addItem("Архів", "archive")
         self.optimization_filter.addItem("Архів: ТОП потенціал", "archive_top")
+        self.optimization_filter.addItem("Кандидати на перепаковку", "repackage")
         self.optimization_filter.addItem("Готові до YouTube", "prepared")
         self.optimization_filter.addItem("Англомовні назви", "latin_titles")
         self.optimization_filter.addItem("Глибока оптимізація", "deep_review")
@@ -4181,9 +4182,14 @@ class MainWindow(QMainWindow):
         reach_btn = QPushButton("Увімкнути CTR / покази")
         reach_btn.clicked.connect(self.setup_reach_reporting)
 
+        repackage_btn = QPushButton("Кандидати на перепаковку")
+        repackage_btn.setProperty("role", "success")
+        repackage_btn.clicked.connect(self.open_repackage_candidates)
+
         controls.addWidget(QLabel("Період:"))
         controls.addWidget(self.analytics_period_combo)
         controls.addWidget(refresh_btn)
+        controls.addWidget(repackage_btn)
         controls.addWidget(reach_btn)
         controls.addWidget(reauth_btn)
         controls.addStretch()
@@ -5002,6 +5008,25 @@ class MainWindow(QMainWindow):
             if index >= 0:
                 self.analytics_period_combo.setCurrentIndex(index)
         self.load_channel_analytics()
+
+    def open_repackage_candidates(self) -> None:
+        """Open the optimization queue focused on recent repackage candidates."""
+        if hasattr(self, "optimization_filter"):
+            index = self.optimization_filter.findData("repackage")
+            if index >= 0:
+                self.optimization_filter.setCurrentIndex(index)
+        if hasattr(self, "optimization_status_filter"):
+            index = self.optimization_status_filter.findData("all")
+            if index >= 0:
+                self.optimization_status_filter.setCurrentIndex(index)
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == "Оптимізація":
+                self.tabs.setCurrentIndex(index)
+                break
+        self.reload_optimization_queue()
+        self.statusBar().showMessage(
+            "Показано свіжі відео з високим AVD і слабшим охопленням"
+        )
 
     def load_channel_analytics(self) -> None:
         days = int(self.analytics_period_combo.currentData() or 90)
@@ -8223,10 +8248,15 @@ class MainWindow(QMainWindow):
                 " AND v.scheduled_publish_at IS NULL"
                 " AND v.privacy_status='public'"
             )
+        elif queue_filter == "repackage":
+            extra_where = (
+                " AND v.scheduled_publish_at IS NULL"
+                " AND v.privacy_status='public'"
+            )
 
         rows = self.conn.execute(
             f"""SELECT v.video_id,v.title,v.published_at,v.scheduled_publish_at,
-                       v.privacy_status,v.views,v.audit_json,
+                       v.privacy_status,v.duration,v.views,v.audit_json,
                        d.status AS draft_status,
                        d.generation AS draft_generation,
                        d.quality_state AS draft_quality_state,
@@ -8300,12 +8330,104 @@ class MainWindow(QMainWindow):
         ]
         channel_median_ctr = median(ctr_values) if ctr_values else 0.0
 
+        # Recent long-form cohort used by the "repackage candidates" view.
+        # We intentionally avoid CTR here because Reach data can lag behind
+        # Analytics and is not always available for the newest uploads.
+        now_utc = datetime.now(timezone.utc)
+        repackage_cohort = []
+        for cohort_row in rows:
+            raw_date = str(cohort_row["published_at"] or "").strip()
+            try:
+                published = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=timezone.utc)
+                age_days = max(0, (now_utc - published.astimezone(timezone.utc)).days)
+            except Exception:
+                continue
+            analytics_views = int(cohort_row["analytics_views"] or 0)
+            avd_seconds = float(cohort_row["avd_seconds"] or 0)
+            title_lower = str(cohort_row["title"] or "").casefold()
+            if (
+                age_days <= 90
+                and analytics_views > 0
+                and avd_seconds >= 180
+                and "#shorts" not in title_lower
+            ):
+                repackage_cohort.append((analytics_views, avd_seconds))
+        repackage_median_views = (
+            float(median([item[0] for item in repackage_cohort]))
+            if repackage_cohort
+            else 0.0
+        )
+        repackage_median_avd = (
+            float(median([item[1] for item in repackage_cohort]))
+            if repackage_cohort
+            else 0.0
+        )
+
         prepared = []
         for row in rows:
             audit_data = json.loads(row["audit_json"] or "{}")
             score = int(audit_data.get("score") or 0)
             issues = list(audit_data.get("issues", []))
-            if queue_filter in {"archive_top", "prepared", "deep_review"}:
+            if queue_filter == "repackage":
+                raw_date = str(row["published_at"] or "").strip()
+                try:
+                    published = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+                    if published.tzinfo is None:
+                        published = published.replace(tzinfo=timezone.utc)
+                    age_days = max(
+                        0,
+                        (now_utc - published.astimezone(timezone.utc)).days,
+                    )
+                except Exception:
+                    age_days = 9999
+                analytics_views = int(row["analytics_views"] or 0)
+                avd_seconds = float(row["avd_seconds"] or 0)
+                title_lower = str(row["title"] or "").casefold()
+
+                # A good repackaging candidate has healthy watch time but is
+                # underperforming its recent long-form cohort on views.
+                if (
+                    age_days > 90
+                    or analytics_views <= 0
+                    or avd_seconds < 300
+                    or "#shorts" in title_lower
+                    or repackage_median_views <= 0
+                    or repackage_median_avd <= 0
+                ):
+                    continue
+
+                view_gap = max(
+                    0.0,
+                    min(
+                        1.0,
+                        (repackage_median_views - analytics_views)
+                        / max(repackage_median_views, 1.0),
+                    ),
+                )
+                avd_strength = max(
+                    0.0,
+                    min(
+                        1.5,
+                        avd_seconds / max(repackage_median_avd, 1.0) - 0.75,
+                    ),
+                )
+                recency = max(0.0, min(1.0, (90 - age_days) / 90))
+                priority_value = int(
+                    round(
+                        min(
+                            100.0,
+                            view_gap * 50.0
+                            + avd_strength * 35.0
+                            + recency * 15.0,
+                        )
+                    )
+                )
+                if priority_value < 25:
+                    continue
+                priority_text = f"ПЕРЕПАК. · {priority_value}"
+            elif queue_filter in {"archive_top", "prepared", "deep_review"}:
                 priority_value = archive_potential_score(
                     lifetime_views=int(row["views"] or 0),
                     analytics_views=int(row["analytics_views"] or 0),
@@ -8463,6 +8585,14 @@ class MainWindow(QMainWindow):
                     -(int(item[3]["views"] or 0)),
                 )
             )
+        elif queue_filter == "repackage":
+            prepared.sort(
+                key=lambda item: (
+                    -item[0],
+                    -(float(item[3]["avd_seconds"] or 0)),
+                    int(item[3]["analytics_views"] or 0),
+                )
+            )
         else:
             prepared.sort(
                 key=lambda item: (
@@ -8532,6 +8662,27 @@ class MainWindow(QMainWindow):
                     if priority_text == "ЗАПЛАНОВАНО":
                         item.setForeground(QColor("#5aa7ff"))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    elif priority_text.startswith("ПЕРЕПАК. ·"):
+                        potential = int(priority_text.rsplit(" ", 1)[-1])
+                        item.setForeground(
+                            QColor(
+                                SUCCESS
+                                if potential >= 70
+                                else "#5aa7ff"
+                                if potential >= 45
+                                else WARNING
+                            )
+                        )
+                        item.setFont(
+                            QFont("Segoe UI", 9, QFont.Weight.Bold)
+                        )
+                        item.setToolTip(
+                            "Кандидат на перепаковку: "
+                            f"{int(row['analytics_views'] or 0):,} переглядів · "
+                            f"AVD {int(float(row['avd_seconds'] or 0) // 60)}:"
+                            f"{int(float(row['avd_seconds'] or 0) % 60):02d} · "
+                            "сильне утримання при слабшому охопленні"
+                        )
                     elif (
                         priority_text.startswith(("A ·", "B ·", "C ·", "DEEP "))
                     ):
