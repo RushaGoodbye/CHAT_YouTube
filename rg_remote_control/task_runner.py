@@ -14177,7 +14177,15 @@ def apply_auto_edit_operations_ui_status_hotfix_v1() -> dict:
     guard="# RG_OPERATIONS_UI_STATUS_V1"
     if guard in src:
         py_compile.compile(str(ui),doraise=True)
-        return {"status":"ALREADY_APPLIED","path":str(ui),"guard":"RG_OPERATIONS_UI_STATUS_V1"}
+        statep=data/"OPERATIONS_V1_STATE.json"
+        try:state=json.loads(statep.read_text(encoding="utf-8-sig")) if statep.is_file() else {}
+        except Exception:state={}
+        state["ui_status_hotfix"]="RG_OPERATIONS_UI_STATUS_V1"
+        state["ui_status_hotfix_changes"]=state.get("ui_status_hotfix_changes") or ["idle_cta","operations_validation_status","update_channel_label"]
+        state["updated_at"]=time.time()
+        statep.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+        return {"status":"ALREADY_APPLIED","path":str(ui),"guard":"RG_OPERATIONS_UI_STATUS_V1",
+                "state_reconciled":True,"restart_required":True}
 
     original=src
     stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
