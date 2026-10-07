@@ -13189,7 +13189,9 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
         raise RuntimeError("Stable paths unavailable")
 
     vp=app/"rg_studio_version.py"
-    src=vp.read_text(encoding="utf-8-sig")
+    live_src=vp.read_text(encoding="utf-8-sig")
+    live_version=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in live_src.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
+    src=live_src
     def set_line(text,key,value):
         rows=text.splitlines();out=[];found=False
         for row in rows:
@@ -13203,11 +13205,20 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
     for key in ("STUDIO_VERSION","RG_UI_VERSION","RG_CORE_VERSION"):
         src=set_line(src,key,version)
     src=set_line(src,"STUDIO_CHANNEL","stable")
-    tmp=vp.with_suffix(".stable-sync.tmp.py");tmp.write_text(src,encoding="utf-8")
-    py_compile.compile(str(tmp),doraise=True);os.replace(tmp,vp)
+    # Never downgrade a newer live candidate while syncing GOLDEN metadata.
+    def _ver_tuple(v):
+        import re
+        nums=[int(x) for x in re.findall(r"\\d+",str(v))[:4]]
+        return tuple((nums+[0,0,0,0])[:4])
+    live_newer=_ver_tuple(live_version)>_ver_tuple(version)
+    if not live_newer:
+        tmp=vp.with_suffix(".stable-sync.tmp.py");tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True);os.replace(tmp,vp)
 
     for root in (nas,local):
-        dst=root/"rg_studio_version.py";dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(vp,dst)
+        dst=root/"rg_studio_version.py";dst.parent.mkdir(parents=True,exist_ok=True)
+        tmp=dst.with_suffix(".stable-sync.tmp.py");tmp.write_text(src,encoding="utf-8")
+        py_compile.compile(str(tmp),doraise=True);os.replace(tmp,dst)
 
     def sha256(p):
         h=hashlib.sha256()
@@ -13255,8 +13266,10 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
     try:rs=json.loads(rs_path.read_text(encoding="utf-8-sig"))
     except Exception:rs={}
     rs.update({
-      "channel":"STABLE","studio_version":version,"ui_version":version,"core_version":version,
-      "test_version":version,"last_golden":version,"last_pass_stream":"886",
+      "channel":("STABLE_CANDIDATE" if live_newer else "STABLE"),
+      "studio_version":version,"ui_version":version,"core_version":version,
+      "test_version":(live_version if live_newer else version),
+      "last_golden":version,"last_pass_stream":"886",
       "stable_snapshot":str(nas),"stable_zip":str(zpath),"stable_control_stream":"886",
       "stable_verified":True,"metadata_synced":True,"updated":time.time()
     })
@@ -13268,7 +13281,7 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
     })
     pointer_path.write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
     (nas_root/"CURRENT_STABLE.json").write_text(json.dumps(pointer,ensure_ascii=False,indent=2),encoding="utf-8")
-    boot={"schema":"RG_BOOT_OK_V2","version":version,"pid":0,"ts":time.time(),"source":"STABLE_METADATA_SYNC"}
+    boot={"schema":"RG_BOOT_OK_V2","version":(live_version if live_newer else version),"pid":0,"ts":time.time(),"source":"STABLE_METADATA_SYNC"}
     (data/"boot_ok.json").write_text(json.dumps(boot,ensure_ascii=False,indent=2),encoding="utf-8")
     state.update({"status":"GOLDEN_STABLE","metadata_synced":True,"metadata_synced_at":time.time(),"nas":str(nas),"local":str(local),"zip":str(zpath)})
     state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
@@ -13284,15 +13297,17 @@ def sync_auto_edit_020201_stable_metadata() -> dict:
                 cleaned.append(str(p))
             except Exception:pass
 
-    final=vp.read_text(encoding="utf-8-sig",errors="replace")
+    final=(nas/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
+    live_after=vp.read_text(encoding="utf-8-sig",errors="replace")
     checks={
       "studio":('STUDIO_VERSION="'+version+'"') in final,
       "ui":('RG_UI_VERSION="'+version+'"') in final,
       "core":('RG_CORE_VERSION="'+version+'"') in final,
       "channel":'STUDIO_CHANNEL="stable"' in final,
       "pointer":pointer.get("version")==version and bool(pointer.get("golden")),
-      "release":rs.get("studio_version")==version and rs.get("channel")=="STABLE",
-      "boot":boot.get("version")==version,
+      "release":rs.get("studio_version")==version and rs.get("channel")==("STABLE_CANDIDATE" if live_newer else "STABLE"),
+      "boot":boot.get("version")==((live_version if live_newer else version)),
+      "live_preserved":(not live_newer) or ('STUDIO_VERSION="'+live_version+'"') in live_after,
       "zip":zpath.is_file()
     }
     if not all(checks.values()):raise RuntimeError("Final stable metadata verification failed: "+str(checks))
