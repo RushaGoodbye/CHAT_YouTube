@@ -14032,6 +14032,7 @@ def verify_auto_edit_cigarette_tracking_and_xml_real() -> dict:
     import time,sys,xml.etree.ElementTree as ET
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtime=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe")
     video=app/".rg_cache"/"886"/"visual_proxy_966b70c2fedf943e8c4e.mp4"
     cfg_path=app/"rg_auto_edit_config.json"
     if not video.is_file():
@@ -14098,13 +14099,33 @@ def verify_auto_edit_cigarette_tracking_and_xml_real() -> dict:
         return base
 
     # Disposable one-clip Premiere/FCP XML spanning the real proxy source.
-    # This validates the exact production XML injector without touching user XML.
-    import cv2
-    cap=cv2.VideoCapture(str(video))
-    fps0=float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
-    frames0=float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
-    cap.release()
-    duration=frames0/fps0 if fps0>0 and frames0>0 else 275.4
+    # Query media metadata inside the production Runtime, not the lightweight agent Python.
+    if not runtime.is_file():
+        raise RuntimeError("Production Runtime missing: "+str(runtime))
+    meta_code=r'''
+import cv2,sys,json
+p=sys.argv[1]
+cap=cv2.VideoCapture(p)
+fps=float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+frames=float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+cap.release()
+dur=frames/fps if fps>0 and frames>0 else 0.0
+print(json.dumps({"fps":fps,"frames":frames,"duration":dur}))
+'''
+    meta_cp=subprocess.run(
+        [str(runtime),"-X","utf8","-c",meta_code,str(video)],
+        cwd=str(app),capture_output=True,text=True,
+        encoding="utf-8",errors="replace",timeout=60
+    )
+    if meta_cp.returncode!=0:
+        raise RuntimeError("Runtime media metadata probe failed: "+((meta_cp.stdout or "")+(meta_cp.stderr or ""))[-4000:])
+    try:
+        media_meta=json.loads((meta_cp.stdout or "").strip().splitlines()[-1])
+    except Exception as exc:
+        raise RuntimeError("Runtime media metadata parse failed: "+repr(exc)+" output="+(meta_cp.stdout or "")[-3000:])
+    duration=float(media_meta.get("duration") or 0.0)
+    if duration<=0:
+        duration=275.4
     fps=30
     total=max(1,int(round(duration*fps)))
     ticks=254016000000
