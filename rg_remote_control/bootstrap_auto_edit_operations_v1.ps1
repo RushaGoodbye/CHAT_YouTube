@@ -52,7 +52,34 @@ if(Test-Path $status){
 }
 if($oldPid){try{Stop-Process -Id $oldPid -Force -ErrorAction Stop}catch{}}
 Start-Sleep 1
-schtasks /Run /TN "RG_ALEXPC_AGENT_KEEPALIVE" | Out-Null
+
+$agentStarted=$false
+$taskName='RG_ALEXPC_AGENT_KEEPALIVE'
+$taskExists=$false
+try {
+  schtasks /Query /TN $taskName 1>$null 2>$null
+  if($LASTEXITCODE -eq 0){$taskExists=$true}
+} catch {}
+
+if($taskExists){
+  try {
+    schtasks /Run /TN $taskName 1>$null 2>$null
+    if($LASTEXITCODE -eq 0){$agentStarted=$true}
+  } catch {}
+}
+
+if(-not $agentStarted){
+  $pythonw='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe'
+  $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+  $agentExe=$pythonw
+  if(!(Test-Path $agentExe)){$agentExe=$python}
+  if(!(Test-Path $agentExe)){throw 'No Python executable available to start AlexPC agent'}
+  Start-Process -FilePath $agentExe -ArgumentList @($localAgent) -WorkingDirectory 'C:\RG_AGENT' -WindowStyle Hidden
+  $agentStarted=$true
+  Write-Host 'AGENT START: DIRECT FALLBACK'
+} else {
+  Write-Host 'AGENT START: SCHEDULED TASK'
+}
 
 $agentDeadline=(Get-Date).AddSeconds(45)
 $newAgent=$null
