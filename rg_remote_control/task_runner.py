@@ -15894,6 +15894,210 @@ def audit_auto_edit_post_cigarette_v1() -> dict:
     }
 
 
+
+def reconcile_auto_edit_post_cigarette_v1() -> dict:
+    """Resolve stale 886 validator failure without pretending a full production run passed."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import copy,datetime,importlib.util,py_compile,re,shutil,time,xml.etree.ElementTree as ET
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    validator=app/"VALIDATE_PREMIERE_XML.py"
+    fixture=data/"validation"/"cigarette_blur_real_886"/"REAL_886_CIGARETTE_BLUR_TEST.xml"
+    statep=data/"OPERATIONS_V1_STATE.json"
+    smokep=data/"OPERATIONS_PRODUCTION_SMOKE.json"
+    stablep=data/"CURRENT_STABLE.json"
+    if not all(p.is_file() for p in (validator,fixture,statep,stablep)):
+        raise RuntimeError("Required post-cigarette evidence is missing")
+
+    # Do not reconcile while any production backend is active.
+    probe=run([
+        "powershell.exe","-NoProfile","-NonInteractive","-Command",
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_production_wrapper.py*') -or "
+        "($_.CommandLine -like '*rg_multi_dialogue.py*') -or "
+        "($_.CommandLine -like '*rg_auto_edit_one_button.py*')) }; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    ],timeout=30)
+    active=(probe.get("stdout") or "").strip()
+    if active and active not in {"null","[]"}:
+        raise RuntimeError("Production backend active; reconciliation blocked: "+active[:1800])
+
+    state=json.loads(statep.read_text(encoding="utf-8-sig"))
+    stable=json.loads(stablep.read_text(encoding="utf-8-sig"))
+    if str(stable.get("version") or "")!="0.20.20.2":
+        raise RuntimeError("Expected current GOLDEN 0.20.20.2 before targeted reconciliation")
+    if str(state.get("cigarette_validator_hotfix_status") or "")!="PASS_COMBINED_REAL_EVIDENCE":
+        raise RuntimeError("Cigarette validator hotfix evidence is not PASS_COMBINED_REAL_EVIDENCE")
+
+    vtxt=validator.read_text(encoding="utf-8-sig",errors="replace")
+    if "RG_CIGARETTE_VALIDATOR_HOTFIX_V1" not in vtxt:
+        raise RuntimeError("Cigarette validator guard missing")
+    py_compile.compile(str(validator),doraise=True)
+    spec=importlib.util.spec_from_file_location("rg_validator_reconcile_v1",str(validator))
+    if spec is None or spec.loader is None:raise RuntimeError("Could not import validator")
+    mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+    validate_fn=getattr(mod,"validate",None)
+    if not callable(validate_fn):raise RuntimeError("validate() missing")
+
+    def parse_xml(p):
+        text0=Path(p).read_text(encoding="utf-8-sig",errors="replace")
+        body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
+        return ET.fromstring(body)
+
+    froot=parse_xml(fixture)
+    fvideo=froot.find(".//sequence/media/video")
+    if fvideo is None:raise RuntimeError("Fixture video node missing")
+    cig_track=None
+    for tr in fvideo.findall("track"):
+        ids=[str(c.get("id","")) for c in tr.findall("clipitem")]
+        if ids and all(x.startswith("rg-cigarette-") for x in ids):
+            cig_track=tr;break
+    if cig_track is None:raise RuntimeError("Fixture cigarette track missing")
+    cig_clips=[c for c in cig_track.findall("clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+    structural_fail=[]
+    for c in cig_clips:
+        effects=[]
+        for flt in c.findall("filter"):
+            eff=flt.find("effect")
+            if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
+        if "crop" not in effects:structural_fail.append(str(c.get("id"))+":CROP_MISSING")
+        if "Gaussian Blur" not in effects:structural_fail.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+    if not cig_clips or structural_fail:
+        raise RuntimeError("Fixture cigarette structural QA failed: "+str(structural_fail))
+
+    # Find an already-existing real 886 production XML that passes the current validator
+    # and still has room for the dedicated cigarette track.
+    folder=app/"886"
+    bases=[]
+    if folder.is_dir():
+        for p in sorted(folder.glob("RG_EDITED_886*.xml"),key=lambda x:x.stat().st_mtime,reverse=True):
+            n=p.name.upper()
+            if "_SHORTS" in n or "_UNCENSORED" in n:continue
+            try:
+                root=parse_xml(p)
+                video=root.find(".//sequence/media/video")
+                tracks=video.findall("track") if video is not None else []
+                ids=[str(c.get("id","")) for c in root.findall(".//clipitem")]
+                if any(x.startswith("rg-cigarette-") for x in ids):continue
+                if not (3<=len(tracks)<=4):continue
+                validate_fn(p)
+                bases.append((p,len(tracks)))
+            except Exception:
+                continue
+    if not bases:
+        raise RuntimeError("No existing validated 886 production XML with 3-4 video tracks was found")
+
+    base_path,base_track_count=bases[0]
+    broot=parse_xml(base_path)
+    bvideo=broot.find(".//sequence/media/video")
+    if bvideo is None:raise RuntimeError("Base production video node missing")
+    bvideo.append(copy.deepcopy(cig_track))
+
+    outdir=data/"validation"/"operations_targeted_886"
+    outdir.mkdir(parents=True,exist_ok=True)
+    hybrid=outdir/"REAL_886_PRODUCTION_SHAPED_CIGARETTE_V5.xml"
+    xml_bytes=ET.tostring(broot,encoding="utf-8",xml_declaration=True)
+    hybrid.write_bytes(xml_bytes.replace(b"?>",b"?>\n<!DOCTYPE xmeml>",1))
+    validate_fn(hybrid)
+
+    hroot=parse_xml(hybrid)
+    hvideo=hroot.find(".//sequence/media/video")
+    htracks=hvideo.findall("track") if hvideo is not None else []
+    hids=[str(c.get("id","")) for c in htracks[-1].findall("clipitem")] if htracks else []
+    hybrid_checks={
+        "base_xml":str(base_path),
+        "base_track_count":base_track_count,
+        "hybrid_track_count":len(htracks),
+        "cigarette_last_track":bool(hids and all(x.startswith("rg-cigarette-") for x in hids)),
+        "cigarette_clip_count":len(hids),
+        "fixture_crop_gaussian_pass":not structural_fail,
+        "full_validator_pass":True,
+    }
+    if not all([
+        3<=hybrid_checks["hybrid_track_count"]<=5,
+        hybrid_checks["cigarette_last_track"],
+        hybrid_checks["cigarette_clip_count"]>=1,
+        hybrid_checks["fixture_crop_gaussian_pass"],
+        hybrid_checks["full_validator_pass"],
+    ]):
+        raise RuntimeError("Production-shaped cigarette smoke checks failed: "+json.dumps(hybrid_checks))
+
+    # Preserve the failed full-production smoke as history. Do NOT rewrite it to PASS.
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    hist=data/"operations_v1"/"history"
+    hist.mkdir(parents=True,exist_ok=True)
+    smoke_old={}
+    if smokep.is_file():
+        smoke_old=json.loads(smokep.read_text(encoding="utf-8-sig"))
+        shutil.copy2(smokep,hist/f"OPERATIONS_PRODUCTION_SMOKE_FAILED_{stamp}.json")
+    targeted={
+        "schema":"RG_OPERATIONS_TARGETED_SMOKE_V1",
+        "stream":"886",
+        "passed":True,
+        "scope":"PRODUCTION_SHAPED_XML_VALIDATOR_AFTER_CIGARETTE_HOTFIX",
+        "full_production_run":False,
+        "does_not_promote_golden":True,
+        "base_xml":str(base_path),
+        "hybrid_xml":str(hybrid),
+        "checks":hybrid_checks,
+        "supersedes_failure_reason":"Unexpected clip class on V5 rg-cigarette-*",
+        "current_golden_preserved":stable.get("version"),
+        "finished_at":time.time(),
+    }
+    targetp=data/"OPERATIONS_TARGETED_SMOKE.json"
+    targetp.write_text(json.dumps(targeted,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    # Clear only the stale RUNNING presentation. Keep full production smoke as not passed.
+    state["status"]="TARGETED_VALIDATION_PASS"
+    state["targeted_validation"]=targeted
+    state["full_production_smoke_pass"]=False
+    state["golden_promotion_blocked_until_real_production_pass"]=True
+    state["previous_failed_smoke_archived"]=str(hist/f"OPERATIONS_PRODUCTION_SMOKE_FAILED_{stamp}.json") if smoke_old else None
+    state["updated_at"]=time.time()
+    statep.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    # Telemetry source map for the next surgical patch.
+    telemetry={}
+    for name in ("rg_production_wrapper.py","rg_multi_dialogue.py","rg_auto_edit_one_button.py","rg_studio_ui.py"):
+        p=app/name
+        row={"path":str(p),"exists":p.is_file()}
+        if p.is_file():
+            src=p.read_text(encoding="utf-8",errors="replace")
+            lines=src.splitlines()
+            row.update({
+                "size":p.stat().st_size,
+                "RGPROGRESS":src.count("RGPROGRESS"),
+                "RGHEARTBEAT":src.count("RGHEARTBEAT"),
+                "RGETA":src.count("RGETA"),
+                "RGSTAGE":src.count("RGSTAGE"),
+                "print_calls":src.count("print("),
+                "popen_calls":src.count("Popen("),
+            })
+            hits=[]
+            for i,line in enumerate(lines):
+                if any(x in line for x in ("RGPROGRESS","RGHEARTBEAT","RGETA","RGSTAGE","Popen(","readyReadStandardOutput")):
+                    a=max(0,i-2);b=min(len(lines),i+4)
+                    hits.append({"line":i+1,"snippet":"\n".join(lines[a:b])})
+                    if len(hits)>=12:break
+            row["hits"]=hits
+        telemetry[name]=row
+
+    return {
+        "status":"TARGETED_VALIDATION_PASS",
+        "full_production_run":False,
+        "golden_promoted":False,
+        "current_golden":stable.get("version"),
+        "candidate":"0.20.20.3",
+        "targeted_smoke":targeted,
+        "operations_state":state["status"],
+        "telemetry_map":telemetry,
+        "next_action":"PATCH_TELEMETRY_THEN_VALIDATE_ON_NEXT_REAL_PRODUCTION_RUN",
+        "restart_required":False,
+    }
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -15974,6 +16178,7 @@ ACTIONS = {
     "inspect_auto_edit_run_log": inspect_auto_edit_run_log,
     "apply_auto_edit_cigarette_validator_hotfix_v1": apply_auto_edit_cigarette_validator_hotfix_v1,
     "audit_auto_edit_post_cigarette_v1": audit_auto_edit_post_cigarette_v1,
+    "reconcile_auto_edit_post_cigarette_v1": reconcile_auto_edit_post_cigarette_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
