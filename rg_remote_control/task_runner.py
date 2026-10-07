@@ -14157,6 +14157,135 @@ def verify_auto_edit_operations_v1() -> dict:
             "config":json.loads((app/"rg_auto_edit_config.json").read_text(encoding="utf-8-sig")).get("operations_v1")}
 
 
+
+def apply_auto_edit_operations_ui_status_hotfix_v1() -> dict:
+    """UI-only hotfix: neutral idle CTA, visible 886 validation, unambiguous update-channel label."""
+    if os.name!="nt":raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    ui=app/"rg_studio_ui.py"
+    if not ui.is_file():raise RuntimeError("rg_studio_ui.py missing")
+
+    src=ui.read_text(encoding="utf-8-sig")
+    guard="# RG_OPERATIONS_UI_STATUS_V1"
+    if guard in src:
+        py_compile.compile(str(ui),doraise=True)
+        return {"status":"ALREADY_APPLIED","path":str(ui),"guard":"RG_OPERATIONS_UI_STATUS_V1"}
+
+    original=src
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_OPERATIONS_UI_STATUS_{stamp}"
+    backup.mkdir(parents=True,exist_ok=False)
+    shutil.copy2(ui,backup/ui.name)
+
+    changes=[]
+
+    # 1. Make the update channel explicit. Only displayed text is changed.
+    # Handle both literal construction and setText variants.
+    before=src
+    src=src.replace('"КАНАЛ • STABLE"','"КАНАЛ ОНОВЛЕНЬ • STABLE"')
+    src=src.replace("'КАНАЛ • STABLE'","'КАНАЛ ОНОВЛЕНЬ • STABLE'")
+    src=src.replace('f"КАНАЛ • {','f"КАНАЛ ОНОВЛЕНЬ • {')
+    src=src.replace("f'КАНАЛ • {","f'КАНАЛ ОНОВЛЕНЬ • {")
+    if src!=before:changes.append("update_channel_label")
+
+    # 2+3. Extend the existing cached system refresh. This is deliberately local-F only.
+    method_start=src.find("    def _refresh_system(self):")
+    if method_start<0:raise RuntimeError("_refresh_system method missing")
+    method_end=src.find("\n    def ",method_start+5)
+    if method_end<0:method_end=len(src)
+    method=src[method_start:method_end]
+    if "RG_OPERATIONS_UI_STATUS_V1" in method:
+        pass
+    else:
+        insert_anchor='            self.gpu_chip.setText("GPU • "+("CUDA" if checks.get("gpu") else "CHECK"))\n'
+        if insert_anchor not in method:
+            # Older UI variants can still receive the patch just before rows=[...].
+            insert_anchor='            rows=[\n'
+            if insert_anchor not in method:
+                raise RuntimeError("_refresh_system render anchor missing")
+            patch=r'''            # RG_OPERATIONS_UI_STATUS_V1
+            try:
+                _rg_stream=str(self.metric_stream.text() or "").strip()
+            except Exception:
+                _rg_stream=""
+            # Idle is not an error. Keep real CHECK/FAIL states untouched once a stream is selected.
+            try:
+                if not _rg_stream and str(self.run_btn.text() or "").strip()=="ПОТРІБНА ПЕРЕВІРКА":
+                    self.run_btn.setText("ПЕРЕВІРИТИ ГОТОВНІСТЬ")
+                    self.run_btn.setStyleSheet("")
+                    self.run_btn.setEnabled(True)
+            except Exception:pass
+            # Show the detached control run on the main screen without probing NAS.
+            try:
+                _rg_ops_path=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\OPERATIONS_V1_STATE.json")
+                _rg_ops=json.loads(_rg_ops_path.read_text(encoding="utf-8-sig")) if _rg_ops_path.is_file() else {}
+                _rg_ops_state=str(_rg_ops.get("status") or "")
+                if not _rg_stream:
+                    if _rg_ops_state=="PRODUCTION_VALIDATION_RUNNING":
+                        self.status.setText("КОНТРОЛЬНИЙ ПРОГІН 886 • ВИКОНУЄТЬСЯ • 0.20.20.3 CANDIDATE")
+                    elif _rg_ops_state=="GOLDEN_STABLE":
+                        self.status.setText("КОНТРОЛЬНИЙ ПРОГІН 886 • PASS • 0.20.20.3 GOLDEN")
+            except Exception:pass
+'''
+            method=method.replace(insert_anchor,patch+insert_anchor,1)
+        else:
+            patch=r'''            # RG_OPERATIONS_UI_STATUS_V1
+            try:
+                _rg_stream=str(self.metric_stream.text() or "").strip()
+            except Exception:
+                _rg_stream=""
+            # Idle is not an error. Keep real CHECK/FAIL states untouched once a stream is selected.
+            try:
+                if not _rg_stream and str(self.run_btn.text() or "").strip()=="ПОТРІБНА ПЕРЕВІРКА":
+                    self.run_btn.setText("ПЕРЕВІРИТИ ГОТОВНІСТЬ")
+                    self.run_btn.setStyleSheet("")
+                    self.run_btn.setEnabled(True)
+            except Exception:pass
+            # Show the detached control run on the main screen without probing NAS.
+            try:
+                _rg_ops_path=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\OPERATIONS_V1_STATE.json")
+                _rg_ops=json.loads(_rg_ops_path.read_text(encoding="utf-8-sig")) if _rg_ops_path.is_file() else {}
+                _rg_ops_state=str(_rg_ops.get("status") or "")
+                if not _rg_stream:
+                    if _rg_ops_state=="PRODUCTION_VALIDATION_RUNNING":
+                        self.status.setText("КОНТРОЛЬНИЙ ПРОГІН 886 • ВИКОНУЄТЬСЯ • 0.20.20.3 CANDIDATE")
+                    elif _rg_ops_state=="GOLDEN_STABLE":
+                        self.status.setText("КОНТРОЛЬНИЙ ПРОГІН 886 • PASS • 0.20.20.3 GOLDEN")
+            except Exception:pass
+'''
+            method=method.replace(insert_anchor,insert_anchor+patch,1)
+        src=src[:method_start]+method+src[method_end:]
+        changes.extend(["idle_cta","operations_validation_status"])
+
+    if not changes:
+        raise RuntimeError("No UI status anchors changed")
+
+    tmp=ui.with_suffix(".operations-ui.tmp")
+    tmp.write_text(src,encoding="utf-8")
+    try:
+        py_compile.compile(str(tmp),doraise=True)
+    except Exception:
+        shutil.copy2(backup/ui.name,ui)
+        raise
+    os.replace(tmp,ui)
+    py_compile.compile(str(ui),doraise=True)
+
+    # Record into operations state so the final 0.20.20.3 snapshot includes the hotfix.
+    statep=data/"OPERATIONS_V1_STATE.json"
+    try:state=json.loads(statep.read_text(encoding="utf-8-sig")) if statep.is_file() else {}
+    except Exception:state={}
+    state["ui_status_hotfix"]="RG_OPERATIONS_UI_STATUS_V1"
+    state["ui_status_hotfix_changes"]=changes
+    state["ui_status_hotfix_backup"]=str(backup)
+    state["updated_at"]=time.time()
+    statep.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    return {"status":"APPLIED","version":"0.20.20.3","path":str(ui),"backup":str(backup),
+            "guard":"RG_OPERATIONS_UI_STATUS_V1","changes":changes,"restart_required":True}
+
+
 def apply_auto_edit_cigarette_blur_v1() -> dict:
     if os.name!="nt":raise RuntimeError("Windows only")
     import datetime,py_compile,shutil,subprocess,time,xml.etree.ElementTree as ET
@@ -15438,6 +15567,7 @@ ACTIONS = {
     "start_auto_edit_operations_validation": start_auto_edit_operations_validation,
     "finalize_auto_edit_020203_operations_stable": finalize_auto_edit_020203_operations_stable,
     "verify_auto_edit_operations_v1": verify_auto_edit_operations_v1,
+    "apply_auto_edit_operations_ui_status_hotfix_v1": apply_auto_edit_operations_ui_status_hotfix_v1,
     "apply_auto_edit_cigarette_blur_v1": apply_auto_edit_cigarette_blur_v1,
     "locate_auto_edit_901_xmls": locate_auto_edit_901_xmls,
     "build_auto_edit_pack120_update": build_auto_edit_pack120_update,
