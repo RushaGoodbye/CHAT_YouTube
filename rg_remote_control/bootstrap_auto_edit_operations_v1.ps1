@@ -18,6 +18,18 @@ if($taskText -notmatch 'finalize_auto_edit_020203_operations_stable'){throw 'OPE
 if($agentText -notmatch '_bundle_control_files_changed'){throw 'Agent autosync fix missing'}
 if($guardText -notmatch 'RG_OPERATIONS_GUARD_V1'){throw 'Operations guard missing'}
 
+$runtime='F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\python.exe'
+if(!(Test-Path $runtime)){throw 'RG Auto Edit Runtime Python missing'}
+
+& $runtime -m py_compile (Join-Path $tmp 'task_runner.py')
+if($LASTEXITCODE -ne 0){throw 'task_runner.py compile failed'}
+& $runtime -m py_compile (Join-Path $tmp 'alexpc_agent.py')
+if($LASTEXITCODE -ne 0){throw 'alexpc_agent.py compile failed'}
+& $runtime -m py_compile (Join-Path $tmp 'operations_v1\\rg_operations_guard.py')
+if($LASTEXITCODE -ne 0){throw 'rg_operations_guard.py compile failed'}
+
+Write-Host 'CONTROL LAYER COMPILE: PASS'
+
 $nas='\\AlexLosServer\docker\RG_NAS_MCP\ALEXPC\BUNDLE\rg_remote_control'
 $local='C:\RG_AGENT\bundle_cache\rg_remote_control'
 New-Item -ItemType Directory -Force $nas,$local,(Join-Path $nas 'operations_v1'),(Join-Path $local 'operations_v1') | Out-Null
