@@ -13129,10 +13129,14 @@ def finalize_auto_edit_020201_stable() -> dict:
     required=("886_PRODUCTION_SMOKE","PREVIEW_SMOKE","UPDATER_SMOKE")
     bad=[k for k in required if (state.get("tests",{}).get(k) or {}).get("status")!="PASS"]
     if bad:raise RuntimeError("Cannot promote, tests not PASS: "+",".join(bad))
-    vp=(app/"rg_studio_version.py").read_text(encoding="utf-8-sig",errors="replace")
-    actual=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in vp.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
-    if actual!=version:raise RuntimeError("Current Studio version mismatch")
     old_nas=Path(state.get("nas") or state.get("candidate_nas"));old_local=Path(state.get("local") or state.get("candidate_local"));old_zip=Path(state.get("zip") or state.get("candidate_zip"))
+    # Promote the verified immutable candidate itself. The live App may already
+    # be on a newer STABLE_CANDIDATE and must not be downgraded for promotion.
+    cand_vp=old_nas/"rg_studio_version.py"
+    if not cand_vp.is_file():raise RuntimeError("Candidate version file missing")
+    cand_txt=cand_vp.read_text(encoding="utf-8-sig",errors="replace")
+    cand_ver=next((ln.split("=",1)[1].strip().strip("\\\"'") for ln in cand_txt.splitlines() if ln.strip().startswith("STUDIO_VERSION=")),"")
+    if cand_ver!=version:raise RuntimeError(f"Candidate Studio version mismatch: {cand_ver} != {version}")
     stable_name=str(state.get("candidate") or state.get("candidate_name")).replace("_CANDIDATE_","_STABLE_")
     nas=nas_root/stable_name;local=data/"LAST_KNOWN_GOOD"/stable_name;zpath=nas_root/(stable_name+".zip")
     if nas.exists() or local.exists() or zpath.exists():raise RuntimeError("Stable target already exists")
