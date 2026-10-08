@@ -119,7 +119,7 @@ def _cache_file(cache_dir: Path, block: dict[str, Any], model: str) -> Path:
 def _validate_topics(candidate: Any, block: dict[str, Any]) -> dict[str, Any]:
     source = _compact(block["text"]).casefold()
     # ASR/LLM may adjust commas or quote marks, but not source words.
-    source_words = " " + re.sub(r"[^\\w]+", " ", source, flags=re.UNICODE).strip() + " "
+    source_words = " " + re.sub(r"[^\w]+", " ", source, flags=re.UNICODE).strip() + " "
     topics: list[dict[str, str]] = []
     if isinstance(candidate, dict):
         proposed = candidate.get("topics") or []
@@ -136,7 +136,7 @@ def _validate_topics(candidate: Any, block: dict[str, Any]) -> dict[str, Any]:
             not (8 <= len(evidence) <= 240)
             or (
                 " " + re.sub(
-                    r"[^\\w]+", " ", evidence.casefold(), flags=re.UNICODE
+                    r"[^\w]+", " ", evidence.casefold(), flags=re.UNICODE
                 ).strip() + " "
             ) not in source_words
             or not (5 <= len(topic) <= 110)
