@@ -36,7 +36,7 @@
   ],
   "resolution_status": "OPEN",
   "local_repair": {
-    "status": "V3_PREPARED_NOT_APPLIED_TO_ALEXPC",
+    "status": "V3_APPLIED_ON_ALEXPC_QUARANTINED",
     "source_commit": "637a13e35cfc992248e5ace2ee52c01e0dfa9f53",
     "bootstrap_commit": "7cd971c1b962bcb71461d866a7071aa7338b9790",
     "bootstrap": "rg_remote_control/bootstrap_auto_edit_quarantine_8865_mic_v1.ps1",
@@ -83,6 +83,27 @@
       ],
       "correction": "Recognize 1 or 2 Gaussian Blur filters and exactly 1 crop per known overlay; retain SHA-256, full XML diff, audio and original video parity"
     },
-    "unverified": "Full actual XML preflight on AlexPC; smoke tests committed and pinned but result not yet reported"
+    "unverified": "Full actual XML preflight on AlexPC; smoke tests committed and pinned but result not yet reported",
+    "applied_result": {
+      "source": "2026-10-08 user PowerShell RG 886_5 MIC FALSE BLUR FINAL CONTROL",
+      "status": "QUARANTINED_AND_MICROPHONE_BLUR_REMOVED",
+      "validated_overlays": 3,
+      "effect_ids_per_overlay": [
+        "Gaussian Blur",
+        "Gaussian Blur",
+        "crop"
+      ],
+      "clean_xml_sha256": "1838e6e215b4c0cb132924a1288dc610bf71c2cca393e4e0f6ad66aeab1dfdc0",
+      "withheld_clean_xml": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\release_backups\\PRE_886_5_MICROPHONE_SEMANTIC_HOLD_20261008_200225\\CLEAN_XML_PENDING_SEMANTIC_REVIEW.xml",
+      "hold_marker": "F:\\RG_AUTO_EDIT\\RG Auto Edit App\\886\\RG_EDITED_886_5.SEMANTIC_HOLD.json",
+      "primary_xml_withheld": true,
+      "delivered_xml_withheld": true,
+      "release_allowed": false,
+      "full_dialogue_cigarette_audit": "NOT_RUN",
+      "source_audio_unchanged": true,
+      "video_original_unchanged": true,
+      "other_dialogues_unchanged": true,
+      "media_reprocessed": false
+    }
   }
 }
