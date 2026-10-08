@@ -11,12 +11,13 @@ if($src -notmatch 'locate_auto_edit_886_artifacts_v2'){throw '886 artifact locat
 & $runtime -m py_compile $tmp
 if($LASTEXITCODE -ne 0){throw 'task_runner compile failed'}
 
-@{
+$json=@{
   target='alexpc'
   contour='auto_edit'
   action='locate_auto_edit_886_artifacts_v2'
   args=@{}
-} | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $task
+} | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($task,$json,(New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host '886 ARTIFACT LOCATOR DIRECT CONTROL: PASS'
 Write-Host '=== 886 ARTIFACT LOCATOR DIRECT RESULT ==='
