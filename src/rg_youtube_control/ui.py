@@ -183,6 +183,7 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
+from .public_comments import fetch_public_comment_sample
 from .updater import (
     UpdateInfo,
     check_for_update,
@@ -3226,6 +3227,7 @@ class MainWindow(QMainWindow):
             ("Редагувати пакет", self.edit_content_package),
             ("Відкотити зміни", self.rollback_selected_metadata),
             ("Центр архівної кампанії", self.show_archive_campaign_center),
+            ("Публічні коментарі · 0 API (CSV)", self.export_public_comments_zero_api),
         ):
             action = QAction(text_value, advanced_menu)
             action.triggered.connect(
@@ -12983,6 +12985,73 @@ class MainWindow(QMainWindow):
             7000,
         )
         self._update_optimization_context_card()
+
+    def export_public_comments_zero_api(self) -> None:
+        """Export public visible comments for SEO analysis, not moderation."""
+        video_id = self._selected_optimization_video_id()
+        if not video_id:
+            QMessageBox.information(
+                self, APP_NAME,
+                "На вкладці «Оптимізація» виберіть одне відео. "
+                "Потім відкрийте «Додатково» → «Публічні коментарі»."
+            )
+            return
+
+        def task():
+            return fetch_public_comment_sample(video_id, limit=100)
+
+        def on_success(result: dict) -> None:
+            comments = list(result.get("comments") or [])
+            if not comments:
+                QMessageBox.information(
+                    self, APP_NAME,
+                    "Публічні коментарі не знайдено або YouTube "
+                    "не дозволив їх прочитати. API-квота: 0."
+                )
+                return
+            downloads = Path.home() / "Downloads"
+            downloads.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = downloads / (
+                f"RG_Public_Comments_{video_id}_{stamp}.csv"
+            )
+            with filename.open("w", encoding="utf-8-sig", newline="") as fh:
+                writer = csv.DictWriter(
+                    fh,
+                    fieldnames=[
+                        "video_id", "comment_id", "author", "comment",
+                        "published", "votes", "source",
+                    ],
+                    delimiter=";",
+                    extrasaction="ignore",
+                )
+                writer.writeheader()
+                writer.writerows(comments)
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="0-quota",
+                action="Аналіз публічних коментарів",
+                details=(
+                    f"{video_id}: {len(comments)} публічних коментарів; "
+                    "лише читання; API 0"
+                ),
+            )
+            self.reload_action_log()
+            QMessageBox.information(
+                self,
+                "Публічні коментарі · 0 API",
+                f"Збережено {len(comments)} коментарів.\n"
+                f"Файл: {filename}\n\n"
+                "Лише для аналізу. Статуси модерації, відповіді, "
+                "лайки та налаштування YouTube не змінено.",
+            )
+
+        self._run_local_tool(
+            "Аналіз публічних коментарів · 0 API",
+            task,
+            on_success,
+        )
 
     def export_comments_for_analysis(self) -> None:
         rows = self.conn.execute(
