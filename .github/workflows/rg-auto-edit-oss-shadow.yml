@@ -23,6 +23,7 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/oss_audit.py
           python -m py_compile rg_remote_control/open_source_v1/scene_suggest.py
+          python -m py_compile rg_remote_control/open_source_v1/health_shadow.py
       - name: Unit regression checks
         run: |
           python -m unittest discover -s rg_remote_control/open_source_v1/tests -v
