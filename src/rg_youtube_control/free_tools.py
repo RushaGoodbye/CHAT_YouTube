@@ -623,10 +623,11 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     variants = normalized.get("title_variants")
     if isinstance(variants, str):
         # A single string is not a list of character-sized A/B titles.
+        # Strip only list prefixes; preserve dates/numbers inside SEO titles.
         normalized["title_variants"] = [
-            part.strip(" \\t-•0123456789.)")
+            re.sub(r"^\\s*(?:[ABCАБВ1-3][.):-]\\s*)", "", part).strip()
             for part in variants.splitlines()
-            if part.strip(" \\t-•0123456789.)")
+            if part.strip()
         ]
     elif not isinstance(variants, list):
         normalized["title_variants"] = []
@@ -1835,9 +1836,10 @@ chapters: рядок з підтвердженими таймкодами та �
                             description_candidate,
                             transcript,
                         )
-                else:
-                    # Full-quality mode may spend extra local model passes on
-                    # description recovery. Batch mode intentionally avoids it.
+                elif description_error:
+                    # Only pay for a repair pass when the candidate actually
+                    # fails quality checks. The old implementation made extra
+                    # Ollama requests even for an already valid description.
                     recovered_description = _recover_missing_description(
                         current_title=current_title,
                         transcript=transcript,
@@ -1851,7 +1853,7 @@ chapters: рядок з підтвердженими таймкодами та �
                             description_candidate,
                             transcript,
                         )
-                    elif description_error:
+                    if description_error:
                         fallback_description = _grounded_description_from_transcript(
                             current_title,
                             transcript,
