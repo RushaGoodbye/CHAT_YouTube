@@ -7,7 +7,7 @@ $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
 $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
 $shadow='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow'
 $src=Join-Path $shadow 'scripts\quarantine_8865_mic_false_blur_v1.py'
-$ref='f182b18a31ccd73a036ec649ab8b801982956042'
+$ref='14111efadabc1b265414b8345aaf9608f95af166'
 Write-Host '=== RG 886_5 MIC FALSE BLUR RECOVERY PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Production Python missing; no actions attempted'}
 if(!(Test-Path -LiteralPath $app -PathType Container)){throw 'RG Auto Edit App folder missing'}
@@ -62,6 +62,9 @@ Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $src
 if($LASTEXITCODE -ne 0){throw 'Quarantine script compile check failed; user data unchanged'}
 & $python -X utf8 -u $src --self-test
 if($LASTEXITCODE -ne 0){throw 'Quarantine strict XML regression failed; user data unchanged'}
+Write-Host '=== RG 886_5 MIC FALSE BLUR FULL XML READ-ONLY PREFLIGHT ==='
+& $python -X utf8 -u $src --preflight
+if($LASTEXITCODE -ne 0){throw '886_5 XML differs from known clean pre-blur state; no mutation performed. Inspect PREFLIGHT STOPPED reason.'}
 Write-Host '=== RG 886_5 MIC FALSE BLUR QUARANTINE APPLY ==='
 & $python -X utf8 -u $src --apply
 if($LASTEXITCODE -ne 0){throw 'Quarantine fail-closed or unexpected. Follow STOPPED reason, do not rerun blindly.'}
