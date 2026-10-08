@@ -86,6 +86,8 @@ def run_norfair_shadow(hits):
                     initialization_delay=1)
     observations=[]
     fingerprints=[]
+    first_object=None
+    object_identity_stable=True
     for hit in hits:
         x0,y0,x1,y1=map(float,hit["bbox"])
         center=[(x0+x1)/2,(y0+y1)/2]
@@ -95,6 +97,12 @@ def run_norfair_shadow(hits):
                       data={"class":hit["class"]})
         live=tracker.update(detections=[det])
         internal=tracker.tracked_objects
+        if len(internal)!=1:
+            object_identity_stable=False
+        elif first_object is None:
+            first_object=internal[0]
+        elif internal[0] is not first_object:
+            object_identity_stable=False
         fingerprints.append({
           "internal_count":len(internal),
           "initializing_ids":[int(x.initializing_id) if x.initializing_id is not None else None for x in internal],
@@ -110,8 +118,7 @@ def run_norfair_shadow(hits):
     displacement=math.dist(*centers)
     same_internal_object=(
       len(fingerprints)==2 and all(x["internal_count"]==1 for x in fingerprints)
-      and fingerprints[0]["initializing_ids"][0] is not None
-      and fingerprints[0]["initializing_ids"][0]==fingerprints[1]["initializing_ids"][0]
+      and object_identity_stable
       and len(observations[-1]["returned_tracker_ids"])==1
     )
     result="CONSISTENT" if same_internal_object else "INCONCLUSIVE"
