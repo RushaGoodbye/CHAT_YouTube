@@ -289,10 +289,10 @@ def self_test():
     assert merge_ranges([[8,11],[0,4],[3,9]])==[(0,11)]
     assert merge_ranges([[0,1],[6,7]])==[(0,1),(6,7)]
     # File refs with missing IDs must not silently become known 886.mp4.
-    c=orig.find("./sequence/media/video/track/clipitem")
-    c.find("file").clear()
+    items=orig.findall("./sequence/media/video/track/clipitem")
+    items[1].find("file").set("id","unresolvable-file-ref")
     r=flatten_timeline(ET.tostring(orig))
-    assert r["unresolved_count"]==2
+    assert r["unresolved_count"]==1 and r["source_clips"]==1
     assert "UNRESOLVED_MEDIA_MAPPINGS" in safe_to_decode(r)[0]
     # A cap above 540 seconds must be refused, never decode hours.
     oversized=dict(result,source_range_union_sec=541,
