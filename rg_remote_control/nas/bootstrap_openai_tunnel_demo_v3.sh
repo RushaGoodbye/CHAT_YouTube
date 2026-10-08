@@ -86,9 +86,12 @@ TUNNEL_ID=""
 while [ "$attempt" -lt 3 ]; do
   printf '\nPaste only the tunnel_... ID from OpenAI Platform (NOT your API key): ' >/dev/tty
   IFS= read -r TUNNEL_ID </dev/tty || exit 1
-  # Strip leading/trailing whitespace plus any copied surrounding quote marks.
-  # No modification to valid characters within the tunnel ID.
-  TUNNEL_ID="$(printf '%s' "$TUNNEL_ID" | tr -d '\r' | sed 's/^[[:space:]"\x27\x60]*//;s/[[:space:]"\x27\x60]*$//')"
+  # Remove CR and surrounding whitespace using POSIX utilities.
+  TUNNEL_ID="$(printf '%s' "$TUNNEL_ID" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # Common clipboard copies include surrounding double quotes.
+  case "$TUNNEL_ID" in
+    \"*\") TUNNEL_ID="${TUNNEL_ID#\"}"; TUNNEL_ID="${TUNNEL_ID%\"}" ;;
+  esac
   if validate_tunnel_id "$TUNNEL_ID"; then
     echo "Tunnel ID accepted (${#TUNNEL_ID} characters)."
     break
