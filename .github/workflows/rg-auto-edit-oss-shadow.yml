@@ -63,6 +63,11 @@ jobs:
           assert not report["production_approved"]
           print("RG_NORFAIR_MOTION_FAIL_CLOSED_V2=PASS")
           PY
+      - name: Real stream review sheet source-immutability regression
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/real_cigarette_review_8865_v1.py
+          python -m py_compile rg_remote_control/open_source_v1/real_cigarette_review_synthetic.py
+          python rg_remote_control/open_source_v1/real_cigarette_review_synthetic.py
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
