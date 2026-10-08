@@ -409,6 +409,7 @@ class ContentOptimizationDialog(QDialog):
             _standard_hyphen("\n".join(title_variants or []))
         )
         self.title_variants_edit.setPlaceholderText(
+            "ПРИКЛАД - поле зараз порожнє:\n"
             "Варіант A - сильний конфлікт / цитата\n"
             "Варіант B - конфлікт + контекст\n"
             "Варіант C - сильний хук | ЧАТ РУЛЕТКА"
@@ -506,7 +507,10 @@ class ContentOptimizationDialog(QDialog):
         if self.scheduled_publish_at:
             display_warnings = [
                 item for item in display_warnings
-                if item != "Розділи не заповнені."
+                if item not in {
+                    "Розділи не заповнені.",
+                    "Для A/B перевірки бажано мати 3 варіанти назви.",
+                }
             ]
         if display_warnings:
             lines.append("\nРЕКОМЕНДАЦІЇ:")
@@ -9291,6 +9295,7 @@ class MainWindow(QMainWindow):
                 for item in tags_value
                 if str(item).strip()
             ]
+        tags = self._dedupe_tags(tags)[:15]
 
         if not title:
             raise RuntimeError("У пакеті немає назви.")
@@ -10146,7 +10151,10 @@ class MainWindow(QMainWindow):
         new_title = str(row["new_title"] or "").strip()
         description = str(row["description"] or "")
         chapters = str(row["chapters"] or "")
-        tags = self._dedupe_tags(json.loads(row["tags_json"] or "[]"))
+        original_package_tags = self._dedupe_tags(
+            json.loads(row["tags_json"] or "[]")
+        )
+        tags = original_package_tags[:15]
         title_variants = json.loads(row["title_variants_json"] or "[]")
 
         clean_description, detected_chapters = extract_chapters_from_description(
@@ -10173,7 +10181,9 @@ class MainWindow(QMainWindow):
             if str(item).strip()
         ]
         if tags != original_tags:
-            changes.append("прибрано дублікати тегів")
+            changes.append("нормалізовано теги")
+        if len(original_package_tags) > 15:
+            changes.append("залишено 15 найпріоритетніших тегів")
 
         check = validate_content_package(
             new_title, description, chapters, tags, title_variants
