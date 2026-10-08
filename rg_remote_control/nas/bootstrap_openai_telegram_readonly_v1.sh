@@ -20,7 +20,7 @@ NEW="rg-openai-tunnel-telegram-readonly"
 READER="rg-telegram-tunnel-reader"
 IMAGE="ghcr.io/openai/tunnel-client:v0.0.16"
 READER_IMAGE="rg-telegram-tunnel-reader:0.1.0"
-REF="7d2dfb9c798b2b6db73251125e75ae1c51f69d80"
+REF="b355538109897df8657a393d5c9a068753f86ffa"
 BASE="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$REF/rg_remote_control/nas/telegram_tunnel_readonly"
 umask 077
 [ -s "$KEY" ] || { echo "Existing runtime key missing. Refusing changes."; exit 1; }
