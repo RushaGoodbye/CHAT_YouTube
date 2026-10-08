@@ -12956,13 +12956,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = (
-            bool(package.get("title_fallback_used"))
-            or len(variants) < 3
-        )
+        requires_review = bool(package.get("needs_review")) or len(variants) < 3
         draft_reason = (
-            "Модель не створила нову назву або 3 A/B варіанти. "
-            "Збережено оригінальну назву; потрібна перевірка."
+            str(package.get("review_reason") or "").strip()
+            or "Неповні A/B варіанти - потрібна перевірка."
             if requires_review else "Переглянуто користувачем"
         )
         save_optimization_draft(
