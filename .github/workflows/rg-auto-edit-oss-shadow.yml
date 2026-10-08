@@ -74,6 +74,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/quarantine_8865_mic_false_blur_v1.py
           python rg_remote_control/quarantine_8865_mic_false_blur_v1.py --self-test
+      - name: Clean 886_5 XML source timeline mapping regression
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/audit_886_5_dialogue_preflight_v1.py
+          python rg_remote_control/open_source_v1/audit_886_5_dialogue_preflight_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
