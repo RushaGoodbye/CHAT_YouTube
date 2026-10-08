@@ -96,9 +96,18 @@ def check_xml_xml(primary_bytes,original_bytes):
         # Full-document structural equality after removal of this known
         # trailing track (below), plus the known exact SHA256 of both active
         # XML copies, is the stronger verification of what will be restored.
-        if kinds.count("Gaussian Blur")!=1 or kinds.count("crop")!=1:
-            raise RuntimeError("Missing/duplicate Gaussian Blur or crop in "+
-                repr(c.get("id"))+": "+repr(kinds))
+        # The verified 886_5 overlay contains TWO Gaussian Blur filters
+        # and exactly one crop. We restore the entire isolated overlay track,
+        # not individual filters: SHA256 pins both current XMLs, and removing
+        # that ONE track must reproduce the clean backed-up XML exactly.
+        # Allow only one or two Gaussian Blur effects, never an unbounded
+        # accidental effect chain.
+        n_blur=kinds.count("Gaussian Blur")
+        n_crop=kinds.count("crop")
+        if n_blur not in (1,2) or n_crop!=1:
+            raise RuntimeError("Unexpected cigarette overlay filter counts in "+
+                repr(c.get("id"))+": "+repr(kinds)+
+                f"; blur_count={n_blur}, crop_count={n_crop}")
         if any(k is None for k in kinds):
             raise RuntimeError("Overlay contains filter with no effectid: "+repr(c.get("id")))
         if int(float(c.findtext("end") or 0))<=int(float(c.findtext("start") or 0)):
@@ -388,6 +397,20 @@ def self_test():
     # contain extra legitimate filters. The entire added track is removed.
     actual_like=mk(blur=True,extras=("basicmotion","opacity"))
     info=check_xml_xml(actual_like,clean)
+    # Reproduce actual Windows evidence: [Gaussian Blur, Gaussian Blur, crop].
+    # XML child order is deliberately non-canonical to confirm we validate
+    # effect counts without relying on an assumed Premiere filter order.
+    two_blurs=ET.fromstring(actual_like)
+    for clip in two_blurs.findall("./sequence/media/video/track")[-1].findall("clipitem"):
+        effects=clip.findall("filter")
+        gaussian=next(e for e in effects if e.findtext("effect/effectid")=="Gaussian Blur")
+        clip.insert(0,copy.deepcopy(gaussian))
+    exact_real_shape=ET.tostring(two_blurs)
+    verified=check_xml_xml(exact_real_shape,clean)
+    assert verified["removed_blur_overlays"]==3
+    for clip in verified["overlay_details"]:
+        assert clip["effect_ids"].count("Gaussian Blur")==2
+        assert clip["effect_ids"].count("crop")==1
     assert info["semantic_xml_equal_after_overlay_removal"] is True
     assert info["audio_identical"] is True
     assert info["original_video_tracks_identical"] is True
@@ -398,7 +421,8 @@ def self_test():
            ("missing_blur",None,clean),
            ("duplicate_crop",None,clean),
            ("unexpected_global_change",None,clean),
-           ("wrong_clip_id",None,clean)]
+           ("wrong_clip_id",None,clean),
+           ("triple_blur",None,clean)]
     tampered=ET.fromstring(actual_like)
     tampered.find("./sequence/media/audio/track").set("mutated","1")
     cases[1]=("wrong_audio",ET.tostring(tampered),clean)
@@ -425,6 +449,11 @@ def self_test():
     tampered=ET.fromstring(actual_like)
     tampered.findall("./sequence/media/video/track")[-1].find("clipitem").set("id","unexpected-id")
     cases[6]=("wrong_clip_id",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(exact_real_shape)
+    clip=tampered.findall("./sequence/media/video/track")[-1].find("clipitem")
+    gaussian=next(e for e in clip.findall("filter") if e.findtext("effect/effectid")=="Gaussian Blur")
+    clip.append(copy.deepcopy(gaussian))
+    cases[7]=("triple_blur",ET.tostring(tampered),clean)
     for label,untrusted,baseline in cases:
         try:
             check_xml_xml(untrusted,baseline)
@@ -432,7 +461,7 @@ def self_test():
             pass
         else:
             raise AssertionError("Unsafe XML passed quarantine preflight: "+label)
-    print("RG_886_5_MICROPHONE_FALSE_POSITIVE_LOCAL_XML_GATES_V2: PASS",flush=True)
+    print("RG_886_5_MICROPHONE_FALSE_POSITIVE_LOCAL_XML_GATES_V3: PASS",flush=True)
 
 def main():
     ap=argparse.ArgumentParser()
