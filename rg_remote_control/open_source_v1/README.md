@@ -62,6 +62,14 @@ CoTracker преимущественно CC-BY-NC и не допускается
 **Это staged-код, а не изменение установленного на компьютере приложения.**
 Установщик OSS-пилота подготовлен, но на AlexPC пока не запускался. Рабочий `venv` не менялся. Реальный Windows-smoke и GPU-smoke ещё не подтверждены.
 
+## Status: real stream 886 integration checks
+
+- 2026-10-08: PySceneDetect 0.7.1 / psutil 7.2.2 isolated F: environment installed (OSS_IMPORT_SMOKE=PASS).
+- 2026-10-08: real 886 scene window 9554.0–9566.0s completed: SHADOW_PASS, SCENES=1, CANDIDATES=0. No video/XML/audio modification.
+- Norfair 2.3.0 (BSD-3-Clause) adapter `norfair_saved_hits_8865.py` is committed and awaits Windows live test.
+- `../bootstrap_auto_edit_norfair_8865_shadow_v1.ps1` installs Norfair in a SECOND isolated venv and runs a synthetic API safety test before reading existing 886_5 saved detections. Results go only into `oss_shadow/norfair_886_5_v1.json`. No render, model re-inference, Premiere/XML or audio modifications.
+- Matching two detections is NOT proof of full-frame cigarette tracking, so production adoption remains disabled until multi-frame, occlusion, and frame-coverage tests pass.
+
 ## Как запускать независимые тесты
 
 ```powershell
