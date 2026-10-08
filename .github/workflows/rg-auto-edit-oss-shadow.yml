@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'rg_remote_control/open_source_v1/**'
+      - 'rg_remote_control/quarantine_8865_mic_false_blur_v1.py'
+      - 'rg_remote_control/bootstrap_auto_edit_quarantine_8865_mic_v1.ps1'
       - '.github/workflows/rg-auto-edit-oss-shadow.yml'
   workflow_dispatch:
 
@@ -68,7 +70,7 @@ jobs:
           python -m py_compile rg_remote_control/open_source_v1/real_cigarette_review_8865_v1.py
           python -m py_compile rg_remote_control/open_source_v1/real_cigarette_review_synthetic.py
           python rg_remote_control/open_source_v1/real_cigarette_review_synthetic.py
-      - name: Mic false-blur quarantine strict XML regression
+      - name: Mic false-blur quarantine V3 strict Premiere XML regression
         run: |
           python -m py_compile rg_remote_control/quarantine_8865_mic_false_blur_v1.py
           python rg_remote_control/quarantine_8865_mic_false_blur_v1.py --self-test
