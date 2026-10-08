@@ -73,3 +73,22 @@ def test_scheduled_package_normalizes_description_and_tags_before_validation():
     block = source[start:end]
     assert "tags = normalize_package_tags(original_package_tags)" in block
     assert "safe_description_fix(description, new_title)" in block
+
+def test_scheduled_stream_package_does_not_warn_about_missing_chapters():
+    base = (
+        ("Український опис для перевірки запланованого стріму. " * 12)
+        + f"\n\nУСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n{PROJECT_LINKS_URL}"
+        + f"\n\nУСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n{DONATE_URL}"
+    )
+    description = safe_description_fix(base, "Тестовий стрім").after
+    check = validate_content_package(
+        "Тестовий стрім",
+        description,
+        "",
+        [f"tag{i}" for i in range(8)],
+        ["Варіант 1", "Варіант 2", "Варіант 3"],
+        chapters_optional=True,
+    )
+    assert check.ready
+    assert "Розділи не заповнені." not in check.warnings
+
