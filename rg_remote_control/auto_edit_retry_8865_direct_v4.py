@@ -54,7 +54,7 @@ def prevent_queued_duplicate():
         folder=NAS/"auto_edit"/sub
         if not folder.is_dir():
             continue
-        pending=list(folder.glob("retry-8865-start_auto_edit_recovery_queue*.json"))
+        pending=list(folder.glob("retry-8865-*.json"))
         if pending:
             raise RuntimeError("Existing queued 886 recovery request; duplicate prevented: "+str(pending[0]))
 
