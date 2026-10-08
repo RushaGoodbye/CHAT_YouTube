@@ -560,6 +560,7 @@ def ollama_chat(
     timeout: float = 300.0,
     temperature: float = 0.2,
     json_mode: bool = False,
+    num_ctx: int | None = None,
 ) -> str:
     request_payload = {
         "model": model,
@@ -568,6 +569,8 @@ def ollama_chat(
         "think": False,
         "options": {"temperature": temperature},
     }
+    if num_ctx is not None:
+        request_payload["options"]["num_ctx"] = int(num_ctx)
     if json_mode:
         request_payload["format"] = "json"
     body = json.dumps(
@@ -1715,16 +1718,16 @@ SHORTS: {is_short}
 {current_title}
 
 ПОТОЧНИЙ ОПИС:
-{current_description[:6000]}
+{current_description[:1200] if evidence_report else current_description[:6000]}
 
 ПОТОЧНІ ТЕГИ:
 {json.dumps(current_tags or [], ensure_ascii=False)}
 
 ПУБЛІЧНИЙ КОНТЕКСТ yt-dlp:
-{json.dumps(context, ensure_ascii=False)[:6000]}
+{json.dumps(context, ensure_ascii=False)[:1800] if evidence_report else json.dumps(context, ensure_ascii=False)[:6000]}
 
 ТРАНСКРИПТ:
-{transcript[:12000]}
+{('Див. підтверджену карту тем вище.' if evidence_report else transcript[:12000])}
 """.strip()
 
     payload: dict[str, Any] = {}
@@ -1756,8 +1759,11 @@ chapters: рядок з підтвердженими таймкодами та �
 ПОТОЧНА НАЗВА:
 {current_title}
 
+КАРТА ПІДТВЕРДЖЕНИХ ТЕМ ВСЬОГО ВІДЕО:
+{verified_evidence}
+
 ТРАНСКРИПТ:
-{transcript[:8000]}
+{('Використай карту тем вище.' if evidence_report else transcript[:8000])}
 """.strip()
             raw = ollama_chat(
                 [
@@ -1768,6 +1774,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 timeout=timeout,
                 temperature=0.05 if attempt else 0.15,
                 json_mode=True,
+                num_ctx=16384 if evidence_report else None,
             )
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             proposed_title = candidate.get("title")
