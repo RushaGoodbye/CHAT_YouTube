@@ -16543,6 +16543,65 @@ def apply_auto_edit_telemetry_v1() -> dict:
         raise
 
 
+
+def restart_and_verify_auto_edit_telemetry_v1() -> dict:
+    """Safely restart Studio UI after telemetry V1 and verify the live UI/code state."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import py_compile,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    wrapper=app/"rg_production_wrapper.py"
+    ui=app/"rg_studio_ui.py"
+    statusp=data/"TELEMETRY_V1_STATUS.json"
+    if not statusp.is_file():
+        raise RuntimeError("TELEMETRY_V1_STATUS.json missing")
+    status=json.loads(statusp.read_text(encoding="utf-8-sig"))
+    if status.get("status")!="APPLIED":
+        raise RuntimeError("Telemetry V1 is not APPLIED")
+    py_compile.compile(str(wrapper),doraise=True)
+    py_compile.compile(str(ui),doraise=True)
+
+    restarted=restart_auto_edit_studio_ui()
+    time.sleep(1.5)
+
+    wtxt=wrapper.read_text(encoding="utf-8",errors="replace")
+    utxt=ui.read_text(encoding="utf-8",errors="replace")
+    checks={
+        "wrapper_compiles":True,
+        "ui_compiles":True,
+        "wrapper_guard":"RG_TELEMETRY_HEARTBEAT_ETA_V1" in wtxt,
+        "heartbeat_emitter":'print("RGHEARTBEAT|"+json.dumps' in wtxt,
+        "eta_emitter":'print("RGETA|"+json.dumps' in wtxt,
+        "ui_eta_guard":"RG_TELEMETRY_UI_ETA_V1" in utxt,
+        "ui_eta_updates_label":'self.proc_eta_value.setText(eta_text)' in utxt,
+        "ui_restarted":bool(restarted.get("restarted")),
+        "backend_not_active":restarted.get("backend_active") is False,
+        "studio_process_detected":bool(restarted.get("after")),
+    }
+    passed=all(checks.values())
+    out={
+        "schema":"RG_AUTO_EDIT_TELEMETRY_RESTART_VERIFY_V1",
+        "status":"PASS" if passed else "FAIL",
+        "checks":checks,
+        "telemetry":status,
+        "restart":restarted,
+        "dynamic_validation":"DEFER_TO_NEXT_REAL_PRODUCTION_RUN",
+        "full_886_recompute_required":False,
+        "golden_promoted":False,
+        "candidate":"0.20.20.3",
+        "current_golden":"0.20.20.2",
+        "next_action":"VALIDATE_HEARTBEAT_ETA_ON_NEXT_REAL_PRODUCTION_RUN",
+        "verified_at":time.time(),
+    }
+    (data/"TELEMETRY_V1_RESTART_VERIFY.json").write_text(
+        json.dumps(out,ensure_ascii=False,indent=2),encoding="utf-8"
+    )
+    if not passed:
+        raise RuntimeError("Telemetry restart verification failed: "+json.dumps(checks,ensure_ascii=False))
+    return out
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16627,6 +16686,7 @@ ACTIONS = {
     "reconcile_auto_edit_post_cigarette_v1": reconcile_auto_edit_post_cigarette_v1,
     "apply_auto_edit_post_cigarette_reconcile_v1": reconcile_auto_edit_post_cigarette_v1,
     "apply_auto_edit_telemetry_v1": apply_auto_edit_telemetry_v1,
+    "restart_and_verify_auto_edit_telemetry_v1": restart_and_verify_auto_edit_telemetry_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
