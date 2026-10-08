@@ -101,6 +101,17 @@ jobs:
           }
           $manifest | ConvertTo-Json | Set-Content -Encoding utf8 installer\latest.json
 
+      - name: Create ZIP update package
+        shell: pwsh
+        run: |
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          $file = Get-ChildItem installer\*.exe | Select-Object -First 1
+          $checksum = "$($file.FullName).sha256"
+          $zip = "installer\RG_YouTube_Control_Update_$version.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $file.FullName,$checksum,"installer\latest.json" -DestinationPath $zip -CompressionLevel Optimal
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
@@ -120,9 +131,9 @@ jobs:
           function Invoke-ReleasePublish {
             gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
             if ($LASTEXITCODE -eq 0) {
-              gh release upload $tag installer\*.exe installer\*.sha256 installer\latest.json --clobber --repo $env:GITHUB_REPOSITORY
+              gh release upload $tag installer\*.exe installer\*.sha256 installer\latest.json installer\*.zip --clobber --repo $env:GITHUB_REPOSITORY
             } else {
-              gh release create $tag installer\*.exe installer\*.sha256 installer\latest.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "RG YouTube Control $version" --notes "Windows update $version"
+              gh release create $tag installer\*.exe installer\*.sha256 installer\latest.json installer\*.zip --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "RG YouTube Control $version" --notes "Windows update $version"
             }
             return $LASTEXITCODE
           }
@@ -151,3 +162,4 @@ jobs:
             installer\*.exe
             installer\*.sha256
             installer\latest.json
+            installer\*.zip
