@@ -36,6 +36,19 @@ jobs:
           python -m py_compile rg_remote_control/open_source_v1/norfair_real_motion_synthetic.py
           python rg_remote_control/open_source_v1/norfair_synthetic_smoke.py
           python rg_remote_control/open_source_v1/norfair_real_motion_synthetic.py
+          python -m py_compile rg_remote_control/open_source_v1/norfair_motion_challenge_v1.py
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'rg_remote_control/open_source_v1')
+          from norfair_motion_challenge_v1 import analyze
+          names = ('slow_motion','fast_motion','intermittent_occlusion','lookalike_distractor')
+          rows = [analyze(name) for name in names]
+          assert [r['case'] for r in rows] == list(names)
+          assert all(r['frames']==24 for r in rows)
+          assert all(r['correct_position_frames']+r['missed_visible_frames']+r['incorrect_visible_matches']==r['truth_visible_frames'] for r in rows)
+          assert all(r['false_matches_when_absent']>=0 for r in rows)
+          print('RG_NORFAIR_GROUND_TRUTH_CHALLENGE_CONTRACT=PASS')
+          PY
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
