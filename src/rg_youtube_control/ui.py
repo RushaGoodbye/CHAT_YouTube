@@ -138,6 +138,7 @@ from .optimization import (
     extract_chapters_from_description,
     is_safe_archive_candidate,
     needs_deep_review,
+    normalize_package_tags,
     priority_label,
     safe_description_fix,
     safe_description_needs_content_package,
@@ -402,8 +403,9 @@ class ContentOptimizationDialog(QDialog):
             self.chapters_edit.setPlaceholderText(
                 "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
             )
+        normalized_tags = normalize_package_tags(tags)
         self.tags_edit = QPlainTextEdit(
-            _standard_hyphen(", ".join(tags))
+            _standard_hyphen(", ".join(normalized_tags))
         )
         self.title_variants_edit = QPlainTextEdit(
             _standard_hyphen("\n".join(title_variants or []))
@@ -560,11 +562,16 @@ class ContentOptimizationDialog(QDialog):
         self.accept()
 
     def values(self) -> tuple[str, str, str, list[str], str, list[str]]:
-        tags = [
+        tags = normalize_package_tags([
             item.strip()
             for item in self.tags_edit.toPlainText().replace("\n", ",").split(",")
             if item.strip()
-        ]
+        ])
+        normalized_tag_text = ", ".join(tags)
+        if self.tags_edit.toPlainText().strip() != normalized_tag_text:
+            self.tags_edit.blockSignals(True)
+            self.tags_edit.setPlainText(normalized_tag_text)
+            self.tags_edit.blockSignals(False)
         title_variants = [
             item.strip()
             for item in self.title_variants_edit.toPlainText().splitlines()
@@ -3765,9 +3772,11 @@ class MainWindow(QMainWindow):
             ]
         except Exception:
             after_tags = []
-        after_description = compose_description(
-            str(draft["description"] or ""),
-            str(draft["chapters"] or ""),
+        after_description = _strip_timestamp_lines(
+            safe_description_fix(
+                str(draft["description"] or ""),
+                str(draft["new_title"] or ""),
+            ).after
         )
         quality_state = str(draft["quality_state"] or "")
         quality_reason = str(draft["quality_reason"] or "")
@@ -9258,6 +9267,7 @@ class MainWindow(QMainWindow):
             title,
         )
         description = package_description_fix.after
+        description = safe_description_fix(description, title).after
         chapters = _standard_hyphen(
             str(payload.get("chapters") or "").strip()
         )
@@ -9295,7 +9305,7 @@ class MainWindow(QMainWindow):
                 for item in tags_value
                 if str(item).strip()
             ]
-        tags = self._dedupe_tags(tags)[:15]
+        tags = normalize_package_tags(tags)
 
         if not title:
             raise RuntimeError("У пакеті немає назви.")
@@ -9803,18 +9813,18 @@ class MainWindow(QMainWindow):
             is_scheduled_stream = bool(
                 video_row and video_row["scheduled_publish_at"]
             )
-            final_description = (
-                _strip_timestamp_lines(draft["description"])
-                if is_scheduled_stream
-                else compose_description(
-                    draft["description"],
-                    draft["chapters"],
-                )
+            final_description = _strip_timestamp_lines(
+                safe_description_fix(
+                    str(draft["description"] or ""),
+                    str(draft["new_title"] or ""),
+                ).after
             )
             current_title, current_description, current_tags = (
                 self._current_video_metadata(video_id)
             )
-            new_tags = json.loads(draft["tags_json"] or "[]")
+            new_tags = normalize_package_tags(
+                json.loads(draft["tags_json"] or "[]")
+            )
             new_title = draft["new_title"]
 
             deep_state_before = deep_review_state_map(
@@ -10151,10 +10161,12 @@ class MainWindow(QMainWindow):
         new_title = str(row["new_title"] or "").strip()
         description = str(row["description"] or "")
         chapters = str(row["chapters"] or "")
-        original_package_tags = self._dedupe_tags(
-            json.loads(row["tags_json"] or "[]")
-        )
-        tags = original_package_tags[:15]
+        original_package_tags = [
+            str(item).strip()
+            for item in json.loads(row["tags_json"] or "[]")
+            if str(item).strip()
+        ]
+        tags = normalize_package_tags(original_package_tags)
         title_variants = json.loads(row["title_variants_json"] or "[]")
 
         clean_description, detected_chapters = extract_chapters_from_description(
@@ -10167,10 +10179,13 @@ class MainWindow(QMainWindow):
                 chapters = detected_chapters
             changes.append("прибрано дубль розділів з опису")
 
-        safe_fix = sanitize_imported_package_description(
+        imported_fix = sanitize_imported_package_description(
             description,
             new_title,
         )
+        description = imported_fix.after
+        changes.extend(imported_fix.changes)
+        safe_fix = safe_description_fix(description, new_title)
         if safe_fix.after != description:
             description = safe_fix.after
             changes.extend(safe_fix.changes)
@@ -10442,9 +10457,11 @@ class MainWindow(QMainWindow):
                     check,
                     prep_changes,
                 ) = prepared
-                final_description = compose_description(
-                    prepared_description,
-                    chapters,
+                final_description = _strip_timestamp_lines(
+                    safe_description_fix(
+                        prepared_description,
+                        new_title,
+                    ).after
                 )
 
                 history_id = save_metadata_snapshot(
@@ -12846,7 +12863,9 @@ class MainWindow(QMainWindow):
             current_description=before_description,
             current_tags=before_tags,
             new_title=title,
-            new_description=compose_description(description, chapters),
+            new_description=_strip_timestamp_lines(
+                safe_description_fix(description, title).after
+            ),
             new_tags=tags,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
