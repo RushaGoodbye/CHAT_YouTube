@@ -17070,6 +17070,170 @@ def inspect_auto_edit_telemetry_runtime_proof_v1() -> dict:
     }
 
 
+
+def inspect_auto_edit_live_cigarette_failure_v1() -> dict:
+    """Read-only diagnosis of the latest cigarette fail-closed stop on stream 886."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    cfgp=app/"rg_auto_edit_config.json"
+    cfg={}
+    try:cfg=json.loads(cfgp.read_text(encoding="utf-8-sig")) if cfgp.is_file() else {}
+    except Exception:cfg={}
+    cigcfg=dict(cfg.get("cigarette_blur") or {})
+
+    # Process state only - no termination or mutation.
+    procq=run([
+        "powershell.exe","-NoProfile","-NonInteractive","-Command",
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_production_wrapper.py*') -or "
+        "($_.CommandLine -like '*rg_multi_dialogue.py*') -or "
+        "($_.CommandLine -like '*rg_auto_edit_one_button.py*')) }; "
+        "$p | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress -Depth 4"
+    ],timeout=30)
+    raw=(procq.get("stdout") or "").strip()
+    try:procs=json.loads(raw) if raw else []
+    except Exception:procs=[]
+    if isinstance(procs,dict):procs=[procs]
+    if not isinstance(procs,list):procs=[]
+
+    # Recent cigarette reports only. Bounded known roots, skip bulky dependency trees.
+    roots=[app, data/"validation", data/"control_runs"]
+    rows=[]
+    seen=set()
+    cutoff=time.time()-6*3600
+    names=("_CIGARETTE_BLUR_DETECTIONS.json","_CIGARETTE_BLUR_QA.json")
+    for root in roots:
+        if not root.exists():continue
+        try:
+            for base,dirs,files in os.walk(root):
+                low=str(base).casefold()
+                if any(x in low for x in ("\\release_backups","\\workers","\\models","\\site-packages","\\.git")):
+                    dirs[:]=[];continue
+                dirs[:]=[d for d in dirs if d.casefold() not in {"release_backups","workers","models","site-packages",".git"}]
+                for name in files:
+                    if not name.endswith(names):continue
+                    p=Path(base)/name
+                    try:
+                        st=p.stat()
+                        if st.st_mtime<cutoff or st.st_size>8_000_000:continue
+                    except Exception:continue
+                    key=str(p.resolve()).casefold()
+                    if key in seen:continue
+                    seen.add(key)
+                    try:d=json.loads(p.read_text(encoding="utf-8-sig"))
+                    except Exception as exc:
+                        rows.append({"path":str(p),"mtime":st.st_mtime,"read_error":repr(exc)})
+                        continue
+                    row={
+                        "path":str(p),"mtime":st.st_mtime,"size":st.st_size,
+                        "passed":d.get("passed"),"status":d.get("status"),
+                        "raw_detection_count":int(d.get("raw_detection_count") or 0),
+                        "confirmed_track_count":int(d.get("confirmed_track_count") or 0),
+                        "rejected_track_count":int(d.get("rejected_track_count") or 0),
+                        "unconfirmed_detection_count":int(d.get("unconfirmed_detection_count") or 0),
+                        "interval_count":int(d.get("interval_count") or d.get("detected_interval_count") or 0),
+                        "overlay_count":int(d.get("overlay_count") or 0),
+                        "failures":d.get("failures") or [],
+                    }
+                    rej=[]
+                    for tr in (d.get("rejected_tracks") or [])[:20]:
+                        hits=tr.get("hits") or []
+                        rej.append({
+                            "id":tr.get("id"),
+                            "hit_count":len(hits),
+                            "span_sec":tr.get("span_sec"),
+                            "max_score":tr.get("max_score"),
+                            "first_t":hits[0].get("t") if hits else None,
+                            "last_t":hits[-1].get("t") if hits else None,
+                            "hits":[
+                                {"t":h.get("t"),"score":h.get("score"),"class":h.get("class"),"bbox":h.get("bbox")}
+                                for h in hits[:12]
+                            ],
+                        })
+                    row["rejected_tracks"]=rej
+                    acc=[]
+                    for tr in (d.get("tracks") or [])[:12]:
+                        hits=tr.get("hits") or []
+                        acc.append({
+                            "id":tr.get("id"),"hit_count":len(hits),
+                            "span_sec":tr.get("span_sec"),"max_score":tr.get("max_score"),
+                            "first_t":hits[0].get("t") if hits else None,
+                            "last_t":hits[-1].get("t") if hits else None,
+                        })
+                    row["accepted_tracks"]=acc
+                    rows.append(row)
+                if len(rows)>=80:break
+        except Exception as exc:
+            rows.append({"root":str(root),"scan_error":repr(exc)})
+        if len(rows)>=80:break
+    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
+
+    # Current 886 production log tail.
+    logp=app/"run_manifests"/"886"/"STUDIO_RUN.log"
+    log={}
+    if logp.is_file():
+        txt=logp.read_text(encoding="utf-8",errors="replace")
+        lines=txt.splitlines()
+        cig=[x for x in lines if "CIGARETTE" in x.upper() or "UNCONFIRMED" in x.upper()]
+        prog=[x for x in lines if "RGPROGRESS|" in x]
+        log={
+            "path":str(logp),"mtime":logp.stat().st_mtime,"lines":len(lines),
+            "cigarette_lines":cig[-40:],
+            "progress_last":prog[-20:],
+            "tail":lines[-100:],
+        }
+
+    latest=rows[0] if rows else None
+    diagnosis="NO_RECENT_CIGARETTE_REPORT"
+    if latest and latest.get("passed") is False:
+        rawc=int(latest.get("raw_detection_count") or 0)
+        conf=int(latest.get("confirmed_track_count") or 0)
+        rej=latest.get("rejected_tracks") or []
+        if rawc>0 and conf==0:
+            diagnosis="RAW_CANDIDATES_WITH_NO_CONFIRMED_TRACK"
+            # Refine classification for likely threshold-edge false positives.
+            scores=[float(r.get("max_score") or 0) for r in rej]
+            hits=[int(r.get("hit_count") or 0) for r in rej]
+            spans=[float(r.get("span_sec") or 0) for r in rej]
+            if scores and max(scores)<float(cigcfg.get("single_hit_strong_confidence",0.34)) and max(hits or [0])<int(cigcfg.get("min_track_hits",2)):
+                diagnosis="LIKELY_SINGLE_FRAME_LOW_CONFIDENCE_FALSE_POSITIVE"
+            elif scores and max(scores)<float(cigcfg.get("single_hit_strong_confidence",0.34)) and max(spans or [0])<float(cigcfg.get("min_track_span_sec",0.10)):
+                diagnosis="LIKELY_SHORT_SPAN_THRESHOLD_EDGE"
+    elif latest and latest.get("passed") is True:
+        diagnosis="LATEST_CIGARETTE_REPORT_PASS"
+
+    return {
+        "schema":"RG_LIVE_CIGARETTE_FAILURE_DIAG_V1",
+        "stream":"886",
+        "read_only":True,
+        "production_processes":procs,
+        "production_active":bool(procs),
+        "config":{
+            "confidence":cigcfg.get("confidence"),
+            "single_hit_strong_confidence":cigcfg.get("single_hit_strong_confidence"),
+            "coarse_fps":cigcfg.get("coarse_fps"),
+            "refine_fps":cigcfg.get("refine_fps"),
+            "track_max_gap_sec":cigcfg.get("track_max_gap_sec"),
+            "track_max_center_distance":cigcfg.get("track_max_center_distance"),
+            "min_track_hits":cigcfg.get("min_track_hits"),
+            "min_track_span_sec":cigcfg.get("min_track_span_sec"),
+            "mandatory":cigcfg.get("mandatory"),
+            "fail_closed":cigcfg.get("fail_closed"),
+            "whole_frame_blur_forbidden":cigcfg.get("whole_frame_blur_forbidden"),
+        },
+        "diagnosis":diagnosis,
+        "latest_report":latest,
+        "recent_reports":rows[:20],
+        "run_log":log,
+        "next_action":"TUNE_TRACK_CONFIRMATION_WITHOUT_DISABLING_FAIL_CLOSED" if "FALSE_POSITIVE" in diagnosis or "THRESHOLD_EDGE" in diagnosis else "REVIEW_LATEST_REJECTED_TRACKS",
+        "checked_at":time.time(),
+    }
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -17160,6 +17324,7 @@ ACTIONS = {
     "verify_auto_edit_single_logical_studio_v2": verify_auto_edit_single_logical_studio_v2,
     "apply_auto_edit_telemetry_runtime_proof_v1": apply_auto_edit_telemetry_runtime_proof_v1,
     "inspect_auto_edit_telemetry_runtime_proof_v1": inspect_auto_edit_telemetry_runtime_proof_v1,
+    "inspect_auto_edit_live_cigarette_failure_v1": inspect_auto_edit_live_cigarette_failure_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
