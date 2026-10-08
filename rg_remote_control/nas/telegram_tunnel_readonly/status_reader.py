@@ -173,7 +173,7 @@ def publications_alerts() -> dict:
     if not isinstance(minute, dict):
         minute = {}
     last_date = minute.get("stateDate")
-    if not isinstance(last_date, str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", last_date):
+    if not isinstance(last_date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", last_date):
         last_date = None
     return {"kyiv_date_today": date,
             "watchdog": _watchdog_meta(),
