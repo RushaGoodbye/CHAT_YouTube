@@ -341,11 +341,11 @@ class MetadataDialog(QDialog):
         self.description_edit.setPlainText(normalize_links(value))
 
     def values(self) -> tuple[str, str, list[str]]:
-        tags = [
+        tags = list(dict.fromkeys([
             item.strip()
             for item in self.tags_edit.toPlainText().replace("\n", ",").split(",")
             if item.strip()
-        ]
+        ]))[:15]
         return (
             _standard_hyphen(self.title_edit.text().strip()),
             _standard_hyphen(self.description_edit.toPlainText().strip()),
