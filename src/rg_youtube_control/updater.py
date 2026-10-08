@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -230,3 +231,102 @@ def download_update(info: UpdateInfo) -> Path:
 
     prune_cached_updates(root, keep=3)
     return installer
+
+def prepare_update_from_zip(archive: Path) -> tuple[UpdateInfo, Path]:
+    """Validate an update ZIP, verify SHA-256, and stage its installer locally."""
+    archive = Path(archive)
+    if not archive.is_file() or archive.suffix.lower() != ".zip":
+        raise RuntimeError("Вибраний файл не є ZIP-пакетом оновлення.")
+
+    with zipfile.ZipFile(archive, "r") as zf:
+        members = [item for item in zf.infolist() if not item.is_dir()]
+        manifest_matches = [
+            item for item in members if Path(item.filename).name == "latest.json"
+        ]
+        if len(manifest_matches) != 1:
+            raise RuntimeError("У ZIP має бути рівно один файл latest.json.")
+
+        try:
+            manifest = json.loads(
+                zf.read(manifest_matches[0]).decode("utf-8-sig")
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Не вдалося прочитати latest.json: {exc}") from exc
+
+        remote = str(manifest.get("version") or "").strip().lstrip("vV")
+        if not remote:
+            raise RuntimeError("У latest.json не вказано версію оновлення.")
+        if _version_tuple(remote) <= _version_tuple(__version__):
+            raise RuntimeError(
+                f"ZIP містить версію {remote}, а встановлено {__version__}. "
+                "Потрібна новіша версія."
+            )
+
+        installer_name = str(manifest.get("installer_name") or "").strip()
+        if (
+            not installer_name
+            or Path(installer_name).name != installer_name
+            or not installer_name.lower().startswith("rg_youtube_control_setup_")
+            or not installer_name.lower().endswith(".exe")
+        ):
+            raise RuntimeError("У ZIP некоректне ім'я інсталятора Windows.")
+
+        installer_matches = [
+            item for item in members
+            if Path(item.filename).name == installer_name
+        ]
+        if len(installer_matches) != 1:
+            raise RuntimeError(
+                f"У ZIP не знайдено єдиний інсталятор {installer_name}."
+            )
+
+        checksum_name = str(
+            manifest.get("checksum_name") or f"{installer_name}.sha256"
+        ).strip()
+        checksum_matches = [
+            item for item in members
+            if Path(item.filename).name == Path(checksum_name).name
+        ]
+        if len(checksum_matches) != 1:
+            raise RuntimeError(
+                f"У ZIP не знайдено контрольну суму {Path(checksum_name).name}."
+            )
+
+        base = Path(os.getenv("LOCALAPPDATA", tempfile.gettempdir()))
+        root = base / "RGYouTubeControl" / "updates"
+        root.mkdir(parents=True, exist_ok=True)
+        installer = root / installer_name
+        checksum_path = root / f"{installer_name}.sha256"
+
+        installer.write_bytes(zf.read(installer_matches[0]))
+        checksum_path.write_bytes(zf.read(checksum_matches[0]))
+
+    try:
+        expected = (
+            checksum_path.read_text(encoding="utf-8-sig")
+            .strip()
+            .split()[0]
+            .lower()
+        )
+    except Exception as exc:
+        installer.unlink(missing_ok=True)
+        checksum_path.unlink(missing_ok=True)
+        raise RuntimeError("Не вдалося прочитати SHA-256 з ZIP.") from exc
+
+    actual = _sha256(installer).lower()
+    if expected != actual:
+        installer.unlink(missing_ok=True)
+        checksum_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "SHA-256 оновлення не збігається. Встановлення скасовано."
+        )
+
+    prune_cached_updates(root, keep=3)
+    info = UpdateInfo(
+        version=remote,
+        installer_url=str(installer),
+        installer_name=installer_name,
+        checksum_url=str(checksum_path),
+        notes=str(manifest.get("notes") or "Оновлення з ZIP"),
+    )
+    return info, installer
