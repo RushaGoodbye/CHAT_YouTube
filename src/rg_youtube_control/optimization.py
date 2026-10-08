@@ -661,6 +661,32 @@ def youtube_title_errors(title: str) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def normalize_package_tags(
+    tags: list[str] | tuple[str, ...] | None,
+    *,
+    max_tags: int = 15,
+    max_chars: int = 500,
+) -> list[str]:
+    """Deduplicate package tags and keep them within YouTube limits."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in tags or []:
+        value = " ".join(str(raw or "").split()).strip()
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        candidate = result + [value]
+        if len(", ".join(candidate)) > max_chars:
+            continue
+        seen.add(key)
+        result.append(value)
+        if len(result) >= max_tags:
+            break
+    return result
+
+
 def youtube_description_errors(description: str) -> tuple[str, ...]:
     """Validate description against YouTube Data API snippet constraints."""
     value = description or ""
@@ -691,7 +717,7 @@ def validate_content_package(
 
     clean_title = (title or "").strip()
     clean_description = (description or "").strip()
-    clean_tags = [str(item).strip() for item in (tags or []) if str(item).strip()]
+    clean_tags = normalize_package_tags(tags)
     clean_variants = [
         str(item).strip()
         for item in (title_variants or [])
@@ -725,12 +751,7 @@ def validate_content_package(
         errors.append("Теги не заповнені. Пакет не можна застосувати.")
     elif len(clean_tags) < 8:
         errors.append("Потрібно щонайменше 8 релевантних тегів.")
-    elif len(clean_tags) > 15:
-        errors.append("Потрібно не більше 15 релевантних тегів.")
     else:
-        normalized_tags = [item.casefold() for item in clean_tags]
-        if len(normalized_tags) != len(set(normalized_tags)):
-            warnings.append("У тегах є дублікати.")
         tag_chars = len(", ".join(clean_tags))
         if tag_chars > 500:
             errors.append(
@@ -739,8 +760,8 @@ def validate_content_package(
             )
 
     hashtags = re.findall(r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+", clean_description)
-    if len(hashtags) > 5:
-        warnings.append("В описі більше 5 хештегів.")
+    if len(hashtags) != 3:
+        errors.append("В описі має бути рівно 3 релевантні хештеги.")
 
     if len(clean_variants) < 3:
         warnings.append("Для A/B перевірки бажано мати 3 варіанти назви.")
