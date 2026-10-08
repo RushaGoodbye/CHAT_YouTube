@@ -687,6 +687,114 @@ def normalize_package_tags(
     return result
 
 
+@dataclass(frozen=True)
+class FittedDescription:
+    """Safe 0-quota description and whether publication requires human review."""
+
+    description: str
+    original_bytes: int
+    result_bytes: int
+    needs_review: bool
+    reason: str
+
+
+def fit_description_to_youtube_limit(
+    description: str,
+    title: str,
+    *,
+    max_bytes: int = 5000,
+) -> FittedDescription:
+    """Make a valid editorial draft without silently publishing cut content.
+
+    Normalize legacy links/hashtags first. If the body is still oversized,
+    retain its opening UTF-8-safe portion and canonical service links, but
+    ALWAYS flag the draft for review and preserve the untouched original
+    separately in optimization_drafts.source_description.
+    """
+    if max_bytes < 500:
+        raise ValueError("Ліміт опису занадто малий для безпечного редагування.")
+    original = str(description or "")
+    fixed = safe_description_fix(original, title).after.strip()
+    original_bytes = len(fixed.encode("utf-8"))
+    if original_bytes <= max_bytes:
+        return FittedDescription(
+            description=fixed,
+            original_bytes=original_bytes,
+            result_bytes=original_bytes,
+            needs_review=False,
+            reason="",
+        )
+
+    # First remove a provably duplicated English summary, but do not
+    # silently mark such an edit as safe for unattended publication.
+    cleaned = sanitize_imported_package_description(fixed, title).after
+    removed_english = cleaned != fixed
+    cleaned = re.sub(r"[ \\t]+\\n", "\\n", cleaned)
+    cleaned = re.sub(r"\\n{3,}", "\\n\\n", cleaned).strip()
+    cleaned_bytes = len(cleaned.encode("utf-8"))
+    if cleaned_bytes <= max_bytes:
+        return FittedDescription(
+            description=cleaned,
+            original_bytes=original_bytes,
+            result_bytes=cleaned_bytes,
+            needs_review=removed_english,
+            reason=(
+                "Видалено дубль англомовного опису: потрібна перевірка."
+                if removed_english else ""
+            ),
+        )
+
+    # Keep both official project URLs and exactly three relevant hashtags.
+    # Only the content body can be shortened, never the mandatory footer.
+    start = cleaned.find(CANONICAL_SERVICE_MARKERS[0])
+    if start < 0:
+        raise ValueError("Немає канонічного блоку посилань для опису.")
+    body = cleaned[:start].strip()
+    body_lines = [
+        line for line in body.splitlines()
+        if not HASHTAG_ONLY_LINE_RE.fullmatch(line)
+    ]
+    body = "\\n".join(body_lines).strip()
+    service = (
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\\n"
+        f"{PROJECT_LINKS_URL}\\n\\n"
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\\n"
+        f"{DONATE_URL}"
+    )
+    hashtags = " ".join(optimized_hashtags(title, body))
+    footer = f"{service}\\n\\n{hashtags}"
+    separator = "\\n\\n"
+    available = max_bytes - len((separator + footer).encode("utf-8")) - 3
+    if available < 160:
+        raise ValueError("Немає місця для змістовного опису.")
+
+    if len(body.encode("utf-8")) > available:
+        preview = body.encode("utf-8")[:available].decode("utf-8", errors="ignore")
+        # Avoid a broken word when a nearby word boundary exists.
+        break_at = max(preview.rfind(" "), preview.rfind("\\n"))
+        if break_at >= max(0, len(preview) - 80):
+            preview = preview[:break_at]
+        body = preview.rstrip(" ,;:-") + "…"
+
+    fitted = f"{body}{separator}{footer}"
+    result_bytes = len(fitted.encode("utf-8"))
+    if result_bytes > max_bytes:
+        raise ValueError("Не вдалося вкласти опис у ліміт 5000 байт.")
+    if body and not cleaned.startswith(body.rstrip("…")):
+        raise ValueError("Не вдалося безпечно зберегти початок опису.")
+    return FittedDescription(
+        description=fitted,
+        original_bytes=original_bytes,
+        result_bytes=result_bytes,
+        needs_review=True,
+        reason=(
+            f"Опис перевищував ліміт: {original_bytes} байт. "
+            f"Підготовлено скорочений варіант ({result_bytes} байт). "
+            "Частину змісту відкладено; перевірити перед публікацією."
+        ),
+    )
+
+
 def youtube_description_errors(description: str) -> tuple[str, ...]:
     """Validate description against YouTube Data API snippet constraints."""
     value = description or ""
