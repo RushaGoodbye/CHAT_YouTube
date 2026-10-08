@@ -107,17 +107,31 @@
     }
   },
   "next_stage": {
-    "status": "SOURCE_TIMELINE_AUDIT_PREPARED_NOT_EXECUTED_ON_ALEXPC",
-    "verified_wrapper_commit": "43517452eed86be3cefe4f9584e37d9cd254194f",
-    "script_commit": "0bea2ccd81ab7479c65d4f6f96a57f31f9aa4a1e",
-    "expected_output": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\audit_plans\\886_5_semantic_cigarette_preflight_v1.json",
-    "constraints": [
-      "Read only withheld clean XML and quarantine reports",
-      "No cigarette semantics inferred",
-      "Never scan multi-hour stream before source range mapping",
-      "Cannot release 886_5 without verified per-object labels and full dialogue coverage"
+    "status": "PINNED_READ_ONLY_REAL_VIDEO_TRIAGE_PREPARED_NOT_EXECUTED_ON_ALEXPC",
+    "bootstrap_commit": "246bf09e2c2b60915ac9f6950f2a846f86affe4a",
+    "script_commit": "c9acad90580fc431d43a60b6a868d6bb5e6e4c37",
+    "expected_report": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\review_manifest.json",
+    "expected_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip",
+    "safety": [
+      "No changing XML/audio/production/video",
+      "No model inference or semantic decisions",
+      "Source file-id links and 4-track overlap inspected before frame decode",
+      "Refuse unbounded source windows or unverified seed time",
+      "Four-second sample only; never claim full dialogue cigarette coverage"
     ],
-    "publication_allowed": false,
-    "stream_reprocessed": false
+    "release_allowed": false
+  },
+  "timeline_preflight": {
+    "date": "2026-10-08",
+    "status": "AUDIT_INTERVALS_READY_FOR_READ_ONLY_FRAME_SCAN",
+    "source": "User's PowerShell output of RG 886_5 SEMANTIC DIALOGUE PREFLIGHT RESULT",
+    "dialogue_duration_seconds": 356.767,
+    "video_clip_count": 233,
+    "mapped_source_time_clips": 233,
+    "video_tracks": 4,
+    "known_microphone_negative_raw_hits": 2,
+    "release_allowed": false,
+    "media_mapping_uniqueness_verified": false,
+    "semantic_scan_performed": false
   }
 }
