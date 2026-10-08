@@ -88,8 +88,19 @@ def check_xml_xml(primary_bytes,original_bytes):
     for c in clips:
         effects=[e.find("effect") for e in c.findall("filter")]
         kinds=[e.findtext("effectid") for e in effects if e is not None]
-        if sorted(kinds)!=["Gaussian Blur","crop"]:
-            raise RuntimeError("Unexpected blur effect stack in "+repr(c.get("id")))
+        # Premiere overlay clips can contain additional effects/parameters,
+        # e.g. motion/opacity. Earlier delivery QA only required both blur
+        # and crop. The stricter "exactly 2 effects" assumption incorrectly
+        # blocked the real 886_5 XML. We are restoring the *entire* clean
+        # pre-blur XML, not selectively stripping a filter from a clip.
+        # Full-document structural equality after removal of this known
+        # trailing track (below), plus the known exact SHA256 of both active
+        # XML copies, is the stronger verification of what will be restored.
+        if kinds.count("Gaussian Blur")!=1 or kinds.count("crop")!=1:
+            raise RuntimeError("Missing/duplicate Gaussian Blur or crop in "+
+                repr(c.get("id"))+": "+repr(kinds))
+        if any(k is None for k in kinds):
+            raise RuntimeError("Overlay contains filter with no effectid: "+repr(c.get("id")))
         if int(float(c.findtext("end") or 0))<=int(float(c.findtext("start") or 0)):
             raise RuntimeError("Overlay has invalid timeline boundaries")
         coords={}
@@ -330,23 +341,25 @@ def apply():
         release_stream_lock("886",str((lock or {}).get("run_id") or ""))
 
 def self_test():
-    def mk(blur=False):
+    def mk(blur=False,extras=()):
         root=ET.Element("xmeml")
         seq=ET.SubElement(root,"sequence")
         med=ET.SubElement(seq,"media")
         aud=ET.SubElement(med,"audio")
-        ET.SubElement(aud,"track")
+        track=ET.SubElement(aud,"track")
+        ET.SubElement(track,"clipitem",{"id":"audio-1"})
         vid=ET.SubElement(med,"video")
         t=ET.SubElement(vid,"track")
         c=ET.SubElement(t,"clipitem",{"id":"original-1"})
         ET.SubElement(c,"name").text="source.mp4"
         if blur:
             tr=ET.SubElement(vid,"track")
+            ET.SubElement(tr,"enabled").text="TRUE"
             for index in (1,2,3):
                 clip=ET.SubElement(tr,"clipitem",{"id":f"rg-cigarette-{index}"})
                 ET.SubElement(clip,"start").text=str(index)
                 ET.SubElement(clip,"end").text=str(index+1)
-                for name in ("crop","Gaussian Blur"):
+                for name in ("crop","Gaussian Blur",*extras):
                     f=ET.SubElement(clip,"filter")
                     e=ET.SubElement(f,"effect")
                     ET.SubElement(e,"effectid").text=name
@@ -359,22 +372,55 @@ def self_test():
     clean=mk()
     dirty=mk(blur=True)
     assert check_xml_xml(dirty,clean)["removed_blur_overlays"]==3
-    try:
-        check_xml_xml(clean,clean)
-    except RuntimeError:pass
-    else:raise AssertionError("Accepted already-clean XML as known blur delivery")
-    tampered=ET.fromstring(dirty)
+    # Regression reproduces 886_5 guard failure: some Premiere clips
+    # contain extra legitimate filters. The entire added track is removed.
+    actual_like=mk(blur=True,extras=("basicmotion","opacity"))
+    info=check_xml_xml(actual_like,clean)
+    assert info["semantic_xml_equal_after_overlay_removal"] is True
+    assert info["audio_identical"] is True
+    assert info["original_video_tracks_identical"] is True
+    assert info["removed_blur_overlays"]==3
+    cases=[("no_blur",clean,clean),
+           ("wrong_audio",None,clean),
+           ("wrong_video",None,clean),
+           ("missing_blur",None,clean),
+           ("duplicate_crop",None,clean),
+           ("unexpected_global_change",None,clean),
+           ("wrong_clip_id",None,clean)]
+    tampered=ET.fromstring(actual_like)
     tampered.find("./sequence/media/audio/track").set("mutated","1")
-    try:
-        check_xml_xml(ET.tostring(tampered),clean)
-    except RuntimeError:pass
-    else:raise AssertionError("Accepted altered audio")
-    tampered=ET.fromstring(dirty)
-    tampered.find("./sequence/media/video/track/clipitem/name").text="changed.mp4"
-    try:check_xml_xml(ET.tostring(tampered),clean)
-    except RuntimeError:pass
-    else:raise AssertionError("Accepted modified video")
-    print("RG_886_5_MICROPHONE_FALSE_POSITIVE_LOCAL_XML_GATES: PASS",flush=True)
+    cases[1]=("wrong_audio",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(actual_like)
+    tampered.find("./sequence/media/video/track/clipitem/name").text="other.mp4"
+    cases[2]=("wrong_video",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(actual_like)
+    clip=tampered.findall("./sequence/media/video/track")[-1].find("clipitem")
+    for ef in clip.findall("filter"):
+        if ef.findtext("effect/effectid")=="Gaussian Blur":
+            clip.remove(ef)
+            break
+    cases[3]=("missing_blur",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(actual_like)
+    clip=tampered.findall("./sequence/media/video/track")[-1].find("clipitem")
+    for ef in clip.findall("filter"):
+        if ef.findtext("effect/effectid")=="crop":
+            clip.append(copy.deepcopy(ef))
+            break
+    cases[4]=("duplicate_crop",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(actual_like)
+    tampered.find("sequence").set("changed","1")
+    cases[5]=("unexpected_global_change",ET.tostring(tampered),clean)
+    tampered=ET.fromstring(actual_like)
+    tampered.findall("./sequence/media/video/track")[-1].find("clipitem").set("id","unexpected-id")
+    cases[6]=("wrong_clip_id",ET.tostring(tampered),clean)
+    for label,untrusted,baseline in cases:
+        try:
+            check_xml_xml(untrusted,baseline)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Unsafe XML passed quarantine preflight: "+label)
+    print("RG_886_5_MICROPHONE_FALSE_POSITIVE_LOCAL_XML_GATES_V2: PASS",flush=True)
 
 def main():
     ap=argparse.ArgumentParser()
