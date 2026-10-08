@@ -79,6 +79,27 @@ CoTracker преимущественно CC-BY-NC и не допускается
 - Результат `F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\norfair_886_5_real_motion_v1.json`. Для него `production_approval=NOT_GRANTED` независимо от числа совпавших кадров: OpenCV template-matching - не независимый детектор сигареты. Наибольшее полезное значение - измерить пропуски, дрейф и проверить работу трекера без исходного монтажа.
 - Перед SAM 2: официальный репозиторий рекомендует WSL на Windows и отдельный PyTorch/CUDA runtime. Нельзя устанавливать его внутрь стабильной среды обработки.
 
+## 2026-10-08: Norfair real pilot and SAM2 readiness
+
+Real Windows shadow run on 886_5 passed: 15/15 sampled template frames,
+0 unmatched, ~1 px max estimated displacement and one Norfair ID.
+This is **not** independently verified cigarette segmentation or moving
+cigarette coverage. Production must stay on the verified existing blur.
+
+SAM2 read-only preflight on AlexPC: RTX 4080, 16376 MB total, 7125 MB free VRAM,
+F: 675.94 GB free, WSL executable present but no registered WSL distribution,
+WSL CUDA/torch not tested. SAM2 not installed. Defer full SAM2 until an isolated
+environment is justified; do not change production CUDA or ask to install WSL
+during an unrelated Auto Edit run.
+
+Next: `norfair_motion_challenge_v1.py` with deterministic ground truth for
+slow/fast motion, temporary occlusion, and an identical-looking distractor.
+Wrapper `../bootstrap_auto_edit_norfair_motion_challenge_v1.ps1` uses the
+existing F: Norfair+OpenCV environment without pip installs or video access.
+Output JSON in `F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow`.
+Even perfect synthetic tracking is **not** authorization to replace cigarette blur.
+Any bad match or false positive is recorded instead of being silently accepted.
+
 ## Как запускать независимые тесты
 
 ```powershell
