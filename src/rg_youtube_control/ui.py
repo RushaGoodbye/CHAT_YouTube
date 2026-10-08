@@ -498,6 +498,7 @@ class ContentOptimizationDialog(QDialog):
             chapters,
             tags,
             title_variants,
+            chapters_optional=bool(self.scheduled_publish_at),
         )
 
         lines: list[str] = []
@@ -554,6 +555,7 @@ class ContentOptimizationDialog(QDialog):
                 chapters,
                 tags,
                 title_variants,
+                chapters_optional=bool(self.scheduled_publish_at),
             )
             if check.errors:
                 QMessageBox.warning(
@@ -10207,7 +10209,12 @@ class MainWindow(QMainWindow):
             changes.append("залишено 15 найпріоритетніших тегів")
 
         check = validate_content_package(
-            new_title, description, chapters, tags, title_variants
+            new_title,
+            description,
+            chapters,
+            tags,
+            title_variants,
+            chapters_optional=True,
         )
         return new_title, description, chapters, tags, check, changes
 
