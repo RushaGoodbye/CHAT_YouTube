@@ -51,8 +51,8 @@ HEARTBEATS = {
     "failover_heartbeat_at",
 }
 JSON_FILES = {"telegram-watchdog-status.json"}
-SAFE_SCALAR = re.compile(r"^[a-zA-Z0-9 _.,:+/\\-]{0,400}$")
-SENSITIVE = re.compile(r"(sk-[a-zA-Z0-9_-]{8,}|gh[pousr]_[a-zA-Z0-9_]{8,}|bearer\\s+\\S+|password|token|secret|authorization)", re.I)
+SAFE_SCALAR = re.compile(r"^[-a-zA-Z0-9 _.,:+/]{0,400}$")
+SENSITIVE = re.compile(r"(sk-[a-zA-Z0-9_-]{8,}|gh[pousr]_[a-zA-Z0-9_]{8,}|bearer\s+\S+|password|token|secret|authorization)", re.I)
 
 
 def _read_file(name: str, max_bytes: int) -> str | None:
@@ -173,6 +173,8 @@ def publications_alerts() -> dict:
     if not isinstance(minute, dict):
         minute = {}
     last_date = minute.get("stateDate")
+    if not isinstance(last_date, str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", last_date):
+        last_date = None
     return {"kyiv_date_today": date,
             "watchdog": _watchdog_meta(),
             "watchdog_issues": _issue_names(doc, ("content_", "publish_", "publication_", "kyiv_alert_", "minute_silence_")),
