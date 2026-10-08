@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .config import DONATE_URL, PROJECT_LINKS_URL
 from .metadata_audit import HASHTAG_RE, normalize_links
+from rapidfuzz import fuzz
 
 @dataclass(frozen=True)
 class SafeFix:
@@ -661,6 +662,11 @@ def youtube_title_errors(title: str) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def _tag_similarity_key(value: str) -> str:
+    """Normalize punctuation/casing for conservative tag deduplication."""
+    return re.sub(r"[^\w]+", " ", value.casefold(), flags=re.UNICODE).strip()
+
+
 def normalize_package_tags(
     tags: list[str] | tuple[str, ...] | None,
     *,
@@ -675,7 +681,24 @@ def normalize_package_tags(
         if not value:
             continue
         key = value.casefold()
-        if key in seen:
+        # RapidFuzz (MIT): remove spelling/punctuation duplicates while
+        # retaining meaningful phrases such as "Россия" and "россияне".
+        # Only compare tags with the same word count; near-matches cannot
+        # erase longer, more specific search phrases.
+        similarity_key = _tag_similarity_key(value)
+        if key in seen or any(
+            similarity_key
+            and (
+                similarity_key == _tag_similarity_key(kept)
+                or (
+                    len(similarity_key.split())
+                    == len(_tag_similarity_key(kept).split())
+                    and abs(len(similarity_key) - len(_tag_similarity_key(kept))) <= 2
+                    and fuzz.ratio(similarity_key, _tag_similarity_key(kept)) >= 97
+                )
+            )
+            for kept in result
+        ):
             continue
         candidate = result + [value]
         if len(", ".join(candidate)) > max_chars:
