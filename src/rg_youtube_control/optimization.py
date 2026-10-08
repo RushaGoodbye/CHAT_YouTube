@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .config import DONATE_URL, PROJECT_LINKS_URL
 from .metadata_audit import HASHTAG_RE, normalize_links
+from rapidfuzz import fuzz
 
 @dataclass(frozen=True)
 class SafeFix:
@@ -675,7 +676,25 @@ def normalize_package_tags(
         if not value:
             continue
         key = value.casefold()
-        if key in seen:
+        # RapidFuzz (MIT): remove spelling/punctuation duplicates while
+        # retaining meaningful phrases such as "Россия" and "россияне".
+        # Only compare tags with the same word count; near-matches cannot
+        # erase longer, more specific search phrases.
+        similarity_key = re.sub(
+            r"[^\\w]+", " ", key, flags=re.UNICODE
+        ).strip()
+        if key in seen or any(
+            similarity_key == re.sub(
+                r"[^\\w]+", " ", kept.casefold(), flags=re.UNICODE
+            ).strip()
+            or (
+                similarity_key
+                and len(similarity_key.split()) == len(kept.split())
+                and abs(len(similarity_key) - len(kept)) <= 2
+                and fuzz.ratio(similarity_key, kept.casefold()) >= 97
+            )
+            for kept in result
+        ):
             continue
         candidate = result + [value]
         if len(", ".join(candidate)) > max_chars:
