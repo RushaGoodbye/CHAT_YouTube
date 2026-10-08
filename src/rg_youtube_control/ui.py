@@ -389,6 +389,10 @@ class ContentOptimizationDialog(QDialog):
             if detected_chapters:
                 chapters = detected_chapters
 
+        description = _strip_timestamp_lines(
+            safe_description_fix(description, title).after
+        )
+
         form = QFormLayout()
         self.title_edit = QLineEdit(_standard_hyphen(title))
         self.description_edit = QPlainTextEdit(_standard_hyphen(description))
