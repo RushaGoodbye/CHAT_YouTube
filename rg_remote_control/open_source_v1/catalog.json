@@ -47,16 +47,22 @@
       "license": "BSD-3-Clause",
       "package": "norfair",
       "priority": 1,
-      "status": "SHADOW_CANDIDATE",
+      "status": "SHADOW_ADAPTER_COMMITTED",
       "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
       "risks": [
         "short-lived tiny object may not initialize",
         "misses require fail-closed"
       ],
       "gates": [
-        "benchmark real cigarette clips",
-        "no modification to production detector"
-      ]
+        "two raw hits may establish only candidate continuity, not end-to-end cigarette coverage",
+        "separate venv F:/rg_norfair_shadow_v1",
+        "do not touch production blur",
+        "test occlusions/motion against labeled frames before adoption"
+      ],
+      "pilot_version": "2.3.0",
+      "shadow_evidence": "saved 886_5 two-hit detection JSON and current cigarette blur QA",
+      "shadow_only": true,
+      "no_auto_approval": true
     },
     {
       "id": "sam2",
