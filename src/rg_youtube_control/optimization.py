@@ -764,7 +764,7 @@ def validate_content_package(
 
     hashtags = re.findall(r"(?<!\w)#[\wА-Яа-яІіЇїЄєҐґ]+", clean_description)
     if len(hashtags) != 3:
-        errors.append("В описі має бути рівно 3 релевантні хештеги.")
+        warnings.append("В описі бажано мати рівно 3 релевантні хештеги.")
 
     if len(clean_variants) < 3:
         warnings.append("Для A/B перевірки бажано мати 3 варіанти назви.")
