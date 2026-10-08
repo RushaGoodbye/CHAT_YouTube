@@ -47,7 +47,7 @@
       "license": "BSD-3-Clause",
       "package": "norfair",
       "priority": 1,
-      "status": "REAL_FRAME_SHADOW_PASS_NOT_PRODUCTION",
+      "status": "SHADOW_SAFETY_GATE_V2_COMMITTED_TEST_PENDING",
       "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
       "risks": [
         "short-lived tiny object may not initialize",
@@ -74,6 +74,41 @@
         "cigarette_identity_per_frame_confirmed": false,
         "source": "user PowerShell live run",
         "decision": "candidate template tracking only; not evidence of fast motion or occlusion robustness"
+      },
+      "last_test": {
+        "date": "2026-10-08",
+        "baseline": {
+          "slow_motion": {
+            "correct": 24,
+            "missed": 0,
+            "false_positive": 0
+          },
+          "fast_motion": {
+            "correct": 24,
+            "missed": 0,
+            "false_positive": 0
+          },
+          "intermittent_occlusion": {
+            "correct": 11,
+            "missed": 9,
+            "false_positive": 0
+          },
+          "lookalike_distractor": {
+            "correct": 11,
+            "missed": 0,
+            "false_positive": 13
+          }
+        },
+        "raw_result": "all_cases_passed=false; production_approved=false",
+        "basis": "User's actual Windows PowerShell run"
+      },
+      "safety_v2": {
+        "file": "rg_remote_control/open_source_v1/norfair_motion_safety_gate_v2.py",
+        "state": "COMMITTED_NOT_RUN_ON_ALEXPC",
+        "technique": "Appearance confidence + geometric motion gate; abstain on lost/ambiguous track",
+        "production_approved": false,
+        "no_independent_cigarette_semantics": true,
+        "release_policy": "Never auto-release even 24/24 geometry; always fail-closed when identity uncertain or semantic detection absent"
       }
     },
     {
