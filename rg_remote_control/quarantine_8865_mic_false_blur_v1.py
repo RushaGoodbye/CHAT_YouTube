@@ -113,7 +113,8 @@ def check_xml_xml(primary_bytes,original_bytes):
             raise RuntimeError("Crop out of range")
         if coords["left"]+coords["right"]<=30 or coords["top"]+coords["bottom"]<=30:
             raise RuntimeError("Whole-frame blur detected; cannot use this local recovery")
-        details.append({"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),"crop_pct":coords})
+        details.append({"id":c.get("id"),"start":c.findtext("start"),"end":c.findtext("end"),
+                        "crop_pct":coords,"effect_ids":kinds})
     # This must hold over the WHOLE XML, not just video and audio.
     xv.remove(overlay)
     if norm(x)!=norm(base):
@@ -425,10 +426,30 @@ def self_test():
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--self-test",action="store_true")
+    ap.add_argument("--preflight",action="store_true")
     ap.add_argument("--apply",action="store_true")
     args=ap.parse_args()
     if args.self_test:
         self_test()
+        return
+    if args.preflight:
+        print("=== RG 886_5 MIC QUARANTINE FULL READ-ONLY PREFLIGHT ===",flush=True)
+        audit,det,qa,clean=preflight()
+        print("=== RG 886_5 MIC QUARANTINE PREFLIGHT READY ===",flush=True)
+        print(json.dumps({
+           "status":"PREFLIGHT_READY",
+           "current_primary_sha256":sha(PRIMARY),
+           "delivered_sha256":sha(DELIVERED),
+           "clean_backed_up_sha256":sha(PRIOR/PRIMARY.name),
+           "validated_overlay_count":audit["removed_blur_overlays"],
+           "actual_effect_stacks":audit["overlay_details"],
+           "whole_xml_matches_original_after_overlay_removal":
+             audit["semantic_xml_equal_after_overlay_removal"],
+           "audio_unchanged":audit["audio_identical"],
+           "other_video_unchanged":audit["original_video_tracks_identical"],
+           "no_changes_performed":True,
+           "release_allowed":False
+         },ensure_ascii=False,indent=2),flush=True)
         return
     if not args.apply:
         raise RuntimeError("Must explicitly supply --apply to change 886_5, or --self-test")
