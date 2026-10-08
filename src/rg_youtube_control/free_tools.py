@@ -1774,7 +1774,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 timeout=timeout,
                 temperature=0.05 if attempt else 0.15,
                 json_mode=True,
-                num_ctx=16384 if evidence_report else None,
+                **({"num_ctx": 16384} if evidence_report else {}),
             )
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             proposed_title = candidate.get("title")
