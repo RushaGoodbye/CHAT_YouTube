@@ -29,10 +29,13 @@ jobs:
           python -m unittest discover -s rg_remote_control/open_source_v1/tests -v
       - name: Norfair 2.3 isolated synthetic safety test
         run: |
-          python -m pip install --disable-pip-version-check 'norfair==2.3.0'
+          python -m pip install --disable-pip-version-check 'norfair==2.3.0' 'opencv-python-headless==4.11.0.86'
           python -m py_compile rg_remote_control/open_source_v1/norfair_saved_hits_8865.py
           python -m py_compile rg_remote_control/open_source_v1/norfair_synthetic_smoke.py
+          python -m py_compile rg_remote_control/open_source_v1/norfair_real_motion_8865_v1.py
+          python -m py_compile rg_remote_control/open_source_v1/norfair_real_motion_synthetic.py
           python rg_remote_control/open_source_v1/norfair_synthetic_smoke.py
+          python rg_remote_control/open_source_v1/norfair_real_motion_synthetic.py
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
