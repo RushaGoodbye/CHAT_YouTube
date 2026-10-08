@@ -16969,7 +16969,7 @@ ACTIONS = {
     "apply_auto_edit_post_cigarette_reconcile_v1": reconcile_auto_edit_post_cigarette_v1,
     "apply_auto_edit_telemetry_v1": apply_auto_edit_telemetry_v1,
     "restart_and_verify_auto_edit_telemetry_v1": restart_and_verify_auto_edit_telemetry_v1,
-    "harden_auto_edit_single_studio_v1": harden_auto_edit_single_studio_v1,
+    "harden_auto_edit_single_studio_v1": verify_auto_edit_single_logical_studio_v2,
     "inspect_auto_edit_launcher_reexec_v1": inspect_auto_edit_launcher_reexec_v1,
     "verify_auto_edit_single_logical_studio_v2": verify_auto_edit_single_logical_studio_v2,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
