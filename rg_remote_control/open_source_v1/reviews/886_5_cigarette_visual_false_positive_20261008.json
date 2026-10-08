@@ -105,5 +105,19 @@
       "other_dialogues_unchanged": true,
       "media_reprocessed": false
     }
+  },
+  "next_stage": {
+    "status": "SOURCE_TIMELINE_AUDIT_PREPARED_NOT_EXECUTED_ON_ALEXPC",
+    "verified_wrapper_commit": "43517452eed86be3cefe4f9584e37d9cd254194f",
+    "script_commit": "0bea2ccd81ab7479c65d4f6f96a57f31f9aa4a1e",
+    "expected_output": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\audit_plans\\886_5_semantic_cigarette_preflight_v1.json",
+    "constraints": [
+      "Read only withheld clean XML and quarantine reports",
+      "No cigarette semantics inferred",
+      "Never scan multi-hour stream before source range mapping",
+      "Cannot release 886_5 without verified per-object labels and full dialogue coverage"
+    ],
+    "publication_allowed": false,
+    "stream_reprocessed": false
   }
 }
