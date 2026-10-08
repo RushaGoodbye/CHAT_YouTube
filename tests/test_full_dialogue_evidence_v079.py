@@ -6,6 +6,7 @@ from rg_youtube_control.dialogue_seo import (
     evidence_outline_text,
     preserve_outline_topics,
     split_timeline,
+    ab_title_issues,
 )
 
 
@@ -161,3 +162,47 @@ def test_review_only_and_preview_discloses_coverage():
     assert '"draft" if requires_review else "ready"' in source
     assert "з доказовими цитатами" in source
     assert "Межі діалогів не визначаються без розмітки" in source
+
+
+
+def test_three_ab_titles_must_be_distinct_and_grounded():
+    report = {
+        "blocks": [
+            {"start_stamp": "00:00:00", "topics": [{
+                "topic": "Путін та влада", "summary_uk": "Спір про Путіна",
+                "evidence": "Путин сказал о власти и об ответах",
+            }]},
+            {"start_stamp": "00:05:00", "topics": [{
+                "topic": "Релігійні суперечки", "summary_uk": "Розмова про Перуна",
+                "evidence": "Перун бог, спор о религии",
+            }]},
+            {"start_stamp": "00:11:00", "topics": [{
+                "topic": "Війна і пропаганда", "summary_uk": "Обговорення війни",
+                "evidence": "российская война и пропаганда",
+            }]},
+        ]
+    }
+    good = [
+        "Путин и власть: что говорят участники чат рулетки?",
+        "Перун и религия: неожиданный спор с россиянами",
+        "Пропаганда войны: неожиданные ответы россиян",
+    ]
+    assert ab_title_issues(good, report) == []
+    weak = [
+        "Чат рулетка - Путин и власть, спор с россиянами",
+        "Чат рулетка: Путин и власть, спор с россиянами",
+        "Чат рулетка! Путин и власть, спор с россиянами",
+    ]
+    assert ab_title_issues(weak, report)
+    assert ab_title_issues(good[:2], report)
+
+
+def test_final_generator_prompt_no_longer_starts_only_with_first_12k():
+    source = Path("src/rg_youtube_control/free_tools.py").read_text(encoding="utf-8")
+    block = source[source.index("def generate_seo_package_local("):]
+    assert "{verified_evidence}" in block
+    assert "{transcript[:12000]}" not in block
+    assert "preserve_outline_topics(" in block
+    assert "ab_title_issues(" in block
+    assert "evidence_report: dict[str, Any] | None = None" in block
+    assert 'or bool(evidence_report)' in block
