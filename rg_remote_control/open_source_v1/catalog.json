@@ -47,7 +47,7 @@
       "license": "BSD-3-Clause",
       "package": "norfair",
       "priority": 1,
-      "status": "SHADOW_ADAPTER_COMMITTED",
+      "status": "REAL_FRAME_SHADOW_PASS_NOT_PRODUCTION",
       "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
       "risks": [
         "short-lived tiny object may not initialize",
@@ -62,7 +62,19 @@
       "pilot_version": "2.3.0",
       "shadow_evidence": "saved 886_5 two-hit detection JSON and current cigarette blur QA",
       "shadow_only": true,
-      "no_auto_approval": true
+      "no_auto_approval": true,
+      "real_8865_motion_probe": {
+        "date": "2026-10-08",
+        "fps": 12,
+        "frames": 15,
+        "matched_candidate_frames": 15,
+        "unmatched_frames": 0,
+        "estimated_max_displacement_px": 1,
+        "one_norfair_track_id": true,
+        "cigarette_identity_per_frame_confirmed": false,
+        "source": "user PowerShell live run",
+        "decision": "candidate template tracking only; not evidence of fast motion or occlusion robustness"
+      }
     },
     {
       "id": "sam2",
@@ -70,7 +82,7 @@
       "license": "Apache-2.0 for code/checkpoints per project",
       "package": "sam2",
       "priority": 1,
-      "status": "EVALUATE_ISOLATED",
+      "status": "READ_ONLY_WINDOWS_READINESS_PREFLIGHT_COMMITTED",
       "role": "Track cigarette-shaped mask across frames after robust first detection",
       "risks": [
         "CUDA/PyTorch version pressure",
@@ -82,7 +94,9 @@
         "frame-mask benchmark",
         "no whole-frame masks",
         "explicit per-asset license review"
-      ]
+      ],
+      "preflight": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v1.ps1",
+      "production_adoption": false
     },
     {
       "id": "groundingdino",
