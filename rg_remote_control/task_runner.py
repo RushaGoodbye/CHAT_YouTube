@@ -14338,7 +14338,7 @@ def apply_auto_edit_cigarette_blur_v1() -> dict:
         cfg=json.loads(cp.read_text(encoding="utf-8-sig"))
         cfg["cigarette_blur"]={
           "enabled":True,"mandatory":True,"fail_closed":True,
-          "version":"RG_CIGARETTE_BLUR_V1_TRACKED_MANDATORY",
+          "version":"RG_CIGARETTE_BLUR_V1_SHORT_STABLE_V2",
           "detector":"YOLO_WORLD_V2_OPEN_VOCABULARY_ISOLATED_WORKER",
           "classes":["cigarette","lit cigarette","cigarette in hand","smoking cigarette"],
           "confidence":0.08,"single_hit_strong_confidence":0.34,
@@ -14347,6 +14347,7 @@ def apply_auto_edit_cigarette_blur_v1() -> dict:
           "max_detections_per_frame":8,"max_box_area_fraction":0.055,
           "track_max_gap_sec":0.65,"track_max_center_distance":4.2,
           "min_track_hits":2,"min_track_span_sec":0.10,
+          "short_stable_min_span_sec":0.05,"short_stable_max_gap_sec":0.12,"short_stable_min_iou":0.72,
           "slice_fps":10.0,"start_pad_sec":0.12,"end_hold_sec":0.22,
           "bbox_padding_px":18,"bbox_padding_ratio":0.35,
           "blur_radius":62.0,"blur_passes":2,
