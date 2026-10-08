@@ -5,7 +5,10 @@ $venv=Join-Path $data 'oss_envs\rg_norfair_shadow_v1'
 $ossPy=Join-Path $venv 'Scripts\python.exe'
 $ossRoot=Join-Path $data 'oss_shadow'
 $adapter=Join-Path $ossRoot 'scripts\norfair_saved_hits_8865.py'
-$url='https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/c63ef72118b83af21ca6278fc305c2a3343fc8f3/rg_remote_control/open_source_v1/norfair_saved_hits_8865.py'
+$sourceRef='4abfcb4666628ffd840bd6ec21c15267667f6f41'
+$url="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$sourceRef/rg_remote_control/open_source_v1/norfair_saved_hits_8865.py"
+$syntheticUrl="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$sourceRef/rg_remote_control/open_source_v1/norfair_synthetic_smoke.py"
+$synthetic=Join-Path $ossRoot 'scripts\norfair_synthetic_smoke.py'
 Write-Host '=== RG NORFAIR 886_5 ISOLATED PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $mainPy -PathType Leaf)){throw 'RG source Python missing; no changes made'}
 if(!(Test-Path -LiteralPath $data -PathType Container)){throw 'RG Data F: missing'}
@@ -31,8 +34,11 @@ if($LASTEXITCODE -ne 0){throw 'Norfair shadow installation failed; no production
 if($LASTEXITCODE -ne 0){throw 'Norfair library import failed in isolated venv'}
 New-Item -ItemType Directory -Path (Split-Path $adapter -Parent) -Force | Out-Null
 Invoke-WebRequest -Uri $url -OutFile $adapter -UseBasicParsing
-& $ossPy -m py_compile $adapter
+Invoke-WebRequest -Uri $syntheticUrl -OutFile $synthetic -UseBasicParsing
+& $ossPy -m py_compile $adapter $synthetic
 if($LASTEXITCODE -ne 0){throw 'Norfair shadow adapter syntax error; no production files touched'}
+& $ossPy -u -X utf8 $synthetic
+if($LASTEXITCODE -ne 0){throw 'Norfair synthetic API/fail-closed contract failed; no real evidence analyzed'}
 & $ossPy -u -X utf8 $adapter
 if($LASTEXITCODE -ne 0){throw 'Norfair shadow evidence check stopped; see STOPPED block above'}
 $report=Join-Path $ossRoot 'norfair_886_5_v1.json'
