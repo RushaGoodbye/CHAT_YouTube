@@ -16791,6 +16791,99 @@ def inspect_auto_edit_launcher_reexec_v1() -> dict:
     }
 
 
+
+def verify_auto_edit_single_logical_studio_v2() -> dict:
+    """Treat the Windows venv redirector + base pythoncore child as one logical Studio instance."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import py_compile,time
+    launcher=Path(r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_studio_main.py")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    runtimew=r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe"
+    if not launcher.is_file():raise FileNotFoundError(launcher)
+    py_compile.compile(str(launcher),doraise=True)
+    src=launcher.read_text(encoding="utf-8-sig",errors="replace")
+
+    ps=r'''
+$p=Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'pythonw.exe' -and $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*'
+} | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine
+$p | ConvertTo-Json -Compress -Depth 5
+'''
+    cp=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],timeout=30)
+    raw=(cp.get("stdout") or "").strip()
+    try:procs=json.loads(raw) if raw else []
+    except Exception:procs=[]
+    if isinstance(procs,dict):procs=[procs]
+    if not isinstance(procs,list):procs=[]
+
+    bypid={int(x.get("ProcessId")):x for x in procs if x.get("ProcessId") is not None}
+    studio_pids=set(bypid)
+    roots=[]
+    for x in procs:
+        ppid=int(x.get("ParentProcessId") or 0)
+        if ppid not in studio_pids:
+            roots.append(x)
+
+    # Build descendants of each logical root.
+    def descendants(root_pid):
+        out=set([int(root_pid)])
+        changed=True
+        while changed:
+            changed=False
+            for x in procs:
+                pid=int(x.get("ProcessId") or 0);ppid=int(x.get("ParentProcessId") or 0)
+                if ppid in out and pid not in out:
+                    out.add(pid);changed=True
+        return out
+
+    logical=[]
+    for r in roots:
+        rp=int(r.get("ProcessId") or 0)
+        ids=descendants(rp)
+        logical.append({
+            "root_pid":rp,
+            "root_executable":str(r.get("ExecutablePath") or ""),
+            "root_command":str(r.get("CommandLine") or ""),
+            "member_pids":sorted(ids),
+            "member_count":len(ids),
+            "members":[bypid[i] for i in sorted(ids) if i in bypid],
+        })
+
+    runtime_roots=[x for x in logical if runtimew.casefold() in str(x.get("root_command") or "").casefold()]
+    independent_wrong=[x for x in logical if x not in runtime_roots]
+
+    checks={
+        "launcher_compiles":True,
+        "launcher_guard_present":"RG_SINGLE_STUDIO_RUNTIME_GUARD_V1" in src,
+        "built_in_process_manager_guard":"acquire_studio_instance()" in src,
+        "built_in_qt_lock_guard":"QLockFile" in src and "tryLock(" in src,
+        "exactly_one_logical_root":len(logical)==1,
+        "logical_root_uses_f_runtime":len(runtime_roots)==1,
+        "no_independent_wrong_root":len(independent_wrong)==0,
+    }
+    passed=all(checks.values())
+    result={
+        "schema":"RG_SINGLE_LOGICAL_STUDIO_V2",
+        "status":"PASS" if passed else "CHECK",
+        "interpretation":"VENV_REDIRECTOR_AND_PYTHONCORE_CHILD_ARE_ONE_LOGICAL_STUDIO",
+        "processes":procs,
+        "logical_instances":logical,
+        "logical_instance_count":len(logical),
+        "checks":checks,
+        "no_process_killed":True,
+        "backend_untouched":True,
+        "restart_required":False,
+        "verified_at":time.time(),
+    }
+    (data/"SINGLE_STUDIO_RUNTIME_GUARD.json").write_text(
+        json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8"
+    )
+    if not passed:
+        raise RuntimeError("Logical Studio verification failed: "+json.dumps(result,ensure_ascii=False))
+    return result
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16878,6 +16971,7 @@ ACTIONS = {
     "restart_and_verify_auto_edit_telemetry_v1": restart_and_verify_auto_edit_telemetry_v1,
     "harden_auto_edit_single_studio_v1": harden_auto_edit_single_studio_v1,
     "inspect_auto_edit_launcher_reexec_v1": inspect_auto_edit_launcher_reexec_v1,
+    "verify_auto_edit_single_logical_studio_v2": verify_auto_edit_single_logical_studio_v2,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
