@@ -137,7 +137,9 @@ def test_topic_retention_does_not_silently_cut_when_description_is_full():
     ]}
     text, omitted = preserve_outline_topics("Важлива розмова. " * 16, report, max_body_bytes=470)
     assert omitted
-    assert len(text.encode("utf-8")) <= 470
+    # Existing important content is not silently truncated to fit the limit.
+    assert text.startswith("Важлива розмова.")
+    assert len(text.encode("utf-8")) > 470
     assert all(item not in text for item in omitted)
 
 
