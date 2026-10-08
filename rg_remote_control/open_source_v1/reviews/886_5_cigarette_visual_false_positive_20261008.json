@@ -34,5 +34,26 @@
     "Gate cigarette detection on independent semantic image evidence; require visible object-level masks/boxes and known-negative microphone artwork sample.",
     "Retain audio and all original non-cigarette video edits unchanged."
   ],
-  "resolution_status": "OPEN"
+  "resolution_status": "OPEN",
+  "local_repair": {
+    "status": "READY_NOT_EXECUTED_ON_ALEXPC",
+    "source_commit": "f182b18a31ccd73a036ec649ab8b801982956042",
+    "bootstrap_commit": "019805d9b4480d052385f839767e2354f41c01c2",
+    "bootstrap": "rg_remote_control/bootstrap_auto_edit_quarantine_8865_mic_v1.ps1",
+    "audited_actions": [
+      "Require both live 886_5 XML SHA256 to match exact known delivered file",
+      "Compare entire XML with archived pre-blur clean XML after in-memory removal of last overlay track",
+      "Validate exactly 3 known crop+Gaussian Blur microphone overlays",
+      "Backup all four live artifacts to new F:/release_backups directory",
+      "Restore primary 886_5 XML from pre-blur baseline",
+      "Set detector/QA semantic PASS to FAIL and create HOLD marker",
+      "Withhold delivered APP/886/886_5.xml until genuine-cigarette review",
+      "Preserve original audio, video source, and all other dialogues",
+      "Record local false-positive raw hits as negative fixture"
+    ],
+    "full_dialogue_cigarette_verified": false,
+    "app_implementation_changed": false,
+    "update_to_user_app_pending": true,
+    "publication_allowed": false
+  }
 }
