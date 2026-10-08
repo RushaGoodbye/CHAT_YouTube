@@ -100,6 +100,45 @@ Output JSON in `F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow`.
 Even perfect synthetic tracking is **not** authorization to replace cigarette blur.
 Any bad match or false positive is recorded instead of being silently accepted.
 
+## 2026-10-08: Norfair challenging-motion findings and safety gate V2
+
+Actual Windows synthetic benchmark provided by the user:
+
+| Scenario | Visible matched | Missed | False positive | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Slow motion | 24 / 24 | 0 | 0 | PASS |
+| Fast motion | 24 / 24 | 0 | 0 | PASS |
+| Temporary occlusion | 11 / 20 | 9 | 0 | NEEDS REVIEW |
+| Identical-looking distractor | 11 / 11 | 0 | 13 | BLOCK PRODUCTION |
+
+The reported `false_matches_when_absent=13` is unacceptable for mandatory
+localized cigarette blur. It shows that Norfair continuity and static appearance
+matching cannot safely verify identity after a cigarette disappears.
+Those experimental output boxes are NEVER integrated into a production XML.
+
+Added `norfair_motion_safety_gate_v2.py`:
+- uses a known-seed appearance template to generate candidate observations and
+  rejects high prediction error rather than silently attaching a new identity;
+- abstains when no matching object is visible (rather than fabricating its
+  position), then allows tentative reacquisition on a plausible trajectory;
+- rejects the identical-looking distractor displaced by 25 pixels in the
+  known synthetic benchmark; this is NOT robust to all distractor positions;
+- `automatic_blur_release` and `production_approved` are ALWAYS false:
+  appearance/motion evidence is not independent semantic cigarette evidence;
+- tests are deterministic, isolated to F: `oss_shadow` and never read videos,
+  change audio or XML, or install more packages.
+
+Local development verification of the V2 gate against a parallel copy of the
+four deterministic scenarios: slow=24/24 visible, fast=24/24 visible,
+occlusion=20/20 visible plus 4 abstentions, distractor=11/11 visible plus
+13 ambiguous abstentions, zero accepted false positives. **The exact GitHub
+V2 script still requires the Windows pinned-run regression** before being
+considered verified on AlexPC. Even after that, real annotated videos and a
+second independent cigarette detector are required before any production usage.
+
+Read-only runner:
+`../bootstrap_auto_edit_norfair_motion_safety_gate_v2.ps1`.
+
 ## Как запускать независимые тесты
 
 ```powershell
