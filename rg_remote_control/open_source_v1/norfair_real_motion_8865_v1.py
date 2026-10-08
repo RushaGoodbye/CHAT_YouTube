@@ -93,15 +93,38 @@ def clamp_bbox(bbox,w,h,margin=6):
 def match_track(frames,seed_box,anchor):
     import cv2
     import numpy as np
+    # Validate *the detector's original box* BEFORE any padding; otherwise
+    # a one-pixel false positive becomes a 15x15 patch and passes the check.
+    if not frames or not isinstance(anchor,int) or not 0<=anchor<len(frames):
+        raise RuntimeError("Empty frames or invalid seed frame index")
+    if len(seed_box)!=4:
+        raise RuntimeError("Seed bbox must contain four coordinates")
+    raw=[float(v) for v in seed_box]
+    if not all(math.isfinite(v) for v in raw):
+        raise RuntimeError("Seed bbox has non-finite coordinates")
+    rx0,ry0,rx1,ry1=raw
+    rw=rx1-rx0;rh=ry1-ry0
+    if rw<3.0 or rh<3.0 or rw*rh<30.0:
+        raise RuntimeError("Unpadded seed bbox too small for meaningful template matching")
+    if not all(getattr(f,"ndim",None)==3 and f.shape[2]==3 for f in frames):
+        raise RuntimeError("Expected RGB/BGR color image frames")
+    shape=frames[0].shape
+    if any(f.shape!=shape for f in frames):
+        raise RuntimeError("Input frame dimensions differ")
     gray=[cv2.cvtColor(f,cv2.COLOR_BGR2GRAY) for f in frames]
     H,W=gray[0].shape
+    if not (0<=rx0<rx1<=W and 0<=ry0<ry1<=H):
+        raise RuntimeError("Seed bbox is outside the decoded frame")
     box=clamp_bbox(seed_box,W,H,margin=7)
     x0,y0,x1,y1=box
     template=gray[anchor][y0:y1,x0:x1]
     if template.size<30 or template.shape[0]<5 or template.shape[1]<5:
-        raise RuntimeError("Seed patch too small for meaningful template matching")
-    # Constant/unstructured patches are ineligible for positive tracking claims.
+        raise RuntimeError("Padded template unexpectedly small")
+    # Flat regions cannot establish object continuity. Fail closed instead
+    # of matching a background patch and reporting it as cigarette motion.
     textured=float(template.std())>=7.0
+    if not textured:
+        raise RuntimeError("Seed patch lacks texture; motion estimate inconclusive")
     wh=(x1-x0,y1-y0)
     centers=[None]*len(gray)
     confidences=[None]*len(gray)
