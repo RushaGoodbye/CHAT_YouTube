@@ -154,6 +154,8 @@ def test_wiring_uses_full_transcript_rows_not_first_12000_characters():
     assert "transcript = evidence_outline_text(evidence_report)" in body
     assert "blocks_with_evidence" in body
     assert "cache_dir=self.data_dir" in body
+    assert 'report_dir = self.data_dir / "seo_evidence"' in body
+    assert 'report_tmp.replace(report_path)' in body
     assert 'fast_mode else 300.0' in body
     assert 'context_for_model.pop("_caption_tracks", None)' in body
 
