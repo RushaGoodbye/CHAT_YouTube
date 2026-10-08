@@ -301,6 +301,126 @@
         "license and distribution notices check",
         "no unrequested full UI rewrite"
       ]
+    },
+    {
+      "id": "psutil",
+      "repo": "https://github.com/giampaolo/psutil",
+      "license": "BSD-3-Clause",
+      "package": "psutil",
+      "priority": 1,
+      "status": "HEALTH_SHADOW_CANDIDATE",
+      "role": "Read-only Windows process, memory and disk IO snapshots to diagnose window freezes/D disk saturation",
+      "risks": [
+        "CPU sampling overhead if polled aggressively"
+      ],
+      "gates": [
+        "no auto-kill processes",
+        "slow bounded polling",
+        "no heavy writes to D"
+      ]
+    },
+    {
+      "id": "watchdog",
+      "repo": "https://github.com/gorakhargosh/watchdog",
+      "license": "Apache-2.0",
+      "package": "watchdog",
+      "priority": 2,
+      "status": "EVALUATE_ISOLATED",
+      "role": "Observe file creation and updater activity; use PollingObserver for NAS/SMB",
+      "risks": [
+        "network CIFS misses events with native observer",
+        "excess events"
+      ],
+      "gates": [
+        "PollingObserver on SMB",
+        "no uncontrolled restart storms"
+      ]
+    },
+    {
+      "id": "tenacity",
+      "repo": "https://github.com/jd/tenacity",
+      "license": "Apache-2.0",
+      "package": "tenacity",
+      "priority": 1,
+      "status": "STABILITY_CANDIDATE",
+      "role": "Bounded retries for NAS copy and transient read/write only",
+      "risks": [
+        "retry of non-idempotent render or upload duplicates jobs"
+      ],
+      "gates": [
+        "only idempotent calls",
+        "bounded backoff",
+        "never retry production render automatically"
+      ]
+    },
+    {
+      "id": "apscheduler",
+      "repo": "https://github.com/agronholm/apscheduler",
+      "license": "MIT",
+      "package": "APScheduler",
+      "priority": 3,
+      "status": "RESEARCH_ONLY",
+      "role": "Scheduler for local operations once NAS queue architecture is stabilized",
+      "risks": [
+        "in-process scheduler not a replacement for durable NAS queue",
+        "API major version changes"
+      ],
+      "gates": [
+        "persistent deduplication",
+        "no duplicate runner",
+        "single leader"
+      ]
+    },
+    {
+      "id": "pydantic",
+      "repo": "https://github.com/pydantic/pydantic",
+      "license": "MIT",
+      "package": "pydantic",
+      "priority": 1,
+      "status": "SCHEMA_CANDIDATE",
+      "role": "Strict validation of queue tasks, cigarette reports and app updater manifests",
+      "risks": [
+        "major-version schema incompatibility"
+      ],
+      "gates": [
+        "backward compatible schemas",
+        "block malformed unsafe commands",
+        "no silent coercion for important safety flags"
+      ]
+    },
+    {
+      "id": "loguru",
+      "repo": "https://github.com/Delgan/loguru",
+      "license": "MIT",
+      "package": "loguru",
+      "priority": 2,
+      "status": "LOGGING_CANDIDATE",
+      "role": "Structured diagnostic logging around recoveries and updates",
+      "risks": [
+        "duplicate sinks and unbounded log rotation"
+      ],
+      "gates": [
+        "bounded rotation",
+        "no token/password leakage",
+        "no GUI blocking"
+      ]
+    },
+    {
+      "id": "pyqtgraph",
+      "repo": "https://github.com/pyqtgraph/pyqtgraph",
+      "license": "MIT",
+      "package": "pyqtgraph",
+      "priority": 2,
+      "status": "UI_SHADOW_CANDIDATE",
+      "role": "Qt-native GPU/CPU/progress and dialogue timeline graphs without redesign",
+      "risks": [
+        "Qt dependency mismatch"
+      ],
+      "gates": [
+        "reuse existing PySide6",
+        "feature toggle",
+        "no blocking on main thread"
+      ]
     }
   ]
 }
