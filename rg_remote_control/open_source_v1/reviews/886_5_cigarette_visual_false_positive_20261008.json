@@ -1,0 +1,38 @@
+{
+  "schema": "RG_AUTO_EDIT_886_5_CIGARETTE_VISUAL_AUDIT_V1",
+  "date": "2026-10-08",
+  "contour": "auto_edit",
+  "stream": "886",
+  "dialogue": "886_5",
+  "source": "Four contact sheets from user: 886_5_REVIEW_01.jpg to 886_5_REVIEW_04.jpg",
+  "source_window_approx_seconds": [
+    9558.9,
+    9561.2
+  ],
+  "sampled_frames": 24,
+  "evidence_type": "VISUAL_REVIEW_OF_USER_ATTACHED_CONTACT_SHEETS",
+  "displayed_scene": "Host at left, guest at right, microphone in lower left host video region",
+  "observation": "The highlighted fixed ROI is on black microphone windscreen / light-coloured stitched or printed decorative mark, not a cigarette.",
+  "cigarette_visible_in_fixed_roi": false,
+  "cigarette_absence_throughout_dialogue": "UNDETERMINED",
+  "falsely_tracked_object": "DECORATIVE_LIGHT_MARK_ON_MICROPHONE_WINDSCREEN",
+  "original_saved_detection_count": 2,
+  "previous_confirmed_tracks": 1,
+  "existing_cigarette_overlays": 3,
+  "previous_qa": "XML_AND_COVERAGE_STRUCTURAL_PASS_ONLY",
+  "semantic_cigarette_qa": "FAIL_KNOWN_FALSE_POSITIVE",
+  "candidate_for_production_delivery": false,
+  "previously_delivered_8865": "POTENTIALLY_UNSAFE_WRONG_OBJECT_BLUR",
+  "action_required": "QUARANTINE_8865_FROM_NEW_EXPORTS_UNTIL_CORRECTED_AND_VISUALLY_VALIDATED",
+  "user_app_modified": false,
+  "original_media_modified": false,
+  "caveat": "No inference that no cigarette exists anywhere else in stream 886; this finding is specific to the 24 reviewed frames and original ROI.",
+  "recommendations": [
+    "Do not use 886_5 XML as semantic cigarette-safe evidence.",
+    "Do not extrapolate Norfair motion PASS to cigarette identity.",
+    "Remove existing microphone-targeting false blur overlays only after controlled verification and backup, then re-audit all dialogue cigarette appearances.",
+    "Gate cigarette detection on independent semantic image evidence; require visible object-level masks/boxes and known-negative microphone artwork sample.",
+    "Retain audio and all original non-cigarette video edits unchanged."
+  ],
+  "resolution_status": "OPEN"
+}
