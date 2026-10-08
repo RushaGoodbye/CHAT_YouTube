@@ -1869,7 +1869,7 @@ chapters: рядок з підтвердженими таймкодами та �
             description_error = _description_quality_error(
                 description_candidate,
                 transcript,
-                max_chars=3000 if evidence_report else 1000,
+                **({"max_chars": 3000} if evidence_report else {}),
             )
             if transcript.strip():
                 if fast_mode:
@@ -1883,7 +1883,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            max_chars=3000 if evidence_report else 1000,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
                 elif description_error:
                     # Only pay for a repair pass when the candidate actually
@@ -1901,7 +1901,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            max_chars=3000 if evidence_report else 1000,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
                     if description_error:
                         fallback_description = _grounded_description_from_transcript(
@@ -1913,7 +1913,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            max_chars=3000 if evidence_report else 1000,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
             if transcript.strip() and description_error:
                 raise ValueError(
