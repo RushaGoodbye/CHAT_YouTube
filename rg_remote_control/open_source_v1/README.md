@@ -70,6 +70,15 @@ CoTracker преимущественно CC-BY-NC и не допускается
 - `../bootstrap_auto_edit_norfair_8865_shadow_v1.ps1` installs Norfair in a SECOND isolated venv and runs a synthetic API safety test before reading existing 886_5 saved detections. Results go only into `oss_shadow/norfair_886_5_v1.json`. No render, model re-inference, Premiere/XML or audio modifications.
 - Matching two detections is NOT proof of full-frame cigarette tracking, so production adoption remains disabled until multi-frame, occlusion, and frame-coverage tests pass.
 
+## Norfair и движение на реальных кадрах (следующий тест)
+
+- Norfair 2.3.0 установлен на F: в отдельную среду. Synthetic API safety PASS, archived 886_5 two-hit shadow CONSISTENT. Смещение между оригинальными двумя боксами 0,5 px: это **не** достаточный тест движения.
+- Добавлен `norfair_real_motion_8865_v1.py` и синтетическая проверка движения на кадрах `norfair_real_motion_synthetic.py`.
+- Одноразовый вход: `../bootstrap_auto_edit_norfair_real_frames_8865_v1.ps1`. Он устанавливает `opencv-python==4.11.0.86` только в **отдельный Norfair venv** и перед видео запускает synthetic test.
+- Тест читается из исходного `\\Desktop-v7gg0en\record\886.mp4`. Начальная отметка и bbox - из архивного файла детектора, не из предположений. FFmpeg извлекает на F: до 25 JPEG кадров, а затем временные кадры удаляются.
+- Результат `F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\norfair_886_5_real_motion_v1.json`. Для него `production_approval=NOT_GRANTED` независимо от числа совпавших кадров: OpenCV template-matching - не независимый детектор сигареты. Наибольшее полезное значение - измерить пропуски, дрейф и проверить работу трекера без исходного монтажа.
+- Перед SAM 2: официальный репозиторий рекомендует WSL на Windows и отдельный PyTorch/CUDA runtime. Нельзя устанавливать его внутрь стабильной среды обработки.
+
 ## Как запускать независимые тесты
 
 ```powershell
