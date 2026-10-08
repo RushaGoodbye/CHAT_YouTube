@@ -11,6 +11,14 @@ import time
 from typing import Any
 
 
+def csv_safe_public_comment_cell(value: object) -> str:
+    """Escape untrusted public text so Excel cannot execute CSV formulas."""
+    raw = str(value or "")
+    if raw.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + raw
+    return raw
+
+
 def fetch_public_comment_sample(
     video_id: str,
     *,
