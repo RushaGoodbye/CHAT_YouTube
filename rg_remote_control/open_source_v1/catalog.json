@@ -1,0 +1,306 @@
+{
+  "schema": "RG_AUTO_EDIT_OSS_CATALOG_V1",
+  "reviewed_on": "2026-10-08",
+  "project": "RG Auto Edit Studio",
+  "contour": "auto_edit",
+  "policy": {
+    "live_changes": "DISALLOWED_UNTIL_GOLDEN_SMOKE_PASS",
+    "isolated_runtime_required": true,
+    "never_modify_source_audio": true,
+    "blur_mandatory": true,
+    "blur_fail_closed": true,
+    "blur_whole_frame_forbidden": true,
+    "archive_xml_and_hashes_before_changes": true,
+    "no_background_install": true,
+    "mandatory_qa": [
+      "886_2 source audio unchanged",
+      "886_5 localized cigarette coverage",
+      "886 3-job resume behavior",
+      "901 source audio and censor",
+      "long stream >9h smoke"
+    ],
+    "licence_rule": "Package, weights, datasets, bundled FFmpeg and GUI license must each be reviewed separately"
+  },
+  "components": [
+    {
+      "id": "pyscenedetect",
+      "repo": "https://github.com/Breakthrough/PySceneDetect",
+      "license": "BSD-3-Clause",
+      "package": "scenedetect",
+      "pilot_version": "0.7.1",
+      "priority": 1,
+      "status": "SHADOW_ADAPTER_COMMITTED",
+      "role": "Additional scene/cut signal for chat-roulette candidates, not dialogue end oracle",
+      "risks": [
+        "false cuts during camera movements",
+        "potential CPU decode overload"
+      ],
+      "gates": [
+        "<=600 second window per call",
+        "never edits XML",
+        "output JSON only"
+      ]
+    },
+    {
+      "id": "norfair",
+      "repo": "https://github.com/tryolabs/norfair",
+      "license": "BSD-3-Clause",
+      "package": "norfair",
+      "priority": 1,
+      "status": "SHADOW_CANDIDATE",
+      "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
+      "risks": [
+        "short-lived tiny object may not initialize",
+        "misses require fail-closed"
+      ],
+      "gates": [
+        "benchmark real cigarette clips",
+        "no modification to production detector"
+      ]
+    },
+    {
+      "id": "sam2",
+      "repo": "https://github.com/facebookresearch/sam2",
+      "license": "Apache-2.0 for code/checkpoints per project",
+      "package": "sam2",
+      "priority": 1,
+      "status": "EVALUATE_ISOLATED",
+      "role": "Track cigarette-shaped mask across frames after robust first detection",
+      "risks": [
+        "CUDA/PyTorch version pressure",
+        "high VRAM usage",
+        "mask leakage to face/hand"
+      ],
+      "gates": [
+        "separate venv on F",
+        "frame-mask benchmark",
+        "no whole-frame masks",
+        "explicit per-asset license review"
+      ]
+    },
+    {
+      "id": "groundingdino",
+      "repo": "https://github.com/IDEA-Research/GroundingDINO",
+      "license": "Apache-2.0 source; verify each weight",
+      "package": "groundingdino",
+      "priority": 2,
+      "status": "RESEARCH_ONLY",
+      "role": "Text-conditioned cigarette detector alternative to current YOLOWorld",
+      "risks": [
+        "weight terms may differ",
+        "tiny cigarette recall uncertain",
+        "CUDA extension"
+      ],
+      "gates": [
+        "separate runtime",
+        "golden cigarette dataset precision/recall",
+        "license check weights"
+      ]
+    },
+    {
+      "id": "rfdetr",
+      "repo": "https://github.com/roboflow/rf-detr",
+      "license": "Apache-2.0 core; Plus models not Apache",
+      "package": "rfdetr",
+      "priority": 2,
+      "status": "RESEARCH_ONLY",
+      "role": "Trainable permissive detector baseline if labeled cigarette data available",
+      "risks": [
+        "COCO checkpoints do not imply cigarette detection",
+        "Plus license restriction"
+      ],
+      "gates": [
+        "only Apache-designated weights",
+        "labeled frames",
+        "precision/recall acceptance"
+      ]
+    },
+    {
+      "id": "faster-whisper",
+      "repo": "https://github.com/SYSTRAN/faster-whisper",
+      "license": "MIT",
+      "package": "faster-whisper",
+      "priority": 2,
+      "status": "BENCHMARK_ONLY",
+      "role": "Faster multilingual ASR candidate; keep current large-v3 output until test",
+      "risks": [
+        "CUDA12/cuDNN9 runtime mismatch",
+        "word timestamps can drift"
+      ],
+      "gates": [
+        "isolated GPU env",
+        "RU+UA ASR WER comparison",
+        "no resampling original audio file"
+      ]
+    },
+    {
+      "id": "whisperx",
+      "repo": "https://github.com/m-bain/whisperX",
+      "license": "BSD-2-Clause code; separate model terms",
+      "package": "whisperx",
+      "priority": 2,
+      "status": "BENCHMARK_ONLY",
+      "role": "Word alignment for accurate profanity censor without changing source audio",
+      "risks": [
+        "diarization models and weights terms differ",
+        "alignment drift"
+      ],
+      "gates": [
+        "separate environment",
+        "word-level timestamp QA",
+        "retain censor ON/OFF and source audio"
+      ]
+    },
+    {
+      "id": "silero-vad",
+      "repo": "https://github.com/snakers4/silero-vad",
+      "license": "MIT",
+      "package": "silero-vad",
+      "priority": 2,
+      "status": "SHADOW_CANDIDATE",
+      "role": "Voice activity hint only, not end-of-dialogue",
+      "risks": [
+        "short silence is not end of dialogue"
+      ],
+      "gates": [
+        "must wait next guest/host post-placeholder reply",
+        "never drop dialogue by VAD alone"
+      ]
+    },
+    {
+      "id": "pyannote-audio",
+      "repo": "https://github.com/pyannote/pyannote-audio",
+      "license": "MIT for code; models separately",
+      "package": "pyannote.audio",
+      "priority": 3,
+      "status": "RESEARCH_ONLY",
+      "role": "Speaker diarization optional; current tracks should not be replaced blindly",
+      "risks": [
+        "model gating/account",
+        "GPU conflicts",
+        "speaker errors"
+      ],
+      "gates": [
+        "weights clearance",
+        "RU+UA speaker accuracy",
+        "local only"
+      ]
+    },
+    {
+      "id": "supervision",
+      "repo": "https://github.com/roboflow/supervision",
+      "license": "MIT",
+      "package": "supervision",
+      "priority": 3,
+      "status": "SHADOW_CANDIDATE",
+      "role": "Video object tracking and evaluation visualization in QA sandbox",
+      "risks": [
+        "third party detector separate license"
+      ],
+      "gates": [
+        "debug previews only",
+        "no influence on mandatory blur without independently passing QA"
+      ]
+    },
+    {
+      "id": "opentimelineio-fcp",
+      "repo": "https://github.com/OpenTimelineIO/otio-fcp-adapter",
+      "license": "Apache-2.0",
+      "package": "opentimelineio",
+      "priority": 3,
+      "status": "READ_ONLY_PARSER_CANDIDATE",
+      "role": "Read-only FCP7 XML analysis of Premiere timelines",
+      "risks": [
+        "official adapter does not support audio/video effects so roundtripping loses blur/censor"
+      ],
+      "gates": [
+        "NEVER_WRITE_PRODUCTION_XML",
+        "compare as secondary validator only"
+      ]
+    },
+    {
+      "id": "onnxruntime",
+      "repo": "https://github.com/microsoft/onnxruntime",
+      "license": "MIT",
+      "package": "onnxruntime-gpu",
+      "priority": 3,
+      "status": "EVALUATE_ISOLATED",
+      "role": "GPU inference for permissive ONNX models",
+      "risks": [
+        "CUDA provider DLL incompatibility",
+        "model itself may not be permissive"
+      ],
+      "gates": [
+        "CUDA provider test",
+        "no auto-uninstall torch"
+      ]
+    },
+    {
+      "id": "ffmpeg",
+      "repo": "https://github.com/FFmpeg/FFmpeg",
+      "license": "LGPL-2.1+ or GPL depending build flags",
+      "package": null,
+      "priority": 1,
+      "status": "KEEP_EXISTING",
+      "role": "Preserve current verified NVDEC/NVENC decode and source audio path",
+      "risks": [
+        "binary redistribution licensing",
+        "other bundled codecs could change license"
+      ],
+      "gates": [
+        "check ffmpeg -buildconf",
+        "no automatic binary replacement",
+        "source audio untouched"
+      ]
+    },
+    {
+      "id": "ultralytics",
+      "repo": "https://github.com/ultralytics/ultralytics",
+      "license": "AGPL-3.0 / enterprise dual license",
+      "package": "ultralytics",
+      "priority": 1,
+      "status": "LICENSE_REVIEW_REQUIRED_KEEP_CURRENT",
+      "role": "Existing YOLOWorld cigarette detection worker, do not break production",
+      "risks": [
+        "AGPL-3.0 obligations if used in non-AGPL distributed app",
+        "model terms must be reviewed"
+      ],
+      "gates": [
+        "no new redistribution without licensing review",
+        "plan Apache detector benchmark"
+      ]
+    },
+    {
+      "id": "cotracker",
+      "repo": "https://github.com/facebookresearch/co-tracker",
+      "license": "mostly CC-BY-NC",
+      "package": "cotracker",
+      "priority": 5,
+      "status": "DO_NOT_INTEGRATE_FOR_MONETIZED_PRODUCTION",
+      "role": "Point tracking research only",
+      "risks": [
+        "noncommercial restriction"
+      ],
+      "gates": [
+        "never include in production"
+      ]
+    },
+    {
+      "id": "pyside6",
+      "repo": "https://github.com/pyside/pyside-setup",
+      "license": "LGPL-3.0 or GPL or commercial",
+      "package": "PySide6",
+      "priority": 1,
+      "status": "KEEP_EXISTING_COMPLIANCE_AUDIT",
+      "role": "Current GUI remains; can improve UX without replacing toolkit",
+      "risks": [
+        "redistribution obligations",
+        "WebEngine additional dependencies"
+      ],
+      "gates": [
+        "license and distribution notices check",
+        "no unrequested full UI rewrite"
+      ]
+    }
+  ]
+}
