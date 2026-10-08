@@ -126,96 +126,110 @@ def validate_staged(original,staged,qa,lib):
 def main():
     log("=== 886_5 CIGARETTE LOCAL XML REPAIR PREFLIGHT ===")
     reject_active_processes()
-    for item in (XML,DET,CONFIG,APP/"rg_cigarette_blur.py",APP/"VALIDATE_PREMIERE_XML.py"):
-        if not item.is_file():
-            raise RuntimeError("Required file missing: "+str(item))
-    config=load_json(CONFIG)
-    opts=dict(config.get("cigarette_blur") or {})
-    if opts.get("version")!=EXPECTED_VERSION:
-        raise RuntimeError("Installed cigarette engine version mismatch")
-    if not all(opts.get(k) is True for k in ("mandatory","fail_closed","whole_frame_blur_forbidden")):
-        raise RuntimeError("Mandatory localized blur policy not active")
-    old=load_json(DET)
-    if old.get("status")!="AMBIGUOUS" or old.get("passed") is not False:
-        raise RuntimeError("Detection report is not the known pre-hotfix ambiguous result; refuse mutation")
-    if int(old.get("raw_detection_count") or 0)!=2:
-        raise RuntimeError("Unexpected raw detection count; refuse mutation")
-    rejected=old.get("rejected_tracks") or []
-    if len(rejected)!=1 or len(rejected[0].get("hits") or [])!=2:
-        raise RuntimeError("Rejected detection evidence differs from verified two-hit 886_5 case")
-    if old.get("tracks") or old.get("intervals"):
-        raise RuntimeError("Existing confirmed detections found: refuse reclassification")
-    import rg_cigarette_blur as lib
-    if getattr(lib,"VERSION",None)!=EXPECTED_VERSION:
-        raise RuntimeError("Live cigarette module version mismatch")
-    track=copy.deepcopy(rejected[0])
-    hits=track["hits"]
-    scores=[float(h.get("score") or 0.0) for h in hits]
-    classes=[str(h.get("class") or "") for h in hits]
-    if classes!=["smoking cigarette","smoking cigarette"]:
-        raise RuntimeError("Unexpected detection class; must inspect manually")
-    if not all(0.08 <= x < 0.34 for x in scores):
-        raise RuntimeError("Detection scores differ from verified short stable evidence")
-    first=min(float(h["t"]) for h in hits)
-    last=max(float(h["t"]) for h in hits)
-    if not (0.05 <= last-first <= 0.08 and 9500 < first < 9700):
-        raise RuntimeError("Detection timestamps differ from verified 886_5 case")
-    if any(len(h.get("bbox") or [])!=4 for h in hits):
-        raise RuntimeError("Invalid cigarette bounding boxes")
-    accepted,rejected_now=lib._confirm_tracks([track],opts,[(first-2.0,last+2.0)])
-    if len(accepted)!=1 or rejected_now or accepted[0].get("confirmation")!="SHORT_STABLE":
-        raise RuntimeError("SHORT_STABLE validation did not pass; refusing unblurred delivery")
-    intervals=accepted[0].get("intervals") or []
-    if not intervals:raise RuntimeError("No tracked motion intervals available")
-    updated=copy.deepcopy(old)
-    updated.update({
-        "version":EXPECTED_VERSION,
-        "passed":True,"status":"TRACKED",
-        "tracks":accepted,"rejected_tracks":[],
-        "confirmed_track_count":1,"rejected_track_count":0,
-        "unconfirmed_detection_count":0,
-        "intervals":intervals,"interval_count":len(intervals),
-        "failures":[],
-        "evidence_source":"EXISTING_RAW_DETECTION_REPORT_REVALIDATED_WITH_SHORT_STABLE_V2",
-        "original_detection_report_sha256":sha256(DET),
-    })
-    sig=original_signature(XML)
-    if not sig["audio"] or not sig["video_tracks"]:
-        raise RuntimeError("Base XML lacks expected tracks")
-    ts=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup=DATA/"release_backups"/("PRE_886_5_CIGARETTE_XML_REPAIR_"+ts)
-    backup.mkdir(parents=True,exist_ok=False)
-    originals=[XML,DET]+([QA] if QA.is_file() else [])
-    proofs={}
-    for f in originals:
-        dst=backup/f.name
-        shutil.copy2(f,dst)
-        proofs[f.name]=sha256(f)
-        if sha256(dst)!=proofs[f.name]:
-            raise RuntimeError("Backup SHA256 mismatch: "+f.name)
-    put_json(backup/"BACKUP_PROOFS.json",{"created_at":ts,"sha256":proofs,
-        "config_version":EXPECTED_VERSION,"scope":"886_5_only",
-        "rollback":"Copy backed-up XML and detection JSON back to F: app folder if publication QA fails"})
-    log("ORIGINAL FILES BACKED UP",{"folder":str(backup),"files":list(proofs)})
-    with tempfile.TemporaryDirectory(prefix="rg_8865_cigarette_",dir=str(APP)) as td:
-        stage=Path(td)
-        staged=stage/XML.name
-        shutil.copy2(XML,staged)
-        qa=lib.inject_cigarette_blur(staged,updated,opts,fps=30)
-        validation=validate_staged(XML,staged,qa,lib)
-        put_json(stage/DET.name,updated)
-        put_json(stage/QA.name,qa)
-        # Never publish if production was launched while checking.
-        reject_active_processes()
-        if any(sha256(f)!=digest for f,digest in ((p,proofs[p.name]) for p in originals)):
-            raise RuntimeError("Original files changed concurrently; refusing publication")
-        # Same-directory replacements avoid partial XML writes.
-        os.replace(staged,XML)
-        try:
-            os.replace(stage/DET.name,DET)
-            os.replace(stage/QA.name,QA)
-        except Exception:
-            # Restore the pre-repair state on any sidecar failure.
+    sys.path.insert(0,str(APP))
+    from rg_production_stability import acquire_stream_lock,release_stream_lock
+    lock=acquire_stream_lock("886",owner_pid=os.getpid(),owner="RG cigarette XML repair 886_5")
+    try:
+        for item in (XML,DET,CONFIG,APP/"rg_cigarette_blur.py",APP/"VALIDATE_PREMIERE_XML.py"):
+            if not item.is_file():
+                raise RuntimeError("Required file missing: "+str(item))
+        config=load_json(CONFIG)
+        opts=dict(config.get("cigarette_blur") or {})
+        if opts.get("version")!=EXPECTED_VERSION:
+            raise RuntimeError("Installed cigarette engine version mismatch")
+        if not all(opts.get(k) is True for k in ("mandatory","fail_closed","whole_frame_blur_forbidden")):
+            raise RuntimeError("Mandatory localized blur policy not active")
+        old=load_json(DET)
+        if old.get("status")!="AMBIGUOUS" or old.get("passed") is not False:
+            raise RuntimeError("Detection report is not the known pre-hotfix ambiguous result; refuse mutation")
+        if int(old.get("raw_detection_count") or 0)!=2:
+            raise RuntimeError("Unexpected raw detection count; refuse mutation")
+        rejected=old.get("rejected_tracks") or []
+        if len(rejected)!=1 or len(rejected[0].get("hits") or [])!=2:
+            raise RuntimeError("Rejected detection evidence differs from verified two-hit 886_5 case")
+        if old.get("tracks") or old.get("intervals"):
+            raise RuntimeError("Existing confirmed detections found: refuse reclassification")
+        import rg_cigarette_blur as lib
+        if getattr(lib,"VERSION",None)!=EXPECTED_VERSION:
+            raise RuntimeError("Live cigarette module version mismatch")
+        track=copy.deepcopy(rejected[0])
+        hits=track["hits"]
+        scores=[float(h.get("score") or 0.0) for h in hits]
+        classes=[str(h.get("class") or "") for h in hits]
+        if classes!=["smoking cigarette","smoking cigarette"]:
+            raise RuntimeError("Unexpected detection class; must inspect manually")
+        if not all(0.08 <= x < 0.34 for x in scores):
+            raise RuntimeError("Detection scores differ from verified short stable evidence")
+        first=min(float(h["t"]) for h in hits)
+        last=max(float(h["t"]) for h in hits)
+        if not (0.05 <= last-first <= 0.08 and 9500 < first < 9700):
+            raise RuntimeError("Detection timestamps differ from verified 886_5 case")
+        if any(len(h.get("bbox") or [])!=4 for h in hits):
+            raise RuntimeError("Invalid cigarette bounding boxes")
+        accepted,rejected_now=lib._confirm_tracks([track],opts,[(first-2.0,last+2.0)])
+        if len(accepted)!=1 or rejected_now or accepted[0].get("confirmation")!="SHORT_STABLE":
+            raise RuntimeError("SHORT_STABLE validation did not pass; refusing unblurred delivery")
+        intervals=accepted[0].get("intervals") or []
+        if not intervals:raise RuntimeError("No tracked motion intervals available")
+        updated=copy.deepcopy(old)
+        updated.update({
+            "version":EXPECTED_VERSION,
+            "passed":True,"status":"TRACKED",
+            "tracks":accepted,"rejected_tracks":[],
+            "confirmed_track_count":1,"rejected_track_count":0,
+            "unconfirmed_detection_count":0,
+            "intervals":intervals,"interval_count":len(intervals),
+            "failures":[],
+            "evidence_source":"EXISTING_RAW_DETECTION_REPORT_REVALIDATED_WITH_SHORT_STABLE_V2",
+            "original_detection_report_sha256":sha256(DET),
+        })
+        sig=original_signature(XML)
+        if not sig["audio"] or not sig["video_tracks"]:
+            raise RuntimeError("Base XML lacks expected tracks")
+        ts=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup=DATA/"release_backups"/("PRE_886_5_CIGARETTE_XML_REPAIR_"+ts)
+        backup.mkdir(parents=True,exist_ok=False)
+        originals=[XML,DET]+([QA] if QA.is_file() else [])
+        proofs={}
+        for f in originals:
+            dst=backup/f.name
+            shutil.copy2(f,dst)
+            proofs[f.name]=sha256(f)
+            if sha256(dst)!=proofs[f.name]:
+                raise RuntimeError("Backup SHA256 mismatch: "+f.name)
+        put_json(backup/"BACKUP_PROOFS.json",{"created_at":ts,"sha256":proofs,
+            "config_version":EXPECTED_VERSION,"scope":"886_5_only",
+            "rollback":"Copy backed-up XML and detection JSON back to F: app folder if publication QA fails"})
+        log("ORIGINAL FILES BACKED UP",{"folder":str(backup),"files":list(proofs)})
+        with tempfile.TemporaryDirectory(prefix="rg_8865_cigarette_",dir=str(APP)) as td:
+            stage=Path(td)
+            staged=stage/XML.name
+            shutil.copy2(XML,staged)
+            qa=lib.inject_cigarette_blur(staged,updated,opts,fps=30)
+            validation=validate_staged(XML,staged,qa,lib)
+            put_json(stage/DET.name,updated)
+            put_json(stage/QA.name,qa)
+            # Never publish if production was launched while checking.
+            reject_active_processes()
+            if any(sha256(f)!=digest for f,digest in ((p,proofs[p.name]) for p in originals)):
+                raise RuntimeError("Original files changed concurrently; refusing publication")
+            # Same-directory replacements avoid partial XML writes.
+            os.replace(staged,XML)
+            try:
+                os.replace(stage/DET.name,DET)
+                os.replace(stage/QA.name,QA)
+            except Exception:
+                # Restore the pre-repair state on any sidecar failure.
+                shutil.copy2(backup/XML.name,XML)
+                shutil.copy2(backup/DET.name,DET)
+                if (backup/QA.name).is_file():
+                    shutil.copy2(backup/QA.name,QA)
+                else:
+                    try:QA.unlink()
+                    except FileNotFoundError:pass
+                raise
+        final=lib.verify_cigarette_blur(XML,expected_count=int(qa["overlay_count"]))
+        if not final.get("passed"):
             shutil.copy2(backup/XML.name,XML)
             shutil.copy2(backup/DET.name,DET)
             if (backup/QA.name).is_file():
@@ -223,29 +237,29 @@ def main():
             else:
                 try:QA.unlink()
                 except FileNotFoundError:pass
-            raise
-    final=lib.verify_cigarette_blur(XML,expected_count=int(qa["overlay_count"]))
-    if not final.get("passed"):
-        raise RuntimeError("Post-publication blur verification failed; restore originals from "+str(backup))
-    report={
-        "status":"PASS",
-        "scope":"886_5_XML_ONLY",
-        "stream_reprocessed":False,
-        "detector_rerun":False,
-        "raw_evidence_count":2,
-        "confirmation":accepted[0]["confirmation"],
-        "confirmed_tracks":1,
-        "localized_intervals":len(intervals),
-        "blur_overlays":int(qa["overlay_count"]),
-        "coverage_qa_pass":bool((qa.get("coverage_qa") or {}).get("passed")),
-        "mandatory":True,"fail_closed":True,"whole_frame_blur_forbidden":True,
-        "audio_unchanged":validation["audio_identical"],
-        "existing_video_unchanged":validation["original_video_tracks_identical"],
-        "premiere_xml_valid":validation["premiere_validator"],
-        "xml":str(XML),"detector_report":str(DET),"qa_report":str(QA),"backup":str(backup),
-        "whole_stream_postrun_qa":"NOT_RUN",
-    }
-    log("=== 886_5 CIGARETTE LOCAL XML REPAIR RESULT ===",report)
+            raise RuntimeError("Post-publication blur verification failed - original artifacts restored from "+str(backup))
+        report={
+            "status":"PASS",
+            "scope":"886_5_XML_ONLY",
+            "stream_reprocessed":False,
+            "detector_rerun":False,
+            "raw_evidence_count":2,
+            "confirmation":accepted[0]["confirmation"],
+            "confirmed_tracks":1,
+            "localized_intervals":len(intervals),
+            "blur_overlays":int(qa["overlay_count"]),
+            "coverage_qa_pass":bool((qa.get("coverage_qa") or {}).get("passed")),
+            "mandatory":True,"fail_closed":True,"whole_frame_blur_forbidden":True,
+            "audio_unchanged":validation["audio_identical"],
+            "existing_video_unchanged":validation["original_video_tracks_identical"],
+            "premiere_xml_valid":validation["premiere_validator"],
+            "xml":str(XML),"detector_report":str(DET),"qa_report":str(QA),"backup":str(backup),
+            "whole_stream_postrun_qa":"NOT_RUN",
+        }
+        log("=== 886_5 CIGARETTE LOCAL XML REPAIR RESULT ===",report)
+
+    finally:
+        release_stream_lock("886",str((lock or {}).get("run_id") or ""))
 
 if __name__=="__main__":
     try:
