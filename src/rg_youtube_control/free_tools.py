@@ -1999,7 +1999,19 @@ chapters: рядок з підтвердженими таймкодами та �
         "chapters": chapters,
         "provider": f"ollama:{model}",
         "title_fallback_used": title_fallback_used,
-        "needs_review": title_fallback_used or len(variants) < 3,
+        "needs_review": (
+            title_fallback_used
+            or len(variants) < 3
+            or not transcript.strip()
+        ),
+        "review_reason": "; ".join(
+            message for condition, message in (
+                (title_fallback_used, "Модель не створила нову назву"),
+                (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
+                (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
+            )
+            if condition
+        ),
         "youtube_data_api_quota": 0,
     }
 
