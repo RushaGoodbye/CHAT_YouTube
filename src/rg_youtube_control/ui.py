@@ -9877,7 +9877,8 @@ class MainWindow(QMainWindow):
                 expected_tags=new_tags,
             )
             if not verified:
-                # YouTube's videos.update response is already validated inside
+                # Контроль після запису не пройдено негайно: YouTube's
+                # videos.update response is already validated inside
                 # YouTubeClient.update_video(). A following videos.list call can
                 # briefly return stale metadata because of eventual consistency.
                 # Keep the successful write, record the delayed-read mismatch,
