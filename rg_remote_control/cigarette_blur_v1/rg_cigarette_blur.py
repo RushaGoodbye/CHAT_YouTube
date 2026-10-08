@@ -13,7 +13,7 @@ from pathlib import Path
 
 from rg_privacy_coverage_qa import evaluate as evaluate_coverage
 
-VERSION="RG_CIGARETTE_BLUR_V1_TRACKED_MANDATORY"
+VERSION="RG_CIGARETTE_BLUR_V1_SHORT_STABLE_V2"
 TICKS_PER_SECOND=254016000000
 
 def _read_json(path,default=None):
@@ -125,11 +125,32 @@ def _confirm_tracks(tracks,opts,ranges):
     min_hits=max(1,int(opts.get("min_track_hits",2)))
     strong=float(opts.get("single_hit_strong_confidence",0.34))
     min_span=float(opts.get("min_track_span_sec",0.10))
+    confidence=float(opts.get("confidence",0.08))
+    short_min_span=float(opts.get("short_stable_min_span_sec",0.05))
+    short_max_gap=float(opts.get("short_stable_max_gap_sec",0.12))
+    short_min_iou=float(opts.get("short_stable_min_iou",0.72))
     for tr in tracks:
         hits=tr["hits"];span=(hits[-1]["t"]-hits[0]["t"]) if len(hits)>1 else 0.0
-        max_score=max([float(x.get("score",0)) for x in hits]+[0.0])
-        ok=(len(hits)>=min_hits and span>=min_span) or max_score>=strong
+        scores=[float(x.get("score",0)) for x in hits]
+        max_score=max(scores+[0.0])
+        normal_track=(len(hits)>=min_hits and span>=min_span)
+        strong_hit=max_score>=strong
+        short_stable=False
+        if len(hits)>=min_hits and len(hits)>=2 and short_min_span<=span<min_span:
+            gaps=[float(b["t"])-float(a["t"]) for a,b in zip(hits,hits[1:])]
+            ious=[_iou(a.get("bbox") or [0,0,0,0],b.get("bbox") or [0,0,0,0]) for a,b in zip(hits,hits[1:])]
+            classes=[str(x.get("class") or "") for x in hits]
+            short_stable=(
+                bool(gaps) and max(gaps)<=short_max_gap and
+                bool(ious) and min(ious)>=short_min_iou and
+                min(scores or [0.0])>=confidence and
+                len(set(classes))==1 and bool(classes[0])
+            )
+        ok=normal_track or strong_hit or short_stable
         tr["span_sec"]=round(span,4);tr["max_score"]=round(max_score,4)
+        if short_stable:tr["confirmation"]="SHORT_STABLE"
+        elif normal_track:tr["confirmation"]="NORMAL_TRACK"
+        elif strong_hit:tr["confirmation"]="STRONG_HIT"
         if ok:
             tr["intervals"]=_track_intervals(tr,opts,ranges);accepted.append(tr)
         else:rejected.append(tr)
