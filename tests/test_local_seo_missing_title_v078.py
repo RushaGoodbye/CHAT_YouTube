@@ -41,6 +41,12 @@ def test_manual_local_seo_falls_back_to_existing_title_without_retries(monkeypat
         }, ensure_ascii=False)
 
     monkeypatch.setattr(ft, "ollama_chat", fake_chat)
+    monkeypatch.setattr(
+        ft, "_recover_missing_description",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Do not regenerate already valid descriptions")
+        ),
+    )
     result = ft.generate_seo_package_local(
         current_title=CURRENT_TITLE,
         transcript=TRANSCRIPT,
