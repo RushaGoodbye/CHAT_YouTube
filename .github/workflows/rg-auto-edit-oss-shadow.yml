@@ -1,0 +1,45 @@
+name: RG Auto Edit OSS Shadow QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rg_remote_control/open_source_v1/**'
+      - '.github/workflows/rg-auto-edit-oss-shadow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shadow-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile staged adapters
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/oss_audit.py
+          python -m py_compile rg_remote_control/open_source_v1/scene_suggest.py
+      - name: Unit regression checks
+        run: |
+          python -m unittest discover -s rg_remote_control/open_source_v1/tests -v
+      - name: Catalog scope and licensing invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          d=json.loads(Path("rg_remote_control/open_source_v1/catalog.json").read_text())
+          assert d["contour"]=="auto_edit"
+          assert d["policy"]["live_changes"]=="DISALLOWED_UNTIL_GOLDEN_SMOKE_PASS"
+          assert d["policy"]["blur_fail_closed"]
+          assert d["policy"]["blur_mandatory"]
+          assert d["policy"]["blur_whole_frame_forbidden"]
+          l={c["id"]:c for c in d["components"]}
+          assert "AGPL" in l["ultralytics"]["license"]
+          assert l["cotracker"]["status"].startswith("DO_NOT_INTEGRATE")
+          assert l["opentimelineio-fcp"]["status"]=="READ_ONLY_PARSER_CANDIDATE"
+          print("RG_OSS_LICENSE_SCOPE_AND_FAIL_CLOSED_GATES=PASS")
+          PY
