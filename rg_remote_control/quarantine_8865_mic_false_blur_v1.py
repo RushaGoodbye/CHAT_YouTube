@@ -156,6 +156,10 @@ def preflight():
         raise RuntimeError("Original detection evidence SHA changed")
     if archive.get("passed") is not False or archive.get("status")!="AMBIGUOUS":
         raise RuntimeError("Archived detection evidence not the known ambiguous original")
+    if int(archive.get("raw_detection_count") or 0)!=2 or len(archive.get("rejected_tracks") or [])!=1:
+        raise RuntimeError("Archive lacks exactly two known false-positive hits")
+    if len((archive["rejected_tracks"][0].get("hits") or []))!=2:
+        raise RuntimeError("Archive does not contain the two original microphone observations")
     if qa.get("passed") is not True or int(qa.get("overlay_count") or 0)!=3:
         raise RuntimeError("Original structural QA is not expected PASS for 3 overlays")
     if HOLD.exists() or ROOT_HOLD.exists():
@@ -250,6 +254,21 @@ def apply():
         dest=DATA/"release_backups"/("PRE_886_5_MICROPHONE_SEMANTIC_HOLD_"+dt.datetime.now().strftime("%Y%m%d_%H%M%S"))
         dest.mkdir(parents=True,exist_ok=False)
         originals,proofs=backed_up(dest)
+        # Preserve both original falsely labelled hits as a local negative
+        # regression fixture. Never blanket-ban the microphone region:
+        # a genuine cigarette may appear there later.
+        archived=read_json(PRIOR/DETECT.name)
+        save_json(dest/"MICROPHONE_KNOWN_NEGATIVE_FIXTURE.json",{
+           "schema":"RG_CIGARETTE_MICROPHONE_NEGATIVE_FIXTURE_V1",
+           "stream":"886","dialogue":"886_5",
+           "reviewed_window_sec":REVIEWED_INTERVAL,
+           "visual_label":"MICROPHONE_MARK_NOT_CIGARETTE",
+           "label_source":"User-confirmed contact sheets 01-04",
+           "archived_detector_hits":archived["rejected_tracks"][0]["hits"],
+           "do_not_create_global_location_exclusion":True,
+           "requires_semantic_detector_and_actual_video_labels":True,
+           "production_adoption":False
+        })
         # Source audio/other video and both archive copies validated *before* changes.
         new_det=update_status(det,now,"detector")
         new_qa=update_status(qa,now,"qa")
