@@ -136,6 +136,7 @@ from .optimization import (
     archive_potential_score,
     compose_description,
     extract_chapters_from_description,
+    fit_description_to_youtube_limit,
     is_safe_archive_candidate,
     needs_deep_review,
     normalize_package_tags,
@@ -2087,7 +2088,9 @@ class MainWindow(QMainWindow):
         }
         rows = self.conn.execute(
             """SELECT v.video_id,v.title,v.views,v.audit_json,
-                      d.status AS draft_status
+                      d.status AS draft_status,
+                      d.generation AS draft_generation,
+                      d.quality_state AS draft_quality_state
                FROM videos v
                LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
                WHERE v.profile=? AND v.privacy_status='public'
@@ -2098,6 +2101,13 @@ class MainWindow(QMainWindow):
         candidates = []
         for row in rows:
             if str(row["draft_status"] or "") in {"ready", "applied"}:
+                continue
+            if (
+                str(row["draft_status"] or "") == "draft"
+                and str(row["draft_generation"] or "") == "safe-metadata-0.7.6"
+                and str(row["draft_quality_state"] or "") == "needs_review"
+            ):
+                # Do not re-fetch/rewrite a draft that needs a content review.
                 continue
             try:
                 issues = set(
@@ -2136,6 +2146,7 @@ class MainWindow(QMainWindow):
         progress.setMinimumDuration(0)
 
         prepared: list[str] = []
+        review: list[str] = []
         blocked: list[str] = []
         for index, video_id in enumerate(candidates, start=1):
             if progress.wasCanceled():
@@ -2162,15 +2173,13 @@ class MainWindow(QMainWindow):
                     if str(item).strip()
                 ]
 
-                safe_fix = safe_description_fix(description, title)
-                description = safe_fix.after.strip()
-                if len(description) < 250:
-                    description = (
-                        description.rstrip()
-                        + "\n\nРАША ГУДБАЙ - розмови у форматі чат-рулетки. "
-                        "У цьому відео обговорюємо тему, зазначену в назві, "
-                        "та фіксуємо реальні діалоги без вигадування контексту."
-                    ).strip()
+                fitted = fit_description_to_youtube_limit(
+                    description, title
+                )
+                description = fitted.description
+                needs_content_review = safe_description_needs_content_package(
+                    description, title
+                )
 
                 tags: list[str] = []
                 seen: set[str] = set()
@@ -2231,6 +2240,47 @@ class MainWindow(QMainWindow):
                     progress.setValue(index)
                     continue
 
+                if fitted.needs_review or needs_content_review:
+                    reason_parts = []
+                    if fitted.needs_review:
+                        reason_parts.append(fitted.reason)
+                    if needs_content_review:
+                        reason_parts.append(
+                            "Недостатньо змістовного тексту: "
+                            "потрібен аналіз транскрипту."
+                        )
+                    review_reason = " ".join(reason_parts)
+                    save_optimization_draft(
+                        self.conn,
+                        video_id,
+                        title,
+                        description,
+                        "",
+                        tags,
+                        status="draft",
+                        title_variants=[],
+                        generation="safe-metadata-0.7.6",
+                        quality_state="needs_review",
+                        quality_reason=review_reason,
+                        source_title=title,
+                        source_description=str(meta.get("description") or ""),
+                        source_tags=[
+                            str(item).strip()
+                            for item in (meta.get("tags") or [])
+                            if str(item).strip()
+                        ],
+                    )
+                    review.append(video_id)
+                    log_action(
+                        self.conn,
+                        profile=profile,
+                        category="0-quota",
+                        action="Потрібно перевірити",
+                        details=f"{video_id}: {review_reason}",
+                    )
+                    progress.setValue(index)
+                    continue
+
                 save_optimization_draft(
                     self.conn,
                     video_id,
@@ -2240,9 +2290,9 @@ class MainWindow(QMainWindow):
                     tags,
                     status="ready",
                     title_variants=[],
-                    generation="safe-metadata-0.6",
-                    quality_state="safe",
-                    quality_reason="Безпечні зміни опису/тегів",
+                    generation="safe-metadata-0.7.6",
+                    quality_state="safe_metadata",
+                    quality_reason="Лише технічні зміни опису/тегів, без аналізу транскрипту.",
                     source_title=title,
                     source_description=str(meta.get("description") or ""),
                     source_tags=[
@@ -2291,7 +2341,7 @@ class MainWindow(QMainWindow):
             category="0-quota",
             action="Підготовлено пакет",
             details=(
-                f"готово {len(prepared)}; чернеток/помилок {len(blocked)}; "
+                f"готово {len(prepared)}; на перевірку {len(review)}; помилок {len(blocked)}; "
                 "YouTube Data API: 0"
             ),
         )
@@ -2305,20 +2355,21 @@ class MainWindow(QMainWindow):
         self._set_process_idle("0-quota підготовка завершена")
         self._toast(
             f"✓ 0-quota: готово {len(prepared)} · "
-            f"чернеток/помилок {len(blocked)} · API 0",
+            f"на перевірку {len(review)} · помилок {len(blocked)} · API 0",
             7000,
         )
         QMessageBox.information(
             self,
             "0-quota підготовка завершена",
-            f"Перевірено відео: {len(prepared) + len(blocked)}.\n"
+            f"Перевірено відео: {len(prepared) + len(review) + len(blocked)}.\n"
             f"Готових пакетів: {len(prepared)}.\n"
-            f"Чернеток/помилок: {len(blocked)}.\n"
+            f"Потребують перевірки: {len(review)}.\\n"
+            f"Помилок: {len(blocked)}.\n"
             "YouTube Data API: 0.\n\n"
             + (
                 "Розділ «Готово до YouTube» відкрито автоматично."
                 if prepared
-                else "Деталі помилок дивіться у «Журналі»."
+                else "Чернетки для перевірки - у фільтрі «Потрібно перевірити»; помилки - у «Журналі»."
             ),
         )
 
