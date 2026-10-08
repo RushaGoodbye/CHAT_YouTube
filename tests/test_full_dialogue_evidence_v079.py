@@ -33,7 +33,9 @@ def _rows(count=120):
 
 def _fake_chat(messages, **kwargs):
     text = messages[-1]["content"].split("ФРАГМЕНТ ", 1)[-1].split(":\n", 1)[-1]
-    evidence = text[:100].strip()
+    # Do not cut the final word in half: source-quote checking correctly
+    # rejects a partial token at a supposed word boundary.
+    evidence = text[:120].rsplit(" ", 1)[0].strip()
     # Ensure grounded, not inferred names: every evidence string appears
     # literally in that exact source block.
     title = evidence.split(". ", 1)[0]
