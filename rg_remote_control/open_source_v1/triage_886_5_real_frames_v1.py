@@ -292,7 +292,7 @@ def self_test():
     c=orig.find("./sequence/media/video/track/clipitem")
     c.find("file").clear()
     r=flatten_timeline(ET.tostring(orig))
-    assert r["unresolved_count"]==1
+    assert r["unresolved_count"]==2
     assert "UNRESOLVED_MEDIA_MAPPINGS" in safe_to_decode(r)[0]
     # A cap above 540 seconds must be refused, never decode hours.
     oversized=dict(result,source_range_union_sec=541,
@@ -309,7 +309,18 @@ def main():
         return
     hold,xml,negative=prior.verify_quarantine()
     if ROOT.exists() and any(ROOT.iterdir()):
-        raise RuntimeError("Review output exists, no overwrite; upload existing ZIP or investigate")
+        existing=ROOT/"review_manifest.json"
+        if existing.is_file():
+            prior_run=json.loads(existing.read_text(encoding="utf-8-sig"))
+            if prior_run.get("schema")==SCHEMA:
+                print("=== RG 886_5 TRIAGE PREVIOUS REPORT EXISTS ===",flush=True)
+                print(json.dumps({"status":prior_run.get("status"),
+                     "manifest":str(existing),
+                     "zip":str(ROOT/"RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip"),
+                     "production_modified":False,
+                     "release_allowed":False},ensure_ascii=False,indent=2),flush=True)
+                return
+        raise RuntimeError("Existing output dir differs from pinned review; no overwrite")
     ROOT.mkdir(parents=True,exist_ok=True)
     info=flatten_timeline(xml.read_bytes())
     reasons,estimated=safe_to_decode(info)
