@@ -16752,6 +16752,45 @@ $r=Get-CimInstance Win32_Process | Where-Object {
     return result
 
 
+
+def inspect_auto_edit_launcher_reexec_v1() -> dict:
+    """Read-only inspection of rg_studio_main.py re-exec/spawn logic."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import ast,re
+    launcher=Path(r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_studio_main.py")
+    if not launcher.is_file():raise FileNotFoundError(launcher)
+    src=launcher.read_text(encoding="utf-8-sig",errors="replace")
+    rows=src.splitlines()
+    keys=("Popen(","subprocess.run","subprocess.call","os.exec","sys.executable","pythonw","python.exe",
+          "RG Auto Edit Runtime","pythoncore","multiprocessing","spawn","QProcess")
+    hits=[]
+    for i,line in enumerate(rows):
+        if any(k.lower() in line.lower() for k in keys):
+            a=max(0,i-5);b=min(len(rows),i+10)
+            hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))})
+    funcs={}
+    try:
+        tree=ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                a=max(0,node.lineno-1);b=min(len(rows),getattr(node,"end_lineno",node.lineno))
+                body="\n".join(rows[a:b])
+                if any(k.lower() in body.lower() for k in keys):
+                    funcs[node.name]="\n".join(f"{j+1}: {rows[j]}" for j in range(a,b))
+    except Exception as exc:
+        funcs={"parse_error":repr(exc)}
+    return {
+        "schema":"RG_STUDIO_LAUNCHER_REEXEC_INSPECT_V1",
+        "path":str(launcher),
+        "size":launcher.stat().st_size,
+        "guard_present":"RG_SINGLE_STUDIO_RUNTIME_GUARD_V1" in src,
+        "hits":hits[:40],
+        "functions":funcs,
+        "full_head":"\n".join(f"{i+1}: {rows[i]}" for i in range(min(len(rows),220))),
+    }
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16838,6 +16877,7 @@ ACTIONS = {
     "apply_auto_edit_telemetry_v1": apply_auto_edit_telemetry_v1,
     "restart_and_verify_auto_edit_telemetry_v1": restart_and_verify_auto_edit_telemetry_v1,
     "harden_auto_edit_single_studio_v1": harden_auto_edit_single_studio_v1,
+    "inspect_auto_edit_launcher_reexec_v1": inspect_auto_edit_launcher_reexec_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
