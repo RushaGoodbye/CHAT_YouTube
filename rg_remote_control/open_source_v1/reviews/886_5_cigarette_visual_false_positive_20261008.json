@@ -108,8 +108,8 @@
   },
   "next_stage": {
     "status": "PINNED_READ_ONLY_REAL_VIDEO_TRIAGE_PREPARED_NOT_EXECUTED_ON_ALEXPC",
-    "bootstrap_commit": "246bf09e2c2b60915ac9f6950f2a846f86affe4a",
-    "script_commit": "c9acad90580fc431d43a60b6a868d6bb5e6e4c37",
+    "bootstrap_commit": "e255e8361bfc982b67b4aedb07f9d2e1609ebdf8",
+    "script_commit": "ed2c125d0e611f2a7ea165e09ece007bf808d8f6",
     "expected_report": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\review_manifest.json",
     "expected_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip",
     "safety": [
@@ -117,7 +117,8 @@
       "No model inference or semantic decisions",
       "Source file-id links and 4-track overlap inspected before frame decode",
       "Refuse unbounded source windows or unverified seed time",
-      "Four-second sample only; never claim full dialogue cigarette coverage"
+      "Four-second sample only; never claim full dialogue cigarette coverage",
+      "Reject ambiguous same-named 886.mp4 files from distinct source paths"
     ],
     "release_allowed": false
   },
