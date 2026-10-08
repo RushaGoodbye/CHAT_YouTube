@@ -30,16 +30,22 @@ def test_package_validation_requires_exactly_three_hashtags():
     )
     tags = [f"tag{i}" for i in range(8)]
 
-    bad = validate_content_package(
+    normalized = validate_content_package(
         "Тестова назва",
         base + "\n\n#one #two",
         "",
         tags,
         [],
     )
-    assert "В описі бажано мати рівно 3 релевантні хештеги." in bad.warnings
+    assert "В описі бажано мати рівно 3 релевантні хештеги." not in normalized.warnings
 
     fixed = safe_description_fix(base, "Путин и война")
+    hashtags = [
+        token for token in fixed.after.split()
+        if token.startswith("#")
+    ]
+    assert len(hashtags) == 3
+
     good = validate_content_package(
         "Тестова назва",
         fixed.after,
