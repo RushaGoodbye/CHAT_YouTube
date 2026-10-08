@@ -581,15 +581,17 @@ class ContentOptimizationDialog(QDialog):
             for item in self.title_variants_edit.toPlainText().splitlines()
             if item.strip()
         ][:3]
+        normalized_title = _standard_hyphen(self.title_edit.text().strip())
+        normalized_description = _strip_timestamp_lines(
+            _standard_hyphen(self.description_edit.toPlainText().strip())
+        )
+        normalized_description = safe_description_fix(
+            normalized_description,
+            normalized_title,
+        ).after
         return (
-            _standard_hyphen(self.title_edit.text().strip()),
-            (
-                _strip_timestamp_lines(
-                    _standard_hyphen(self.description_edit.toPlainText().strip())
-                )
-                if self.scheduled_publish_at
-                else _standard_hyphen(self.description_edit.toPlainText().strip())
-            ),
+            normalized_title,
+            normalized_description,
             (
                 ""
                 if self.scheduled_publish_at
