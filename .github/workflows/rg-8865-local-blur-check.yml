@@ -1,0 +1,44 @@
+name: RG Auto Edit 8865 Local Blur Safety
+on:
+  push:
+    paths:
+      - 'rg_remote_control/repair_auto_edit_886_5_local_cigarette_v1.py'
+      - '.github/workflows/rg-8865-local-blur-check.yml'
+  workflow_dispatch:
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax and safety gates
+        shell: bash
+        run: |
+          python -m py_compile rg_remote_control/repair_auto_edit_886_5_local_cigarette_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          p=Path("rg_remote_control/repair_auto_edit_886_5_local_cigarette_v1.py")
+          s=p.read_text(encoding="utf-8")
+          tree=ast.parse(s)
+          gates={
+            "NO_PRODUCTION_EXEC": "rg_multi_dialogue.py" not in s and "scan_cigarettes(" not in s,
+            "INPUT_FAIL_CLOSED": '("mandatory","fail_closed","whole_frame_blur_forbidden")' in s,
+            "SHORT_STABLE_ONLY": '"SHORT_STABLE"' in s,
+            "BACKUP_BOTH": 'originals=[XML,DET]' in s,
+            "STAGING": "tempfile.TemporaryDirectory" in s,
+            "LOCK": 'acquire_stream_lock("886"' in s and 'release_stream_lock("886"' in s,
+            "QA": "lib.verify_cigarette_blur" in s,
+            "AUDIO_UNCHANGED": "Audio track modified - refused" in s,
+            "VIDEO_UNCHANGED": "Original video clips or effects changed - refused" in s,
+            "ROLLBACK": "original artifacts restored" in s,
+            "REPORT": "whole_stream_postrun_qa" in s,
+          }
+          for name,ok in gates.items():
+            print(f"{name}: {'PASS' if ok else 'FAIL'}")
+          assert all(gates.values()),gates
+          print("RG_8865_LOCAL_BLUR_SCRIPT_CHECK=PASS")
+          PY
