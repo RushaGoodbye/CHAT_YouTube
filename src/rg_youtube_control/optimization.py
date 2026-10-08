@@ -662,6 +662,11 @@ def youtube_title_errors(title: str) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def _tag_similarity_key(value: str) -> str:
+    """Normalize punctuation/casing for conservative tag deduplication."""
+    return re.sub(r"[^\w]+", " ", value.casefold(), flags=re.UNICODE).strip()
+
+
 def normalize_package_tags(
     tags: list[str] | tuple[str, ...] | None,
     *,
@@ -680,18 +685,17 @@ def normalize_package_tags(
         # retaining meaningful phrases such as "Россия" and "россияне".
         # Only compare tags with the same word count; near-matches cannot
         # erase longer, more specific search phrases.
-        similarity_key = re.sub(
-            r"[^\\w]+", " ", key, flags=re.UNICODE
-        ).strip()
+        similarity_key = _tag_similarity_key(value)
         if key in seen or any(
-            similarity_key == re.sub(
-                r"[^\\w]+", " ", kept.casefold(), flags=re.UNICODE
-            ).strip()
-            or (
-                similarity_key
-                and len(similarity_key.split()) == len(kept.split())
-                and abs(len(similarity_key) - len(kept)) <= 2
-                and fuzz.ratio(similarity_key, kept.casefold()) >= 97
+            similarity_key
+            and (
+                similarity_key == _tag_similarity_key(kept)
+                or (
+                    len(similarity_key.split())
+                    == len(_tag_similarity_key(kept).split())
+                    and abs(len(similarity_key) - len(_tag_similarity_key(kept))) <= 2
+                    and fuzz.ratio(similarity_key, _tag_similarity_key(kept)) >= 97
+                )
             )
             for kept in result
         ):
