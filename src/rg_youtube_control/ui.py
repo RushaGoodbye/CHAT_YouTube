@@ -12464,6 +12464,8 @@ class MainWindow(QMainWindow):
                 "Архівний локальний SEO для нього заблоковано."
             )
 
+        if on_progress is not None:
+            on_progress("Отримання метаданих відео · API 0")
         try:
             context = fetch_public_metadata(video_id)
         except Exception as exc:
@@ -12502,6 +12504,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 context["google_trends"] = []
 
+        if on_progress is not None:
+            on_progress("Отримання повного транскрипту · NAS / YouTube · API 0")
         transcript_rows = []
         transcript_source = ""
         transcript_dir = Path(
@@ -12578,6 +12582,27 @@ class MainWindow(QMainWindow):
                     "SEO-пакет не створено, оригінальні дані збережено."
                 )
             transcript = evidence_outline_text(evidence_report)
+            # Persist the complete topic/evidence map independently of the
+            # published description, so no overlooked dialogue disappears.
+            report_dir = self.data_dir / "seo_evidence"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", video_id)
+            report_path = report_dir / f"{safe_id}.json"
+            report_tmp = report_path.with_suffix(".tmp")
+            report_tmp.write_text(
+                json.dumps(
+                    {
+                        "video_id": video_id,
+                        "transcript_source": transcript_source,
+                        **evidence_report,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            report_tmp.replace(report_path)
+            context["evidence_report_path"] = str(report_path)
             if on_progress is not None:
                 on_progress(
                     f"Карта тем готова: "
@@ -12588,6 +12613,8 @@ class MainWindow(QMainWindow):
         context_for_model = dict(context)
         context_for_model.pop("_caption_tracks", None)
         context_for_model["description"] = cleaned_description
+        if on_progress is not None:
+            on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
         package = generate_seo_package_local(
             current_title=current_title,
             current_description=cleaned_description,
