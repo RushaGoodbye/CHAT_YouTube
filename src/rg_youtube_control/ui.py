@@ -111,6 +111,7 @@ from .metadata_audit import (
     title_script_profile,
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
+from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
     fetch_public_metadata,
@@ -120,6 +121,7 @@ from .free_tools import (
     generate_comment_reply_candidate_local,
     generate_comment_reply_local,
     generate_seo_package_local,
+    ollama_chat,
     load_google_trends_csv,
     load_google_trends_summary,
     probe_free_tools,
@@ -9693,6 +9695,7 @@ class MainWindow(QMainWindow):
         new_title: str,
         new_description: str,
         new_tags: list[str],
+        evidence_report: dict | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -9706,6 +9709,34 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setProperty("muted", True)
         layout.addWidget(note)
+        if evidence_report:
+            total = int(evidence_report.get("blocks_total") or 0)
+            verified = int(evidence_report.get("blocks_with_evidence") or 0)
+            evidence_label = QLabel(
+                f"Переглянуто ВСІ часові фрагменти: {total}; "
+                f"з доказовими цитатами: {verified}/{total}. "
+                "Межі діалогів не визначаються без розмітки. "
+                "Перевірте повноту тем до підтвердження."
+            )
+            evidence_label.setWordWrap(True)
+            layout.addWidget(evidence_label)
+            evidence_details = QPlainTextEdit()
+            evidence_details.setReadOnly(True)
+            evidence_details.setMaximumHeight(126)
+            evidence_details.setPlainText(
+                "\n".join(
+                    f"{part.get('start_stamp', '')} | "
+                    + (
+                        "; ".join(
+                            str(item.get("topic") or "")
+                            for item in part.get("topics") or []
+                        )
+                        if part.get("topics") else "НЕПЕРЕВІРЕНО"
+                    )
+                    for part in evidence_report.get("blocks") or []
+                )
+            )
+            layout.addWidget(evidence_details)
 
         change_map = QFrame()
         change_map.setObjectName("QueueCard")
@@ -12399,6 +12430,7 @@ class MainWindow(QMainWindow):
         video_id: str,
         *,
         fast_mode: bool = False,
+        on_progress=None,
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
@@ -12432,6 +12464,8 @@ class MainWindow(QMainWindow):
                 "Архівний локальний SEO для нього заблоковано."
             )
 
+        if on_progress is not None:
+            on_progress("Отримання метаданих відео · API 0")
         try:
             context = fetch_public_metadata(video_id)
         except Exception as exc:
@@ -12470,6 +12504,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 context["google_trends"] = []
 
+        if on_progress is not None:
+            on_progress("Отримання повного транскрипту · NAS / YouTube · API 0")
         transcript_rows = []
         transcript_source = ""
         transcript_dir = Path(
@@ -12527,9 +12563,58 @@ class MainWindow(QMainWindow):
                 "а транскрипт недоступний. SEO-пакет не створено."
             )
 
+        # Complete timeline analysis runs only in manual single-video mode.
+        # Batch remains lightweight and review-only until the full workflow
+        # has been independently validated on archive videos.
+        evidence_report = None
+        if transcript_rows and not fast_mode:
+            evidence_report = analyze_all_timeline_blocks(
+                transcript_rows,
+                model=DEFAULT_OLLAMA_MODEL,
+                chat=ollama_chat,
+                cache_dir=self.data_dir / "seo_evidence_cache",
+                progress=on_progress,
+                timeout=180.0,
+            )
+            if evidence_report["blocks_with_evidence"] == 0:
+                raise RuntimeError(
+                    "Модель не підтвердила жодної теми цитатами з транскрипту. "
+                    "SEO-пакет не створено, оригінальні дані збережено."
+                )
+            transcript = evidence_outline_text(evidence_report)
+            # Persist the complete topic/evidence map independently of the
+            # published description, so no overlooked dialogue disappears.
+            report_dir = self.data_dir / "seo_evidence"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", video_id)
+            report_path = report_dir / f"{safe_id}.json"
+            report_tmp = report_path.with_suffix(".tmp")
+            report_tmp.write_text(
+                json.dumps(
+                    {
+                        "video_id": video_id,
+                        "transcript_source": transcript_source,
+                        **evidence_report,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            report_tmp.replace(report_path)
+            context["evidence_report_path"] = str(report_path)
+            if on_progress is not None:
+                on_progress(
+                    f"Карта тем готова: "
+                    f"{evidence_report['blocks_with_evidence']}/"
+                    f"{evidence_report['blocks_total']} фрагментів"
+                )
+
         context_for_model = dict(context)
         context_for_model.pop("_caption_tracks", None)
         context_for_model["description"] = cleaned_description
+        if on_progress is not None:
+            on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
         package = generate_seo_package_local(
             current_title=current_title,
             current_description=cleaned_description,
@@ -12539,12 +12624,14 @@ class MainWindow(QMainWindow):
             is_short=int(context.get("duration") or 0) <= 70,
             fast_mode=fast_mode,
             timeout=55.0 if fast_mode else 300.0,
+            evidence_report=evidence_report,
         )
         return {
             "video_id": video_id,
             "context": context,
             "transcript_rows": transcript_rows,
             "package": package,
+            "evidence_report": evidence_report,
         }
 
     def _normalize_local_seo_package(
@@ -12899,7 +12986,13 @@ class MainWindow(QMainWindow):
         video_id = video_ids[0]
 
         def task():
-            return self._generate_local_seo_result(video_id)
+            worker = getattr(self, "_local_tool_worker", None)
+            def progress(message: str) -> None:
+                if worker is not None:
+                    worker.progress.emit(message)
+            return self._generate_local_seo_result(
+                video_id, on_progress=progress,
+            )
 
         self._run_local_tool(
             "Локальна SEO-оптимізація (0 квоти)",
@@ -12926,6 +13019,7 @@ class MainWindow(QMainWindow):
         before_title = str(context.get("title") or "")
         before_description = str(context.get("description") or "")
         before_tags = list(context.get("tags") or [])
+        evidence_report = result.get("evidence_report")
         if not self._preview_deep_content_package(
             video_id=video_id,
             current_title=before_title,
@@ -12936,6 +13030,7 @@ class MainWindow(QMainWindow):
                 safe_description_fix(description, title).after
             ),
             new_tags=tags,
+            evidence_report=evidence_report,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
@@ -12971,7 +13066,7 @@ class MainWindow(QMainWindow):
             tags,
             "draft" if requires_review else "ready",
             variants,
-            generation="local-seo-0.7.8",
+            generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
             quality_reason=draft_reason,
             source_title=before_title,

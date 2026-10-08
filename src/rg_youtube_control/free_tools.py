@@ -560,6 +560,7 @@ def ollama_chat(
     timeout: float = 300.0,
     temperature: float = 0.2,
     json_mode: bool = False,
+    num_ctx: int | None = None,
 ) -> str:
     request_payload = {
         "model": model,
@@ -568,6 +569,8 @@ def ollama_chat(
         "think": False,
         "options": {"temperature": temperature},
     }
+    if num_ctx is not None:
+        request_payload["options"]["num_ctx"] = int(num_ctx)
     if json_mode:
         request_payload["format"] = "json"
     body = json.dumps(
@@ -777,12 +780,14 @@ def _polish_generated_description(value: str) -> str:
     return " ".join(result).strip()
 
 
-def _description_quality_error(description: str, transcript: str = "") -> str:
+def _description_quality_error(
+    description: str, transcript: str = "", *, max_chars: int = 1000
+) -> str:
     """Return a machine-readable reason when a generated SEO description is unsafe."""
     value = " ".join(str(description or "").split()).strip()
     if len(value) < 260:
         return "too_short"
-    if len(value) > 1000:
+    if len(value) > max_chars:
         return "too_long"
 
     meta_phrases = (
@@ -940,7 +945,7 @@ def _repair_description_to_ukrainian(
 {draft}
 
 ТРАНСКРИПТ:
-{transcript[:12000]}
+{transcript[:35000]}
 """.strip()
 
     raw = ollama_chat(
@@ -1122,6 +1127,9 @@ def _recover_title_variants(
     """Focused recovery of exactly three distinct Russian title variants."""
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
+A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
+C: найважливіша інша тема з фінальних фрагментів відео.
+Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
 Поверни JSON:
@@ -1131,7 +1139,7 @@ def _recover_title_variants(
 {current_title}
 
 ТРАНСКРИПТ:
-{transcript[:8000]}
+{transcript[:35000]}
 """.strip()
     raw = ollama_chat(
         [
@@ -1641,6 +1649,9 @@ def _recover_chapters_from_transcript(
     return last if not _chapters_quality_error(last, transcript) else ""
 
 
+from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -1652,8 +1663,18 @@ def generate_seo_package_local(
     model: str = DEFAULT_OLLAMA_MODEL,
     fast_mode: bool = False,
     timeout: float = 300.0,
+    evidence_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = public_context or {}
+    verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    evidence_instruction = (
+        "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
+        "Три різні A/B назви: A - головний конфлікт, B - несподівана теза, "
+        "C - інший ракурс; без вигаданих цитат. "
+        "Це хронологічні фрагменти, а не підтверджені межі діалогів. "
+        "Опис має висвітлити теми з усіх частин."
+        if evidence_report else ""
+    )
     prompt = f"""
 Ти редактор YouTube-проєкту «РАША ГУДБАЙ». Підготуй SEO-пакет без вигадування фактів.
 Використовуй ТІЛЬКИ наведений контекст. Якщо факту немає в контексті - не додавай його.
@@ -1662,7 +1683,7 @@ def generate_seo_package_local(
 - основна назва та РІВНО 3 різні A/B варіанти назви: російською;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
-- опис: українською, 400-850 символів змістовного тексту до службових посилань;
+- опис: українською, 400-2400 символів змістовного тексту до службових посилань;
 - не копіюй російську назву відео як перше речення опису; перефразуй тему природною українською;
 - головне джерело змісту - ТРАНСКРИПТ; назва лише задає тему, старий опис не є джерелом фактів;
 - перші 1-2 речення мають назвати конкретну тему, людину/подію/питання з відео, якщо це прямо є в транскрипті;
@@ -1688,20 +1709,25 @@ def generate_seo_package_local(
 - chapters = "" якщо точні таймкоди неможливо підтвердити транскриптом.
 
 SHORTS: {is_short}
+ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
+{evidence_instruction}
+КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
+{verified_evidence}
+
 ПОТОЧНА НАЗВА:
 {current_title}
 
 ПОТОЧНИЙ ОПИС:
-{current_description[:6000]}
+{current_description[:1200] if evidence_report else current_description[:6000]}
 
 ПОТОЧНІ ТЕГИ:
 {json.dumps(current_tags or [], ensure_ascii=False)}
 
 ПУБЛІЧНИЙ КОНТЕКСТ yt-dlp:
-{json.dumps(context, ensure_ascii=False)[:6000]}
+{json.dumps(context, ensure_ascii=False)[:1800] if evidence_report else json.dumps(context, ensure_ascii=False)[:6000]}
 
 ТРАНСКРИПТ:
-{transcript[:12000]}
+{('Див. підтверджену карту тем вище.' if evidence_report else transcript[:12000])}
 """.strip()
 
     payload: dict[str, Any] = {}
@@ -1725,7 +1751,7 @@ SHORTS: {is_short}
 Поверни ТІЛЬКИ валідний JSON з ключами title, title_variants, description, tags, chapters.
 title: російською, до 100 символів, конкретний і підтверджений транскриптом.
 title_variants: РІВНО 3 різні варіанти, кожен до 100 символів.
-description: українською, 400-850 символів, конкретно за змістом транскрипту, без шаблонних фраз і без ENGLISH SUMMARY.
+description: українською, 400-2400 символів, конкретно за всіма підтвердженими темами, без шаблонних фраз і ENGLISH SUMMARY.
 tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
 chapters: рядок з підтвердженими таймкодами та українськими назвами або порожній рядок.
 Не вигадуй фактів. Не роби тверджень про економіку, зарплати, соцгарантії чи інші результати, якщо цього немає в транскрипті.
@@ -1733,8 +1759,11 @@ chapters: рядок з підтвердженими таймкодами та �
 ПОТОЧНА НАЗВА:
 {current_title}
 
+КАРТА ПІДТВЕРДЖЕНИХ ТЕМ ВСЬОГО ВІДЕО:
+{verified_evidence}
+
 ТРАНСКРИПТ:
-{transcript[:8000]}
+{('Використай карту тем вище.' if evidence_report else transcript[:8000])}
 """.strip()
             raw = ollama_chat(
                 [
@@ -1745,6 +1774,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 timeout=timeout,
                 temperature=0.05 if attempt else 0.15,
                 json_mode=True,
+                **({"num_ctx": 16384} if evidence_report else {}),
             )
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             proposed_title = candidate.get("title")
@@ -1815,6 +1845,23 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
+            if evidence_report and not fast_mode:
+                issues = ab_title_issues(
+                    candidate["title_variants"], evidence_report,
+                )
+                if issues:
+                    # One focused recovery using the full grounded outline.
+                    # Keep the original candidates if the retry is worse.
+                    try:
+                        recovered = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=transcript,
+                            model=model,
+                        )
+                        if len(ab_title_issues(recovered, evidence_report)) < len(issues):
+                            candidate["title_variants"] = recovered[:3]
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
@@ -1822,6 +1869,7 @@ chapters: рядок з підтвердженими таймкодами та �
             description_error = _description_quality_error(
                 description_candidate,
                 transcript,
+                **({"max_chars": 3000} if evidence_report else {}),
             )
             if transcript.strip():
                 if fast_mode:
@@ -1835,6 +1883,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
                 elif description_error:
                     # Only pay for a repair pass when the candidate actually
@@ -1852,6 +1901,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
                     if description_error:
                         fallback_description = _grounded_description_from_transcript(
@@ -1863,6 +1913,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
+                            **({"max_chars": 3000} if evidence_report else {}),
                         )
             if transcript.strip() and description_error:
                 raise ValueError(
@@ -1941,6 +1992,12 @@ chapters: рядок з підтвердженими таймкодами та �
     description = _polish_generated_description(
         str(payload.get("description") or "").strip()
     )
+    omitted_topics: list[str] = []
+    if evidence_report:
+        description, omitted_topics = preserve_outline_topics(
+            description, evidence_report,
+        )
+    title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])
@@ -2003,12 +2060,23 @@ chapters: рядок з підтвердженими таймкодами та �
             title_fallback_used
             or len(variants) < 3
             or not transcript.strip()
+            or bool(evidence_report)
+            or bool(omitted_topics)
+            or bool(title_issues)
         ),
+        "timeline_blocks": (
+            int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
+        ),
+        "timeline_omitted_topics": omitted_topics,
+        "ab_quality_issues": title_issues,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
                 (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
+                (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
+                (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
+                (bool(title_issues), "; ".join(title_issues)),
             )
             if condition
         ),
