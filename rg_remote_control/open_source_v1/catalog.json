@@ -308,7 +308,7 @@
       "license": "BSD-3-Clause",
       "package": "psutil",
       "priority": 1,
-      "status": "HEALTH_SHADOW_CANDIDATE",
+      "status": "SHADOW_ADAPTER_COMMITTED",
       "role": "Read-only Windows process, memory and disk IO snapshots to diagnose window freezes/D disk saturation",
       "risks": [
         "CPU sampling overhead if polled aggressively"
