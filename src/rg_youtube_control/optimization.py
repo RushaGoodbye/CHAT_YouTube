@@ -716,7 +716,10 @@ def validate_content_package(
     warnings: list[str] = []
 
     clean_title = (title or "").strip()
-    clean_description = (description or "").strip()
+    clean_description = safe_description_fix(
+        (description or "").strip(),
+        clean_title,
+    ).after
     clean_tags = normalize_package_tags(tags)
     clean_variants = [
         str(item).strip()
