@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from rg_youtube_control.public_comments import fetch_public_comment_sample
+from rg_youtube_control.public_comments import (
+    csv_safe_public_comment_cell,
+    fetch_public_comment_sample,
+)
 
 
 def test_public_comment_research_is_read_only_and_has_no_api_usage(monkeypatch):
@@ -52,3 +55,18 @@ def test_public_comments_ui_exports_csv_only():
     assert "reply_selected" not in block
     assert "set_comment_status" not in block
     assert "like_comment" not in block
+
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["=1+1", "+SUM(A1:A4)", "@XLOOKUP(A1,B1,C1)", "-2+3", " \t=HYPERLINK(\"https://bad.example\")"],
+)
+def test_public_comments_csv_formula_injection_is_escaped(text):
+    value = csv_safe_public_comment_cell(text)
+    assert value.startswith("'")
+    assert value.endswith(text)
+
+
+def test_public_comments_csv_safe_plain_text():
+    assert csv_safe_public_comment_cell("Спасибо за видео") == "Спасибо за видео"
