@@ -48,6 +48,19 @@ def _backup_database(conn: sqlite3.Connection, target: Path) -> None:
         destination.close()
 
 
+def _source_contains_backup_root(source: Path, backup_root: Path) -> bool:
+    """Never copy a directory that contains our backup destination.
+
+    In-app updates put backups under data_dir/update-backups. Copying that
+    directory back into its own snapshot caused unbounded copytree recursion.
+    """
+    try:
+        backup_root.resolve().relative_to(source.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def create_recovery_backup(
     *,
     conn: sqlite3.Connection,
@@ -76,7 +89,12 @@ def create_recovery_backup(
             "rg_youtube_control.db-wal",
             "rg_youtube_control.db-shm",
             "updates",
+            "update-backups",
         }:
+            continue
+        # Exclude all backup destinations, even when nested under another
+        # data directory name. Never follow symlinks into cyclic structures.
+        if source.is_symlink() or _source_contains_backup_root(source, backup_root):
             continue
         destination = folder / "app_data" / source.name
         if source.is_dir():
@@ -155,9 +173,18 @@ def create_recovery_backup(
     archive = folder / "recovery.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in folder.rglob("*"):
-            if path == archive or not path.is_file():
+            if path == archive or not path.is_file() or path.is_symlink():
                 continue
             zf.write(path, path.relative_to(folder))
+
+    # A backup is successful only when the archive is readable and contains
+    # its database and manifest. An incomplete backup must never be accepted.
+    with zipfile.ZipFile(archive, "r") as zf:
+        if zf.testzip() is not None:
+            raise RuntimeError("Файл резервної копії пошкоджений.")
+        required = {"rg_youtube_control.db", "recovery_manifest.json"}
+        if not required.issubset(zf.namelist()):
+            raise RuntimeError("У резервній копії немає бази або маніфесту.")
 
     return archive
 
