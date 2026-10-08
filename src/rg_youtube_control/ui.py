@@ -2363,7 +2363,7 @@ class MainWindow(QMainWindow):
             "0-quota підготовка завершена",
             f"Перевірено відео: {len(prepared) + len(review) + len(blocked)}.\n"
             f"Готових пакетів: {len(prepared)}.\n"
-            f"Потребують перевірки: {len(review)}.\\n"
+            f"Потребують перевірки: {len(review)}.\n"
             f"Помилок: {len(blocked)}.\n"
             "YouTube Data API: 0.\n\n"
             + (
