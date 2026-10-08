@@ -80,7 +80,7 @@ def normalize_pathurl(raw):
 
 def get_video_segments(xml_path):
     try:
-        root=ET.parse(xml_path).getroot()
+        root=xml_path if isinstance(xml_path,ET.Element) else ET.parse(xml_path).getroot()
     except ET.ParseError as err:
         raise RuntimeError("Clean withheld Premiere XML parse failed: "+str(err)) from err
     if root.tag!="xmeml":
@@ -200,19 +200,53 @@ def config_engine_info():
         # DO NOT import modules, instantiate YOLO, or execute detection.
         import ast
         text=ENGINE.read_text(encoding="utf-8-sig",errors="replace")
-        tree=ast.parse(text,filename=str(ENGINE))
-        names=[]
-        for node in tree.body:
-            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
-                names.append(node.name)
-        out["engine_public_function_names"]=names[:80]
+        try:
+            tree=ast.parse(text,filename=str(ENGINE))
+        except SyntaxError:
+            out["engine_static_parse"]="INCONCLUSIVE"
+            out["engine_public_function_names"]=[]
+        else:
+            out["engine_static_parse"]="PASS"
+            names=[]
+            for node in tree.body:
+                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                    names.append(node.name)
+            out["engine_public_function_names"]=names[:80]
         out["engine_sha256"]=digest(ENGINE)
     return out
 
+def self_test():
+    root=ET.fromstring("""<xmeml><sequence>
+      <name>886_5</name><duration>180</duration>
+      <rate><timebase>30</timebase><ntsc>FALSE</ntsc></rate>
+      <media><video><track><clipitem id="base-video">
+      <name>886.mp4</name><start>0</start><end>180</end>
+      <in>285000</in><out>285180</out>
+      <file><pathurl>file:///F:/record/886.mp4</pathurl></file>
+      </clipitem></track></video></media>
+      </sequence></xmeml>""")
+    one=get_video_segments(root)
+    assert one["duration_seconds"]==6.0
+    assert one["video_track_count"]==1 and one["mapped_clip_count"]==1
+    seg=one["segments"][0]
+    assert seg["timeline_interval_seconds"]==[0.0,6.0]
+    assert seg["source_interval_seconds"]==[9500.0,9506.0]
+    assert seg["source_media_reference"].endswith("/886.mp4")
+    other=ET.fromstring(ET.tostring(root))
+    other.find("./sequence/media/video/track/clipitem/in").text="-1"
+    two=get_video_segments(other)
+    assert two["mapped_clip_count"]==0
+    assert two["source_ranges_ready"] is False
+    print("RG_886_5_SEMANTIC_PREFLIGHT_XML_MAPPING_SELFTEST: PASS",flush=True)
+
 def main(argv=None):
     parser=argparse.ArgumentParser()
+    parser.add_argument("--self-test",action="store_true")
     parser.add_argument("--output",type=Path,default=OUT)
     args=parser.parse_args(argv)
+    if args.self_test:
+        self_test()
+        return
     out=args.output.resolve()
     allowed=(DATA/"oss_shadow").resolve()
     if allowed not in out.parents or out.suffix.lower()!=".json":
