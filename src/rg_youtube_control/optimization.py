@@ -640,6 +640,7 @@ def extract_chapters_from_description(
         if line.strip() not in chapter_set
     ]
     body = "\n".join(body_lines).strip()
+    original_body_without_hashtags = body
     body = re.sub(r"\n{3,}", "\n\n", body)
     return body, chapters
 
@@ -780,7 +781,7 @@ def fit_description_to_youtube_limit(
     result_bytes = len(fitted.encode("utf-8"))
     if result_bytes > max_bytes:
         raise ValueError("Не вдалося вкласти опис у ліміт 5000 байт.")
-    if body and not cleaned.startswith(body.rstrip("…")):
+    if body and not original_body_without_hashtags.startswith(body.rstrip("…")):
         raise ValueError("Не вдалося безпечно зберегти початок опису.")
     return FittedDescription(
         description=fitted,
