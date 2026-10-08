@@ -1124,6 +1124,9 @@ def _recover_title_variants(
     """Focused recovery of exactly three distinct Russian title variants."""
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
+A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
+C: найважливіша інша тема з фінальних фрагментів відео.
+Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
 Поверни JSON:
@@ -1643,7 +1646,7 @@ def _recover_chapters_from_transcript(
     return last if not _chapters_quality_error(last, transcript) else ""
 
 
-from .dialogue_seo import evidence_outline_text, preserve_outline_topics
+from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
 
 
 def generate_seo_package_local(
@@ -1835,6 +1838,23 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
+            if evidence_report and not fast_mode:
+                issues = ab_title_issues(
+                    candidate["title_variants"], evidence_report,
+                )
+                if issues:
+                    # One focused recovery using the full grounded outline.
+                    # Keep the original candidates if the retry is worse.
+                    try:
+                        recovered = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=transcript,
+                            model=model,
+                        )
+                        if len(ab_title_issues(recovered, evidence_report)) < len(issues):
+                            candidate["title_variants"] = recovered[:3]
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
@@ -1970,6 +1990,7 @@ chapters: рядок з підтвердженими таймкодами та �
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
         )
+    title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])
@@ -2034,11 +2055,13 @@ chapters: рядок з підтвердженими таймкодами та �
             or not transcript.strip()
             or bool(evidence_report)
             or bool(omitted_topics)
+            or bool(title_issues)
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
+        "ab_quality_issues": title_issues,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
@@ -2046,6 +2069,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
+                (bool(title_issues), "; ".join(title_issues)),
             )
             if condition
         ),
