@@ -729,8 +729,8 @@ def fit_description_to_youtube_limit(
     # silently mark such an edit as safe for unattended publication.
     cleaned = sanitize_imported_package_description(fixed, title).after
     removed_english = cleaned != fixed
-    cleaned = re.sub(r"[ \\t]+\\n", "\\n", cleaned)
-    cleaned = re.sub(r"\\n{3,}", "\\n\\n", cleaned).strip()
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     cleaned_bytes = len(cleaned.encode("utf-8"))
     if cleaned_bytes <= max_bytes:
         return FittedDescription(
@@ -754,16 +754,16 @@ def fit_description_to_youtube_limit(
         line for line in body.splitlines()
         if not HASHTAG_ONLY_LINE_RE.fullmatch(line)
     ]
-    body = "\\n".join(body_lines).strip()
+    body = "\n".join(body_lines).strip()
     service = (
-        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\\n"
-        f"{PROJECT_LINKS_URL}\\n\\n"
-        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\\n"
+        "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
+        f"{PROJECT_LINKS_URL}\n\n"
+        "УСІ ВАРІАНТИ ВІДПРАВИТИ ДОНЕЙТ:\n"
         f"{DONATE_URL}"
     )
     hashtags = " ".join(optimized_hashtags(title, body))
-    footer = f"{service}\\n\\n{hashtags}"
-    separator = "\\n\\n"
+    footer = f"{service}\n\n{hashtags}"
+    separator = "\n\n"
     available = max_bytes - len((separator + footer).encode("utf-8")) - 3
     if available < 160:
         raise ValueError("Немає місця для змістовного опису.")
@@ -771,7 +771,7 @@ def fit_description_to_youtube_limit(
     if len(body.encode("utf-8")) > available:
         preview = body.encode("utf-8")[:available].decode("utf-8", errors="ignore")
         # Avoid a broken word when a nearby word boundary exists.
-        break_at = max(preview.rfind(" "), preview.rfind("\\n"))
+        break_at = max(preview.rfind(" "), preview.rfind("\n"))
         if break_at >= max(0, len(preview) - 80):
             preview = preview[:break_at]
         body = preview.rstrip(" ,;:-") + "…"
