@@ -185,6 +185,7 @@ from .updater import (
     UpdateInfo,
     check_for_update,
     download_update,
+    prepare_update_from_zip,
     prune_cached_updates,
 )
 from .vidiq_budget import (
@@ -5849,6 +5850,9 @@ class MainWindow(QMainWindow):
         self.version_label = QLabel(f"Версія: {__version__}")
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
+        zip_update_btn = QPushButton("Оновити з ZIP")
+        zip_update_btn.setProperty("role", "success")
+        zip_update_btn.clicked.connect(self.install_update_from_zip)
         backup_btn = QPushButton("Зберегти робочу версію на NAS")
         backup_btn.clicked.connect(self.create_recovery_backup_now)
         restore_btn = QPushButton("Відновити робочу версію")
@@ -6109,6 +6113,7 @@ class MainWindow(QMainWindow):
         self.version_label.setObjectName("SettingsVersion")
         version_row.addWidget(self.version_label)
         version_row.addStretch()
+        version_row.addWidget(zip_update_btn)
         version_row.addWidget(update_btn)
         update_card.addLayout(version_row)
 
@@ -13928,6 +13933,87 @@ class MainWindow(QMainWindow):
             return
         self._update_prompted_version_session = str(info.version).strip()
         self._offer_update(info, manual=False)
+
+    def install_update_from_zip(self) -> None:
+        if not bool(getattr(sys, "frozen", False)):
+            QMessageBox.warning(
+                self,
+                "Оновлення недоступне для Python-запуску",
+                "Оновлення з ZIP працює лише у встановленій Windows-версії.",
+            )
+            return
+
+        downloads = Path.home() / "Downloads"
+        start_dir = downloads if downloads.is_dir() else Path.home()
+        archive_name, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Виберіть ZIP-пакет RG YouTube Control",
+            str(start_dir),
+            "RG YouTube Control update (*.zip);;ZIP (*.zip)",
+        )
+        if not archive_name:
+            return
+
+        self.statusBar().showMessage("Перевіряю ZIP-пакет оновлення...")
+        QApplication.processEvents()
+        try:
+            info, installer = prepare_update_from_zip(Path(archive_name))
+        except Exception as exc:
+            self._error("Некоректний ZIP-пакет оновлення", exc)
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Оновлення з ZIP",
+            f"Перевірка пакета пройдена.\n\n"
+            f"Встановлена версія: {__version__}\n"
+            f"Нова версія: {info.version}\n\n"
+            "SHA-256 збігається. Запустити оновлення зараз?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            backup_root = (
+                Path(os.getenv("LOCALAPPDATA", str(self.data_dir)))
+                / "RGYouTubeControl"
+                / "update-backups"
+            )
+            create_recovery_backup(
+                conn=self.conn,
+                data_dir=self.data_dir,
+                backup_root=backup_root,
+                version=__version__,
+                include_installer=False,
+                label="PRE_UPDATE",
+            )
+        except Exception as exc:
+            continue_answer = QMessageBox.question(
+                self,
+                "Резервна копія не створена",
+                f"Не вдалося створити локальну копію даних перед оновленням:\n{exc}\n\n"
+                "Продовжити встановлення без неї?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if continue_answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self.statusBar().showMessage(
+            f"Запускаю оновлення RG YouTube Control {info.version}..."
+        )
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(installer)))
+        if not opened:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                f"Не вдалося запустити інсталятор автоматично.\n"
+                f"Файл підготовлено тут:\n{installer}",
+            )
+            return
+        QTimer.singleShot(800, QApplication.quit)
 
     def check_for_updates_manual(self) -> None:
         if not bool(getattr(sys, "frozen", False)):
