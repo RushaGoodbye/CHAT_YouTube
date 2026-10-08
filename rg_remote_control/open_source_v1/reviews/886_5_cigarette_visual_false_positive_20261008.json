@@ -36,9 +36,9 @@
   ],
   "resolution_status": "OPEN",
   "local_repair": {
-    "status": "V2_READY_NOT_EXECUTED_ON_ALEXPC",
-    "source_commit": "f182b18a31ccd73a036ec649ab8b801982956042",
-    "bootstrap_commit": "019805d9b4480d052385f839767e2354f41c01c2",
+    "status": "V3_PREPARED_NOT_APPLIED_TO_ALEXPC",
+    "source_commit": "637a13e35cfc992248e5ace2ee52c01e0dfa9f53",
+    "bootstrap_commit": "7cd971c1b962bcb71461d866a7071aa7338b9790",
     "bootstrap": "rg_remote_control/bootstrap_auto_edit_quarantine_8865_mic_v1.ps1",
     "audited_actions": [
       "Require both live 886_5 XML SHA256 to match exact known delivered file",
@@ -71,6 +71,18 @@
       "Withhold BOTH main APP root XML and APP/886 delivered XML from automatic discovery",
       "Retain clean XML under new verified backup for review only",
       "No stream rerun and no changes to other dialogue artifacts"
-    ]
+    ],
+    "latest_failure": {
+      "stage": "READ_ONLY_PREFLIGHT",
+      "status": "STOPPED_BEFORE_MUTATION",
+      "reason": "RG 886_5 first overlay contained two Gaussian Blur effects and one crop",
+      "actual_effect_ids": [
+        "Gaussian Blur",
+        "Gaussian Blur",
+        "crop"
+      ],
+      "correction": "Recognize 1 or 2 Gaussian Blur filters and exactly 1 crop per known overlay; retain SHA-256, full XML diff, audio and original video parity"
+    },
+    "unverified": "Full actual XML preflight on AlexPC; smoke tests committed and pinned but result not yet reported"
   }
 }
