@@ -25,7 +25,7 @@ jobs:
           s=p.read_text(encoding="utf-8")
           tree=ast.parse(s)
           gates={
-            "NO_PRODUCTION_EXEC": "rg_multi_dialogue.py" not in s and "scan_cigarettes(" not in s,
+            "NO_PRODUCTION_EXEC": "subprocess.Popen(" not in s and "scan_cigarettes(" not in s,
             "INPUT_FAIL_CLOSED": '("mandatory","fail_closed","whole_frame_blur_forbidden")' in s,
             "SHORT_STABLE_ONLY": '"SHORT_STABLE"' in s,
             "BACKUP_BOTH": 'originals=[XML,DET]' in s,
