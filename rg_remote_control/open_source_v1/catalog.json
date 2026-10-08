@@ -47,7 +47,7 @@
       "license": "BSD-3-Clause",
       "package": "norfair",
       "priority": 1,
-      "status": "SHADOW_SAFETY_GATE_V2_COMMITTED_TEST_PENDING",
+      "status": "SHADOW_SAFETY_GATE_V2_ALEXPC_PASS_REAL_LABELS_PENDING",
       "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
       "risks": [
         "short-lived tiny object may not initialize",
@@ -104,11 +104,47 @@
       },
       "safety_v2": {
         "file": "rg_remote_control/open_source_v1/norfair_motion_safety_gate_v2.py",
-        "state": "COMMITTED_NOT_RUN_ON_ALEXPC",
+        "state": "PASS_ON_ALEXPC_2026-10-08",
         "technique": "Appearance confidence + geometric motion gate; abstain on lost/ambiguous track",
         "production_approved": false,
         "no_independent_cigarette_semantics": true,
-        "release_policy": "Never auto-release even 24/24 geometry; always fail-closed when identity uncertain or semantic detection absent"
+        "release_policy": "Never auto-release even 24/24 geometry; always fail-closed when identity uncertain or semantic detection absent",
+        "test_result": {
+          "date": "2026-10-08",
+          "slow_motion": {
+            "correct": 24,
+            "abstained": 0,
+            "false_positive": 0
+          },
+          "fast_motion": {
+            "correct": 24,
+            "abstained": 0,
+            "false_positive": 0
+          },
+          "intermittent_occlusion": {
+            "correct": 20,
+            "abstained": 4,
+            "false_positive": 0
+          },
+          "lookalike_distractor": {
+            "correct": 11,
+            "abstained": 13,
+            "false_positive": 0
+          },
+          "zero_known_false_positives": true,
+          "all_cases_automatic_release": false,
+          "production_approved": false,
+          "source": "User PowerShell: RG NORFAIR SAFETY GATE V2 COMPLETE"
+        }
+      },
+      "real_frame_review": {
+        "state": "GENERATOR_COMMITTED_NOT_YET_RUN",
+        "bootstrap": "rg_remote_control/bootstrap_auto_edit_real_cigarette_review_8865_v1.ps1",
+        "artifact_root": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\review_886_5",
+        "intended_images": 4,
+        "output_label": "VISUAL_REVIEW_READY",
+        "requires_human_labels": true,
+        "production_change": false
       }
     },
     {
