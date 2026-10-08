@@ -11,7 +11,7 @@ $zip=Join-Path $root 'RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip'
 $hold='F:\RG_AUTO_EDIT\RG Auto Edit App\886\RG_EDITED_886_5.SEMANTIC_HOLD.json'
 $media='\\Desktop-v7gg0en\record\886.mp4'
 $ffmpeg='C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffmpeg.EXE'
-$ref='c9acad90580fc431d43a60b6a868d6bb5e6e4c37'
+$ref='ed2c125d0e611f2a7ea165e09ece007bf808d8f6'
 $oldRef='0bea2ccd81ab7479c65d4f6f96a57f31f9aa4a1e'
 Write-Host '=== RG 886_5 REAL SOURCE VISUAL TRIAGE PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Separate Norfair/OpenCV environment absent'}
