@@ -316,7 +316,7 @@ class MetadataDialog(QDialog):
 
         self.title_edit = QLineEdit(_standard_hyphen(title))
         self.description_edit = QPlainTextEdit(_standard_hyphen(description))
-        self.tags_edit = QPlainTextEdit(_standard_hyphen(", ".join(tags)))
+        self.tags_edit = QPlainTextEdit(_standard_hyphen(", ".join(list(dict.fromkeys(tags))[:15])))
         form.addRow("Назва:", self.title_edit)
         form.addRow("Опис:", self.description_edit)
         form.addRow("Теги:", self.tags_edit)
