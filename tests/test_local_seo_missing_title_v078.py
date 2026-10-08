@@ -21,6 +21,7 @@ def _mock_related_helpers(monkeypatch):
     monkeypatch.setattr(ft, "_description_quality_error", lambda *_args: "")
     monkeypatch.setattr(ft, "_recover_missing_description", lambda **_kwargs: "")
     monkeypatch.setattr(ft, "_grounded_chapters_from_transcript", lambda **_kwargs: "")
+    monkeypatch.setattr(ft, "_recover_chapters_from_transcript", lambda **_kwargs: "")
 
 
 def test_manual_local_seo_falls_back_to_existing_title_without_retries(monkeypatch):
