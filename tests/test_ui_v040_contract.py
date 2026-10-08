@@ -274,7 +274,7 @@ def test_v060_guided_release_contract() -> None:
         'QPushButton("Прийняти")',
         'QPushButton("Відхилити")',
         'generation="local-seo-0.6"',
-        'generation="safe-metadata-0.6"',
+        'generation="safe-metadata-0.7.6"',
         'def _package_quality_gate',
         '"SEO-опис не українською"',
         '"старий рекламний хвіст у назві"',
