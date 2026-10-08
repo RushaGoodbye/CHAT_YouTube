@@ -57,8 +57,8 @@ def make_tile(frame,box,frame_number,absolute_timestamp):
     x0,y0,x1,y1=map(float,box)
     cx=int(round((x0+x1)/2));cy=int(round((y0+y1)/2))
     # Crop is fixed around original raw detector hit, not a newly found cigarette.
-    left=max(0,cx-130); top=max(0,cy-110)
-    right=min(width,cx+130);bottom=min(height,cy+110)
+    left=max(0,cx-90); top=max(0,cy-75)
+    right=min(width,cx+90);bottom=min(height,cy+75)
     if right<=left+40 or bottom<=top+40:
         raise RuntimeError("Fixed ROI outside video geometry")
     tile=np.full((CELL_H,CELL_W,3),25,dtype=np.uint8)
