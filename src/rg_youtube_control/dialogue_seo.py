@@ -322,3 +322,65 @@ def preserve_outline_topics(
     if included:
         base += footer + "\n".join(f"• {item}" for item in included)
     return base, excluded
+
+
+
+def ab_title_issues(
+    variants: Iterable[str],
+    report: dict[str, Any] | None = None,
+) -> list[str]:
+    """Detect missing, duplicate, overly generic or unsupported A/B hooks."""
+    from difflib import SequenceMatcher
+
+    values = [_compact(value) for value in variants if _compact(value)]
+    issues: list[str] = []
+    if len(values) != 3:
+        issues.append("Потрібно рівно 3 назви для A/B.")
+        return issues
+    if any(len(value) > 100 or len(value) < 20 for value in values):
+        issues.append("Назви A/B мають бути змістовними (20-100 символів).")
+    normal = [
+        re.sub(
+            r"^(?:чат\s*рулетка|раша\s*гудбай)[\s:.|!-]*",
+            "", value.casefold(), flags=re.I,
+        ).strip()
+        for value in values
+    ]
+    for left in range(3):
+        for right in range(left + 1, 3):
+            if SequenceMatcher(None, normal[left], normal[right]).ratio() >= 0.85:
+                issues.append(
+                    f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
+                )
+
+    if report:
+        # Conservative case-folded stem overlap. Lack of overlap is a review
+        # warning, not proof that the proposed phrase is false.
+        source = evidence_outline_text(report).casefold().translate(
+            str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
+        )
+        stems = {
+            word[:5] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
+            if word not in {"цитата", "тема", "теза", "співрозмовник"}
+        }
+        for index, value in enumerate(values, 1):
+            words = re.findall(
+                r"[a-zа-яё0-9]{5,}",
+                value.casefold().translate(
+                    str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
+                ),
+            )
+            meaningful = [
+                word for word in words
+                if word not in {
+                    "чатрулетка", "рулетка", "рашагудбай",
+                    "россияне", "россия", "российск",
+                }
+            ]
+            if meaningful and not any(
+                word[:5] in stems for word in meaningful
+            ):
+                issues.append(
+                    f"A/B варіант {index} не має підтверджених тематичних слів."
+                )
+    return issues
