@@ -620,6 +620,16 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
             if value not in (None, "", []):
                 normalized[canonical] = value
                 break
+    variants = normalized.get("title_variants")
+    if isinstance(variants, str):
+        # A single string is not a list of character-sized A/B titles.
+        normalized["title_variants"] = [
+            part.strip(" \\t-•0123456789.)")
+            for part in variants.splitlines()
+            if part.strip(" \\t-•0123456789.)")
+        ]
+    elif not isinstance(variants, list):
+        normalized["title_variants"] = []
     return normalized
 
 
@@ -1776,7 +1786,7 @@ chapters: рядок з підтвердженими таймкодами та �
             variants_candidate = [
                 str(item).strip()
                 for item in (candidate.get("title_variants") or [])
-                if str(item).strip()
+                if isinstance(item, str) and item.strip()
             ]
             if (
                 len(variants_candidate) < 3
