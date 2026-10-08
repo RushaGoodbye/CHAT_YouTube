@@ -6,7 +6,7 @@ $scriptDir=Join-Path $shadow 'scripts'
 $originalBenchmark=Join-Path $scriptDir 'norfair_motion_challenge_v1.py'
 $updated=Join-Path $scriptDir 'norfair_motion_safety_gate_v2.py'
 $output=Join-Path $shadow 'norfair_motion_safety_gate_v2.json'
-$ref='4eefaaa7ee20b65a241666a6d7b8ac122e96ef88'
+$ref='b771b45460cc0b0eacaa891229d8de95e67a26d2'
 Write-Host '=== RG NORFAIR SAFETY GATE V2 PREFLIGHT ==='
 foreach($p in @($python,$originalBenchmark)){
   if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw "Existing shadow dependency missing: $p"}
@@ -36,6 +36,8 @@ if($r.schema -ne 'RG_OSS_CIGARETTE_MOTION_GATE_V2' -or
    $r.status -ne 'SYNTHETIC_SAFETY_BENCHMARK_COMPLETED' -or
    $r.zero_known_false_positives -ne $true -or
    $r.all_cases_automatic_release -ne $false -or
+   $r.all_cases_geometry_pass -ne $false -or
+   @($r.cases | Where-Object {$_.automatic_blur_release -ne $false}).Count -ne 0 -or
    @($r.cases).Count -ne 4 -or
    $r.production_approved -ne $false -or
    $r.original_audio_modified -ne $false -or
