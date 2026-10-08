@@ -183,7 +183,7 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
-from .public_comments import fetch_public_comment_sample
+from .public_comments import csv_safe_public_comment_cell, fetch_public_comment_sample
 from .updater import (
     UpdateInfo,
     check_for_update,
@@ -13026,7 +13026,11 @@ class MainWindow(QMainWindow):
                     extrasaction="ignore",
                 )
                 writer.writeheader()
-                writer.writerows(comments)
+                for item in comments:
+                    writer.writerow({
+                        key: csv_safe_public_comment_cell(item.get(key, ""))
+                        for key in writer.fieldnames
+                    })
             log_action(
                 self.conn,
                 profile=self.current_profile,
