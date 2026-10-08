@@ -37,7 +37,7 @@ def test_package_validation_requires_exactly_three_hashtags():
         tags,
         [],
     )
-    assert "В описі має бути рівно 3 релевантні хештеги." in bad.errors
+    assert "В описі бажано мати рівно 3 релевантні хештеги." in bad.warnings
 
     fixed = safe_description_fix(base, "Путин и война")
     good = validate_content_package(
@@ -47,7 +47,7 @@ def test_package_validation_requires_exactly_three_hashtags():
         tags,
         [],
     )
-    assert "В описі має бути рівно 3 релевантні хештеги." not in good.errors
+    assert "В описі бажано мати рівно 3 релевантні хештеги." not in good.warnings
 
 
 def test_ui_normalizes_tags_in_editor_and_apply_paths():
