@@ -7,7 +7,7 @@ $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
 $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
 $shadow='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow'
 $src=Join-Path $shadow 'scripts\quarantine_8865_mic_false_blur_v1.py'
-$ref='14111efadabc1b265414b8345aaf9608f95af166'
+$ref='a5cf982231d4fc6e9c5bae369fe5fe7b85f946a7'
 Write-Host '=== RG 886_5 MIC FALSE BLUR RECOVERY PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Production Python missing; no actions attempted'}
 if(!(Test-Path -LiteralPath $app -PathType Container)){throw 'RG Auto Edit App folder missing'}
@@ -27,10 +27,12 @@ $primary=Join-Path $app 'RG_EDITED_886_5.xml'
 $delivery=Join-Path $app '886\RG_EDITED_886_5.xml'
 $hold=Join-Path $app '886\RG_EDITED_886_5.SEMANTIC_HOLD.json'
 if(Test-Path -LiteralPath $hold -PathType Leaf){
-  if(!(Test-Path -LiteralPath $delivery -PathType Leaf)){
+  if(!(Test-Path -LiteralPath $delivery -PathType Leaf) -and
+     !(Test-Path -LiteralPath $primary -PathType Leaf)){
     $r=Get-Content -LiteralPath $hold -Raw -Encoding utf8 | ConvertFrom-Json
     if($r.schema -eq 'RG_886_5_MICROPHONE_FALSE_POSITIVE_QUARANTINE_V1' -and
-       $r.do_not_publish -eq $true){
+       $r.do_not_publish -eq $true -and $r.primary_xml_withheld -eq $true -and
+       (Test-Path -LiteralPath $r.clean_xml_for_semantic_review -PathType Leaf)){
       Write-Host '=== RG 886_5 MIC BLUR QUARANTINE ALREADY ACTIVE ==='
       [ordered]@{
         status='ALREADY_QUARANTINED'
@@ -71,15 +73,22 @@ if($LASTEXITCODE -ne 0){throw 'Quarantine fail-closed or unexpected. Follow STOP
 if(!(Test-Path -LiteralPath $hold -PathType Leaf)){
   throw 'Semantic hold marker missing after apparent recovery'
 }
-if(Test-Path -LiteralPath $delivery -PathType Leaf){
-  throw 'Old published 886_5 still present - release must be blocked'
+if((Test-Path -LiteralPath $delivery -PathType Leaf) -or
+   (Test-Path -LiteralPath $primary -PathType Leaf)){
+  throw '886_5 XML still discoverable in a ready folder - release must be blocked'
 }
 $r=Get-Content -LiteralPath $hold -Raw -Encoding utf8 | ConvertFrom-Json
 if($r.do_not_publish -ne $true -or
    $r.status -ne 'QUARANTINED_NOT_READY_FOR_PUBLICATION' -or
-   $r.original_source_audio_modified -ne $false){
+   $r.primary_xml_withheld -ne $true -or
+   $r.original_source_audio_modified -ne $false -or
+   !(Test-Path -LiteralPath $r.clean_xml_for_semantic_review -PathType Leaf)){
    throw 'Post-repair semantic hold is not valid'
 }
+$cleanBackedUp=Join-Path $old 'RG_EDITED_886_5.xml'
+$baselineHash=(Get-FileHash -LiteralPath $cleanBackedUp -Algorithm SHA256).Hash.ToLowerInvariant()
+$recoveredHash=(Get-FileHash -LiteralPath $r.clean_xml_for_semantic_review -Algorithm SHA256).Hash.ToLowerInvariant()
+if($recoveredHash -ne $baselineHash){throw 'Withheld clean XML does not match saved clean original'}
 Write-Host '=== RG 886_5 MIC FALSE BLUR FINAL CONTROL ==='
 [ordered]@{
   status='QUARANTINED_AND_MICROPHONE_BLUR_REMOVED'
@@ -87,6 +96,8 @@ Write-Host '=== RG 886_5 MIC FALSE BLUR FINAL CONTROL ==='
   original_video_unchanged=$true
   three_misplaced_blur_effects_removed=$true
   delivered_xml_withheld=$true
+  primary_xml_withheld=$true
+  clean_xml_for_review=$r.clean_xml_for_semantic_review
   semantic_cigarette_verification='REQUIRED_BEFORE_PUBLICATION'
   full_stream_reprocessed=$false
   holding_file=$hold
