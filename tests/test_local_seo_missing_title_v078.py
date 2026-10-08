@@ -112,7 +112,7 @@ def test_local_seo_normal_mode_menu_and_missing_ab_stay_in_review():
         source.index("    def _save_local_seo_result("):
         source.index("    def export_public_comments_zero_api(")
     ]
-    assert 'bool(package.get("title_fallback_used"))' in save
+    assert 'bool(package.get("needs_review"))' in save
     assert '"draft" if requires_review else "ready"' in save
     assert 'quality_state="needs_review" if requires_review else "safe"' in save
     assert 'self.advanced_local_seo_action.setVisible(True)' in source
@@ -125,3 +125,25 @@ def test_model_without_any_trusted_title_remains_blocked(monkeypatch):
         ft.generate_seo_package_local(
             current_title="", transcript=TRANSCRIPT, fast_mode=True, timeout=1
         )
+
+
+
+def test_local_seo_without_transcript_requires_manual_review(monkeypatch):
+    _mock_related_helpers(monkeypatch)
+    monkeypatch.setattr(ft, "ollama_chat", lambda *_args, **_kwargs: json.dumps({
+        "title": "Бензин в России: вопросы к властям",
+        "description": GOOD_DESCRIPTION,
+        "title_variants": [
+            "Бензин и цены в России",
+            "Очереди на АЗС",
+            "Россияне о бензине",
+        ],
+        "tags": [],
+        "chapters": "",
+    }, ensure_ascii=False))
+    result = ft.generate_seo_package_local(
+        current_title=CURRENT_TITLE, transcript="", fast_mode=False, timeout=1
+    )
+    assert result["needs_review"] is True
+    assert "Транскрипт відсутній" in result["review_reason"]
+    assert result["youtube_data_api_quota"] == 0
