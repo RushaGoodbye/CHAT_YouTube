@@ -7,7 +7,7 @@ $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
 $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
 $shadow='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow'
 $src=Join-Path $shadow 'scripts\quarantine_8865_mic_false_blur_v1.py'
-$ref='a5cf982231d4fc6e9c5bae369fe5fe7b85f946a7'
+$ref='637a13e35cfc992248e5ace2ee52c01e0dfa9f53'
 Write-Host '=== RG 886_5 MIC FALSE BLUR RECOVERY PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Production Python missing; no actions attempted'}
 if(!(Test-Path -LiteralPath $app -PathType Container)){throw 'RG Auto Edit App folder missing'}
