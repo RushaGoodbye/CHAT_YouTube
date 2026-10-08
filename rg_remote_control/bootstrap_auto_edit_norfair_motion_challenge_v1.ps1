@@ -39,7 +39,7 @@ if($r.schema -ne 'RG_OSS_NORFAIR_MOTION_CHALLENGE_V1' -or
 Write-Host '=== RG NORFAIR MOTION CHALLENGE COMPLETE ==='
 [ordered]@{
  status='BENCHMARK_COMPLETE'
- cases=$r.cases | Select-Object case,truth_visible_frames,correct_position_frames,missed_visible_frames,incorrect_visible_matches,false_matches_when_absent,candidate_valid_for_case
+ cases=@($r.cases | Select-Object case,truth_visible_frames,correct_position_frames,missed_visible_frames,incorrect_visible_matches,false_matches_when_absent,candidate_valid_for_case)
  all_cases_passed=$r.all_cases_passed
  production_approved=$false
  packages_installed=$false
