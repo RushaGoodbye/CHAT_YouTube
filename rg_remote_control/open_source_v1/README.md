@@ -169,6 +169,34 @@ visible cigarette; inspect them visually first. Next step is explicit
 human-label or an independent detector benchmark against visible frames,
 not production adoption.
 
+## CRITICAL 2026-10-08: 886_5 visual evidence INVALIDATES cigarette ID
+
+The user uploaded all four JPG contact sheets `886_5_REVIEW_01..04.jpg` (24
+real frames, approximately 9558.9–9561.2s). Visual review finds the **fixed
+ROI is a decorative light-colored mark on the microphone windscreen** in the
+host's left window. This is **not a visible cigarette**.
+
+CRITICAL: the previous two "smoking cigarette" YOLOWorld detections, single
+SHORT_STABLE track, three localized Premiere blur overlays and all Norfair
+static-template `PASS` values did **not** establish actual cigarette identity.
+The QA passed structurally but is semantically incorrect in this interval.
+The 886_5 XML was previously copied to the delivery folder; it remains
+on disk. A GitHub audit flag is NOT a production export blocker.
+
+- Real-image review: semantic cigarette QA **FAIL_KNOWN_FALSE_POSITIVE**.
+- Stop treating the delivered 886_5 as approved for publication until the
+  wrong-object blur is removed using controlled backups and the actual
+  dialogue is fully reviewed for cigarette presence.
+- Retain source audio, normal video editing and 886_2 XML untouched.
+- Do not auto-whitelist all content near the microphone: a *real* cigarette
+  may enter that region; the negative must rely on independent semantic
+  evidence and motion/background appearance discrimination.
+- No basis to claim the entire dialogue or stream lacks cigarettes.
+- This repository contains **documentation** of the finding, not an applied
+  update to running RG Auto Edit Studio. No production files were changed.
+
+Evidence audit: `reviews/886_5_cigarette_visual_false_positive_20261008.json`.
+
 ## Как запускать независимые тесты
 
 ```powershell
