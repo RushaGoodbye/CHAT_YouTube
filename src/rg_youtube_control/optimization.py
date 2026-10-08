@@ -711,6 +711,8 @@ def validate_content_package(
     chapters: str,
     tags: list[str] | None,
     title_variants: list[str] | None = None,
+    *,
+    chapters_optional: bool = False,
 ) -> PackageCheck:
     errors: list[str] = []
     warnings: list[str] = []
@@ -747,7 +749,7 @@ def validate_content_package(
     chapter_ok, chapter_message = validate_chapters(chapters)
     if not chapter_ok:
         errors.append(chapter_message)
-    elif not chapters.strip():
+    elif not chapters.strip() and not chapters_optional:
         warnings.append("Розділи не заповнені.")
 
     if not clean_tags:
