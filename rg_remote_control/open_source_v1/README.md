@@ -139,6 +139,36 @@ second independent cigarette detector are required before any production usage.
 Read-only runner:
 `../bootstrap_auto_edit_norfair_motion_safety_gate_v2.ps1`.
 
+## 2026-10-08: V2 safety pass on AlexPC, next review real cigarette frames
+
+User's Windows execution of the V2 synthetic safety gate reported:
+- slow 24/24 correct, 0 abstentions, 0 known false positives;
+- fast 24/24 correct, 0 abstentions, 0 known false positives;
+- intermittent occlusion 20/20 visible frames correct and 4 abstentions;
+- lookalike distractor 11/11 visible frames correct and 13 abstentions;
+- `automatic_release=false` in EVERY case, `production_approved=false`.
+
+This only validates synthetic geometry/continuity. To obtain material for
+independent evaluation of a **real** cigarette in stream 886_5, use the
+read-only review pack generator:
+`../bootstrap_auto_edit_real_cigarette_review_8865_v1.ps1`.
+
+This needs no new pip packages and uses the existing isolated Norfair +
+OpenCV environment. It checks the archived two raw detections and verified
+886_5 repair QA; extracts about 24 ORIGINAL frames near the evidence time
+with the existing FFmpeg binary; then creates four JPEG contact sheets (6
+frames each) with an overview and a *fixed ROI based on original bbox*.
+The fixed ROI is a crop hint ONLY, NOT a dynamic detection or GT label.
+Decoded temporary frames are removed. All output is only under
+`F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\review_886_5\`.
+
+A 1920x1080 synthetic frame-layout/source-immutability smoke is mandatory
+before any real-stream decode. Production XML, audio, video and the existing
+cigarette blur remain untouched. Do not assume all sheet crops contain a
+visible cigarette; inspect them visually first. Next step is explicit
+human-label or an independent detector benchmark against visible frames,
+not production adoption.
+
 ## Как запускать независимые тесты
 
 ```powershell
