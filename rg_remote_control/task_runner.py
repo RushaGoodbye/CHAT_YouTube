@@ -16154,19 +16154,15 @@ def reconcile_auto_edit_post_cigarette_v1() -> dict:
 
 
 def locate_auto_edit_886_artifacts_v2() -> dict:
-    """Read-only locator for surviving 886 XML/QA artifacts plus telemetry source map."""
+    """Fast read-only locator for 886 XML/QA artifacts plus telemetry source map."""
     if os.name!="nt":
         raise RuntimeError("Windows only")
     import importlib.util,py_compile,time,xml.etree.ElementTree as ET
     app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
     data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
-    roots=[
-        app,
-        data,
-        Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"RG_AUTO_EDIT",
-        Path(os.getenv("LOCALAPPDATA") or str(Path.home()))/"Programs"/"RG Auto Edit",
-        Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР"),
-    ]
+    local=Path(os.getenv("LOCALAPPDATA") or str(Path.home()))
+    droot=Path(r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYЕ\ГОТОВО\YouTube\ЕГОР")
+
     validator=app/"VALIDATE_PREMIERE_XML.py"
     validate_fn=None
     if validator.is_file():
@@ -16180,87 +16176,123 @@ def locate_auto_edit_886_artifacts_v2() -> dict:
         except Exception:
             validate_fn=None
 
-    rows=[];seen=set();scan_errors=[]
-    patterns=("RG_EDITED_886*.xml","*886*CIGARETTE*.xml","*886*.xml")
-    for root in roots:
-        if not root.exists():continue
-        for pat in patterns:
-            try:
-                for p in root.rglob(pat):
-                    try:
-                        if not p.is_file():continue
-                        rp=str(p.resolve()).casefold()
-                        if rp in seen:continue
-                        seen.add(rp)
-                        st=p.stat()
-                        row={"path":str(p),"root":str(root),"size":st.st_size,"mtime":st.st_mtime}
-                        text0=p.read_text(encoding="utf-8-sig",errors="replace")
-                        row["has_cigarette"]=("rg-cigarette-" in text0)
-                        try:
-                            body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
-                            xr=ET.fromstring(body)
-                            video=xr.find(".//sequence/media/video")
-                            tracks=video.findall("track") if video is not None else []
-                            cig=[c for c in xr.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
-                            row["video_tracks"]=len(tracks)
-                            row["cigarette_clip_count"]=len(cig)
-                            bad=[]
-                            for c in cig:
-                                effects=[]
-                                for flt in c.findall("filter"):
-                                    eff=flt.find("effect")
-                                    if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
-                                if "crop" not in effects:bad.append(str(c.get("id"))+":CROP_MISSING")
-                                if "Gaussian Blur" not in effects:bad.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
-                            row["cigarette_structural_failures"]=bad
-                            row["cigarette_structural_pass"]=bool(cig and not bad)
-                        except Exception as exc:
-                            row["parse_error"]=repr(exc)
-                        if validate_fn is not None:
-                            try:
-                                validate_fn(p);row["validator_pass"]=True
-                            except Exception as exc:
-                                row["validator_pass"]=False;row["validator_error"]=repr(exc)
-                        rows.append(row)
-                        if len(rows)>=250:break
-                    except Exception as exc:
-                        scan_errors.append({"path":str(p),"error":repr(exc)})
-                if len(rows)>=250:break
-            except Exception as exc:
-                scan_errors.append({"root":str(root),"pattern":pat,"error":repr(exc)})
-        if len(rows)>=250:break
-    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
-
-    # Nearby run/QA evidence, including the failed production session.
-    evidence=[]
-    evidence_patterns=("*.json","*.log","*.txt")
-    evidence_roots=[
+    # Intentionally bounded. Never recurse over all F: or D:.
+    candidate_dirs=[
+        app/"886",
+        app,
         app/"run_manifests"/"886",
         data/"validation"/"cigarette_blur_real_886",
-        data/"control_runs",
+        data/"validation"/"operations_targeted_886",
+        local/"RG_AUTO_EDIT"/"886",
+        local/"RG_AUTO_EDIT",
+        local/"Programs"/"RG Auto Edit"/"886",
+        local/"Programs"/"RG Auto Edit",
+        droot,
     ]
-    for root in evidence_roots:
-        if not root.exists():continue
-        for pat in evidence_patterns:
+    # Recent control-run directories can contain copied XMLs/log evidence.
+    try:
+        cr=data/"control_runs"
+        if cr.is_dir():
+            candidate_dirs.extend(sorted(
+                [x for x in cr.iterdir() if x.is_dir() and x.name.startswith("RECOVERY_")],
+                key=lambda p:p.stat().st_mtime,reverse=True
+            )[:8])
+    except Exception:
+        pass
+
+    rows=[];seen=set();scan_errors=[]
+    def add_xml(p,source_dir):
+        try:
+            if not p.is_file():return
+            rp=str(p.resolve()).casefold()
+            if rp in seen:return
+            seen.add(rp)
+            st=p.stat()
+            text0=p.read_text(encoding="utf-8-sig",errors="replace")
+            row={"path":str(p),"source_dir":str(source_dir),"size":st.st_size,"mtime":st.st_mtime,
+                 "has_cigarette":"rg-cigarette-" in text0}
             try:
-                for p in root.rglob(pat):
-                    try:
-                        if not p.is_file() or p.stat().st_size>5_000_000:continue
-                        txt=p.read_text(encoding="utf-8",errors="replace")
-                        if "886" not in txt and "cigarette" not in txt.lower() and "RGPROGRESS" not in txt:continue
-                        evidence.append({
-                            "path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime,
-                            "has_old_v5_error":"Unexpected clip class on V5" in txt,
-                            "has_progress":"RGPROGRESS|" in txt,
-                            "has_heartbeat":"RGHEARTBEAT|" in txt,
-                            "has_eta":"RGETA|" in txt,
-                            "tail":txt.splitlines()[-20:],
-                        })
-                        if len(evidence)>=80:break
-                    except Exception:pass
-            except Exception:pass
-            if len(evidence)>=80:break
-        if len(evidence)>=80:break
+                body=text0.split("<!DOCTYPE xmeml>",1)[1].strip() if "<!DOCTYPE xmeml>" in text0 else text0
+                xr=ET.fromstring(body)
+                video=xr.find(".//sequence/media/video")
+                tracks=video.findall("track") if video is not None else []
+                cig=[c for c in xr.findall(".//clipitem") if str(c.get("id","")).startswith("rg-cigarette-")]
+                row["video_tracks"]=len(tracks)
+                row["cigarette_clip_count"]=len(cig)
+                bad=[]
+                for c in cig:
+                    effects=[]
+                    for flt in c.findall("filter"):
+                        eff=flt.find("effect")
+                        if eff is not None:effects.append((eff.findtext("effectid") or "").strip())
+                    if "crop" not in effects:bad.append(str(c.get("id"))+":CROP_MISSING")
+                    if "Gaussian Blur" not in effects:bad.append(str(c.get("id"))+":GAUSSIAN_BLUR_MISSING")
+                row["cigarette_structural_failures"]=bad
+                row["cigarette_structural_pass"]=bool(cig and not bad)
+            except Exception as exc:
+                row["parse_error"]=repr(exc)
+            if validate_fn is not None:
+                try:
+                    validate_fn(p);row["validator_pass"]=True
+                except Exception as exc:
+                    row["validator_pass"]=False;row["validator_error"]=repr(exc)
+            rows.append(row)
+        except Exception as exc:
+            scan_errors.append({"path":str(p),"error":repr(exc)})
+
+    for root in candidate_dirs:
+        if not root.exists():continue
+        try:
+            # Exact directory.
+            for pat in ("RG_EDITED_886*.xml","*886*CIGARETTE*.xml","*886*.xml"):
+                for p in root.glob(pat):add_xml(p,root)
+            # One level below only.
+            for child in root.iterdir():
+                if not child.is_dir():continue
+                for pat in ("RG_EDITED_886*.xml","*886*CIGARETTE*.xml","*886*.xml"):
+                    for p in child.glob(pat):add_xml(p,child)
+                if len(rows)>=160:break
+        except Exception as exc:
+            scan_errors.append({"root":str(root),"error":repr(exc)})
+        if len(rows)>=160:break
+    rows.sort(key=lambda x:x.get("mtime",0),reverse=True)
+
+    evidence=[]
+    evidence_files=[
+        app/"run_manifests"/"886"/"STUDIO_RUN.log",
+        data/"validation"/"cigarette_blur_real_886"/"REAL_886_CIGARETTE_E2E_QA.json",
+        data/"OPERATIONS_PRODUCTION_SMOKE.json",
+        data/"OPERATIONS_TARGETED_SMOKE.json",
+        data/"OPERATIONS_V1_STATE.json",
+    ]
+    # Only latest recovery status/logs, no recursive scan.
+    try:
+        cr=data/"control_runs"
+        rec=sorted([x for x in cr.iterdir() if x.is_dir() and x.name.startswith("RECOVERY_")],
+                   key=lambda p:p.stat().st_mtime,reverse=True)[:8] if cr.is_dir() else []
+        for root in rec:
+            evidence_files.extend([root/"RECOVERY_QUEUE_STATUS.json",root/"886_STUDIO_RUN.log"])
+    except Exception:
+        pass
+    eseen=set()
+    for p in evidence_files:
+        try:
+            if not p.is_file():continue
+            rp=str(p.resolve()).casefold()
+            if rp in eseen:continue
+            eseen.add(rp)
+            if p.stat().st_size>8_000_000:continue
+            txt=p.read_text(encoding="utf-8",errors="replace")
+            evidence.append({
+                "path":str(p),"size":p.stat().st_size,"mtime":p.stat().st_mtime,
+                "has_old_v5_error":"Unexpected clip class on V5" in txt,
+                "has_progress":"RGPROGRESS|" in txt,
+                "has_heartbeat":"RGHEARTBEAT|" in txt,
+                "has_eta":"RGETA|" in txt,
+                "tail":txt.splitlines()[-35:],
+            })
+        except Exception as exc:
+            scan_errors.append({"path":str(p),"error":repr(exc)})
     evidence.sort(key=lambda x:x.get("mtime",0),reverse=True)
 
     telemetry={}
@@ -16285,26 +16317,26 @@ def locate_auto_edit_886_artifacts_v2() -> dict:
                 if any(x in line for x in ("RGPROGRESS","RGHEARTBEAT","RGETA","RGSTAGE","RGPOS","Popen(","readyReadStandardOutput")):
                     a=max(0,i-3);b=min(len(lines),i+6)
                     hits.append({"line":i+1,"snippet":"\n".join(f"{j+1}: {lines[j]}" for j in range(a,b))})
-                    if len(hits)>=18:break
+                    if len(hits)>=20:break
             row["hits"]=hits
         telemetry[name]=row
 
     direct=[x for x in rows if x.get("cigarette_structural_pass") and x.get("validator_pass")]
-    any_xml=bool(rows)
     return {
-        "schema":"RG_LOCATE_886_ARTIFACTS_V2",
+        "schema":"RG_LOCATE_886_ARTIFACTS_V2_FAST",
         "read_only":True,
-        "roots":[str(x) for x in roots],
+        "bounded_scan":True,
+        "candidate_dirs":[str(x) for x in candidate_dirs],
         "xml_count":len(rows),
         "direct_full_validator_pass_count":len(direct),
         "best_direct":direct[:8],
-        "xmls":rows[:120],
-        "evidence":evidence[:60],
+        "xmls":rows[:100],
+        "evidence":evidence[:40],
         "telemetry_map":telemetry,
         "scan_errors":scan_errors[:20],
         "next_action":(
             "USE_SURVIVING_REAL_XML" if direct else
-            ("ANALYZE_FOUND_XML_VALIDATOR_FAILURES" if any_xml else "NO_886_XML_SURVIVES_USE_LOG_PLUS_FIX_TELEMETRY")
+            ("ANALYZE_FOUND_XML_VALIDATOR_FAILURES" if rows else "NO_886_XML_SURVIVES_FIX_TELEMETRY_AND_USE_COMBINED_EVIDENCE")
         ),
         "audited_at":time.time(),
     }
