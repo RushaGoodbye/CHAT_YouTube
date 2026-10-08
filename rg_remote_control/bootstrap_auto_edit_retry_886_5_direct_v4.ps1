@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $runtime = 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
 $script = Join-Path $env:TEMP 'RG_AUTO_EDIT_RETRY_886_5_DIRECT_V4.py'
-$url = 'https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/cce5c898db3f7bc5225c1de16dc574e639185674/rg_remote_control/auto_edit_retry_8865_direct_v4.py'
+$url = 'https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/318a743307c136950085b834e3e397ef325e90c4/rg_remote_control/auto_edit_retry_8865_direct_v4.py'
 
 if (!(Test-Path -LiteralPath $runtime)) { throw "RG Auto Edit runtime not found: $runtime" }
 Invoke-WebRequest -Uri $url -OutFile $script -UseBasicParsing
