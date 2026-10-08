@@ -78,6 +78,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/audit_886_5_dialogue_preflight_v1.py
           python rg_remote_control/open_source_v1/audit_886_5_dialogue_preflight_v1.py --self-test
+      - name: Quarantined 886_5 unique-source triage and reference resolution regression
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/triage_886_5_real_frames_v1.py
+          python rg_remote_control/open_source_v1/triage_886_5_real_frames_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
