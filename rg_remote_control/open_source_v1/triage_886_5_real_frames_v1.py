@@ -143,6 +143,9 @@ def flatten_timeline(xml_bytes):
     if not 5<=duration<=1200:raise RuntimeError("Unexpected dialogue duration")
     selected=[s for s in segments if s["source_file"]==SOURCE_MEDIA_NAME]
     if not selected:raise RuntimeError("No verified 886.mp4 source clips in Premiere sequence")
+    # Same filename does NOT prove the same video. Never mix multiple
+    # distinct source path strings into one sampled UNC source file.
+    source_paths=set(x["media_path"].casefold() for x in selected)
     sample_candidates=[]
     t=0.0
     while t<duration:
@@ -166,6 +169,7 @@ def flatten_timeline(xml_bytes):
       "fps":fps,
       "media_clip_counts":media,
       "source_clips":len(selected),
+      "distinct_886_media_paths":len(source_paths),
       "all_mapped_clips":len(segments),
       "unresolved":unknown[:20],
       "unresolved_count":len(unknown),
@@ -197,6 +201,7 @@ def safe_to_decode(info):
     """Strict sample feasibility; failure leaves an XML-only diagnostic."""
     reason=[]
     if info["unresolved_count"]>0:reason.append("UNRESOLVED_MEDIA_MAPPINGS")
+    if info["distinct_886_media_paths"]!=1:reason.append("AMBIGUOUS_OR_MULTIPLE_886_SOURCE_FILES")
     if info["source_range_union_sec"]>MAX_DECODE_DURATION:
         reason.append("TOO_MUCH_SOURCE_DECODING_FOR_SHADOW_SCAN")
     if len(info["ranges"])>MAX_WINDOWS:
@@ -282,6 +287,7 @@ def self_test():
     result=flatten_timeline(ET.tostring(orig))
     assert result["timeline_duration"]==10
     assert result["source_clips"]==2 and result["unresolved_count"]==0
+    assert result["distinct_886_media_paths"]==1
     assert result["source_range_union_sec"]==10
     assert result["ranges"]==[[9500.0,9510.0]]
     assert not result["original_seed_time_covered"]
