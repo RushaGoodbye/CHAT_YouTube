@@ -105,8 +105,10 @@ def score_with_simulated_truth(name):
         "false_matches_when_absent":false_matches,
         "abstained_frames":abstain,
         "safe_against_known_ground_truth":bool(not incorrect and not false_matches),
-        "automatic_blur_release":bool(not incorrect and not false_matches and abstain==0
-                                      and unknown==0 and correct==COUNT),
+        "geometry_candidate_pass":bool(not incorrect and not false_matches and abstain==0
+                                       and unknown==0 and correct==COUNT),
+        # Even 24/24 visual matches NEVER authorizes semantic cigarette blur.
+        "automatic_blur_release":False,
         "abstain_reasons":{
            "NO_VISUAL_MATCH":track["reasons"].count("ABSTAIN_NO_VISUAL_MATCH"),
            "IDENTITY_AMBIGUOUS":track["reasons"].count("ABSTAIN_IDENTITY_AMBIGUOUS"),
@@ -123,7 +125,8 @@ def run_report():
         "cases":rows,
         "zero_known_false_positives":all(x["false_matches_when_absent"]==0
                                          and x["incorrect_visible_matches"]==0 for x in rows),
-        "all_cases_automatic_release":all(x["automatic_blur_release"] for x in rows),
+        "all_cases_geometry_pass":all(x["geometry_candidate_pass"] for x in rows),
+        "all_cases_automatic_release":False,
         "original_audio_modified":False,
         "production_xml_modified":False,
         "mandatory_cigarette_blur_modified":False,
@@ -138,15 +141,16 @@ def self_check(report):
     if report["schema"]!=SCHEMA or len(report["cases"])!=4:
         raise RuntimeError("Unexpected challenge report")
     expected={
-      "slow_motion":(24,0,0,0,0,True),
-      "fast_motion":(24,0,0,0,0,True),
-      "intermittent_occlusion":(20,0,0,0,4,False),
-      "lookalike_distractor":(11,0,0,0,13,False),
+      "slow_motion":(24,0,0,0,0,True,False),
+      "fast_motion":(24,0,0,0,0,True,False),
+      "intermittent_occlusion":(20,0,0,0,4,False,False),
+      "lookalike_distractor":(11,0,0,0,13,False,False),
     }
     for r in report["cases"]:
         got=(r["correct_position_frames"],r["missed_visible_frames"],
              r["incorrect_visible_matches"],r["false_matches_when_absent"],
-             r["abstained_frames"],r["automatic_blur_release"])
+             r["abstained_frames"],r["geometry_candidate_pass"],
+             r["automatic_blur_release"])
         if got!=expected[r["case"]]:
             raise RuntimeError(f"{r['case']} regression changed: got={got}, want={expected[r['case']]}")
     if not report["zero_known_false_positives"] or report["all_cases_automatic_release"]:
@@ -179,7 +183,9 @@ def main(argv=None):
        "status":report["status"],"cases":[{
           "case":r["case"],"correct":r["correct_position_frames"],
           "missed":r["missed_visible_frames"],"false_positives":r["false_matches_when_absent"],
-          "abstained":r["abstained_frames"],"automatic_release":r["automatic_blur_release"]
+          "abstained":r["abstained_frames"],
+          "geometry_pass":r["geometry_candidate_pass"],
+          "automatic_release":r["automatic_blur_release"]
        } for r in report["cases"]],
        "zero_known_false_positives":report["zero_known_false_positives"],
        "all_cases_automatic_release":report["all_cases_automatic_release"],
