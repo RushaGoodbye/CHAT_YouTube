@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.2 usability and repackaging update."""
+"""RG YouTube Control package. 0.7.3 ZIP updater."""
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
