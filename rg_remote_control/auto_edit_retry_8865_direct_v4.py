@@ -172,7 +172,10 @@ def main():
         time.sleep(10)
     else:
         raise RuntimeError("Monitor timeout; inspect status file (no second job started): "+str(status_path))
-    emit("=== RETRY 886_5 FINAL RESULT ===",check_qa(state,start_epoch,baseline))
+    report=check_qa(state,start_epoch,baseline)
+    emit("=== RETRY 886_5 FINAL RESULT ===",report)
+    if report["status"]!="PASS":
+        raise SystemExit(3)
 
 if __name__=="__main__":
     try:main()
