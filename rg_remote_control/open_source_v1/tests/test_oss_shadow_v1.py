@@ -12,6 +12,7 @@ HERE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(HERE))
 import scene_suggest
 import oss_audit
+import health_shadow
 
 class FakeTime:
     def __init__(self,sec):
@@ -75,6 +76,41 @@ class RGOSSIntegrationTests(unittest.TestCase):
             self.assertGreaterEqual(len(report["components"]),12)
             self.assertIn("ultralytics",report["known_licensing_review_required"])
             self.assertEqual(report["safety"]["cigarette_mandatory"],None)
+
+    def test_health_probe_is_read_only(self):
+        class M:
+            rss=200*1024*1024
+        class V:
+            percent=10.0
+        class P:
+            pid=101
+            info={"name":"python.exe"}
+            def memory_info(self):
+                return M()
+            def io_counters(self):
+                return None
+        class Ps:
+            NoSuchProcess=RuntimeError
+            AccessDenied=PermissionError
+            ZombieProcess=KeyError
+            @staticmethod
+            def process_iter(attrs=None):
+                return [P()]
+            @staticmethod
+            def cpu_percent(interval=0.1):
+                return 12.0
+            @staticmethod
+            def virtual_memory():
+                return V()
+            @staticmethod
+            def disk_usage(drive):
+                return V()
+        with patch.object(health_shadow.os.path,"isdir",return_value=False):
+            result=health_shadow.read_only_snapshot(psutil_module=Ps)
+        self.assertTrue(result["read_only"])
+        self.assertFalse(result["production_modified"])
+        self.assertEqual(result["processes"][0]["name"],"python.exe")
+        self.assertEqual(result["processes"][0]["memory_mb"],200.0)
 
     def test_registry_never_enables_agpl_or_noncommercial_module(self):
         reg=json.loads((HERE/"catalog.json").read_text(encoding="utf-8"))
