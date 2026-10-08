@@ -625,7 +625,7 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         # A single string is not a list of character-sized A/B titles.
         # Strip only list prefixes; preserve dates/numbers inside SEO titles.
         normalized["title_variants"] = [
-            re.sub(r"^\\s*(?:[ABCАБВ1-3][.):-]\\s*)", "", part).strip()
+            re.sub(r"^\s*(?:[ABCАБВ1-3][.):-]\s*)", "", part).strip()
             for part in variants.splitlines()
             if part.strip()
         ]
