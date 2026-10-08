@@ -36,7 +36,7 @@
   ],
   "resolution_status": "OPEN",
   "local_repair": {
-    "status": "READY_NOT_EXECUTED_ON_ALEXPC",
+    "status": "V2_READY_NOT_EXECUTED_ON_ALEXPC",
     "source_commit": "f182b18a31ccd73a036ec649ab8b801982956042",
     "bootstrap_commit": "019805d9b4480d052385f839767e2354f41c01c2",
     "bootstrap": "rg_remote_control/bootstrap_auto_edit_quarantine_8865_mic_v1.ps1",
@@ -54,6 +54,23 @@
     "full_dialogue_cigarette_verified": false,
     "app_implementation_changed": false,
     "update_to_user_app_pending": true,
-    "publication_allowed": false
+    "publication_allowed": false,
+    "previous_attempt": {
+      "status": "STOPPED_WITHOUT_MODIFICATIONS",
+      "phase": "PREWRITE_PREFLIGHT",
+      "error": "Unexpected blur effect stack in 'rg-cigarette-1'",
+      "cause": "Assumed exactly two filters per Premiere overlay instead of requiring one crop and one Gaussian Blur in a potentially longer effect stack",
+      "next": "Rerun pinned new V2 wrapper only"
+    },
+    "next_bootstrap_commit": "2e9cdef8058d33a096207a4a052d96b7ab117197",
+    "next_code_commit": "a5cf982231d4fc6e9c5bae369fe5fe7b85f946a7",
+    "extra_security": [
+      "7 negative XML test cases including altered audio, video and unexpected global changes",
+      "Production XML full-document parity after removing three known overlays",
+      "Full read-only preflight before backup and write",
+      "Withhold BOTH main APP root XML and APP/886 delivered XML from automatic discovery",
+      "Retain clean XML under new verified backup for review only",
+      "No stream rerun and no changes to other dialogue artifacts"
+    ]
   }
 }
