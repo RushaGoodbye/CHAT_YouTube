@@ -15969,11 +15969,16 @@ def reconcile_auto_edit_post_cigarette_v1() -> dict:
 
     # First preference: validate the real 886 production XMLs that already contain
     # the cigarette V5 track. These were rejected only by the old validator.
-    folder=app/"886"
+    search_dirs=[app/"886",app]
     direct_candidates=[]
     inventory=[]
-    if folder.is_dir():
+    _seen=set()
+    for folder in search_dirs:
+        if not folder.is_dir():continue
         for p in sorted(folder.glob("RG_EDITED_886*.xml"),key=lambda x:x.stat().st_mtime,reverse=True):
+            _rp=str(p.resolve()).casefold()
+            if _rp in _seen:continue
+            _seen.add(_rp)
             n=p.name.upper()
             if "_SHORTS" in n or "_UNCENSORED" in n:continue
             row={"path":str(p),"mtime":p.stat().st_mtime}
