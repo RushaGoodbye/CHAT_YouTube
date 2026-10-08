@@ -49,6 +49,20 @@ jobs:
           assert all(r['false_matches_when_absent']>=0 for r in rows)
           print('RG_NORFAIR_GROUND_TRUTH_CHALLENGE_CONTRACT=PASS')
           PY
+      - name: Norfair fail-closed safety gate V2
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/norfair_motion_safety_gate_v2.py
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,'rg_remote_control/open_source_v1')
+          from norfair_motion_safety_gate_v2 import run_report,self_check
+          report=run_report()
+          assert self_check(report)
+          assert report["zero_known_false_positives"]
+          assert not report["all_cases_automatic_release"]
+          assert not report["production_approved"]
+          print("RG_NORFAIR_MOTION_FAIL_CLOSED_V2=PASS")
+          PY
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
