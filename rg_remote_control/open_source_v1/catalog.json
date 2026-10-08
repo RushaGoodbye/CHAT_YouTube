@@ -47,7 +47,7 @@
       "license": "BSD-3-Clause",
       "package": "norfair",
       "priority": 1,
-      "status": "SHADOW_SAFETY_GATE_V2_ALEXPC_PASS_REAL_LABELS_PENDING",
+      "status": "QUARANTINED_VISUAL_FALSE_POSITIVE_MIKROPHONE_886_5",
       "role": "Optional multi-frame cigarette BBOX tracking, no auto-approval of uncertain tracks",
       "risks": [
         "short-lived tiny object may not initialize",
@@ -104,7 +104,7 @@
       },
       "safety_v2": {
         "file": "rg_remote_control/open_source_v1/norfair_motion_safety_gate_v2.py",
-        "state": "PASS_ON_ALEXPC_2026-10-08",
+        "state": "SYNTHETIC_PASS_REAL_8865_SEMANTIC_FAIL",
         "technique": "Appearance confidence + geometric motion gate; abstain on lost/ambiguous track",
         "production_approved": false,
         "no_independent_cigarette_semantics": true,
@@ -145,6 +145,18 @@
         "output_label": "VISUAL_REVIEW_READY",
         "requires_human_labels": true,
         "production_change": false
+      },
+      "latest_real_review": {
+        "date": "2026-10-08",
+        "evidence": "Four user-provided images 886_5_REVIEW_01 through 04, total 24 frames",
+        "observed_object": "Microphone windscreen decorative logo/mark",
+        "cigarette_present_in_detection_roi": false,
+        "implication": "Motion stability was stability of microphone mark, not a cigarette",
+        "previous_qa": "STILL_STRUCTURAL_PASS_BUT_SEMANTICALLY_INVALID",
+        "production_approved": false,
+        "delivered_xml_status": "FLAG_FOR_REVIEW_NOT_CONFIRMED_SAFE",
+        "linked_audit": "rg_remote_control/open_source_v1/reviews/886_5_cigarette_visual_false_positive_20261008.json",
+        "scope": "Only reviewed frames, not entire stream"
       }
     },
     {
