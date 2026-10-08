@@ -16602,6 +16602,156 @@ def restart_and_verify_auto_edit_telemetry_v1() -> dict:
     return out
 
 
+
+def harden_auto_edit_single_studio_v1() -> dict:
+    """Keep exactly one Studio UI instance, using the dedicated F: Runtime."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil,subprocess,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    launcher=Path(r"C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_studio_main.py")
+    runtimew=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")
+    if not launcher.is_file():raise FileNotFoundError(launcher)
+    if not runtimew.is_file():raise FileNotFoundError(runtimew)
+
+    # Never touch Studio process ownership while a production backend is active.
+    q=run([
+        "powershell.exe","-NoProfile","-NonInteractive","-Command",
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_production_wrapper.py*') -or "
+        "($_.CommandLine -like '*rg_multi_dialogue.py*') -or "
+        "($_.CommandLine -like '*rg_auto_edit_one_button.py*')) }; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    ],timeout=30)
+    active=(q.get("stdout") or "").strip()
+    if active and active not in {"null","[]"}:
+        raise RuntimeError("SINGLE-STUDIO hardening blocked: production backend active")
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_SINGLE_STUDIO_V1_{stamp}"
+    backup.mkdir(parents=True,exist_ok=False)
+    shutil.copy2(launcher,backup/launcher.name)
+
+    src=launcher.read_text(encoding="utf-8-sig",errors="replace")
+    guard="# RG_SINGLE_STUDIO_RUNTIME_GUARD_V1"
+    changed=False
+
+    if guard not in src:
+        # Insert very early so a wrong interpreter hands off before UI imports.
+        lines=src.splitlines()
+        insert_at=0
+        if lines and lines[0].startswith("#!"):insert_at=1
+        # Keep __future__ import semantics intact.
+        while insert_at<len(lines) and (
+            lines[insert_at].startswith("from __future__ import") or
+            not lines[insert_at].strip() or
+            lines[insert_at].lstrip().startswith("#")
+        ):
+            insert_at+=1
+        block=[
+            guard,
+            "import os as _rg_os, sys as _rg_sys, subprocess as _rg_subprocess",
+            "from pathlib import Path as _RGPath",
+            r'_rg_runtime=_RGPath(r"F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe")',
+            "_rg_current=_RGPath(_rg_sys.executable)",
+            "try:",
+            "    _rg_same=_rg_current.resolve()==_rg_runtime.resolve()",
+            "except Exception:",
+            "    _rg_same=str(_rg_current).casefold()==str(_rg_runtime).casefold()",
+            "if not _rg_same and _rg_runtime.is_file():",
+            "    _rg_flags=getattr(_rg_subprocess,'DETACHED_PROCESS',0)|getattr(_rg_subprocess,'CREATE_NEW_PROCESS_GROUP',0)|getattr(_rg_subprocess,'CREATE_NO_WINDOW',0)",
+            "    _rg_env=_rg_os.environ.copy();_rg_env.pop('RUNNER_TRACKING_ID',None)",
+            "    _rg_subprocess.Popen([str(_rg_runtime),str(_RGPath(__file__).resolve())]+_rg_sys.argv[1:],cwd=str(_RGPath(__file__).resolve().parent),env=_rg_env,creationflags=_rg_flags,close_fds=True,stdin=_rg_subprocess.DEVNULL,stdout=_rg_subprocess.DEVNULL,stderr=_rg_subprocess.DEVNULL)",
+            "    raise SystemExit(0)",
+            "",
+        ]
+        lines[insert_at:insert_at]=block
+        tmp=launcher.with_suffix(".py.single-studio.tmp")
+        tmp.write_text("\n".join(lines)+"\n",encoding="utf-8")
+        try:
+            py_compile.compile(str(tmp),doraise=True)
+        except Exception:
+            shutil.copy2(backup/launcher.name,launcher)
+            raise
+        os.replace(tmp,launcher)
+        changed=True
+
+    py_compile.compile(str(launcher),doraise=True)
+
+    # Kill only wrong-interpreter Studio instances. Keep the F: Runtime one.
+    ps=r'''
+$p=Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'pythonw.exe' -and $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*'
+}
+$k=@()
+foreach($x in @($p)){
+  $cmd=[string]$x.CommandLine
+  if($cmd -notlike '*F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe*'){
+    Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue
+    $k += $x.ProcessId
+  }
+}
+Start-Sleep -Milliseconds 900
+$r=Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'pythonw.exe' -and $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*'
+} | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine
+[PSCustomObject]@{killed=$k;remaining=@($r)} | ConvertTo-Json -Compress -Depth 5
+'''
+    cp=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],timeout=30)
+    raw=(cp.get("stdout") or "").strip()
+    try:info=json.loads(raw) if raw else {}
+    except Exception:info={"raw":raw}
+    remaining=info.get("remaining") if isinstance(info,dict) else []
+    if isinstance(remaining,dict):remaining=[remaining]
+    if not isinstance(remaining,list):remaining=[]
+    good=[x for x in remaining if "F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\pythonw.exe" in str(x.get("CommandLine") or "")]
+    wrong=[x for x in remaining if x not in good]
+
+    # If no good instance survived, start one explicitly from the dedicated runtime.
+    launched=False
+    if not good:
+        flags=getattr(subprocess,"DETACHED_PROCESS",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)|getattr(subprocess,"CREATE_NO_WINDOW",0)
+        env=os.environ.copy();env.pop("RUNNER_TRACKING_ID",None)
+        subprocess.Popen([str(runtimew),str(launcher)],cwd=str(launcher.parent),env=env,
+                         creationflags=flags,close_fds=True,
+                         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        launched=True
+        time.sleep(2.5)
+        cp=run(["powershell.exe","-NoProfile","-NonInteractive","-Command",
+            "$r=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.CommandLine -and $_.CommandLine -like '*rg_studio_main.py*' } | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine; $r | ConvertTo-Json -Compress -Depth 5"
+        ],timeout=30)
+        raw2=(cp.get("stdout") or "").strip()
+        try:remaining=json.loads(raw2) if raw2 else []
+        except Exception:remaining=[]
+        if isinstance(remaining,dict):remaining=[remaining]
+        good=[x for x in remaining if "F:\\RG_AUTO_EDIT\\RG Auto Edit Runtime\\venv\\Scripts\\pythonw.exe" in str(x.get("CommandLine") or "")]
+        wrong=[x for x in remaining if x not in good]
+
+    passed=(len(good)==1 and len(wrong)==0)
+    result={
+        "schema":"RG_SINGLE_STUDIO_RUNTIME_GUARD_V1",
+        "status":"PASS" if passed else "CHECK",
+        "guard_installed":guard in launcher.read_text(encoding="utf-8",errors="replace"),
+        "changed":changed,
+        "killed":info.get("killed") if isinstance(info,dict) else None,
+        "launched_runtime_instance":launched,
+        "remaining":remaining,
+        "good_runtime_instances":len(good),
+        "wrong_runtime_instances":len(wrong),
+        "exactly_one_studio":passed,
+        "backup":str(backup),
+        "backend_untouched":True,
+        "restart_required":False,
+        "updated_at":time.time(),
+    }
+    (data/"SINGLE_STUDIO_RUNTIME_GUARD.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+    if not passed:
+        raise RuntimeError("Single Studio verification failed: "+json.dumps(result,ensure_ascii=False))
+    return result
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16687,6 +16837,7 @@ ACTIONS = {
     "apply_auto_edit_post_cigarette_reconcile_v1": reconcile_auto_edit_post_cigarette_v1,
     "apply_auto_edit_telemetry_v1": apply_auto_edit_telemetry_v1,
     "restart_and_verify_auto_edit_telemetry_v1": restart_and_verify_auto_edit_telemetry_v1,
+    "harden_auto_edit_single_studio_v1": harden_auto_edit_single_studio_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
