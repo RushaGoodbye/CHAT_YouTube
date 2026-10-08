@@ -29,6 +29,13 @@ PACKAGE_NAMES={
   "onnxruntime":("onnxruntime-gpu","onnxruntime"),
   "ultralytics":("ultralytics","ultralytics"),
   "pyside6":("PySide6","PySide6"),
+  "psutil":("psutil","psutil"),
+  "watchdog":("watchdog","watchdog"),
+  "tenacity":("tenacity","tenacity"),
+  "apscheduler":("APScheduler","apscheduler"),
+  "pydantic":("pydantic","pydantic"),
+  "loguru":("loguru","loguru"),
+  "pyqtgraph":("pyqtgraph","pyqtgraph"),
 }
 def safe_probe(distribution, module):
     try:
