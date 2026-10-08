@@ -16347,6 +16347,202 @@ def locate_auto_edit_886_artifacts_v2() -> dict:
     }
 
 
+
+def apply_auto_edit_telemetry_v1() -> dict:
+    """Add one top-level production heartbeat + ETA source and make Studio render ETA."""
+    if os.name!="nt":
+        raise RuntimeError("Windows only")
+    import datetime,py_compile,re,shutil,time
+    app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+    data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+    wrapper=app/"rg_production_wrapper.py"
+    ui=app/"rg_studio_ui.py"
+    for p in (wrapper,ui):
+        if not p.is_file():raise FileNotFoundError(p)
+
+    # Never patch a live production process.
+    probe=run([
+        "powershell.exe","-NoProfile","-NonInteractive","-Command",
+        "$p=Get-CimInstance Win32_Process | Where-Object { "
+        "(($_.Name -eq 'python.exe') -or ($_.Name -eq 'pythonw.exe')) -and "
+        "(($_.CommandLine -like '*rg_production_wrapper.py*') -or "
+        "($_.CommandLine -like '*rg_multi_dialogue.py*') -or "
+        "($_.CommandLine -like '*rg_auto_edit_one_button.py*')) }; "
+        "$p | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    ],timeout=30)
+    active=(probe.get("stdout") or "").strip()
+    if active and active not in {"null","[]"}:
+        raise RuntimeError("TELEMETRY HOTFIX blocked: production backend active: "+active[:1800])
+
+    stamp=datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup=data/"release_backups"/f"PRE_TELEMETRY_V1_{stamp}"
+    backup.mkdir(parents=True,exist_ok=False)
+    shutil.copy2(wrapper,backup/wrapper.name)
+    shutil.copy2(ui,backup/ui.name)
+
+    changed=[]
+    try:
+        # -------- production wrapper: one canonical heartbeat/ETA source --------
+        src=wrapper.read_text(encoding="utf-8")
+        guard="# RG_TELEMETRY_HEARTBEAT_ETA_V1"
+        if guard not in src:
+            # Add threading import without assuming a specific import layout.
+            if re.search(r'(?m)^import\s+[^#\n]*\bthreading\b',src) is None:
+                m=re.search(r'(?m)^import\s+([^\n]+)$',src)
+                if not m:
+                    raise RuntimeError("wrapper import anchor missing")
+                imports=m.group(1)
+                if "threading" not in imports:
+                    src=src[:m.start(1)]+imports+",threading"+src[m.end(1):]
+
+            anchor='    tail=[];last=time.time();last_stage="START";last_dialogue=None;warned=set()\n'
+            if anchor not in src:
+                raise RuntimeError("wrapper telemetry state anchor missing")
+            block=anchor+'''    # RG_TELEMETRY_HEARTBEAT_ETA_V1
+    _rg_tel={
+        "started":time.time(),"pct":0.1,"stage":"PRODUCTION_WIRING",
+        "last_output":time.time(),"dialogue":None,
+    }
+    _rg_tel_stop=threading.Event()
+    def _rg_tel_loop():
+        # Top-level liveness signal for Studio. One source only - children stay unchanged.
+        while not _rg_tel_stop.wait(10.0):
+            now=time.time()
+            elapsed=max(0.0,now-float(_rg_tel.get("started") or now))
+            pct=max(0.0,min(100.0,float(_rg_tel.get("pct") or 0.0)))
+            hb={
+                "schema":"RG_HEARTBEAT_V1","stage":str(_rg_tel.get("stage") or "WORK"),
+                "progress":round(pct,2),"elapsed_sec":int(elapsed),
+                "silence_sec":int(max(0.0,now-float(_rg_tel.get("last_output") or now))),
+                "dialogue":_rg_tel.get("dialogue"),
+            }
+            print("RGHEARTBEAT|"+json.dumps(hb,ensure_ascii=False,separators=(",",":")),flush=True)
+            # ETA becomes useful only after meaningful progress exists.
+            remaining=None
+            if 1.0 <= pct < 99.9 and elapsed >= 5.0:
+                remaining=max(0.0,elapsed*(100.0-pct)/pct)
+                # Avoid absurd UI values from very early noisy percentages.
+                remaining=min(remaining,48.0*3600.0)
+            eta={
+                "event":"estimate","schema":"RG_ETA_V1",
+                "stage":str(_rg_tel.get("stage") or "WORK"),
+                "progress":round(pct,2),"elapsed_sec":int(elapsed),
+                "remaining_sec":None if remaining is None else int(remaining),
+                "dialogue":_rg_tel.get("dialogue"),
+            }
+            print("RGETA|"+json.dumps(eta,ensure_ascii=False,separators=(",",":")),flush=True)
+    _rg_tel_thread=threading.Thread(target=_rg_tel_loop,name="rg-production-telemetry",daemon=True)
+    _rg_tel_thread.start()
+'''
+            src=src.replace(anchor,block,1)
+
+            progress_anchor='                    last_stage=code;last_dialogue=_dialogue(msg)\n'
+            if progress_anchor not in src:
+                raise RuntimeError("wrapper progress update anchor missing")
+            progress_patch=progress_anchor+'''                    _rg_tel["pct"]=max(0.0,min(100.0,float(pc)))
+                    _rg_tel["stage"]=str(code or last_stage or "WORK")
+                    _rg_tel["dialogue"]=last_dialogue
+                    _rg_tel["last_output"]=time.time()
+'''
+            src=src.replace(progress_anchor,progress_patch,1)
+
+            # Any line means the backend is alive, even if it is not RGPROGRESS.
+            line_anchor='            print(line,flush=True);tail.append(line);tail=tail[-120:];last=time.time()\n'
+            if line_anchor not in src:
+                raise RuntimeError("wrapper output line anchor missing")
+            src=src.replace(
+                line_anchor,
+                line_anchor+'            _rg_tel["last_output"]=last\n',
+                1
+            )
+
+            wait_anchor='    rc=proc.wait()\n'
+            if wait_anchor not in src:
+                raise RuntimeError("wrapper proc.wait anchor missing")
+            src=src.replace(
+                wait_anchor,
+                '    _rg_tel_stop.set()\n    try:_rg_tel_thread.join(timeout=1.5)\n    except Exception:pass\n'+wait_anchor,
+                1
+            )
+            wrapper.write_text(src,encoding="utf-8")
+            changed.append(str(wrapper))
+
+        # -------- Studio: render the ETA instead of discarding it --------
+        usrc=ui.read_text(encoding="utf-8")
+        uguard="# RG_TELEMETRY_UI_ETA_V1"
+        if uguard not in usrc:
+            eta_anchor='        elif line.startswith("RGETA|"):\n            pass\n'
+            if eta_anchor not in usrc:
+                raise RuntimeError("UI RGETA anchor missing")
+            eta_block='''        elif line.startswith("RGETA|"):
+            # RG_TELEMETRY_UI_ETA_V1
+            try:
+                x=json.loads(line.split("|",1)[1])
+                rem=x.get("remaining_sec")
+                if rem is None:
+                    eta_text="—"
+                else:
+                    rem=max(0,int(float(rem)))
+                    h,rr=divmod(rem,3600);m,s=divmod(rr,60)
+                    eta_text=(f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}")
+                if hasattr(self,"proc_eta_value"):
+                    self.proc_eta_value.setText(eta_text)
+                self._last_backend_eta=x
+            except Exception:
+                pass
+'''
+            usrc=usrc.replace(eta_anchor,eta_block,1)
+            ui.write_text(usrc,encoding="utf-8")
+            changed.append(str(ui))
+
+        # Compile gates.
+        py_compile.compile(str(wrapper),doraise=True)
+        py_compile.compile(str(ui),doraise=True)
+
+        # Static contract verification.
+        wtxt=wrapper.read_text(encoding="utf-8",errors="replace")
+        utxt=ui.read_text(encoding="utf-8",errors="replace")
+        checks={
+            "wrapper_guard":guard in wtxt,
+            "heartbeat_emitter":'print("RGHEARTBEAT|"+json.dumps' in wtxt,
+            "eta_emitter":'print("RGETA|"+json.dumps' in wtxt,
+            "single_top_level_thread":'_rg_tel_thread=threading.Thread' in wtxt,
+            "progress_updates_telemetry":'_rg_tel["pct"]=' in wtxt and '_rg_tel["stage"]=' in wtxt,
+            "ui_eta_guard":uguard in utxt,
+            "ui_eta_not_pass":'elif line.startswith("RGETA|"):\n            pass' not in utxt,
+            "ui_eta_updates_label":'self.proc_eta_value.setText(eta_text)' in utxt,
+        }
+        if not all(checks.values()):
+            raise RuntimeError("Telemetry contract failed: "+json.dumps(checks,ensure_ascii=False))
+
+        # Persist status without promoting candidate.
+        status={
+            "schema":"RG_AUTO_EDIT_TELEMETRY_V1",
+            "status":"APPLIED",
+            "heartbeat_interval_sec":10,
+            "eta_source":"rg_production_wrapper.py",
+            "heartbeat_source":"rg_production_wrapper.py",
+            "child_telemetry_unchanged":True,
+            "audio_unchanged":True,
+            "cigarette_blur_unchanged":True,
+            "golden_promoted":False,
+            "candidate":"0.20.20.3",
+            "checks":checks,
+            "backup":str(backup),
+            "updated_at":time.time(),
+            "restart_required":True,
+        }
+        out=data/"TELEMETRY_V1_STATUS.json"
+        out.write_text(json.dumps(status,ensure_ascii=False,indent=2),encoding="utf-8")
+        return status
+    except Exception:
+        for p in (wrapper,ui):
+            bp=backup/p.name
+            if bp.is_file():
+                shutil.copy2(bp,p)
+        raise
+
+
 ACTIONS = {
     "telegram_local_status": telegram_local_status,
     "health": health,
@@ -16430,6 +16626,7 @@ ACTIONS = {
     "audit_auto_edit_post_cigarette_v1": audit_auto_edit_post_cigarette_v1,
     "reconcile_auto_edit_post_cigarette_v1": reconcile_auto_edit_post_cigarette_v1,
     "apply_auto_edit_post_cigarette_reconcile_v1": reconcile_auto_edit_post_cigarette_v1,
+    "apply_auto_edit_telemetry_v1": apply_auto_edit_telemetry_v1,
     "build_auto_edit_pack170_update": build_auto_edit_pack170_update,
     "build_auto_edit_pack200_update": build_auto_edit_pack200_update,
     "build_auto_edit_pack300_update": build_auto_edit_pack300_update,
