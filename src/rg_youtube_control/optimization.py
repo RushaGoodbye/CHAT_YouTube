@@ -640,7 +640,6 @@ def extract_chapters_from_description(
         if line.strip() not in chapter_set
     ]
     body = "\n".join(body_lines).strip()
-    original_body_without_hashtags = body
     body = re.sub(r"\n{3,}", "\n\n", body)
     return body, chapters
 
@@ -756,6 +755,7 @@ def fit_description_to_youtube_limit(
         if not HASHTAG_ONLY_LINE_RE.fullmatch(line)
     ]
     body = "\n".join(body_lines).strip()
+    original_body_without_hashtags = body
     service = (
         "УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ:\n"
         f"{PROJECT_LINKS_URL}\n\n"
