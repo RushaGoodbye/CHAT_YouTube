@@ -212,7 +212,9 @@ def build_hold(now,backup,audit):
       "removed_misapplied_cigarette_blur_overlays":audit["removed_blur_overlays"],
       "original_source_audio_modified":False,"source_video_modified":False,
       "other_dialogues_modified":False,
-      "primary_xml_restored_from_verified_preblur_backup":True,
+      "clean_xml_reconstructed_from_verified_preblur_backup":True,
+      "primary_xml_withheld":True,
+      "clean_xml_for_semantic_review":str(backup/"CLEAN_XML_PENDING_SEMANTIC_REVIEW.xml"),
       "delivered_xml_withheld":True,
       "backup_directory":str(backup),
       "do_not_publish":True,
@@ -307,8 +309,14 @@ def apply():
             safe_replace_bytes(PRIMARY,original_bytes)
             if sha(PRIMARY)!=sha(PRIOR/PRIMARY.name):
                 raise RuntimeError("Clean baseline restore checksum mismatch")
-            if DELIVERED.exists():
-                raise RuntimeError("Previously published XML still present after quarantine")
+            # Withhold the primary too: Studio can discover RG_EDITED_886_5.xml
+            # directly in APP, even when APP/886 copy has been removed.
+            clean_held=dest/"CLEAN_XML_PENDING_SEMANTIC_REVIEW.xml"
+            os.replace(PRIMARY,clean_held)
+            if sha(clean_held)!=sha(PRIOR/PRIMARY.name):
+                raise RuntimeError("Withheld clean XML checksum mismatch")
+            if DELIVERED.exists() or PRIMARY.exists():
+                raise RuntimeError("Candidate dialogue XML still discoverable in app ready folders")
             if read_json(DETECT).get("passed") is not False or read_json(QA).get("passed") is not False:
                 raise RuntimeError("Semantic QA not invalidated")
             if not read_json(HOLD).get("do_not_publish"):
@@ -329,12 +337,15 @@ def apply():
            "detector_semantic_qa":"FAIL",
            "blur_qa_passed":False,
            "previous_delivered_xml_withheld":True,
+           "previous_primary_xml_withheld":True,
+           "clean_xml_held_for_review":str(dest/"CLEAN_XML_PENDING_SEMANTIC_REVIEW.xml"),
            "release_allowed":False,
            "full_dialogue_cigarette_audit":"NOT_RUN",
            "audio_unchanged":True,"original_video_unchanged":True,
            "other_dialogues_unchanged":True,
            "source_media_reprocessed":False,
-           "backup":str(dest),"primary_xml":str(PRIMARY),
+           "backup":str(dest),
+           "primary_xml":None,
            "hold_marker":str(HOLD),
            "next":"Review whole dialogue independently for genuine cigarettes; no stream rerun."
         }
