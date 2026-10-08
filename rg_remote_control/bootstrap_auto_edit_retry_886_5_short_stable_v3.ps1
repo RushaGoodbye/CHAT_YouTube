@@ -111,8 +111,37 @@ $fullPass=($state.overall_ok -eq $true) -and ($null -ne $d) -and ($d.passed -eq 
 $row=$null
 if($null -ne $state.rows){$row=$state.rows | Where-Object {$_.stream -eq '886'} | Select-Object -First 1}
 
+$resultStatus='NEEDS_CHECK'
+if($fullPass){$resultStatus='PASS'}
+$detFile=$null
+$qaFile=$null
+if(Test-Path $det){$detFile=$det}
+if(Test-Path $qa){$qaFile=$qa}
+$detSummary=$null
+if($null -ne $d){
+  $detSummary=[ordered]@{
+    passed=$d.passed
+    status=$d.status
+    raw_detection_count=$d.raw_detection_count
+    confirmed_track_count=$d.confirmed_track_count
+    rejected_track_count=$d.rejected_track_count
+    unconfirmed_detection_count=$d.unconfirmed_detection_count
+    interval_count=$d.interval_count
+    failures=$d.failures
+    confirmations=@($d.tracks | ForEach-Object {$_.confirmation} | Where-Object {$_} | Select-Object -Unique)
+  }
+}
+$qaSummary=$null
+if($null -ne $q){
+  $qaSummary=[ordered]@{
+    passed=$q.passed
+    overlay_count=$q.overlay_count
+    expected_overlay_count=$q.expected_overlay_count
+    failures=$q.failures
+  }
+}
 $out=[ordered]@{
-  status=if($fullPass){'PASS'}else{'NEEDS_CHECK'}
+  status=$resultStatus
   stream='886'
   protected_dialogues='1-4'
   retried_from_dialogue=5
@@ -123,25 +152,10 @@ $out=[ordered]@{
   object_intervals_present=$tracked
   object_blur_overlays_present=$overlaid
   queue_row=$row
-  cigarette_detection_file=if(Test-Path $det){$det}else{$null}
-  cigarette_qa_file=if(Test-Path $qa){$qa}else{$null}
-  cigarette_detection=if($null -ne $d){[ordered]@{
-    passed=$d.passed
-    status=$d.status
-    raw_detection_count=$d.raw_detection_count
-    confirmed_track_count=$d.confirmed_track_count
-    rejected_track_count=$d.rejected_track_count
-    unconfirmed_detection_count=$d.unconfirmed_detection_count
-    interval_count=$d.interval_count
-    failures=$d.failures
-    confirmations=@($d.tracks | ForEach-Object {$_.confirmation} | Where-Object {$_} | Select-Object -Unique)
-  }}else{$null}
-  cigarette_qa=if($null -ne $q){[ordered]@{
-    passed=$q.passed
-    overlay_count=$q.overlay_count
-    expected_overlay_count=$q.expected_overlay_count
-    failures=$q.failures
-  }}else{$null}
+  cigarette_detection_file=$detFile
+  cigarette_qa_file=$qaFile
+  cigarette_detection=$detSummary
+  cigarette_qa=$qaSummary
   mandatory=$true
   fail_closed=$true
   whole_frame_blur_forbidden=$true
