@@ -3478,8 +3478,12 @@ class MainWindow(QMainWindow):
             for index in range(self.settings_sections.count()):
                 if self.settings_sections.tabText(index).startswith("Сховища / API"):
                     self.settings_sections.setTabVisible(index, advanced)
+        # One-video local SEO is a primary user workflow, not a diagnostic.
+        # Keep it visible in normal mode; only the experimental batch and
+        # tool probes belong behind the advanced setting.
+        if hasattr(self, "advanced_local_seo_action"):
+            self.advanced_local_seo_action.setVisible(True)
         for name in (
-            "advanced_local_seo_action",
             "advanced_batch_seo_action",
             "advanced_tools_probe_action",
         ):
@@ -12580,10 +12584,9 @@ class MainWindow(QMainWindow):
             item for item in variants
             if item.casefold() != title.casefold()
         ]
-        if len(variants) < 3:
-            raise RuntimeError(
-                "Локальна модель не створила 3 різні A/B варіанти назви."
-            )
+        # In manual SEO mode incomplete A/B ideas are a review warning,
+        # not grounds to throw away a validated title/description. The
+        # save path below must retain such a package as a draft, not ready.
         variants = variants[:3]
 
         check = validate_content_package(
@@ -12953,6 +12956,12 @@ class MainWindow(QMainWindow):
             )
             return
 
+        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        draft_reason = (
+            str(package.get("review_reason") or "").strip()
+            or "Неповні A/B варіанти - потрібна перевірка."
+            if requires_review else "Переглянуто користувачем"
+        )
         save_optimization_draft(
             self.conn,
             video_id,
@@ -12960,11 +12969,11 @@ class MainWindow(QMainWindow):
             description,
             chapters,
             tags,
-            "ready",
+            "draft" if requires_review else "ready",
             variants,
-            generation="local-seo-0.6",
-            quality_state="safe",
-            quality_reason="Переглянуто користувачем",
+            generation="local-seo-0.7.8",
+            quality_state="needs_review" if requires_review else "safe",
+            quality_reason=draft_reason,
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
@@ -12978,12 +12987,20 @@ class MainWindow(QMainWindow):
         )
         self.reload_optimization_queue()
         self.reload_action_log()
-        self._set_process_idle("SEO-пакет готовий до застосування")
-        self._toast(
-            "✓ SEO-пакет перевірено · статус «Готово до застосування» · "
-            "YouTube API: 0",
-            7000,
-        )
+        if requires_review:
+            self._set_process_idle("SEO-чернетка потребує перевірки")
+            self._toast(
+                "✓ SEO-чернетку збережено · потрібна перевірка "
+                "назви / A/B · YouTube API: 0",
+                7000,
+            )
+        else:
+            self._set_process_idle("SEO-пакет готовий до застосування")
+            self._toast(
+                "✓ SEO-пакет перевірено · статус "
+                "«Готово до застосування» · YouTube API: 0",
+                7000,
+            )
         self._update_optimization_context_card()
 
     def export_public_comments_zero_api(self) -> None:

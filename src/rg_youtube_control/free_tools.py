@@ -597,7 +597,10 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     """Accept common local-model key aliases, then normalize to our schema."""
     normalized = dict(candidate or {})
     aliases = {
-        "title": ("title", "new_title", "назва", "name"),
+        "title": (
+            "title", "new_title", "video_title", "назва",
+            "название", "заголовок", "основное_название", "name",
+        ),
         "description": (
             "description", "full_description", "description_uk",
             "опис", "повний_опис", "summary",
@@ -617,6 +620,17 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
             if value not in (None, "", []):
                 normalized[canonical] = value
                 break
+    variants = normalized.get("title_variants")
+    if isinstance(variants, str):
+        # A single string is not a list of character-sized A/B titles.
+        # Strip only list prefixes; preserve dates/numbers inside SEO titles.
+        normalized["title_variants"] = [
+            re.sub(r"^\s*(?:[ABCАБВ1-3][.):-]\s*)", "", part).strip()
+            for part in variants.splitlines()
+            if part.strip()
+        ]
+    elif not isinstance(variants, list):
+        normalized["title_variants"] = []
     return normalized
 
 
@@ -1691,6 +1705,7 @@ SHORTS: {is_short}
 """.strip()
 
     payload: dict[str, Any] = {}
+    title_fallback_used = False
     last_error: Exception | None = None
     for attempt in range(1 if fast_mode else 3):
         system_text = (
@@ -1732,17 +1747,24 @@ chapters: рядок з підтвердженими таймкодами та �
                 json_mode=True,
             )
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
-            if not str(candidate.get("title") or "").strip():
-                if fast_mode and str(current_title or "").strip():
-                    # In batch mode the already published title is safer than
-                    # promoting an arbitrary A/B variant to the primary title.
-                    candidate["title"] = _clean_project_title_for_seo(
-                        current_title
+            proposed_title = candidate.get("title")
+            title_missing = (
+                not isinstance(proposed_title, str)
+                or not proposed_title.strip()
+            )
+            if title_missing:
+                # The existing YouTube title is known and verified metadata.
+                # Never fail just because Ollama omitted a new one, and never
+                # promote a speculative A/B variant to the primary title.
+                existing_title = str(current_title or "").strip()
+                if not existing_title:
+                    raise ValueError(
+                        "Немає ані назви від моделі, ані поточної назви відео."
                     )
-                else:
-                    variants_candidate = candidate.get("title_variants") or []
-                    if isinstance(variants_candidate, list) and variants_candidate:
-                        candidate["title"] = str(variants_candidate[0]).strip()
+                candidate["title"] = (
+                    _clean_project_title_for_seo(existing_title)
+                    if fast_mode else existing_title
+                )
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
@@ -1765,24 +1787,34 @@ chapters: рядок з підтвердженими таймкодами та �
             variants_candidate = [
                 str(item).strip()
                 for item in (candidate.get("title_variants") or [])
-                if str(item).strip()
+                if isinstance(item, str) and item.strip()
             ]
             if (
                 len(variants_candidate) < 3
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
                 if fast_mode:
+                    # Strict for unattended batch preparation.
                     raise ValueError("need exactly 3 title variants")
-                variants_candidate = _recover_title_variants(
-                    current_title=current_title,
-                    transcript=transcript,
-                    model=model,
-                )
+                try:
+                    variants_candidate = _recover_title_variants(
+                        current_title=current_title,
+                        transcript=transcript,
+                        model=model,
+                    )
+                except (ValueError, RuntimeError, TimeoutError):
+                    # Allow an incomplete *manual-review* draft instead of
+                    # discarding an otherwise useful transcript-grounded SEO
+                    # description and requiring another full model pass.
+                    variants_candidate = []
                 candidate["title_variants"] = variants_candidate
-            if len(variants_candidate) < 3:
-                raise ValueError("need exactly 3 title variants")
-            if len({item.casefold() for item in variants_candidate[:3]}) < 3:
-                raise ValueError("title variants must be distinct")
+            variants_candidate = list(dict.fromkeys(
+                item for item in variants_candidate
+                if item.casefold() != str(candidate["title"]).casefold()
+            ))
+            if fast_mode and len(variants_candidate) < 3:
+                raise ValueError("need exactly 3 distinct title variants")
+            candidate["title_variants"] = variants_candidate[:3]
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
@@ -1804,9 +1836,10 @@ chapters: рядок з підтвердженими таймкодами та �
                             description_candidate,
                             transcript,
                         )
-                else:
-                    # Full-quality mode may spend extra local model passes on
-                    # description recovery. Batch mode intentionally avoids it.
+                elif description_error:
+                    # Only pay for a repair pass when the candidate actually
+                    # fails quality checks. The old implementation made extra
+                    # Ollama requests even for an already valid description.
                     recovered_description = _recover_missing_description(
                         current_title=current_title,
                         transcript=transcript,
@@ -1820,7 +1853,7 @@ chapters: рядок з підтвердженими таймкодами та �
                             description_candidate,
                             transcript,
                         )
-                    elif description_error:
+                    if description_error:
                         fallback_description = _grounded_description_from_transcript(
                             current_title,
                             transcript,
@@ -1880,6 +1913,7 @@ chapters: рядок з підтвердженими таймкодами та �
             candidate["tags"] = merged_tags
 
             payload = candidate
+            title_fallback_used = title_missing
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
@@ -1964,6 +1998,20 @@ chapters: рядок з підтвердженими таймкодами та �
         "tags": tags[:15],
         "chapters": chapters,
         "provider": f"ollama:{model}",
+        "title_fallback_used": title_fallback_used,
+        "needs_review": (
+            title_fallback_used
+            or len(variants) < 3
+            or not transcript.strip()
+        ),
+        "review_reason": "; ".join(
+            message for condition, message in (
+                (title_fallback_used, "Модель не створила нову назву"),
+                (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
+                (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
+            )
+            if condition
+        ),
         "youtube_data_api_quota": 0,
     }
 
