@@ -35,7 +35,7 @@ def read_only_snapshot(*,psutil_module=None):
         except (ps.NoSuchProcess,ps.AccessDenied,ps.ZombieProcess,OSError):
             continue
     drives={}
-    for drive in (r"F:\",r"D:\"):
+    for drive in ("F:\\","D:\\"):
         try:
             if not os.path.isdir(drive):
                 drives[drive]={"available":False}
