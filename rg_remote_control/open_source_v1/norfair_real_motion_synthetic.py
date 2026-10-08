@@ -27,10 +27,25 @@ assert t["matched_frames"]<=17
 n=norfair_probe(t)
 assert n["one_id_continuity"] is True,n
 assert n["distinct_confirmed_track_ids"]==1,n
-try:
-    match_track(images,[15,15,16,16],index)
-except RuntimeError:
-    pass
-else:
-    raise AssertionError("Tiny seed patch was not rejected")
+def require_rejected(bbox,frames=images,seed_index=index,expected=""):
+    try:
+        match_track(frames,bbox,seed_index)
+    except RuntimeError as exc:
+        if expected and expected not in str(exc):
+            raise AssertionError("Wrong rejection reason: "+str(exc)) from exc
+    else:
+        raise AssertionError("Unsafe candidate was not rejected: "+str(bbox))
+
+# A 1x1 false hit was previously falsely accepted because padding came
+# before minimum area validation. Protect that exact regression.
+require_rejected([15,15,16,16],expected="Unpadded seed bbox too small")
+require_rejected([15,15,17,18],expected="Unpadded seed bbox too small")
+require_rejected([15,15,15,40],expected="Unpadded seed bbox too small")
+require_rejected([-2,40,15,55],expected="outside the decoded frame")
+require_rejected([240,145,270,165],expected="outside the decoded frame")
+require_rejected([float("nan"),1,12,18],expected="non-finite")
+require_rejected([100,100,145,130],seed_index=99,expected="invalid seed frame")
+flat_frames=[np.zeros((160,250,3),dtype=np.uint8) for _ in range(5)]
+require_rejected([60,60,80,80],frames=flat_frames,seed_index=2,
+                 expected="lacks texture")
 print("RG_OSS_NORFAIR_REAL_FRAME_SYNTHETIC_GATE: PASS")
