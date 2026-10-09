@@ -192,8 +192,7 @@ else:
 print("CRON_CONCLUSION","UNVERIFIED","reason","CLOUDFLARE_EXECUTION_LOGS_NOT_EXPOSED")
 print("AI_DEFER_POLICY","EXPECTED_NOT_VERIFIED")
 
-# R8: Watchdog issues are read from the NAS snapshot only when present, with no guessing.
-watchdog_issues=read(state/"telegram_watchdog_issues",20000)
+# R8: avoid inferring the alert delivery state from scheduler freshness.
 print("ALERTS_VERIFICATION","UNVERIFIED","reason","DIRECT_ALERT_API_NOT_QUERIED")
 print("MODERATION_VERIFICATION","UNVERIFIED_IF_STALE","reason","CHECK_LIVE_AGE_AND_WATCHDOG")
 print("CLOUDFLARE_LOG_VERIFICATION","UNVERIFIED","reason","REQUIRES_WORKER_OBSERVABILITY")
