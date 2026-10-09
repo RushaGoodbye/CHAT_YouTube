@@ -112,6 +112,11 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .ai_repair_status import (
+    ACTIONS_URL as AI_REPAIR_ACTIONS_URL,
+    fetch_ai_repair_status,
+    format_ai_repair_status,
+)
 from .seo_quality_gate import review_seo_package
 from .rejected_seo import rejected_package_key, package_fingerprint
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
@@ -6200,6 +6205,35 @@ class MainWindow(QMainWindow):
         diagnostics_buttons.addWidget(open_diag_log_btn)
         diagnostics_buttons.addStretch()
         diagnostics_card.addLayout(diagnostics_buttons)
+
+        # Experimental AI code repair: status/report only, never apply a patch.
+        ai_card = settings_card(
+            diagnostics_layout,
+            "AI-автовиправлення · тестовий режим",
+            "Ollama пропонує патч у GitHub. Перевірка виконується окремо. "
+            "Жодні виправлення, оновлення програми чи зміни YouTube "
+            "не встановлюються автоматично.",
+        )
+        self.ai_repair_status_label = QLabel(
+            "Натисніть «Перевірити стан», щоб переглянути останні перевірки GitHub. "
+            "Автоматичне застосування змін ВИМКНЕНО."
+        )
+        self.ai_repair_status_label.setWordWrap(True)
+        self.ai_repair_status_label.setObjectName("QuotaSummary")
+        ai_card.addWidget(self.ai_repair_status_label)
+
+        ai_buttons = QHBoxLayout()
+        self.ai_repair_refresh_btn = QPushButton("Перевірити стан AI")
+        self.ai_repair_refresh_btn.clicked.connect(self.refresh_ai_repair_status)
+        ai_buttons.addWidget(self.ai_repair_refresh_btn)
+        ai_review_btn = QPushButton("Журнал GitHub / рев'ю патчів")
+        ai_review_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(AI_REPAIR_ACTIONS_URL))
+        )
+        ai_buttons.addWidget(ai_review_btn)
+        ai_buttons.addStretch()
+        ai_card.addLayout(ai_buttons)
+
         diagnostics_layout.addStretch()
         self.settings_sections.addTab(diagnostics_page, "Діагностика")
 
@@ -6257,6 +6291,39 @@ class MainWindow(QMainWindow):
         self.reload_action_log()
         if hasattr(self, "log_sections"):
             self.log_sections.setCurrentIndex(1)
+
+    def refresh_ai_repair_status(self) -> None:
+        """Read-only GitHub check in background; never block the main UI."""
+        active = getattr(self, "_ai_repair_worker", None)
+        if active is not None and active.isRunning():
+            return
+        self.ai_repair_refresh_btn.setEnabled(False)
+        self.ai_repair_status_label.setText(
+            "Отримую стан GitHub... Застосування патчів ВИМКНЕНО."
+        )
+        worker = LocalToolWorker(fetch_ai_repair_status, self)
+        self._ai_repair_worker = worker
+
+        def succeeded(result) -> None:
+            self.ai_repair_status_label.setText(format_ai_repair_status(result))
+
+        def failed(message: str) -> None:
+            self.ai_repair_status_label.setText(
+                "GitHub тимчасово недоступний. Статус перевірок НЕ ПІДТВЕРДЖЕНО. "
+                "Автоматичне застосування патчів ВИМКНЕНО. "
+                + str(message)[:180]
+            )
+
+        def finished() -> None:
+            self.ai_repair_refresh_btn.setEnabled(True)
+            self._ai_repair_worker = None
+            worker.deleteLater()
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
 
     def refresh_diagnostics_panel(self) -> None:
         try:
