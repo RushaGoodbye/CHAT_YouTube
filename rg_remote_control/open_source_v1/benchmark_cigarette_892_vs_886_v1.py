@@ -102,24 +102,18 @@ def run_worker(name,video,window,site,model,opts,temp):
     cmd=[str(RT),"-u","-X","utf8",str(WORKER),
          "--input",str(input_path),"--output",str(output_path)]
     print("RG_PAIR|START|"+name+"|"+str(window),flush=True)
-    p=subprocess.Popen(cmd,cwd=str(APP),env=env,
-         stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-         text=True,encoding="utf-8",errors="replace",
-         creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-    lines=[]
     try:
-        assert p.stdout is not None
-        for line in p.stdout:
-            line=line.strip()
-            if line:lines.append(line)
-            if line.startswith("RGCIGPROGRESS|") and len(lines)%24==0:
-                print("RG_PAIR|"+name+"|"+line,flush=True)
-        rc=p.wait(timeout=900)
-    except BaseException:
-        try:p.kill()
-        except Exception:pass
-        p.wait()
-        raise
+        result=subprocess.run(cmd,cwd=str(APP),env=env,
+            stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+            text=True,encoding="utf-8",errors="replace",timeout=900,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Existing detector exceeded the 15-minute bounded timeout: "+name) from None
+    lines=(result.stdout or "").splitlines()[-120:]
+    rc=result.returncode
+    progress=[x for x in lines if x.startswith("RGCIGPROGRESS|")]
+    if progress:
+        print("RG_PAIR|"+name+"|LAST_PROGRESS|"+progress[-1],flush=True)
     if rc!=0 or not output_path.is_file():
         raise RuntimeError("Existing detector failed "+name+": "+" | ".join(lines[-8:]))
     raw=readj(output_path)
