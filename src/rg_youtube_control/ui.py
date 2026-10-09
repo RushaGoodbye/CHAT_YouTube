@@ -9757,7 +9757,7 @@ class MainWindow(QMainWindow):
             ab_options.setReadOnly(True)
             ab_options.setMaximumHeight(112)
             ab_options.setPlainText(
-                "\\n".join(f"{i}. {value}" for i, value in enumerate(variants, 1))
+                "\n".join(f"{i}. {value}" for i, value in enumerate(variants, 1))
                 if variants else "Варіанти не згенеровано"
             )
             layout.addWidget(ab_options)
