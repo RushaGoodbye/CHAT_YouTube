@@ -38,7 +38,12 @@ def run_tests(*, full_suite: bool = False):
 
 
 def ask_model(failures: str, feedback: str = "") -> dict:
-    sources = {p: (ROOT / p).read_text(encoding="utf-8") for p in ALLOWED}
+    # Include production source and its direct test only; avoid overflowing 4K model context.
+    selected = [p for p in WRITABLE if p.split("/")[-1].replace(".py", "") in failures]
+    if not selected:
+        selected = list(WRITABLE)
+    test_paths = ["tests/test_" + p.split("/")[-1] for p in selected]
+    sources = {p: (ROOT / p).read_text(encoding="utf-8") for p in selected + test_paths if (ROOT / p).is_file()}
     prompt = (
         "Fix the reported Python test failures with the smallest safe patch. "
         "Only touch existing allowed files; never disable checks, tests, or security. "
@@ -48,13 +53,13 @@ def ask_model(failures: str, feedback: str = "") -> dict:
         "A constant hash or hashing the original unsorted/case-sensitive tags is WRONG. "
         "Return ONLY JSON: {\"files\": {\"path\": \"full file contents\"}}. "
         "If the repair is uncertain, return {\"files\": {}}.\n"
-        "Allowed source files:\n" + json.dumps(sources, ensure_ascii=False) +
-        "\nFailures:\n" + failures + "\nPrevious candidate test failures:\n" + feedback
+        "Context (tests are read-only):\n" + json.dumps(sources, ensure_ascii=False) +
+        "\nFailures:\n" + failures[-3000:] + "\nPrevious candidate test failures:\n" + feedback[-1800:]
     )
     payload = json.dumps({
         "model": os.environ.get("RG_REPAIR_MODEL", "qwen3:8b"),
         "prompt": prompt, "stream": False, "format": "json",
-        "options": {"temperature": 0.1, "num_predict": 6000},
+        "options": {"temperature": 0.1, "num_ctx": 8192, "num_predict": 2400},
     }).encode()
     request = urllib.request.Request(
         "http://127.0.0.1:11434/api/generate", payload,
@@ -62,7 +67,11 @@ def ask_model(failures: str, feedback: str = "") -> dict:
     )
     with urllib.request.urlopen(request, timeout=180) as response:
         data = json.loads(response.read())
-    return json.loads(data["response"])
+    answer = json.loads(data["response"])
+    if not isinstance(answer, dict):
+        raise ValueError("Model response must be an object")
+    print("MODEL PROPOSAL FILES:", list((answer.get("files") or {}).keys()), flush=True)
+    return answer
 
 
 def main() -> int:
@@ -93,8 +102,9 @@ def main() -> int:
             print(f"REPAIR ATTEMPT {attempt}/2", flush=True)
             proposed = ask_model(failure_text, feedback).get("files", {})
             if not isinstance(proposed, dict) or not proposed:
-                print("No repair proposal", flush=True)
-                break
+                feedback = "Your prior response had an empty files object. The tests still fail. Provide an actual minimal fix to the production file or explicitly state uncertainty."
+                print("No repair proposal; retrying with explicit failure context", flush=True)
+                continue
             if len(proposed) > 2 or any(p not in WRITABLE for p in proposed):
                 raise ValueError("Model attempted edits outside production allowlist")
             for path, value in proposed.items():
