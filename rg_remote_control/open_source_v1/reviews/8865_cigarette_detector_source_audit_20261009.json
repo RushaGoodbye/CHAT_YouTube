@@ -1,0 +1,87 @@
+{
+  "schema": "RG_AUTO_EDIT_CIGARETTE_SOURCE_AUDIT_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "reviewed_module": "rg_cigarette_blur.py",
+  "user_uploaded_original_sha256": "0355b2dd68144212a2d05f7c94a5ba63acd5274896bac8c198ea2d1f338b1c49",
+  "module_version": "RG_CIGARETTE_BLUR_V1_SHORT_STABLE_V2",
+  "status": "PRODUCTION_IDENTITY_VERIFICATION_UNSAFE",
+  "verified_reproduction": {
+    "method": "Imported exact user-supplied module, mocked only the external coverage-QA dependency; created disposable synthetic Premiere XML for injection test. Did not touch production.",
+    "results": [
+      "Two 0.10 score detections of a stationary microphone-like marker separated by 0.067 sec are accepted as SHORT_STABLE, yielding three localized intervals.",
+      "Single detection with score 0.35 is accepted as STRONG_HIT.",
+      "inject_cigarette_blur mutates its target XML file despite provided detection_report.passed=false; returns QA FAIL only after XML is written."
+    ],
+    "production_changed": false
+  },
+  "findings": [
+    {
+      "id": "CIG-001",
+      "severity": "CRITICAL",
+      "lines": "123-157",
+      "issue": "track confirmation is purely geometric, class string can be wrong; normal, short-stable or strong-hit detections can become accepted without independent cigarette semantic identity"
+    },
+    {
+      "id": "CIG-002",
+      "severity": "CRITICAL",
+      "lines": "296-377",
+      "issue": "Premiere XML is written before structural and coverage QA; failed semantic detector input can still overwrite the XML"
+    },
+    {
+      "id": "CIG-003",
+      "severity": "HIGH",
+      "lines": "170-173",
+      "issue": "empty source ranges return passed:true, despite having scanned no video"
+    },
+    {
+      "id": "CIG-004",
+      "severity": "HIGH",
+      "lines": "210-223",
+      "issue": "report passed logic accepts at least one confirmed track even if other raw detections remain unconfirmed; zero detector detections also yield passed true regardless of full-frame recall evidence"
+    },
+    {
+      "id": "CIG-005",
+      "severity": "HIGH",
+      "lines": "380-393",
+      "issue": "QA checks only filter presence, overlay count and duration; this does not certify blur subject, framing, motion or complete video coverage"
+    },
+    {
+      "id": "CIG-006",
+      "severity": "MEDIUM",
+      "lines": "77-120",
+      "issue": "padded boxes and time interpolation blur a rectangular region, cannot prove cigarette-only segmentation under occlusion"
+    },
+    {
+      "id": "CIG-007",
+      "severity": "HIGH",
+      "lines": "309-312",
+      "issue": "earlier cigarette tracks are removed on retry before semantic validation has passed; combined with early writing may lose previously correct effects"
+    }
+  ],
+  "requirements_before_production_promotion": [
+    "Independent semantic identity verifier on actual video frames, not YOLOWorld class name, confidence, stable center, or IoU alone.",
+    "Consecutive object-level evidence and explicit microphone-mark negative regression without any blanket spatial ban near microphone.",
+    "Object mask or tightly localized verified region and motion/occlusion handling; no whole-frame blur.",
+    "Verified frame coverage of the entire retained dialogue, even if the detector reports zero cigarettes.",
+    "Reject ambiguous, unsupported or unverified candidate tracks; fail closed to manual review rather than auto-publish.",
+    "Perform all XML changes on a staged temporary file; structural, semantic and per-frame video QA before atomic publication.",
+    "Preserve byte-identical audio and unrelated tracks; never auto-release 886_5 without full independent verification."
+  ],
+  "shadow_candidate": {
+    "status": "LOCAL_TESTS_PASS_NOT_INSTALLED",
+    "artifacts": [
+      "rg_cigarette_blur_SHADOW_FAIL_CLOSED_v1.py",
+      "RG_CIGARETTE_SEMANTIC_HARDENING_PROPOSAL_v1.diff",
+      "test_rg_cigarette_semantic_shadow_v1.py"
+    ],
+    "behavior": "Rejects all XML injection until independently verified cigarette identity is integrated; deny zero source ranges; mark scan results as unverified candidates. This is a deliberate safe test and NOT a complete production detector.",
+    "test_result": "3 attempted injections rejected with XML byte preservation; original uploaded module byte preserved."
+  },
+  "next_required_files": [
+    "F:\\RG_AUTO_EDIT\\RG Auto Edit App\\rg_cigarette_detector_worker.py",
+    "F:\\RG_AUTO_EDIT\\RG Auto Edit App\\rg_privacy_coverage_qa.py"
+  ],
+  "quarantine_886_5": "REMAINS_ACTIVE",
+  "automatic_release_allowed": false
+}
