@@ -26,6 +26,32 @@ from rg_youtube_control.seo_quality_gate import review_seo_package
 OUTPUT = Path("rg_youtube_real_seo_anonymous_qa.json")
 
 
+def anonymous_issue_categories(issues: list[str]) -> list[str]:
+    """Report issue TYPES, never leak phrases/topics from warning text."""
+    categories = set()
+    for item in issues:
+        warning = str(item or "").casefold()
+        if any(token in warning for token in (
+            "цілісність", "покриття", "часові фрагменти",
+        )):
+            categories.add("TRANSCRIPT_COVERAGE")
+        elif any(token in warning for token in (
+            "цитат", "доказов",
+        )):
+            categories.add("EVIDENCE_QUOTES")
+        elif any(token in warning for token in (
+            "назв", "a/b", "варіант",
+        )):
+            categories.add("AB_TITLES")
+        elif any(token in warning for token in (
+            "опис", "теми", "тем ",
+        )):
+            categories.add("DESCRIPTION_TOPICS")
+        else:
+            categories.add("OTHER_REVIEW")
+    return sorted(categories)
+
+
 def anonymous_metrics(report: dict, package: dict | None = None) -> dict:
     """Return only non-identifying counts and boolean checks."""
     blocks = int(report.get("blocks_total") or 0)
@@ -141,6 +167,7 @@ def run() -> dict:
             evidence_report=evidence,
         )
         output["semantic_gate_warnings_count"] = len(issues)
+        output["semantic_gate_warning_categories"] = anonymous_issue_categories(issues)
         output["status"] = "STRUCTURE_PASS" if not issues else "REVIEW_REQUIRED"
         output["reason"] = (
             "All structural gates passed; human content review still required"
@@ -163,6 +190,7 @@ def main() -> int:
           report.get("grounded_blocks", 0), "/", report.get("timeline_blocks", 0), flush=True)
     print("A/B TITLES:", report.get("ab_titles_count", 0), flush=True)
     print("SEO WARNINGS:", report.get("semantic_gate_warnings_count", -1), flush=True)
+    print("WARNING CATEGORIES:", ",".join(report.get("semantic_gate_warning_categories") or []), flush=True)
     print("REASON:", report.get("reason", "No additional reason"), flush=True)
     # A REVIEW_REQUIRED result is an honest QA finding, not a tooling crash.
     return 0
