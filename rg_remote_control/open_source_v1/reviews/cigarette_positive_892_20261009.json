@@ -45,5 +45,117 @@
     "safety_added": "V2 bootstrap downloads pinned corrected V1 and validates its complete syntax using Windows PowerShell parser BEFORE any file operations. GitHub Windows PowerShell 5.1 AST regression workflow added, execution still unconfirmed."
   },
   "production_allowed": false,
-  "semantic_confirmed": false
+  "semantic_confirmed": false,
+  "source_archive_received_20261009": {
+    "status": "VERIFIED_READABLE_AND_VISUALLY_REVIEWED",
+    "file": "RG_892_CIGARETTE_GOLD_015841.zip",
+    "zip_integrity": "PASS",
+    "source_interval_sec": [
+      7109,
+      7133
+    ],
+    "video_only_clip_duration_sec": 24,
+    "video_codec_reference": "mp4 video-only 1920x1080 30fps",
+    "contact_sheets": 11,
+    "sampled_frames": 96,
+    "sampled_fps": 4,
+    "full_resolution_center_frames": 9,
+    "source_audio_modified": false,
+    "expected_positive_confirmed": true,
+    "visual_review": "A guest appears in the right frame smoking a lit cigarette held between fingers and at mouth. The cigarette moves from the mouth to the hand, varies in orientation, occasionally is partially occluded by the hand/face. Rising smoke by itself should not be blurred. Presenter and microphone in left frame are negative regions.",
+    "reviewer": "Assistant visual inspection of original user-provided frames",
+    "known_gold_negative": "886_5 static microphone windscreen logo at source 9558.9-9561.2",
+    "semantic_detector_test_executed": false,
+    "full_temporal_gt_labeled": false,
+    "segmentation_masks_gt_available": false
+  },
+  "visual_labels_initial": [
+    {
+      "source_time_sec": 7109,
+      "label": "POSITIVE_LIT_CIGARETTE_AT_MOUTH",
+      "certainty": "HIGH",
+      "source": "Contact sheet 01"
+    },
+    {
+      "source_time_sec": 7111,
+      "label": "POSITIVE_LIT_CIGARETTE_AT_MOUTH",
+      "certainty": "HIGH",
+      "source": "Contact sheet 01"
+    },
+    {
+      "source_time_sec": 7114,
+      "label": "UNCERTAIN_NOT_VISIBLE_IN_SPARSE_SAMPLE",
+      "certainty": "LOW",
+      "source": "Contact sheet 03"
+    },
+    {
+      "source_time_sec": 7116,
+      "label": "POSITIVE_CIGARETTE_IN_HAND",
+      "certainty": "HIGH",
+      "source": "Contact sheet 04"
+    },
+    {
+      "source_time_sec": 7120,
+      "label": "REVIEW_CANDIDATE_HAND_AND_SMOKE_CIGARETTE_NOT_UNAMBIGUOUS",
+      "certainty": "LOW",
+      "source": "High-resolution keyframe 045"
+    },
+    {
+      "source_time_sec": 7120.25,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 046"
+    },
+    {
+      "source_time_sec": 7120.5,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 047"
+    },
+    {
+      "source_time_sec": 7120.75,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 048"
+    },
+    {
+      "source_time_sec": 7121,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 049"
+    },
+    {
+      "source_time_sec": 7121.25,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 050"
+    },
+    {
+      "source_time_sec": 7121.5,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 051"
+    },
+    {
+      "source_time_sec": 7121.75,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 052"
+    },
+    {
+      "source_time_sec": 7122,
+      "label": "POSITIVE_LIT_CIGARETTE_IN_GUEST_HAND",
+      "certainty": "HIGH",
+      "source": "High-resolution keyframe 053"
+    },
+    {
+      "source_time_sec": 7125,
+      "label": "POSITIVE_CIGARETTE_HELD_NEAR_FACE",
+      "certainty": "HIGH",
+      "source": "Contact sheet 08"
+    }
+  ],
+  "full_video_object_tracking_verified": false,
+  "positive_gt_status": "VISUAL_POSITIVE_CONFIRMED_SPARSE_HUMAN_LABELS_NO_PIXEL_MASK",
+  "release_policy": "NO_PRODUCTION_CHANGE_OR_AUTO_RELEASE_BY_POSITIVE_CLIP_ALONE"
 }
