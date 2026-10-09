@@ -9696,6 +9696,7 @@ class MainWindow(QMainWindow):
         new_title: str,
         new_description: str,
         new_tags: list[str],
+        title_variants: list[str] | None = None,
         evidence_report: dict | None = None,
     ) -> bool:
         dialog = QDialog(self)
@@ -9738,6 +9739,28 @@ class MainWindow(QMainWindow):
                 )
             )
             layout.addWidget(evidence_details)
+
+        if title_variants is not None:
+            variants = [str(value).strip() for value in title_variants if str(value).strip()]
+            ab_heading = QLabel("A/B-назви · 3 альтернативи до основної назви")
+            ab_heading.setWordWrap(True)
+            layout.addWidget(ab_heading)
+            if len(variants) != 3:
+                ab_warning = QLabel(
+                    f"НЕПОВНИЙ A/B-НАБІР: {len(variants)}/3. "
+                    "Чернетка потребує доопрацювання; це не готовий SEO-пакет."
+                )
+                ab_warning.setWordWrap(True)
+                ab_warning.setObjectName("warningLabel")
+                layout.addWidget(ab_warning)
+            ab_options = QPlainTextEdit()
+            ab_options.setReadOnly(True)
+            ab_options.setMaximumHeight(112)
+            ab_options.setPlainText(
+                "\\n".join(f"{i}. {value}" for i, value in enumerate(variants, 1))
+                if variants else "Варіанти не згенеровано"
+            )
+            layout.addWidget(ab_options)
 
         change_map = QFrame()
         change_map.setObjectName("QueueCard")
@@ -13085,6 +13108,7 @@ class MainWindow(QMainWindow):
                 safe_description_fix(description, title).after
             ),
             new_tags=tags,
+            title_variants=variants,
             evidence_report=evidence_report,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
