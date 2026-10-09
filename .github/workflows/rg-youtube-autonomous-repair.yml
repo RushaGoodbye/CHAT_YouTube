@@ -37,7 +37,8 @@ jobs:
             throw "Required local model qwen3:8b not found. Available: $($models -join ', ')"
           }
           Write-Host 'Ollama qwen3:8b verified on AlexPC'
-          python -m pip install pytest
+          python -m pip install -r requirements.txt
+          python -m pytest -q tests --tb=short
       - name: Autonomous SEO repair (workspace only)
         id: repair
         shell: pwsh
