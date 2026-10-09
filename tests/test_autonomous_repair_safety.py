@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import importlib.util
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/rg-youtube-autonomous-repair.yml"
@@ -20,6 +22,7 @@ def test_agent_cannot_write_tests_and_requires_full_suite():
     assert "succeeded = True" in source
     assert "RG_REPAIR_ALLOWED_ROOT" in source
     assert "marker.is_file()" in source
+    assert "full-suite failures outside the agent\'s supported SEO scope" in source
     assert 'parser.add_argument("--apply", action="store_true"' in source
 
 
@@ -48,3 +51,21 @@ def test_apply_rejected_without_explicit_sandbox_even_with_root_env():
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "BLOCKED: --apply requires an explicitly authorized sandbox" in proc.stdout
+
+def test_green_targeted_tests_cannot_hide_full_suite_failure(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("rg_sandbox_scope_test", AGENT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def fake_run_tests(*, full_suite=False):
+        if full_suite:
+            return 1, "FAILED tests/test_unrelated.py::test_important"
+        return 0, "5 passed"
+
+    monkeypatch.setattr(module, "run_tests", fake_run_tests)
+    monkeypatch.setattr(sys, "argv", ["repair_agent.py"])
+    monkeypatch.chdir(tmp_path)
+    assert module.main() == 2
+    report = json.loads((tmp_path / "rg_seo_repair_report.json").read_text())
+    assert report["initial_tests_pass"] is True
+    assert report["baseline_full_suite_pass"] is False
