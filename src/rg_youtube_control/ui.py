@@ -113,6 +113,7 @@ from .metadata_audit import (
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_quality_gate import review_seo_package
+from .rejected_seo import rejected_package_key, package_fingerprint
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -3983,6 +3984,19 @@ class MainWindow(QMainWindow):
                 )
                 accepted += 1
             elif action == "reject":
+                try:
+                    rejected_tags = json.loads(draft["tags_json"] or "[]")
+                except Exception:
+                    rejected_tags = []
+                set_setting(
+                    self.conn,
+                    rejected_package_key(video_id),
+                    package_fingerprint(
+                        str(draft["new_title"] or ""),
+                        str(draft["description"] or ""),
+                        rejected_tags,
+                    ),
+                )
                 self.conn.execute(
                     "DELETE FROM optimization_drafts WHERE video_id=?",
                     (video_id,),
@@ -12968,6 +12982,10 @@ class MainWindow(QMainWindow):
                     raise RuntimeError(
                         "Автоперевірка пакета: " + "; ".join(quality_reasons)
                     )
+                if package_fingerprint(title, description, tags) == get_setting(
+                    self.conn, rejected_package_key(video_id), ""
+                ):
+                    raise RuntimeError("Тотожний SEO-пакет уже було відхилено")
                 context = dict(item.get("context") or {})
                 evidence_issues = review_seo_package(
                     title=title,
@@ -13126,6 +13144,16 @@ class MainWindow(QMainWindow):
             description,
             title,
         ).after
+
+        if package_fingerprint(title, description, tags) == get_setting(
+            self.conn, rejected_package_key(video_id), ""
+        ):
+            QMessageBox.information(
+                self, APP_NAME,
+                "Цей самий SEO-пакет уже відхилено. "
+                "Створіть змістовно змінений варіант перед новою перевіркою.",
+            )
+            return
 
         before_title = str(context.get("title") or "")
         before_description = str(context.get("description") or "")
