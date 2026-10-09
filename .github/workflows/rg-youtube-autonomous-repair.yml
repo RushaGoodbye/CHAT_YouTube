@@ -1,14 +1,10 @@
-name: RG YouTube Autonomous Repair (sandbox review)
+name: RG YouTube Repair (proposal on AlexPC, test on hosted runner)
 
 on:
   workflow_dispatch:
     inputs:
-      apply:
-        description: "Allow AI to repair allowlisted SEO source files in an isolated checkout"
-        type: boolean
-        default: false
       drill:
-        description: "Run an isolated Ollama recovery regression drill (never writes to checkout)"
+        description: "Test recovery of an artificial fingerprint bug; no production patch"
         type: boolean
         default: false
 
@@ -16,113 +12,114 @@ permissions:
   contents: read
 
 concurrency:
-  group: rg-youtube-autofix-sandbox
+  group: rg-youtube-safe-proposal
   cancel-in-progress: false
 
 jobs:
-  repair:
-    # Only trusted repository branches. Never execute PR-provided code here.
+  propose:
     if: github.repository == 'RushaGoodbye/CHAT_YouTube'
     runs-on: [self-hosted, rg, alexpc, windows]
     timeout-minutes: 20
+    outputs:
+      has_candidate: ${{ steps.proposal.outputs.has_candidate }}
+      source_sha: ${{ steps.proposal.outputs.source_sha }}
+      is_drill: ${{ steps.proposal.outputs.is_drill }}
     steps:
-      - name: Checkout trusted candidate
+      - name: Checkout trusted SEO source without credentials
         uses: actions/checkout@v4
         with:
           ref: audit/youtube-control-0710-comprehensive-qa
           persist-credentials: false
-      - name: Check local model and Python
+      - name: Prepare isolated interpreter and verify local Ollama
         shell: pwsh
         run: |
-          python --version
           $probe = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5
-          $models = @($probe.models | ForEach-Object { $_.name })
-          if (-not ($models | Where-Object { $_ -eq 'qwen3:8b' -or $_ -like 'qwen3:8b-*' })) {
-            throw "Required local model qwen3:8b not found. Available: $($models -join ', ')"
+          if (-not (@($probe.models.name) | Where-Object { $_ -like 'qwen3:8b*' })) {
+            throw "qwen3:8b is not available on AlexPC"
           }
-          Write-Host 'Ollama qwen3:8b verified on AlexPC'
           python -m venv .venv
-          $py = Join-Path $PWD ".venv\Scripts\python.exe"
+          $py = ".\.venv\Scripts\python.exe"
           & $py -m pip install -r requirements.txt
-          if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
-          $env:PYTHONPATH = (Join-Path $PWD "src")
-          & $py -m pytest -q tests --tb=short
-          if ($LASTEXITCODE -ge 2) { throw "Baseline test collection or infrastructure error" }
-          Write-Host "Baseline pytest exit code: $LASTEXITCODE (1 means repairable test failures)"
-      - name: Isolated Ollama repair regression drill
-        if: inputs.drill == true
+          if ($LASTEXITCODE -ne 0) { throw "Installing isolated test dependencies failed" }
+      - name: Generate JSON candidate only (NEVER run model code on AlexPC)
+        id: proposal
         shell: pwsh
         run: |
-          $py = Join-Path $PWD ".venv\Scripts\python.exe"
-          & $py -u scripts/rg_youtube_ollama_repair_drill.py
-          if ($LASTEXITCODE -ne 0) { throw "Ollama regression drill failed" }
-      - name: Autonomous SEO repair (workspace only)
-        id: repair
-        shell: pwsh
-        continue-on-error: true
+          $drill = '${{ inputs.drill }}' -eq 'true'
+          $py = ".\.venv\Scripts\python.exe"
+          if ($drill) {
+            & $py -u scripts/rg_youtube_proposal_only.py --drill
+          } else {
+            & $py -u scripts/rg_youtube_proposal_only.py
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Local proposal generation blocked or failed" }
+          $report = Get-Content rg_youtube_proposed_candidate.json -Raw | ConvertFrom-Json
+          if ($report.status -notin @('NO_CHANGE', 'PROPOSED_UNVERIFIED')) {
+            throw "Unexpected proposal status: $($report.status)"
+          }
+          $has = if ($report.status -eq 'PROPOSED_UNVERIFIED') { 'true' } else { 'false' }
+          "has_candidate=$has" >> $env:GITHUB_OUTPUT
+          "source_sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+          "is_drill=$($drill.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+      - name: Upload unexecuted AI proposal
+        if: steps.proposal.outputs.has_candidate == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-unverified-proposal
+          path: rg_youtube_proposed_candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: propose
+    if: needs.propose.outputs.has_candidate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source commit used for AI proposal
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.propose.outputs.source_sha }}
+          persist-credentials: false
+      - name: Install Qt/EGL libraries for headless tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install project requirements
+        run: python -m pip install -r requirements.txt
+      - name: Download unexecuted proposal
+        uses: actions/download-artifact@v4
+        with:
+          name: rg-youtube-unverified-proposal
+          path: .
+      - name: Test AI code only on disposable GitHub-hosted runner
         env:
           PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/rg_youtube_validate_proposal.py
+      - name: Create candidate patch for human review
+        if: success() && needs.propose.outputs.is_drill != 'true'
         run: |
-          $mode = if ('${{ inputs.apply }}' -eq 'true') { '--apply' } else { '' }
-          if ($mode) {
-            Set-Content -Path ".rg_youtube_autofix_sandbox" -Value "isolated github runner checkout"
-            $env:RG_REPAIR_ALLOWED_ROOT = (Get-Location).Path
-            try {
-              & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py --apply
-              if ($LASTEXITCODE -ne 0) { throw "Sandbox repair failed validation" }
-            } finally {
-              Remove-Item ".rg_youtube_autofix_sandbox" -ErrorAction SilentlyContinue
-              Remove-Item Env:RG_REPAIR_ALLOWED_ROOT -ErrorAction SilentlyContinue
-            }
-          } else {
-            & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py
-            if ($LASTEXITCODE -ne 0) { throw "Read-only repair diagnosis found failures" }
-          }
-      - name: Check modified file allowlist
-        id: changes
-        shell: pwsh
-        run: |
-          $allowed = @('src/rg_youtube_control/seo_quality_gate.py', 'src/rg_youtube_control/rejected_seo.py')
-          $changed = @(git diff --name-only)
-          foreach ($path in $changed) {
-            if ($path -notin $allowed) { throw "Unexpected changed file: $path" }
-          }
-          if ('${{ steps.repair.outcome }}' -ne 'success') {
-            if ($changed.Count -gt 0) { throw 'Failed repair left a patch behind' }
-            throw 'Repair step failed: no validated patch; see repair report'
-          } elseif ($changed.Count -eq 0) {
-            "changed=false" >> $env:GITHUB_OUTPUT
-          } else {
-            "changed=true" >> $env:GITHUB_OUTPUT
-          }
-      - name: Upload proposed patch for review
-        if: steps.changes.outputs.changed == 'true'
-        shell: pwsh
-        run: |
-          git diff --binary -- src/rg_youtube_control/seo_quality_gate.py src/rg_youtube_control/rejected_seo.py | Out-File -Encoding utf8 rg_youtube_proposed_repair.patch
-      - name: Upload proposed patch artifact
-        if: always()
+          git diff --binary -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py > rg_youtube_proposed_repair.patch
+          test -s rg_youtube_proposed_repair.patch
+      - name: Upload candidate patch for human review
+        if: success() && needs.propose.outputs.is_drill != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rg-youtube-proposed-repair
+          name: rg-youtube-validated-patch-review-only
           path: rg_youtube_proposed_repair.patch
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
-      - name: Upload isolated drill reports
+      - name: Upload hosted validation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rg-youtube-ollama-drill-report
-          path: |
-            rg_youtube_ollama_drill_result.json
-            rg_youtube_ollama_drill_live.log
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Upload repair report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rg-youtube-autofix-report
-          path: rg_seo_repair_report.json
+          name: rg-youtube-hosted-validation-report
+          path: rg_youtube_hosted_validation.json
           if-no-files-found: ignore
           retention-days: 14
