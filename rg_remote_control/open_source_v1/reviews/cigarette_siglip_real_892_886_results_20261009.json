@@ -1,0 +1,86 @@
+{
+  "schema": "RG_CIGARETTE_SIGLIP_892_886_REAL_GPU_QA_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "source": {
+    "log": "User upload Вставленный текст(20261009-103425).txt",
+    "zip": "RG_SIGLIP_892_886_CIGARETTE_SHADOW_V1.zip",
+    "zip_sha256": "588189bc32cd683a6dce3488eb7816eaa912e34695ae063aed06e3ae52ed4ba8",
+    "integrity": "ZIP_TEST_PASS",
+    "model": "google/siglip-base-patch16-224",
+    "revision": "d0ffe3fe6b24d37e1fc878f6f6c12837e82e8d21",
+    "GPU": "NVIDIA GeForce RTX 4080, torch 2.8.0+cu126"
+  },
+  "scores": [
+    {
+      "id": "POS_892_MOUTH",
+      "gt": "REAL_CIGARETTE",
+      "top": "cigarette_mouth",
+      "relative_margin": 0.02106,
+      "relative_positive": true
+    },
+    {
+      "id": "POS_892_HAND",
+      "gt": "REAL_CIGARETTE",
+      "top": "hands",
+      "relative_margin": -0.00939,
+      "relative_positive": false
+    },
+    {
+      "id": "NEG_892_MIC",
+      "gt": "NOT_CIGARETTE",
+      "top": "face",
+      "relative_margin": -0.02481,
+      "relative_positive": false
+    },
+    {
+      "id": "NEG_892_MUG",
+      "gt": "NOT_CIGARETTE",
+      "top": "mug",
+      "relative_margin": -0.02738,
+      "relative_positive": false
+    },
+    {
+      "id": "NEG_886_MIC_MANUAL",
+      "gt": "NOT_CIGARETTE",
+      "top": "face",
+      "relative_margin": -0.0386,
+      "relative_positive": false
+    }
+  ],
+  "summary": {
+    "test_cases": 5,
+    "positive_cases": 2,
+    "negative_cases": 3,
+    "positives_cigarette_prompt_ranked_above_negative": 1,
+    "negatives_non_cigarette_prompt_ranked_above_cigarette": 3,
+    "interpretation": "Illustrative five-sample prompt-ranking check only. NOT a statistical generalization estimate. Misses cigarette in hand, so current threshold-free prompt ranking would cause a false negative.",
+    "real_model_run": true,
+    "independent_architecture": true,
+    "full_frame_temporal_coverage": false,
+    "object_segmentation_masks": false,
+    "independent_identity_proved": false,
+    "production_approved": false,
+    "user_existing_886_5_hold_active": true
+  },
+  "model_loading_warning": {
+    "observed": "Checkpoint contains temperature and bias unused; SiglipModel logit_scale and logit_bias newly initialized.",
+    "implication": "Absolute logits and margins not pretrained-calibrated. For a single image, exp(logit_scale)*normalized_dot_product + logit_bias is strictly order-preserving when finite, so missing scalar parameters do not fix relative prompt ordering and the hand false-negative on their own.",
+    "action": "Any further SigLIP run must assert loaded pretrained encoder weights and either use normalized embedding cosine similarity with explicit no-calibration status or match scalar checkpoint keys only after checking exact architecture. Never treat logits or sigmoid as validated cigarette probability.",
+    "references": "https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py"
+  },
+  "additional_quality_notes": [
+    "NEG_886_MIC_MANUAL crop is large and contains host/black windscreen; ROI is hand-approximated, not verified tiny microphone emblem mask. It is not a robust localized distractor ground-truth sample.",
+    "NEG_892_MIC tiny logo shown on microphone windscreen; result top prompt face, not microphone; can only establish cigarette prompt did not lead for this specific prompt set.",
+    "Isolated F: venv uses .pth to read production runtime site-packages, and pip warned about Norfair/numpy and rich versions. Report does not prove complete environment isolation or compatibility.",
+    "SigLIP prompt scores cannot localize a cigarette-only mask, follow movement, or certify absence of false negative across all frames."
+  ],
+  "go_no_go": {
+    "promote_as_independent_semantic_gate": "NO_GO",
+    "repeat_same_siglip_weights_unmodified": "NOT_USEFUL",
+    "safe_next": "Read-only SAM2 capability preflight and source-annotated cigarette segmentation feasibility test on 892 video. SAM2 needs manually verified starter points/masks; not a replacement identity verifier.",
+    "rework_policy": "Expand independently labeled real cigarette frames/negative lookalikes; compare localized candidates to specialized trained verifier with rigorous FP/FN gates. Do not automatically blur from YOLOWorld or SigLIP alone.",
+    "production_studio_modified": false,
+    "published_dialogue_8865": false
+  }
+}
