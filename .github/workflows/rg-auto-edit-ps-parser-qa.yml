@@ -10,6 +10,7 @@ on:
       - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v1.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1'
+      - 'rg_remote_control/open_source_v1/sam2_native_mask_892_shadow_v1.py'
       - '.github/workflows/rg-auto-edit-ps-parser-qa.yml'
   workflow_dispatch:
 permissions:
@@ -51,6 +52,23 @@ jobs:
             }
             Write-Host "WINDOWS_POWERSHELL_51_AST_PARSE_PASS: $path"
           }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify pinned SAM2 Python isolation check on Windows without -c
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $code = 'rg_remote_control/open_source_v1/sam2_native_mask_892_shadow_v1.py'
+          $venv = Join-Path $env:RUNNER_TEMP 'rg_sam2_native_shadow_v1'
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { throw 'Isolated SAM2 test venv creation failed' }
+          $py = Join-Path $venv 'Scripts\\python.exe'
+          & $py -I -u $code --env-check
+          if ($LASTEXITCODE -ne 0) { throw 'Real Windows isolated SAM2 env check failed' }
+          & python -I -u $code --env-check
+          if ($LASTEXITCODE -eq 0) { throw 'Wrong environment incorrectly accepted' }
+          Write-Host 'SAM2_NATIVE_PYTHON_ENV_GUARD_POSITIVE_AND_NEGATIVE_PASS'
       - name: Verify SAM2 V2 pinned safety checks offline - correct and corrupted source
         shell: powershell
         run: |
