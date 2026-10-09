@@ -10,6 +10,9 @@ on:
       - "tests/test_content_vs_technical_review.py"
       - "tests/test_review_quality_accept.py"
       - ".github/workflows/rg-youtube-seo-quality-gate.yml"
+      - ".github/workflows/rg-youtube-autonomous-repair.yml"
+      - "scripts/rg_youtube_seo_repair_agent.py"
+      - "tests/test_autonomous_repair_safety.py"
   workflow_dispatch:
 
 permissions:
@@ -43,6 +46,7 @@ jobs:
             tests/test_rejected_seo.py \
             tests/test_content_vs_technical_review.py \
             tests/test_review_quality_accept.py \
+            tests/test_autonomous_repair_safety.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
