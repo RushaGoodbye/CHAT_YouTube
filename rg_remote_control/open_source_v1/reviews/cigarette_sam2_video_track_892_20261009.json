@@ -182,6 +182,21 @@
     "production_release_allowed": false,
     "quarantine_8865_stays": true,
     "original_stream_video_audio_xml_unchanged": true,
-    "next": "Improve cigarette-only pixel mask and add temporal area-change guard, then challenge real 886_5 microphone before any Studio integration. Use existing 13 saved full-resolution masks for QA, no re-install or immediate rerun."
+    "next": "Improve cigarette-only pixel mask and add temporal area-change guard, then challenge real 886_5 microphone before any Studio integration. Use existing 13 saved full-resolution masks for QA, no re-install or immediate rerun.",
+    "stricter_zip_guard_committed": {
+      "module": "rg_remote_control/open_source_v1/sam2_892_fullmask_archive_safety_v1.py",
+      "commit": "3fd8955c24d0a879767bd697cfc8c64fca91c54f",
+      "oss_CI_workflow_updated_commit": "5db7adeb25fbd570fc8a2a94f7a7e209f96bcc7a",
+      "detects": "33%? no, correct: >40% growth or >40% drop between consecutive frames, strict mask count and format guards",
+      "historical_archive_expected_volatility_frames": [
+        4,
+        5,
+        6
+      ],
+      "automatic_blur_allowed": false,
+      "Windows_GPU_rerun_needed_for_qa": false,
+      "GH_Action_execution": "NOT YET VERIFIED; tests added to workflow but no green run confirmed",
+      "caution": "Metadata ZIP preflight and area-based checks are not substitute for independent cigarette-vs-hand semantic segmentation"
+    }
   }
 }
