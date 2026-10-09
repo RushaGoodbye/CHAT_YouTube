@@ -152,7 +152,7 @@ def run(samzip,goldzip,output):
         require_892(motion,gold)
         meta=gold.get("video_clip") or {}
         mp4name="892_015841_POSITIVE_REVIEW_24s_NO_AUDIO.mp4"
-        with tempfile.TemporaryDirectory(prefix="rg_892_core_shadow_") as td:
+        with tempfile.TemporaryDirectory(prefix="rg_892_core_shadow_",dir=str(output.parent)) as td:
             mp4=pathlib.Path(td)/"source_video_only.mp4"
             with gz.open(mp4name) as r,mp4.open("wb") as w:
                 shutil.copyfileobj(r,w)
