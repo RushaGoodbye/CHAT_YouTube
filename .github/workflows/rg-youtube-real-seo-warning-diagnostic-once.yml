@@ -1,0 +1,52 @@
+name: RG YouTube Real SEO Warning Diagnostic - ONE SHOT
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-youtube-real-seo-warning-diagnostic-once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-real-seo-warning-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  private-warning-classifier:
+    if: >-
+      github.repository == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.repo.full_name == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.ref == 'audit/youtube-control-0710-comprehensive-qa'
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Read-only local Python environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot create Python environment' }
+          & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency setup failed' }
+      - name: One genuine local SRT SEO analysis; output only anonymous warning categories
+        shell: pwsh
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\.venv\Scripts\python.exe" -u scripts/rg_youtube_real_seo_local_qa.py
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only pilot crashed' }
+      - name: Upload aggregate metrics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-real-seo-warning-diagnostic-anonymous
+          path: rg_youtube_real_seo_anonymous_qa.json
+          if-no-files-found: ignore
+          retention-days: 5
