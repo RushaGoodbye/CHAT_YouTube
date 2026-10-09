@@ -24,7 +24,7 @@ def iso_secs(v):
  except (ValueError,TypeError):return None
 def human(v):
  if not isinstance(v,str):return "OTHER_OR_UNKNOWN"
- if len(v)>160 or re.search(r"(?i)https?://|token|secret|password|bearer|auth|sk-|gh[pousr]_|[A-Za-z0-9_+/=-]{25,}",v):return "REDACTED"
+ if len(v)>160 or re.search(r"(?i)https?://|token|secret|password|bearer|auth|sk-|gh[pousr]_|(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{48,}={0,2})",v):return "REDACTED"
  if not re.fullmatch(r"[\w .,:;()!?\-=/]+",v,re.U):return "REDACTED"
  return v[:145]
 def yn(v):return "TRUE" if v else "FALSE"
