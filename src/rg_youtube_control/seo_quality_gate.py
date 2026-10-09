@@ -28,6 +28,40 @@ def review_seo_package(
     if not blocks:
         issues.append("Немає звіту про повноту аналізу відео.")
         return issues
+    # Only the timeline analyzer can attest complete coverage. A model's
+    # "needs_review: false" flag is NOT proof all source captions were covered.
+    total = report.get("blocks_total")
+    analyzed = report.get("blocks_analyzed")
+    covered_rows = report.get("rows_covered")
+    verified_count = report.get("blocks_with_evidence")
+    missing = report.get("unverified_blocks")
+    if (
+        type(total) is not int or type(analyzed) is not int
+        or total <= 0 or analyzed != total or len(blocks) != total
+        or type(covered_rows) is not int or covered_rows <= 0
+    ):
+        issues.append(
+            "Неповне покриття транскрипту: кількість часових фрагментів "
+            "або охоплених реплік не підтверджена."
+        )
+    if (
+        type(verified_count) is not int
+        or verified_count != sum(bool(block.get("topics")) for block in blocks)
+        or verified_count != len(blocks)
+        or not isinstance(missing, list)
+        or missing
+    ):
+        issues.append(
+            "Не всі часові фрагменти мають перевірені теми; "
+            "пакет потребує ручного перегляду."
+        )
+    for block in blocks:
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict) or not str(item.get("evidence") or "").strip():
+                issues.append(
+                    "Частина тем не має доказової цитати з транскрипту."
+                )
+                break
     if report.get("needs_review"):
         issues.append("Не всі часові фрагменти отримали перевірені теми.")
     if any(not (block.get("topics") or []) for block in blocks):
