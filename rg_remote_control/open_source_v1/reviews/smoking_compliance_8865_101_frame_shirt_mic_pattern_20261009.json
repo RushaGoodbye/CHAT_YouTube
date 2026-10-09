@@ -1,0 +1,55 @@
+{
+  "schema": "RG_8865_REAL_101_FRAME_SHIRT_BEHIND_MICROPHONE_PATTERN_SHADOW_QA_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "REAL_SAMPLED_FALSE_OBJECT_PATTERN_TRACKED_SEMANTIC_NEGATIVE_PROOF_INCOMPLETE",
+  "source_zip": "RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip",
+  "source_zip_sha256": "b8085713087f1a7db86c1f35be129527b28a82a6fe576f8f03f4650811d19884",
+  "original_manifest_schema": "RG_886_5_SOURCE_CIGARETTE_TRIAGE_V1",
+  "positive_context": "Real false cigarette suspicion in stream 886 dialogue 886_5. Bright triangular zigzag appears to be part of shirt design behind microphone; earlier shorthand 'microphone logo' may describe location imprecisely.",
+  "real_source_images_processed": 101,
+  "source_sampling_approx_sec": 4,
+  "frame_resolution": [
+    1280,
+    720
+  ],
+  "template_reference_frame_index": 20,
+  "template_bbox_xyxy": [
+    310,
+    335,
+    349,
+    376
+  ],
+  "search_roi_xyxy": [
+    280,
+    320,
+    380,
+    420
+  ],
+  "algorithm": "OpenCV TM_CCOEFF_NORMED grayscale localization in fixed guest/host ROI; diagnostic only, not semantic verifier.",
+  "median_NCC": 0.79172,
+  "frames_NCC_above_0_8": 48,
+  "frames_NCC_at_least_0_7": 81,
+  "frames_NCC_below_0_55": 16,
+  "result_archive": "RG_8865_STATIC_FALSE_OBJECT_SHADOW_QA_V1.zip",
+  "result_sha256": "9ac1e422d7f65817fd0923c0a66a269bd977d4c10e63a2d6d635c12c940f5127",
+  "result_archive_CRC": "PASS",
+  "result_archive_members": 13,
+  "sampling_not_frame_exhaustive": true,
+  "real_moving_semantic_cigarette_model_negative_verified": false,
+  "false_positive_detector_rejects_pattern_verified": false,
+  "negative_exemption_886_whole_video_allowed": false,
+  "automatic_blur_allowed": false,
+  "production_release_allowed": false,
+  "Studio_modified": false,
+  "source_video_modified": false,
+  "source_audio_modified": false,
+  "Premiere_XML_modified": false,
+  "quarantine_886_5_unchanged": true,
+  "next": [
+    "Do not conflate stable static visual pattern with formal NOT_CIGARETTE classification.",
+    "Run face landmark 892 60 frame diagnostic against a real YuNet model, keep failure as review.",
+    "Check 886_5 using frame-dense full source and actual candidate detector before any exception/publishing.",
+    "Keep hand, mouth, cigarette, smoke as distinct conditional blur requirements."
+  ]
+}
