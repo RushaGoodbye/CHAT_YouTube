@@ -58,16 +58,16 @@ jobs:
           # Git CLI may be absent on the isolated Windows GitHub runner.
           # Check content hashes instead: these are captured BEFORE Ollama runs.
           $script = @'
-import hashlib
-import json
-from pathlib import Path
-candidate = json.loads(Path("rg_youtube_proposed_candidate.json").read_text(encoding="utf-8"))
-for relative, expected in candidate["base_sha256"].items():
-    actual = hashlib.sha256(Path(relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
-    if actual != expected:
-        raise SystemExit("BLOCKED: local source mutated: " + relative)
-print("SOURCE HASH INTEGRITY: PASS")
-'@
+          import hashlib
+          import json
+          from pathlib import Path
+          candidate = json.loads(Path("rg_youtube_proposed_candidate.json").read_text(encoding="utf-8"))
+          for relative, expected in candidate["base_sha256"].items():
+              actual = hashlib.sha256(Path(relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+              if actual != expected:
+                  raise SystemExit("BLOCKED: local source mutated: " + relative)
+          print("SOURCE HASH INTEGRITY: PASS")
+          '@
           $script | & ".\.venv\Scripts\python.exe" -
           if ($LASTEXITCODE -ne 0) { throw 'AI proposal changed the source checkout' }
           "source_sha=${{ github.event.pull_request.head.sha }}" >> $env:GITHUB_OUTPUT
