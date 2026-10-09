@@ -1,0 +1,105 @@
+{
+  "schema": "RG_SAM2_892_CIGARETTE_REAL_ONEFRAME_MASK_HUMAN_VISUAL_REVIEW_V1",
+  "created_date": "2026-10-09",
+  "stream": "892",
+  "timecode": "01:58:41",
+  "evidence": {
+    "uploaded_zip": "RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip",
+    "zip_integrity": "PASS",
+    "models": "SAM2.1 Hiera Tiny RTX4080",
+    "source_keyframe": "892_CIGARETTE_POTENTIAL_049.jpg",
+    "full_resolution": "1920x1080",
+    "mask_overlays": [
+      "SAM2_892_CANDIDATE_1.jpg",
+      "SAM2_892_CANDIDATE_2.jpg",
+      "SAM2_892_CANDIDATE_3.jpg"
+    ],
+    "geometry_source": "report.json inside user uploaded ZIP",
+    "report_data_source": "User-provided file, independently inspected by assistant",
+    "review_comparison_file": "User-facing ChatGPT generated original_vs_3_masks.jpg; not checked into repository"
+  },
+  "candidates": [
+    {
+      "id": 1,
+      "sam2_score": 0.1589798927307129,
+      "pixels": 27763,
+      "bbox_xyxy": [
+        1008,
+        52,
+        1407,
+        674
+      ],
+      "geometry_ok": false,
+      "verdict": "REJECT",
+      "reason": "Covers broad irrelevant backgrounds/edges/smoke, not a cigarette-only mask"
+    },
+    {
+      "id": 2,
+      "sam2_score": 0.7472909688949585,
+      "pixels": 1847,
+      "bbox_xyxy": [
+        1222,
+        387,
+        1326,
+        454
+      ],
+      "geometry_ok": true,
+      "verdict": "PROMISING_SHADOW_SEED_ONLY",
+      "reason": "Mask roughly aligns with genuine held cigarette including ember, but visibly extends onto bordering pixels near hand; not per-pixel manual GT"
+    },
+    {
+      "id": 3,
+      "sam2_score": 0.6053981184959412,
+      "pixels": 2109,
+      "bbox_xyxy": [
+        1222,
+        386,
+        1326,
+        454
+      ],
+      "geometry_ok": true,
+      "verdict": "BACKUP_SHADOW_SEED_ONLY",
+      "reason": "Similar to candidate 2 and broader near hand; more collateral than candidate 2"
+    }
+  ],
+  "conclusions": {
+    "cigarette_visually_present": true,
+    "at_least_one_mask_visually_roughly_follows_cigarette": true,
+    "pixel_perfect_object_only_mask_verified": false,
+    "negative_distractor_8865_verified_on_video": false,
+    "tracking_tested": false,
+    "auto_blur_approved": false,
+    "studio_modified": false,
+    "audio_modified": false,
+    "xml_modified": false,
+    "quarantine_8865_unchanged": true,
+    "visual_recognition_and_geometry_are_not_sufficient_to_release": true
+  },
+  "next_motion_test": {
+    "status": "CODE_COMMITTED_NOT_EXECUTED_ON_USER_RT4080",
+    "python": "rg_remote_control/open_source_v1/sam2_video_track_892_shadow_v1.py",
+    "python_commit": "c43a6bb18c944d08d227aacab61b84dc7bfdc07e",
+    "bootstrap": "rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_shadow_v1.ps1",
+    "bootstrap_commit": "6592b2a074762e5805017e8da75153a12ffbc023",
+    "scene": "Source 24s 892.mp4 diagnostic-only no audio",
+    "source_clip_window_sec": [
+      12,
+      14
+    ],
+    "source_stream_window_sec_approx": [
+      7121,
+      7123
+    ],
+    "frame_rate": 6,
+    "frames": 13,
+    "original_frame_source_validated": true,
+    "real_motion_visible": true,
+    "object_moves_toward_mouth_and_partially_obscures_near_end": true,
+    "caution": "Frames around final part must be inspected manually to verify tracking ceases upon cigarette disappearance. Geometric checks cannot prove cigarette identity.",
+    "model_init": "SAM2 video predictor will estimate its own first-frame mask from manually reviewed click prompts, NOT use exact candidate 2 PNG (the prior ZIP has overlays not raw full-res mask).",
+    "output_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_video_track_892_015841_v1\\RG_SAM2_892_REAL_MOTION_SHADOW_V1.zip",
+    "no_pip_or_model_download": true,
+    "no_studio_or_source_modifications": true
+  },
+  "production_release_allowed": false
+}
