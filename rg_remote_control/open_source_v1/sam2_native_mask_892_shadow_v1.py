@@ -105,12 +105,24 @@ def main():
             premiere_xml_modified=False,quarantine_886_5_modified=False,
             automatic_blur_allowed=False,release_allowed=False)
         (stage/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        # One review ZIP for the user, never release-ready Studio assets.
+        import zipfile
+        archive=stage/"RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip"
+        with zipfile.ZipFile(archive,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=5) as bundle:
+            bundle.write(stage/"report.json","report.json")
+            for record in results:
+                bundle.write(stage/record["annotated_jpg"],record["annotated_jpg"])
+        with zipfile.ZipFile(archive) as bundle:
+            if bundle.testzip() is not None:
+                raise RuntimeError("SAM2 preview ZIP validation failed")
         stage.rename(OUTPUT)
     finally:
         if stage.exists():shutil.rmtree(stage,ignore_errors=True)
     print("=== RG SAM2 892 REAL CIGARETTE ONE-FRAME MASK REVIEW ===",flush=True)
     print(json.dumps({"status":"VISUAL_REVIEW_REQUIRED","mask_candidates":len(results),
-                      "report":str(OUTPUT/"report.json"),"output_dir":str(OUTPUT),
+                      "report":str(OUTPUT/"report.json"),
+                      "review_zip":str(OUTPUT/"RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip"),
+                      "output_dir":str(OUTPUT),
                       "production_modified":False,"auto_blur_allowed":False},ensure_ascii=False,indent=2),flush=True)
 if __name__=="__main__":
     try:main()
