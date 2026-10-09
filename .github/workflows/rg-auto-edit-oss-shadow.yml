@@ -124,6 +124,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/smoking_compliance_motion_identity_gate_v2.py
           python rg_remote_control/open_source_v1/smoking_compliance_motion_identity_gate_v2.py
+      - name: YuNet mouth landmark v1 pin and no-release synthetic regression
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/yunet_mouth_landmarks_892_shadow_v1.py
+          python rg_remote_control/open_source_v1/yunet_mouth_landmarks_892_shadow_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
