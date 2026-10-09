@@ -1,0 +1,57 @@
+{
+  "schema": "RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_CHALLENGE_READINESS_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "PINNED_STATIC_QA_READY_REAL_GPU_RUN_NOT_YET_EXECUTED",
+  "real_evidence": {
+    "positive_gold_892_mp4_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
+    "sam2_13_mask_zip_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
+    "existing_siglip_five_reference_zip_sha256": "588189bc32cd683a6dce3488eb7816eaa912e34695ae063aed06e3ae52ed4ba8",
+    "positive_13_frames_clip_relative": "12.0 through 14.0 seconds, 6 frames per second",
+    "negative_image_ids": [
+      "NEG_886_MIC_MANUAL",
+      "NEG_892_MIC",
+      "NEG_892_MUG"
+    ],
+    "note": "Real 892 moving cigarette is visually present but no pixel-perfect label for each mask; 16-reference benchmark is NOT a cigarette-only blur certification.",
+    "known_siglip_scores": {
+      "cigarette_mouth": 0.02106,
+      "cigarette_hand": -0.00939,
+      "mic_886": -0.03859,
+      "mic_892": -0.02481,
+      "mug_892": -0.02738,
+      "are_probabilities": false
+    }
+  },
+  "staged": {
+    "python_path": "rg_remote_control/open_source_v1/siglip_sam2_892_13frame_vs_886_negative_shadow_v1.py",
+    "python_commit": "d9842e0826b2b87d08fb8442a0cae0bc69e869d6",
+    "powershell_path": "rg_remote_control/bootstrap_auto_edit_siglip_sam2_892_13frame_vs_886_shadow_v1.ps1",
+    "powershell_commit": "ebb25ca219a80160d79ae685175587955ebe7861",
+    "CI_python_selftest_commit": "a253eb6a6252d8aadb05bd0a76d3e7fdd7fa86fa",
+    "CI_windows_PowerShell_parser_commit": "fe1266c3b181207894aa94572590d1c679c994ed",
+    "input_validation": "SHA-256 gold video and previous two uploaded QA archives",
+    "gpu": "Existing NVIDIA RTX 4080 with independent F: rg_siglip_independent_shadow_v1",
+    "model": "google/siglip-base-patch16-224",
+    "model_revision": "d0ffe3fe6b24d37e1fc878f6f6c12837e82e8d21",
+    "model_offline_only": true,
+    "no_pip_or_other_installs": true,
+    "all_11_source_guard_strings_verified": true,
+    "python_code_download_path_verified": true,
+    "real_Windows_GPU_execution_verified": false,
+    "expected_output_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\siglip_sam2_892_vs_886_real_13frame_shadow_v1\\RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_SHADOW_V1.zip"
+  },
+  "safety": {
+    "human_review_required_for_every_candidate": true,
+    "false_negative_hand_cigarette_cannot_be_silently_skipped": true,
+    "exact_886_microphone_negative_not_streamwide_cigarette_ban": true,
+    "automatic_blur_allowed": false,
+    "production_release_allowed": false,
+    "quarantine_886_5_unchanged": true,
+    "Studio_modified": false,
+    "source_video_modified": false,
+    "original_audio_modified": false,
+    "Premiere_XML_modified": false
+  },
+  "next": "One read-only AlexPC RTX4080 shadow inference benchmark of all 16 images and upload ZIP. Independently review 13 moving cigar center crops versus known negative mic/mug before advancing to pixel-overlap ground truth. No production blur."
+}
