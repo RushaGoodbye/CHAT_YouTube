@@ -1,0 +1,53 @@
+name: RG Smoking Release Read-only Inventory
+on:
+  push:
+    branches: [release/smoking-compliance-20261009]
+    paths:
+      - rg_remote_control/smoking_release/inspect_environment.py
+      - .github/workflows/rg-smoking-release-inventory.yml
+permissions:
+  contents: read
+concurrency:
+  group: rg-smoking-release-inventory
+  cancel-in-progress: false
+jobs:
+  alexpc-inventory:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect Studio and existing shadow fixtures without changing them
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -X utf8 rg_remote_control/smoking_release/inspect_environment.py smoking-inventory
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only inventory failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-release-readonly-inventory-${{ github.run_id }}
+          path: smoking-inventory/
+          retention-days: 14
+          if-no-files-found: error
+  nas-inventory:
+    runs-on: [self-hosted, rg, nas]
+    timeout-minutes: 5
+    steps:
+      - name: Read NAS Agent heartbeat and smoke release staging availability
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/volume1/docker/RG_NAS_MCP/ALEXPC')
+          state=root/'status/alexpc_agent.json'
+          report={'nas_available':root.is_dir(),'agent_state_exists':state.is_file()}
+          if state.is_file():
+              doc=json.loads(state.read_text(encoding='utf-8-sig'))
+              for key in ('status','updated_at','heartbeat_at','hostname','version'):
+                  if key in doc: report[key]=doc[key]
+          print(json.dumps(report,ensure_ascii=False))
+          if not root.is_dir():raise SystemExit('NAS root unavailable')
+          PY
