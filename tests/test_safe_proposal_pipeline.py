@@ -103,3 +103,55 @@ def test_hosted_validator_does_not_execute_model_on_selfhosted(tmp_path, monkeyp
     monkeypatch.setenv("RUNNER_ENVIRONMENT", "self-hosted")
     assert validator.main() == 2
     assert not validator.REPORT.exists()
+
+
+def test_hosted_review_patch_survives_until_artifact_creation(tmp_path, monkeypatch):
+    _, validator = _modules(monkeypatch)
+    original = _fixture(tmp_path)
+    monkeypatch.setattr(validator, "ROOT", tmp_path)
+    monkeypatch.setattr(validator, "CANDIDATE", tmp_path / "rg_youtube_proposed_candidate.json")
+    monkeypatch.setattr(validator, "REPORT", tmp_path / "rg_youtube_hosted_validation.json")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    changed = original[WRITABLE[1]] + "# reviewed patch\n"
+    candidate = {
+        "schema": "RG_YOUTUBE_PROPOSAL_V1",
+        "status": "PROPOSED_UNVERIFIED",
+        "drill": False,
+        "base_sha256": {p: hashlib.sha256(text.encode()).hexdigest() for p, text in original.items()},
+        "files": {WRITABLE[1]: changed},
+    }
+    validator.CANDIDATE.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(
+        validator.subprocess, "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="all passed", stderr=""),
+    )
+    assert validator.main() == 0
+    assert (tmp_path / WRITABLE[1]).read_text(encoding="utf-8") == changed
+    assert json.loads(validator.REPORT.read_text())["status"] == "VALIDATED_FOR_REVIEW"
+
+
+def test_hosted_drill_restores_source_after_verification(tmp_path, monkeypatch):
+    _, validator = _modules(monkeypatch)
+    original = _fixture(tmp_path)
+    monkeypatch.setattr(validator, "ROOT", tmp_path)
+    monkeypatch.setattr(validator, "CANDIDATE", tmp_path / "rg_youtube_proposed_candidate.json")
+    monkeypatch.setattr(validator, "REPORT", tmp_path / "rg_youtube_hosted_validation.json")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    candidate = {
+        "schema": "RG_YOUTUBE_PROPOSAL_V1",
+        "status": "PROPOSED_UNVERIFIED",
+        "drill": True,
+        "base_sha256": {p: hashlib.sha256(text.encode()).hexdigest() for p, text in original.items()},
+        "files": {WRITABLE[1]: original[WRITABLE[1]]},
+    }
+    validator.CANDIDATE.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(
+        validator.subprocess, "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="319 passed", stderr=""),
+    )
+    assert validator.main() == 0
+    assert json.loads(validator.REPORT.read_text())["status"] == "DRILL_PASS"
+    for name, source in original.items():
+        assert (tmp_path / name).read_text(encoding="utf-8") == source
