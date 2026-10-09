@@ -7,6 +7,10 @@ on:
         description: "Allow AI to repair allowlisted SEO source files in an isolated checkout"
         type: boolean
         default: false
+      drill:
+        description: "Run an isolated Ollama recovery regression drill (never writes to checkout)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,7 +41,20 @@ jobs:
             throw "Required local model qwen3:8b not found. Available: $($models -join ', ')"
           }
           Write-Host 'Ollama qwen3:8b verified on AlexPC'
-          python -m pip install pytest
+          python -m venv .venv
+          $py = Join-Path $PWD ".venv\Scripts\python.exe"
+          & $py -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
+          $env:PYTHONPATH = (Join-Path $PWD "src")
+          & $py -m pytest -q tests --tb=short
+          if ($LASTEXITCODE -ne 0) { throw "Baseline tests failed" }
+      - name: Isolated Ollama repair regression drill
+        if: inputs.drill == true
+        shell: pwsh
+        run: |
+          $py = Join-Path $PWD ".venv\Scripts\python.exe"
+          & $py -u scripts/rg_youtube_ollama_repair_drill.py
+          if ($LASTEXITCODE -ne 0) { throw "Ollama regression drill failed" }
       - name: Autonomous SEO repair (workspace only)
         id: repair
         shell: pwsh
@@ -47,9 +64,9 @@ jobs:
         run: |
           $mode = if ('${{ inputs.apply }}' -eq 'true') { '--apply' } else { '' }
           if ($mode) {
-            python scripts/rg_youtube_seo_repair_agent.py --apply
+            & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py --apply
           } else {
-            python scripts/rg_youtube_seo_repair_agent.py
+            & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py
           }
       - name: Check modified file allowlist
         id: changes
@@ -79,6 +96,16 @@ jobs:
         with:
           name: rg-youtube-proposed-repair
           path: rg_youtube_proposed_repair.patch
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload isolated drill reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-ollama-drill-report
+          path: |
+            rg_youtube_ollama_drill_result.json
+            rg_youtube_ollama_drill_live.log
           if-no-files-found: ignore
           retention-days: 14
       - name: Upload repair report
