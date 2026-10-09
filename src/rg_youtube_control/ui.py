@@ -3967,6 +3967,22 @@ class MainWindow(QMainWindow):
                 skipped += 1
                 continue
             if action == "accept":
+                # A click must not override missing evidence or an incomplete A/B set.
+                quality_state = str(draft["quality_state"] or "").casefold()
+                try:
+                    options = json.loads(draft["title_variants_json"] or "[]")
+                except Exception:
+                    options = []
+                if quality_state != "safe" or len(options) != 3:
+                    QMessageBox.warning(
+                        self,
+                        "SEO-пакет ще не готовий",
+                        "Ручне підтвердження не скасовує перевірку якості. "
+                        "Потрібна повторна генерація трьох A/B-назв "
+                        "та перевірка змісту перед статусом «Готово».",
+                    )
+                    skipped += 1
+                    continue
                 set_optimization_draft_status(self.conn, video_id, "ready")
                 annotate_optimization_draft(
                     self.conn,
