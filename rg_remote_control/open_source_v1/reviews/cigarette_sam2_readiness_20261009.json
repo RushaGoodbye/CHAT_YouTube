@@ -3,7 +3,7 @@
   "date": "2026-10-09",
   "contour": "auto_edit",
   "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
-  "status": "WINDOWS_V2_ENV_CHECK_SYNTAX_STOP_V3_PREPARED_PEND_USER_RETRY",
+  "status": "SAM2_CUDA_READY_HYDRA_CONFIG_PATH_HOTFIX_V4_PREPARED",
   "readiness": {
     "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
     "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
@@ -151,6 +151,41 @@
       "no_changes_to_production_installs_expected": true,
       "negative_regressions": "Windows CI workflow configured for corrupted source rejection and real independent venv check; actual workflow run status not verified",
       "release_allowed": false
+    },
+    "v3_real_user_result": {
+      "status": "ISOLATED_CUDA_WORKS_HYDRA_YAML_LOOKUP_FAILED",
+      "real_log_from_user": "2026-10-09 Windows PowerShell SAM2 native V3",
+      "checks_passed": [
+        "V3 12 source assertions",
+        "mask QA selftest",
+        "real positive reference validation",
+        "isolated venv and site-packages guard",
+        "PyTorch 2.8.0+cu126 torchvision 0.23.0+cu126",
+        "SAM-2 1.0 installed in isolated venv, pip check no broken requirements",
+        "CUDA import on RTX 4080"
+      ],
+      "failure": "Cannot find primary config 'configs/sam2.1/sam2.1_hiera_t.yaml' via Hydra pkg://sam2",
+      "root_cause": "SAM2 installed package's Hydra search path pkg://sam2 cannot resolve the configuration YAML, although pinned source tree sam2_repo/sam2/configs/sam2.1/sam2.1_hiera_t.yaml exists as independently checked.",
+      "original_audio_video_xml_changed": false,
+      "production_deploy": false,
+      "mask_run_completed": false
+    },
+    "hydra_hotfix_v4": {
+      "status": "PREPARED_NOT_EXECUTED_ON_ALEXPC",
+      "python_commit": "5e0ee33b56613dbecf711cea6378959c72deee76",
+      "powershell_bootstrap_commit": "57d1571687962e96c046b0d90b66a089bbab8555",
+      "windows_AST_CI_update_commit": "2644ef9718f7e6cb6c271d8638d88007422b1df1",
+      "changes": [
+        "Set root from existing pinned F:/oss_shadow/sam2_native_windows_892_v1/sam2_repo/sam2/configs",
+        "Reset GlobalHydra process-local state, initialize absolute config dir, compose sam2.1/sam2.1_hiera_t.yaml and check model target before CUDA run",
+        "Replace pinned single frame Python shadow script only",
+        "Run --self-test --env-check --cuda-check --config-check sequentially and abort on any failure",
+        "Reuse existing F: independent venv, checkpoint, official source - NO pip, WSL, model checkpoint or Torch downloads",
+        "Preserve 886_5 HOLD, user audio, original video and all production XML"
+      ],
+      "release_allowed": false,
+      "mask_qa_pending": true,
+      "output_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_native_windows_892_v1\\review\\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip"
     }
   }
 }
