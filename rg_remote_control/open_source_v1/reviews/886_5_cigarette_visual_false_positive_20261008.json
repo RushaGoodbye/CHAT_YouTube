@@ -107,20 +107,10 @@
     }
   },
   "next_stage": {
-    "status": "PINNED_READ_ONLY_REAL_VIDEO_TRIAGE_PREPARED_NOT_EXECUTED_ON_ALEXPC",
-    "bootstrap_commit": "e255e8361bfc982b67b4aedb07f9d2e1609ebdf8",
-    "script_commit": "ed2c125d0e611f2a7ea165e09ece007bf808d8f6",
-    "expected_report": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\review_manifest.json",
-    "expected_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\real_8865_semantic_review_v1\\RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip",
-    "safety": [
-      "No changing XML/audio/production/video",
-      "No model inference or semantic decisions",
-      "Source file-id links and 4-track overlap inspected before frame decode",
-      "Refuse unbounded source windows or unverified seed time",
-      "Four-second sample only; never claim full dialogue cigarette coverage",
-      "Reject ambiguous same-named 886.mp4 files from distinct source paths"
-    ],
-    "release_allowed": false
+    "status": "REQUIRE_BOUNDED_CONTINUOUS_DIALOGUE_SEMANTIC_SCAN_NOT_APPROVED",
+    "next_action": "Inspect existing rg_cigarette_blur.py detector pipeline/engine configuration from running Studio, then create a no-write bounded full-frame or high-density candidate scan of exact video source intervals with strong negative microphone guard and independent semantic confirmation. Validate every cigarette frame and preserve HOLD if unverified.",
+    "pipeline": "Need actual semantic detector, tracked object segmentation, per-frame gap coverage and human review; avoid detector-only false positive acceptance",
+    "publication_allowed": false
   },
   "timeline_preflight": {
     "date": "2026-10-08",
@@ -134,5 +124,49 @@
     "release_allowed": false,
     "media_mapping_uniqueness_verified": false,
     "semantic_scan_performed": false
+  },
+  "real_video_triage_uploaded_20261009": {
+    "status": "HUMAN_VISUAL_SAMPLE_REVIEW_COMPLETE_NO_CONFIRMED_CIGARETTE",
+    "evidence": "User uploaded RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip; 101 extracted 1280x720 source frames, grouped into 12 contact sheets, intervals union from manifest",
+    "uploaded_archive_sha256": "b8085713087f1a7db86c1f35be129527b28a82a6fe576f8f03f4650811d19884",
+    "source_intervals_sec": [
+      [
+        9479,
+        9489.767
+      ],
+      [
+        9493,
+        9836.4
+      ],
+      [
+        9839.533,
+        9860.667
+      ],
+      [
+        9868.933,
+        9878.8
+      ],
+      [
+        9884.467,
+        9894.367
+      ],
+      [
+        9898.567,
+        9910.233
+      ]
+    ],
+    "media_counts": {
+      "886.mp4": 145,
+      "подложка для монтажа.mov": 88
+    },
+    "sample_count": 101,
+    "sampling_interval_sec": 4,
+    "visual_observation": "No cigarette confidently identifiable in the 101 contact-sheet samples. Previously identified static mark on microphone must not be blurred. A new guest is visibly present in right-hand chat window in later samples beginning at approximately source timestamp 9888.5 sec; visible brightly illuminated cylinder in new guest's foreground is a microphone, not a cigarette.",
+    "suspected_dialogue_boundary_note": "Review transition after source 9884.5 and by 9888.5, in view of user's dialogue end rule: next guest on right or host reply after placeholder. Do not trim automatically.",
+    "limitations": "Four-second still sampling cannot detect every momentary cigarette appearance, verify motion, classify all frames, or validate a full video dialogue. These images are source frames not final Premiere timeline reconstructions.",
+    "release_status": "HOLD_UNTIL_CONTINUOUS_FRAME_SEMANTIC_COVERAGE_QA",
+    "visual_candidates_confirmed": 0,
+    "edits_or_exports_applied": false,
+    "audio_modified": false
   }
 }
