@@ -1,0 +1,67 @@
+{
+  "schema": "RG_AUTO_EDIT_SAM2_MASKING_READINESS_STAGE_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
+  "status": "PINNED_READ_ONLY_WINDOWS_PREFLIGHT_READY_NOT_RUN_ON_USER_PC",
+  "readiness": {
+    "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
+    "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
+    "readiness_script": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1",
+    "script_commit": "7c85d933e08dcbb94d4d56b24ea7536cdcaf7077",
+    "windows_ast_CI_commit": "39bc46f8215f81dea43eaeacef628afa21ab7ee9",
+    "windows_CI_status": "NOT_YET_VERIFIED",
+    "user_runtime_test_status": "NOT_RUN",
+    "output": "JSON to console only, no files written",
+    "checks": [
+      "Existing 892 source positive 24sec clip and validated manifest",
+      "886_5 signed semantic HOLD marker and absent ready XML",
+      "F: free disk space, GPU driver and free RTX VRAM",
+      "Current Torch, TorchVision, SAM2 dist-info metadata without importing runtime",
+      "WSL2 registered for current user (registry check only; never launches WSL)",
+      "Any SigLIP shadow .pth pointing into production runtime site-packages",
+      "Existing SAM2 tiny/small checkpoint path if present"
+    ],
+    "no_installs": true,
+    "no_WSL_launch": true,
+    "no_GPU_workload": true,
+    "no_source_read": true,
+    "no_audio_or_XML_changes": true
+  },
+  "official_sam2": {
+    "repo": "https://github.com/facebookresearch/sam2",
+    "min_python": "3.10",
+    "min_torch": "2.5.1",
+    "min_torchvision": "0.20.1",
+    "windows_guidance": "WSL Ubuntu recommended; native Windows feasibility requires separate test if WSL absent",
+    "cuda_extension_optional": "SAM2_BUILD_CUDA=0 possible in separate runtime; disables some mask postprocessing",
+    "checkpoint_plan": "SAM2.1 Hiera tiny or small only for first masked 6-second clip, after environment feasibility",
+    "licensing": "Meta SAM2 Apache-2.0 source; verify exact checkpoint/license and any transitive dependencies separately"
+  },
+  "gold_refs": {
+    "true_positive": "892 original 01:58:41 in user-provided 24 sec video-only reference, cigarette in hand; human positively labeled around clip 12s",
+    "negative": [
+      "892 microphone ornament left host",
+      "892 mug left host",
+      "886_5 microphone windscreen mark"
+    ],
+    "existing_siglip_result": "Failed to rank cigarette-in-hand above hands on one positive sample; does not qualify as independent auto-acceptance gate"
+  },
+  "next_execution_design": [
+    "Use only existing copy of 892 24sec video-only gold clip",
+    "Start 4-6 second bounded trial at clip-relative 10..15 seconds; fps <=12 until VRAM proven",
+    "Use manually audited positive cigarette seed and negative hand/finger seeds, not YOLOWorld bbox center",
+    "Track 1 object mask, inspect per-frame area, hand overlap, mask drift, temporal continuity and lost-object events",
+    "Keep promptable SAM2 a spatial tracker only; identity from human gold label for this trial, not model assertion",
+    "Do not auto-accept frames on smoke alone or enlarge mask to whole guest region",
+    "Preserve all source audio, frames, working XML and production installations",
+    "Never approve 886_5 delivery solely from SAM2 experiment"
+  ],
+  "blocked_until": [
+    "Windows readiness verified",
+    "Native or WSL separate Python/Torch GPU compatibility established",
+    "Verified per-frame cigarette seed from frame ~12.0"
+  ],
+  "production_ready": false,
+  "publication_8865_allowed": false
+}
