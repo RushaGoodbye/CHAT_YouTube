@@ -16,6 +16,7 @@ on:
       - "scripts/rg_youtube_proposal_only.py"
       - "scripts/rg_youtube_validate_proposal.py"
       - "tests/test_autonomous_repair_safety.py"
+      - "tests/test_safe_proposal_pipeline.py"
   workflow_dispatch:
 
 permissions:
