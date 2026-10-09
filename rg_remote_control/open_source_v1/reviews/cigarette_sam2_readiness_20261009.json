@@ -3,7 +3,7 @@
   "date": "2026-10-09",
   "contour": "auto_edit",
   "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
-  "status": "PINNED_READ_ONLY_WINDOWS_PREFLIGHT_READY_NOT_RUN_ON_USER_PC",
+  "status": "PINNED_ISOLATED_NATIVE_WINDOWS_TINY_MASK_PILOT_READY_NOT_RUN",
   "readiness": {
     "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
     "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
@@ -63,5 +63,47 @@
     "Verified per-frame cigarette seed from frame ~12.0"
   ],
   "production_ready": false,
-  "publication_8865_allowed": false
+  "publication_8865_allowed": false,
+  "user_readiness_result": {
+    "date": "2026-10-09",
+    "source": "User's Windows PowerShell SAM2 V2 preflight output",
+    "status": "WINDOWS_GPU_READY_WSL2_NOT_REGISTERED_NATIVE_PATH_NEEDS_FEASIBILITY",
+    "powershell": "5.1.26100.1591",
+    "gpu": "RTX 4080",
+    "driver": "616.92",
+    "vram_total_mb": 16376,
+    "vram_free_mb": 13091,
+    "torch": "2.8.0+cu126",
+    "torchvision": "0.23.0+cu126",
+    "free_F_gb": 674.94,
+    "WSL_registered": false,
+    "positive_892_gold_valid": true,
+    "quarantine_8865_valid": true,
+    "forbidden_ready_xml_present": false,
+    "siglip_venv_links_production_runtime": true,
+    "native_sam2_already_installed": false,
+    "sam2_checkpoint_found": false,
+    "no_install_performed_by_preflight": true
+  },
+  "native_windows_tiny_mask_shadow_pilot": {
+    "status": "PINNED_ONE_COMMAND_READY_UNTESTED_ON_USER_WINDOWS",
+    "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v1.ps1",
+    "wrapper_commit": "2a339d662e99b99a9940c2d871c054dc3123c45d",
+    "installer": "rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1",
+    "installer_commit": "ab107734e5fbfcb0b048c4cee500adbbb6994046",
+    "python": "rg_remote_control/open_source_v1/sam2_native_mask_892_shadow_v1.py",
+    "python_commit": "0e9e3348b4287cb71b8eebeccd2ce63504b904b2",
+    "official_source": "facebookresearch/sam2 @ 98fcb164bf880f70799c324c283c758c4d20bf82",
+    "checkpoint": "SAM2.1 Hiera tiny from official 092824 URL, checkpoint downloaded separately",
+    "source_frame": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\positive_892_015841_v1\\keyframes\\892_CIGARETTE_POTENTIAL_049.jpg",
+    "isolated_new_python": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_envs\\rg_sam2_native_shadow_v1",
+    "isolated_torch": "2.8.0+cu126 torchvision 0.23.0+cu126, new wheels downloaded on F, production runtime not upgraded",
+    "download_warning": "First execution may download >2 GB of CUDA wheels and official model; speed and native Windows compatibility uncertain.",
+    "result_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_native_windows_892_v1\\review\\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip",
+    "shadow_selftest": "PASS in assistant's local container (same validation gates, not actual SAM2 inference)",
+    "CI_syntax_workflow": "Windows PowerShell 5.1 workflow configured, its actual run not yet verified",
+    "real_model_gpu_run": "NOT YET EXECUTED ON ALEXPC",
+    "release_policy": "ONE FRAME MASK ONLY, no semantic ID, motion tracking, automatic blur or production release. Quarantine 886_5 stays until full dialogue QA.",
+    "wsl": "Not used; native Windows trial stops if incompatible."
+  }
 }
