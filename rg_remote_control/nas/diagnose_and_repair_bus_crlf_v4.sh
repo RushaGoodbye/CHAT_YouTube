@@ -111,7 +111,8 @@ def get(path):
         if mark not in cp.stdout:return "UNKNOWN",{}
         content,code=cp.stdout.rsplit(mark,1)
         code=code.strip().decode("ascii","replace")
-        return code,ob(json.loads(content))
+        try: return code,ob(json.loads(content))
+        except (ValueError,UnicodeError): return code,{}
     except Exception:return "UNKNOWN",{}
 http,s=get("/status")
 print("HTTP_STATUS",http)
