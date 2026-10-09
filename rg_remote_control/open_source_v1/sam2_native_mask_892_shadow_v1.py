@@ -46,13 +46,55 @@ def selftest():
     assert not OUTPUT.exists() or OUTPUT.is_dir()
     print("RG_SAM2_NATIVE_ONE_FRAME_MASK_QA_SELFTEST: PASS",flush=True)
 
+def env_check():
+    """Windows-safe venv validation in an actual .py file (never Python -c)."""
+    import sys
+    import site
+    expected="rg_sam2_native_shadow_v1"
+    prefix=str(pathlib.Path(sys.prefix).resolve()).lower()
+    if expected not in prefix:
+        raise RuntimeError("ISOLATION_BAD_SYS_PREFIX: "+prefix)
+    if site.ENABLE_USER_SITE is not False:
+        raise RuntimeError("ISOLATION_USER_SITE_ENABLED")
+    forbidden="rg auto edit runtime/venv/lib/site-packages"
+    for entry in sys.path:
+        normalized=str(entry).lower().replace(chr(92),"/")
+        if forbidden in normalized:
+            raise RuntimeError("ISOLATION_PRODUCTION_SITE_VISIBLE")
+    if str(pathlib.Path(sys.prefix).resolve())==str(pathlib.Path(sys.base_prefix).resolve()):
+        raise RuntimeError("ISOLATION_NOT_INSIDE_NEW_VENV")
+    print("RG_SAM2_VENV_ISOLATION: PASS",flush=True)
+
+def cuda_check():
+    """CUDA + SAM2 image dependencies, without source video or mask write."""
+    env_check()
+    import torch
+    import torchvision
+    import sam2
+    import cv2
+    if not torch.cuda.is_available():
+        raise RuntimeError("SAM2_NATIVE_CUDA_UNAVAILABLE")
+    if torch.__version__.split("+")[0]!="2.8.0":
+        raise RuntimeError("SAM2_TORCH_VERSION_UNEXPECTED")
+    if torchvision.__version__.split("+")[0]!="0.23.0":
+        raise RuntimeError("SAM2_TORCHVISION_VERSION_UNEXPECTED")
+    print("RG_SAM2_NATIVE_IMPORT_CUDA_PASS: "+str(torch.__version__)+" "+str(torchvision.__version__)+" "+str(torch.cuda.get_device_name(0)),flush=True)
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--self-test",action="store_true")
+    parser.add_argument("--env-check",action="store_true")
+    parser.add_argument("--cuda-check",action="store_true")
     parser.add_argument("--run",action="store_true")
     args=parser.parse_args()
+    if sum(bool(x) for x in (args.self_test,args.env_check,args.cuda_check,args.run))!=1:
+        raise RuntimeError("Exactly one action required")
     if args.self_test:
         selftest();return
+    if args.env_check:
+        env_check();return
+    if args.cuda_check:
+        cuda_check();return
     if not args.run:raise RuntimeError("Only --self-test or --run allowed")
     import cv2, numpy as np, torch
     from sam2.build_sam import build_sam2
