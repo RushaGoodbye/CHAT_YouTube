@@ -3,7 +3,7 @@ $ProgressPreference='SilentlyContinue'
 # Pre-parse complete pinned SAM2 native Windows shadow installer before invoking.
 # Will DOWNLOAD a separate torch 2.8 CUDA venv and SAM2.1 tiny on F: on first run.
 # Never installs via production interpreter or changes Studio.
-$commit='6fe3fe454d0a4993dbc52179ab4595c8c0c7ec45'
+$commit='ab107734e5fbfcb0b048c4cee500adbbb6994046'
 $url="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/$commit/rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1"
 Write-Host '=== RG SAM2 NATIVE WINDOWS MASK PILOT FULL POWERSHELL STATIC GATE ==='
 $download=Invoke-WebRequest -UseBasicParsing -Uri $url
@@ -19,7 +19,7 @@ if($errors -and $errors.Count -gt 0){
     throw 'SAM2 pinned PowerShell installer parser failed. Nothing executed.'
 }
 $required=@(
-    "$"+"trialCommit='a420213d99a075adb86945aa6bb20c0b02c8fac1'",
+    "$"+"trialCommit='0e9e3348b4287cb71b8eebeccd2ce63504b904b2'",
     "$"+"sourceCommit='98fcb164bf880f70799c324c283c758c4d20bf82'",
     'include-system-site-packages',
     "SAM2_BUILD_CUDA='0'",
