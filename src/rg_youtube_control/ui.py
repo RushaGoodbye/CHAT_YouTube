@@ -3971,6 +3971,30 @@ class MainWindow(QMainWindow):
                 ))
                 layout.addWidget(evidence_box)
 
+                def show_full_evidence_map() -> None:
+                    # Entire local evidence map, not a shortened 30k preview.
+                    # This dialog never sends content to GitHub or YouTube.
+                    full_dialog = QDialog(dialog)
+                    full_dialog.setWindowTitle(
+                        f"Повна доказова карта · {video_id}"
+                    )
+                    full_dialog.resize(1060, 740)
+                    full_layout = QVBoxLayout(full_dialog)
+                    full_text = QPlainTextEdit()
+                    full_text.setReadOnly(True)
+                    full_text.setPlainText(proof_text)
+                    full_layout.addWidget(full_text, 1)
+                    close_full = QPushButton("Закрити")
+                    close_full.clicked.connect(full_dialog.accept)
+                    full_layout.addWidget(close_full)
+                    full_dialog.exec()
+
+                open_full_map_btn = QPushButton(
+                    "ВІДКРИТИ ВСЮ ДОКАЗОВУ КАРТУ"
+                )
+                open_full_map_btn.clicked.connect(show_full_evidence_map)
+                layout.addWidget(open_full_map_btn)
+
         actions = QHBoxLayout()
         accept_btn = QPushButton("Прийняти")
         accept_btn.setProperty("role", "success")
