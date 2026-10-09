@@ -28,3 +28,7 @@ def test_workflow_read_only_no_scheduled_or_unreviewed_push():
     assert "git push" not in source
     assert "rg_youtube_proposed_repair.patch" in source
     assert "runs-on: [self-hosted, rg, alexpc, windows]" in source
+    assert "python -m venv .venv" in source
+    assert r".venv\Scripts\python.exe" in source
+    assert "if: inputs.drill == true" in source
+    assert "rg_youtube_ollama_drill_result.json" in source
