@@ -9741,6 +9741,32 @@ class MainWindow(QMainWindow):
             )
             layout.addWidget(evidence_details)
 
+        if evidence_report:
+            grounded_topics = list(dict.fromkeys(
+                str(item.get("topic") or "").strip()
+                for block in evidence_report.get("blocks") or []
+                for item in block.get("topics") or []
+                if str(item.get("topic") or "").strip()
+            ))
+            missing_topics = [
+                topic for topic in grounded_topics
+                if topic.casefold() not in new_description.casefold()
+            ]
+            retention_label = QLabel(
+                f"Збереження тем: {len(grounded_topics) - len(missing_topics)}/"
+                f"{len(grounded_topics)} підтверджених тем присутні в описі."
+            )
+            retention_label.setWordWrap(True)
+            layout.addWidget(retention_label)
+            if missing_topics:
+                missing_label = QLabel(
+                    "УВАГА: теми не знайдені дослівно в новому описі: "
+                    + "; ".join(missing_topics[:12])
+                )
+                missing_label.setWordWrap(True)
+                missing_label.setObjectName("warningLabel")
+                layout.addWidget(missing_label)
+
         if title_variants is not None:
             variants = [str(value).strip() for value in title_variants if str(value).strip()]
             ab_heading = QLabel("A/B-назви · 3 альтернативи до основної назви")
