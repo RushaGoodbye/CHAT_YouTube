@@ -41,7 +41,13 @@ else
   printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_failed_at"
 fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
-  sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || true
+  if sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1; then
+    printf '%s\n' '0' > "$STATE/telegram_control_plane_script_rc"
+  else
+    PLANE_RC=$?
+    printf '%s\n' "$PLANE_RC" > "$STATE/telegram_control_plane_script_rc"
+  fi
+  printf '%s\n' "$NOW" > "$STATE/telegram_control_plane_script_checked_at"
 fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
