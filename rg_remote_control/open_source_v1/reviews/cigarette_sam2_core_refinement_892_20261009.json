@@ -1,0 +1,65 @@
+{
+  "schema": "RG_SAM2_CIGARETTE_CORE_REFINEMENT_REAL_892_QA_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "OFFLINE_REAL_892_MASK_REFINEMENT_EXPERIMENT_CREATED_NOT_PRODUCTION_READY",
+  "source": {
+    "user_review_zip": "RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip",
+    "user_positive_gold_zip": "RG_892_CIGARETTE_GOLD_015841.zip",
+    "stream": "892",
+    "real_clip_range_sec": [
+      12,
+      14
+    ],
+    "frame_count": 13,
+    "full_mask_resolution": [
+      1920,
+      1080
+    ],
+    "camera": "guest right-hand view",
+    "semantic_identity": "One visually confirmed genuine cigarette in frame; model may still include finger/smoke."
+  },
+  "experiment": {
+    "method": "For each 1080p SAM2 binary mask, compute PCA long axis. Limit longitudinal extent to 5th-95th mask projection quantiles, keep only pixels within 7.5px of median perpendicular axis, intersect with input SAM2 mask.",
+    "rationale": "Remove excess spill across cigarette cylinder and discourage smoke/skin while never expanding the original SAM2 selection.",
+    "shadow_source_code": "rg_remote_control/open_source_v1/sam2_892_cigarette_core_shadow_v1.py",
+    "source_commit": "f2f97dd050267c6496384d0a76c353d2fe0ad699",
+    "OSS_CI_selftest_commit": "6ddc839ff58aeef4f6aaa9a3efb2d631d05ef796",
+    "source_executed_on_user_PC": false,
+    "independent_local_prototype_runtime": "Executed on assistant's local container against genuine two user-uploaded ZIPs; no CUDA model inference or Studio runtime update.",
+    "local_result_zip": "RG_SAM2_892_CIGARETTE_CORE_EXPERIMENTAL_QA_V1.zip",
+    "local_result_zip_members": 28,
+    "test_result": "PASS",
+    "mean_sam2_pixels_retained_pct": 66.2,
+    "minimum_retained_pct": 55.5,
+    "maximum_retained_pct": 74.3,
+    "no_added_pixels_to_sam2_mask": true,
+    "all_13_masks_full_1920x1080": true,
+    "archive_crc_pass": true,
+    "frames_with_smoke_length_outlier": [
+      4
+    ],
+    "notes": "Geometry narrower on visible original/source comparison but manual per-pixel ground truth, cigarette-only precision and negative false-positive rate NOT measured."
+  },
+  "known_microphone_negative_8865": {
+    "stream": "886",
+    "dialogue": "886_5",
+    "negative_source": "RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip / 886_5_REVIEW_01.jpg",
+    "real_visual_identity": "Stationary decorative embroidered-looking light mark on black microphone",
+    "same_shape_geometry_is_not_cigarette_proof": true,
+    "static_negative_sample_available": true,
+    "model_sam2_negative_challenge_run": false,
+    "independent_semantic_object_classifier_pass": false,
+    "approved_for_blur": false,
+    "quarantine_remains": true
+  },
+  "production": {
+    "source_video_modified": false,
+    "source_audio_modified": false,
+    "Premiere_XML_modified": false,
+    "RG_Auto_Edit_Studio_modified": false,
+    "automatic_blur_allowed": false,
+    "release_allowed": false
+  },
+  "next": "Do not create production blur. Add a robust independent object identity check on real negatives including 886 microphone and diverse true cigarette poses; attach human-reviewed pixel-level ground truth to measure skin/smoke precision before any promotion."
+}
