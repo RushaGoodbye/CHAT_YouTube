@@ -18,7 +18,7 @@ concurrency:
 jobs:
   propose:
     if: github.repository == 'RushaGoodbye/CHAT_YouTube'
-    runs-on: [self-hosted, rg, alexpc, windows]
+    runs-on: [self-hosted, windows]
     timeout-minutes: 20
     outputs:
       has_candidate: ${{ steps.proposal.outputs.has_candidate }}
