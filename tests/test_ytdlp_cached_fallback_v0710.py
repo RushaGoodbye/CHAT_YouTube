@@ -36,12 +36,13 @@ def _seed(conn, *, video_id=VIDEO, scheduled=None):
     conn.execute(
         """INSERT INTO optimization_drafts (
                video_id, new_title, description, tags_json,
-               source_title, source_description, source_tags_json
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               source_title, source_description, source_tags_json,
+               updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (video_id, "Нова назва чернетки", "Не публікувати: AI опис",
          '["новий AI тег"]', "ЧАТ РУЛЕТКА: РОССИЯНЕ О ПЕРУНЕ",
          "Повний оригінальний опис про Перуна.",
-         json.dumps(["Перун", "чат рулетка"])),
+         json.dumps(["Перун", "чат рулетка"]), "2026-10-08T10:00:00Z"),
     )
     conn.commit()
 
