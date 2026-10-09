@@ -101,3 +101,79 @@ def test_one_quote_is_enough_even_if_other_quote_is_paraphrased():
         evidence_report=report,
     )
     assert not any("жодної дослівної цитати" in issue for issue in issues)
+
+
+def _complete_report():
+    return {
+        "blocks_total": 2,
+        "blocks_analyzed": 2,
+        "blocks_with_evidence": 2,
+        "rows_covered": 48,
+        "unverified_blocks": [],
+        "needs_review": False,
+        "blocks": [
+            {"index": 1, "start_stamp": "00:00:00", "verified": True, "topics": [
+                {"topic": "Цензура музики", "summary_uk": "Обговорення заборони музики",
+                 "evidence": "Забороняють слухати пісні"},
+            ]},
+            {"index": 2, "start_stamp": "00:15:00", "verified": True, "topics": [
+                {"topic": "Ціни на бензин", "summary_uk": "Співрозмовник говорить про бензин",
+                 "evidence": "Бензин знову подорожчав"},
+            ]},
+        ],
+    }
+
+
+def _complete_package(report):
+    return review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description=(
+            "У розмові: Цензура музики. Забороняють слухати пісні. "
+            "Ціни на бензин: Бензин знову подорожчав."
+        ),
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+    )
+
+
+def test_genuinely_complete_transcript_report_has_no_coverage_warning():
+    issues = _complete_package(_complete_report())
+    assert not any("Неповне покриття" in issue for issue in issues)
+    assert not any("Не всі часові фрагменти" in issue for issue in issues)
+
+
+def test_transcript_missing_late_block_cannot_be_marked_ready():
+    report = _complete_report()
+    report["blocks"].pop()
+    report["needs_review"] = False
+    issues = _complete_package(report)
+    assert any("Неповне покриття" in issue for issue in issues)
+
+
+def test_inconsistent_caption_count_blocks_ready_even_with_all_topics_present():
+    report = _complete_report()
+    report["rows_covered"] = 0
+    issues = _complete_package(report)
+    assert any("Неповне покриття" in issue for issue in issues)
+
+
+def test_missing_evidence_or_unverified_blocks_do_not_pass_silent_review():
+    report = _complete_report()
+    report["blocks"][1]["topics"][0]["evidence"] = ""
+    report["unverified_blocks"] = [2]
+    report["needs_review"] = False
+    issues = _complete_package(report)
+    assert any("доказової цитати" in issue for issue in issues)
+    assert any("потребує ручного перегляду" in issue for issue in issues)
+
+
+def test_missing_analyzer_counters_requires_manual_review():
+    report = _complete_report()
+    for key in ("blocks_total", "blocks_analyzed", "rows_covered", "blocks_with_evidence"):
+        report.pop(key)
+    issues = _complete_package(report)
+    assert any("Неповне покриття" in issue for issue in issues)
