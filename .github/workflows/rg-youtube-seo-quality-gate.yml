@@ -1,0 +1,54 @@
+name: RG YouTube SEO Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/rg_youtube_control/**"
+      - "tests/test_seo_*.py"
+      - "tests/test_rejected_seo.py"
+      - "tests/test_content_vs_technical_review.py"
+      - "tests/test_review_quality_accept.py"
+      - ".github/workflows/rg-youtube-seo-quality-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-seo-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safety-and-content-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install pytest
+      - name: Run SEO safeguards
+        env:
+          PYTHONPATH: src
+        run: |
+          mkdir -p qa-results
+          python -m pytest -q \
+            tests/test_seo_preview_ab_contract.py \
+            tests/test_seo_quality_gate.py \
+            tests/test_rejected_seo.py \
+            tests/test_content_vs_technical_review.py \
+            tests/test_review_quality_accept.py \
+            --junitxml=qa-results/seo-safety-tests.xml
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-seo-quality-report
+          path: qa-results/
+          if-no-files-found: ignore
+          retention-days: 14
