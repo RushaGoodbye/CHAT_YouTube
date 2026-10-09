@@ -47,7 +47,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
           $env:PYTHONPATH = (Join-Path $PWD "src")
           & $py -m pytest -q tests --tb=short
-          if ($LASTEXITCODE -ne 0) { throw "Baseline tests failed" }
+          if ($LASTEXITCODE -ge 2) { throw "Baseline test collection or infrastructure error" }
+          Write-Host "Baseline pytest exit code: $LASTEXITCODE (1 means repairable test failures)"
       - name: Isolated Ollama repair regression drill
         if: inputs.drill == true
         shell: pwsh
@@ -64,9 +65,18 @@ jobs:
         run: |
           $mode = if ('${{ inputs.apply }}' -eq 'true') { '--apply' } else { '' }
           if ($mode) {
-            & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py --apply
+            Set-Content -Path ".rg_youtube_autofix_sandbox" -Value "isolated github runner checkout"
+            $env:RG_REPAIR_ALLOWED_ROOT = (Get-Location).Path
+            try {
+              & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py --apply
+              if ($LASTEXITCODE -ne 0) { throw "Sandbox repair failed validation" }
+            } finally {
+              Remove-Item ".rg_youtube_autofix_sandbox" -ErrorAction SilentlyContinue
+              Remove-Item Env:RG_REPAIR_ALLOWED_ROOT -ErrorAction SilentlyContinue
+            }
           } else {
             & ".\.venv\Scripts\python.exe" scripts/rg_youtube_seo_repair_agent.py
+            if ($LASTEXITCODE -ne 0) { throw "Read-only repair diagnosis found failures" }
           }
       - name: Check modified file allowlist
         id: changes
@@ -79,7 +89,7 @@ jobs:
           }
           if ('${{ steps.repair.outcome }}' -ne 'success') {
             if ($changed.Count -gt 0) { throw 'Failed repair left a patch behind' }
-            "changed=false" >> $env:GITHUB_OUTPUT
+            throw 'Repair step failed: no validated patch; see repair report'
           } elseif ($changed.Count -eq 0) {
             "changed=false" >> $env:GITHUB_OUTPUT
           } else {
