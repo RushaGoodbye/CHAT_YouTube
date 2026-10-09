@@ -74,7 +74,11 @@ try:
     req=urllib.request.Request(url.rstrip("/")+"/production-state",
         headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"RG-readonly-health-v1"},
         method="GET")
-    with urllib.request.urlopen(req,timeout=16) as response:
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, request, fp, code, msg, headers, newurl):
+            return None
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+    with opener.open(req,timeout=16) as response:
         if response.status!=200:
             print("ADMIN_HTTP_STATUS",response.status);sys.exit(1)
         blob=response.read(8*1024*1024+1)
