@@ -117,6 +117,11 @@ from .ai_repair_status import (
     fetch_ai_repair_status,
     format_ai_repair_status,
 )
+from .seo_review_acceptance import (
+    SOURCE_GENERATION,
+    load_local_evidence_report,
+    reviewed_seo_acceptance_issues,
+)
 from .seo_quality_gate import review_seo_package
 from .rejected_seo import rejected_package_key, package_fingerprint
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
@@ -3915,6 +3920,57 @@ class MainWindow(QMainWindow):
         columns.addLayout(right, 1)
         layout.addLayout(columns, 1)
 
+        try:
+            variants = json.loads(draft["title_variants_json"] or "[]")
+        except (TypeError, ValueError):
+            variants = []
+        ab_preview = QPlainTextEdit()
+        ab_preview.setReadOnly(True)
+        ab_preview.setMaximumHeight(100)
+        ab_preview.setPlainText(
+            "\n".join(f"{i}. {name}" for i, name in enumerate(variants, 1))
+            if isinstance(variants, list) and variants
+            else "A/B-назви не підтверджені"
+        )
+        layout.addWidget(QLabel("ТРИ A/B-НАЗВИ - перевірте перед підтвердженням"))
+        layout.addWidget(ab_preview)
+
+        if str(draft["generation"] or "") == SOURCE_GENERATION:
+            proof = load_local_evidence_report(
+                self.data_dir, video_id,
+            )
+            if proof is None:
+                warning = QLabel(
+                    "УВАГА: доказовий звіт недоступний. "
+                    "Підтвердження цього SEO-пакета заблоковано."
+                )
+                warning.setWordWrap(True)
+                warning.setObjectName("warningLabel")
+                layout.addWidget(warning)
+            else:
+                blocks = proof.get("blocks") or []
+                proof_text = "\n".join(
+                    f"{block.get('start_stamp', '')} | "
+                    + "; ".join(
+                        str(t.get("topic") or "") + " / " + str(t.get("evidence") or "")
+                        for t in (block.get("topics") or [])
+                        if isinstance(t, dict)
+                    )
+                    for block in blocks if isinstance(block, dict)
+                )
+                layout.addWidget(QLabel(
+                    f"Доказова карта діалогів: {len(blocks)} часових фрагментів "
+                    "(повний JSON збережено локально)"
+                ))
+                evidence_box = QPlainTextEdit()
+                evidence_box.setReadOnly(True)
+                evidence_box.setMaximumHeight(140)
+                evidence_box.setPlainText(proof_text[:30000] + (
+                    "\n... Продовження у повному локальному JSON-звіті"
+                    if len(proof_text) > 30000 else ""
+                ))
+                layout.addWidget(evidence_box)
+
         actions = QHBoxLayout()
         accept_btn = QPushButton("Прийняти")
         accept_btn.setProperty("role", "success")
@@ -3978,13 +4034,44 @@ class MainWindow(QMainWindow):
                     options = json.loads(draft["title_variants_json"] or "[]")
                 except Exception:
                     options = []
-                if quality_state != "safe" or len(options) != 3:
+                generation = str(draft["generation"] or "")
+                issues = []
+                if len(options) != 3:
+                    issues.append("Потрібні три коректні A/B-назви.")
+                if generation == SOURCE_GENERATION:
+                    # Fully evidenced drafts are intentionally saved as
+                    # needs_review. Permit approval ONLY after rechecking the
+                    # saved timeline proof and the currently edited text.
+                    issues.extend(reviewed_seo_acceptance_issues(
+                        generation=generation,
+                        video_id=video_id,
+                        title=str(draft["new_title"] or ""),
+                        description=str(draft["description"] or ""),
+                        variants=options if isinstance(options, list) else [],
+                        data_dir=self.data_dir,
+                    ))
+                elif quality_state != "safe":
+                    issues.append("Пакет не пройшов перевірку якості.")
+                try:
+                    stored_tags = json.loads(draft["tags_json"] or "[]")
+                except (TypeError, ValueError):
+                    stored_tags = []
+                status, metadata_issues = self._package_quality_gate(
+                    title=str(draft["new_title"] or ""),
+                    description=str(draft["description"] or ""),
+                    chapters=str(draft["chapters"] or ""),
+                    tags=stored_tags if isinstance(stored_tags, list) else [],
+                    require_ukrainian=True,
+                )
+                if status != "safe":
+                    issues.extend(metadata_issues)
+                if issues:
                     QMessageBox.warning(
                         self,
                         "SEO-пакет ще не готовий",
                         "Ручне підтвердження не скасовує перевірку якості. "
-                        "Потрібна повторна генерація трьох A/B-назв "
-                        "та перевірка змісту перед статусом «Готово».",
+                        "Виправте наведені проблеми та повторіть перевірку:\n\n"
+                        + "\n".join(f"- {item}" for item in dict.fromkeys(issues)),
                     )
                     skipped += 1
                     continue
