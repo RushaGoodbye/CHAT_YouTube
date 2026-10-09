@@ -12,7 +12,7 @@ $hold='F:\RG_AUTO_EDIT\RG Auto Edit App\886\RG_EDITED_886_5.SEMANTIC_HOLD.json'
 $model=Join-Path $shadow 'sam2_native_windows_892_v1\sam2.1_hiera_tiny.pt'
 $yaml=Join-Path $shadow 'sam2_native_windows_892_v1\sam2_repo\sam2\configs\sam2.1\sam2.1_hiera_t.yaml'
 $output=Join-Path $shadow 'sam2_video_track_892_015841_v2_full_mask\RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip'
-$commit='af55e1e776602981301bc3278148439cb2e3b437'
+$commit='8f90a947ea44fc71df617d01af456e4a2b9c1da1'
 Write-Host '=== RG SAM2 892 DYNAMIC FULL-MASK 13-FRAME QA V2 ==='
 Write-Host '2 seconds, 6 fps, isolated F: environment, NO PIP OR STUDIO UPDATE'
 foreach($file in @($py,$source,$hold,$model,$yaml)){
