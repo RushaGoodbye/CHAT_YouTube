@@ -10,7 +10,7 @@ $script=Join-Path $shadow 'scripts\extract_cigarette_gold_892_v1.py'
 $out=Join-Path $shadow 'positive_892_015841_v1'
 $archive=Join-Path $out 'RG_892_CIGARETTE_GOLD_015841.zip'
 $manifest=Join-Path $out 'manifest.json'
-$sourceRef='d38d23c89cb74b901ee7ed10b1bf687eff30589c'
+$sourceRef='0087f899fa3d66154450a50b9952d40ad4561c89'
 Write-Host '=== RG 892 REAL CIGARETTE GOLD VIDEO SOURCE PREFLIGHT ==='
 if(!(Test-Path -LiteralPath $py -PathType Leaf)){
     throw 'Existing isolated F: OpenCV Python environment is unavailable'
@@ -27,6 +27,13 @@ if(!(Test-Path -LiteralPath $video -PathType Leaf)){
 $hold='F:\RG_AUTO_EDIT\RG Auto Edit App\886\RG_EDITED_886_5.SEMANTIC_HOLD.json'
 if(!(Test-Path -LiteralPath $hold -PathType Leaf)){
     throw '886_5 semantic hold marker missing - refuse any further source processing'
+}
+$holdStatus=Get-Content -LiteralPath $hold -Raw -Encoding UTF8 | ConvertFrom-Json
+if($holdStatus.schema -ne 'RG_886_5_MICROPHONE_FALSE_POSITIVE_QUARANTINE_V1' -or
+   $holdStatus.do_not_publish -ne $true -or
+   $holdStatus.primary_xml_withheld -ne $true -or
+   $holdStatus.delivered_xml_withheld -ne $true){
+    throw '886_5 semantic hold marker is not in the verified quarantine state'
 }
 if((Test-Path -LiteralPath 'F:\RG_AUTO_EDIT\RG Auto Edit App\RG_EDITED_886_5.xml' -PathType Leaf) -or
    (Test-Path -LiteralPath 'F:\RG_AUTO_EDIT\RG Auto Edit App\886\RG_EDITED_886_5.xml' -PathType Leaf)){
