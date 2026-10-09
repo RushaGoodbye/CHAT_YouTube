@@ -28,7 +28,7 @@ jobs:
       - name: Checkout trusted SEO source without credentials
         uses: actions/checkout@v4
         with:
-          ref: audit/youtube-control-0710-comprehensive-qa
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Prepare isolated interpreter and verify local Ollama
         shell: pwsh
@@ -59,7 +59,21 @@ jobs:
           }
           $has = if ($report.status -eq 'PROPOSED_UNVERIFIED') { 'true' } else { 'false' }
           "has_candidate=$has" >> $env:GITHUB_OUTPUT
-          "source_sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+          # Check source bytes without Git CLI; checkout commit is pinned above.
+          $check = @'
+          import hashlib
+          import json
+          from pathlib import Path
+          result = json.loads(Path("rg_youtube_proposed_candidate.json").read_text(encoding="utf-8"))
+          for relative, expected in result["base_sha256"].items():
+              current = hashlib.sha256(Path(relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+              if current != expected:
+                  raise SystemExit("BLOCKED: proposal modified trusted checkout: " + relative)
+          print("SOURCE HASH INTEGRITY: PASS")
+          '@
+          $check | & $py -
+          if ($LASTEXITCODE -ne 0) { throw "Source integrity check failed" }
+          "source_sha=${{ github.sha }}" >> $env:GITHUB_OUTPUT
           "is_drill=$($drill.ToString().ToLower())" >> $env:GITHUB_OUTPUT
       - name: Upload unexecuted AI proposal
         if: steps.proposal.outputs.has_candidate == 'true'
