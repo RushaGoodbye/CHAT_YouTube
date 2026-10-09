@@ -104,7 +104,15 @@ def candidate_bytes(original,derivatives,dialogue):
         clip.find('in').text=str(inside-origin); clip.find('out').text=str(outside-origin)
         for field,number in (('pproTicksIn',inside-origin),('pproTicksOut',outside-origin)):
             tick=clip.find(field)
-            if tick is not None: tick.text=str(number*TICKS_PER_SECOND//30)
+            if tick is not None:
+                # Keep original fractional-frame ticks and subtract only the
+                # derivative's source origin. Rounding them to clip in/out can
+                # alter the established Premiere timing by part of a frame.
+                try: value=int(tick.text)-origin*TICKS_PER_SECOND//30
+                except (ValueError,TypeError): raise ReviewRequired('PREMIERE_SOURCE_TICKS_INVALID')
+                if value<0 or value>d['frames']*TICKS_PER_SECOND//30:
+                    raise ReviewRequired('DERIVATIVE_DOES_NOT_COVER_PREMIERE_TICKS')
+                tick.text=str(value)
         count+=1; used.add(path_identity(d['path']))
     if count==0 or used!=set(identities): raise ReviewRequired('UNUSED_OR_UNMAPPED_DERIVATIVE')
     # Keep the original media definition reachable by audio even if the first

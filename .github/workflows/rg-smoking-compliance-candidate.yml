@@ -24,6 +24,10 @@ jobs:
           python-version: '3.12'
       - name: Isolated core dependencies
         run: python -m pip install --disable-pip-version-check numpy==2.2.6 opencv-python-headless==4.11.0.86
+      - name: Media tools in disposable GitHub test host
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Four-layer geometry, media, XML, audio and release safety regression
         run: python -m unittest discover -s rg_remote_control/smoking_release -p 'test_*.py' -v
   alexpc-real-four-layer:

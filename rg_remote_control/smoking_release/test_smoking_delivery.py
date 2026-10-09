@@ -14,7 +14,7 @@ import numpy as np
 from rg_smoking_compliance import (LAYERS,SCHEMA,VERSION,ReviewRequired,
     canonical_hash,sha256_file)
 from rg_smoking_studio_gate import SCHEMA as DELIVERY_SCHEMA,evaluate_for_xml
-from rg_smoking_xml import write_candidate,resolved_audio_hash
+from rg_smoking_xml import write_candidate,resolved_audio_hash,candidate_bytes,TICKS_PER_SECOND
 from rg_smoking_media import render_candidate
 
 
@@ -106,6 +106,17 @@ class DeliveryTests(unittest.TestCase):
                          ET.tostring(after.find('.//video/track/clipitem/filter')))
         self.assertIn(self.source.as_uri().encode(),self.xml.read_bytes())
         self.assertIn(self.render.as_uri().encode(),self.xml.read_bytes())
+
+    def test_fractional_source_ticks_are_shifted_without_rounding(self):
+        root=ET.fromstring(self.original.read_bytes()); clip=root.find('.//video/track/clipitem')
+        clip.find('in').text='100'; clip.find('out').text='104'
+        clip.find('pproTicksIn').text=str(100*TICKS_PER_SECOND//30+17)
+        clip.find('pproTicksOut').text=str(104*TICKS_PER_SECOND//30-17)
+        d=copy.deepcopy(self.derivatives); d[0]['source_range_frames']=[100,104]
+        shifted=ET.fromstring(candidate_bytes(ET.tostring(root),d,'892_4'))
+        result=shifted.find('.//video/track/clipitem')
+        self.assertEqual(result.findtext('pproTicksIn'),'17')
+        self.assertEqual(result.findtext('pproTicksOut'),str(4*TICKS_PER_SECOND//30-17))
 
     def test_legacy_pass_boolean_cannot_authorize_delivery(self):
         self.xml.with_name(self.xml.stem+'_SMOKING_COMPLIANCE_QA.json').write_text('{"passed":true,"coverage":1}')
