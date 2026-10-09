@@ -100,6 +100,10 @@ jobs:
           python rg_remote_control/open_source_v1/sam2_video_track_892_shadow_v1.py --self-test
           python -m py_compile rg_remote_control/open_source_v1/sam2_video_track_892_full_mask_v2.py
           python rg_remote_control/open_source_v1/sam2_video_track_892_full_mask_v2.py --self-test
+      - name: Real SAM2 892 full-mask ZIP strict area volatility safety regression
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/sam2_892_fullmask_archive_safety_v1.py
+          python rg_remote_control/open_source_v1/sam2_892_fullmask_archive_safety_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
