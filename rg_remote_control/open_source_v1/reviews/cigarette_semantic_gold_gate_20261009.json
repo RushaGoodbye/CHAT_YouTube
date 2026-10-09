@@ -1,0 +1,32 @@
+{
+  "schema": "RG_AUTO_EDIT_REAL_CIGARETTE_GOLD_GATE_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "title": "Cigarette identity, tracking and object-only blur - required before Studio production installation",
+  "status": "NEXT_REAL_VIDEO_BLOCKER_POSITIVE_EXAMPLES_REQUIRED",
+  "production_approval": false,
+  "existing_evidence": {
+    "false_positive": "886_5 known microphone ornament, original YOLOWorld class smoking cigarette; 24 user-confirmed non-cigarette frames",
+    "negative_review": "886_5 101 source samples, no clearly visible cigarette; every-4-second samples insufficient to prove negative",
+    "synthetic_test": "Three-module fail-closed shadow package offline tests pass, no independent semantic verifier or full video GPU test",
+    "release_hold": "886_5 semantic quarantine active after false blur removed"
+  },
+  "required_ground_truth": {
+    "positive": "At least one real segment from user's own stream where a cigarette is clearly visible, preferably moving, with exact stream ID and timecode (or direct 5-20 second clip)",
+    "negative": "User-confirmed 886_5 microphone ornament at 9558.9..9561.2 source time",
+    "key_principle": "Real image ground truth must be independent of YOLOWorld predictions. Never label YOLOWorld outputs automatically."
+  },
+  "acceptance_gates": [
+    "Independent image-identity verifier agrees on actual cigarette candidate; never infer identity from tracking stability or one YOLOWorld score",
+    "All known negative microphone frames must be rejected; do not exclude the entire microphone area because a genuine cigarette may enter",
+    "On frame-level positive ground truth, count missed visible-cigarette frames, identity switches, drift onto hands or microphone, and duration of uncertainty",
+    "Blur only the visible cigarette or tight mask/ROI following motion. Do not blur whole frame or face, hand, mic, or background when cigarette not present",
+    "If occluded or visually uncertain, flag as unresolved and block automatic release; do not fill unknown frames with invented coordinates",
+    "Do not report clean dialogue based on 3fps coarse scan and sparse 12fps refinement alone; verify full retained-video temporal coverage",
+    "No production XML/audio source modified until independent identity evidence and smoke QA pass. Stage to temp, verify, then atomic replace",
+    "Preserve existing original audio and non-cigarette Premiere tracks exactly; no full 886 rerun",
+    "No new large model, WSL, CUDA stack or optional dependencies installed until licenses, VRAM and readiness checked in shadow runtime"
+  ],
+  "next_action": "Request one real cigarette positive clip or exact stream ID+timestamp, then run matched negative-vs-positive semantic shadow benchmark on the GPU without modifying Studio.",
+  "status_notes": "Commit of this document only; it is not a production implementation nor a tested independent model."
+}
