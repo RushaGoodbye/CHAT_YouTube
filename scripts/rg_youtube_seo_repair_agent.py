@@ -83,6 +83,14 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true",
                         help="Allow sandbox repairs (never auto-merge)")
     args = parser.parse_args()
+    if args.apply:
+        # Explicit opt-in to a disposable checkout. Ordinary source trees are read-only.
+        allowed_root = os.environ.get("RG_REPAIR_ALLOWED_ROOT", "")
+        marker = ROOT / ".rg_youtube_autofix_sandbox"
+        if (not allowed_root or Path(allowed_root).resolve() != ROOT.resolve()
+                or not marker.is_file()):
+            print("BLOCKED: --apply requires an explicitly authorized sandbox checkout", flush=True)
+            return 2
     before, failure_text = run_tests()
     baseline_full, baseline_log = run_tests(full_suite=True)
     print("BASELINE FULL SUITE:", "PASS" if baseline_full == 0 else "FAIL", flush=True)
