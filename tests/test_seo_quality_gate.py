@@ -109,6 +109,13 @@ def _complete_report():
         "blocks_analyzed": 2,
         "blocks_with_evidence": 2,
         "rows_covered": 48,
+        "source_rows_total": 48,
+        "source_rows_with_text": 48,
+        "source_text_chars": 360,
+        "covered_text_chars": 360,
+        "source_text_sha256": "a" * 64,
+        "covered_text_sha256": "a" * 64,
+        "source_integrity_verified": True,
         "unverified_blocks": [],
         "needs_review": False,
         "blocks": [
@@ -177,3 +184,18 @@ def test_missing_analyzer_counters_requires_manual_review():
         report.pop(key)
     issues = _complete_package(report)
     assert any("Неповне покриття" in issue for issue in issues)
+
+
+def test_mismatched_transcript_fingerprint_blocks_ready():
+    report = _complete_report()
+    report["covered_text_sha256"] = "b" * 64
+    issues = _complete_package(report)
+    assert any("Цілісність транскрипту" in issue for issue in issues)
+
+
+def test_absent_transcript_fingerprint_blocks_ready():
+    report = _complete_report()
+    for key in ("source_text_sha256", "covered_text_sha256", "source_integrity_verified"):
+        report.pop(key)
+    issues = _complete_package(report)
+    assert any("Цілісність транскрипту" in issue for issue in issues)
