@@ -106,7 +106,7 @@ jobs:
             throw 'V3 wrapper rejected healthy pinned SAM2 source before installation'
           }
           $content = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $installer).Path)
-          if ($content -match '(?im)^\\s*&\\s*\\$isoPy\\s+-I\\s+-c\\b') {
+          if ($content -match '(?im)^\s*&\s*\$isoPy\s+-I\s+-c\b') {
             throw 'Actual installer still contains unsafe Python -c execution'
           }
           $bad = $content.Replace('& $isoPy -I -u $code --env-check', '& $isoPy -I -c $probe')
