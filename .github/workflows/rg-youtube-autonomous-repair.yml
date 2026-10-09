@@ -25,7 +25,7 @@ jobs:
       - name: Checkout trusted candidate
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: audit/youtube-control-0710-comprehensive-qa
           persist-credentials: false
       - name: Check local model and Python
         shell: pwsh
