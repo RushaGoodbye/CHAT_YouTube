@@ -1,0 +1,46 @@
+{
+  "schema": "RG_SMOKING_YUNET_MOUTH_REAL_892_TEST_READINESS_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "PINNED_YUNET_MOUTH_DIAGNOSTIC_STAGED_REAL_WINDOWS_EXECUTION_PENDING",
+  "previous_real_892_evidence": {
+    "source_mp4_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
+    "sam2_13_masks_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
+    "negative_8865_101_sparse_stills_sha256": "b8085713087f1a7db86c1f35be129527b28a82a6fe576f8f03f4650811d19884",
+    "real_892_frames": 60,
+    "fps": 30,
+    "grip_anchor_motion_px": 207.58,
+    "critical_failure": "On 13.667s geometric grip candidate overlaps mouth but leaves actual fingers partially visible; geometric motion cannot prove hand anatomy.",
+    "negative_full_video_inference_passed": false
+  },
+  "new_yunet": {
+    "model_origin": "opencv/opencv_zoo/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    "license": "MIT; https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE",
+    "model_LFS_SHA256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+    "model_bytes": 232589,
+    "actual_892_model_run_completed": false,
+    "python_source": "rg_remote_control/open_source_v1/yunet_mouth_landmarks_892_shadow_v1.py",
+    "python_source_commit": "2b00ef5a72302804de256fccd3d773abb0dab9f5",
+    "powershell_bootstrap": "rg_remote_control/bootstrap_auto_edit_yunet_mouth_892_shadow_v1.ps1",
+    "powershell_commit": "64161cab7d2f5113838064a054eda547160005c1",
+    "same_existing_F_python_env": "rg_sam2_native_shadow_v1",
+    "no_pip_installs": true,
+    "expected_892_result_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\yunet_mouth_892_real_60frame_shadow_v1\\RG_892_YUNET_MOUTH_SHADOW_RESULT_V1.zip",
+    "new_OSSSelfTest_CI_commit": "3fd4f140d3f159c81fb12e96b7bacb0822f58824",
+    "new_PowerShell51_parser_CI_commit": "9ea6eddc1cc6e454405936ab813ae992f9ffeba7",
+    "CI_runs_verified": false
+  },
+  "release": {
+    "automatic_blur_allowed": false,
+    "production_release_allowed": false,
+    "full_smoke_detection_verified": false,
+    "finger_contact_detector_verified": false,
+    "mouth_detection_under_test": true,
+    "Studio_modified": false,
+    "source_video_modified": false,
+    "original_audio_modified": false,
+    "Premiere_XML_modified": false,
+    "quarantine_886_5_unchanged": true
+  },
+  "next": "Execute one pinned Windows isolated real YuNet 892 test, attach result ZIP. Evaluate success/fail; do not bypass 8865 mic hold or publish any new blurred media before hand, smoke, mouth tests."
+}
