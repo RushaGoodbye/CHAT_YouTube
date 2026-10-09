@@ -6,6 +6,8 @@ on:
     paths:
       - "scripts/rg_youtube_seo_repair_agent.py"
       - "scripts/rg_youtube_ollama_repair_drill.py"
+      - "scripts/rg_youtube_proposal_only.py"
+      - "scripts/rg_youtube_validate_proposal.py"
       - ".github/workflows/rg-youtube-autonomous-repair.yml"
       - ".github/workflows/rg-youtube-repair-infra-check.yml"
   workflow_dispatch:
@@ -30,6 +32,8 @@ jobs:
           sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
       - name: Compile agent
         run: python -m py_compile scripts/rg_youtube_seo_repair_agent.py
+      - name: Compile proposal generation and hosted validator
+        run: python -m py_compile scripts/rg_youtube_proposal_only.py scripts/rg_youtube_validate_proposal.py
       - name: Compile isolated repair drill
         run: python -m py_compile scripts/rg_youtube_ollama_repair_drill.py
       - name: Enforce review-only agent policy
@@ -45,6 +49,11 @@ jobs:
           assert 'schedule:' not in workflow
           assert 'git push' not in workflow
           assert 'gh pr create' not in workflow
+          assert 'rg_youtube_proposal_only.py' in workflow
+          assert 'rg_youtube_validate_proposal.py' in workflow
+          assert 'runs-on: ubuntu-latest' in workflow
+          assert 'rg_youtube_seo_repair_agent.py --apply' not in workflow
+          assert 'schedule:' not in workflow
           print('Sandbox policies PASS')
           PY
       - name: Checkout SEO candidate without writing it
