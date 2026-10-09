@@ -1,0 +1,116 @@
+name: RG YouTube Ollama E2E - ONE SHOT
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-youtube-ollama-e2e-once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-ollama-e2e-once
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    # Narrow to the project owner's dedicated trusted branch; no forks.
+    if: >-
+      github.repository == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.repo.full_name == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.ref == 'audit/youtube-control-0710-comprehensive-qa'
+    runs-on: [self-hosted, rg, alexpc, windows]
+    timeout-minutes: 25
+    outputs:
+      source_sha: ${{ steps.prepare.outputs.source_sha }}
+    steps:
+      - name: Checkout only trusted branch with no persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: audit/youtube-control-0710-comprehensive-qa
+          persist-credentials: false
+      - name: Check local Ollama and configure disposable Python environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 6
+          if (-not (@($probe.models.name) | Where-Object { $_ -like 'qwen3:8b*' })) {
+            throw 'Ollama qwen3:8b not available for AlexPC runner'
+          }
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create isolated Python environment' }
+          & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Obtain AI proposal from Ollama, never apply it locally
+        id: prepare
+        shell: pwsh
+        run: |
+          & ".\.venv\Scripts\python.exe" -u scripts/rg_youtube_proposal_only.py --drill
+          if ($LASTEXITCODE -ne 0) { throw 'AI proposal generation failed' }
+          $report = Get-Content rg_youtube_proposed_candidate.json -Raw | ConvertFrom-Json
+          if ($report.status -ne 'PROPOSED_UNVERIFIED' -or !$report.drill) {
+            throw "Unexpected candidate: $($report.status)"
+          }
+          if (-not $report.files.'src/rg_youtube_control/rejected_seo.py') {
+            throw 'No candidate for fingerprint repair'
+          }
+          git diff --exit-code -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py
+          if ($LASTEXITCODE -ne 0) { throw 'AI workflow modified checkout' }
+          "source_sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+      - name: Upload unexecuted AI JSON (not source code)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-ollama-e2e-real-proposal
+          path: rg_youtube_proposed_candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: propose
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact tested source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.propose.outputs.source_sha }}
+          persist-credentials: false
+      - name: Install Qt libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install project requirements
+        run: python -m pip install -r requirements.txt
+      - name: Download real Ollama response from independent job
+        uses: actions/download-artifact@v4
+        with:
+          name: rg-youtube-ollama-e2e-real-proposal
+          path: .
+      - name: Run model-generated code only in hosted disposable runner
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/rg_youtube_validate_proposal.py
+      - name: Assert repair passed full suite and preserved trusted source
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("rg_youtube_hosted_validation.json").read_text())
+          assert report["status"] == "DRILL_PASS", report
+          assert report["targeted_pass"] and report["full_pass"], report
+          print("REAL OLLAMA E2E PASS")
+          PY
+          git diff --exit-code -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py
+      - name: Upload final hosted validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-ollama-e2e-validation-report
+          path: rg_youtube_hosted_validation.json
+          if-no-files-found: ignore
+          retention-days: 14
