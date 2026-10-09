@@ -38,10 +38,19 @@ def test_workflow_read_only_no_scheduled_or_unreviewed_push():
     assert "runs-on: [self-hosted, rg, alexpc, windows]" in source
     assert "python -m venv .venv" in source
     assert r".venv\Scripts\python.exe" in source
-    assert "if: inputs.drill == true" in source
-    assert "rg_youtube_ollama_drill_result.json" in source
-    assert "Baseline test collection or infrastructure error" in source
-    assert "Repair step failed: no validated patch" in source
+    assert "rg_youtube_proposal_only.py" in source
+    assert "rg_youtube_validate_proposal.py" in source
+    assert "rg-youtube-unverified-proposal" in source
+    assert "runs-on: ubuntu-latest" in source
+    assert "needs.propose.outputs.source_sha" in source
+    assert "persist-credentials: false" in source
+    assert "if: always()" in source
+    # Crucially, the self-hosted job never executes LLM-generated Python.
+    alexpc = source.split("  validate:", 1)[0]
+    assert "rg_youtube_validate_proposal.py" not in alexpc
+    assert "rg_youtube_seo_repair_agent.py --apply" not in alexpc
+    assert "git push" not in source
+    assert "schedule:" not in source
 
 def test_apply_rejected_without_explicit_sandbox_even_with_root_env():
     env = {**os.environ, "RG_REPAIR_ALLOWED_ROOT": str(ROOT)}
@@ -69,3 +78,17 @@ def test_green_targeted_tests_cannot_hide_full_suite_failure(tmp_path, monkeypat
     report = json.loads((tmp_path / "rg_seo_repair_report.json").read_text())
     assert report["initial_tests_pass"] is True
     assert report["baseline_full_suite_pass"] is False
+
+
+def test_safe_proposal_is_readonly_and_hosted_validator_is_fail_closed(monkeypatch):
+    import importlib
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    proposal = importlib.import_module("rg_youtube_proposal_only")
+    validator = importlib.import_module("rg_youtube_validate_proposal")
+    proposal_source = (ROOT / "scripts/rg_youtube_proposal_only.py").read_text(encoding="utf-8")
+    assert 'status"] = "PROPOSED_UNVERIFIED"' in proposal_source
+    assert "(ROOT / path).write_text(content" not in proposal_source
+    assert 'compile(content, path, "exec")' in proposal_source
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "self-hosted")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert validator.main() == 2
