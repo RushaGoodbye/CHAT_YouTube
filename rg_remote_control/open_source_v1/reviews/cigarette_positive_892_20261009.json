@@ -25,7 +25,13 @@
     "source_path_candidate": "\\\\Desktop-v7gg0en\\record\\892.mp4",
     "output_base": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\positive_892_015841_v1",
     "output": "MP4 video only, contact sheets, high-resolution central frames and manifest in one ZIP",
-    "safeguards": "FFmpeg read-only, no source video overwrite, no XML/audio writes, no Studio deployment, 886_5 quarantine unchanged"
+    "safeguards": "FFmpeg read-only, no source video overwrite, no XML/audio writes, no Studio deployment, 886_5 quarantine unchanged",
+    "status": "V1_SCRIPT_PINNED_NOT_YET_RUN_ON_ALEXPC",
+    "bootstrap_commit": "3a92f566ce9ab220026b7005f79dc42f62950270",
+    "source_commit": "0087f899fa3d66154450a50b9952d40ad4561c89",
+    "output_archive": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\positive_892_015841_v1\\RG_892_CIGARETTE_GOLD_015841.zip",
+    "video_details": "24sec clip with audio excluded and 4fps candidate contact JPEGs plus full resolution 9 frames around 01:58:41",
+    "testing": "Pinned source and wrapper statically audited. Self-tests and actual video extraction to execute on AlexPC. No independent semantic model run or positive label yet."
   },
   "production_allowed": false,
   "semantic_confirmed": false
