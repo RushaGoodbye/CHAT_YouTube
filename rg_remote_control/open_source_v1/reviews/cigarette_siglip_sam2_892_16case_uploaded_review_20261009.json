@@ -1,0 +1,94 @@
+{
+  "schema": "RG_SIGLIP_SAM2_892_886_REAL_16_UPLOAD_INDEPENDENT_QA_V1",
+  "audit_date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "REAL_16_REFERENCE_IMAGE_QA_PASS_SHADOW_ONLY_NO_PRODUCTION_BLUR",
+  "uploaded_zip": "RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_SHADOW_V1.zip",
+  "uploaded_sha256": "1725d7a9bb921a44375f900b5ec907f7b11617c065f6b91954f9fcf02e46bcbb",
+  "integrity": {
+    "zip_crc": "PASS",
+    "member_count": 18,
+    "positive_scene_image_count": 13,
+    "negative_image_count": 3,
+    "schema": "RG_SIGLIP_SAM2_892_THIRTEEN_VS_THREE_REAL_NEGATIVE_SHADOW_V1"
+  },
+  "real_siglip_image_review": {
+    "positive_cigarette_visually_present_on_each_frame": true,
+    "candidate_ids": [
+      "POS_892_TRACK_02",
+      "POS_892_TRACK_05",
+      "POS_892_TRACK_06",
+      "POS_892_TRACK_07",
+      "POS_892_TRACK_08",
+      "POS_892_TRACK_09",
+      "POS_892_TRACK_10",
+      "POS_892_TRACK_11",
+      "POS_892_TRACK_12"
+    ],
+    "true_cigarette_ambiguous_ids": [
+      "POS_892_TRACK_00",
+      "POS_892_TRACK_01",
+      "POS_892_TRACK_03",
+      "POS_892_TRACK_04"
+    ],
+    "first_five_frames_competitor_label": "hands",
+    "final_seven_frames_competitor_label": "face",
+    "negative_ids": [
+      "NEG_886_MIC_MANUAL",
+      "NEG_892_MIC",
+      "NEG_892_MUG"
+    ],
+    "curated_negative_stills_are_not_full_negative_video_proof": true,
+    "full_886_negative_video_test_completed": false,
+    "model": "google/siglip-base-patch16-224",
+    "revision": "d0ffe3fe6b24d37e1fc878f6f6c12837e82e8d21",
+    "checkpoint_warnings": "HF SiglipModel left out ['bias','temperature'] and freshly initialized ['logit_bias','logit_scale']; processor use_fast unspecified. Do not use score margins as calibrated probabilities or production thresholds.",
+    "may_silently_skip_true_cigarette_hand": false
+  },
+  "aligned_mask_QA": {
+    "real_sam2_zip": "RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip",
+    "sam2_binary_masks_checked": 13,
+    "core_zip": "RG_SAM2_892_CIGARETTE_CORE_EXPERIMENTAL_QA_V1.zip",
+    "core_binary_masks_checked": 13,
+    "every_core_mask_subset_of_sam2": true,
+    "core_retained_min_percent": 55.51,
+    "core_retained_max_percent": 74.3,
+    "smoke_leak_risk": "clip 12.6667 sec at lit tip",
+    "finger_lip_overlap_risk": "clip 13.3333 to 14.0 sec; pixel-level exclusivity unproven",
+    "core_can_miss_cigarette_edges": true,
+    "manually_labeled_cigarette_vs_skin_smoke_pixels_available": false,
+    "cigar_pixel_precision_recall_measured": false,
+    "full_stream_recall_measured": false,
+    "reviewed_comparison": "SIGLIP_892_13_SCENE_VS_SAM2_VS_CORE.jpg"
+  },
+  "deliverable": {
+    "report_zip": "RG_SIGLIP_892_886_INDEPENDENT_INTEGRATED_QA_V1.zip",
+    "members": 11,
+    "CRC": "PASS",
+    "includes": [
+      "README_RU.txt",
+      "independent JSON report",
+      "13-frame CSV",
+      "13-frame original-SAM2-core contact sheet",
+      "16 original images contact sheet",
+      "six detail comparison frames"
+    ],
+    "created_in_assistant_sandbox_not_in_GitHub": true
+  },
+  "safety": {
+    "original_video_modified": false,
+    "original_audio_modified": false,
+    "Premiere_XML_modified": false,
+    "Studio_modified": false,
+    "quarantine_886_5_unchanged": true,
+    "automatic_blur_allowed": false,
+    "release_allowed": false
+  },
+  "next": [
+    "Keep 9-of-13 candidate scores and three curated negatives as diagnostic evidence, not production accuracy claims.",
+    "Use stable normalized image/text embeddings and explicit use_fast=False to avoid randomly initialized SigLIP score head for future ranking analysis.",
+    "Hand label cigarette vs fingers and smoke to measure actual pixel recall and collateral blur risk.",
+    "Run hard-negative 886_5 microphone as multi-frame sequence, not solely one static crop.",
+    "No production blur until semantic hard negatives, pixel masks and full motion are validated."
+  ]
+}
