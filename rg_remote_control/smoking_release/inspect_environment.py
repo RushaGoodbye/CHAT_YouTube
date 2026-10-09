@@ -82,6 +82,8 @@ def main():
         "892_015841_POSITIVE_REVIEW_24s_NO_AUDIO.mp4",
         "RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip",
         "RG_892_YUNET_MOUTH_SHADOW_RESULT_V1.zip",
+        "RG_892_HAND_60FRAME_REVERSE_SHADOW_V1.zip",
+        "RG_892_HAND_SAM2_REFINED_SHADOW_V2.zip",
     }
     selected = []
     total = 0
@@ -118,6 +120,8 @@ def main():
     }
     (out / "inventory.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: report[k] for k in ("machine", "app_exists", "data_exists", "quarantine_886_5_valid", "nas_accessible", "studio_changed", "release_allowed")}), flush=True)
+    print("RG_INVENTORY_RUNTIMES=" + json.dumps(runtimes), flush=True)
+    print("RG_INVENTORY_EXISTING_ASSETS=" + json.dumps(assets), flush=True)
     if not valid_hold or report["studio_changed"]:
         raise SystemExit("Release inventory safety guard failed")
 
