@@ -52,7 +52,7 @@ def obj(x): return x if isinstance(x,dict) else {}
 def health(data):
     if not isinstance(data,dict):return {},{},{},{}
     # /production-state returns "status", /status and /alerts return "state".
-    st=obj(data.get("status") or data.get("state"))
+    st=obj(data.get("status")) or obj(data.get("state"))
     qs=obj(data.get("queues") or data.get("state"))
     return (obj(st.get("telegram-video-moderation-health-v2")),
             obj(st.get("air-alert-heartbeat-v1")),
