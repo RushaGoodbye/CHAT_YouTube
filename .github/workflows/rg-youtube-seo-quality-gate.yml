@@ -20,6 +20,7 @@ on:
       - "tests/test_safe_proposal_pipeline.py"
       - "tests/test_ai_repair_status.py"
       - "tests/test_evidence_context_budget.py"
+      - "tests/test_seo_review_acceptance.py"
   workflow_dispatch:
 
 permissions:
@@ -66,6 +67,7 @@ jobs:
             tests/test_safe_proposal_pipeline.py \
             tests/test_ai_repair_status.py \
             tests/test_evidence_context_budget.py \
+            tests/test_seo_review_acceptance.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
