@@ -23,9 +23,9 @@ if ($errorsFound -and $errorsFound.Count -gt 0) {
 $guard = @(
    "schema='RG_AUTO_EDIT_SAM2_READONLY_PREFLIGHT_V2'",
    "action_taken='READ_ONLY_INVENTORY'",
-   "packages_installed=$false",
-   "source_video_modified=$false",
-   "publish_8865_allowed=$false"
+   'packages_installed=$false',
+   'source_video_modified=$false',
+   'publish_8865_allowed=$false'
 )
 foreach ($required in $guard) {
     if (-not $source.Contains($required)) {
