@@ -45,11 +45,16 @@ def test_workflow_read_only_no_scheduled_or_unreviewed_push():
     assert "runs-on: ubuntu-latest" in source
     assert "needs.propose.outputs.source_sha" in source
     assert "persist-credentials: false" in source
+    assert "ref: ${{ github.sha }}" in source
+    assert '"source_sha=${{ github.sha }}"' in source
+    assert "SOURCE HASH INTEGRITY: PASS" in source
     assert "if: always()" in source
     # Crucially, the self-hosted job never executes LLM-generated Python.
     alexpc = source.split("  validate:", 1)[0]
     assert "rg_youtube_validate_proposal.py" not in alexpc
     assert "rg_youtube_seo_repair_agent.py --apply" not in alexpc
+    assert "git rev-parse" not in alexpc
+    assert "git diff" not in alexpc
     assert "git push" not in source
     assert "schedule:" not in source
 
