@@ -58,7 +58,7 @@ def ask_model(failures: str, feedback: str = "") -> dict:
     )
     payload = json.dumps({
         "model": os.environ.get("RG_REPAIR_MODEL", "qwen3:8b"),
-        "prompt": prompt, "stream": False, "format": "json",
+        "prompt": prompt, "stream": False, "format": "json", "think": False,
         "options": {"temperature": 0.1, "num_ctx": 8192, "num_predict": 2400},
     }).encode()
     request = urllib.request.Request(
@@ -67,6 +67,10 @@ def ask_model(failures: str, feedback: str = "") -> dict:
     )
     with urllib.request.urlopen(request, timeout=180) as response:
         data = json.loads(response.read())
+    print("MODEL RESPONSE:", "done_reason=", data.get("done_reason"),
+          "eval_count=", data.get("eval_count"),
+          "prompt_eval_count=", data.get("prompt_eval_count"),
+          "response_chars=", len(data.get("response") or ""), flush=True)
     answer = json.loads(data["response"])
     if not isinstance(answer, dict):
         raise ValueError("Model response must be an object")
