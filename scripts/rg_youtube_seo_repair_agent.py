@@ -98,6 +98,7 @@ def main() -> int:
         print("BASELINE FULL DETAILS:", baseline_log[-2500:], flush=True)
     Path("rg_seo_repair_report.json").write_text(
         json.dumps({"initial_tests_pass": before == 0,
+                    "baseline_full_suite_pass": baseline_full == 0,
                     "mode": "apply" if args.apply else "dry_run"},
                    indent=2), encoding="utf-8"
     )
@@ -105,6 +106,9 @@ def main() -> int:
         print("BLOCKED: test collection or dependency failure; repair cannot be validated", flush=True)
         return 2
     if before == 0:
+        if baseline_full != 0:
+            print("BLOCKED: full-suite failures outside the agent's supported SEO scope", flush=True)
+            return 2
         print("PASS: no repair needed")
         return 0
     if not args.apply:
