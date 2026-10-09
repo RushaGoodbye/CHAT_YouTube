@@ -3,7 +3,7 @@
   "date": "2026-10-09",
   "contour": "auto_edit",
   "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
-  "status": "SAM2_WRAPPER_V2_FIXED_READY_FOR_WINDOWS_RETRY_NO_INSTALL_FROM_FIRST_RUN",
+  "status": "WINDOWS_V2_ENV_CHECK_SYNTAX_STOP_V3_PREPARED_PEND_USER_RETRY",
   "readiness": {
     "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
     "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
@@ -128,6 +128,29 @@
       "windows_CI": "FIXED_WORKFLOW_ADDED_TESTS_NOT_VERIFIED_EXECUTION",
       "workflow_commit": "82c0de036c518f6e880136c001dfec3ee6b8147c",
       "changes_installed_in_Studio": false
+    },
+    "user_second_attempt": {
+      "date": "2026-10-09",
+      "initial_v1": "Old V1 guard failed as expected, no changes",
+      "v2": "12? V2 actual 10 safety guards PASS; positive gold Python selftest PASS; reached isolated venv creation and early Python -c invocation",
+      "last_visible_user_console": "RG SAM2|CREATING_INDEPENDENT_ENV_F ... File \"<stri...",
+      "suspected_cause": "PowerShell 5.1 native-command argument processing strips/mangles double quotes in Python -c source; full traceback truncated so reason not definitively proven",
+      "installed_packages_from_this_attempt": "UNKNOWN; console stopped before pip install lines",
+      "production_modified": "NO evidence; executable calls to production Python only for creation of a separate --copies venv",
+      "actual_mask_inference": "NOT_RUN"
+    },
+    "safe_wrapper_v3": {
+      "status": "PINNED_STATIC_VALIDATED_UNTESTED_ON_ALEXPC",
+      "full_parser_and_12_guards": true,
+      "commit": "c7ce619ef5553a1c389781aa65ca64682f91d29f",
+      "installer_commit": "5800486ba9c8a77bffdb6c66597ffcccfa6e3fd2",
+      "python_commit": "fa2432890eea9070459586017b51750401a6959f",
+      "change": "Replace Windows PowerShell calls to python -I -c inline source with pinned .py --env-check and --cuda-check mode, eliminating shell nested quotes; V3 explicit string invariants and Python -c rejection",
+      "new_pip_downloads_may_start": true,
+      "existing_F_independent_venv_reused_if_present": true,
+      "no_changes_to_production_installs_expected": true,
+      "negative_regressions": "Windows CI workflow configured for corrupted source rejection and real independent venv check; actual workflow run status not verified",
+      "release_allowed": false
     }
   }
 }
