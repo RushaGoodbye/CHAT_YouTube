@@ -10,7 +10,11 @@ def test_agent_cannot_write_tests_and_requires_full_suite():
     source = AGENT.read_text(encoding="utf-8")
     assert "any(p not in WRITABLE for p in proposed)" in source
     assert "run_tests(full_suite=True)" in source
-    assert '"full_result" not in locals() or full_result != 0' in source
+    # Rollback after any failed attempt, even if both attempts fail.
+    assert "finally:" in source
+    assert "if not succeeded:" in source
+    assert '(ROOT / p).write_text(original, encoding="utf-8")' in source
+    assert "succeeded = True" in source
     assert 'parser.add_argument("--apply", action="store_true"' in source
 
 
