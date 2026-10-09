@@ -163,8 +163,7 @@ print("MODERATION_LIVE","ok",flag(moder.get("ok")),"degraded",flag(moder.get("de
  "age_sec",age(moder.get("liveCheckedAt") or moder.get("checkedAt") or moder.get("updatedAt")),
  "error_class",classified(moder.get("error") or moder.get("degradedReason")))
 queues=system.get("queues") if isinstance(system.get("queues"),dict) else {}
-qst=queues.get("state") if isinstance(queues.get("state"),dict) else {}
-health=qst.get("telegram-moderation-publish-health-v2") if isinstance(qst.get("telegram-moderation-publish-health-v2"),dict) else {}
+health=queues.get("telegram-moderation-publish-health-v2") if isinstance(queues.get("telegram-moderation-publish-health-v2"),dict) else {}
 print("PUBLISH_LIVE","age_sec",age(health.get("updatedAt") or health.get("lastRunAt") or health.get("checkedAt")),
  "failed_today",count(health.get("failed")),"uncertain_today",count(health.get("uncertain")),
  "health_date_matches",flag(health.get("dateKey")==today))
