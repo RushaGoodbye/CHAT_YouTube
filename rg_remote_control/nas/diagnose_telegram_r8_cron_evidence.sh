@@ -109,6 +109,7 @@ h,c=get("/content")
 entries=c.get("state") if isinstance(c.get("state"),dict) else {}
 health=entries.get("content-hub-health-v2") if isinstance(entries.get("content-hub-health-v2"),dict) else {}
 content=entries.get("content-hub-state-v2") if isinstance(entries.get("content-hub-state-v2"),dict) else {}
+content_health=health
 print("CONTENT_HEALTH","http",h,
  "ok",flag(health.get("ok")),
  "age_sec",age(health.get("checkedAt") or health.get("updatedAt")),
@@ -174,7 +175,7 @@ print("SOURCE_AI_GATE","automatic_daily_cap",10,"content_daily_cap",10,
 # This intentionally distinguishes schedulerAlive from confirmed scheduled-handler execution.
 cron_fields=("lastCronAt","lastCronRunAt","cronLastRunAt","lastScheduledAt","lastScheduledRunAt",
              "lastCronSuccessAt","cronLastSuccessAt","scheduledHandlerLastRunAt")
-cron_sources=[("health",health),("content",content)]
+cron_sources=[("health",content_health),("content",content)]
 evidence=[]
 for source,obj in cron_sources:
  if not isinstance(obj,dict):continue
