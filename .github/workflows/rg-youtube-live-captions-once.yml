@@ -1,0 +1,51 @@
+name: RG YouTube LIVE Caption Sources - ONE SHOT
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-youtube-live-captions-once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-live-captions-preflight
+  cancel-in-progress: false
+
+jobs:
+  live-caption-sources:
+    if: >-
+      github.repository == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.repo.full_name == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.ref == 'audit/youtube-control-0710-comprehensive-qa'
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install isolated read-only diagnostic tools
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Python venv failed' }
+          & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed' }
+      - name: Probe at most two public LIVE caption tracks with zero YouTube Data API calls
+        shell: pwsh
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\.venv\Scripts\python.exe" -u scripts/rg_youtube_live_captions_preflight.py
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only LIVE transcript triage crashed' }
+      - name: Upload anonymous source counts only, no transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-live-caption-sources-anonymous
+          path: rg_youtube_live_captions_anonymous_preflight.json
+          if-no-files-found: ignore
+          retention-days: 5
