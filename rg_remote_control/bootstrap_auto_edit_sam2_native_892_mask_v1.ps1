@@ -17,7 +17,7 @@ $checkpoint=Join-Path $base 'sam2.1_hiera_tiny.pt'
 $sourceZip=Join-Path $base 'sam2_official_source_98fcb164.zip'
 $repoDir=Join-Path $base 'sam2_repo'
 $sourceCommit='98fcb164bf880f70799c324c283c758c4d20bf82'
-$trialCommit='a420213d99a075adb86945aa6bb20c0b02c8fac1'
+$trialCommit='0e9e3348b4287cb71b8eebeccd2ce63504b904b2'
 Write-Host '=== RG SAM2.1 TINY 892 NATIVE SHADOW STRICT PREFLIGHT ==='
 foreach($f in @($productionPy,$selfTestPy,$gold,$hold)){
     if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw ('Missing prerequisite: '+$f)}
@@ -159,6 +159,8 @@ Write-Host '=== RG SAM2 892 REAL POSITIVE SINGLE FRAME MASK GPU TEST ==='
 if($LASTEXITCODE -ne 0){throw 'SAM2 image mask trial unsuccessful. Studio and source untouched.'}
 $report=Join-Path $base 'review\report.json'
 if(!(Test-Path -LiteralPath $report -PathType Leaf)){throw 'Expected mask QA report not produced'}
+$reviewZip=Join-Path $base 'review\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip'
+if(!(Test-Path -LiteralPath $reviewZip -PathType Leaf)){throw 'Validated single-ZIP mask review missing'}
 $r=Get-Content -LiteralPath $report -Raw -Encoding UTF8 | ConvertFrom-Json
 if($r.schema -ne 'RG_SAM2_892_IMAGE_MASK_SHADOW_V1' -or
    $r.automatic_blur_allowed -ne $false -or
@@ -173,6 +175,7 @@ Write-Host '=== RG SAM2 WINDOWS SINGLE REAL CIGARETTE MASK PILOT RESULT ==='
   masks=@($r.candidates).Count
   report=$report
   review_folder=(Join-Path $base 'review')
+  review_zip=$reviewZip
   production_torch_modified=$false
   premiere_xml_modified=$false
   original_audio_modified=$false
