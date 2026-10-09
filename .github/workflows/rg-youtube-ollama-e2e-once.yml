@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: rg-youtube-ollama-e2e-once
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   propose:
@@ -20,7 +20,7 @@ jobs:
       github.repository == 'RushaGoodbye/CHAT_YouTube' &&
       github.event.pull_request.head.repo.full_name == 'RushaGoodbye/CHAT_YouTube' &&
       github.event.pull_request.head.ref == 'audit/youtube-control-0710-comprehensive-qa'
-    runs-on: [self-hosted, rg, alexpc, windows]
+    runs-on: [self-hosted, windows]
     timeout-minutes: 25
     outputs:
       source_sha: ${{ steps.prepare.outputs.source_sha }}
