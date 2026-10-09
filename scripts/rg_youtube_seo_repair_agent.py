@@ -37,15 +37,19 @@ def run_tests(*, full_suite: bool = False):
     return proc.returncode, (proc.stdout + "\n" + proc.stderr)[-12000:]
 
 
-def ask_model(failures: str) -> dict:
+def ask_model(failures: str, feedback: str = "") -> dict:
     sources = {p: (ROOT / p).read_text(encoding="utf-8") for p in ALLOWED}
     prompt = (
         "Fix the reported Python test failures with the smallest safe patch. "
         "Only touch existing allowed files; never disable checks, tests, or security. "
+        "Preserve ALL behavior described by existing tests. In particular, fingerprint "
+        "tags must be case-insensitive, order-independent and deduplicated; "
+        "fingerprints must change when the content changes. "
+        "A constant hash or hashing the original unsorted/case-sensitive tags is WRONG. "
         "Return ONLY JSON: {\"files\": {\"path\": \"full file contents\"}}. "
         "If the repair is uncertain, return {\"files\": {}}.\n"
         "Allowed source files:\n" + json.dumps(sources, ensure_ascii=False) +
-        "\nFailures:\n" + failures
+        "\nFailures:\n" + failures + "\nPrevious candidate test failures:\n" + feedback
     )
     payload = json.dumps({
         "model": os.environ.get("RG_REPAIR_MODEL", "qwen3:8b"),
@@ -78,40 +82,48 @@ def main() -> int:
     if not args.apply:
         print("FAIL: dry-run mode, no code changed")
         return 1
+    originals = {p: (ROOT / p).read_text(encoding="utf-8") for p in WRITABLE}
+    feedback = ""
+    succeeded = False
     try:
-        proposed = ask_model(failure_text).get("files", {})
-        if not isinstance(proposed, dict) or not proposed:
-            print("No safe repair proposed")
-            return 1
-        if len(proposed) > 3 or any(p not in WRITABLE for p in proposed):
-            raise ValueError("Model attempted edits outside allowlist or change limit")
-        originals = {}
-        for path, value in proposed.items():
-            if not isinstance(value, str) or len(value) > 120_000:
-                raise ValueError("Invalid replacement file")
-            originals[path] = (ROOT / path).read_text(encoding="utf-8")
-            compile(value, path, "exec")
-        try:
+        for attempt in range(1, 3):
+            # Never stack unverified AI patches; each try starts from the failing baseline.
+            for p, original in originals.items():
+                (ROOT / p).write_text(original, encoding="utf-8")
+            print(f"REPAIR ATTEMPT {attempt}/2", flush=True)
+            proposed = ask_model(failure_text, feedback).get("files", {})
+            if not isinstance(proposed, dict) or not proposed:
+                print("No repair proposal", flush=True)
+                break
+            if len(proposed) > 2 or any(p not in WRITABLE for p in proposed):
+                raise ValueError("Model attempted edits outside production allowlist")
             for path, value in proposed.items():
+                if not isinstance(value, str) or len(value) > 120_000:
+                    raise ValueError("Invalid replacement")
+                compile(value, path, "exec")
                 (ROOT / path).write_text(value, encoding="utf-8")
             after, log = run_tests()
             if after != 0:
-                print("Repair failed verification: " + log[-1500:])
-                return 1
+                feedback = log[-4500:]
+                print("Targeted tests failed; requesting corrected patch", flush=True)
+                continue
             full_result, full_log = run_tests(full_suite=True)
             if full_result != 0:
-                print("Full test suite failed: " + full_log[-1500:])
-                return 1
-            print("PASS: patched sandbox passes targeted and full test suites")
+                feedback = full_log[-4500:]
+                print("Full test suite failed; requesting corrected patch", flush=True)
+                continue
+            succeeded = True
+            print("PASS: repaired sandbox passes targeted and full test suites", flush=True)
             return 0
-        finally:
-            if ("after" not in locals() or after != 0 or
-                    "full_result" not in locals() or full_result != 0):
-                for path, value in originals.items():
-                    (ROOT / path).write_text(value, encoding="utf-8")
-    except Exception as exc:
-        print("Repair blocked: " + str(exc))
+        print("Repair not validated after two attempts", flush=True)
         return 1
+    except Exception as exc:
+        print("Repair blocked: " + str(exc), flush=True)
+        return 1
+    finally:
+        if not succeeded:
+            for p, original in originals.items():
+                (ROOT / p).write_text(original, encoding="utf-8")
 
 
 if __name__ == "__main__":
