@@ -18,6 +18,7 @@ def main():
         shutil.copytree(source, sandbox, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc"))
         target = sandbox / "src/rg_youtube_control/rejected_seo.py"
         original = target.read_text(encoding="utf-8")
+        source_target = source / "src/rg_youtube_control/rejected_seo.py"
         needle = 'return hashlib.sha256(raw.encode("utf-8")).hexdigest()'
         if original.count(needle) != 1:
             raise SystemExit("Expected fingerprint implementation has changed; drill stopped")
@@ -33,12 +34,12 @@ def main():
         if trial.stderr:
             print(trial.stderr[-2500:], flush=True)
         fixed = target.read_text(encoding="utf-8")
-        repaired = trial.returncode == 0 and fixed != original.replace(needle, 'return "broken-fingerprint"')
+        repaired = trial.returncode == 0 and fixed != original.replace(needle, 'return "broken-fingerprint"') and source_target.read_text(encoding="utf-8") == original
         result = {
             "drill": "rg_youtube_ollama_repair_v1",
             "status": "PASS" if repaired else "NOT_PASSED",
             "agent_exit_code": trial.returncode,
-            "source_checkout_unchanged": target != source / "src/rg_youtube_control/rejected_seo.py",
+            "source_checkout_unchanged": source_target.read_text(encoding="utf-8") == original,
             "sandbox_repaired": repaired,
         }
         report = source / "rg_youtube_ollama_drill_result.json"
