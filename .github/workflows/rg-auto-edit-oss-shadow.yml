@@ -112,6 +112,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/cigarette_siglip_five_case_fail_closed_v1.py
           python rg_remote_control/open_source_v1/cigarette_siglip_five_case_fail_closed_v1.py --self-test
+      - name: SigLIP 13 genuine 892 masks plus three 886/892 negative controls safety
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/siglip_sam2_892_13frame_vs_886_negative_shadow_v1.py
+          python rg_remote_control/open_source_v1/siglip_sam2_892_13frame_vs_886_negative_shadow_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
