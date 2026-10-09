@@ -91,7 +91,7 @@ class GateTests(unittest.TestCase):
             source_ranges_frames=self.ranges, dialogue='892_4', inference_completed=True,
             failures=[], frames=[dict(source_frame=n, state='CONFIRMED_SMOKING',
                 required={k: True for k in LAYERS}, layer_pixels={k: 20 for k in LAYERS},
-                local_mask_guard_passed=True, mask_sha256='b' * 64)
+                local_mask_guard_passed=True, mask_sha256='b' * 64,decoded_frame_sha256='d'*64)
                 for a, b in self.ranges for n in range(a, b)])
 
     def review(self):
@@ -154,6 +154,15 @@ class GateTests(unittest.TestCase):
         result = evaluate_scan(self.scan, source_sha256=self.sha, ranges=self.ranges,
             dialogue='892_4', independent_review=review)
         self.assertIn('REVIEW_SOURCE_OR_MASKS_MISMATCH', result['failures'])
+
+    def test_source_frame_identity_and_noncanonical_data_block(self):
+        review=self.review()
+        self.scan['frames'][0].pop('decoded_frame_sha256')
+        self.assertIn('SOURCE_FRAME_IDENTITY_MISSING',self.gate()['failures'])
+        self.scan['unknown_score']=float('nan')
+        r=evaluate_scan(self.scan,source_sha256=self.sha,ranges=self.ranges,
+            dialogue='892_4',independent_review=review)
+        self.assertIn('SCAN_NONCANONICAL_DATA',r['failures'])
 
     def test_unknown_empty_and_malformed_results_fail_closed(self):
         for scan in ({}, None, dict(self.scan, frames=[]), dict(self.scan, frames=[None])):

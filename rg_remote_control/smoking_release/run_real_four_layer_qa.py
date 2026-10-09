@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import traceback
 import zipfile
 
 from rg_smoking_compliance import (LAYERS, SCHEMA, VERSION, MaskPolicy,
@@ -223,6 +224,9 @@ def run(output):
             **{k:np.asarray(v,dtype=np.uint8) for k,v in packed.items()})
         scan = dict(schema=SCHEMA,version=VERSION,source_sha256=SOURCE_SHA,
             source_ranges_frames=[[START,START+COUNT]],dialogue='892_test_scene',
+            source_shape_hw=[1080,1920],roi_xyxy=list(roi),
+            mask_policy=dict(max_area_fraction=policy.max_area_fraction,padding_px=policy.padding_px,
+                feather_px=policy.feather_px,blur_sigma=policy.blur_sigma),
             inference_completed=True,frames=rows,
             failures=['SMOKE_SEGMENTATION_NOT_INDEPENDENTLY_VERIFIED',
                 'CONDITIONAL_MOUTH_PHASE_NOT_INDEPENDENTLY_VERIFIED',
@@ -264,6 +268,19 @@ def run(output):
         print(json.dumps({'status':report['status'],'frames':COUNT,
             'archive':str(output/archive.name),'release_allowed':False,
             'studio_changed':False,'quarantine_886_5_unchanged':True}),flush=True)
+    except Exception as exc:
+        # Keep partial video and the actual failure. Diagnostics must survive a
+        # failed CUDA/model/render run; failed artifacts never become a release.
+        if stage.exists():
+            (stage/'failure.txt').write_text(traceback.format_exc(),encoding='utf-8')
+            (stage/'report.json').write_text(json.dumps(dict(
+                schema='RG_SMOKING_REAL_FOUR_LAYER_CANDIDATE_QA_V1',version=VERSION,
+                status='FAILED_RELEASE_BLOCKED',error=str(exc),production_release_allowed=False,
+                studio_changed=before!=protected(),quarantine_886_5_unchanged=before.get(str(HOLD))==sha256_file(HOLD)
+            ),indent=2),encoding='utf-8')
+            if (stage/'frames').exists(): shutil.rmtree(stage/'frames')
+            stage.rename(output)
+        raise
     finally:
         if before != protected():
             raise ReviewRequired('PROTECTED_INPUT_CHANGED')

@@ -12,7 +12,7 @@ import math
 from pathlib import Path
 import re
 
-VERSION = "RG_SMOKING_COMPLIANCE_BLUR_1.0.0_RC1"
+VERSION = "RG_SMOKING_COMPLIANCE_BLUR_1.0.0_RC2"
 SCHEMA = "RG_SMOKING_COMPLIANCE_SCAN_V1"
 LAYERS = ("cigarette", "grip", "smoke", "mouth")
 SHA_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -58,7 +58,7 @@ def validate_ranges(ranges):
 
 
 def cache_key(source_sha256, ranges, model_hashes, options, dialogue):
-    if not valid_sha(source_sha256) or not model_hashes:
+    if not valid_sha(source_sha256) or not isinstance(model_hashes, dict) or not model_hashes:
         raise ReviewRequired("CACHE_IDENTITY_INCOMPLETE")
     if not all(valid_sha(v) for v in model_hashes.values()):
         raise ReviewRequired("MODEL_IDENTITY_INVALID")
@@ -91,7 +91,7 @@ def compose_masks(layers, required, shape, roi, forbidden=None, policy=None):
     import cv2
     import numpy as np
     policy = policy or MaskPolicy()
-    if set(layers) != set(LAYERS) or set(required) != set(LAYERS):
+    if not isinstance(layers, dict) or not isinstance(required, dict) or set(layers) != set(LAYERS) or set(required) != set(LAYERS):
         raise ReviewRequired("FOUR_LAYER_RECORD_REQUIRED")
     if not all(type(v) is bool for v in required.values()):
         raise ReviewRequired("REQUIRED_LAYER_OBSERVATION_UNKNOWN")
@@ -205,6 +205,8 @@ def evaluate_scan(scan, *, source_sha256, ranges, dialogue, independent_review=N
             break
         if row.get("state") not in ("CONFIRMED_SMOKING", "VERIFIED_NEGATIVE"):
             failures.append("AMBIGUOUS_OR_LOST_TRACK")
+        if not valid_sha(row.get("decoded_frame_sha256")):
+            failures.append("SOURCE_FRAME_IDENTITY_MISSING")
         if row.get("state") == "CONFIRMED_SMOKING":
             req = row.get("required")
             metrics = row.get("layer_pixels")
@@ -218,7 +220,7 @@ def evaluate_scan(scan, *, source_sha256, ranges, dialogue, independent_review=N
             if not valid_sha(row.get("mask_sha256")):
                 failures.append("MASK_IDENTITY_MISSING")
         else:
-            if row.get("mask_pixels") != 0:
+            if type(row.get("mask_pixels")) is not int or row.get("mask_pixels") != 0:
                 failures.append("NEGATIVE_FRAME_HAS_BLUR")
             # A zero-detection frame does not certify a negative. Bind its review
             # to exact pixels, with full video review checked separately below.
@@ -234,7 +236,12 @@ def evaluate_scan(scan, *, source_sha256, ranges, dialogue, independent_review=N
     else:
         if review.get("schema") != "RG_SMOKING_INDEPENDENT_REVIEW_V1":
             failures.append("REVIEW_SCHEMA_INVALID")
-        if review.get("source_sha256") != source_sha256 or review.get("source_ranges_frames") != wanted or review.get("scan_sha256") != canonical_hash(scan):
+        try:
+            scan_hash = canonical_hash(scan)
+        except (TypeError, ValueError):
+            scan_hash = None
+            failures.append("SCAN_NONCANONICAL_DATA")
+        if review.get("source_sha256") != source_sha256 or review.get("source_ranges_frames") != wanted or review.get("scan_sha256") != scan_hash:
             failures.append("REVIEW_SOURCE_OR_MASKS_MISMATCH")
         for flag in ("full_timeline_reviewed", "all_required_layers_covered",
                      "no_visible_smoking_after_blur", "no_unrelated_object_blur",
