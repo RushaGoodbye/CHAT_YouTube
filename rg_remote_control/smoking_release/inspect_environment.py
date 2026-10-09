@@ -98,6 +98,11 @@ def main():
                 z.write(p, str(p.relative_to(SHADOW)))
                 total += p.stat().st_size
                 selected.append({"path": str(p.relative_to(SHADOW)), "sha256": digest(p)})
+    heartbeat = NAS / "status" / "alexpc_agent.json"
+    agent_state = {}
+    if heartbeat.is_file():
+        d = json.loads(heartbeat.read_text(encoding="utf-8-sig"))
+        agent_state = {k: d[k] for k in ("status", "updated_at", "heartbeat_at", "hostname", "version") if k in d}
     report = {
         "schema": "RG_SMOKING_RELEASE_READONLY_INVENTORY_V1",
         "commit": os.environ.get("GITHUB_SHA"), "machine": os.environ.get("COMPUTERNAME"),
@@ -106,7 +111,7 @@ def main():
         "quarantine_886_5_sha256": digest(hold) if hold.is_file() else None,
         "protected_files_before": before, "assets": assets, "runtimes": runtimes,
         "gpu": command(["nvidia-smi", "--query-gpu=name,memory.free", "--format=csv,noheader"]),
-        "nas_accessible": NAS.is_dir(),
+        "nas_accessible": NAS.is_dir(), "nas_agent_state": agent_state,
         "selected_samples": selected, "source_archive_sha256": digest(source_archive),
         "studio_changed": before != protected_files(),
         "release_allowed": False,

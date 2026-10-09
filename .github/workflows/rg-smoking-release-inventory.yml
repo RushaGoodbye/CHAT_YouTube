@@ -9,10 +9,10 @@ permissions:
   contents: read
 concurrency:
   group: rg-smoking-release-inventory
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   alexpc-inventory:
-    runs-on: [self-hosted, rg, alexpc, windows]
+    runs-on: [self-hosted, windows]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -31,23 +31,3 @@ jobs:
           path: smoking-inventory/
           retention-days: 14
           if-no-files-found: error
-  nas-inventory:
-    runs-on: [self-hosted, rg, nas]
-    timeout-minutes: 5
-    steps:
-      - name: Read NAS Agent heartbeat and smoke release staging availability
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          root=Path('/volume1/docker/RG_NAS_MCP/ALEXPC')
-          state=root/'status/alexpc_agent.json'
-          report={'nas_available':root.is_dir(),'agent_state_exists':state.is_file()}
-          if state.is_file():
-              doc=json.loads(state.read_text(encoding='utf-8-sig'))
-              for key in ('status','updated_at','heartbeat_at','hostname','version'):
-                  if key in doc: report[key]=doc[key]
-          print(json.dumps(report,ensure_ascii=False))
-          if not root.is_dir():raise SystemExit('NAS root unavailable')
-          PY
