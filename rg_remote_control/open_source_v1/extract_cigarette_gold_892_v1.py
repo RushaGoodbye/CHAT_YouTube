@@ -221,6 +221,11 @@ def process(src,ffmpeg,out):
         note["archive_size_mb"]=round(archive.stat().st_size/1024**2,2)
         (staging/"manifest.json").write_text(json.dumps(note,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
         shutil.rmtree(frame_dir)
+        # Detect unexpected external mutation of the original recording while
+        # generating reference material. Source is only opened for reading.
+        if (src.stat().st_size!=orig["size"] or
+            src.stat().st_mtime_ns!=orig["mtime_ns"]):
+            raise RuntimeError("892 source video metadata changed during capture; refuse publishing diagnostic pack")
         # Create final output atomically at directory level where possible.
         os.rename(staging,out)
         emit(note,out/ZIP_NAME)
