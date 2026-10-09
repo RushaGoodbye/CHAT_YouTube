@@ -1,0 +1,63 @@
+name: RG Smoking Compliance Candidate QA
+on:
+  push:
+    branches: [release/smoking-compliance-20261009]
+    paths:
+      - rg_remote_control/smoking_release/rg_smoking_compliance.py
+      - rg_remote_control/smoking_release/test_smoking_compliance.py
+      - rg_remote_control/smoking_release/run_real_four_layer_qa.py
+      - .github/workflows/rg-smoking-compliance-candidate.yml
+permissions:
+  contents: read
+concurrency:
+  group: rg-smoking-compliance-candidate
+  cancel-in-progress: false
+jobs:
+  core-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated core dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.2.6 opencv-python-headless==4.11.0.86
+      - name: Four-layer geometry and release safety regression
+        run: python -m unittest discover -s rg_remote_control/smoking_release -p 'test_*.py' -v
+  alexpc-real-four-layer:
+    needs: core-regression
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build real candidate in existing isolated SAM2 environment
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+          $active=Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match '^pythonw?\.exe$' -and
+            ($_.CommandLine -like '*rg_production_wrapper.py*' -or
+             $_.CommandLine -like '*rg_multi_dialogue.py*' -or
+             $_.CommandLine -like '*rg_auto_edit_one_button.py*')
+          }
+          if ($active) { throw 'Production processing active; GPU QA deferred' }
+          $out=Join-Path 'F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\smoking_release_candidate_v1' $env:GITHUB_SHA
+          $env:PYTHONNOUSERSITE='1'
+          $env:PYTHONPATH=$null
+          $env:SAM2_BUILD_CUDA='0'
+          & $py -X utf8 -u rg_remote_control/smoking_release/run_real_four_layer_qa.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'Real candidate failed; Studio remains unchanged' }
+          New-Item -ItemType Directory -Path smoking-real-qa -Force | Out-Null
+          Copy-Item (Join-Path $out 'RG_SMOKING_REAL_FOUR_LAYER_CANDIDATE_QA_V1.zip') smoking-real-qa\
+          Copy-Item (Join-Path $out 'report.json') smoking-real-qa\
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-real-four-layer-${{ github.run_id }}
+          path: smoking-real-qa/
+          retention-days: 14
+          if-no-files-found: warn
