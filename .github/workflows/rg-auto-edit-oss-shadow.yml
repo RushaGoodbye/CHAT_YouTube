@@ -82,6 +82,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/triage_886_5_real_frames_v1.py
           python rg_remote_control/open_source_v1/triage_886_5_real_frames_v1.py --self-test
+      - name: Stream 892 authentic cigarette reference extraction contract
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/extract_cigarette_gold_892_v1.py
+          python rg_remote_control/open_source_v1/extract_cigarette_gold_892_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
