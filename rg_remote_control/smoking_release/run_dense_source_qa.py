@@ -128,7 +128,9 @@ def run(output):
         sys.path.insert(0,str(Path(__file__).parents[1]/'open_source_v1'))
         from audit_886_5_dialogue_preflight_v1 import verify_quarantine
         hold,clean,fixture=verify_quarantine()
-        scope=source_scope(clean.read_bytes(),NEGATIVE)
+        # Reading every referenced source frame is valid even when a clip has
+        # non-unit speed. This does not certify source-to-output mask mapping.
+        scope=source_scope(clean.read_bytes(),NEGATIVE,allow_timewarp_for_source_audit=True)
         report['withheld_xml_sha256']=sha256_file(clean)
         report['negative_scope']=scope
         if sha256_file(SOURCE)!=SOURCE_SHA: raise ReviewRequired('PINNED_POSITIVE_SOURCE_CHANGED')

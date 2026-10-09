@@ -53,14 +53,14 @@ def integer(node,name):
     except (TypeError,ValueError,AttributeError): raise ReviewRequired('TIMELINE_FRAME_INVALID:'+name)
 
 
-def source_scope(xml_bytes, source_path, source_fps=Fraction(30)):
+def source_scope(xml_bytes, source_path, source_fps=Fraction(30), *, allow_timewarp_for_source_audit=False):
     root=ET.fromstring(xml_bytes)
     seq=root.find('sequence')
     if root.tag!='xmeml' or seq is None: raise ReviewRequired('XMEML_SEQUENCE_MISSING')
     fps=rate(seq)
     if fps!=source_fps: raise ReviewRequired('MIXED_OR_UNSUPPORTED_FRAME_RATE')
     definitions=file_definitions(root)
-    clips=[]
+    clips=[]; mapping_issues=[]
     target=path_identity(source_path)
     for ti,track in enumerate(seq.findall('./media/video/track')):
         for clip in track.findall('clipitem'):
@@ -74,11 +74,15 @@ def source_scope(xml_bytes, source_path, source_fps=Fraction(30)):
             start,end,inside,outside=(integer(clip,k) for k in ('start','end','in','out'))
             if not (0<=start<end and 0<=inside<outside):
                 raise ReviewRequired('TIMELINE_CLIP_BOUNDS_INVALID')
-            if rate(clip,fps)!=source_fps or end-start!=outside-inside:
-                raise ReviewRequired('TIMEWARP_REQUIRES_SEPARATE_REVIEW')
-            if any((f.findtext('effect/effectid') or '').lower() in ('timeremap','speed')
-                   for f in clip.findall('filter')):
-                raise ReviewRequired('TIMEWARP_REQUIRES_SEPARATE_REVIEW')
+            if rate(clip,fps)!=source_fps:
+                raise ReviewRequired('MIXED_OR_UNSUPPORTED_SOURCE_FRAME_RATE')
+            speed_effect=any((f.findtext('effect/effectid') or '').lower() in ('timeremap','speed')
+                   for f in clip.findall('filter'))
+            if end-start!=outside-inside or speed_effect:
+                mapping_issues.append(dict(clip_id=clip.get('id'),timeline_frames=end-start,
+                    source_frames=outside-inside,speed_effect=speed_effect))
+                if not allow_timewarp_for_source_audit:
+                    raise ReviewRequired('TIMEWARP_REQUIRES_SEPARATE_REVIEW')
             clips.append(dict(track=ti,clip_id=clip.get('id'),timeline=[start,end],source=[inside,outside]))
     if not clips: raise ReviewRequired('EXACT_SOURCE_NOT_ON_TIMELINE')
     ranges=[]
@@ -87,4 +91,6 @@ def source_scope(xml_bytes, source_path, source_fps=Fraction(30)):
         else: ranges.append([a,b])
     return dict(fps_numerator=fps.numerator,fps_denominator=fps.denominator,
         timeline_frames=integer(seq,'duration'),clips=clips,ranges=ranges,
-        unique_source_frames=sum(b-a for a,b in ranges))
+        unique_source_frames=sum(b-a for a,b in ranges),
+        exact_timeline_mapping=not mapping_issues,mapping_issues=mapping_issues,
+        purpose='SOURCE_AUDIT_ONLY' if mapping_issues else 'EXACT_CFR_SOURCE_SCOPE')

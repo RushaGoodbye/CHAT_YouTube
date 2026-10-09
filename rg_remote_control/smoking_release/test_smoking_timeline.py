@@ -38,6 +38,13 @@ class TimelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ReviewRequired,'TIMEWARP'):
             source_scope(timeline('<filter><effect><effectid>timeremap</effectid></effect></filter>'),TARGET)
 
+    def test_read_only_audit_can_cover_timewarp_source_without_certifying_mapping(self):
+        r=source_scope(timeline().replace(b'<out>220</out>',b'<out>230</out>'),TARGET,
+            allow_timewarp_for_source_audit=True)
+        self.assertEqual(r['ranges'],[[100,230]])
+        self.assertFalse(r['exact_timeline_mapping'])
+        self.assertEqual(r['purpose'],'SOURCE_AUDIT_ONLY')
+
     def test_ntsc_cannot_round_into_30fps(self):
         with self.assertRaisesRegex(ReviewRequired,'FRAME_RATE'):
             source_scope(timeline().replace(b'<ntsc>FALSE</ntsc>',b'<ntsc>TRUE</ntsc>'),TARGET)
