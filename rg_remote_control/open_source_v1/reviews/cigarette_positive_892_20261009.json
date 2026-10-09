@@ -1,0 +1,32 @@
+{
+  "schema": "RG_AUTO_EDIT_CIGARETTE_POSITIVE_REFERENCE_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "positive_candidate": {
+    "stream": "892",
+    "timecode": "01:58:41",
+    "source_time_sec": 7121,
+    "status": "USER_SUPPLIED_EXPECTED_CIGARETTE_NOT_YET_VISUALLY_CONFIRMED"
+  },
+  "negative_reference": {
+    "stream": "886",
+    "dialogue": "886_5",
+    "source_window_sec": [
+      9558.9,
+      9561.2
+    ],
+    "label": "MICROPHONE_MARK_NOT_CIGARETTE",
+    "status": "USER_VISUALLY_CONFIRMED"
+  },
+  "extraction_plan": {
+    "start_sec": 7109,
+    "end_sec": 7133,
+    "duration_sec": 24,
+    "source_path_candidate": "\\\\Desktop-v7gg0en\\record\\892.mp4",
+    "output_base": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\positive_892_015841_v1",
+    "output": "MP4 video only, contact sheets, high-resolution central frames and manifest in one ZIP",
+    "safeguards": "FFmpeg read-only, no source video overwrite, no XML/audio writes, no Studio deployment, 886_5 quarantine unchanged"
+  },
+  "production_allowed": false,
+  "semantic_confirmed": false
+}
