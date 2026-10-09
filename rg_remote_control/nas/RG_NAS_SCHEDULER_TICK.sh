@@ -48,6 +48,9 @@ if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
     printf '%s\n' "$PLANE_RC" > "$STATE/telegram_control_plane_script_rc"
   fi
   printf '%s\n' "$NOW" > "$STATE/telegram_control_plane_script_checked_at"
+else
+  printf '%s\n' '127' > "$STATE/telegram_control_plane_script_rc"
+  printf '%s\n' "$NOW" > "$STATE/telegram_control_plane_script_checked_at"
 fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
