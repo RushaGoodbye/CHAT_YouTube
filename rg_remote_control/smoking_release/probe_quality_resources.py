@@ -17,6 +17,7 @@ from run_real_four_layer_qa import APP,ROOT,HOLD,protected
 DATA=ROOT.parent
 PRIOR=ROOT/'smoking_full_evidence_v1/f430053c16a4488ebe8904c99deeb04c6e11c3b6/dense-source'
 NEGATIVE=Path(r'\\Desktop-v7gg0en\record\886.mp4')
+NAS=Path(r'\\AlexLosServer\docker\RG_NAS_MCP\ALEXPC')
 
 
 def bounded_files(root,depth=6):
@@ -47,9 +48,10 @@ def run(output):
             report['model_access']=dict(status='AUTHENTICATION_OR_ACCESS_REQUIRED' if status in (401,403)
                 else 'MODEL_METADATA_UNAVAILABLE',http_status=status,error_type=type(exc).__name__,
                 model='facebook/sam3',weights_downloaded=False,account_token_used=False)
-        for base in (ROOT,DATA/'models',DATA/'datasets',DATA/'annotations',DATA/'smoking_compliance'):
+        for base in (ROOT,DATA/'models',DATA/'datasets',DATA/'annotations',DATA/'smoking_compliance',NAS):
             for p in bounded_files(base):
-                if p.name in ('sam3.pt','sam3.1_multiplex.pt'):
+                if p.name in ('sam3.pt','sam3.1_multiplex.pt') or (
+                        p.suffix=='.safetensors' and 'sam3' in str(p.relative_to(base)).casefold()):
                     report['cached_sam3'].append(dict(path=str(p),bytes=p.stat().st_size,sha256=sha256_file(p)))
                 low=p.name.lower()
                 if p.suffix.lower()!='.json' or not any(k in low for k in ('annotat','human','ground_truth','labels','_gt.')):
