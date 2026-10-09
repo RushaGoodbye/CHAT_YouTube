@@ -15,6 +15,7 @@ on:
       - 'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_shadow_v1.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_v2.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_safe_v3.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_siglip_sam2_892_13frame_vs_886_shadow_v1.ps1'
       - 'rg_remote_control/open_source_v1/sam2_native_mask_892_shadow_v1.py'
       - '.github/workflows/rg-auto-edit-ps-parser-qa.yml'
   workflow_dispatch:
@@ -25,7 +26,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify all 12 Auto Edit PowerShell scripts without running them
+      - name: Verify all 13 Auto Edit PowerShell scripts without running them
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -41,9 +42,10 @@ jobs:
             'rg_remote_control/bootstrap_auto_edit_sam2_892_hydra_fix_v4.ps1',
             'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_shadow_v1.ps1',
             'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_v2.ps1',
-            'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_safe_v3.ps1'
+            'rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_safe_v3.ps1',
+            'rg_remote_control/bootstrap_auto_edit_siglip_sam2_892_13frame_vs_886_shadow_v1.ps1'
           )
-          if (@($paths).Count -ne 12) { throw 'Incomplete PowerShell QA file list' }
+          if (@($paths).Count -ne 13) { throw 'Incomplete PowerShell QA file list' }
           foreach ($path in $paths) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Missing PowerShell script: $path"
@@ -158,6 +160,32 @@ jobs:
             throw 'Negative fixture for broken download path was not constructed correctly'
           }
           Write-Host 'SAM2_892_PINNED_PYTHON_V3_DOWNLOAD_PATH_AND_ALL_11_GUARDS_PASS'
+      - name: Verify SigLIP 16-case bootstrap references exact pinned Python
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $bootstrap='rg_remote_control/bootstrap_auto_edit_siglip_sam2_892_13frame_vs_886_shadow_v1.ps1'
+          $program='rg_remote_control/open_source_v1/siglip_sam2_892_13frame_vs_886_negative_shadow_v1.py'
+          $ps=[System.IO.File]::ReadAllText((Resolve-Path $bootstrap).Path)
+          $py=[System.IO.File]::ReadAllText((Resolve-Path $program).Path)
+          if(-not $ps.Contains('/rg_remote_control/open_source_v1/siglip_sam2_892_13frame_vs_886_negative_shadow_v1.py')){
+              throw 'SigLIP 16-case bootstrap would fetch the wrong script'
+          }
+          foreach($guard in @(
+              'RG_SIGLIP_SAM2_892_THIRTEEN_VS_THREE_REAL_NEGATIVE_SHADOW_V1'
+              'local_files_only=True'
+              'NEGATIVES=('
+              'N=13'
+              '886_5 HOLD'
+              'cigarette_only_blur_allowed=False'
+              'automatic_blur_allowed=False'
+          )){
+              if(-not $py.Contains($guard)){throw ('SigLIP 16-case Python source missing: '+$guard)}
+          }
+          if($ps.Contains('-m pip install') -or $ps.Contains('pip install ')){
+              throw 'SigLIP bootstrap attempts package installation'
+          }
+          Write-Host 'SIGLIP_13FRAMES_VS_886_NEGATIVES_PINNED_GUARDS_PASS'
       - name: Reject original broken numeric-leading hashtable key
         shell: powershell
         run: |
