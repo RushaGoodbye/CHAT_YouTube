@@ -79,3 +79,23 @@ def test_status_display_explains_manual_review_and_no_publication():
     assert "РУЧНОГО РЕВ'Ю" in text
     assert "Публікація YouTube" in text
     assert "ВИМКНЕНО" in text
+
+
+def test_ui_uses_async_readonly_status_worker_no_apply_button():
+    from pathlib import Path
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src/rg_youtube_control/ui.py"
+    ).read_text(encoding="utf-8")
+    method = source.split("def refresh_ai_repair_status(", 1)[1].split(
+        "def refresh_diagnostics_panel(", 1
+    )[0]
+    assert "LocalToolWorker(fetch_ai_repair_status, self)" in method
+    assert "worker.start()" in method
+    assert "format_ai_repair_status(result)" in method
+    assert "GitHub тимчасово недоступний" in method
+    assert "setEnabled(False)" in method
+    assert "setEnabled(True)" in method
+    assert "Оновити з ZIP" in source  # updater remains separate
+    assert "Журнал GitHub / рев'ю патчів" in source
+    assert "rg_youtube_seo_repair_agent.py --apply" not in method
