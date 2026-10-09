@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_quality_gate import review_seo_package
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -12942,6 +12943,12 @@ class MainWindow(QMainWindow):
                         "Автоперевірка пакета: " + "; ".join(quality_reasons)
                     )
                 context = dict(item.get("context") or {})
+                evidence_issues = review_seo_package(
+                    title=title,
+                    description=description,
+                    variants=variants,
+                    evidence_report=item.get("evidence_report"),
+                )
                 save_optimization_draft(
                     self.conn,
                     video_id,
@@ -12952,8 +12959,8 @@ class MainWindow(QMainWindow):
                     "draft",
                     variants,
                     generation="local-seo-0.6",
-                    quality_state="review",
-                    quality_reason="Автоперевірка пройдена; потрібне підтвердження",
+                    quality_state="needs_review" if evidence_issues else "review",
+                    quality_reason="; ".join(evidence_issues) if evidence_issues else "Автоперевірка пройдена; потрібне підтвердження",
                     source_title=str(context.get("title") or ""),
                     source_description=str(context.get("description") or ""),
                     source_tags=list(context.get("tags") or []),
@@ -13130,9 +13137,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        evidence_issues = review_seo_package(
+            title=title,
+            description=description,
+            variants=variants,
+            evidence_report=evidence_report,
+        )
+        requires_review = bool(package.get("needs_review")) or bool(evidence_issues)
         draft_reason = (
-            str(package.get("review_reason") or "").strip()
+            "; ".join(evidence_issues)
+            or str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
             if requires_review else "Переглянуто користувачем"
         )
