@@ -1,0 +1,93 @@
+{
+  "schema": "RG_SMOKING_COMPLIANCE_BLUR_892_REAL_VIDEO_PREVIEW_SHADOW_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "REAL_892_FOUR_ZONE_SHADOW_VIDEO_PREVIEW_REVIEW_REQUIRED_NO_PRODUCTION_RELEASE",
+  "purpose": "First real 892 temporal prototype after user broadened mandatory blur to cigarette, held fingers, smoke and mouth.",
+  "evidence": {
+    "positive_stream": "892",
+    "source_timecode": "01:58:41",
+    "real_gold_24s_clip_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
+    "existing_13_SAM2_masks_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
+    "interval_in_gold_clip_sec": [
+      12,
+      14
+    ],
+    "source_start_frame": 360,
+    "frame_count": 60,
+    "fps": 30,
+    "guest_cropped_video_resolution": [
+      550,
+      440
+    ],
+    "before_after_video_resolution": [
+      1100,
+      472
+    ],
+    "audio_stream_count": 0,
+    "negative_stream": "886",
+    "negative_dialogue": "886_5",
+    "negative_stills_available": 101,
+    "negative_gallery_indices": [
+      1,
+      12,
+      25,
+      35,
+      50,
+      65,
+      80,
+      95,
+      101
+    ],
+    "negative_full_video_model_challenge_completed": false
+  },
+  "implementation": {
+    "cigarette": "13 real SAM2 6fps mask shapes tracked between reference points to each of 60 output frames with dilation, no new GPU model inference",
+    "grip": "Manual sample-specific moving ellipse; not generalized hand detector",
+    "smoke": "Manual sample-specific window smoke and lower-face exhale local regions; opacity feathering; not generalized smoke detector",
+    "mouth": "Manual sample-specific mouth ROI after exhale starts and cigarette approaches; not face landmark detector",
+    "min_adjacent_union_mask_overlap": 0.98492,
+    "max_union_blur_fraction_original_full_1920x1080": 0.03273,
+    "initial_preview_visual_defect": "Exhaled smoke outside mask and recognizable cigarette parts on some frames; conservative local zone widening applied.",
+    "remaining_risk": "No human ground truth; exact cigarette coverage and smoke/mouth hand exclusivity unmeasured",
+    "original_24s_source_fully_censored": false,
+    "automatic_four_zone_detector_built": false,
+    "render_isolated_guest_roi_only": true
+  },
+  "actual_checks": {
+    "source_zip_crc_pass": true,
+    "original_gold_mp4_sha256_verified_before_after": true,
+    "SAM2_13_binary_masks_validated": true,
+    "video_fps_and_60_frames_ffprobe_pass": true,
+    "independent_negative_101_frame_CRC_pass": true,
+    "local_shadow_selftest": "PASS",
+    "archive_crc": "PASS",
+    "result_archive": "RG_SMOKING_COMPLIANCE_892_REAL_VIDEO_PREVIEW_SHADOW_V1.zip",
+    "result_sha256": "822d0d715b69f2f42949c24c156aa2b0bb9f40ff77a38a780691fe546566606e",
+    "archive_members": 13,
+    "includes": [
+      "two actual 30fps MP4 clips",
+      "seven JPG original-mask-after review stills",
+      "nine real unchanged negative 886_5 sampled frames",
+      "report.json",
+      "reproducible Python code",
+      "README"
+    ]
+  },
+  "production": {
+    "automatic_blur_allowed": false,
+    "release_allowed": false,
+    "Studio_modified": false,
+    "audio_modified": false,
+    "original_video_modified": false,
+    "Premiere_XML_modified": false,
+    "quarantine_886_5_unchanged": true,
+    "platform_moderation_guarantee": false
+  },
+  "next": [
+    "Replace manually positioned grip smoke mouth with independently validated moving ROI detection.",
+    "Label original real 892 frames to measure full smoking-event suppression at 30fps, including smoke away from tip.",
+    "Run candidate system on real 886_5 multi-frame negative microphone sequence before release.",
+    "Staged integration only after all acceptance checks, no production audio or XML edits."
+  ]
+}
