@@ -21,6 +21,8 @@ on:
       - "tests/test_ai_repair_status.py"
       - "tests/test_evidence_context_budget.py"
       - "tests/test_seo_review_acceptance.py"
+      - "tests/test_real_srt_preflight.py"
+      - "scripts/rg_youtube_real_srt_preflight.py"
   workflow_dispatch:
 
 permissions:
@@ -68,6 +70,7 @@ jobs:
             tests/test_ai_repair_status.py \
             tests/test_evidence_context_budget.py \
             tests/test_seo_review_acceptance.py \
+            tests/test_real_srt_preflight.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
