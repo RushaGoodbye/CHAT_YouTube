@@ -3,7 +3,7 @@
   "date": "2026-10-09",
   "contour": "auto_edit",
   "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
-  "status": "SAM2_CUDA_READY_HYDRA_CONFIG_PATH_HOTFIX_V4_PREPARED",
+  "status": "SAM2_NATIVE_WIN_RT4080_IMAGE_MASK_SUCCESS_AWAITING_USER_REVIEW_ZIP",
   "readiness": {
     "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
     "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
@@ -185,7 +185,28 @@
       ],
       "release_allowed": false,
       "mask_qa_pending": true,
-      "output_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_native_windows_892_v1\\review\\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip"
+      "output_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_native_windows_892_v1\\review\\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip",
+      "user_actual_gpu_result": {
+        "status": "SUCCESS_REAL_GPU_IMAGE_MASK_CANDIDATES_READY_FOR_HUMAN_REVIEW",
+        "timestamp_source": "User pasted Windows PowerShell output, 2026-10-09",
+        "source_stream": "892",
+        "source_timecode": "01:58:41",
+        "environment_isolation": "PASS",
+        "torch_cuda": "2.8.0+cu126",
+        "torchvision_cuda": "0.23.0+cu126",
+        "gpu": "NVIDIA GeForce RTX 4080",
+        "hydra_absolute_config": "PASS",
+        "candidate_masks_created": 3,
+        "review_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_native_windows_892_v1\\review\\RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip",
+        "flash_attention": "Warnings indicate fallback to an available PyTorch attention kernel, nonfatal, output produced.",
+        "production_modified": false,
+        "source_audio_modified": false,
+        "quarantine_8865_unchanged": true,
+        "release_allowed": false,
+        "visual_mask_qa_done": false,
+        "note": "Three candidate masks have been computed but no mask pixels or report ZIP were yet shared for independent human visual review. No temporal tracking or cigarette identity proof from this result."
+      }
     }
-  }
+  },
+  "next": "User uploads generated RG_SAM2_892_SINGLE_FRAME_MASK_REVIEW_V1.zip. Inspect every overlay image, report and mask geometry; discard masks touching hand/face/mic and only then design a short motion test; no automatic publication."
 }
