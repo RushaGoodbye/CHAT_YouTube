@@ -50,3 +50,31 @@ def test_absent_evidence_prevents_ready():
         evidence_report=None,
     )
     assert any("Немає звіту" in value for value in issues)
+
+
+def test_missing_evidence_quote_forces_review():
+    issues = review_seo_package(
+        title="Росіянин розповів про цензуру музики",
+        description="Цензура музики. Заборона пісень.",
+        variants=[
+            "Росіянин розповідає про цензуру музики",
+            "Заборона музики викликала дискусію",
+            "Які пісні забороняють у Росії сьогодні",
+        ],
+        evidence_report=_report(),
+    )
+    assert any("Цитати" in issue for issue in issues)
+
+
+def test_preserved_evidence_quote_not_flagged():
+    issues = review_seo_package(
+        title="Росіянин розповів про цензуру музики",
+        description="Цензура музики. Забороняють слухати пісні.",
+        variants=[
+            "Росіянин розповідає про цензуру музики",
+            "Заборона музики викликала дискусію",
+            "Які пісні забороняють у Росії сьогодні",
+        ],
+        evidence_report=_report(),
+    )
+    assert not any("Цитати" in issue for issue in issues)
