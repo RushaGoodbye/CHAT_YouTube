@@ -3940,20 +3940,19 @@ class MainWindow(QMainWindow):
                FROM optimization_drafts d
                JOIN videos v ON v.video_id=d.video_id
                WHERE v.profile=? AND d.status='draft'
-                 AND COALESCE(d.generation,'legacy')!='legacy'
+                 AND COALESCE(d.generation,'legacy') NOT IN
+                     ('legacy', 'safe-metadata-0.7.6')
                ORDER BY d.updated_at ASC""",
             (self.current_profile,),
         ).fetchall()
         if not rows:
-            legacy = self._legacy_draft_count()
-            if legacy:
-                self._discard_all_legacy_drafts()
-            else:
-                QMessageBox.information(
-                    self,
-                    APP_NAME,
-                    "Пакетів, які очікують перевірки, немає.",
-                )
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Змістовних SEO-пакетів для перевірки немає. "
+                "Технічні пакети метаданих не є SEO-оптимізацією "
+                "і не включаються до цього списку.",
+            )
             return
 
         accepted = 0
