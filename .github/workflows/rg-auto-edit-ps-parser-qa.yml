@@ -4,15 +4,12 @@ on:
     branches: [main]
     paths:
       - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v1.ps1'
-      - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1',
-            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1',
-            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1',
-            'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1',
-            'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v1.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1'
       - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v1.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1'
       - '.github/workflows/rg-auto-edit-ps-parser-qa.yml'
   workflow_dispatch:
 permissions:
@@ -22,17 +19,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate six Auto Edit real-video Windows PowerShell 5.1 scripts AST without executing
+      - name: Verify all 7 Auto Edit PowerShell scripts without running them
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $paths = @(
             'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v1.ps1',
-            'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1'
+            'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v1.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1'
           )
+          if (@($paths).Count -ne 7) { throw 'Incomplete PowerShell QA file list' }
           foreach ($path in $paths) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-              throw "Missing PowerShell entrypoint: $path"
+              throw "Missing PowerShell script: $path"
             }
             $tokens = $null
             $parseErrors = $null
@@ -48,14 +51,40 @@ jobs:
             }
             Write-Host "WINDOWS_POWERSHELL_51_AST_PARSE_PASS: $path"
           }
-          # Regression check for the previous invalid numeric-leading key.
+      - name: Verify SAM2 V2 pinned safety checks offline - correct and corrupted source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wrapper = 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1'
+          $installer = 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper -ValidateOnly -SourceFile $installer
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Correct SAM2 installer unexpectedly failed offline V2 safety gate'
+          }
+          $content = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $installer).Path)
+          $wrong = $content.Replace('torch==2.8.0+cu126','torch==9.9.9')
+          if ($wrong -eq $content) { throw 'Could not create safe negative fixture' }
+          $fixture = Join-Path $env:TEMP 'sam2_pinned_source_corrupt_qa.ps1'
+          try {
+            [System.IO.File]::WriteAllText($fixture,$wrong)
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper -ValidateOnly -SourceFile $fixture
+            if ($LASTEXITCODE -eq 0) {
+              throw 'Critical: corrupt Torch pin was accepted by V2 safety gate'
+            }
+            Write-Host 'SAM2_CORRUPT_SOURCE_REJECTED_BEFORE_INSTALL: PASS'
+          } finally {
+            Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
+          }
+      - name: Reject original broken numeric-leading hashtable key
+        shell: powershell
+        run: |
           $bad = '[ordered]@{ 886_5_quarantine_unchanged=$true }'
           $tokens = $null
-          $parseErrors = $null
+          $errorsFound = $null
           [System.Management.Automation.Language.Parser]::ParseInput(
-            $bad, [ref]$tokens, [ref]$parseErrors
+            $bad,[ref]$tokens,[ref]$errorsFound
           ) | Out-Null
-          if (-not $parseErrors -or $parseErrors.Count -eq 0) {
-            throw 'Syntax guard did not reject the original incomplete hash literal'
+          if (-not $errorsFound -or $errorsFound.Count -eq 0) {
+            throw 'Parser no longer rejects broken hashtable key'
           }
           Write-Host 'NUMERIC_HASH_KEY_NEGATIVE_REGRESSION_PASS'
