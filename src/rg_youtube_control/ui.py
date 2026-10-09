@@ -9795,6 +9795,7 @@ class MainWindow(QMainWindow):
         new_tags: list[str],
         title_variants: list[str] | None = None,
         evidence_report: dict | None = None,
+        prompt_coverage: dict | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -9867,6 +9868,20 @@ class MainWindow(QMainWindow):
                 missing_label.setWordWrap(True)
                 missing_label.setObjectName("warningLabel")
                 layout.addWidget(missing_label)
+
+        if prompt_coverage and prompt_coverage.get("timeline_prompt_detail_shortened"):
+            omitted = int(prompt_coverage.get("timeline_prompt_omitted_count") or 0)
+            total = int(prompt_coverage.get("timeline_prompt_topics_total") or 0)
+            included = int(prompt_coverage.get("timeline_prompt_topics_included") or 0)
+            prompt_warning = QLabel(
+                "УВАГА: для довгого відео контекст Ollama скорочено. "
+                f"Тем у звіті: {total}; передано моделі: {included}; "
+                f"поза контекстом: {omitted}. "
+                "Повний звіт збережено. Потрібна ручна перевірка."
+            )
+            prompt_warning.setWordWrap(True)
+            prompt_warning.setObjectName("warningLabel")
+            layout.addWidget(prompt_warning)
 
         if title_variants is not None:
             variants = [str(value).strip() for value in title_variants if str(value).strip()]
@@ -13279,6 +13294,7 @@ class MainWindow(QMainWindow):
             new_tags=tags,
             title_variants=variants,
             evidence_report=evidence_report,
+            prompt_coverage=package,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
