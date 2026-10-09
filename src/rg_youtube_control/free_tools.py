@@ -1649,7 +1649,10 @@ def _recover_chapters_from_transcript(
     return last if not _chapters_quality_error(last, transcript) else ""
 
 
-from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
+from .dialogue_seo import (
+    ab_title_issues, evidence_outline_text, preserve_outline_topics,
+    preserve_one_grounded_quote,
+)
 from .evidence_context import bounded_evidence_context
 
 
@@ -2002,8 +2005,12 @@ chapters: рядок з підтвердженими таймкодами та �
         str(payload.get("description") or "").strip()
     )
     omitted_topics: list[str] = []
+    grounded_quote_added = False
     if evidence_report:
         description, omitted_topics = preserve_outline_topics(
+            description, evidence_report,
+        )
+        description, grounded_quote_added = preserve_one_grounded_quote(
             description, evidence_report,
         )
     title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
@@ -2085,6 +2092,7 @@ chapters: рядок з підтвердженими таймкодами та �
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
+        "timeline_grounded_quote_added": grounded_quote_added,
         "timeline_prompt_topics_total": (
             prompt_evidence.topic_total if prompt_evidence else 0
         ),
