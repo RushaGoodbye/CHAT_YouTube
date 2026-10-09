@@ -18,6 +18,7 @@ on:
       - "scripts/rg_youtube_prepare_hosted_smoke.py"
       - "tests/test_autonomous_repair_safety.py"
       - "tests/test_safe_proposal_pipeline.py"
+      - "tests/test_ai_repair_status.py"
   workflow_dispatch:
 
 permissions:
@@ -62,6 +63,7 @@ jobs:
             tests/test_review_quality_accept.py \
             tests/test_autonomous_repair_safety.py \
             tests/test_safe_proposal_pipeline.py \
+            tests/test_ai_repair_status.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
