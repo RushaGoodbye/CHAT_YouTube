@@ -40,3 +40,16 @@ jobs:
           assert 'gh pr create' not in workflow
           print('Sandbox policies PASS')
           PY
+      - name: Checkout SEO candidate without writing it
+        uses: actions/checkout@v4
+        with:
+          ref: audit/youtube-control-0710-comprehensive-qa
+          path: seo-candidate
+          persist-credentials: false
+      - name: Test autonomous agent against SEO candidate (dry run)
+        env:
+          PYTHONPATH: seo-candidate/src
+        run: |
+          python -m pip install pytest
+          cd seo-candidate
+          python scripts/rg_youtube_seo_repair_agent.py
