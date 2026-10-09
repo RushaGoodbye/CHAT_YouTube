@@ -58,6 +58,9 @@ def test_live_available_via_public_transcript_without_nas_srt(tmp_path, monkeypa
     assert result["status"] == "PUBLIC_CAPTIONS_AVAILABLE"
     assert result["public_transcript_available"] == 1
     assert result["public_checked"] == 1
+    assert result["live_timeline_integrity_checked"] == 1
+    assert result["live_timeline_integrity_passed"] == 1
+    assert result["live_caption_rows_analyzed"] == 1
     assert calls == ["ABCDEFGHIJK"]
     assert "ABCDEFGHIJK" not in str(result)
     assert "PRIVATE SPEECH" not in str(result)
@@ -75,6 +78,7 @@ def test_live_alt_caption_track_can_succeed(tmp_path, monkeypatch):
     )
     assert result["status"] == "PUBLIC_CAPTIONS_AVAILABLE"
     assert result["yt_dlp_captions_available"] == 1
+    assert result["live_timeline_integrity_passed"] == 1
     assert "PRIVATE" not in str(result)
 
 
