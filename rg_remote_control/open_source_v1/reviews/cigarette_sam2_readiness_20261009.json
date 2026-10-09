@@ -3,7 +3,7 @@
   "date": "2026-10-09",
   "contour": "auto_edit",
   "objective": "Prepare precise moving-cigarette masking test using SAM 2 without modifying installed RG Auto Edit Studio, source streams, audio, XML or 886_5 hold",
-  "status": "PINNED_ISOLATED_NATIVE_WINDOWS_TINY_MASK_PILOT_READY_NOT_RUN",
+  "status": "SAM2_WRAPPER_V2_FIXED_READY_FOR_WINDOWS_RETRY_NO_INSTALL_FROM_FIRST_RUN",
   "readiness": {
     "safe_wrapper": "rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1",
     "wrapper_commit": "4c89d2dcb75cbc448ef9f61b43cf0116f9f9521f",
@@ -104,6 +104,30 @@
     "CI_syntax_workflow": "Windows PowerShell 5.1 workflow configured, its actual run not yet verified",
     "real_model_gpu_run": "NOT YET EXECUTED ON ALEXPC",
     "release_policy": "ONE FRAME MASK ONLY, no semantic ID, motion tracking, automatic blur or production release. Quarantine 886_5 stays until full dialogue QA.",
-    "wsl": "Not used; native Windows trial stops if incompatible."
+    "wsl": "Not used; native Windows trial stops if incompatible.",
+    "user_first_attempt": {
+      "status": "STOPPED_AT_POWERSHELL_STATIC_GUARD_BEFORE_INSTALL",
+      "observed_error": "SAM2 source contract missing text: [all requirements concatenated into a single string]",
+      "root_cause": "PowerShell source validation used a comma-separated @() containing two string-concatenation expressions, which yielded one combined guard instead of independent checks.",
+      "gpu_test_started": false,
+      "packages_installed": false,
+      "source_video_accessed": false,
+      "studio_changed": false,
+      "quarantine_8865_changed": false
+    },
+    "safe_wrapper_v2": {
+      "status": "COMMITTED_STATIC_CHECKS_PASS_WINDOWS_EXECUTION_UNVERIFIED",
+      "script": "rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1",
+      "commit": "20af95df899b305bd21e8042a6746dd056e59c1f",
+      "exactly_ten_separate_guards": true,
+      "validate_only_flag": true,
+      "offline_source_override_only_with_validate_only": true,
+      "static_positive_source_guard_test": "PASS",
+      "static_corrupted_torch_pin_test": "REJECTED",
+      "original_installer_commit": "ab107734e5fbfcb0b048c4cee500adbbb6994046",
+      "windows_CI": "FIXED_WORKFLOW_ADDED_TESTS_NOT_VERIFIED_EXECUTION",
+      "workflow_commit": "82c0de036c518f6e880136c001dfec3ee6b8147c",
+      "changes_installed_in_Studio": false
+    }
   }
 }
