@@ -1,5 +1,8 @@
 """Regression checks for safe autonomous repair workflow."""
 from pathlib import Path
+import os
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/rg-youtube-autonomous-repair.yml"
@@ -15,6 +18,8 @@ def test_agent_cannot_write_tests_and_requires_full_suite():
     assert "if not succeeded:" in source
     assert '(ROOT / p).write_text(original, encoding="utf-8")' in source
     assert "succeeded = True" in source
+    assert "RG_REPAIR_ALLOWED_ROOT" in source
+    assert "marker.is_file()" in source
     assert 'parser.add_argument("--apply", action="store_true"' in source
 
 
@@ -32,3 +37,14 @@ def test_workflow_read_only_no_scheduled_or_unreviewed_push():
     assert r".venv\Scripts\python.exe" in source
     assert "if: inputs.drill == true" in source
     assert "rg_youtube_ollama_drill_result.json" in source
+    assert "Baseline test collection or infrastructure error" in source
+    assert "Repair step failed: no validated patch" in source
+
+def test_apply_rejected_without_explicit_sandbox_even_with_root_env():
+    env = {**os.environ, "RG_REPAIR_ALLOWED_ROOT": str(ROOT)}
+    proc = subprocess.run(
+        [sys.executable, str(AGENT), "--apply"],
+        cwd=ROOT, env=env, capture_output=True, text=True, timeout=10,
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "BLOCKED: --apply requires an explicitly authorized sandbox" in proc.stdout
