@@ -1,5 +1,5 @@
 #!/bin/sh
-# RG Telegram V24 - Content Hub diagnostic. Only authenticated admin GETs.
+# RG Telegram R8 - Content Hub and cron evidence diagnostic. Only authenticated admin GETs.
 # No scheduling, retries, publication, scanner, AI calls, or queue mutation.
 set -eu
 [ "$(id -u)" = "0" ] || { echo "SUDO_REQUIRED"; exit 2; }
@@ -169,7 +169,7 @@ print("PUBLISH_LIVE","age_sec",age(health.get("updatedAt") or health.get("lastRu
  "failed_today",count(health.get("failed")),"uncertain_today",count(health.get("uncertain")),
  "health_date_matches",flag(health.get("dateKey")==today))
 print("SOURCE_AI_GATE","automatic_daily_cap",10,"content_daily_cap",10,
- "no_generation_on_defer", "TRUE")
+ "no_generation_on_defer", "EXPECTED_POLICY_NOT_RUNTIME_VERIFIED")
 
 # R8: passive cron evidence from Content Hub. No writes or external calls beyond the V26 GETs.
 # This intentionally distinguishes schedulerAlive from confirmed scheduled-handler execution.
@@ -189,8 +189,8 @@ if evidence:
   print("CRON_EVIDENCE","source",source,"field",key,"age_sec",sec)
 else:
  print("CRON_EVIDENCE","UNKNOWN","reason","NO_EXPLICIT_CRON_TIMESTAMP_IN_EXPOSED_STATE")
-print("CRON_CONCLUSION","UNVERIFIED","reason","TIMESTAMPS_ARE_NOT_CLOUDFLARE_EXECUTION_LOGS")
-print("AI_DEFER_POLICY","NO_AUTOMATIC_GENERATION_ON_DEFER")
+print("CRON_CONCLUSION","UNVERIFIED","reason","CLOUDFLARE_EXECUTION_LOGS_NOT_EXPOSED")
+print("AI_DEFER_POLICY","EXPECTED_NOT_VERIFIED")
 
 print("SCOPE","GET_ONLY_NO_ACTIONS_NO_MESSAGE_CONTENT")
 print("RG_TELEGRAM_R8_COMPLETE_READ_ONLY")
