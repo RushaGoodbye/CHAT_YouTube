@@ -9811,11 +9811,16 @@ class MainWindow(QMainWindow):
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
+            source_ok = evidence_report.get("source_integrity_verified") is True
             evidence_label = QLabel(
-                f"Переглянуто ВСІ часові фрагменти: {total}; "
+                f"Часових фрагментів: {total}; "
                 f"з доказовими цитатами: {verified}/{total}. "
-                "Межі діалогів не визначаються без розмітки. "
-                "Перевірте повноту тем до підтвердження."
+                + (
+                    "Цілісність транскрипту: ПІДТВЕРДЖЕНО (SHA-256). "
+                    if source_ok else
+                    "УВАГА: цілісність повного транскрипту НЕ ПІДТВЕРДЖЕНО. "
+                )
+                + "Межі окремих діалогів не визначаються без розмітки."
             )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
@@ -12427,6 +12432,32 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
 
 
+    def _show_local_tool_progress(self, label: str, message: str) -> None:
+        """Reflect completed evidence blocks without claiming SEO is finished."""
+        match = re.search(r"Аналіз фрагментів:\\s*(\\d+)/(\\d+)", message)
+        if match:
+            done = int(match.group(1))
+            total = int(match.group(2))
+            if total > 0:
+                progress = 10 + round(65 * min(done, total) / total)
+                self._set_process(
+                    label,
+                    message,
+                    percent=progress,
+                    eta=f"Аналіз транскрипту · {min(done, total)}/{total} · YouTube API: 0",
+                )
+                return
+        if "Фінальна SEO-генерація" in message:
+            self._set_process(
+                label,
+                message,
+                percent=80,
+                eta="Генерація назв A/B, опису і тегів · YouTube API: 0",
+            )
+            return
+        self._set_process(label, message, percent=None, eta="локально · YouTube API: 0")
+
+
     def _run_local_tool(self, label: str, func, on_success) -> None:
         worker = getattr(self, "_local_tool_worker", None)
         if worker is not None and worker.isRunning():
@@ -12514,12 +12545,7 @@ class MainWindow(QMainWindow):
             self._local_tool_worker = None
 
         worker.progress.connect(
-            lambda message: self._set_process(
-                label,
-                message,
-                percent=None,
-                eta="автоматичний retry",
-            )
+            lambda message: self._show_local_tool_progress(label, message)
         )
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
