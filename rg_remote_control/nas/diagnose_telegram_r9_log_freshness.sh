@@ -14,11 +14,11 @@ files={
 }
 markers={
  "timeout":r"timeout|timed out",
- "rate_limited":r"rate.?limit|\\b429\\b|cooldown",
- "authorization":r"\\b401\\b|\\b403\\b|unauthorized|forbidden",
+ "rate_limited":r"rate.?limit|[\\s:]429(?:\\b|$)|cooldown",
+ "authorization":r"(?<![0-9])(?:401|403)(?![0-9])|unauthorized|forbidden",
  "connection":r"connect(?:ion)? (?:refused|reset)|dns|network unreachable",
  "traceback":r"traceback|uncaught exception",
- "error":r"\\berror\\b|\\bfailed\\b",
+ "error":r"(?<![A-Za-z])error(?![A-Za-z])|(?<![A-Za-z])failed(?![A-Za-z])",
 }
 now=time.time()
 print("RG_R9_LOG_CLASSIFICATION_READ_ONLY")
