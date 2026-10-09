@@ -48,4 +48,18 @@ def review_seo_package(
             "Частина тем відсутня у згенерованому описі: "
             + "; ".join(dict.fromkeys(missing_in_text))[:500]
         )
+    # Exact quote matching is intentionally conservative: paraphrases need review.
+    # Do not auto-publish a summary that silently loses transcript evidence.
+    missing_quotes = []
+    for block in blocks:
+        for item in block.get("topics") or []:
+            quote = str(item.get("evidence") or "").strip()
+            if quote and quote.casefold() not in description.casefold():
+                missing_quotes.append(quote)
+    if missing_quotes:
+        issues.append(
+            "Цитати з аналізу не збережені дослівно в описі; "
+            "перевірте, чи не втрачено ключові моменти: "
+            + "; ".join(dict.fromkeys(missing_quotes))[:450]
+        )
     return list(dict.fromkeys(issues))
