@@ -170,11 +170,32 @@ def analyze_all_timeline_blocks(
     timeout: float = 180.0,
 ) -> dict[str, Any]:
     """Analyze every caption block, with bounded input and resumable cache."""
+    # Ground coverage in the actual input captions, not a model-estimated
+    # block count. Spaces/timestamps are not evidence and can be normalized;
+    # lexical characters must be preserved in source order, exactly once.
+    input_rows = list(rows)
     blocks = split_timeline(
-        rows, max_chars=max_chars, max_span_seconds=max_span_seconds
+        input_rows, max_chars=max_chars, max_span_seconds=max_span_seconds
     )
     if not blocks:
         raise ValueError("Немає субтитрів для аналізу всіх діалогів.")
+    input_stream = "".join(
+        "".join(_compact(row.get("text")).split())
+        for row in input_rows
+    )
+    covered_stream = "".join(
+        "".join(str(block["text"]).split())
+        for block in blocks
+    )
+    input_digest = hashlib.sha256(input_stream.encode("utf-8")).hexdigest()
+    covered_digest = hashlib.sha256(covered_stream.encode("utf-8")).hexdigest()
+    complete_source = (
+        len(input_stream) > 0 and
+        len(input_stream) == len(covered_stream) and
+        input_digest == covered_digest
+    )
+    if not complete_source:
+        raise ValueError("Втрата тексту транскрипту під час розбиття на фрагменти.")
     cache = Path(cache_dir) if cache_dir is not None else None
     if cache is not None:
         cache.mkdir(parents=True, exist_ok=True)
@@ -257,6 +278,13 @@ def analyze_all_timeline_blocks(
         "unverified_blocks": failed,
         "cache_hits": cache_hits,
         "rows_covered": sum(b["pieces"] for b in blocks),
+        "source_rows_total": len(input_rows),
+        "source_rows_with_text": sum(bool(_compact(row.get("text"))) for row in input_rows),
+        "source_text_chars": len(input_stream),
+        "covered_text_chars": len(covered_stream),
+        "source_text_sha256": input_digest,
+        "covered_text_sha256": covered_digest,
+        "source_integrity_verified": complete_source,
         "blocks": results,
         # "100% of blocks processed" does not mean 100% of claims verified.
         "needs_review": bool(failed),
