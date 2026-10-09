@@ -1,0 +1,118 @@
+{
+  "schema": "RG_CIGARETTE_INDEPENDENT_SIGLIP_SHADOW_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "USER_DOWNLOADABLE_SHADOW_PACKAGE_READY_OFFLINE_TESTED_NOT_DEPLOYED",
+  "task": "Compare authentic cigarette examples from 892 with known-negative microphone logo from 886 and 892 mug using a model independent of YOLOWorld",
+  "external_model": {
+    "name": "google/siglip-base-patch16-224",
+    "revision": "d0ffe3fe6b24d37e1fc878f6f6c12837e82e8d21",
+    "license": "Apache-2.0",
+    "card": "https://huggingface.co/google/siglip-base-patch16-224",
+    "estimated_safetensors_download_mb": 813,
+    "production_dependency": false,
+    "isolated_shadow_only": true,
+    "no_model_weights_bundled": true
+  },
+  "ground_truth": [
+    {
+      "sample": "POS_892_MOUTH",
+      "stream": "892",
+      "relative_sec": 1.33333,
+      "bbox": [
+        1516,
+        371,
+        1589,
+        468
+      ],
+      "visual_label": "REAL_CIGARETTE"
+    },
+    {
+      "sample": "POS_892_HAND",
+      "stream": "892",
+      "relative_sec": 12,
+      "bbox": [
+        1219,
+        386,
+        1315,
+        460
+      ],
+      "visual_label": "REAL_CIGARETTE"
+    },
+    {
+      "sample": "NEG_892_MIC",
+      "stream": "892",
+      "relative_sec": 10.98333,
+      "bbox": [
+        482,
+        500,
+        504,
+        525
+      ],
+      "visual_label": "NOT_CIGARETTE_MICROPHONE_MARK"
+    },
+    {
+      "sample": "NEG_892_MUG",
+      "stream": "892",
+      "relative_sec": 18.31667,
+      "bbox": [
+        351,
+        321,
+        401,
+        432
+      ],
+      "visual_label": "NOT_CIGARETTE_MUG"
+    },
+    {
+      "sample": "NEG_886_MIC_MANUAL",
+      "stream": "886",
+      "source_sec": 9559.1,
+      "bbox": [
+        420,
+        475,
+        550,
+        630
+      ],
+      "visual_label": "NOT_CIGARETTE_MICROPHONE_MARK",
+      "caveat": "Manually approximated ROI not a detector box or manually verified pixel segmentation"
+    }
+  ],
+  "package": {
+    "name": "RG_SIGLIP_CIGARETTE_INDEPENDENT_SHADOW_V1.zip",
+    "sha256": "40d9e00666570abf9ec7a5aa61e468cc71dfd7998c7995d1b6e693f3fba0387d",
+    "size_bytes": 12297,
+    "original_python_sha256": "216536e512563ed1ff6bca47005f1593568f2fe7f1fadf6c1ccf4578fc3c95f0",
+    "distribution": "ChatGPT conversation attachment, not a GitHub release or a production Studio update",
+    "contents": [
+      "rg_cigarette_siglip_pair_shadow_v1.py",
+      "START_SIGLIP_SHADOW_TEST.ps1",
+      "RUN_SIGLIP_SHADOW_TEST.cmd",
+      "README_RU.txt",
+      "MODEL_LICENSES_AND_SAFETY.txt"
+    ],
+    "shadow_runtime": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_envs\\rg_siglip_independent_shadow_v1",
+    "shadow_model_cache": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\hf_siglip_independent_cache",
+    "results": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\siglip_cigarette_independent_892_886_v1\\RG_SIGLIP_892_886_CIGARETTE_SHADOW_V1.zip",
+    "writes_to_production": false,
+    "original_video_audio_xml_modified": false
+  },
+  "tests": {
+    "python_syntax_and_selftest": "PASS",
+    "four_real_892_candidate_box_coord_matches_saved_original_yoloworld": "PASS",
+    "real_positive_video_ffmpeg_frame_decode": "PASS",
+    "five_case_full_report_zip_workflow_with_mock_logits": "PASS",
+    "zip_integrity_and_pinned_python_sha": "PASS",
+    "true_siglip_gpu_model_inference_on_alexpc": "NOT_RUN",
+    "windows_powershell_51_parser_and_dependency_install": "NOT_RUN"
+  },
+  "limitations": [
+    "Only five reviewed regions; not statistically meaningful precision or recall.",
+    "SigLIP prompt ranking is not a calibrated cigarette confidence nor a human-confirmed mask.",
+    "886 microphone bbox is approximate and requires validating the resulting crop.",
+    "No temporal tracking, segmentation, occlusion bridge, per-frame or full-dialogue QA yet.",
+    "Do not automatically install shadow package as Studio update or use results to publish 886_5."
+  ],
+  "quarantine_8865": "RETAINED",
+  "production_release_allowed": false,
+  "next": "Run isolated F: SigLIP model on AlexPC when idle; upload output ZIP for actual score and crop review. If candidate discrimination is promising, benchmark SAM2 masking on validated points; otherwise use more labeled examples / specialized fine-tuning."
+}
