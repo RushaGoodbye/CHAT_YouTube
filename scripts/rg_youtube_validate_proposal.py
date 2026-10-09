@@ -90,8 +90,9 @@ def main() -> int:
     finally:
         REPORT.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         # Not required for ephemeral runners but makes failures deterministic.
-        for name, text in original.items():
-            (ROOT / name).write_text(text, encoding="utf-8")
+        if report["status"] != "VALIDATED_FOR_REVIEW":
+            for name, text in original.items():
+                (ROOT / name).write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":
