@@ -72,5 +72,27 @@
     "expected_output": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_video_track_892_015841_v2_full_mask\\RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip"
   },
   "production_approval": false,
-  "quarantine_8865": "RETAIN"
+  "quarantine_8865": "RETAIN",
+  "v2_full_mask_first_user_run": {
+    "status": "PRE_GPU_STATIC_CONTRACT_STOP",
+    "message": "Pinned SAM2 video QA invariant absent: RG_SAM2_892_REAL_VIDEO_TRACK_SHADOW_V2_FULL_MASK",
+    "root_cause_confirmed": "PowerShell downloaded older sam2_video_track_892_shadow_v1.py URL from the new V2 commit rather than the intended sam2_video_track_892_full_mask_v2.py. Commit correct, filename incorrect.",
+    "python_video_run_started": false,
+    "studio_modified": false,
+    "quarantine_8865_unchanged": true
+  },
+  "v3_bootstrap_correction": {
+    "status": "PINNED_AND_END_TO_END_STATIC_FILE_PATH_GUARDS_VERIFIED; USER_GPU_RUN_NOT_YET_PERFORMED",
+    "path": "rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_safe_v3.ps1",
+    "bootstrap_commit": "f12f1cb0bf162d57d36294971edbf84761edc2f4",
+    "python_commit": "8f90a947ea44fc71df617d01af456e4a2b9c1da1",
+    "downloaded_file": "rg_remote_control/open_source_v1/sam2_video_track_892_full_mask_v2.py",
+    "static_success": "Fetched exactly the intended Python file at the pinned commit and independently verified all eleven mandatory guard strings, expected ZIP name, and full mask export.",
+    "static_negative": "Obsolete V1 source path explicitly rejected, regression in Windows PowerShell syntax QA.",
+    "ci_workflow_updated_commit": "b574b88d234948fbaf58bb38f679e025a76d6f49",
+    "workflow_execution": "NOT YET VERIFIED",
+    "next": "Run pinned V3 once to reuse existing isolated F: SAM2 and RTX4080, upload V2 full mask ZIP for manual per-frame identity QA.",
+    "model_not_reinstalled": true,
+    "publication_allowed": false
+  }
 }
