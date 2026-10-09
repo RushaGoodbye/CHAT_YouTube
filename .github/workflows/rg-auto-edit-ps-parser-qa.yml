@@ -79,30 +79,19 @@ jobs:
           & python -I -u $code --env-check
           if ($LASTEXITCODE -eq 0) { throw 'Wrong environment incorrectly accepted' }
           Write-Host 'SAM2_NATIVE_PYTHON_ENV_GUARD_POSITIVE_AND_NEGATIVE_PASS'
-      - name: Verify SAM2 V2 pinned safety checks offline - correct and corrupted source
+      - name: Reject obsolete SAM2 V2 pinned source version against current installer
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          # V2 was pinned to an older Python commit and cannot validate the
+          # repaired V3 installer. It must reject rather than yield a false PASS.
           $wrapper = 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_safe_v2.ps1'
           $installer = 'rg_remote_control/bootstrap_auto_edit_sam2_native_892_mask_v1.ps1'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper -ValidateOnly -SourceFile $installer
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Correct SAM2 installer unexpectedly failed offline V2 safety gate'
+          if ($LASTEXITCODE -eq 0) {
+            throw 'Obsolete V2 unexpectedly approved a mismatched current installer'
           }
-          $content = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $installer).Path)
-          $wrong = $content.Replace('torch==2.8.0+cu126','torch==9.9.9')
-          if ($wrong -eq $content) { throw 'Could not create safe negative fixture' }
-          $fixture = Join-Path $env:TEMP 'sam2_pinned_source_corrupt_qa.ps1'
-          try {
-            [System.IO.File]::WriteAllText($fixture,$wrong)
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper -ValidateOnly -SourceFile $fixture
-            if ($LASTEXITCODE -eq 0) {
-              throw 'Critical: corrupt Torch pin was accepted by V2 safety gate'
-            }
-            Write-Host 'SAM2_CORRUPT_SOURCE_REJECTED_BEFORE_INSTALL: PASS'
-          } finally {
-            Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
-          }
+          Write-Host 'SAM2_OLD_V2_VERSION_MISMATCH_FAIL_CLOSED: PASS'
       - name: Verify SAM2 V3 fixed Windows -c safety regression offline
         shell: powershell
         run: |
