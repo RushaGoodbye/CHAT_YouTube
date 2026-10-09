@@ -20,15 +20,17 @@ function Get-InstalledPkgVersion([string]$package) {
     $items = @(Get-ChildItem -LiteralPath $site -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match ('^' + $escaped + '-(.*)\.dist-info$') })
     if ($items.Count -eq 0) { return $null }
-    return @(foreach ($entry in $items) {
+    $versions = @()
+    foreach ($entry in $items) {
         $meta = Join-Path $entry.FullName 'METADATA'
         if (Test-Path -LiteralPath $meta -PathType Leaf) {
             $row = @(Get-Content -LiteralPath $meta -TotalCount 40 -ErrorAction SilentlyContinue |
                 Where-Object { $_ -like 'Version: *' } | Select-Object -First 1)
-            if ($row.Count) { $row[0].Substring(9).Trim() }
-            else { $entry.Name }
-        } else { $entry.Name }
-    }) -join ';'
+            if ($row.Count) { $versions += $row[0].Substring(9).Trim() }
+            else { $versions += $entry.Name }
+        } else { $versions += $entry.Name }
+    }
+    return ($versions -join ';')
 }
 $checks = [ordered]@{
     f_data_present = (Test-Path -LiteralPath $root -PathType Container)
@@ -144,7 +146,7 @@ foreach ($p in $potential) {
 }
 $disk = [ordered]@{drive='F:'; probe_ok=$false; free_gb=$null}
 try {
-    $drive = New-Object System.IO.DriveInfo('F:\')
+    $drive = [System.IO.DriveInfo]::new('F:\')
     if ($drive.IsReady) {
         $disk.probe_ok=$true
         $disk.free_gb=[math]::Round($drive.AvailableFreeSpace/1GB,2)
@@ -187,7 +189,7 @@ $result=[ordered]@{
     wsl_started=$false
     sam2_installed=$false
     sam2_mask_proof_complete=$false
-    cigarrette_semantic_identity_approved=$false
+    cigarette_semantic_identity_approved=$false
     publish_8865_allowed=$false
     note='Hardware preflight only. WSL registration, installed Torch metadata and checkpoint paths are not evidence SAM2 can segment a real cigarette or that blurred pixels are correct.'
 }
