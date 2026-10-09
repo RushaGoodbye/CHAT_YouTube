@@ -28,7 +28,7 @@ jobs:
       - name: Checkout only trusted branch with no persisted credentials
         uses: actions/checkout@v4
         with:
-          ref: audit/youtube-control-0710-comprehensive-qa
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Check local Ollama and configure disposable Python environment
         shell: pwsh
@@ -55,9 +55,22 @@ jobs:
           if (-not $report.files.'src/rg_youtube_control/rejected_seo.py') {
             throw 'No candidate for fingerprint repair'
           }
-          git diff --exit-code -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py
-          if ($LASTEXITCODE -ne 0) { throw 'AI workflow modified checkout' }
-          "source_sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+          # Git CLI may be absent on the isolated Windows GitHub runner.
+          # Check content hashes instead: these are captured BEFORE Ollama runs.
+          $script = @'
+import hashlib
+import json
+from pathlib import Path
+candidate = json.loads(Path("rg_youtube_proposed_candidate.json").read_text(encoding="utf-8"))
+for relative, expected in candidate["base_sha256"].items():
+    actual = hashlib.sha256(Path(relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+    if actual != expected:
+        raise SystemExit("BLOCKED: local source mutated: " + relative)
+print("SOURCE HASH INTEGRITY: PASS")
+'@
+          $script | & ".\.venv\Scripts\python.exe" -
+          if ($LASTEXITCODE -ne 0) { throw 'AI proposal changed the source checkout' }
+          "source_sha=${{ github.event.pull_request.head.sha }}" >> $env:GITHUB_OUTPUT
       - name: Upload unexecuted AI JSON (not source code)
         uses: actions/upload-artifact@v4
         with:
