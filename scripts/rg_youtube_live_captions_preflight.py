@@ -18,6 +18,7 @@ from rg_youtube_control.free_tools import (
     fetch_public_metadata, fetch_transcript, fetch_transcript_from_public_metadata,
     load_srt_transcript,
 )
+from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
 
 OUTPUT = Path("rg_youtube_live_captions_anonymous_preflight.json")
 
@@ -44,6 +45,9 @@ def inspect(
         "public_transcript_available": 0,
         "yt_dlp_captions_available": 0,
         "no_caption_source_found": 0,
+        "live_timeline_integrity_checked": 0,
+        "live_timeline_integrity_passed": 0,
+        "live_caption_rows_analyzed": 0,
         "source_text_exported": False,
         "video_ids_exported": False,
         "youtube_data_api_calls": 0,
@@ -104,18 +108,44 @@ def inspect(
         outcome["reason"] = "At least one LIVE SRT is accessible on NAS"
         return outcome
 
+    def count_full_caption_coverage(captions: list) -> None:
+        # This analyzes every caption with a deterministic empty-topic stub.
+        # It NEVER calls Ollama or exports transcript text; semantic quality
+        # is deliberately not claimed in this infrastructure preflight.
+        try:
+            report = analyze_all_timeline_blocks(
+                captions, model="live-coverage-readonly",
+                chat=lambda *_args, **_kwargs: '{"topics":[]}',
+                max_chars=5000, max_span_seconds=300,
+            )
+        except (ValueError, TypeError, RuntimeError, OSError):
+            return
+        outcome["live_timeline_integrity_checked"] += 1
+        outcome["live_caption_rows_analyzed"] += int(
+            report.get("source_rows_with_text") or 0
+        )
+        if (
+            report.get("source_integrity_verified") is True
+            and report.get("blocks_total") == report.get("blocks_analyzed")
+        ):
+            outcome["live_timeline_integrity_passed"] += 1
+
     for identifier in missing[:max(0, min(max_public_probes, 2))]:
         outcome["public_checked"] += 1
         try:
-            if public_transcript(identifier):
+            captions = public_transcript(identifier)
+            if captions:
                 outcome["public_transcript_available"] += 1
+                count_full_caption_coverage(captions)
                 continue
         except Exception:
             pass
         try:
             context = metadata(identifier)
-            if context and metadata_captions(context):
+            captions = metadata_captions(context) if context else []
+            if captions:
                 outcome["yt_dlp_captions_available"] += 1
+                count_full_caption_coverage(captions)
                 continue
         except Exception:
             pass
@@ -147,7 +177,9 @@ def main() -> int:
     print("LIVE CAPTIONS:", result["status"], flush=True)
     for key in ("known_live_archive_rows", "public_archive_rows", "nas_srt_matched",
                 "public_checked", "public_transcript_available",
-                "yt_dlp_captions_available", "no_caption_source_found"):
+                "yt_dlp_captions_available", "no_caption_source_found",
+                "live_timeline_integrity_checked", "live_timeline_integrity_passed",
+                "live_caption_rows_analyzed"):
         print(key.upper() + ":", result.get(key, 0), flush=True)
     print("REASON:", result.get("reason", ""), flush=True)
     return 0
