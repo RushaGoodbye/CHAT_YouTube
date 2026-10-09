@@ -12434,7 +12434,7 @@ class MainWindow(QMainWindow):
 
     def _show_local_tool_progress(self, label: str, message: str) -> None:
         """Reflect completed evidence blocks without claiming SEO is finished."""
-        match = re.search(r"Аналіз фрагментів:\\s*(\\d+)/(\\d+)", message)
+        match = re.search(r"Аналіз фрагментів:\s*(\d+)/(\d+)", message)
         if match:
             done = int(match.group(1))
             total = int(match.group(2))
