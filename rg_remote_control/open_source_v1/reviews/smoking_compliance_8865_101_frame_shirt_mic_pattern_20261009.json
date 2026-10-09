@@ -32,7 +32,7 @@
   "frames_NCC_at_least_0_7": 81,
   "frames_NCC_below_0_55": 16,
   "result_archive": "RG_8865_STATIC_FALSE_OBJECT_SHADOW_QA_V1.zip",
-  "result_sha256": "9ac1e422d7f65817fd0923c0a66a269bd977d4c10e63a2d6d635c12c940f5127",
+  "result_sha256": "b1b5782af69795908b8d6b21f775cade966a4ad9d329b2d00663410e0f074c1b",
   "result_archive_CRC": "PASS",
   "result_archive_members": 13,
   "sampling_not_frame_exhaustive": true,
@@ -51,5 +51,8 @@
     "Run face landmark 892 60 frame diagnostic against a real YuNet model, keep failure as review.",
     "Check 886_5 using frame-dense full source and actual candidate detector before any exception/publishing.",
     "Keep hand, mouth, cigarette, smoke as distinct conditional blur requirements."
-  ]
+  ],
+  "readme_language": "Russian",
+  "local_python_reproducible_script_included": true,
+  "low_NCC_below_0_55_frames": 16
 }
