@@ -157,5 +157,15 @@
   ],
   "full_video_object_tracking_verified": false,
   "positive_gt_status": "VISUAL_POSITIVE_CONFIRMED_SPARSE_HUMAN_LABELS_NO_PIXEL_MASK",
-  "release_policy": "NO_PRODUCTION_CHANGE_OR_AUTO_RELEASE_BY_POSITIVE_CLIP_ALONE"
+  "release_policy": "NO_PRODUCTION_CHANGE_OR_AUTO_RELEASE_BY_POSITIVE_CLIP_ALONE",
+  "current_detector_baseline": {
+    "status": "READY_NOT_EXECUTED",
+    "purpose": "Compare already installed YOLOWorld on known true cigarette from stream 892 with confirmed microphone-logo negative from stream 886; preserve all normal Studio code, XML, audio and original footage",
+    "bootstrap_commit": "3a1c333285a393cdac96d800655e7d2246a82180",
+    "python_commit": "84b60acf7c3c9389b7eb0e23776984d2d2c27254",
+    "output": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\cigarette_892_positive_vs_886_microphone_v1\\RG_CIGARETTE_892_VS_886_YOLOWORLD_BASELINE_v1.zip",
+    "positive_inputs": "892 24s read-only video reference, local seconds 0..24",
+    "negative_inputs": "886 original 2.3s source 9558.9..9561.2",
+    "note": "This tests existing YOLOWorld, NOT independent semantic identity, tracking quality, segmentation or temporal recall. No production adoption allowed."
+  }
 }
