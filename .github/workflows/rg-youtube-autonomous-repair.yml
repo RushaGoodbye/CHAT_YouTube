@@ -31,8 +31,12 @@ jobs:
         shell: pwsh
         run: |
           python --version
-          $probe = Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5
-          if ($probe.StatusCode -ne 200) { throw 'Local Ollama unavailable' }
+          $probe = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5
+          $models = @($probe.models | ForEach-Object { $_.name })
+          if (-not ($models | Where-Object { $_ -eq 'qwen3:8b' -or $_ -like 'qwen3:8b-*' })) {
+            throw "Required local model qwen3:8b not found. Available: $($models -join ', ')"
+          }
+          Write-Host 'Ollama qwen3:8b verified on AlexPC'
           python -m pip install pytest
       - name: Autonomous SEO repair (workspace only)
         id: repair
