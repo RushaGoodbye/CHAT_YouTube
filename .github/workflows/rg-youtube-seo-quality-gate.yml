@@ -23,6 +23,8 @@ on:
       - "tests/test_seo_review_acceptance.py"
       - "tests/test_real_srt_preflight.py"
       - "tests/test_real_seo_anonymous_qa.py"
+      - "tests/test_live_captions_preflight.py"
+      - "scripts/rg_youtube_live_captions_preflight.py"
       - "scripts/rg_youtube_real_seo_local_qa.py"
       - "scripts/rg_youtube_real_srt_preflight.py"
   workflow_dispatch:
@@ -74,6 +76,7 @@ jobs:
             tests/test_seo_review_acceptance.py \
             tests/test_real_srt_preflight.py \
             tests/test_real_seo_anonymous_qa.py \
+            tests/test_live_captions_preflight.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
