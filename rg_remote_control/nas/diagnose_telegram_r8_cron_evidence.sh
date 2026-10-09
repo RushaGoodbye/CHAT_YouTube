@@ -157,7 +157,8 @@ for row in prod.get("stages",[]) if isinstance(prod.get("stages"),list) else []:
  detail=str(row.get("detail") or "")
  print("CHAIN_STAGE",kind,"ok",flag(row.get("ok")),
   "reason",token(detail) if token(detail)!="UNKNOWN" else classified(detail))
-moder=system.get("status",{}).get("telegram-video-moderation-health-v2",{}) if isinstance(system.get("status"),dict) else {}
+status_map=system.get("status") if isinstance(system.get("status"),dict) else {}
+moder=status_map.get("telegram-video-moderation-health-v2",{})
 moder=moder if isinstance(moder,dict) else {}
 print("MODERATION_LIVE","ok",flag(moder.get("ok")),"degraded",flag(moder.get("degraded")),
  "offset_blocked",flag(moder.get("offsetBlocked")),"updates_failed",count(moder.get("updatesFailed")),
