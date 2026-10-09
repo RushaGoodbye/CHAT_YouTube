@@ -1,0 +1,221 @@
+import json
+import sqlite3
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from rg_youtube_control.cached_metadata import (
+    cached_public_metadata,
+    yt_dlp_auth_blocked,
+    _cached_duration_seconds,
+)
+from rg_youtube_control.db import connect
+
+
+VIDEO = "QCIuLwQm4nU"
+
+
+def _seed(conn, *, video_id=VIDEO, scheduled=None):
+    conn.execute(
+        """INSERT INTO videos (
+               video_id, profile, title, duration, views, privacy_status,
+               scheduled_publish_at, last_synced_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (video_id, "main", "ЧАТ РУЛЕТКА: РОССИЯНЕ О ПЕРУНЕ", "35:25",
+         8627, "public", scheduled, "2026-10-08T10:00:00Z"),
+    )
+    conn.execute(
+        """INSERT INTO metadata_history (
+               video_id, title, description, tags_json, reason, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?)""",
+        (video_id, "original", "Раніше опублікований опис.",
+         json.dumps(["старый тег", "чат рулетка"]), "sync",
+         "2026-10-08T10:00:00Z"),
+    )
+    conn.execute(
+        """INSERT INTO optimization_drafts (
+               video_id, new_title, description, tags_json,
+               source_title, source_description, source_tags_json,
+               updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (video_id, "Нова назва чернетки", "Не публікувати: AI опис",
+         '["новий AI тег"]', "ЧАТ РУЛЕТКА: РОССИЯНЕ О ПЕРУНЕ",
+         "Повний оригінальний опис про Перуна.",
+         json.dumps(["Перун", "чат рулетка"]), "2026-10-08T10:00:00Z"),
+    )
+    conn.commit()
+
+
+def test_local_metadata_prioritizes_original_source_not_generated_draft(tmp_path):
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    data = cached_public_metadata(conn, VIDEO, "main")
+    assert data["source"] == "sqlite-cache"
+    assert data["title"] == "ЧАТ РУЛЕТКА: РОССИЯНЕ О ПЕРУНЕ"
+    assert data["description"] == "Повний оригінальний опис про Перуна."
+    assert data["tags"] == ["Перун", "чат рулетка"]
+    assert "Не публікувати" not in str(data)
+    assert data["duration"] == 2125
+    assert data["youtube_data_api_quota"] == 0
+    assert data["_caption_tracks"] == {}
+    assert cached_public_metadata(conn, VIDEO, "live") == {}
+
+
+def test_source_fallback_uses_history_but_never_generated_draft(tmp_path):
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.execute(
+        "UPDATE optimization_drafts SET source_description='',source_tags_json='[]'"
+    )
+    conn.commit()
+    data = cached_public_metadata(conn, VIDEO, "main")
+    assert data["description"] == "Раніше опублікований опис."
+    assert data["tags"] == ["старый тег", "чат рулетка"]
+
+
+@pytest.mark.parametrize("duration, expected", [
+    ("01:03:25", 3805), ("35:25", 2125), ("PT1H3M25S", 3805),
+    ("PT33S", 33), ("", 0), ("n/a", 0), ("3600", 3600),
+])
+def test_duration_cached_formats(duration, expected):
+    assert _cached_duration_seconds(duration) == expected
+
+
+def test_ytdlp_auth_challenge_detection():
+    assert yt_dlp_auth_blocked(
+        "ERROR: [youtube] QCIuLwQm4nU: Sign in to confirm you're not a bot "
+        "Use --cookies-from-browser"
+    )
+    assert not yt_dlp_auth_blocked("local model returned no valid JSON")
+
+
+def test_cached_title_nas_srt_does_not_invoke_yt_dlp(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    transcript_dir = tmp_path / "transcripts"
+    transcript_dir.mkdir()
+    (transcript_dir / f"{VIDEO}.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:04,000\n"
+        "Поговорим про Перуна и веру в России.\n",
+        encoding="utf-8",
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
+        ("nas_transcripts_path", str(transcript_dir)),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(
+        ui, "fetch_public_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("yt-dlp must never run when cached metadata and NAS captions exist")
+        ),
+    )
+    monkeypatch.setattr(
+        ui, "fetch_transcript",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("NAS SRT must be preferred")
+        ),
+    )
+    report = {
+        "blocks_total": 1, "blocks_with_evidence": 1,
+        "blocks": [{"start_stamp": "00:00:00", "topics": [{
+            "topic": "Віра в Перуна", "summary_uk": "Розмова про релігію",
+            "evidence": "Поговорим про Перуна",
+        }]}],
+    }
+    monkeypatch.setattr(
+        ui, "analyze_all_timeline_blocks", lambda *_args, **_kwargs: report
+    )
+    monkeypatch.setattr(
+        ui, "generate_seo_package_local", lambda **kwargs: {
+            "title": kwargs["current_title"],
+            "description": "Український опис розмови.",
+            "title_variants": [], "tags": [], "needs_review": True,
+        },
+    )
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    stages = []
+    result = ui.MainWindow._generate_local_seo_result(
+        state, VIDEO, on_progress=stages.append
+    )
+    assert result["context"]["source"] == "sqlite-cache"
+    assert result["context"]["description"] != "Не публікувати: AI опис"
+    assert result["context"]["transcript_source"] == "nas-srt"
+    assert result["evidence_report"]["blocks_total"] == 1
+    assert any("yt-dlp не потрібен" in stage for stage in stages)
+    assert (tmp_path / "seo_evidence" / f"{VIDEO}.json").exists()
+
+
+def test_captions_api_success_still_avoids_ytdlp(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.close()
+    monkeypatch.setattr(
+        ui, "fetch_public_metadata",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Do not request cookies or scrape when transcript API works")
+        ),
+    )
+    monkeypatch.setattr(
+        ui, "fetch_transcript", lambda *_args: [
+            {"text": "Обсуждение Перуна.", "start": 0.0, "duration": 4.0}
+        ],
+    )
+    monkeypatch.setattr(
+        ui, "analyze_all_timeline_blocks",
+        lambda *_args, **_kwargs: {
+            "blocks_total": 1, "blocks_with_evidence": 1,
+            "blocks": [{"start_stamp": "00:00:00", "topics": [{
+                "topic": "Віра в Перуна",
+                "summary_uk": "Розмова про богів і віру",
+                "evidence": "Обсуждение Перуна",
+            }]}],
+        },
+    )
+    monkeypatch.setattr(
+        ui, "generate_seo_package_local", lambda **kwargs: {
+            "title": kwargs["current_title"], "description": "Опис"
+        },
+    )
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    result = ui.MainWindow._generate_local_seo_result(state, VIDEO)
+    assert result["context"]["transcript_source"] == "youtube-transcript-api"
+    assert result["context"]["youtube_data_api_quota"] == 0
+
+
+def test_blocked_ytdlp_without_any_captions_gives_actionable_message(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.close()
+    monkeypatch.setattr(ui, "fetch_transcript", lambda *_args: [])
+    monkeypatch.setattr(
+        ui, "fetch_public_metadata",
+        lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("Sign in to confirm you're not a bot")
+        ),
+    )
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    with pytest.raises(RuntimeError, match="NAS SRT.*YouTube Transcript"):
+        ui.MainWindow._generate_local_seo_result(state, VIDEO)
+    assert not (tmp_path / "seo_evidence").exists()
+
+
+def test_scheduled_stream_still_blocked_before_network(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn, scheduled="2026-10-11T21:00:00+03:00")
+    conn.close()
+    monkeypatch.setattr(
+        ui, "fetch_public_metadata",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("No metadata access for scheduled streams")
+        ),
+    )
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    with pytest.raises(RuntimeError, match="запланований"):
+        ui.MainWindow._generate_local_seo_result(state, VIDEO)

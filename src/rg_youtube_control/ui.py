@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
     fetch_public_metadata,
@@ -12446,6 +12447,9 @@ class MainWindow(QMainWindow):
                    WHERE video_id=? AND profile=?""",
                 (video_id, self.current_profile),
             ).fetchone()
+            cached_context = cached_public_metadata(
+                state_conn, video_id, self.current_profile,
+            )
             nas_row = state_conn.execute(
                 "SELECT value FROM settings WHERE key=?",
                 ("nas_transcripts_path",),
@@ -12465,23 +12469,46 @@ class MainWindow(QMainWindow):
             )
 
         if on_progress is not None:
-            on_progress("Отримання метаданих відео · API 0")
-        try:
-            context = fetch_public_metadata(video_id)
-        except Exception as exc:
-            text = str(exc)
-            live_tokens = (
-                "live event will begin",
-                "premieres in",
-                "upcoming live",
-                "is live",
-            )
-            if any(token in text.casefold() for token in live_tokens):
+            on_progress("Локальні метадані каналу · YouTube API: 0")
+        context = dict(cached_context)
+        public_metadata_attempted = False
+        public_metadata_error = ""
+        if not context.get("title"):
+            # yt-dlp is a last resort, never a mandatory dependency when the
+            # authenticated channel metadata is already cached in SQLite.
+            public_metadata_attempted = True
+            if on_progress is not None:
+                on_progress("Немає назви в базі · резервний запит yt-dlp")
+            try:
+                context = fetch_public_metadata(video_id)
+            except Exception as exc:
+                public_metadata_error = str(exc)
+                live_tokens = (
+                    "live event will begin",
+                    "premieres in",
+                    "upcoming live",
+                    "is live",
+                )
+                if any(token in public_metadata_error.casefold() for token in live_tokens):
+                    raise RuntimeError(
+                        "Відео визначено як майбутній/живий стрім. "
+                        "Архівний локальний SEO для нього заблоковано."
+                    ) from exc
+                if yt_dlp_auth_blocked(exc):
+                    raise RuntimeError(
+                        "YouTube обмежив публічний доступ yt-dlp, а "
+                        "локальних метаданих цього відео ще немає. "
+                        "Синхронізуйте канал у програмі та повторіть спробу. "
+                        "Cookies та вхід у браузер не потрібні."
+                    ) from exc
                 raise RuntimeError(
-                    "Відео визначено як майбутній/живий стрім. "
-                    "Архівний локальний SEO для нього заблоковано."
+                    "Немає локальних метаданих і yt-dlp недоступний: "
+                    + public_metadata_error[:250]
                 ) from exc
-            raise
+        elif on_progress is not None:
+            on_progress(
+                "Метадані отримано з локальної бази · yt-dlp не потрібен · API 0"
+            )
 
         current_title = str(context.get("title") or "")
         raw_description = str(context.get("description") or "")
@@ -12533,15 +12560,32 @@ class MainWindow(QMainWindow):
                 transcript_rows = []
 
         if not transcript_rows:
-            try:
-                transcript_rows = fetch_transcript_from_public_metadata(
-                    context,
-                    timeout=15.0 if fast_mode else 25.0,
-                )
-                if transcript_rows:
-                    transcript_source = "yt-dlp-captions"
-            except Exception:
-                transcript_rows = []
+            # Only try yt-dlp caption discovery after NAS and transcript API
+            # failed. Authentication / bot challenges are non-fatal here.
+            if not (context.get("_caption_tracks") or {}) and not public_metadata_attempted:
+                public_metadata_attempted = True
+                if on_progress is not None:
+                    on_progress("Резервний пошук публічних субтитрів · yt-dlp")
+                try:
+                    metadata = fetch_public_metadata(video_id)
+                    context["_caption_tracks"] = metadata.get("_caption_tracks") or {}
+                except Exception as exc:
+                    public_metadata_error = str(exc)
+                    if yt_dlp_auth_blocked(exc) and on_progress is not None:
+                        on_progress(
+                            "YouTube обмежив yt-dlp · перевіряємо доступність "
+                            "локального транскрипту, без cookies"
+                        )
+            if context.get("_caption_tracks"):
+                try:
+                    transcript_rows = fetch_transcript_from_public_metadata(
+                        context,
+                        timeout=15.0 if fast_mode else 25.0,
+                    )
+                    if transcript_rows:
+                        transcript_source = "yt-dlp-captions"
+                except Exception:
+                    transcript_rows = []
 
         transcript = transcript_sample_text(
             transcript_rows,
@@ -12550,6 +12594,13 @@ class MainWindow(QMainWindow):
         ) if transcript_rows else ""
 
         context["transcript_source"] = transcript_source
+        if public_metadata_error:
+            # Technical warning for the preview/audit, NOT a model fact.
+            context["metadata_fetch_warning"] = (
+                "Публічний yt-dlp недоступний; використано локальну базу."
+                if cached_context else
+                "yt-dlp недоступний; потрібні синхронізовані метадані."
+            )
 
         if fast_mode and not transcript.strip():
             raise RuntimeError(
@@ -12559,8 +12610,11 @@ class MainWindow(QMainWindow):
 
         if needs_transcript and not transcript.strip():
             raise RuntimeError(
-                "Після очищення старого опису недостатньо змісту, "
-                "а транскрипт недоступний. SEO-пакет не створено."
+                "Повний транскрипт недоступний: NAS SRT і YouTube Transcript "
+                "не повернули субтитри. yt-dlp може бути обмежений YouTube. "
+                "Для якісного SEO потрібен SRT у налаштованій папці NAS "
+                f"з ім'ям {video_id}.srt. "
+                "Не потрібно експортувати cookies або повторювати вхід."
             )
 
         # Complete timeline analysis runs only in manual single-video mode.
@@ -12612,6 +12666,7 @@ class MainWindow(QMainWindow):
 
         context_for_model = dict(context)
         context_for_model.pop("_caption_tracks", None)
+        context_for_model.pop("metadata_fetch_warning", None)
         context_for_model["description"] = cleaned_description
         if on_progress is not None:
             on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
