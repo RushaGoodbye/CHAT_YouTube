@@ -9820,7 +9820,7 @@ class MainWindow(QMainWindow):
                     if source_ok else
                     "УВАГА: цілісність повного транскрипту НЕ ПІДТВЕРДЖЕНО. "
                 )
-                + "Межі окремих діалогів не визначаються без розмітки."
+                + "Межі діалогів не визначаються без розмітки."
             )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
