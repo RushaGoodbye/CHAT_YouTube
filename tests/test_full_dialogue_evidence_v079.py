@@ -212,3 +212,64 @@ def test_final_generator_prompt_no_longer_starts_only_with_first_12k():
     assert "ab_title_issues(" in block
     assert "evidence_report: dict[str, Any] | None = None" in block
     assert 'or bool(evidence_report)' in block
+
+
+def test_source_integrity_proof_covers_long_cues_and_last_caption(tmp_path):
+    rows = [
+        {"text": "Перша важлива тема про ціни 2026 року.", "start": 0, "duration": 3},
+        {"text": "А" * 700 + " кінець дуже довгої репліки.", "start": 20, "duration": 6},
+        {"text": "   ", "start": 35, "duration": 2},
+        {"text": "У фіналі: інша новина про бензин та санкції!", "start": 2400, "duration": 5},
+    ]
+    # A generator must be materialized exactly once, not consumed by the
+    # preliminary integrity check before timeline segmentation.
+    result = analyze_all_timeline_blocks(
+        (row for row in rows), model="offline", chat=lambda *_a, **_k: '{"topics":[]}',
+        cache_dir=tmp_path, max_chars=250, max_span_seconds=150,
+    )
+    assert result["source_rows_total"] == 4
+    assert result["source_rows_with_text"] == 3
+    assert result["source_text_chars"] == result["covered_text_chars"]
+    assert result["source_text_sha256"] == result["covered_text_sha256"]
+    assert result["source_integrity_verified"] is True
+    assert result["blocks_total"] == result["blocks_analyzed"]
+    assert result["blocks_total"] >= 4
+    assert result["blocks"][-1]["start"] == 2400
+
+
+def test_seo_progress_shows_actual_timeline_fraction_not_instant_success():
+    from rg_youtube_control.ui import MainWindow
+
+    class Reporter:
+        def __init__(self):
+            self.calls = []
+        def _set_process(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    reporter = Reporter()
+    MainWindow._show_local_tool_progress(
+        reporter, "Локальне SEO", "Аналіз фрагментів: 4/20 · 00:02:30"
+    )
+    arguments, options = reporter.calls[-1]
+    assert arguments[0] == "Локальне SEO"
+    assert options["percent"] == 23
+    assert "4/20" in options["eta"]
+
+    MainWindow._show_local_tool_progress(
+        reporter, "Локальне SEO",
+        "Фінальна SEO-генерація: назви A/B, опис, теги · API 0",
+    )
+    assert reporter.calls[-1][1]["percent"] == 80
+    MainWindow._show_local_tool_progress(reporter, "Локальне SEO", "Очікування")
+    assert reporter.calls[-1][1]["percent"] is None
+
+
+def test_preview_does_not_claim_full_video_analyzed_without_hash_proof():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    start = source.index("    def _preview_deep_content_package(")
+    end = source.index("    def ", start + 10)
+    preview = source[start:end]
+    assert 'source_integrity_verified' in preview
+    assert 'Цілісність транскрипту: ПІДТВЕРДЖЕНО' in preview
+    assert 'НЕ ПІДТВЕРДЖЕНО' in preview
+    assert 'Переглянуто ВСІ часові фрагменти' not in preview
