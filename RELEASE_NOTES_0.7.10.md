@@ -15,3 +15,5 @@ Fixed the screenshot-confirmed crash in 0.7.9:
 QA: PR #85 Windows Build completed with 303 tests passing, Windows EXE + Inno Setup + update ZIP. Release re-built and checked from main separately.
 
 Note: If YouTube refuses all public transcript providers and no matching NAS SRT exists, extracting the full dialogue is impossible without a trusted local subtitle/transcription source. In that case the application stops safely and asks for a local transcript; it does not request cookies.
+
+Release publishing is gated on a verified main-branch commit. Existing SQLite metadata reflects the last channel synchronization; sync the channel when current values are required. This is not live access to YouTube.
