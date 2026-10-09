@@ -4,7 +4,11 @@ on:
     branches: [main]
     paths:
       - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v1.ps1'
-      - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_892_cigarette_gold_v2.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1',
+            'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_v2.ps1'
+      - 'rg_remote_control/bootstrap_auto_edit_sam2_readiness_readonly_safe_v2.ps1'
       - '.github/workflows/rg-auto-edit-ps-parser-qa.yml'
   workflow_dispatch:
 permissions:
@@ -14,7 +18,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify all pinned 892 Windows PowerShell scripts parse without executing
+      - name: Verify 892 extraction and SAM2 readiness PowerShell scripts with Windows PS 5.1 parser
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
