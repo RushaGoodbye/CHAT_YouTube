@@ -1,0 +1,124 @@
+{
+  "schema": "RG_CIGARETTE_892_VS_886_REAL_YOLOWORLD_VISUAL_QA_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "source": "User-uploaded RG_CIGARETTE_892_VS_886_YOLOWORLD_BASELINE_v1.zip with POSITIVE_892_raw.json, NEGATIVE_886_raw.json, summary.json",
+  "user_positive": {
+    "stream": "892",
+    "timecode": "01:58:41",
+    "video_clip_relative_start_sec": 0,
+    "video_clip_duration_sec": 24,
+    "cigarette_visually_confirmed": true
+  },
+  "user_negative": {
+    "stream": "886",
+    "dialogue": "886_5",
+    "source_interval_sec": [
+      9558.9,
+      9561.2
+    ],
+    "microphone_logo_known_false_positive": true
+  },
+  "model": {
+    "worker_version": "RG_CIGARETTE_DETECTOR_WORKER_V1",
+    "base_model": "yolov8s-worldv2.pt",
+    "confidence_threshold": 0.08,
+    "coarse_sample_fps": 3,
+    "refine_sample_fps": 12,
+    "gpu": "NVIDIA GeForce RTX 4080",
+    "decode": "NVDEC/CUDA"
+  },
+  "results": {
+    "positive_raw_detection_count": 211,
+    "positive_worker_frame_records": 277,
+    "positive_frames_with_box": 161,
+    "positive_frames_without_box_in_worker_report": 116,
+    "positive_max_confidence_approx": 0.953,
+    "positive_median_confidence_approx": 0.2703,
+    "left_host_false_positive_detections_count": 11,
+    "left_host_false_positive_fraction": 0.052132701421800945,
+    "positive_detection_classes": {
+      "smoking cigarette": 210,
+      "cigarette in hand": 1
+    },
+    "negative_raw_detections": 0,
+    "negative_refine_windows": 0,
+    "important": "277 worker frames are NOT 277 frames with a cigarette; 116 have no boxes. Zero 886 detections in this sparse pass does not invalidate the known prior microphone false positive."
+  },
+  "visually_inspected_true_and_false_boxes": [
+    {
+      "frame_sec_in_24s_clip": 10.9833,
+      "class": "smoking cigarette",
+      "score": 0.0841,
+      "bbox_xyxy": [
+        482,
+        500,
+        504,
+        525
+      ],
+      "verified_subject": "DECORATIVE_MICROPHONE_MARK_ON_HOST_LEFT",
+      "assessment": "FALSE_POSITIVE"
+    },
+    {
+      "frame_sec_in_24s_clip": 18.3167,
+      "class": "smoking cigarette",
+      "score": 0.1252,
+      "bbox_xyxy": [
+        351,
+        321,
+        401,
+        432
+      ],
+      "verified_subject": "HOST_MUG_AND_HAND_LEFT",
+      "assessment": "FALSE_POSITIVE"
+    },
+    {
+      "frame_sec_in_24s_clip": 1.3333,
+      "class": "smoking cigarette",
+      "score": 0.9183,
+      "bbox_xyxy": [
+        1516,
+        371,
+        1589,
+        468
+      ],
+      "verified_subject": "RIGHT_GUEST_MOUTH_CIGARETTE_AREA",
+      "assessment": "POSITIVE_CANDIDATE_BOX_TOO_LARGE_FOR_OBJECT_ONLY_CENSORSHIP"
+    },
+    {
+      "frame_sec_in_24s_clip": 12,
+      "class": "smoking cigarette",
+      "score": 0.3883,
+      "bbox_xyxy": [
+        1219,
+        386,
+        1315,
+        460
+      ],
+      "verified_subject": "RIGHT_GUEST_HAND_MOVING_CIGARETTE_AREA",
+      "assessment": "POSITIVE_CANDIDATE_BOX_INCLUDES_NONCIGARETTE_PIXELS"
+    }
+  ],
+  "release_gate": {
+    "status": "BLOCKED",
+    "reasons": [
+      "False positives on host microphone and mug are shown inside real positive 892 scene despite 886 negative source producing zero detections in one coarse pass.",
+      "YOLOWorld rectangle predictions frequently cover hand/mouth; Gaussian blur of raw bbox would violate precise cigarette-only requirement.",
+      "Temporal sampling 3fps coarse /12fps local refine does not guarantee all briefly visible cigarettes.",
+      "Tracking and structural QA alone cannot independently verify object identity or final pixel masks.",
+      "Need negative regression 886 plus left host 892 on every verifier candidate, not a left-half blanket ban."
+    ],
+    "requirements_for_next_stage": [
+      "Independent cigarette identity verifier or fine-tuned cigarette-aware region model run against all 892 gold positive and both actual negative types.",
+      "Mask or precise region on cigarette only, with motion/partial-occlusion tracking and no giant region expansion.",
+      "Per-frame retained-video coverage report, independent detector confidence calibration, false-positive and false-negative QA.",
+      "Stage XML, verify before atomic write; leave 886_5 on semantic hold until verification."
+    ],
+    "source_video_modified": false,
+    "original_audio_modified": false,
+    "studio_modified": false,
+    "quarantine_886_5_modified": false,
+    "release_allowed": false
+  },
+  "next": "Use real 892 positive clip with existing negative 886_5 and newly demonstrated host mug/microphone false positives in 892 to implement and benchmark a second semantic image verifier (shadow only). Do not trust YOLOWorld raw boxes for publication or real-time object blur."
+}
