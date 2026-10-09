@@ -41,7 +41,9 @@ def run_drill(source, save, state):
         if original.count(needle) != 1:
             raise SystemExit("Expected fingerprint implementation has changed; drill stopped")
         target.write_text(original.replace(needle, 'return "broken-fingerprint"'), encoding="utf-8")
-        env = {**os.environ, "PYTHONPATH": str(sandbox / "src")}
+        (sandbox / ".rg_youtube_autofix_sandbox").write_text("isolated repair drill", encoding="utf-8")
+        env = {**os.environ, "PYTHONPATH": str(sandbox / "src"),
+               "RG_REPAIR_ALLOWED_ROOT": str(sandbox)}
         venv_python = source / ".venv" / "Scripts" / "python.exe"
         interpreter = str(venv_python) if venv_python.is_file() else sys.executable
         print("TEST INTERPRETER:", interpreter, flush=True)
