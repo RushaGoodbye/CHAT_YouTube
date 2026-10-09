@@ -27,11 +27,18 @@ fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" ]; then
   if sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1; then
     printf "%s\n" "0" > "$STATE/telegram_watchdog_script_rc"
+    printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_checked_at"
+    rm -f "$STATE/telegram_watchdog_script_failed_at"
   else
     WATCHDOG_RC=$?
     printf "%s\n" "$WATCHDOG_RC" > "$STATE/telegram_watchdog_script_rc"
+    printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_checked_at"
     printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_failed_at"
   fi
+else
+  printf "%s\n" "127" > "$STATE/telegram_watchdog_script_rc"
+  printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_checked_at"
+  printf "%s\n" "$NOW" > "$STATE/telegram_watchdog_script_failed_at"
 fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
   sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || true
