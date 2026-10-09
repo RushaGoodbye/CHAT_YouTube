@@ -53,3 +53,17 @@ jobs:
           python -m pip install pytest
           cd seo-candidate
           python scripts/rg_youtube_seo_repair_agent.py
+      - name: Assert no-write baseline and report
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("seo-candidate/rg_seo_repair_report.json").read_text())
+          assert report["initial_tests_pass"] is True, report
+          assert report["mode"] == "dry_run", report
+          print("Agent baseline PASS; no repair needed")
+          PY
+      - name: Verify SEO candidate checkout remains unchanged
+        run: |
+          cd seo-candidate
+          test -z "$(git status --porcelain --untracked-files=no)"
