@@ -57,9 +57,10 @@ jobs:
           if ($report.status -notin @('NO_CHANGE', 'PROPOSED_UNVERIFIED')) {
             throw "Unexpected proposal status: $($report.status)"
           }
-          "has_candidate=$([string]($report.status -eq 'PROPOSED_UNVERIFIED').ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          $has = if ($report.status -eq 'PROPOSED_UNVERIFIED') { 'true' } else { 'false' }
+          "has_candidate=$has" >> $env:GITHUB_OUTPUT
           "source_sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
-          "is_drill=$([string]$drill.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "is_drill=$($drill.ToString().ToLower())" >> $env:GITHUB_OUTPUT
       - name: Upload unexecuted AI proposal
         if: steps.proposal.outputs.has_candidate == 'true'
         uses: actions/upload-artifact@v4
