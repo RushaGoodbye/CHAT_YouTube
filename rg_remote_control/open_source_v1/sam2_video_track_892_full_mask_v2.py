@@ -178,7 +178,7 @@ def write_qa_images(stage,frames,rows,masks):
         after[visible]=(after[visible].astype(np.float32)*.5+overlay_colour*.5).astype(np.uint8)
         mosaic=np.concatenate((before,after),axis=1)
         labels="892 clip+%.3fs | %02d/13 | %s"%(source_frame/30,i+1,
-                   "WARNING" if rows[i]["warning_flags"] else "GEOMETRY_OK")
+                   "TRACK_QA_WARNING" if rows[i].get("non_static_geometry_flags") else "HUMAN_REVIEW")
         cv2.rectangle(mosaic,(0,0),(mosaic.shape[1],28),(10,10,10),-1)
         cv2.putText(mosaic,labels,(8,20),cv2.FONT_HERSHEY_SIMPLEX,.53,(245,245,245),1,cv2.LINE_AA)
         picture="FRAME_%02d_DYNAMIC_ORIGINAL_MASK.jpg"%i
@@ -197,6 +197,10 @@ def write_qa_images(stage,frames,rows,masks):
         rows[i]["full_mask_png"]="review_frames/"+full_name
         rows[i]["annotated_jpg"]="review_frames/"+picture
         rows[i]["mask_roi_png"]="review_frames/ROI_MASK_%02d.png"%i
+        informational={"OBJECT_CENTER_OUTSIDE_EXPECTED_REGION",
+                       "MASK_REACHES_RESTRICTED_BOUNDARY"}
+        rows[i]["static_roi_info_flags"]=[f for f in rows[i]["warning_flags"] if f in informational]
+        rows[i]["non_static_geometry_flags"]=[f for f in rows[i]["warning_flags"] if f not in informational]
         rows[i]["static_region_flags_are_not_semantic_errors"]=True
         if total and ratio_new<.9999:
             rows[i]["warning_flags"].append("DYNAMIC_PREVIEW_NOT_FULL_MASK")
@@ -258,7 +262,8 @@ def run():
         if source_after!=source_before:
             raise RuntimeError("Original 24s diagnostic video changed during shadow run")
         require_gold()
-        warning_frames=sum(bool(x["warning_flags"]) for x in ordered)
+        warning_frames=sum(bool(x["non_static_geometry_flags"]) for x in ordered)
+        static_preview_exit_frames=sum(bool(x["static_roi_info_flags"]) for x in ordered)
         report=dict(
             schema=SCHEMA,created_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
             video="892",gold_source_timecode="01:58:41",original_source_timecode_approx=True,
@@ -269,6 +274,7 @@ def run():
             initial_mask="automatic SAM2 video predictor from manually audited seed points; not the exact independently reviewed image predictor candidate 2",
             model="SAM2.1 Hiera Tiny",gpu=torch.cuda.get_device_name(0),torch=torch.__version__,
             frame_metrics=ordered,warning_frame_count=warning_frames,
+            old_static_preview_exit_frame_count=static_preview_exit_frames,
             original_fixed_preview_crop_xyxy=ROI_XYXY,
             v1_fixed_crop_issue_reproduced=True,
             full_resolution_binary_masks_saved=True,
