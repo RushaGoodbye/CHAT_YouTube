@@ -102,7 +102,7 @@ if(Test-Path -LiteralPath $site -PathType Container){
        }
     }
 }
-$probe='import sys,site; p=sys.prefix.lower(); assert "rg_sam2_native_shadow_v1" in p; assert not site.ENABLE_USER_SITE; assert not any("rg auto edit runtime\\venv\\lib\\site-packages" in x.lower() for x in sys.path); print("RG_SAM2_VENV_ISOLATION: PASS")'
+$probe='import sys,site; p=sys.prefix.lower(); assert "rg_sam2_native_shadow_v1" in p; assert not site.ENABLE_USER_SITE; assert not any("rg auto edit runtime/venv/lib/site-packages" in x.lower().replace(chr(92),"/") for x in sys.path); print("RG_SAM2_VENV_ISOLATION: PASS")'
 & $isoPy -I -c $probe
 if($LASTEXITCODE -ne 0){throw 'Independent Python environment isolation check failed'}
 & $isoPy -I -m pip --version
@@ -134,10 +134,8 @@ if(!(Test-Path -LiteralPath (Join-Path $repoDir 'sam2\build_sam.py') -PathType L
         Move-Item -LiteralPath $srcFolder -Destination $repoDir
     }
 }
-if(!(Test-Path -LiteralPath (Join-Path $repoDir 'sam2\configs\sam2.1\sam2.1_hiera_t.yaml') -PathType Leaf) -and
-   !(Test-Path -LiteralPath (Join-Path $repoDir 'sam2\configs\sam2.1\sam2.1_hiera_t.yaml') -PathType Leaf)){
-    # Some SAM2 releases put model configs in sam2/configs, others use hydra.
-    Write-Host 'RG SAM2: checking installed official configs during GPU validation'
+if(!(Test-Path -LiteralPath (Join-Path $repoDir 'sam2\configs\sam2.1\sam2.1_hiera_t.yaml') -PathType Leaf)){
+    throw 'Pinned official SAM2.1 tiny config missing, abort'
 }
 & $isoPy -I -m pip install --disable-pip-version-check --no-input --no-deps --no-build-isolation $repoDir
 if($LASTEXITCODE -ne 0){throw 'Native SAM2 source install failed; use WSL feasibility next, production unchanged'}
