@@ -62,3 +62,18 @@ def test_pilot_has_no_network_or_publish_operations(monkeypatch):
     assert "apply_content_package" not in source
     assert "print(title" not in source
     assert "print(video_id" not in source
+
+
+def test_warning_categories_do_not_expose_private_subjects(monkeypatch):
+    pilot = _module(monkeypatch)
+    issues = [
+        "Частина тем відсутня у згенерованому описі: PRIVATE_PERSON_EVENT",
+        "A/B варіант 2 не має підтверджених тематичних слів: PRIVATE_VIDEO",
+        "В описі немає жодної дослівної цитати PRIVATE_QUOTE",
+    ]
+    categories = pilot.anonymous_issue_categories(issues)
+    assert "DESCRIPTION_TOPICS" in categories
+    assert "AB_TITLES" in categories
+    assert "EVIDENCE_QUOTES" in categories
+    assert not any("PRIVATE" in category for category in categories)
+    assert categories == sorted(set(categories))
