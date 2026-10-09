@@ -2,7 +2,7 @@
   "schema": "RG_SMOKING_YUNET_MOUTH_REAL_892_TEST_READINESS_V1",
   "date": "2026-10-09",
   "contour": "auto_edit",
-  "status": "PINNED_YUNET_MOUTH_DIAGNOSTIC_STAGED_REAL_WINDOWS_EXECUTION_PENDING",
+  "status": "YUNET_STAGED_GITHUB_WINDOWS_SYNTAX_CI_PASS_REAL_892_INFERENCE_PENDING",
   "previous_real_892_evidence": {
     "source_mp4_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
     "sam2_13_masks_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
@@ -28,7 +28,11 @@
     "expected_892_result_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\yunet_mouth_892_real_60frame_shadow_v1\\RG_892_YUNET_MOUTH_SHADOW_RESULT_V1.zip",
     "new_OSSSelfTest_CI_commit": "3fd4f140d3f159c81fb12e96b7bacb0822f58824",
     "new_PowerShell51_parser_CI_commit": "9ea6eddc1cc6e454405936ab813ae992f9ffeba7",
-    "CI_runs_verified": false
+    "CI_runs_verified": true,
+    "CI_windows_powershell_51_parser_status": "PASS",
+    "CI_windows_full_regression_status": "PASS",
+    "CI_windows_success_url": "https://github.com/RushaGoodbye/CHAT_YouTube/actions/runs/37953870429",
+    "CI_expected_negative_exit_handling_hotfix_commit": "3576775c1cfe7c792925a4ae5e2602eee6a6ad0e"
   },
   "release": {
     "automatic_blur_allowed": false,
