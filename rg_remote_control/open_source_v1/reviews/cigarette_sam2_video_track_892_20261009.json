@@ -1,0 +1,76 @@
+{
+  "schema": "RG_SAM2_892_REAL_VIDEO_TRACK_13FRAMES_QA_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "source_artifact": "User-uploaded RG_SAM2_892_REAL_MOTION_SHADOW_V1.zip",
+  "sha256": "32109401d479c71d7715cf61ed39393b331d43bdd7ea376ff21881c267aa8f04",
+  "zip_integrity": "PASS",
+  "contains_files": 28,
+  "test": {
+    "source_stream": "892",
+    "stream_source_timecode": "01:58:41",
+    "clip_window_sec": [
+      12,
+      14
+    ],
+    "source_window_approx_sec": [
+      7121,
+      7123
+    ],
+    "frame_count": 13,
+    "sample_fps": 6,
+    "source_is_VIDEO_ONLY": true,
+    "gpu": "NVIDIA RTX 4080 via independent F: SAM2.1 Tiny venv",
+    "temporal_mask_propagation_completed": true,
+    "static_first_6_frames_within_preselected_ROI": 6,
+    "flags_records_total": 7,
+    "false_positive_or_lost_object_events_proven_by_flags": 0,
+    "negative_object_classifier_run": false,
+    "automatic_blur_allowed": false,
+    "original_audio_modified": false,
+    "studio_modified": false,
+    "XML_modified": false,
+    "hold_886_5_changed": false
+  },
+  "key_observations": {
+    "v1_previous_static_crop_xyxy": [
+      1100,
+      305,
+      1440,
+      580
+    ],
+    "model_continues_to_output_mask_on_last_frame": true,
+    "last_frame_full_resolution_mask_pixels": 1004,
+    "last_frame_visible_preview_mask_pixels": 0,
+    "last_frame_visibility_percent": 0,
+    "trajectory_start_center_xy": [
+      1260.56,
+      413.27
+    ],
+    "trajectory_last_center_xy": [
+      1472.16,
+      490.87
+    ],
+    "visual_precise_cigarette_mask_approved": false,
+    "observed_limitations": "The mask initially includes bordering hand/adjacent pixels and on smoke-heavy frame 12.667s covers more than cigarette alone. The old fixed ROI clips tracked masks from 13.167s onward and shows none by 14s. No full-frame masks were included for independent review of that motion; cannot assert object identity or true loss.",
+    "interpretation": "7 frame flags reflect departure from fixed rectangle, not 7 proven cigarette tracking mistakes. Geometry flags alone neither establish identity nor precision. Remains a shadow-only experiment."
+  },
+  "v2_safety_fixes": {
+    "status": "CODE_COMMITTED_STATIC_CHECKED_NOT_EXECUTED_ON_USER_GPU",
+    "python_path": "rg_remote_control/open_source_v1/sam2_video_track_892_full_mask_v2.py",
+    "python_commit": "8f90a947ea44fc71df617d01af456e4a2b9c1da1",
+    "bootstrap_path": "rg_remote_control/bootstrap_auto_edit_sam2_video_track_892_fullmask_v2.ps1",
+    "bootstrap_commit": "cc3b27b07c88c03ada440c218c301c413fffe489",
+    "improvements": [
+      "Save 13 lossless raw full-frame 1920x1080 binary masks to ZIP for objective independent visual review",
+      "Auto-center comparison viewport for each timestamp instead of cropping true moving cigarette out",
+      "Classify fixed-window boundary exit as informational rather than false-positive/track-loss proof",
+      "Retain per-frame area/jump/empty/host warnings, never authorize auto blur",
+      "Re-use isolated F: environment and model; no pip, WSL, production CUDA/Python changes",
+      "Rerun same 13 real 892 video frames for like-for-like comparison, no new input extraction"
+    ],
+    "expected_output": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\sam2_video_track_892_015841_v2_full_mask\\RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip"
+  },
+  "production_approval": false,
+  "quarantine_8865": "RETAIN"
+}
