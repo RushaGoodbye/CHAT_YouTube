@@ -82,6 +82,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Real Windows isolated SAM2 env check failed' }
           & python -I -u $code --env-check
           if ($LASTEXITCODE -eq 0) { throw 'Wrong environment incorrectly accepted' }
+          # The child MUST fail. Clear its expected native exit code so Actions does not mark PASS as failed.
+          $global:LASTEXITCODE = 0
           Write-Host 'SAM2_NATIVE_PYTHON_ENV_GUARD_POSITIVE_AND_NEGATIVE_PASS'
       - name: Reject obsolete SAM2 V2 pinned source version against current installer
         shell: powershell
@@ -95,6 +97,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             throw 'Obsolete V2 unexpectedly approved a mismatched current installer'
           }
+          # Expected mismatch was correctly rejected; prevent stale exit 1 from failing the YAML step.
+          $global:LASTEXITCODE = 0
           Write-Host 'SAM2_OLD_V2_VERSION_MISMATCH_FAIL_CLOSED: PASS'
       - name: Verify SAM2 V3 fixed Windows -c safety regression offline
         shell: powershell
@@ -119,6 +123,8 @@ jobs:
             if ($LASTEXITCODE -eq 0) {
               throw 'Broken Python -c source was accepted by V3 gate'
             }
+            # Expected rejection checked. Return success only after verifying the negative fixture.
+            $global:LASTEXITCODE = 0
             Write-Host 'SAM2_V3_REJECTS_PYTHON_INLINE_C_BEFORE_INSTALL_PASS'
           } finally {
             Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
