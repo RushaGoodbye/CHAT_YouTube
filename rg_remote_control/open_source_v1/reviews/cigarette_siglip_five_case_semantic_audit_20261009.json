@@ -1,0 +1,83 @@
+{
+  "schema": "RG_CIGARETTE_SIGLIP_REAL_892_886_SEMANTIC_FAIL_CLOSED_AUDIT_V1",
+  "date": "2026-10-09",
+  "status": "REAL_5_CASE_SEMANTIC_QA_EXECUTED_OFFLINE_RELEASE_BLOCKED",
+  "contour": "auto_edit",
+  "source_real_archive": "RG_SIGLIP_892_886_CIGARETTE_SHADOW_V1.zip",
+  "source_sha256": "588189bc32cd683a6dce3488eb7816eaa912e34695ae063aed06e3ae52ed4ba8",
+  "model": "google/siglip-base-patch16-224",
+  "model_ref": "d0ffe3fe6b24d37e1fc878f6f6c12837e82e8d21",
+  "scope": "Five user-provided previously inferred real image crops (2 known cigarette, 3 known non-cigarette), not 13 SAM2-tracked frames or entire stream",
+  "score_interpretation": "Relative image/text cosine logits or ranking signals, NOT calibrated cigarette probability",
+  "diagnostic_thresholds": {
+    "candidate_margin_min": 0.015,
+    "other_candidate_max": -0.02
+  },
+  "cases": [
+    {
+      "id": "POS_892_MOUTH",
+      "manual_label": "REAL_CIGARETTE",
+      "margin": 0.02106,
+      "signal": "CIGARETTE_CANDIDATE",
+      "action": "MANDATORY_REVIEW"
+    },
+    {
+      "id": "POS_892_HAND",
+      "manual_label": "REAL_CIGARETTE",
+      "margin": -0.00939,
+      "signal": "AMBIGUOUS_CIGARETTE_MAY_BE_PRESENT",
+      "action": "MANDATORY_REVIEW"
+    },
+    {
+      "id": "NEG_892_MIC",
+      "manual_label": "NOT_CIGARETTE",
+      "margin": -0.02481,
+      "signal": "OTHER_OBJECT_CANDIDATE",
+      "action": "MANDATORY_REVIEW_WHEN_DETECTION_CANDIDATE"
+    },
+    {
+      "id": "NEG_892_MUG",
+      "manual_label": "NOT_CIGARETTE",
+      "margin": -0.02738,
+      "signal": "OTHER_OBJECT_CANDIDATE",
+      "action": "MANDATORY_REVIEW_WHEN_DETECTION_CANDIDATE"
+    },
+    {
+      "id": "NEG_886_MIC_MANUAL",
+      "manual_label": "NOT_CIGARETTE",
+      "margin": -0.03859,
+      "signal": "OTHER_OBJECT_CANDIDATE",
+      "action": "VETO_EXACT_HUMAN_REVIEWED_REFERENCE_ONLY"
+    }
+  ],
+  "safety": {
+    "avoid_missing_true_hand_cigarette": "Any low/negative SigLIP margin for an already detected thin object triggers mandatory review, not silent skipping of obligatory cigarette blur.",
+    "avoid_8865_false_positive": "Only the exact image bytes of the known negative 886_5 microphone reference are eligible for hard negative veto; never suppress the entire stream 886.",
+    "negative_example_independent_model": "Earlier SigLIP inference on five real crops is reused; no new GPU or model run in this audit.",
+    "SAM2_13_frames_independent_identity_verified": false,
+    "cigarette_only_masks_pixel_verified": false,
+    "all_scene_cigarettes_detected": false,
+    "auto_blur_allowed": false,
+    "release_allowed": false,
+    "studio_modified": false,
+    "original_audio_modified": false,
+    "premiere_xml_modified": false,
+    "source_video_modified": false,
+    "quarantine_886_5_unchanged": true
+  },
+  "implementation": {
+    "reproducible_offline_local_script": "rg_cigarette_semantic_pair_gate_v1.py inside delivered archive",
+    "reproducible_local_real_evidence_test": "PASS (five cases, full input sha pin, old hard negative digest guard), generated review HTML/CSV/JSON",
+    "source_repo_module": "rg_remote_control/open_source_v1/cigarette_siglip_five_case_fail_closed_v1.py",
+    "source_repo_module_commit": "f55072163d6998cad5d451d00d43501bf7eed647",
+    "CI_workflow_updated_commit": "6829d8c578195890286efbf87f721b215d3f9077",
+    "actual_GitHub_CI_job_status": "NOT_VERIFIED",
+    "delivered_user_archive": "RG_CIGARETTE_SEMANTIC_892_886_FAIL_CLOSED_QA_V1.zip"
+  },
+  "next": [
+    "Evaluate SigLIP or other independent identity verifier on each of 13 actual SAM2 ROIs and a much broader set of true-cigarette-with-hand versus microphone-and-mug negative examples",
+    "Measure sensitivity and false-positive rate with separate human labels; do not calibrate or approve on five training-like examples",
+    "Add workflow REVIEW_REQUIRED to Studio only after closed-loop human QA and no media/XML changes are verified",
+    "Maintain 886_5 microphone quarantine and strict cigarette-only blur requirements"
+  ]
+}
