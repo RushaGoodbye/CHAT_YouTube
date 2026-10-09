@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,9 +12,18 @@ from rg_youtube_control.cached_metadata import (
     _cached_duration_seconds,
 )
 from rg_youtube_control.db import connect
+from rg_youtube_control.config import normalize_nas_unc_path
 
 
 VIDEO = "QCIuLwQm4nU"
+
+
+def test_local_posix_srt_directory_is_preserved_on_linux(tmp_path):
+    if os.name == "nt":
+        pytest.skip("POSIX path handling is only relevant on Linux")
+    local_path = str(tmp_path / "transcripts")
+    assert normalize_nas_unc_path(local_path, r"\\server\share") == local_path
+
 
 
 def _seed(conn, *, video_id=VIDEO, scheduled=None):
