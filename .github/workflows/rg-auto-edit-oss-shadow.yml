@@ -120,6 +120,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/smoking_compliance_blur_v1_contract_selftest.py
           python rg_remote_control/open_source_v1/smoking_compliance_blur_v1_contract_selftest.py
+      - name: Smoking blur v2 geometric motion is not finger identity
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/smoking_compliance_motion_identity_gate_v2.py
+          python rg_remote_control/open_source_v1/smoking_compliance_motion_identity_gate_v2.py
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
