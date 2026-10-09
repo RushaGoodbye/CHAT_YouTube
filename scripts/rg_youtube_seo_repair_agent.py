@@ -93,6 +93,9 @@ def main() -> int:
                     "mode": "apply" if args.apply else "dry_run"},
                    indent=2), encoding="utf-8"
     )
+    if baseline_full != 0:
+        print("BLOCKED: baseline full suite fails; repair cannot be validated", flush=True)
+        return 2
     if before == 0:
         print("PASS: no repair needed")
         return 0
