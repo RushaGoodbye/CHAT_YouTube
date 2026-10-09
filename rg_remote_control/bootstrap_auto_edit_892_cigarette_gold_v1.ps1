@@ -87,7 +87,7 @@ Write-Host '=== RG 892 POSITIVE CIGARETTE EXAMPLE READY FOR HUMAN REVIEW ==='
   archive_mb=$r.archive_size_mb
   source_media_modified=$false
   original_audio_modified=$false
-  886_5_quarantine_unchanged=$true
+  '886_5_quarantine_unchanged'=$true
   studio_modified=$false
   verified_real_cigarette='PENDING_VISUAL_REVIEW'
 } | ConvertTo-Json -Depth 5
