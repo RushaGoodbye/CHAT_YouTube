@@ -1,4 +1,4 @@
-name: RG YouTube Autonomous Repair (sandbox)
+name: RG YouTube Autonomous Repair (sandbox review)
 
 on:
   workflow_dispatch:
@@ -7,12 +7,9 @@ on:
         description: "Allow AI to repair allowlisted SEO source files in an isolated checkout"
         type: boolean
         default: false
-  schedule:
-    - cron: "37 5 * * *"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: rg-youtube-autofix-sandbox
@@ -44,7 +41,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          $mode = if ('${{ github.event_name }}' -eq 'schedule' -or '${{ inputs.apply }}' -eq 'true') { '--apply' } else { '' }
+          $mode = if ('${{ inputs.apply }}' -eq 'true') { '--apply' } else { '' }
           if ($mode) {
             python scripts/rg_youtube_seo_repair_agent.py --apply
           } else {
@@ -67,21 +64,19 @@ jobs:
           } else {
             "changed=true" >> $env:GITHUB_OUTPUT
           }
-      - name: Open an isolated repair PR
+      - name: Upload proposed patch for review
         if: steps.changes.outputs.changed == 'true'
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $branch = "autofix/youtube-seo-${{ github.run_id }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c $branch
-          git add -- src/rg_youtube_control/seo_quality_gate.py src/rg_youtube_control/rejected_seo.py
-          git commit -m "fix(youtube): AI-assisted SEO test repair"
-          git -c http.extraheader="AUTHORIZATION: basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('x-access-token:' + $env:GH_TOKEN)))" push origin HEAD
-          gh pr create --base audit/youtube-control-0710-comprehensive-qa --head $branch --draft --title "Autofix: SEO test repair" --body "Automated repair proposal only. Requires code review and full Windows QA before merging. No live changes."
+          git diff --binary -- src/rg_youtube_control/seo_quality_gate.py src/rg_youtube_control/rejected_seo.py | Out-File -Encoding utf8 rg_youtube_proposed_repair.patch
+      - name: Upload proposed patch artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-proposed-repair
+          path: rg_youtube_proposed_repair.patch
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload repair report
         if: always()
         uses: actions/upload-artifact@v4
