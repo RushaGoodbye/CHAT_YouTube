@@ -25,7 +25,7 @@ $required=@(
     "SAM2_BUILD_CUDA='0'",
     "'torch==2.8.0+cu126'",
     "Automatic_blur_allowed",
-    "quarantine_8865",
+    "do_not_publish",
     "RG SAM2 WINDOWS SINGLE REAL CIGARETTE MASK PILOT RESULT"
 )
 # A couple of guards use case-insensitive containment as text only.
