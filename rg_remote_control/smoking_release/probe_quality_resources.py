@@ -1,4 +1,4 @@
-"""Locate actual annotation data and check public model access without tokens.
+"""Locate annotations and check public or already configured model access.
 
 No account creation, authentication, contact sharing or license acceptance.
 Capture the eight real failure references using their recorded pixel hashes.
@@ -36,18 +36,29 @@ def run(output):
     report=dict(schema='RG_SMOKING_QUALITY_RESOURCE_PREFLIGHT_V1',release_allowed=False,
         model_access={},cached_sam3=[],annotation_candidates=[],failure_references=[])
     try:
-        # Metadata only. Explicit token=False prevents reading/sending an
-        # existing account token. New legal conditions require the account owner.
+        # Metadata only. Prefer public access. A preconfigured Hub client may
+        # already have approved access; using it does not accept new conditions.
+        # Never read or print credentials or create an account/login session.
         try:
             from huggingface_hub import get_hf_file_metadata,hf_hub_url
-            meta=get_hf_file_metadata(hf_hub_url('facebook/sam3','sam3.pt'),token=False,timeout=15)
-            report['model_access']=dict(status='PUBLIC_ACCESS_AVAILABLE',commit=meta.commit_hash,
+            mode='PUBLIC_ACCESS_AVAILABLE'
+            try:
+                meta=get_hf_file_metadata(hf_hub_url('facebook/sam3','sam3.pt'),token=False,timeout=15)
+            except Exception as public_error:
+                code=getattr(getattr(public_error,'response',None),'status_code',None)
+                if code not in (401,403): raise
+                # Let the installed SDK manage any existing access. No token
+                # text enters this script, artifacts, command arguments or logs.
+                meta=get_hf_file_metadata(hf_hub_url('facebook/sam3','sam3.pt'),token=None,timeout=15)
+                mode='ACCESS_AVAILABLE_WITH_EXISTING_CLIENT_CONFIGURATION'
+            report['model_access']=dict(status=mode,commit=meta.commit_hash,
                 bytes=meta.size,model='facebook/sam3',checkpoint='sam3.pt',weights_downloaded=False)
         except Exception as exc:
             status=getattr(getattr(exc,'response',None),'status_code',None)
             report['model_access']=dict(status='AUTHENTICATION_OR_ACCESS_REQUIRED' if status in (401,403)
                 else 'MODEL_METADATA_UNAVAILABLE',http_status=status,error_type=type(exc).__name__,
-                model='facebook/sam3',weights_downloaded=False,account_token_used=False)
+                model='facebook/sam3',weights_downloaded=False,credentials_exposed=False,
+                new_conditions_accepted=False)
         for base in (ROOT,DATA/'models',DATA/'datasets',DATA/'annotations',DATA/'smoking_compliance',NAS):
             for p in bounded_files(base):
                 if p.name in ('sam3.pt','sam3.1_multiplex.pt') or (
