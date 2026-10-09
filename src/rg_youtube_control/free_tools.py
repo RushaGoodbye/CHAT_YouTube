@@ -1672,6 +1672,10 @@ def generate_seo_package_local(
         if evidence_report else None
     )
     verified_evidence = prompt_evidence.text if prompt_evidence else ""
+    if prompt_evidence and prompt_evidence.compacted:
+        # Every downstream recovery helper must use the same bounded context.
+        # The COMPLETE timeline remains in evidence_report and its saved audit.
+        transcript = verified_evidence
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три різні A/B назви: A - головний конфлікт, B - несподівана теза, "
