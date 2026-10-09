@@ -61,15 +61,13 @@ $guards=@(
   "NEG_SHA=",
   "SOURCE_SHA=",
   'local_files_only=True',
-  'QUARANTINE',
+  '886_5 HOLD',
   'N=13',
   'NEGATIVES=(',
   'automatic_blur_allowed=False',
   'cigarette_only_blur_allowed=False',
   'RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_SHADOW_V1.zip'
 )
-# Safety-critical true source markers independent of the current test progress.
-$guards[5]='886_5 HOLD'
 foreach($guard in $guards){
     if($content.IndexOf([string]$guard,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw ('Pinned independent semantic source missing invariant: '+$guard)
