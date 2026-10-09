@@ -1,0 +1,42 @@
+name: RG YouTube Repair Infra Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/rg_youtube_seo_repair_agent.py"
+      - ".github/workflows/rg-youtube-autonomous-repair.yml"
+      - ".github/workflows/rg-youtube-repair-infra-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile agent
+        run: python -m py_compile scripts/rg_youtube_seo_repair_agent.py
+      - name: Enforce review-only agent policy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          agent = Path("scripts/rg_youtube_seo_repair_agent.py").read_text()
+          workflow = Path(".github/workflows/rg-youtube-autonomous-repair.yml").read_text()
+          assert 'any(p not in WRITABLE for p in proposed)' in agent
+          assert 'run_tests(full_suite=True)' in agent
+          assert 'contents: read' in workflow
+          assert 'contents: write' not in workflow
+          assert 'schedule:' not in workflow
+          assert 'git push' not in workflow
+          assert 'gh pr create' not in workflow
+          print('Sandbox policies PASS')
+          PY
