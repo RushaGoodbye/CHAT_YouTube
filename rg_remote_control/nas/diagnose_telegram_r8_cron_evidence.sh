@@ -34,7 +34,9 @@ def age(v):
  try:
   parsed=datetime.datetime.fromisoformat(str(v).replace("Z","+00:00"))
   if not parsed.tzinfo:return "UNKNOWN"
-  return max(0,round(now-parsed.timestamp()))
+  delta=now-parsed.timestamp()
+  if delta < -60:return "UNKNOWN"
+  return max(0,round(delta))
  except (ValueError,TypeError):return "UNKNOWN"
 def classified(v):
  s=str(v or "").lower()
