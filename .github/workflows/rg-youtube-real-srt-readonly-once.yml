@@ -1,0 +1,55 @@
+name: RG YouTube Real SRT Readonly QA - ONE SHOT
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-youtube-real-srt-readonly-once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-real-srt-readonly-once
+  cancel-in-progress: true
+
+jobs:
+  nas-readonly:
+    # Only the authenticated owner's trusted branch, never outside PR code.
+    if: >-
+      github.repository == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.repo.full_name == 'RushaGoodbye/CHAT_YouTube' &&
+      github.event.pull_request.head.ref == 'audit/youtube-control-0710-comprehensive-qa'
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted source without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Prepare isolated Python only
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "Python venv failed" }
+          & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Python dependencies failed" }
+      - name: Read-only local/NAS SRT integrity audit; no transcript upload
+        shell: pwsh
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\.venv\Scripts\python.exe" -u scripts/rg_youtube_real_srt_preflight.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Real NAS SRT QA incomplete; no semantic quality certification"
+          }
+      - name: Upload counters only (never upload SRT or video IDs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-real-srt-anonymous-coverage-report
+          path: rg_youtube_real_srt_preflight.json
+          if-no-files-found: ignore
+          retention-days: 7
