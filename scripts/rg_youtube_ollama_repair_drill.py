@@ -47,10 +47,10 @@ def run_drill(source, save, state):
         try:
             trial = subprocess.run(
             [sys.executable, "scripts/rg_youtube_seo_repair_agent.py", "--apply"],
-                cwd=sandbox, env=env, text=True, capture_output=True, timeout=420,
+                cwd=sandbox, env=env, text=True, capture_output=True, timeout=900,
             )
         except subprocess.TimeoutExpired as exc:
-            save(status="TIMEOUT", stage="ollama_repair_running", timeout_seconds=420,
+            save(status="TIMEOUT", stage="ollama_repair_running", timeout_seconds=900,
                  partial_stdout=str(exc.stdout or "")[-1500:], partial_stderr=str(exc.stderr or "")[-1500:])
             return 2
         save(stage="verify_result", agent_exit_code=trial.returncode,
