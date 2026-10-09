@@ -32,7 +32,7 @@ def run_drill(source, save, state):
     save(stage="create_sandbox")
     with tempfile.TemporaryDirectory(prefix="RG_YOUTUBE_AUTOFIX_DRILL_") as tmp:
         sandbox = Path(tmp) / "checkout"
-        shutil.copytree(source, sandbox, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc"))
+        shutil.copytree(source, sandbox, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", ".pytest_cache", "*.pyc"))
         target = sandbox / "src/rg_youtube_control/rejected_seo.py"
         original = target.read_text(encoding="utf-8")
         source_target = source / "src/rg_youtube_control/rejected_seo.py"
@@ -41,12 +41,15 @@ def run_drill(source, save, state):
             raise SystemExit("Expected fingerprint implementation has changed; drill stopped")
         target.write_text(original.replace(needle, 'return "broken-fingerprint"'), encoding="utf-8")
         env = {**os.environ, "PYTHONPATH": str(sandbox / "src")}
+        venv_python = source / ".venv" / "Scripts" / "python.exe"
+        interpreter = str(venv_python) if venv_python.is_file() else sys.executable
+        print("TEST INTERPRETER:", interpreter, flush=True)
         print("SANDBOX:", sandbox, flush=True)
         print("TEST ERROR: deliberately broken fingerprints (sandbox only)", flush=True)
         save(stage="ollama_repair_running", sandbox_created=True)
         try:
             trial = subprocess.run(
-            [sys.executable, "scripts/rg_youtube_seo_repair_agent.py", "--apply"],
+            [interpreter, "scripts/rg_youtube_seo_repair_agent.py", "--apply"],
                 cwd=sandbox, env=env, text=True, capture_output=True, timeout=900,
             )
         except subprocess.TimeoutExpired as exc:
