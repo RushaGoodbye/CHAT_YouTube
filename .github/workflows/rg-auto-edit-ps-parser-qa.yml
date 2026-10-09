@@ -139,7 +139,7 @@ jobs:
           $script=[System.IO.File]::ReadAllText((Resolve-Path $bootstrap).Path)
           $source=[System.IO.File]::ReadAllText((Resolve-Path $python).Path)
           $expected='rg_remote_control/open_source_v1/sam2_video_track_892_full_mask_v2.py'
-          $match=[regex]::Match($script, 'https://raw\\.githubusercontent\\.com/RushaGoodbye/CHAT_YouTube/\\$commit/(?<path>[^"]+)')
+          $match=[regex]::Match($script, 'https://raw\.githubusercontent\.com/RushaGoodbye/CHAT_YouTube/\$commit/(?<path>[^"]+)')
           if(-not $match.Success -or $match.Groups['path'].Value -ne $expected){
               throw 'SAM2 V3 wrong downloaded Python path - old V2 regression'
           }
@@ -164,7 +164,7 @@ jobs:
             throw 'SAM2 V3 incorrect ZIP output contract'
           }
           $bad=$script.Replace('sam2_video_track_892_full_mask_v2.py','sam2_video_track_892_shadow_v1.py')
-          $badMatch=[regex]::Match($bad, 'https://raw\\.githubusercontent\\.com/RushaGoodbye/CHAT_YouTube/\\$commit/(?<path>[^"]+)')
+          $badMatch=[regex]::Match($bad, 'https://raw\.githubusercontent\.com/RushaGoodbye/CHAT_YouTube/\$commit/(?<path>[^"]+)')
           if(-not $badMatch.Success -or $badMatch.Groups['path'].Value -eq $expected){
             throw 'Negative fixture for broken download path was not constructed correctly'
           }
