@@ -1,0 +1,57 @@
+{
+  "schema": "RG_AUTO_EDIT_CIGARETTE_3MODULE_SHADOW_V2",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "OFFLINE_SHADOW_TESTED_NOT_INSTALLED_NOT_PRODUCTION_APPROVED",
+  "original_user_modules": {
+    "rg_cigarette_blur.py": "0355b2dd68144212a2d05f7c94a5ba63acd5274896bac8c198ea2d1f338b1c49",
+    "rg_cigarette_detector_worker.py": "44fcebbb8ff12f1f032dd9475d0fdeef64d387ebcef58a99c8c0d2e22bbe4729",
+    "rg_privacy_coverage_qa.py": "37f55d3473373184c49d2e1e442ff83b3b84cb003fcf6be47268b89682d3dc12"
+  },
+  "findings": [
+    "Original worker applies YOLOWorld open-vocabulary classes only; no independent semantic identity verifier",
+    "Default detection confidence 0.08, coarse scan 3 fps, refine 12 fps only near initial positive coarse detections; brief cigarette between coarse samples may be missed",
+    "Original worker discards negative scanned frames from final rows and always reports passed=true after completion",
+    "Original coverage QA gives passed=true and coverage_ratio=1.0 with no expected or observed cigarette intervals",
+    "Original coverage QA returns passed=true for identically timed regions with mismatched kind (CIGARETTE vs GRAY) or mismatched source identity (cigarette vs microphone)",
+    "Original blur module uses SHORT_STABLE and STRONG_HIT with no second semantic verification; can write XML before QA fails"
+  ],
+  "regression_baseline": {
+    "empty_expected_observed": {
+      "passed": true,
+      "coverage_ratio": 1
+    },
+    "wrong_kind_same_interval": {
+      "passed": true,
+      "coverage_ratio": 1
+    },
+    "wrong_track_id_same_interval": {
+      "passed": true,
+      "coverage_ratio": 1
+    }
+  },
+  "shadow_changes": [
+    "Worker candidate-only; retains empty sampled frame records; zero hits do not imply semantic negative proof; empty intervals and empty frame decode rejected",
+    "Coverage evaluate_cigarette_shadow rejects absent identity evidence, wrong kind/track and missing overlay; always release_allowed=false until independent verifier exists",
+    "Previously isolated blur V1 shadow blocks XML injection without independent semantic approval",
+    "Original user code and Studio not changed"
+  ],
+  "tests": {
+    "offline_mock_tests": "9/9 PASS",
+    "original_blur_xml_block_tests": "3/3 PASS",
+    "production_video_gpu_tests": "NOT_RUN",
+    "independent_semantic_verifier": "NOT_YET_IMPLEMENTED",
+    "full_frame_recall": "NOT_VERIFIED"
+  },
+  "deliverable": {
+    "name": "RG_CIGARETTE_3MODULES_SHADOW_V2.zip",
+    "sha256": "65c45d1d34880b6abf6e8d605d3c6ac7b8991613bfead8e273de3e986889c075",
+    "user_visible_in_current_chat": true,
+    "staged_at_nas": false,
+    "deployed_to_studio": false,
+    "contains_user_originals_for_reproducibility": true
+  },
+  "release_policy": "NEVER_PROMOTE_THIS_SHADOW_CANDIDATE_TO_PRODUCTION_WITHOUT_INDEPENDENT_SEMANTIC_VERIFICATION_AND_FULL_VIDEO_QA",
+  "dialogue_8865": "HOLD_ACTIVE",
+  "next": "Design and validate independently trained or independently prompted real cigarette verifier using labeled sample positives and known-negative microphone mark; then integrate with full retained-video check and atomic XML staging."
+}
