@@ -1,0 +1,65 @@
+{
+  "schema": "RG_892_886_SMOKING_COMPLIANCE_DYNAMIC_GRIP_QA_FAILURE_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "REAL_MOTION_TRACK_SUCCESS_GRIP_SEMANTIC_FAILURE_RELEASE_BLOCKED",
+  "source_positive": "892 genuine 24sec no-audio clip near 01:58:41",
+  "positive_source_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
+  "sam2_source_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
+  "negative_source_sha256": "b8085713087f1a7db86c1f35be129527b28a82a6fe576f8f03f4650811d19884",
+  "positive_experiment": {
+    "method": "Real SAM2 mask cigar long-axis PCA; geometric grip hypothesis 6fps keyframes interpolated to 30fps, with image Lucas-Kanade optical-flow diagnostic. No per-frame manual GRIP coordinate track.",
+    "frames": 60,
+    "fps": 30,
+    "segment_sec": [
+      12,
+      14
+    ],
+    "initial_grip_candidate_local_xy": [
+      205.22,
+      176.98
+    ],
+    "final_grip_candidate_local_xy": [
+      397.71,
+      254.68
+    ],
+    "movement_px": 207.58,
+    "lk_probe_loss_count": 0,
+    "failure": "Near 13.667s the derived geometric grip candidate drifts over lips and incompletely covers the fingers holding cigarette. This is a real visual FAIL: motion trajectory does not prove hand identity.",
+    "finger_identity_verified": false,
+    "mouth_landmarks_verified": false,
+    "smoke_coverage_verified": false,
+    "automatic_blur_allowed": false
+  },
+  "negative_8865": {
+    "confirmed_false_positive": "Decorative microphone emblem, NOT cigarette",
+    "source_real_sparse_frame_count": 101,
+    "full_negative_video_inference_done": false,
+    "stream_wide_negative_exemption_allowed": false,
+    "quarantine_remains": true
+  },
+  "deliverable": {
+    "zip": "RG_SMOKING_892_DYNAMIC_GRIP_MOTION_FAIL_CLOSED_QA_V1.zip",
+    "sha256": "37fc68f7e92b720e015606c86bf368b11dcc6f2e1231f19b878eba80bdbb3e41",
+    "zip_crc_pass": true,
+    "members": 12,
+    "video": "RG_892_REAL_DYNAMIC_GRIP_CANDIDATE_30FPS_SHADOW.mp4",
+    "frame": "QA_GRIP_FRAME_50.jpg",
+    "replay_code": "rg_smoking_dynamic_grip_shadow_v1.py"
+  },
+  "regression_guard": {
+    "source": "rg_remote_control/open_source_v1/smoking_compliance_motion_identity_gate_v2.py",
+    "commit": "125f7b37781a21d3a6eb6116a0c9c5e6d9f46c68",
+    "expected": "GRIP_GEOMETRY_IS_NOT_HAND_IDENTITY => REVIEW_REQUIRED; known 886_5 mic never released",
+    "local_synthetic_test": "PASS",
+    "CI_integration_status": "not yet confirmed"
+  },
+  "next": "Evaluate pinned MIT-license OpenCV YuNet face landmarks on real 892 and 886 clips; independently verify fingers and smoke; no production updates until all four layers pass.",
+  "production_release_allowed": false,
+  "Studio_modified": false,
+  "original_video_modified": false,
+  "original_audio_modified": false,
+  "Premiere_XML_modified": false,
+  "quarantine_886_5_unchanged": true,
+  "platform_moderation_guaranteed": false
+}
