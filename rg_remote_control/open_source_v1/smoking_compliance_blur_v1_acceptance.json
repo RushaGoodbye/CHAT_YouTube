@@ -1,0 +1,73 @@
+{
+  "schema": "RG_SMOKING_COMPLIANCE_BLUR_ACCEPTANCE_V1",
+  "contour": "auto_edit",
+  "version": "1.0.0-shadow",
+  "status": "SPEC_AND_SHADOW_QA_ONLY",
+  "supersedes_target_mask_requirement": "CIGARETTE_ONLY_BLUR",
+  "processing_mode": "SMOKING_COMPLIANCE_BLUR",
+  "classes": [
+    "cigarette",
+    "grip",
+    "smoke",
+    "mouth"
+  ],
+  "mask_operation": "UNION",
+  "conditional_requirements": {
+    "cigarette": "required_when_cigarette_visible",
+    "grip": "required_when_holding_cigarette",
+    "smoke": "required_when_visibly_linked_to_smoking",
+    "mouth": "required_when_cigarette_near_or_in_mouth_or_smoking_exhale"
+  },
+  "state_machine": {
+    "CONFIRMED_SMOKING": "GENERATE_CONDITIONAL_LOCAL_MASK_THEN_HUMAN_QA",
+    "SUSPECTED_SMOKING": "REVIEW_REQUIRED",
+    "TRACK_LOST": "REVIEW_REQUIRED",
+    "VERIFIED_NEGATIVE": "NO_BLUR_ONLY_FOR_EXACT_HUMAN_VERIFIED_REFERENCE",
+    "NO_SMOKING_DETECTED": "NOT_SUFFICIENT_FOR_FULL_TIMELINE_CERTIFICATION"
+  },
+  "safety_guards": {
+    "never_blur_entire_frame": true,
+    "never_blur_entire_face_without_specific_justification": true,
+    "no_silent_skip_on_low_siglip_margin": true,
+    "no_automatic_release_when_required_layer_missing": true,
+    "no_automatic_release_on_track_loss": true,
+    "no_8865_stream_wide_false_positive_exemption": true,
+    "do_not_untag_8865_quarantine": true,
+    "source_video_immutable": true,
+    "original_audio_immutable": true,
+    "Premiere_XML_immutable": true,
+    "Studio_immutable_during_shadow": true,
+    "no_new_model_downloads_during_QA": true
+  },
+  "positive_reference": {
+    "stream": "892",
+    "source_timecode": "01:58:41",
+    "existing_sample_frames": 13,
+    "known_sam2_mask_smoke_bleed": true,
+    "known_core_mask_cigar_edge_coverage_unproven": true
+  },
+  "negative_reference": {
+    "stream": "886",
+    "dialogue": "886_5",
+    "object": "microphone decorative emblem",
+    "sample_stills": 101,
+    "full_negative_video_test_passed": false,
+    "quarantine": true
+  },
+  "human_qa": {
+    "model_mask_never_equals_ground_truth": true,
+    "review_visible_smoking_not_just_pixel_coverage": true,
+    "all_four_classes_measured_when_present": true,
+    "smoking_sequence_not_just_keyframes": true,
+    "source_timeline_coverage_must_be_measured_before_release": true,
+    "production_thresholds": "UNDEFINED_PENDING_HUMAN_LABELED_REAL_EVIDENCE"
+  },
+  "automatic_blur_allowed": false,
+  "production_release_allowed": false,
+  "Studio_modified": false,
+  "source_video_modified": false,
+  "original_audio_modified": false,
+  "premiere_XML_modified": false,
+  "quarantine_886_5_unchanged": true,
+  "platform_moderation_guaranteed": false
+}
