@@ -84,6 +84,10 @@ def main() -> int:
                         help="Allow sandbox repairs (never auto-merge)")
     args = parser.parse_args()
     before, failure_text = run_tests()
+    baseline_full, baseline_log = run_tests(full_suite=True)
+    print("BASELINE FULL SUITE:", "PASS" if baseline_full == 0 else "FAIL", flush=True)
+    if baseline_full != 0:
+        print("BASELINE FULL DETAILS:", baseline_log[-2500:], flush=True)
     Path("rg_seo_repair_report.json").write_text(
         json.dumps({"initial_tests_pass": before == 0,
                     "mode": "apply" if args.apply else "dry_run"},
@@ -123,6 +127,7 @@ def main() -> int:
                 continue
             full_result, full_log = run_tests(full_suite=True)
             if full_result != 0:
+                print("FULL SUITE DETAILS:", full_log[-3500:], flush=True)
                 feedback = full_log[-4500:]
                 print("Full test suite failed; requesting corrected patch", flush=True)
                 continue
