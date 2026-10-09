@@ -28,10 +28,10 @@ ALLOWED = WRITABLE + (
 TESTS = [f for f in ALLOWED if f.startswith("tests/")]
 
 
-def run_tests():
+def run_tests(*, full_suite: bool = False):
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", *TESTS],
-        cwd=ROOT, capture_output=True, text=True, timeout=180,
+        [sys.executable, "-m", "pytest", "-q", *(["tests"] if full_suite else TESTS)],
+        cwd=ROOT, capture_output=True, text=True, timeout=600 if full_suite else 180,
         env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
     )
     return proc.returncode, (proc.stdout + "\n" + proc.stderr)[-12000:]
@@ -98,10 +98,15 @@ def main() -> int:
             if after != 0:
                 print("Repair failed verification: " + log[-1500:])
                 return 1
-            print("PASS: patched sandbox passes safety tests")
+            full_result, full_log = run_tests(full_suite=True)
+            if full_result != 0:
+                print("Full test suite failed: " + full_log[-1500:])
+                return 1
+            print("PASS: patched sandbox passes targeted and full test suites")
             return 0
         finally:
-            if "after" not in locals() or after != 0:
+            if ("after" not in locals() or after != 0 or
+                    "full_result" not in locals() or full_result != 0):
                 for path, value in originals.items():
                     (ROOT / path).write_text(value, encoding="utf-8")
     except Exception as exc:
