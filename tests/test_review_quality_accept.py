@@ -13,6 +13,10 @@ def test_review_accept_requires_safe_three_options():
         if isinstance(n, ast.FunctionDef) and n.name == "review_draft_queue"
     )
     body = ast.get_source_segment(code, method)
-    assert 'quality_state != "safe" or len(options) != 3' in body
     assert "title_variants_json" in body
-    assert body.index('quality_state != "safe" or len(options) != 3') < body.index('set_optimization_draft_status(self.conn, video_id, "ready")')
+    assert "reviewed_seo_acceptance_issues(" in body
+    assert "status != \"safe\"" in body
+    assert 'if len(options) != 3:' in body
+    assert "if issues:" in body
+    assert body.index("reviewed_seo_acceptance_issues(") < body.index('set_optimization_draft_status(self.conn, video_id, "ready")')
+    assert body.index("if issues:") < body.index('set_optimization_draft_status(self.conn, video_id, "ready")')
