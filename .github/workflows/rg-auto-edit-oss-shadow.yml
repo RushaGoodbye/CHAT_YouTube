@@ -108,6 +108,10 @@ jobs:
         run: |
           python -m py_compile rg_remote_control/open_source_v1/sam2_892_cigarette_core_shadow_v1.py
           python rg_remote_control/open_source_v1/sam2_892_cigarette_core_shadow_v1.py --self-test
+      - name: SigLIP 892/886 real-reference semantic fail-closed audit
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/cigarette_siglip_five_case_fail_closed_v1.py
+          python rg_remote_control/open_source_v1/cigarette_siglip_five_case_fail_closed_v1.py --self-test
       - name: Catalog scope and licensing invariants
         run: |
           python - <<'PY'
