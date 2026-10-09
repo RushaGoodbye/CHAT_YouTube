@@ -177,6 +177,11 @@ def write_qa_images(stage,frames,rows,masks):
         overlay_colour=np.array([255,230,30],dtype=np.float32)
         after[visible]=(after[visible].astype(np.float32)*.5+overlay_colour*.5).astype(np.uint8)
         mosaic=np.concatenate((before,after),axis=1)
+        informational={"OBJECT_CENTER_OUTSIDE_EXPECTED_REGION",
+                       "MASK_REACHES_RESTRICTED_BOUNDARY"}
+        rows[i]["static_roi_info_flags"]=[flag for flag in rows[i]["warning_flags"] if flag in informational]
+        rows[i]["non_static_geometry_flags"]=[flag for flag in rows[i]["warning_flags"] if flag not in informational]
+        rows[i]["static_region_flags_are_not_semantic_errors"]=True
         labels="892 clip+%.3fs | %02d/13 | %s"%(source_frame/30,i+1,
                    "TRACK_QA_WARNING" if rows[i].get("non_static_geometry_flags") else "HUMAN_REVIEW")
         cv2.rectangle(mosaic,(0,0),(mosaic.shape[1],28),(10,10,10),-1)
@@ -197,13 +202,9 @@ def write_qa_images(stage,frames,rows,masks):
         rows[i]["full_mask_png"]="review_frames/"+full_name
         rows[i]["annotated_jpg"]="review_frames/"+picture
         rows[i]["mask_roi_png"]="review_frames/ROI_MASK_%02d.png"%i
-        informational={"OBJECT_CENTER_OUTSIDE_EXPECTED_REGION",
-                       "MASK_REACHES_RESTRICTED_BOUNDARY"}
-        rows[i]["static_roi_info_flags"]=[f for f in rows[i]["warning_flags"] if f in informational]
-        rows[i]["non_static_geometry_flags"]=[f for f in rows[i]["warning_flags"] if f not in informational]
-        rows[i]["static_region_flags_are_not_semantic_errors"]=True
         if total and ratio_new<.9999:
             rows[i]["warning_flags"].append("DYNAMIC_PREVIEW_NOT_FULL_MASK")
+            rows[i]["non_static_geometry_flags"].append("DYNAMIC_PREVIEW_NOT_FULL_MASK")
         contact.append(cv2.resize(mosaic,(780,263),interpolation=cv2.INTER_AREA))
     width,height=780,263
     grid=np.zeros((4*height,4*width,3),dtype=np.uint8)
