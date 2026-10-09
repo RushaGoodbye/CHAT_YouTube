@@ -14,9 +14,11 @@ import sys
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = (
+WRITABLE = (
     "src/rg_youtube_control/seo_quality_gate.py",
     "src/rg_youtube_control/rejected_seo.py",
+ )
+ALLOWED = WRITABLE + (
     "tests/test_seo_quality_gate.py",
     "tests/test_rejected_seo.py",
     "tests/test_review_quality_accept.py",
@@ -81,7 +83,7 @@ def main() -> int:
         if not isinstance(proposed, dict) or not proposed:
             print("No safe repair proposed")
             return 1
-        if len(proposed) > 3 or any(p not in ALLOWED for p in proposed):
+        if len(proposed) > 3 or any(p not in WRITABLE for p in proposed):
             raise ValueError("Model attempted edits outside allowlist or change limit")
         originals = {}
         for path, value in proposed.items():
