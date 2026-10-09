@@ -359,6 +359,57 @@ def preserve_outline_topics(
 
 
 
+
+def preserve_one_grounded_quote(
+    description: str,
+    report: dict[str, Any],
+    *,
+    max_body_bytes: int = 3900,
+) -> tuple[str, bool]:
+    """Retain one *verbatim, analyst-verified* excerpt without deleting topics.
+
+    The fallback is not a new factual claim: it quotes a subtitle excerpt
+    that already passed per-block evidence validation. Never force truncation
+    or let an excerpt exceed the SEO description budget. Returns whether a
+    verified quote was *added*; a package remains review-only until approved.
+    """
+    source = str(description or "").strip()
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for block in report.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("verified") is not True:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            quote = _compact(item.get("evidence"))
+            topic = _compact(item.get("topic"))
+            if not (8 <= len(quote) <= 240):
+                continue
+            if quote.casefold() in seen:
+                continue
+            seen.add(quote.casefold())
+            candidates.append((topic, quote))
+
+    # Do not add another quote when the existing description already carries
+    # literal evidence. Model-produced punctuation variants can be handled
+    # manually rather than silently claiming an approximate quote is verbatim.
+    if any(quote.casefold() in source.casefold() for _, quote in candidates):
+        return source, False
+
+    candidates.sort(key=lambda candidate: (
+        0 if candidate[0].casefold() in source.casefold() else 1,
+        0 if 25 <= len(candidate[1]) <= 145 else 1,
+        len(candidate[1]),
+    ))
+    for _topic, quote in candidates:
+        addition = f"\n\nДослівний фрагмент розмови: «{quote}»"
+        if len((source + addition).encode("utf-8")) <= max_body_bytes:
+            return source + addition, True
+    return source, False
+
+
+
 def ab_title_issues(
     variants: Iterable[str],
     report: dict[str, Any] | None = None,
