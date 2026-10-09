@@ -1,0 +1,60 @@
+{
+  "schema": "RG_CIGARETTE_892_886_PIXEL_GROUND_TRUTH_WORKBENCH_SHADOW_V1",
+  "date": "2026-10-09",
+  "contour": "auto_edit",
+  "status": "UNLABELED_HUMAN_REVIEW_TOOL_PREPARED_RELEASE_BLOCKED",
+  "inputs": {
+    "sam2_13_mask_zip": "RG_SAM2_892_REAL_MOTION_FULL_MASK_V2.zip",
+    "core_13_mask_zip": "RG_SAM2_892_CIGARETTE_CORE_EXPERIMENTAL_QA_V1.zip",
+    "gold_892_24sec_video_only_zip": "RG_892_CIGARETTE_GOLD_015841.zip",
+    "negative_8865_sparse_frames_zip": "RG_886_5_REAL_CIGARETTE_VISUAL_TRIAGE.zip",
+    "real_892_frames": 13,
+    "real_8865_sampled_frames": 101,
+    "negative_frame_sampling_gap_approx_sec": 4,
+    "full_negative_8865_video_test": false
+  },
+  "deliverable": {
+    "filename": "RG_CIGARETTE_892_886_PIXEL_HUMAN_QA_V1.zip",
+    "sha256": "703ad39910b46125aa869358a2423108e6b0ca1e2657cbed5c1416b14575ae8e",
+    "zip_members": 61,
+    "size_mib": 7.54,
+    "package_directory": "RG_892_PIXEL_HUMAN_REVIEW_V1",
+    "open_locally": "RG_892_PIXEL_HUMAN_REVIEW_V1/index.html",
+    "contains": "13 original real 892 520x350 crops and SAM2/CORE masks, 12 contact sheets with 101 886_5 stills, manual color-paint labels, RLE JSON export, independent Python builder/evaluator, README",
+    "manual_ground_truth_pixels": 0,
+    "ground_truth_verified": false,
+    "browser_UI_test": "Node JS syntax PASS; end-to-end browser execution not verified because headless Chromium policy blocks local files and localhost in container"
+  },
+  "tests": {
+    "real_zip_CRC": "PASS",
+    "source_mp4_SHA_verified_against_sam2_report": true,
+    "full_mask_geometry_13": "PASS",
+    "core_binary_subset_13": "PASS",
+    "node_Javascript_syntax": "PASS",
+    "python_unit_selftest": "PASS",
+    "empty_annotations_result": "NO_HUMAN_LABELS_NOT_EVALUATED",
+    "synthetic_two_pixel_evaluation": "PASS",
+    "tampered_label_counts_rejected": true,
+    "foreign_mask_hash_rejected": true,
+    "archive_zip_CRC": "PASS"
+  },
+  "semantics": {
+    "classes": [
+      "unknown",
+      "cigarette",
+      "skin",
+      "smoke",
+      "other"
+    ],
+    "metrics_scope": "Coverage and bleed on human-painted pixels only; unknown pixels cannot establish true negatives or full model precision/recall",
+    "model_predictions_used_as_GT": false,
+    "automatic_blur_allowed": false,
+    "release_allowed": false,
+    "quarantine_886_5_unchanged": true,
+    "Studio_not_modified": true,
+    "Premiere_XML_not_modified": true,
+    "original_audio_not_modified": true,
+    "original_video_not_modified": true
+  },
+  "next": "Manually label 892 critical scenes around 12.667 and 13.833-14.000s and export JSON; only then can actual human-marked pixel coverage and skin/smoke leakage be measured. Sparse 886 stills are not full motion negative model test. Keep all release gates closed."
+}
