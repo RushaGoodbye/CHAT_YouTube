@@ -44,6 +44,23 @@ def review_seo_package(
             "Неповне покриття транскрипту: кількість часових фрагментів "
             "або охоплених реплік не підтверджена."
         )
+    source_hash = report.get("source_text_sha256")
+    covered_hash = report.get("covered_text_sha256")
+    source_chars = report.get("source_text_chars")
+    covered_chars = report.get("covered_text_chars")
+    source_rows = report.get("source_rows_with_text")
+    if (
+        report.get("source_integrity_verified") is not True
+        or not isinstance(source_hash, str) or len(source_hash) != 64
+        or source_hash != covered_hash
+        or type(source_chars) is not int or source_chars <= 0
+        or type(covered_chars) is not int or source_chars != covered_chars
+        or type(source_rows) is not int or source_rows <= 0
+    ):
+        issues.append(
+            "Цілісність транскрипту не підтверджена: частина реплік "
+            "могла загубитися під час аналізу."
+        )
     if (
         type(verified_count) is not int
         or verified_count != sum(bool(block.get("topics")) for block in blocks)
