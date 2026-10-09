@@ -2,7 +2,7 @@
   "schema": "RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_CHALLENGE_READINESS_V1",
   "date": "2026-10-09",
   "contour": "auto_edit",
-  "status": "PINNED_STATIC_QA_READY_REAL_GPU_RUN_NOT_YET_EXECUTED",
+  "status": "REAL_GPU_16_CASES_COMPLETED_UNCALIBRATED_WEIGHTS_WARNINGS_VISUAL_REVIEW_PENDING",
   "real_evidence": {
     "positive_gold_892_mp4_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
     "sam2_13_mask_zip_sha256": "2d88cf9d763d9c885702a7cc8f254fe9dba75d000de616df5781f28af2e68044",
@@ -53,5 +53,111 @@
     "original_audio_modified": false,
     "Premiere_XML_modified": false
   },
-  "next": "One read-only AlexPC RTX4080 shadow inference benchmark of all 16 images and upload ZIP. Independently review 13 moving cigar center crops versus known negative mic/mug before advancing to pixel-overlap ground truth. No production blur."
+  "next": "One read-only AlexPC RTX4080 shadow inference benchmark of all 16 images and upload ZIP. Independently review 13 moving cigar center crops versus known negative mic/mug before advancing to pixel-overlap ground truth. No production blur.",
+  "windows_rtx4080_actual_run_20261009": {
+    "status": "COMPLETED_SHADOW_INFERENCE_HUMAN_REVIEW_REQUIRED",
+    "source": "User pasted actual PowerShell output on AlexPC",
+    "self_test": "PASS",
+    "pinned_local_model_only": true,
+    "original_model": "google/siglip-base-patch16-224",
+    "classifier_outputs": [
+      [
+        "POS_892_TRACK_00",
+        -0.00683,
+        "AMBIGUOUS"
+      ],
+      [
+        "POS_892_TRACK_01",
+        0.00113,
+        "AMBIGUOUS"
+      ],
+      [
+        "POS_892_TRACK_02",
+        0.01556,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_03",
+        0.00231,
+        "AMBIGUOUS"
+      ],
+      [
+        "POS_892_TRACK_04",
+        0.00336,
+        "AMBIGUOUS"
+      ],
+      [
+        "POS_892_TRACK_05",
+        0.022,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_06",
+        0.02102,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_07",
+        0.01944,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_08",
+        0.02281,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_09",
+        0.02469,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_10",
+        0.01649,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_11",
+        0.02121,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "POS_892_TRACK_12",
+        0.02549,
+        "CIGARETTE_CANDIDATE"
+      ],
+      [
+        "NEG_886_MIC_MANUAL",
+        -0.0399,
+        "OTHER_OBJECT_CANDIDATE"
+      ],
+      [
+        "NEG_892_MIC",
+        -0.02385,
+        "OTHER_OBJECT_CANDIDATE"
+      ],
+      [
+        "NEG_892_MUG",
+        -0.02979,
+        "OTHER_OBJECT_CANDIDATE"
+      ]
+    ],
+    "positive_candidate_count": 9,
+    "positive_ambiguous_count": 4,
+    "negative_other_object_count": 3,
+    "runtime_warnings": [
+      "Processor uses saved slow variant; future defaults may change. Must pin use_fast=False for comparable subsequent tests.",
+      "Some checkpoint weights 'bias','temperature' were not used; 'logit_bias','logit_scale' freshly initialized. This undermines reproducibility/calibration of the logits, even though the shadow computation completed. MUST validate checkpoint mapping or use stable normalized features before any gating."
+    ],
+    "result_zip": "F:\\RG_AUTO_EDIT\\RG Auto Edit Data\\oss_shadow\\siglip_sam2_892_vs_886_real_13frame_shadow_v1\\RG_SIGLIP_SAM2_892_13FRAME_VS_886_NEGATIVE_SHADOW_V1.zip",
+    "review_zip_uploaded_in_chat": false,
+    "all_outputs_automatic_blur_allowed": false,
+    "release_allowed": false,
+    "studio_modified": false,
+    "video_modified": false,
+    "audio_modified": false,
+    "premiere_xml_modified": false,
+    "quarantine_886_5_unchanged": true,
+    "next": "User uploads ZIP; inspect 16 crops and raw logits versus actual human labels, then fix checkpoint logit_scale/bias mapping reproducibly before any expanded benchmark."
+  }
 }
