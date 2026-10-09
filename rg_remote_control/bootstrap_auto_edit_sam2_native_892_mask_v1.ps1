@@ -17,7 +17,7 @@ $checkpoint=Join-Path $base 'sam2.1_hiera_tiny.pt'
 $sourceZip=Join-Path $base 'sam2_official_source_98fcb164.zip'
 $repoDir=Join-Path $base 'sam2_repo'
 $sourceCommit='98fcb164bf880f70799c324c283c758c4d20bf82'
-$trialCommit='0e9e3348b4287cb71b8eebeccd2ce63504b904b2'
+$trialCommit='fa2432890eea9070459586017b51750401a6959f'
 Write-Host '=== RG SAM2.1 TINY 892 NATIVE SHADOW STRICT PREFLIGHT ==='
 foreach($f in @($productionPy,$selfTestPy,$gold,$hold)){
     if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw ('Missing prerequisite: '+$f)}
@@ -102,8 +102,9 @@ if(Test-Path -LiteralPath $site -PathType Container){
        }
     }
 }
-$probe='import sys,site; p=sys.prefix.lower(); assert "rg_sam2_native_shadow_v1" in p; assert not site.ENABLE_USER_SITE; assert not any("rg auto edit runtime/venv/lib/site-packages" in x.lower().replace(chr(92),"/") for x in sys.path); print("RG_SAM2_VENV_ISOLATION: PASS")'
-& $isoPy -I -c $probe
+# Windows PowerShell 5.1 rewrites quotes inside python -c arguments.
+# Always invoke a pinned Python .py file instead, with one action switch.
+& $isoPy -I -u $code --env-check
 if($LASTEXITCODE -ne 0){throw 'Independent Python environment isolation check failed'}
 & $isoPy -I -m pip --version
 if($LASTEXITCODE -ne 0){throw 'Isolated pip unavailable'}
@@ -142,7 +143,7 @@ if($LASTEXITCODE -ne 0){throw 'Native SAM2 source install failed; use WSL feasib
 & $isoPy -I -m pip check
 if($LASTEXITCODE -ne 0){throw 'Isolated dependency consistency FAIL; no GPU experiment'}
 # Native imports and CUDA compute only after all dependency checks pass.
-& $isoPy -I -c 'import torch, torchvision, sam2, cv2; assert torch.cuda.is_available(); print("RG_SAM2_NATIVE_IMPORT_CUDA_PASS",torch.__version__,torchvision.__version__,torch.cuda.get_device_name(0))'
+& $isoPy -I -u $code --cuda-check
 if($LASTEXITCODE -ne 0){throw 'Native Windows SAM2 CUDA import unsupported in this isolated environment'}
 if(!(Test-Path -LiteralPath $checkpoint -PathType Leaf)){
     Write-Host 'RG SAM2|DOWNLOAD_OFFICIAL_SAM2.1_TINY_CHECKPOINT'
