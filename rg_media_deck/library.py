@@ -134,9 +134,28 @@ def normalize_playback_rate(value) -> float:
     return min(SPEED_PRESETS, key=lambda speed: abs(speed - value))
 
 
+def valid_manual_crops(value) -> dict[str, list[float]]:
+    """Accept only valid normalized per-file crops from user settings."""
+    if not isinstance(value, dict):
+        return {}
+    accepted = {}
+    for key, rect in list(value.items())[:10000]:
+        if not isinstance(key, str) or not isinstance(rect, (list, tuple)) or len(rect) != 4:
+            continue
+        if any(type(x) not in (float, int) or not math.isfinite(x) for x in rect):
+            continue
+        left, top, right, bottom = [float(x) for x in rect]
+        if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+            continue
+        if right-left < 0.06 or bottom-top < 0.06:
+            continue
+        accepted[key] = [left, top, right, bottom]
+    return accepted
+
+
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'tags': {}, 'bookmarks': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}}
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
@@ -157,12 +176,13 @@ def load_settings(path: Path | None = None) -> dict:
             'auto_crop': data.get('auto_crop', True) is not False,
             'safe_selection': data.get('safe_selection', True) is not False,
             'file_fit_modes': {k: v for k, v in data.get('file_fit_modes', {}).items()
-                               if isinstance(k, str) and v in ('fit', 'fill', 'auto')}
+                               if isinstance(k, str) and v in ('fit', 'fill', 'auto', 'manual')}
                               if isinstance(data.get('file_fit_modes'), dict) else {},
             'tags': {k: clean_tags(v) for k, v in list(data.get('tags', {}).items())[:10000]
                      if isinstance(k, str)}
                     if isinstance(data.get('tags'), dict) else {},
             'bookmarks': clean_bookmarks(data.get('bookmarks', {})),
+            'file_manual_crops': valid_manual_crops(data.get('file_manual_crops', {})),
         }
     except (ValueError, OSError, UnicodeError):
         return defaults
