@@ -179,7 +179,7 @@ jobs:
           }
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: RG-YouTube-Control-Windows
           path: |
