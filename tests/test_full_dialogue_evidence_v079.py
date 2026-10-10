@@ -273,3 +273,27 @@ def test_preview_does_not_claim_full_video_analyzed_without_hash_proof():
     assert 'Цілісність транскрипту: ПІДТВЕРДЖЕНО' in preview
     assert 'НЕ ПІДТВЕРДЖЕНО' in preview
     assert 'Переглянуто ВСІ часові фрагменти' not in preview
+
+
+def test_unverified_timeline_block_gets_one_bounded_grounded_retry(tmp_path):
+    rows = _rows(9)
+    attempts = []
+    def chat(messages, **kwargs):
+        attempts.append(messages[-1]["content"])
+        if len(attempts) == 1:
+            return '{"topics":[]}'
+        return _fake_chat(messages, **kwargs)
+    report = analyze_all_timeline_blocks(
+        rows, model="test-retry", chat=chat,
+        cache_dir=tmp_path, max_chars=500,
+    )
+    assert report["source_integrity_verified"] is True
+    assert report["blocks_with_evidence"] == report["blocks_total"]
+    assert len(attempts) == report["blocks_total"] + 1
+    attempts.clear()
+    again = analyze_all_timeline_blocks(
+        rows, model="test-retry", chat=chat,
+        cache_dir=tmp_path, max_chars=500,
+    )
+    assert again["cache_hits"] == again["blocks_total"]
+    assert attempts == []
