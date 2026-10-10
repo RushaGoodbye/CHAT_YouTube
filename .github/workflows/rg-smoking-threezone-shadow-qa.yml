@@ -13,6 +13,7 @@ on:
       - 'rg_remote_control/open_source_v1/tests/test_smoke_region_892_8865_gate_v1.py'
       - 'rg_remote_control/open_source_v1/smoke_candidate_viability_gate_v1.py'
       - 'rg_remote_control/open_source_v1/tests/test_smoke_candidate_viability_gate_v1.py'
+      - 'rg_remote_control/open_source_v1/rg_automatic_smoking_release_policy_v1.py'
       - '.github/workflows/rg-smoking-threezone-shadow-qa.yml'
   workflow_dispatch:
 
@@ -42,5 +43,7 @@ jobs:
         run: python rg_remote_control/open_source_v1/smoke_candidate_viability_gate_v1.py --self-test
       - name: Regress missing and oversized smoke masks
         run: python -m unittest discover -s rg_remote_control/open_source_v1/tests -p 'test_smoke_candidate_viability_gate_v1.py' -v
+      - name: Validate automatic-only smoking gate
+        run: python rg_remote_control/open_source_v1/rg_automatic_smoking_release_policy_v1.py
       - name: Run synthetic regressions
         run: python -m unittest discover -s rg_remote_control/open_source_v1/tests -p 'test_smoking_threezone_*.py' -v
