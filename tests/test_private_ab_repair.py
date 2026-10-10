@@ -125,6 +125,9 @@ def test_missing_cached_blocks_prevents_title_model_call(tmp_path, monkeypatch):
 
 def test_invalid_model_titles_fallback_to_verified_timeline_topic(tmp_path, monkeypatch):
     qa, root, db, draft_path = _setup(tmp_path, monkeypatch)
+    current = json.loads(draft_path.read_text(encoding="utf-8"))
+    current["package"]["title_variants"] = GOOD[:2]
+    draft_path.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
     verified = {
         "source_integrity_verified": True,
         "blocks_total": 1, "blocks_with_evidence": 1,
