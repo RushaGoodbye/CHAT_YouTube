@@ -7,22 +7,24 @@ import sys
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QFont, QImageReader, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider,
+    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu,
     QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
 )
 
 import updater
+from send2trash import send2trash
+from video_fit import detect_letterbox, stable_crop, video_geometry
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.1.6'
+VERSION = '0.1.7'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -147,6 +149,107 @@ class AspectImage(QLabel):
             ))
 
 
+class FitVideoViewport(QWidget):
+    """Clipping parent for GPU-backed video; never distort the picture ratio.
+
+    Normal source videos use native KeepAspectRatio. A repeated strong black
+    matte detection zooms the *encoded* picture behind this viewport instead.
+    """
+    def __init__(self):
+        super().__init__()
+        self.setStyleSheet('background:#000;')
+        self.video = QVideoWidget(self)
+        self.video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+        self.source_size = (0, 0)
+        self.crop = None
+        self.auto_crop = True
+        self.forced_portrait = False
+        self._samples = []
+        self._frame_count = 0
+        self.video.setGeometry(self.rect())
+
+    def reset_crop(self):
+        self.crop = None
+        self._samples.clear()
+        self._frame_count = 0
+        self.source_size = (0,0)
+        self.video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+        self._place_video()
+
+    def set_auto_crop(self, enabled):
+        self.auto_crop = bool(enabled)
+        self.forced_portrait = False
+        self.reset_crop()
+
+    def set_forced_portrait(self, enabled: bool):
+        self.forced_portrait = bool(enabled)
+        self.reset_crop()
+        self._force_portrait_if_possible()
+
+    def _force_portrait_if_possible(self):
+        if not self.forced_portrait:
+            return
+        sw, sh = self.source_size
+        if sw > sh > 0:
+            active_width = sh * 9 / 16
+            x = (sw - active_width) / 2 / sw
+            from video_fit import Crop
+            self.crop = Crop(x, 0, 1-x, 1)
+            self.video.setAspectRatioMode(Qt.AspectRatioMode.IgnoreAspectRatio)
+            self._place_video()
+
+    def _place_video(self):
+        if self.crop is not None and (self.auto_crop or self.forced_portrait):
+            self.video.setGeometry(*video_geometry(
+                self.width(), self.height(), *self.source_size, self.crop
+            ))
+        else:
+            self.video.setGeometry(self.rect())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_video()
+
+    def observe_frame(self, frame):
+        if not frame.isValid():
+            return
+        size = frame.size()
+        if size.isValid():
+            self.source_size = (size.width(), size.height())
+        if self.forced_portrait:
+            self._force_portrait_if_possible()
+            return
+        if not self.auto_crop or self.crop is not None:
+            return
+        self._frame_count += 1
+        # Only inspect a few early non-black frames. Avoid decoding video frames
+        # into Python on every paint (all playback remains hardware-backed).
+        if self._frame_count not in (6, 14, 23, 35, 48, 64):
+            return
+        picture = frame.toImage()
+        if picture.isNull():
+            return
+        self.source_size = (picture.width(), picture.height())
+        if not all(self.source_size):
+            return
+        small = picture.scaled(192, 108, Qt.AspectRatioMode.IgnoreAspectRatio,
+                               Qt.TransformationMode.FastTransformation)
+        mask = []
+        for y in range(small.height()):
+            row = []
+            for x in range(small.width()):
+                c = small.pixelColor(x, y)
+                row.append(max(c.red(), c.green(), c.blue()) > 34)
+            mask.append(row)
+        self._samples.append(detect_letterbox(mask))
+        self._samples = self._samples[-3:]
+        detected = stable_crop(self._samples)
+        if detected is not None:
+            self.crop = detected
+            self.video.setAspectRatioMode(Qt.AspectRatioMode.IgnoreAspectRatio)
+            self._place_video()
+
+
 class ScanThread(QThread):
     scanned = Signal(object)
     counted = Signal(int)
@@ -212,6 +315,7 @@ class PlayerSurface(QWidget):
     errorOccurred = Signal(object, str)
     positionChanged = Signal(int)
     durationChanged = Signal(int)
+    playbackStateChanged = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -226,11 +330,12 @@ class PlayerSurface(QWidget):
         self.stack.setStyleSheet('background:black;')
         self.black = QLabel('')
         self.black.setStyleSheet('background:black;')
-        self.video = QVideoWidget()
-        self.video.setStyleSheet('background:black;')
+        self.video_view = FitVideoViewport()
+        self.video = self.video_view.video
+        self.video.videoSink().videoFrameChanged.connect(self.video_view.observe_frame)
         self.photo = AspectImage()
         self.stack.addWidget(self.black)
-        self.stack.addWidget(self.video)
+        self.stack.addWidget(self.video_view)
         self.stack.addWidget(self.photo)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
@@ -261,6 +366,9 @@ class PlayerSurface(QWidget):
         )
         player.durationChanged.connect(
             lambda duration, source=player: self._emit_current(source, self.durationChanged, duration)
+        )
+        player.playbackStateChanged.connect(
+            lambda state, source=player: self._emit_current(source, self.playbackStateChanged, state)
         )
 
     def _emit_current(self, source, signal, *args):
@@ -313,6 +421,8 @@ class PlayerSurface(QWidget):
         self.current = None
         self.stack.setCurrentWidget(self.black)
         self._restart_player()
+        self.video_view.forced_portrait = False
+        self.video_view.reset_crop()
         if item.kind == 'photo':
             if self.photo.set_file(item.path):
                 self.current = item
@@ -321,7 +431,7 @@ class PlayerSurface(QWidget):
             self.black_out()
             return False
         self.current = item
-        self.stack.setCurrentWidget(self.video)
+        self.stack.setCurrentWidget(self.video_view)
         self.player.setSource(QUrl.fromLocalFile(item.path))
         # Some multimedia backends reset speed when a new source is loaded.
         self.player.setPlaybackRate(self._playback_rate)
@@ -332,6 +442,7 @@ class PlayerSurface(QWidget):
         self.current = None
         self.stack.setCurrentWidget(self.black)
         self.photo.clear_image()
+        self.video_view.reset_crop()
         # Destroy even paused and buffered engines; no previous audio survives.
         self._restart_player()
 
@@ -557,6 +668,7 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.horizontalHeader().resizeSection(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -584,6 +696,8 @@ class MainWindow(QMainWindow):
         self.preview.set_volume(self.settings['volume'] / 100)
         self.preview.set_muted(self.settings['muted'])
         self.preview.set_playback_rate(self.settings['playback_rate'])
+        self.preview.video_view.set_auto_crop(self.settings['auto_crop'])
+        self.preview.video_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.preview.black.setText('Оберіть фото або відео з бібліотеки')
         self.preview.black.setStyleSheet('background:#000; color:#999aa0;')
         self.preview.setMinimumHeight(300)
@@ -599,7 +713,7 @@ class MainWindow(QMainWindow):
         timeline.addWidget(self.preview_time)
         rv.addLayout(timeline)
 
-        # Exactly one compact transport row: play/pause/stop, mute,
+        # Exactly one compact transport row: combined play/pause, stop, mute,
         # volume and speed. Reserve the remaining vertical space for OBS capture.
         self.control_row = QWidget()
         self.control_row.setObjectName('TransportRow')
@@ -607,13 +721,11 @@ class MainWindow(QMainWindow):
         transport = QHBoxLayout(self.control_row)
         transport.setContentsMargins(0, 0, 0, 0)
         transport.setSpacing(6)
-        self.preview_play = make_button('▶', self.play_selected, 'PlayButton')
-        self.preview_pause = make_button('Ⅱ', self.pause_playback, 'PauseButton')
+        self.preview_play = make_button('▶', self.toggle_preview, 'PlayButton')
         self.preview_stop = make_button('■', self.stop_playback, 'StopButton')
         for button, hint in (
-            (self.preview_play, 'Відтворити вибраний файл'),
-            (self.preview_pause, 'Пауза'),
-            (self.preview_stop, 'Зупинити відтворення'),
+            (self.preview_play, 'Відтворення / пауза (Пробіл)'),
+            (self.preview_stop, 'Зупинити відтворення (S)'),
         ):
             button.setFixedSize(52, 34)
             button.setToolTip(hint)
@@ -666,13 +778,17 @@ class MainWindow(QMainWindow):
         self.only_favorites.toggled.connect(self.apply_filter)
         self.table.selectionModel().currentRowChanged.connect(self.selection_changed)
         self.table.doubleClicked.connect(lambda _: self.play_selected())
+        self.table.customContextMenuRequested.connect(self.show_file_context_menu)
+        self.preview.video_view.customContextMenuRequested.connect(self.show_video_context_menu)
         self.preview.positionChanged.connect(self.preview_progress)
         self.preview.durationChanged.connect(self.preview_duration)
         self.preview_seek.sliderMoved.connect(self.preview.set_position)
         self.preview.errorOccurred.connect(self._preview_error)
         self.preview.mediaStatusChanged.connect(self._preview_media_status)
+        self.preview.playbackStateChanged.connect(self._update_play_button)
         self.volume.valueChanged.connect(self.volume_changed)
         self.speed_selector.currentIndexChanged.connect(self.speed_changed)
+        self._update_play_button()
 
     def _shortcuts(self):
         for sequence, callback in [
@@ -681,9 +797,64 @@ class MainWindow(QMainWindow):
             ('Escape', self.stop_playback),
             ('F5', self.scan),
             ('Ctrl+P', self.toggle_preview),
+            ('Ctrl+O', self.add_folder),
         ]:
             sc = QShortcut(QKeySequence(sequence), self)
             sc.activated.connect(callback)
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() != QEvent.Type.KeyPress or QApplication.activeModalWidget():
+            return super().eventFilter(watched, event)
+        focus = QApplication.focusWidget()
+        # Never hijack typing, combo popup selection or slider adjustments.
+        if isinstance(focus, (QLineEdit, QComboBox, QSlider, QPushButton)):
+            return super().eventFilter(watched, event)
+        key, mods = event.key(), event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        on_table = bool(focus is self.table or (focus and self.table.isAncestorOf(focus)))
+        if key == Qt.Key.Key_Space and not ctrl:
+            self.toggle_preview()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not ctrl:
+            self.play_selected()
+        elif key == Qt.Key.Key_M and not ctrl:
+            self.toggle_mute()
+        elif key == Qt.Key.Key_S and not ctrl:
+            self.stop_playback()
+        elif key == Qt.Key.Key_Delete and on_table:
+            item = self.model.item_at(self.table.currentIndex().row())
+            if item:
+                self.confirm_delete_file(item)
+            else:
+                return False
+        elif key == Qt.Key.Key_Z and not ctrl:
+            self.set_auto_crop(not self.preview.video_view.auto_crop)
+        elif key == Qt.Key.Key_V and not ctrl:
+            self.preview.video_view.set_forced_portrait(not self.preview.video_view.forced_portrait)
+        elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal) and not ctrl:
+            self.step_speed(1)
+        elif key == Qt.Key.Key_Minus and not ctrl:
+            self.step_speed(-1)
+        elif key == Qt.Key.Key_0 and not ctrl:
+            self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(1.0))
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and (ctrl or not on_table):
+            self.seek_relative((1 if key == Qt.Key.Key_Right else -1) * (30000 if shift else 5000))
+        elif key in (Qt.Key.Key_Up, Qt.Key.Key_Down) and not on_table:
+            self.volume.setValue(max(0,min(100,self.volume.value() + (5 if key == Qt.Key.Key_Up else -5))))
+        elif key == Qt.Key.Key_Home and not on_table:
+            self.preview.set_position(0)
+        elif key == Qt.Key.Key_End and not on_table and self.preview.player:
+            self.preview.set_position(max(0,self.preview.player.duration() - 800))
+        else:
+            return super().eventFilter(watched, event)
+        event.accept()
+        return True
+
+    def seek_relative(self, milliseconds: int):
+        if self.preview.current and self.preview.current.kind == 'video' and self.preview.player:
+            player = self.preview.player
+            player.setPosition(max(0,min(player.duration(),player.position() + milliseconds)))
 
     def _save(self):
         try:
@@ -693,6 +864,7 @@ class MainWindow(QMainWindow):
                 'volume': self.volume.value(),
                 'muted': self.mute_button.isChecked(),
                 'playback_rate': self.speed_selector.currentData(),
+                'auto_crop': self.preview.video_view.auto_crop,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -781,16 +953,101 @@ class MainWindow(QMainWindow):
         self.play_selected()
 
     def toggle_favorite(self):
-        if not self.selected:
-            return
-        normalized = normalize_path(self.selected.path)
+        if self.selected:
+            self.toggle_favorite_item(self.selected)
+
+    def toggle_favorite_item(self, item: MediaItem):
+        normalized = normalize_path(item.path)
         if normalized in self.favorites:
             self.favorites.remove(normalized)
         else:
             self.favorites.add(normalized)
         self._save()
         self.apply_filter()
-        self.star.setText('★ В обраному' if normalized in self.favorites else '☆ В обране')
+        if self.selected and self.selected.path == item.path:
+            self.star.setText('★ В обраному' if normalized in self.favorites else '☆ В обране')
+
+    def show_file_context_menu(self, pos):
+        index = self.table.indexAt(pos)
+        item = self.model.item_at(index.row()) if index.isValid() else None
+        if item is None:
+            return
+        menu = QMenu(self)
+        delete_action = menu.addAction('Видалити файл')
+        key = normalize_path(item.path)
+        favorite_action = menu.addAction('Прибрати з обраного' if key in self.favorites else 'Додати в обране')
+        reveal_action = menu.addAction('Показати розташування')
+        choice = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if choice == delete_action:
+            self.confirm_delete_file(item)
+        elif choice == favorite_action:
+            self.toggle_favorite_item(item)
+        elif choice == reveal_action:
+            self.reveal_file(item)
+
+    def reveal_file(self, item: MediaItem):
+        if os.name == 'nt':
+            subprocess.Popen(['explorer.exe', '/select,', os.path.normpath(item.path)],
+                             close_fds=True)
+        else:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(item.path).parent)))
+
+    def confirm_delete_file(self, item: MediaItem):
+        if QMessageBox.question(self, 'Видалити файл?',
+                f'Перемістити файл до кошика Windows?\n\n{item.name}\n\n'
+                'Файл буде вилучено також з вихідної папки.',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        # Windows will refuse moving a video while its decoder owns the file.
+        if self.preview.current and normalize_path(self.preview.current.path) == normalize_path(item.path):
+            self.stop_playback()
+        self.status.setText('Переміщення файлу до кошика...')
+        QTimer.singleShot(250, lambda: self._delete_file_from_disk(item))
+
+    def _delete_file_from_disk(self, item: MediaItem):
+        try:
+            send2trash(item.path)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Файл не видалено', str(exc))
+            self.status.setText('Не вдалося перемістити файл до кошика')
+            return
+        normalized = normalize_path(item.path)
+        self.favorites.discard(normalized)
+        self.all_media = [f for f in self.all_media if normalize_path(f.path) != normalized]
+        if self.selected and normalize_path(self.selected.path) == normalized:
+            self.selected = None
+            self.file_title.setText('Файл не обрано')
+            self.star.setText('☆ В обране')
+        self._save()
+        self.apply_filter()
+        self.status.setText(f'Файл переміщено до кошика: {display_media_name(item.name)}')
+
+    def show_video_context_menu(self, pos):
+        menu = QMenu(self)
+        mode = menu.addAction('Автоматично прибирати чорні поля (Z)')
+        mode.setCheckable(True)
+        mode.setChecked(self.preview.video_view.auto_crop)
+        portrait = menu.addAction('Вертикальний кадр 9:16 (V)')
+        portrait.setCheckable(True)
+        portrait.setChecked(self.preview.video_view.forced_portrait)
+        choice = menu.exec(self.preview.video_view.mapToGlobal(pos))
+        if choice == mode:
+            self.set_auto_crop(mode.isChecked())
+        elif choice == portrait:
+            self.preview.video_view.set_forced_portrait(portrait.isChecked())
+            self.status.setText('Вертикальне кадрування 9:16' if portrait.isChecked() else 'Стандартне кадрування')
+
+    def set_auto_crop(self, enabled: bool):
+        self.preview.video_view.set_auto_crop(enabled)
+        self._save()
+        self.status.setText('Автокадрування увімкнено' if enabled else 'Автокадрування вимкнено')
+
+    def _update_play_button(self, *_):
+        player = self.preview.player
+        playing = bool(player and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState)
+        self.preview_play.setText('Ⅱ' if playing else '▶')
+        self.preview_play.setToolTip('Пауза (Пробіл)' if playing else 'Відтворення (Пробіл)')
 
     def toggle_preview(self):
         player = self.preview.player
@@ -806,6 +1063,7 @@ class MainWindow(QMainWindow):
         if player is not None and self.preview.current and self.preview.current.kind == 'video':
             if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 player.pause()
+                self._update_play_button()
                 self.status.setText('Пауза')
 
     def preview_progress(self, position: int):
@@ -830,6 +1088,7 @@ class MainWindow(QMainWindow):
         if (self.preview.current is not None and self.preview.current.path == self.selected.path
                 and self.selected.kind == 'video' and self.preview.player is not None):
             self.preview.player.play()
+            self._update_play_button()
             self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
             return
         self.preview_seek.setValue(0)
@@ -838,6 +1097,7 @@ class MainWindow(QMainWindow):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
         self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
+        self._update_play_button()
 
     def stop_playback(self):
         self.preview.black_out()
@@ -845,6 +1105,7 @@ class MainWindow(QMainWindow):
         self.preview_seek.setValue(0)
         self.preview_time.setText('00:00 / 00:00')
         self.status.setText('Відтворення зупинено')
+        self._update_play_button()
 
     def _refresh_mute_button(self):
         muted = self.preview._muted
@@ -896,6 +1157,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         self._save()
+        QApplication.instance().removeEventFilter(self)
         self.preview.shutdown()
         event.accept()
 
@@ -925,10 +1187,9 @@ def main():
         if passed:
             main_window = MainWindow()
             passed = (main_window.preview_play.height() <= 36
-                and main_window.preview_pause.height() <= 36
                 and main_window.preview_stop.height() <= 36
+                and not hasattr(main_window, 'preview_pause')
                 and main_window.preview_play.parentWidget() is main_window.control_row
-                and main_window.preview_pause.parentWidget() is main_window.control_row
                 and main_window.preview_stop.parentWidget() is main_window.control_row
                 and main_window.mute_button.parentWidget() is main_window.control_row
                 and main_window.speed_selector.parentWidget() is main_window.control_row
@@ -936,7 +1197,11 @@ def main():
                 and main_window.mute_button.isCheckable()
                 and main_window.speed_selector.count() == len(SPEED_PRESETS)
                 and not hasattr(main_window, 'repeat')
-                and not hasattr(main_window, 'file_black_button'))
+                and not hasattr(main_window, 'file_black_button')
+                and main_window.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+                and main_window.preview.video_view.auto_crop
+                and main_window.preview.video_view.video.parentWidget() is main_window.preview.video_view
+                and main_window.preview.video_view.video.aspectRatioMode() == Qt.AspectRatioMode.KeepAspectRatio)
             main_window.preview.set_playback_rate(1.5)
             main_window.preview.set_muted(True)
             passed = passed and main_window.preview._playback_rate == 1.5

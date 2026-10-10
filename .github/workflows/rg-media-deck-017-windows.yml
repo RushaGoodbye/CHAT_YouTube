@@ -1,0 +1,73 @@
+name: RG Media Deck 0.1.7 Windows Installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [rg-media-deck-0-1-7]
+    paths:
+      - 'rg_media_deck/**'
+      - '.github/workflows/rg-media-deck-017-windows.yml'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: rg_media_deck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: rg_media_deck/requirements.txt
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller==6.16.0
+      - name: Run tests
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+      - name: Build frozen Windows application
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py
+          if (!(Test-Path dist/RG_Media_Deck/RG_Media_Deck.exe)) { throw 'Missing EXE' }
+      - name: GUI smoke test
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist/RG_Media_Deck/RG_Media_Deck.exe' -ArgumentList '--selftest' -PassThru -Wait -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "Selftest failed: $($process.ExitCode)" }
+      - name: Compile setup installer
+        shell: pwsh
+        run: |
+          $iscc = (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            $iscc = (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler missing' }
+          & $iscc installer/RG_Media_Deck.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC compilation failed' }
+          if (!(Test-Path dist_installer/RG_Media_Deck_Setup.exe)) { throw 'Installer missing' }
+          (Get-FileHash dist_installer/RG_Media_Deck_Setup.exe -Algorithm SHA256).Hash.ToLower() + '  RG_Media_Deck_Setup.exe' | Set-Content dist_installer/RG_Media_Deck_Setup.exe.sha256 -Encoding Ascii
+      - name: Upload installer build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG_Media_Deck_0.1.7_Setup
+          path: |
+            rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe
+            rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe.sha256
+          if-no-files-found: error
+      - name: Publish app-only tagged release
+        if: github.ref == 'refs/heads/rg-media-deck-0-1-7'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag='rg-media-deck-v0.1.7'
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists, refusing overwrite" }
+          gh release create $tag dist_installer/RG_Media_Deck_Setup.exe dist_installer/RG_Media_Deck_Setup.exe.sha256 --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.7' --notes 'Windows installer. Combined Play/Pause, keyboard shortcuts, safe context-menu deletion to Windows Recycle Bin, automatic letterbox fitting with 9:16 override. In-app updates preserved.'
