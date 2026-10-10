@@ -122,8 +122,10 @@ def fitted_frame_rect(view_width: int, view_height: int, source_width: int,
     sx, sy = source_width * crop.left, source_height * crop.top
     sw, sh = source_width * crop.width, source_height * crop.height
     scale = min(view_width / sw, view_height / sh)
-    dw, dh = sw * scale, sh * scale
-    tx, ty = (view_width - dw) / 2, (view_height - dh) / 2
+    # Floating point rounding must not place a painted pixel even slightly
+    # outside the fixed OBS capture rectangle.
+    dw, dh = min(float(view_width), sw * scale), min(float(view_height), sh * scale)
+    tx, ty = max(0.0, (view_width - dw) / 2), max(0.0, (view_height - dh) / 2)
     return (tx, ty, dw, dh), (sx, sy, sw, sh)
 
 
