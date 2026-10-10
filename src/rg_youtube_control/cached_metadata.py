@@ -143,7 +143,12 @@ def merge_verified_public_source_metadata(
     if not str(context.get("title") or "").strip():
         raise ValueError("No original video title")
     if not bool(cached.get("source_description_available")):
-        context["description"] = str(public.get("description") or "")
+        # Missing or empty public descriptions cannot demonstrate retention
+        # of existing links. Do not silently label them verified.
+        source_description = str(public.get("description") or "").strip()
+        if not source_description:
+            raise ValueError("Public metadata original description is empty")
+        context["description"] = source_description
         context["source_description_available"] = True
         context["source_description_verified"] = True
     if not context.get("tags"):
