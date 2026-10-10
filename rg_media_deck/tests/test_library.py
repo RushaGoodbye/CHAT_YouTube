@@ -49,4 +49,17 @@ class LibraryTests(unittest.TestCase):
             self.assertFalse(data['muted'])
             self.assertEqual(data['playback_rate'],1.0)
 
+    def test_safe_selection_defaults_and_fit_modes_migrate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'settings.json'
+            save_settings({'roots': [], 'favorites': []}, path)
+            settings = load_settings(path)
+            self.assertTrue(settings['safe_selection'])
+            self.assertEqual(settings['file_fit_modes'], {})
+            save_settings({'roots': [], 'favorites': [], 'safe_selection': False,
+                           'file_fit_modes': {'D:/clip.mp4': 'fill', 'invalid': 'broken'}}, path)
+            settings = load_settings(path)
+            self.assertFalse(settings['safe_selection'])
+            self.assertEqual(settings['file_fit_modes'], {'D:/clip.mp4': 'fill'})
+
 if __name__ == '__main__': unittest.main()
