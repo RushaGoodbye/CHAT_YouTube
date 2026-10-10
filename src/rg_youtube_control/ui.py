@@ -12828,6 +12828,7 @@ class MainWindow(QMainWindow):
                     with sqlite3.connect(
                         str(self.data_dir / "rg_youtube_control.db")
                     ) as quota_conn:
+                        quota_conn.row_factory = sqlite3.Row
                         budget = quota_budget_status(quota_conn)
                     if budget["exhausted"] or int(budget["spendable"]) < READ_REQUEST_COST:
                         raise RuntimeError("Немає вільної квоти понад резерв.")
@@ -12840,6 +12841,7 @@ class MainWindow(QMainWindow):
                         with sqlite3.connect(
                             str(self.data_dir / "rg_youtube_control.db")
                         ) as usage_conn:
+                            usage_conn.row_factory = sqlite3.Row
                             record_quota_units(
                                 usage_conn, owner_calls * READ_REQUEST_COST,
                                 purpose="video",
