@@ -11,6 +11,7 @@ on:
       - "scripts/rg_youtube_long_live_owner_source_preflight.py"
       - "scripts/rg_youtube_owner_caption_inventory_once.py"
       - "scripts/rg_youtube_owner_caption_download_once.py"
+      - "scripts/rg_youtube_staged_long_live_semantic_qa.py"
       - "src/rg_youtube_control/cached_metadata.py"
       - "src/rg_youtube_control/config.py"
       - "src/rg_youtube_control/dialogue_seo.py"
@@ -21,12 +22,12 @@ permissions:
 
 concurrency:
   group: rg-youtube-real-live-readonly-preflight
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   live-source-preflight:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 25
+    timeout-minutes: 120
     steps:
       - name: Check runner is AlexPC
         shell: powershell
@@ -196,6 +197,42 @@ jobs:
           Write-Host ("PRIVATE SOURCE STAGED: " + $r.local_private_source_staged)
           Write-Host ("OWNER QUOTA ACCOUNTED: " + $r.quota_units_accounted)
 
+      - name: ONE SHOT analyze every verified long LIVE block locally with Ollama
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-long-live-semantic' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B -u scripts/rg_youtube_staged_long_live_semantic_qa.py
+          if ($LASTEXITCODE -ne 0) { throw "Full long LIVE local semantic QA process failed" }
+
+      - name: Validate complete semantic QA exported only anonymous metrics
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-long-live-semantic' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_staged_long_live_semantic_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing long LIVE anonymous QA report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("STRUCTURE_PASS", "REVIEW_REQUIRED", "GPU_BUSY", "NOT_READY")) {
+            throw "Unknown long LIVE semantic result"
+          }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.source_text_exported -or
+              $r.video_ids_exported -or $r.draft_content_exported -or
+              $r.credentials_exported -or $r.caption_downloads -ne 0 -or
+              $r.youtube_data_api_calls -gt 1) {
+            throw "Private local semantic QA safety guarantee failed"
+          }
+          Write-Host ("REAL 3H+ SEO STATUS: " + $r.status)
+          Write-Host ("CAPTION ROWS VERIFIED: " + $r.source_caption_rows)
+          Write-Host ("ALL BLOCKS: " + $r.timeline_blocks)
+          Write-Host ("GROUNDED BLOCKS: " + $r.grounded_blocks)
+          Write-Host ("A/B TITLES: " + $r.ab_titles_count)
+          Write-Host ("SEO WARNINGS: " + $r.semantic_gate_warnings_count)
+          Write-Host ("PRIVATE SEO DRAFT SAVED: " + $r.private_draft_saved)
+          Write-Host ("ELAPSED SECONDS: " + $r.elapsed_seconds)
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -206,5 +243,6 @@ jobs:
             rg_youtube_long_live_owner_source_anonymous.json
             rg_youtube_owner_caption_inventory_anonymous.json
             rg_youtube_owner_caption_download_anonymous.json
+            rg_youtube_staged_long_live_semantic_anonymous.json
           if-no-files-found: ignore
           retention-days: 7
