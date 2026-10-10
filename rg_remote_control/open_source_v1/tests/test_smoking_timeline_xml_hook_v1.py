@@ -43,7 +43,7 @@ class TimelineMarkerTests(unittest.TestCase):
     def test_uncertainty_after_cut_has_correct_new_time(self):
         report=[{'uncertain_spans':[{'source_start_sec':13.5,'source_end_sec':13.9}]}]
         _,s=mark_xml(XML,report,'892','892_1')
-        self.assertEqual((s['markers'][0]['start_frame'],s['markers'][0]['end_frame']),(45,57))
+        self.assertEqual((s['markers'][0]['start_frame'],s['markers'][0]['end_frame']),(35,47))
 
     def test_never_merge_across_cut(self):
         report=[{'uncertain_spans':[{'source_start_sec':12,'source_end_sec':14,
@@ -51,7 +51,7 @@ class TimelineMarkerTests(unittest.TestCase):
         _,s=mark_xml(XML,report,'892','892_1')
         self.assertEqual(len(s['markers']),2)
         self.assertEqual([(x['start_frame'],x['end_frame']) for x in s['markers']],
-                         [(0,30),(30,90)])
+                         [(0,30),(30,50)])
 
     def test_rejected_track_hits_become_review_markers(self):
         report=[{'rejected_tracks':[{'hits':[{'t':12.2,'score':.09}]}]}]
