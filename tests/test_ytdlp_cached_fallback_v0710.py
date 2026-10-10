@@ -333,3 +333,14 @@ def test_public_source_merge_rejects_cross_video_and_missing_description():
         merge_verified_public_source_metadata(original, VIDEO, {
             "video_id": VIDEO, "title": "UNTRUSTED",
         })
+
+
+def test_public_metadata_empty_description_does_not_claim_source_verification():
+    from rg_youtube_control.cached_metadata import merge_verified_public_source_metadata
+    cached = {"title": "TRUSTED", "source_description_available": False}
+    for empty in ("", None, "  "):
+        with pytest.raises(ValueError, match="original description is empty"):
+            merge_verified_public_source_metadata(
+                cached, VIDEO, {"video_id": VIDEO, "description": empty}
+            )
+    assert cached["source_description_available"] is False
