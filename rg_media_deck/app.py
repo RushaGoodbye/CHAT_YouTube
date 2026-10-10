@@ -5,26 +5,29 @@ import logging
 import os
 import sys
 import subprocess
+from html import escape as html_escape
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
-    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget, QToolTip,
     QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
 )
 
 import updater
+from media_intelligence import add_bookmark, clean_tags
+from thumbnails import ThumbnailThread
 from file_operations import trash_file, rename_file, move_file
 from recycle_utils import normalize_recycle_path
 from video_fit import detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -258,6 +261,31 @@ class FitVideoViewport(QWidget):
         if detected is not None:
             self.crop = detected
             self.update()
+
+class MarkedSlider(QSlider):
+    """Timeline bookmarks rendered as non-interactive amber ticks."""
+    def __init__(self, orientation):
+        super().__init__(orientation)
+        self.markers = []
+        self.duration_ms = 0
+
+    def update_markers(self, markers, duration_ms: int):
+        self.markers = [int(mark['ms']) for mark in markers if isinstance(mark, dict) and
+                        isinstance(mark.get('ms'), int)]
+        self.duration_ms = max(0, int(duration_ms))
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.duration_ms <= 0:
+            return
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor('#e4b354'), 2))
+        width = max(1, self.width() - 14)
+        for ms in self.markers:
+            x = 7 + round(width * max(0, min(1, ms / self.duration_ms)))
+            painter.drawLine(x, 0, x, 7)
+        painter.end()
 
 
 class ScanThread(QThread):
