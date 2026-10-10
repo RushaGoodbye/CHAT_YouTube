@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/rg-youtube-real-live-readonly-preflight.yml"
       - "scripts/rg_youtube_real_live_seo_qa.py"
+      - "scripts/rg_youtube_long_live_public_source_preflight.py"
       - "src/rg_youtube_control/cached_metadata.py"
       - "src/rg_youtube_control/config.py"
       - "src/rg_youtube_control/dialogue_seo.py"
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   live-source-preflight:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - name: Check runner is AlexPC
         shell: powershell
@@ -70,10 +71,42 @@ jobs:
           Write-Host ("SOURCE TYPE: " + $r.selected_source_type)
           Write-Host ("NEXT ACTION: " + $r.reason)
 
+      - name: Inspect public source descriptions and captions for five long LIVE
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_long_live_public_source_preflight.py --max-videos 5
+          if ($LASTEXITCODE -ne 0) { throw "Public read-only source check could not complete" }
+
+      - name: Validate anonymous public-source diagnostic
+        shell: powershell
+        run: |
+          $p = "rg_youtube_long_live_public_source_anonymous.json"
+          if (-not (Test-Path $p)) { throw "No public-source diagnostic output" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("SOURCE_READY", "NOT_READY")) { throw "Unknown public-source status" }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.ollama_called -or
+              $r.source_text_exported -or $r.source_identifiers_exported -or
+              $r.generated_content_exported -or $r.private_metadata_saved -or
+              $r.youtube_data_api_calls -ne 0 -or $r.probed_count -gt 5) {
+            throw "Public probe safety validation failed"
+          }
+          Write-Host ("PUBLIC SOURCE: " + $r.status)
+          Write-Host ("LONG VIDEOS PROBED: " + $r.probed_count)
+          Write-Host ("ORIGINAL DESCRIPTIONS FOUND: " + $r.original_description_retrieved)
+          Write-Host ("CAPTION TRACKS FOUND: " + $r.captions_retrieved)
+          Write-Host ("COMPLETE CAPTION TRACKS: " + $r.full_span_caption_sources)
+          Write-Host ("FULLY READY CANDIDATES: " + $r.ready_source_candidates)
+          Write-Host ("YT-DLP ACCESS DENIED: " + $r.public_metadata_access_denied)
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: rg-youtube-live-readonly-preflight
-          path: rg_youtube_real_live_seo_anonymous_qa.json
+          path: |
+            rg_youtube_real_live_seo_anonymous_qa.json
+            rg_youtube_long_live_public_source_anonymous.json
           if-no-files-found: ignore
           retention-days: 7
