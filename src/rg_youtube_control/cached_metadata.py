@@ -161,3 +161,50 @@ def merge_verified_public_source_metadata(
     context["source"] = "sqlite-plus-public-source" if cached else "yt-dlp"
     context["youtube_data_api_quota"] = 0
     return context
+
+
+def recover_original_from_owner_api(
+    cached: dict[str, Any],
+    video_id: str,
+    *,
+    profile: str,
+    client_factory=None,
+) -> tuple[dict[str, Any], int]:
+    """Last-resort ONE-REQUEST owner-only source recovery after public failure.
+
+    No update, comment, caption-download or video mutation endpoints are used.
+    Callers must check quota budget BEFORE this call and record returned reads.
+    No authenticated metadata is written here; the accepted draft later
+    persists its source metadata in the normal audited draft workflow.
+    """
+    from .config import PROFILE_TARGETS
+    from .youtube_api import YouTubeClient
+
+    expected_channel = str(cached.get("channel_id") or PROFILE_TARGETS.get(profile) or "")
+    if not expected_channel:
+        raise ValueError("Cannot verify LIVE channel ownership")
+    factory = client_factory or YouTubeClient
+    client = factory(profile=profile)
+    client.credentials()  # Existing authorization only; NEVER open login UI.
+    items, request_count = client.video_details_with_request_count([video_id])
+    count = int(request_count)
+    if count != 1:
+        raise ValueError("Owner metadata lookup exceeded one request")
+    for item in items or []:
+        if str(item.get("id") or "") != video_id:
+            continue
+        snippet = dict(item.get("snippet") or {})
+        if str(snippet.get("channelId") or "") != expected_channel:
+            raise ValueError("Owner metadata channel does not match cached channel")
+        context = merge_verified_public_source_metadata(
+            cached, video_id, {
+                "video_id": video_id,
+                "title": snippet.get("title") or "",
+                "description": snippet.get("description"),
+                "tags": snippet.get("tags") or [],
+            },
+        )
+        context["source"] = "sqlite-plus-owner-readonly"
+        context["youtube_data_api_quota"] = count
+        return context, count
+    raise ValueError("Requested video not returned by owner read-only metadata")
