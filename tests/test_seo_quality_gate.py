@@ -199,3 +199,36 @@ def test_absent_transcript_fingerprint_blocks_ready():
         report.pop(key)
     issues = _complete_package(report)
     assert any("Цілісність транскрипту" in issue for issue in issues)
+
+
+def test_original_donation_urls_cannot_disappear_in_rewrite():
+    report = _complete_report()
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description="Цензура музики. Забороняють слухати пісні. Ціни на бензин.",
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+        original_description="Допомога: https://donate.rginfoua.pp.ua та https://links.rginfoua.pp.ua",
+    )
+    assert any("втратив посилання" in issue for issue in issues)
+
+
+def test_preserved_original_urls_do_not_trigger_retention_warning():
+    report = _complete_report()
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description=("Цензура музики. Забороняють слухати пісні. Ціни на бензин. "
+                     "https://donate.rginfoua.pp.ua https://links.rginfoua.pp.ua"),
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+        original_description="https://links.rginfoua.pp.ua https://donate.rginfoua.pp.ua",
+    )
+    assert not any("втратив посилання" in issue for issue in issues)
