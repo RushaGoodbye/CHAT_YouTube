@@ -470,6 +470,7 @@ def test_local_seo_owner_api_fallback_accounts_for_one_read_and_preserves_source
         result["context"]["source"] == "sqlite-plus-public-source"
     )
     with sqlite3.connect(tmp_path / "rg_youtube_control.db") as verify:
+        verify.row_factory = sqlite3.Row
         assert today_quota_units(verify) == before_units + 1
     assert any("1 одиниця API" in message for message in stages)
 
