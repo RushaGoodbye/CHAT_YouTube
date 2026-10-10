@@ -23,11 +23,13 @@ from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
 from file_operations import trash_file, rename_file, move_file
 from recycle_utils import normalize_recycle_path
-from video_fit import detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
+from video_fit import Crop, detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
+from content_region import detect_content_region
+from crop_selection import CropSelectionDialog
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.1'
+VERSION = '0.3.2'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -169,6 +171,7 @@ class FitVideoViewport(QWidget):
         self.crop = None
         self.auto_crop = True
         self.fit_mode = 'auto'
+        self.manual_crop = None
         self.forced_portrait = False
         self._samples = []
         self._frame_count = 0
@@ -187,12 +190,27 @@ class FitVideoViewport(QWidget):
         self.set_fit_mode('auto' if enabled else 'fit')
 
     def set_fit_mode(self, mode: str):
-        if mode not in ('fit', 'fill', 'auto'):
+        if mode not in ('fit', 'fill', 'auto', 'manual'):
             raise ValueError('Некоректний режим масштабу')
         self.fit_mode = mode
         self.auto_crop = mode == 'auto'
         self.forced_portrait = False
         self.reset_crop()
+        if mode == 'manual':
+            self.crop = self.manual_crop
+
+    def set_manual_crop(self, crop: Crop):
+        if not (0 <= crop.left < crop.right <= 1
+                and 0 <= crop.top < crop.bottom <= 1
+                and crop.width >= .06 and crop.height >= .06):
+            raise ValueError('Некоректний ручний кадр')
+        self.manual_crop = crop
+        self.fit_mode = 'manual'
+        self.auto_crop = False
+        self.forced_portrait = False
+        self.crop = crop
+        self._samples.clear()
+        self.update()
 
     def set_forced_portrait(self, enabled: bool):
         self.forced_portrait = bool(enabled)
@@ -217,7 +235,7 @@ class FitVideoViewport(QWidget):
         painter.fillRect(self.rect(), Qt.GlobalColor.black)
         if self._image is None or self._image.isNull():
             return
-        crop = (self.crop if self.forced_portrait or self.fit_mode == 'auto'
+        crop = (self.crop if self.forced_portrait or self.fit_mode in ('auto', 'manual')
                 else fill_frame_crop(self.width(), self.height(),
                                      self._image.width(), self._image.height())
                 if self.fit_mode == 'fill' else None)
@@ -249,13 +267,21 @@ class FitVideoViewport(QWidget):
         small = picture.scaled(192, 108, Qt.AspectRatioMode.IgnoreAspectRatio,
                                Qt.TransformationMode.FastTransformation)
         mask = []
+        colors = []
         for y in range(small.height()):
             row = []
+            rgb_row = []
             for x in range(small.width()):
                 c = small.pixelColor(x, y)
-                row.append(max(c.red(), c.green(), c.blue()) > 34)
+                rgb = (c.red(), c.green(), c.blue())
+                rgb_row.append(rgb)
+                row.append(max(rgb) > 34)
             mask.append(row)
-        self._samples.append(detect_letterbox(mask))
+            colors.append(rgb_row)
+        # The content-region detector handles title cards or colored captions
+        # outside a composited video. Letterbox detection remains a fallback.
+        inset = detect_content_region(colors)
+        self._samples.append(inset if inset is not None else detect_letterbox(mask))
         self._samples = self._samples[-3:]
         detected = stable_crop(self._samples)
         if detected is not None:
@@ -620,6 +646,7 @@ class MainWindow(QMainWindow):
         self.selected: MediaItem | None = None
         self.safe_selection = self.settings['safe_selection']
         self.file_fit_modes = dict(self.settings['file_fit_modes'])
+        self.file_manual_crops = dict(self.settings['file_manual_crops'])
         self.file_tags = dict(self.settings['tags'])
         self.bookmarks = dict(self.settings['bookmarks'])
         self._hover_item = None
@@ -978,6 +1005,7 @@ class MainWindow(QMainWindow):
                 'auto_crop': self.preview.video_view.fit_mode == 'auto',
                 'safe_selection': self.safe_selection,
                 'file_fit_modes': self.file_fit_modes,
+                'file_manual_crops': self.file_manual_crops,
                 'tags': self.file_tags,
                 'bookmarks': self.bookmarks,
             })
@@ -1159,6 +1187,7 @@ class MainWindow(QMainWindow):
         if removed:
             self.favorites.difference_update(removed)
             self.file_fit_modes = {key: value for key, value in self.file_fit_modes.items() if key not in removed}
+            self.file_manual_crops = {key: value for key, value in self.file_manual_crops.items() if key not in removed}
             self.file_tags = {key: value for key, value in self.file_tags.items() if key not in removed}
             self.bookmarks = {key: value for key, value in self.bookmarks.items() if key not in removed}
             self.all_media = [f for f in self.all_media if normalize_path(f.path) not in removed]
@@ -1194,6 +1223,8 @@ class MainWindow(QMainWindow):
             self.favorites.add(normalize_path(new_path))
         if old_key in self.file_fit_modes:
             self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+        if old_key in self.file_manual_crops:
+            self.file_manual_crops[normalize_path(new_path)] = self.file_manual_crops.pop(old_key)
         if old_key in self.file_tags:
             self.file_tags[normalize_path(new_path)] = self.file_tags.pop(old_key)
         if old_key in self.bookmarks:
@@ -1222,6 +1253,8 @@ class MainWindow(QMainWindow):
                 self.favorites.add(normalize_path(new_path))
             if old_key in self.file_fit_modes:
                 self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+            if old_key in self.file_manual_crops:
+                self.file_manual_crops[normalize_path(new_path)] = self.file_manual_crops.pop(old_key)
             if old_key in self.file_tags:
                 self.file_tags[normalize_path(new_path)] = self.file_tags.pop(old_key)
             if old_key in self.bookmarks:
@@ -1472,8 +1505,13 @@ class MainWindow(QMainWindow):
         self.preview_seek.setValue(0)
         self.preview_seek.setEnabled(self.selected.kind == 'video')
         if self.selected.kind == 'video':
-            saved = self.file_fit_modes.get(normalize_path(self.selected.path), 'auto')
-            self.preview.video_view.set_fit_mode(saved)
+            key = normalize_path(self.selected.path)
+            saved = self.file_fit_modes.get(key, 'auto')
+            coordinates = self.file_manual_crops.get(key)
+            if saved == 'manual' and coordinates:
+                self.preview.video_view.set_manual_crop(Crop(*coordinates))
+            else:
+                self.preview.video_view.set_fit_mode(saved if saved != 'manual' else 'auto')
         if not self.preview.play_item(self.selected):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
