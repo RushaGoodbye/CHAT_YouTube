@@ -26,6 +26,7 @@ on:
       - "tests/test_live_captions_preflight.py"
       - "tests/test_grounded_quote_retention.py"
       - "tests/test_real_live_seo_qa.py"
+      - "tests/test_ytdlp_cached_fallback_v0710.py"
       - "scripts/rg_youtube_real_live_seo_qa.py"
       - "scripts/rg_youtube_live_captions_preflight.py"
       - "scripts/rg_youtube_real_seo_local_qa.py"
@@ -82,6 +83,7 @@ jobs:
             tests/test_live_captions_preflight.py \
             tests/test_grounded_quote_retention.py \
             tests/test_real_live_seo_qa.py \
+            tests/test_ytdlp_cached_fallback_v0710.py \
             --junitxml=qa-results/seo-safety-tests.xml
       - name: Verify autonomous repair agent in no-write mode
         env:
