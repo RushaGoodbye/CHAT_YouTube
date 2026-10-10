@@ -10,6 +10,7 @@ on:
       - "scripts/rg_youtube_long_live_public_source_preflight.py"
       - "scripts/rg_youtube_long_live_owner_source_preflight.py"
       - "scripts/rg_youtube_owner_caption_inventory_once.py"
+      - "scripts/rg_youtube_owner_caption_download_once.py"
       - "src/rg_youtube_control/cached_metadata.py"
       - "src/rg_youtube_control/config.py"
       - "src/rg_youtube_control/dialogue_seo.py"
@@ -166,6 +167,35 @@ jobs:
           Write-Host ("ASR TRACKS: " + $r.asr_tracks)
           Write-Host ("QUOTA USED: " + $r.quota_units_accounted)
 
+      - name: ONE SHOT stage complete owner ASR privately on F drive
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-srt-stage' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_owner_caption_download_once.py
+          if ($LASTEXITCODE -ne 0) { throw "Owner ASR staging script failed" }
+
+      - name: Validate SRT stage did not export source or modify YouTube
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-srt-stage' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_owner_caption_download_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing stage safety report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.youtube_modified -or $r.nas_modified -or $r.video_ids_exported -or
+              $r.source_text_exported -or $r.caption_text_exported -or
+              $r.credentials_exported -or $r.ollama_called -or
+              $r.api_requests_sent -gt 2 -or $r.quota_units_accounted -gt 250) {
+            throw "Private owner SRT source safety check failed"
+          }
+          Write-Host ("OWNER SRT STATUS: " + $r.status)
+          Write-Host ("CAPTION ROWS: " + $r.caption_rows)
+          Write-Host ("FULL LONG SPAN: " + $r.full_span_coverage)
+          Write-Host ("PRIVATE SOURCE STAGED: " + $r.local_private_source_staged)
+          Write-Host ("OWNER QUOTA ACCOUNTED: " + $r.quota_units_accounted)
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -175,5 +205,6 @@ jobs:
             rg_youtube_long_live_public_source_anonymous.json
             rg_youtube_long_live_owner_source_anonymous.json
             rg_youtube_owner_caption_inventory_anonymous.json
+            rg_youtube_owner_caption_download_anonymous.json
           if-no-files-found: ignore
           retention-days: 7
