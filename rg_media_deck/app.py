@@ -12,19 +12,19 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySeq
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu,
+    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
     QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
 )
 
 import updater
-from send2trash import send2trash
+from file_operations import trash_file, rename_file, move_file
 from recycle_utils import normalize_recycle_path
-from video_fit import detect_letterbox, stable_crop, fitted_frame_rect
+from video_fit import detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.1.9'
+VERSION = '0.2.0'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -165,6 +165,7 @@ class FitVideoViewport(QWidget):
         self.source_size = (0, 0)
         self.crop = None
         self.auto_crop = True
+        self.fit_mode = 'auto'
         self.forced_portrait = False
         self._samples = []
         self._frame_count = 0
@@ -180,7 +181,13 @@ class FitVideoViewport(QWidget):
         self.update()
 
     def set_auto_crop(self, enabled):
-        self.auto_crop = bool(enabled)
+        self.set_fit_mode('auto' if enabled else 'fit')
+
+    def set_fit_mode(self, mode: str):
+        if mode not in ('fit', 'fill', 'auto'):
+            raise ValueError('Некоректний режим масштабу')
+        self.fit_mode = mode
+        self.auto_crop = mode == 'auto'
         self.forced_portrait = False
         self.reset_crop()
 
@@ -207,7 +214,10 @@ class FitVideoViewport(QWidget):
         painter.fillRect(self.rect(), Qt.GlobalColor.black)
         if self._image is None or self._image.isNull():
             return
-        crop = self.crop if (self.auto_crop or self.forced_portrait) else None
+        crop = (self.crop if self.forced_portrait or self.fit_mode == 'auto'
+                else fill_frame_crop(self.width(), self.height(),
+                                     self._image.width(), self._image.height())
+                if self.fit_mode == 'fill' else None)
         target, source = fitted_frame_rect(self.width(), self.height(),
                                            self._image.width(), self._image.height(), crop)
         from PySide6.QtCore import QRectF
@@ -580,6 +590,8 @@ class MainWindow(QMainWindow):
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
         self.all_media: list[MediaItem] = []
         self.selected: MediaItem | None = None
+        self.safe_selection = self.settings['safe_selection']
+        self.file_fit_modes = dict(self.settings['file_fit_modes'])
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
@@ -673,7 +685,7 @@ class MainWindow(QMainWindow):
         self.table.setModel(self.model)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setDefaultSectionSize(32)
@@ -713,7 +725,7 @@ class MainWindow(QMainWindow):
         self.preview.set_volume(self.settings['volume'] / 100)
         self.preview.set_muted(self.settings['muted'])
         self.preview.set_playback_rate(self.settings['playback_rate'])
-        self.preview.video_view.set_auto_crop(self.settings['auto_crop'])
+        self.preview.video_view.set_fit_mode('auto' if self.settings['auto_crop'] else 'fit')
         self.preview.video_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.preview.black.setText('Оберіть фото або відео з бібліотеки')
         self.preview.black.setStyleSheet('background:#000; color:#999aa0;')
@@ -881,7 +893,9 @@ class MainWindow(QMainWindow):
                 'volume': self.volume.value(),
                 'muted': self.mute_button.isChecked(),
                 'playback_rate': self.speed_selector.currentData(),
-                'auto_crop': self.preview.video_view.auto_crop,
+                'auto_crop': self.preview.video_view.fit_mode == 'auto',
+                'safe_selection': self.safe_selection,
+                'file_fit_modes': self.file_fit_modes,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -962,10 +976,11 @@ class MainWindow(QMainWindow):
         if not item:
             return
         self.selected = item
-        self.file_title.setText(display_media_name(item.name))
-        self.file_title.setToolTip(item.path)
         self.star.setText('★ В обраному' if normalize_path(item.path) in self.favorites else '☆ В обране')
-        self.play_selected()
+        live = display_media_name(self.preview.current.name) if self.preview.current else 'порожньо'
+        self.status.setText(f'Обрано: {display_media_name(item.name)} | В ефірі: {live}. Enter / подвійний клік: показати')
+        if not self.safe_selection:
+            self.play_selected()
 
     def toggle_favorite(self):
         if self.selected:
@@ -1079,13 +1094,18 @@ class MainWindow(QMainWindow):
         self.preview_play.setToolTip('Пауза (Пробіл)' if playing else 'Відтворення (Пробіл)')
 
     def toggle_preview(self):
+        # Play/Pause never changes to a newly selected file during the show.
         player = self.preview.player
-        if player is None or self.preview.current is None or self.preview.current.kind == 'photo':
+        if self.preview.current is None:
+            self.play_selected()
+            return
+        if player is None or self.preview.current.kind == 'photo':
             return
         if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.pause_playback()
         else:
-            self.play_selected()
+            player.play()
+            self._update_play_button()
 
     def pause_playback(self):
         player = self.preview.player
@@ -1122,9 +1142,14 @@ class MainWindow(QMainWindow):
             return
         self.preview_seek.setValue(0)
         self.preview_seek.setEnabled(self.selected.kind == 'video')
+        if self.selected.kind == 'video':
+            saved = self.file_fit_modes.get(normalize_path(self.selected.path), 'auto')
+            self.preview.video_view.set_fit_mode(saved)
         if not self.preview.play_item(self.selected):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        self.file_title.setText(display_media_name(self.selected.name))
+        self.file_title.setToolTip(self.selected.path)
         self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
         self._update_play_button()
 
@@ -1134,6 +1159,7 @@ class MainWindow(QMainWindow):
         self.preview_seek.setValue(0)
         self.preview_time.setText('00:00 / 00:00')
         self.status.setText('Відтворення зупинено')
+        self.file_title.setText('Нічого не відтворюється')
         self._update_play_button()
 
     def _refresh_mute_button(self):
@@ -1228,6 +1254,9 @@ def main():
                 and not hasattr(main_window, 'repeat')
                 and not hasattr(main_window, 'file_black_button')
                 and main_window.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+                and main_window.table.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+                and main_window.safe_selection
+                and hasattr(main_window, 'file_fit_modes')
                 and main_window.preview.video_view.auto_crop
                 and main_window.preview.video_sink is not None
                 and not hasattr(main_window.preview.video_view, 'video')
