@@ -1,0 +1,64 @@
+{
+  "schema": "RG_892_SMOKE_CANDIDATE_METHOD_COMPARE_20261010_V1",
+  "status": "ALL_4_METHODS_REJECTED_FOR_PRODUCTION",
+  "source": "RG_892_FOURZONE_V3B_QA.zip left-hand half of compressed QA video",
+  "source_sha256": "cc68145671d04eb8264b5bbdb1da7a363ef30f76dcde353a181d843ff2f1dcb2",
+  "frames": 60,
+  "coarse_smoke_review_regions": 7,
+  "results": [
+    {
+      "method": "V3B existing",
+      "regions_nonempty": 3,
+      "regions_empty": 4,
+      "mean_mask_pixels": 830.1,
+      "control_fraction": 0
+    },
+    {
+      "method": "brightness late reference",
+      "regions_nonempty": 7,
+      "regions_empty": 0,
+      "mean_mask_pixels": 80300.5,
+      "control_fraction": 0.49597
+    },
+    {
+      "method": "brightness plus desaturation late reference",
+      "regions_nonempty": 7,
+      "regions_empty": 0,
+      "mean_mask_pixels": 99235.8,
+      "control_fraction": 0.59023
+    },
+    {
+      "method": "brightness 20th percentile",
+      "regions_nonempty": 7,
+      "regions_empty": 0,
+      "mean_mask_pixels": 83601.8,
+      "control_fraction": 0.01659
+    }
+  ],
+  "source_qc": "Compressed diagnostic preview; overlap in smoke ROIs does not establish pixel precision or recall; control regions are coarse.",
+  "release_gate": "rg_remote_control/open_source_v1/smoke_candidate_viability_gate_v1.py",
+  "found_repositories": [
+    {
+      "repository": "rekon/Smoke-semantic-segmentation",
+      "comment": "Keras legacy U-Net HDF5 smoke weights exist; Windows runtime/license and cigarette-smoke transfer unverified."
+    },
+    {
+      "repository": "fl0wxr/SmokeSegmenter",
+      "comment": "Smoke model fine-tuning tools; claimed test mIoU is not evidence on cigarette smoke in face. Deployed finetuned checkpoint access unverified."
+    },
+    {
+      "repository": "linhaoqi027/smoke-segmentation",
+      "comment": "Older DSS PyTorch, separate external model weights. Windows compatibility and terms not vetted."
+    }
+  ],
+  "full_8865_negative_video_checked": false,
+  "smoke_semantic_mask_verified": false,
+  "smoke_pixel_gt_available": false,
+  "studio_modified": false,
+  "source_video_modified": false,
+  "source_audio_modified": false,
+  "premiere_xml_modified": false,
+  "quarantine_886_5_unchanged": true,
+  "production_release_allowed": false,
+  "next": "Trial a real pretrained smoke segmenter only in isolated shadow, compare pixel-labeled 892 smoke and complete 8865 negative before production."
+}
