@@ -43,26 +43,26 @@ def grounded_description(old: str, original: str, report: dict) -> str:
                 topics.append(topic)
     if not topics:
         return ""
-    # First prefer keeping the complete generated description.
-    revised, omitted = preserve_outline_topics(old, report)
-    revised, _ = preserve_one_grounded_quote(revised, report)
+    # YouTube limits descriptions to 5000 Unicode characters, NOT UTF-8 bytes.\n    # First prefer keeping the complete generated description.
+    revised, omitted = preserve_outline_topics(old, report, max_body_bytes=20000)
+    revised, _ = preserve_one_grounded_quote(revised, report, max_body_bytes=20000)
     urls = list(dict.fromkeys(url.rstrip(".,;!)") for url in URLS.findall(original)))
     missing = [url for url in urls if url not in revised]
     if missing:
         revised += "\n\n" + "\n".join(missing)
-    if not omitted and len(revised) <= 5000 and len(revised.encode("utf-8")) <= 3900:
+    if not omitted and len(revised) <= 5000:
         return revised
     # Fallback is an editorial outline, *not* a claim that 47 topics are one
     # story. Original description and all facts remain separately in the draft.
     intro = "У цьому випуску РАША ГУДБАЙ співрозмовники обговорюють такі теми:"
     result = intro + "\n" + "\n".join("• " + topic for topic in topics)
-    result, quote_added = preserve_one_grounded_quote(result, report)
+    result, quote_added = preserve_one_grounded_quote(result, report, max_body_bytes=20000)
     if not quote_added:
         # An existing exact quote may be present, which the quality gate checks.
         pass
     if urls:
         result += "\n\nПосилання з оригінального опису:\n" + "\n".join(urls)
-    return result if len(result) <= 5000 and len(result.encode("utf-8")) <= 3900 else ""
+    return result if len(result) <= 5000 else ""
 
 
 def run(*, root: Path | None = None, db_path: Path | None = None) -> dict:
