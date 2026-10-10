@@ -54,6 +54,7 @@ def main():
         APP/"run_manifests"/"904"/"STUDIO_STATE.json",
         APP/"run_manifests"/"904"/"RUN_STATE.json",
         APP/"run_manifests"/"904"/"RG_STUDIO_RUN_STATE.json",
+        LOCAL/"RG_AUTO_EDIT"/"run_state"/"904"/"RUN_STATE.json",
         LOCAL/"RG_AUTO_EDIT"/"904"/"state.json",
         LOCAL/"RG_AUTO_EDIT"/"studio_run_state"/"904.json",
         LOCAL/"RG_Auto_Edit"/"904"/"state.json",
