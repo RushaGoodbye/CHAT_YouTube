@@ -4,12 +4,13 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_oss_sync.py",
-      "rg_piecewise_sync.py",
-      "rg_auto_edit_one_button.py",
-      "rg_studio_version.py",
-      "rg_audalign_epoch_904_r1.py"
+      "rg_audalign_epoch_guard_v1.py",
+      "RG_EDITED_904_5_audio_source_audit.json",
+      "RG_EDITED_904_MULTI_DIALOGUE.json",
+      "904/RG_EDITED_904_1.xml",
+      "904/RG_EDITED_904_2.xml",
+      "904/RG_EDITED_904_4.xml"
     ]
   },
-  "nonce": "904-audalign-epoch-r1-post-install-verify-readonly-20261010"
+  "nonce": "904-epoch-R1-correct-helper-and-904-checkpoints-readonly-20261010"
 }
