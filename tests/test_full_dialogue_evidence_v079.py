@@ -212,3 +212,22 @@ def test_final_generator_prompt_no_longer_starts_only_with_first_12k():
     assert "ab_title_issues(" in block
     assert "evidence_report: dict[str, Any] | None = None" in block
     assert 'or bool(evidence_report)' in block
+
+
+def test_family_psychology_regression_rejects_shared_keyword_camouflage():
+    report = {"blocks": [{"start_stamp": "00:00:00", "topics": [{
+        "topic": "Путін і влада", "summary_uk": "Обговорення Путіна та війни",
+        "evidence": "Путин отвечает на вопросы о войне",
+    }]}]}
+    titles = [
+        "Путин и семейная психология: шокирующее интервью",
+        "Путин отвечает о войне: новые вопросы россиянам",
+        "Война и Путин: что ответили участники разговора",
+    ]
+    assert any("сімейної психології" in issue for issue in ab_title_issues(titles, report))
+    supported = {"blocks": [{"start_stamp": "00:00:00", "topics": [{
+        "topic": "Семейная психология",
+        "summary_uk": "У розмові детально обговорюють сімейну психологію",
+        "evidence": "семейная психология важна для разговора",
+    }]}]}
+    assert not any("сімейної психології" in issue for issue in ab_title_issues(titles, supported))
