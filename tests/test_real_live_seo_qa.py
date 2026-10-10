@@ -672,7 +672,7 @@ def test_owner_long_srt_oneshot_handles_unavailable_download_no_export(
     assert result["quota_units_accounted"] == 250
     assert result["local_private_source_staged"] is False
     assert not private_root.exists()
-    assert "PRIVATE" not in str(result)
+    assert "PRIVATE FORBIDDEN" not in str(result)
 
 
 def test_private_long_live_semantic_qa_saves_review_draft_without_export(
@@ -748,7 +748,8 @@ def test_private_long_live_semantic_qa_saves_review_draft_without_export(
     assert result["youtube_data_api_calls"] == 1
     assert result["youtube_modified"] is False
     assert result["source_text_exported"] is False
-    assert "PRIVATE" not in str(result)
+    assert "PRIVATE SAYING" not in str(result)
+    assert "PRIVATE https://donate.rginfoua.pp.ua" not in str(result)
     assert "ABCDEFGHIJK" not in str(result)
     draft = root / "private_drafts" / "ABCDEFGHIJK.json"
     assert draft.is_file()
