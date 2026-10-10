@@ -68,6 +68,28 @@ def main():
               "def _start_postrun_qa", "def _refresh_resume_state", "def resume_incomplete_run", "def _on_finished"]:
         locs=[i for i,row in enumerate(uirows) if q in row]
         specific[q]=[around(uirows,i,4,32) for i in locs[:4]]
+
+    state_imports=[]
+    try:
+        tree=ast.parse(text(APP/"rg_studio_ui.py"))
+        for node in ast.walk(tree):
+            if isinstance(node,ast.ImportFrom):
+                if any(x.name in ("load_state","recovery_plan","update_state") for x in node.names):
+                    state_imports.append({"module":node.module,"symbols":[x.name for x in node.names]})
+    except Exception as e:state_imports=[{"error":str(e)}]
+    state_inspection={}
+    for x in state_imports:
+        module=x.get("module")
+        if module:
+            path=APP/(module.replace(".","/")+".py")
+            code=text(path)
+            state_inspection[module]={"path":str(path),"has_file":path.is_file(),
+                 "headers":code.splitlines()[:25],
+                 "hits":[around(code.splitlines(),i,3,18)
+                         for i,line in enumerate(code.splitlines())
+                         if "def load_state" in line or "def recovery_plan" in line or "STATE" in line][:22]}
+    specific["def _start_stream_full"]=[around(uirows,i,4,105) for i,row in enumerate(uirows) if "def _start_stream(self,stream):" in row]
+    specific["def _start_service_process"]=[around(uirows,i,4,54) for i,row in enumerate(uirows) if "def _start_service_process" in row]
     print("RG_904_RESUME_BUTTON_READONLY_DIAG")
-    print(json.dumps({"schema":"RG_904_RESUME_BUTTON_READONLY_V1","studio_version":text(APP/"rg_studio_version.py").splitlines()[:2],"ui":u,"multi":m,"state_module":st,"manifest":meta,"log_tail":tail,"processes":procs,"ui_specific":specific,"state_file_candidates":resume_state_files,"mutated":False},ensure_ascii=False,indent=2))
+    print(json.dumps({"schema":"RG_904_RESUME_BUTTON_READONLY_V1","studio_version":text(APP/"rg_studio_version.py").splitlines()[:2],"ui":u,"multi":m,"state_module":st,"manifest":meta,"log_tail":tail,"processes":procs,"ui_specific":specific,"state_file_candidates":resume_state_files,"state_imports":state_imports,"state_inspection":state_inspection,"mutated":False},ensure_ascii=False,indent=2))
 if __name__=="__main__":main()
