@@ -127,3 +127,33 @@ def test_ui_enforces_guard_before_any_videos_update():
     editor = ast.get_source_segment(source, method("edit_content_package"))
     assert "if status == \"ready\" and self._draft_ready_blockers(draft)" in editor
     assert "status = \"draft\"" in editor
+
+
+def test_main_archive_legacy_ready_is_shown_as_needs_review():
+    from rg_youtube_control.ui import MainWindow
+    from rg_youtube_control.seo_review_acceptance import SOURCE_GENERATION
+    legacy = {
+        "draft_status": "ready",
+        "draft_generation": "legacy",
+        "draft_quality_state": "safe",
+        "scheduled_publish_at": None,
+    }
+    assert MainWindow._queue_effective_draft_status(legacy) == "draft"
+    old_zero_quota = dict(legacy, draft_generation="safe-metadata-0.7.6")
+    assert MainWindow._queue_effective_draft_status(old_zero_quota) == "draft"
+    verified = dict(legacy, draft_generation=SOURCE_GENERATION)
+    assert MainWindow._queue_effective_draft_status(verified) == "ready"
+    unverified = dict(verified, draft_quality_state="needs_review")
+    assert MainWindow._queue_effective_draft_status(unverified) == "draft"
+
+
+def test_ready_filter_uses_effective_not_raw_sqlite_status():
+    source = (Path(__file__).resolve().parents[1]
+              / "src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    method = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "reload_optimization_queue")
+    body = ast.get_source_segment(source, method)
+    assert "draft_key_for_search = self._queue_effective_draft_status(row)" in body
+    assert "draft_key = self._queue_effective_draft_status(row)" in body
