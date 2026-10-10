@@ -1,0 +1,58 @@
+{
+  "schema": "RG_892_V3B_SMOKE_REGRESSION_EVIDENCE_20261010_V1",
+  "date": "2026-10-10",
+  "contour": "auto_edit",
+  "status": "REAL_892_SMOKE_OMISSIONS_CONFIRMED_RELEASE_BLOCKED",
+  "source_archive": "RG_892_FOURZONE_V3B_QA.zip",
+  "source_archive_sha256": "cc68145671d04eb8264b5bbdb1da7a363ef30f76dcde353a181d843ff2f1dcb2",
+  "source_kind": "left side of compressed V3B QA preview; not original source video",
+  "source_frames_checked": [
+    360,
+    370,
+    380,
+    390
+  ],
+  "manual_coarse_visible_smoke_regions": 7,
+  "smoke_candidate_empty_regions": 4,
+  "omissions": [
+    {
+      "frame": 360,
+      "region": "plume_left"
+    },
+    {
+      "frame": 360,
+      "region": "exhale_face"
+    },
+    {
+      "frame": 370,
+      "region": "exhale_face"
+    },
+    {
+      "frame": 380,
+      "region": "exhale_face"
+    }
+  ],
+  "evidence_interpretation": "Zero predicted smoke pixels in a visually marked smoke region proves a miss. Nonzero candidate pixels do not prove correct smoke segmentation or full pixel coverage.",
+  "pixel_smoke_precision_verified": false,
+  "pixel_smoke_recall_verified": false,
+  "negative_8865": {
+    "known_mic_shirt_pattern_in_101_sparse_real_frames": true,
+    "full_negative_video_model_test_passed": false,
+    "stream_wide_negative_exemption_allowed": false,
+    "quarantine_required": true
+  },
+  "review_qa_script": "rg_remote_control/open_source_v1/smoke_region_892_8865_release_gate_v1.py",
+  "ci_url": "https://github.com/RushaGoodbye/CHAT_YouTube/actions/runs/38044502575",
+  "ci_conclusion": "success",
+  "prod_studio_modified": false,
+  "original_video_modified": false,
+  "original_audio_modified": false,
+  "premiere_xml_modified": false,
+  "automatic_blur_allowed": false,
+  "production_release_allowed": false,
+  "next_requirements": [
+    "Detect and label transparent smoke on actual 892 video including face overlap without blanket face masking",
+    "Test real detector on dense negative 886_5 video, not merely sparse frames",
+    "Pixel-level verified hand/fingers and lip contact coverage with full-scene temporal QA"
+  ]
+}
