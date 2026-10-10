@@ -232,6 +232,8 @@ def run(
                 max_chars=5000, max_span_seconds=300, timeout=120,
             )
             out.update(anonymous_metrics(evidence))
+            out["verified_cache_hits"] = int(evidence.get("cache_hits") or 0)
+            out["remaining_unverified_blocks"] = len(evidence.get("unverified_blocks") or [])
             if (
                 evidence.get("source_integrity_verified") is not True
                 or int(evidence.get("blocks_analyzed") or 0) != total
