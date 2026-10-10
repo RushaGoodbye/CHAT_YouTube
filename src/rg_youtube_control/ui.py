@@ -3646,7 +3646,7 @@ class MainWindow(QMainWindow):
                 "Старий статус ГОТОВО не підтверджено. "
                 "Потрібна змістовна перевірка відео, опису і тегів."
             )
-            self.context_primary_btn.setText("Перевірити пакет")
+            self.context_primary_btn.setText("Аналізувати діалоги · 0 квоти")
             if hasattr(self, "context_discard_btn"):
                 self.context_discard_btn.setVisible(False)
         elif draft == "ready":
@@ -4298,7 +4298,9 @@ class MainWindow(QMainWindow):
         status = str(draft["status"] or "") if draft is not None else ""
         if status == "ready":
             if self._draft_ready_blockers(draft):
-                self.edit_content_package()
+                # Rebuild legacy template from real transcript instead of
+                # asking the user to hand-edit fabricated SEO copy.
+                self.local_seo_selected()
             else:
                 self.apply_content_package()
         elif status == "applied":
