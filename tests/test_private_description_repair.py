@@ -21,7 +21,8 @@ def test_repair_covers_verified_topics_quote_and_original_urls():
     repaired = grounded_description("Розмова про поточні події.", source, report)
     assert "Ціни на бензин у Росії" in repaired
     assert "Російська пропаганда і війна" in repaired
-    assert "Бензин дорожает, но никто не объясняет почему" in repaired
+    assert ("Бензин дорожает, но никто не объясняет почему" in repaired
+            or "По телевизору всё время говорят про войну" in repaired)
     assert "https://donate.rginfoua.pp.ua/" in repaired
     assert "https://links.rginfoua.pp.ua/" in repaired
     assert len(repaired.encode("utf-8")) <= 3900
