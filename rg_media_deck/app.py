@@ -9,7 +9,7 @@ from html import escape as html_escape
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen, QCursor
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
@@ -1081,6 +1081,7 @@ class MainWindow(QMainWindow):
         favorite_action = menu.addAction('Додати в обране')
         rename_action = menu.addAction('Перейменувати файл...')
         move_action = menu.addAction('Перемістити до папки...')
+        tags_action = menu.addAction('Теги для пошуку...')
         reveal_action = menu.addAction('Показати розташування')
         rename_action.setEnabled(not many)
         choice = menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -1095,6 +1096,8 @@ class MainWindow(QMainWindow):
             self.rename_selected_file(item)
         elif choice == move_action:
             self.move_selected_files(items)
+        elif choice == tags_action:
+            self.edit_tags(items)
         elif choice == reveal_action:
             self.reveal_file(item)
 
@@ -1209,6 +1212,148 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Переміщено: {moved}. Помилок: {len(errors)}')
         if errors:
             QMessageBox.warning(self, 'Не всі файли переміщено', '\n'.join(errors[:12]))
+
+    def edit_tags(self, items):
+        if not items:
+            return
+        common = self.file_tags.get(normalize_path(items[0].path), [])
+        value, accepted = QInputDialog.getText(
+            self, 'Теги для пошуку',
+            f'Теги через кому (файлів: {len(items)}):', text=', '.join(common))
+        if not accepted:
+            return
+        tags = clean_tags(value.split(','))
+        for item in items:
+            key = normalize_path(item.path)
+            if tags:
+                self.file_tags[key] = tags
+            else:
+                self.file_tags.pop(key, None)
+        self._save()
+        self.apply_filter()
+        self.status.setText(f'Збережено теги для {len(items)} файлів')
+
+    def _media_row_hovered(self, index):
+        item = self.model.item_at(index.row()) if index.isValid() else None
+        self._hover_item = item
+        QToolTip.hideText()
+        if item:
+            self._thumb_hover_timer.start()
+
+    def _show_hover_thumbnail(self):
+        item = self._hover_item
+        if not item or self._thumbnail_thread is not None:
+            return
+        from thumbnails import thumbnail_path
+        try:
+            thumbnail = thumbnail_path(item.path)
+            if thumbnail.is_file():
+                self._thumbnail_ready(item.path, str(thumbnail))
+                return
+        except OSError:
+            return
+        worker = ThumbnailThread(item.path, item.kind, self)
+        self._thumbnail_thread = worker
+        worker.ready.connect(self._thumbnail_ready)
+        worker.finished.connect(self._thumbnail_finished)
+        worker.start()
+
+    def _thumbnail_finished(self):
+        old = self._thumbnail_thread
+        self._thumbnail_thread = None
+        if old:
+            old.deleteLater()
+        if self._hover_item:
+            self._thumb_hover_timer.start(500)
+
+    def _thumbnail_ready(self, source: str, image_path: str):
+        item = self._hover_item
+        if not item or source != item.path or not image_path:
+            return
+        try:
+            url = QUrl.fromLocalFile(image_path).toString()
+            title = html_escape(display_media_name(item.name)[:120])
+            tooltip = (f'<img src="{html_escape(url, quote=True)}"><br>'
+                       f'<b>{title}</b><br>{human_size(item.size)}')
+            QToolTip.showText(QCursor.pos(), tooltip, self.table.viewport())
+        except (OSError, ValueError):
+            return
+
+    def current_markers(self):
+        if self.preview.current and self.preview.current.kind == 'video':
+            return self.bookmarks.get(normalize_path(self.preview.current.path), [])
+        return []
+
+    def refresh_timeline_markers(self):
+        duration = self.preview.player.duration() if self.preview.player else 0
+        self.preview_seek.update_markers(self.current_markers(), duration)
+
+    def bookmark_now(self):
+        current, player = self.preview.current, self.preview.player
+        if not current or current.kind != 'video' or not player:
+            self.status.setText('Щоб поставити мітку, спочатку запустіть відео')
+            return
+        position = max(0, player.position())
+        key = normalize_path(current.path)
+        self.bookmarks = add_bookmark(self.bookmarks, key, position,
+                                      'Мітка ' + timestamp(position))
+        self._save()
+        self.refresh_timeline_markers()
+        self.status.setText(f'Мітка поставлена: {timestamp(position)}')
+
+    def jump_marker(self, forward=True):
+        player = self.preview.player
+        if not player or not self.preview.current or self.preview.current.kind != 'video':
+            return
+        position = player.position()
+        markers = self.current_markers()
+        if forward:
+            matches = [m for m in markers if m['ms'] > position + 500]
+            target = matches[0] if matches else None
+        else:
+            matches = [m for m in markers if m['ms'] < position - 500]
+            target = matches[-1] if matches else None
+        if target:
+            player.setPosition(target['ms'])
+            self.status.setText(f"Мітка {timestamp(target['ms'])}: {target['note']}")
+
+    def timeline_context_menu(self, pos):
+        menu = QMenu(self)
+        add = menu.addAction('⚑ Додати мітку (B)')
+        markers = self.current_markers()
+        if markers:
+            menu.addSeparator()
+        choices = {}
+        for entry in markers:
+            action = menu.addAction(f"{timestamp(entry['ms'])}   {entry['note']}")
+            choices[action] = entry
+        menu.addSeparator()
+        delete = menu.addAction('Видалити найближчу мітку')
+        delete.setEnabled(bool(markers))
+        selected = menu.exec(self.preview_seek.mapToGlobal(pos))
+        if selected == add:
+            self.bookmark_now()
+        elif selected in choices:
+            self.preview.set_position(choices[selected]['ms'])
+        elif selected == delete and markers:
+            position = self.preview.player.position() if self.preview.player else 0
+            nearest = min(markers, key=lambda m: abs(m['ms'] - position))
+            key = normalize_path(self.preview.current.path)
+            self.bookmarks[key] = [m for m in markers if m is not nearest]
+            if not self.bookmarks[key]:
+                self.bookmarks.pop(key, None)
+            self._save()
+            self.refresh_timeline_markers()
+
+    def shortcuts_help(self):
+        QMessageBox.information(
+            self, 'Гарячі клавіші',
+            'Enter: запустити вибране • Пробіл: пауза/продовжити\\n'
+            'S: стоп • M: звук • Стрілки: перемотка/гучність\\n'
+            'B: мітка • [ / ]: попередня/наступна мітка\\n'
+            'Ctrl+F: пошук • Ctrl+T: теги • F5: оновити медіатеку\\n'
+            'Ctrl+O: додати папку • 0: нормальна швидкість\\n'
+            '+ / −: швидкість • Z: автообтинання • V: вертикальний режим')
 
     def show_video_context_menu(self, pos):
         menu = QMenu(self)
