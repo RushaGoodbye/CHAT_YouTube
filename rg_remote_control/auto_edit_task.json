@@ -4,9 +4,12 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
+      "rg_studio_version.py",
       "rg_auto_edit_one_button.py",
-      "rg_production_wrapper.py"
+      "rg_smoking_auto_export_v2.py",
+      "rg_smoking_uncertainty_timeline_v1.py",
+      "rg_studio_postrun.py"
     ]
   },
-  "nonce": "smoking-marker-post-child-source-20261010"
+  "nonce": "verify-smoking-markers-r1-installed-20261010-after-user-confirmation"
 }
