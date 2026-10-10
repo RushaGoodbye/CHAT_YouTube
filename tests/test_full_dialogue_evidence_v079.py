@@ -231,3 +231,24 @@ def test_family_psychology_regression_rejects_shared_keyword_camouflage():
         "evidence": "семейная психология важна для разговора",
     }]}]}
     assert not any("сімейної психології" in issue for issue in ab_title_issues(titles, supported))
+
+
+def test_family_psychology_requires_phrase_not_scattered_keywords():
+    report = {"blocks": [
+        {"start_stamp": "00:00:00", "topics": [{
+            "topic": "Семейные вопросы",
+            "summary_uk": "Говорять про сімейні питання та побутові справи",
+            "evidence": "У нас семейные вопросы важны для всех",
+        }]},
+        {"start_stamp": "00:10:00", "topics": [{
+            "topic": "Психология войны",
+            "summary_uk": "Обговорюють психологію війни та пропаганду",
+            "evidence": "Психология войны и пропаганда",
+        }]},
+    ]}
+    titles = [
+        "Семейная психология россиян: что скрывает Путин?",
+        "Психология войны: что говорят россияне о Путине",
+        "Семейные вопросы и война: спор с россиянами",
+    ]
+    assert any("сімейної психології" in issue for issue in ab_title_issues(titles, report))
