@@ -68,5 +68,21 @@ class ActiveContentTests(unittest.TestCase):
                                                 [[(0, 0, 0)] * 190]))
 
 
+
+    def test_vertical_inset_on_black_mattee(self):
+        img = composited_frame(rectangle=(67, 4, 126, 105), titles=False)
+        crop = detect_content_region(img)
+        self.assertIsNotNone(crop)
+        self.assertLess(crop.width, 0.37)
+        target, _ = fitted_frame_rect(900, 660, 1920, 1080, crop)
+        self.assertAlmostEqual(target[3], 660, delta=1.0)
+
+    def test_noise_near_corners_rejects_uncertain_inset(self):
+        frame = composited_frame()
+        for y in range(9):
+            for x in range(17):
+                frame[y][x] = (x * 10 % 255, y * 12 % 255, 120)
+        self.assertIsNone(detect_content_region(frame))
+
 if __name__ == '__main__':
     unittest.main()
