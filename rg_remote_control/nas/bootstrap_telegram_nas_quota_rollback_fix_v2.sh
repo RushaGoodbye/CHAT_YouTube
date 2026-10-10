@@ -83,7 +83,7 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
   sleep 4
 done
 LOCK_OWNED=1
-printf '%s\n' "$" > "$LOCK_DIR/pid"
+python3 -c 'import os; print(os.getppid())' > "$LOCK_DIR/pid"
 date +%s > "$LOCK_DIR/started_at"
 
 if cmp -s "$TMP" "$TARGET"; then
