@@ -620,6 +620,14 @@ class MainWindow(QMainWindow):
         self.selected: MediaItem | None = None
         self.safe_selection = self.settings['safe_selection']
         self.file_fit_modes = dict(self.settings['file_fit_modes'])
+        self.file_tags = dict(self.settings['tags'])
+        self.bookmarks = dict(self.settings['bookmarks'])
+        self._hover_item = None
+        self._thumbnail_thread = None
+        self._thumb_hover_timer = QTimer(self)
+        self._thumb_hover_timer.setSingleShot(True)
+        self._thumb_hover_timer.setInterval(450)
+        self._thumb_hover_timer.timeout.connect(self._show_hover_thumbnail)
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
@@ -715,7 +723,7 @@ class MainWindow(QMainWindow):
         heading.setObjectName('SectionTitle')
         lv.addWidget(heading)
         self.search = QLineEdit()
-        self.search.setPlaceholderText('🔎 Пошук за назвою файлу...')
+        self.search.setPlaceholderText('🔎 Назва, тег або інша розкладка клавіатури...')
         self.search.setClearButtonEnabled(True)
         lv.addWidget(self.search)
         controls = QHBoxLayout()
@@ -732,6 +740,9 @@ class MainWindow(QMainWindow):
         self.table = QTableView()
         self.table.setModel(self.model)
         self.table.setAlternatingRowColors(True)
+        self.table.setMouseTracking(True)
+        self.table.entered.connect(self._media_row_hovered)
+        self.table.viewport().installEventFilter(self)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -781,7 +792,10 @@ class MainWindow(QMainWindow):
         rv.addWidget(self.preview, 1)
         timeline = QHBoxLayout()
         timeline.setSpacing(8)
-        self.preview_seek = QSlider(Qt.Orientation.Horizontal)
+        self.preview_seek = MarkedSlider(Qt.Orientation.Horizontal)
+        self.preview_seek.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.preview_seek.customContextMenuRequested.connect(self.timeline_context_menu)
+        self.preview_seek.setToolTip('B: мітка • [ / ]: попередня / наступна • правий клік: усі мітки')
         self.preview_seek.setRange(0, 0)
         self.preview_seek.setFixedHeight(20)
         timeline.addWidget(self.preview_seek, 1)
@@ -944,6 +958,8 @@ class MainWindow(QMainWindow):
                 'auto_crop': self.preview.video_view.fit_mode == 'auto',
                 'safe_selection': self.safe_selection,
                 'file_fit_modes': self.file_fit_modes,
+                'tags': self.file_tags,
+                'bookmarks': self.bookmarks,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -1006,7 +1022,7 @@ class MainWindow(QMainWindow):
     def apply_filter(self):
         old_path = self.selected.path if self.selected else None
         filtered = filter_media(self.all_media, self.search.text(), self.kind.currentData(),
-                                self.favorites, self.only_favorites.isChecked())
+                                self.favorites, self.only_favorites.isChecked(), self.file_tags)
         self.model.replace(filtered)
         self.count.setText(f'Показано: {len(filtered)}   •   Усього: {len(self.all_media)}')
         # Filtering must not trigger selection_changed or interrupt the playing file.
@@ -1120,6 +1136,8 @@ class MainWindow(QMainWindow):
         if removed:
             self.favorites.difference_update(removed)
             self.file_fit_modes = {key: value for key, value in self.file_fit_modes.items() if key not in removed}
+            self.file_tags = {key: value for key, value in self.file_tags.items() if key not in removed}
+            self.bookmarks = {key: value for key, value in self.bookmarks.items() if key not in removed}
             self.all_media = [f for f in self.all_media if normalize_path(f.path) not in removed]
             if self.selected and normalize_path(self.selected.path) in removed:
                 self.selected = None
@@ -1153,6 +1171,10 @@ class MainWindow(QMainWindow):
             self.favorites.add(normalize_path(new_path))
         if old_key in self.file_fit_modes:
             self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+        if old_key in self.file_tags:
+            self.file_tags[normalize_path(new_path)] = self.file_tags.pop(old_key)
+        if old_key in self.bookmarks:
+            self.bookmarks[normalize_path(new_path)] = self.bookmarks.pop(old_key)
         self.selected = None
         self._save()
         self.scan()
@@ -1177,6 +1199,10 @@ class MainWindow(QMainWindow):
                 self.favorites.add(normalize_path(new_path))
             if old_key in self.file_fit_modes:
                 self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+            if old_key in self.file_tags:
+                self.file_tags[normalize_path(new_path)] = self.file_tags.pop(old_key)
+            if old_key in self.bookmarks:
+                self.bookmarks[normalize_path(new_path)] = self.bookmarks.pop(old_key)
         self.selected = None
         self._save()
         self.scan()
