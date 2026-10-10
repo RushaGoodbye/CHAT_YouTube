@@ -1,0 +1,29 @@
+name: RG Smoking R1 Real Dialogues Readonly Audit
+on:
+  push:
+    branches:
+      - 'auto-edit/892-threezone-shadow-20261010'
+    paths:
+      - 'rg_remote_control/open_source_v1/audit_smoking_r1_real_dialogues_readonly.py'
+      - '.github/workflows/rg-smoking-r1-real-dialogues-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect real XML and cigarette QA without edits
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py = 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Missing Studio runtime Python' }
+          & $py -X utf8 rg_remote_control/open_source_v1/audit_smoking_r1_real_dialogues_readonly.py
+          if ($LASTEXITCODE -ne 0) { throw 'Real dialogue R1 audit failed' }
