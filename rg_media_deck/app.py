@@ -19,11 +19,12 @@ from PySide6.QtWidgets import (
 
 import updater
 from send2trash import send2trash
+from recycle_utils import normalize_recycle_path
 from video_fit import detect_letterbox, stable_crop, fitted_frame_rect
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.1.8'
+VERSION = '0.1.9'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -1021,9 +1022,23 @@ class MainWindow(QMainWindow):
 
     def _delete_file_from_disk(self, item: MediaItem):
         try:
-            send2trash(item.path)
+            # Scan results may contain F:/folder\subfolder paths. Windows
+            # Recycle Bin APIs expect normalized backslashes.
+            recycle_path = (normalize_recycle_path(item.path) if os.name == 'nt'
+                            else os.path.abspath(item.path))
+            if not os.path.isfile(recycle_path):
+                raise FileNotFoundError(recycle_path)
+            send2trash(recycle_path)
+        except FileNotFoundError:
+            QMessageBox.warning(self, 'Файл не знайдено',
+                                'Файл уже відсутній на диску. Оновіть медіатеку, '
+                                'щоб прибрати застарілий запис.\n\n' + item.path)
+            self.status.setText('Файл не знайдено: оновіть медіатеку')
+            return
         except Exception as exc:
-            QMessageBox.warning(self, 'Файл не видалено', str(exc))
+            QMessageBox.warning(self, 'Файл не видалено',
+                                'Не вдалося перемістити файл до кошика Windows. '
+                                'Файл не видалено назавжди.\n\n' + str(exc))
             self.status.setText('Не вдалося перемістити файл до кошика')
             return
         normalized = normalize_path(item.path)
