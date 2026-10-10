@@ -432,6 +432,57 @@ def preserve_one_grounded_quote(
 
 
 
+def complete_grounded_ab_variants(
+    variants: Iterable[str],
+    report: dict[str, Any],
+    *,
+    main_title: str = "",
+) -> list[str]:
+    """Fill missing A/B choices using only verified source topics.
+
+    No claim, quote, date or named event is inferred. The result remains
+    editor-review only; this is a source-grounded fallback, not model approval.
+    """
+    from difflib import SequenceMatcher
+
+    chosen: list[str] = []
+    for value in variants:
+        clean = _compact(value)
+        if (
+            20 <= len(clean) <= 100
+            and clean.casefold() != _compact(main_title).casefold()
+            and clean.casefold() not in {v.casefold() for v in chosen}
+        ):
+            chosen.append(clean)
+        if len(chosen) >= 3:
+            return chosen[:3]
+
+    for block in report.get("blocks") or []:
+        if block.get("verified") is not True:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            topic = _compact(item.get("topic"))
+            if not (8 <= len(topic) <= 72):
+                continue
+            proposed = f"{topic} | ЧАТ РУЛЕТКА"
+            if not (20 <= len(proposed) <= 100):
+                continue
+            if proposed.casefold() == _compact(main_title).casefold():
+                continue
+            if any(
+                SequenceMatcher(None, proposed.casefold(), v.casefold()).ratio() >= 0.85
+                for v in chosen
+            ):
+                continue
+            # Topic words are copied verbatim from verified per-block evidence.
+            chosen.append(proposed)
+            if len(chosen) == 3:
+                return chosen
+    return chosen
+
+
 def ab_title_issues(
     variants: Iterable[str],
     report: dict[str, Any] | None = None,
