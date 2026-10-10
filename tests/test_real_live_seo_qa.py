@@ -349,3 +349,79 @@ def test_long_live_filters_duration_before_bounded_source_probe(tmp_path, monkey
     assert result["nas_srt_candidates_checked"] == 1
     assert result["status"] == "SOURCE_READY"
     assert "PRIVATE" not in str(result)
+
+
+def test_public_long_source_preflight_detects_real_source_without_export(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_public_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    result = subject.run(
+        db_path=db,
+        metadata_fetch=lambda _id: {
+            "video_id": "ABCDEFGHIJK",
+            "description": "PRIVATE REAL DESCRIPTION",
+            "tags": ["PRIVATE REAL TAG"],
+            "duration": 10800,
+        },
+        transcript_fetch=lambda _id: [
+            {"text": "PRIVATE REAL TRANSCRIPT " + str(n), "start": n * 60, "duration": 20}
+            for n in range(180)
+        ],
+        track_fetch=lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("Alternative captions not needed")
+        ),
+    )
+    assert result["public_long_candidates"] == 1
+    assert result["original_description_retrieved"] == 1
+    assert result["captions_retrieved"] == 1
+    assert result["full_span_caption_sources"] == 1
+    assert result["ready_source_candidates"] == 1
+    assert result["status"] == "SOURCE_READY"
+    assert result["youtube_data_api_calls"] == 0
+    assert result["youtube_modified"] is False
+    assert result["ollama_called"] is False
+    assert "PRIVATE" not in str(result)
+    assert "ABCDEFGHIJK" not in str(result)
+
+
+def test_public_long_source_preflight_rejects_wrong_video_metadata(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_public_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    result = subject.run(
+        db_path=db,
+        metadata_fetch=lambda _id: {
+            "video_id": "ZZZZZZZZZZZ",
+            "description": "PRIVATE WRONG VIDEO",
+            "duration": 10800,
+        },
+        transcript_fetch=lambda _id: (_ for _ in ()).throw(
+            AssertionError("Mismatched source must not fetch transcript")
+        ),
+    )
+    assert result["status"] == "NOT_READY"
+    assert result["metadata_identifier_mismatches"] == 1
+    assert result["captions_retrieved"] == 0
+
+
+def test_public_long_source_preflight_missing_full_captions_stays_not_ready(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_public_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    result = subject.run(
+        db_path=db,
+        metadata_fetch=lambda _id: {
+            "video_id": "ABCDEFGHIJK",
+            "description": "PRIVATE PUBLIC DESCRIPTION",
+            "tags": [],
+            "duration": 10800,
+        },
+        transcript_fetch=lambda _id: [
+            {"text": "PRIVATE SHORT CAPTION", "start": n * 30}
+            for n in range(30)
+        ],
+    )
+    assert result["original_description_retrieved"] == 1
+    assert result["captions_retrieved"] == 1
+    assert result["full_span_caption_sources"] == 0
+    assert result["status"] == "NOT_READY"
