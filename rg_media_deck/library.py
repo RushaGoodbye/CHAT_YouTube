@@ -134,7 +134,7 @@ def normalize_playback_rate(value) -> float:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}}
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
@@ -153,6 +153,10 @@ def load_settings(path: Path | None = None) -> dict:
             'muted': data.get('muted', False) is True,
             'playback_rate': normalize_playback_rate(data.get('playback_rate', 1.0)),
             'auto_crop': data.get('auto_crop', True) is not False,
+            'safe_selection': data.get('safe_selection', True) is not False,
+            'file_fit_modes': {k: v for k, v in data.get('file_fit_modes', {}).items()
+                               if isinstance(k, str) and v in ('fit', 'fill', 'auto')}
+                              if isinstance(data.get('file_fit_modes'), dict) else {},
         }
     except (ValueError, OSError, UnicodeError):
         return defaults
