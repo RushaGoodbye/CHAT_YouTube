@@ -425,3 +425,30 @@ def test_public_long_source_preflight_missing_full_captions_stays_not_ready(tmp_
     assert result["captions_retrieved"] == 1
     assert result["full_span_caption_sources"] == 0
     assert result["status"] == "NOT_READY"
+
+
+def test_public_probe_still_checks_captions_when_metadata_bot_blocked(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_public_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    def blocked(_video):
+        raise RuntimeError("Sign in to confirm you're not a bot")
+    result = subject.run(
+        db_path=db,
+        metadata_fetch=blocked,
+        transcript_fetch=lambda _id: [
+            {"text": "PRIVATE LONG CAPTION " + str(n), "start": n * 60}
+            for n in range(180)
+        ],
+        track_fetch=lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("No yt-dlp caption track without metadata")
+        ),
+    )
+    assert result["public_metadata_access_denied"] == 1
+    assert result["captions_retrieved"] == 1
+    assert result["full_span_caption_sources"] == 1
+    assert result["original_description_retrieved"] == 0
+    assert result["ready_source_candidates"] == 0
+    assert result["status"] == "NOT_READY"
+    assert result["youtube_data_api_calls"] == 0
+    assert "PRIVATE" not in str(result)
