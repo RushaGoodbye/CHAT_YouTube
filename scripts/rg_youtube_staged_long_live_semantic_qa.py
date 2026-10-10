@@ -60,12 +60,43 @@ def _safe_gpu_available() -> bool:
         return True
 
 
+def _foreign_gpu_compute_active() -> bool:
+    """Find a different heavy CUDA workload without flagging Ollama itself.
+
+    Overall GPU utilization is HIGH during legitimate Ollama inference, so
+    using it as an in-flight stop signal cancels our own analysis every
+    fifth block. Instead inspect distinct CUDA processes, exclude the
+    local Ollama model runtime, and stop only for a foreign heavy client.
+    """
+    try:
+        probe = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=process_name,used_gpu_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True, timeout=7,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for row in probe.stdout.splitlines():
+        try:
+            process, memory = row.rsplit(",", 1)
+            normalized = process.strip().casefold().replace("\\", "/")
+            name = normalized.rsplit("/", 1)[-1]
+            if any(word in name for word in ("ollama", "llama-server", "llama_server")):
+                continue
+            if int(memory.strip()) >= 1024:
+                return True
+        except (ValueError, IndexError):
+            continue
+    return False
+
+
 def run(
     *, db_path: Path | None = None,
     private_root: Path | None = None,
     client_factory: Callable = YouTubeClient,
     chat: Callable = ollama_chat,
     gpu_check: Callable = _safe_gpu_available,
+    foreign_gpu_check: Callable = _foreign_gpu_compute_active,
 ) -> dict:
     out = {
         "schema": "RG_STAGED_LONG_LIVE_SEMANTIC_QA_V1",
@@ -186,7 +217,10 @@ def run(
                 done = int(match.group(1))
                 if done == 1 or done % 5 == 0 or done == total:
                     print(f"LONG LIVE PROGRESS: {done}/{total}", flush=True)
-                if done > 1 and done % 5 == 0 and not gpu_check():
+                # Do not check total utilization while Ollama runs:
+                # its *own* inference would trip that signal. A competing
+                # CUDA process is the only safe in-flight stop criterion.
+                if done > 1 and done % 5 == 0 and foreign_gpu_check():
                     raise RuntimeError("GPU_BUSY_DURING_SEMANTIC_QA")
 
         try:
