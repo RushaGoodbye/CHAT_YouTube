@@ -95,7 +95,7 @@ def run(
             """SELECT video_id, title FROM videos WHERE profile='live'
                AND scheduled_publish_at IS NULL
                AND COALESCE(privacy_status, 'public')='public'
-               ORDER BY video_id DESC"""
+               ORDER BY published_at DESC, video_id DESC"""
         ).fetchall()
         try:
             setting = conn.execute(
@@ -129,6 +129,13 @@ def run(
     # YouTube API calls, and avoids wasting public caption lookups or Ollama.
     raw_nas = str(setting[0] or "").strip() if setting else ""
     nas_root = Path(normalize_nas_unc_path(raw_nas, DEFAULT_NAS_TRANSCRIPTS_PATH))
+    # Pick genuine long archives before applying the NAS probe budget.
+    # Otherwise the first 40 short LIVE rows could hide every eligible 3h+ source.
+    candidates = (
+        [row for row in rows if row[4] >= MIN_LONG_LIVE_SECONDS]
+        if require_long_live else rows
+    )
+    output["duration_qualified_source_archives"] = len(candidates)
     selected = None
     try:
         public_budget = max(0, min(int(max_caption_lookups), 8))
@@ -136,7 +143,7 @@ def run(
     except (ValueError, TypeError, OverflowError):
         output["reason"] = "Invalid read-only sample size"
         return output
-    for video_id, title, source_description, source_tags, duration_seconds in rows[:nas_budget]:
+    for video_id, title, source_description, source_tags, duration_seconds in candidates[:nas_budget]:
         if require_long_live and duration_seconds < MIN_LONG_LIVE_SECONDS:
             continue
         captions = []
