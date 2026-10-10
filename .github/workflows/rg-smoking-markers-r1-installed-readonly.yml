@@ -1,0 +1,29 @@
+name: RG Smoking Markers R1 Installed Readonly Check
+on:
+  push:
+    branches:
+      - 'auto-edit/892-threezone-shadow-20261010'
+    paths:
+      - 'rg_remote_control/open_source_v1/verify_smoking_markers_r1_installed_readonly.py'
+      - '.github/workflows/rg-smoking-markers-r1-installed-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-verify-installed-studio:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify installed Studio marker hotfix in memory
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py = 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Missing Studio runtime Python' }
+          & $py -X utf8 rg_remote_control/open_source_v1/verify_smoking_markers_r1_installed_readonly.py
+          if ($LASTEXITCODE -ne 0) { throw 'R1 installed smoke test failed' }
