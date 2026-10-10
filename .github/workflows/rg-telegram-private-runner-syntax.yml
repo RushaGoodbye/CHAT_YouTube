@@ -1,0 +1,29 @@
+name: RG Telegram Private Runner Bootstrap - Syntax Only
+on:
+  push:
+    branches:
+      - telegram-private-runner-installer-20261010
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 5
+    steps:
+      - name: Validate official setup script without executing it
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Unexpected runner' }
+          $uri = 'https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/39e61827ff84147cb6c68987a0d22aa6110a5dc4/rg_remote_control/bootstrap_telegram_private_ci_runner.ps1'
+          $source = (Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 30).Content
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'Installer PowerShell syntax verification failed'
+          }
+          foreach ($required in @('C:\RG_TELEGRAM_RUNNER','--runasservice','--labels','ZeroFreeBSTR','Get-FileHash')) {
+            if (-not $source.Contains($required)) { throw "Expected safety step missing: $required" }
+          }
+          Write-Host 'RG_TELEGRAM_RUNNER_INSTALLER_SYNTAX_PASS'
