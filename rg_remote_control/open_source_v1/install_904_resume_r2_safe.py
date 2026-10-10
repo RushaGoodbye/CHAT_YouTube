@@ -66,7 +66,8 @@ def load_verified_inputs():
         raise RuntimeError("Unexpected Studio version; refusing R2 patch")
     src=TARGET.read_text(encoding="utf-8-sig")
     ast.parse(src)
-    if "# RG_SMOKING_UNCERTAIN_TIMELINE_HOTFIX_R1" not in src or "# RG_AUDALIGN_DIALOGUE_EPOCH_HOTFIX_R1" not in (APP/"rg_auto_edit_one_button.py").read_text(encoding="utf-8-sig"):
+    backend=(APP/"rg_auto_edit_one_button.py").read_text(encoding="utf-8-sig")
+    if "# RG_SMOKING_UNCERTAIN_TIMELINE_HOTFIX_R1" not in backend or "# RG_AUDALIGN_DIALOGUE_EPOCH_HOTFIX_R1" not in backend:
         raise RuntimeError("R1 prerequisites not installed")
     if not MANIFEST.is_file() or not STATE.is_file():
         raise RuntimeError("904 resume state is not present")
