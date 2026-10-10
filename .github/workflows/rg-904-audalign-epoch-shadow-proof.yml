@@ -1,0 +1,29 @@
+name: RG 904 Audalign Epoch Shadow Proof
+on:
+  push:
+    branches:
+      - 'auto-edit/892-threezone-shadow-20261010'
+    paths:
+      - 'rg_remote_control/open_source_v1/probe_rg904_5_audalign_epoch_shadow_v1.py'
+      - '.github/workflows/rg-904-audalign-epoch-shadow-proof.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only real 904 local audio correlation, temporary samples on F only
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py = 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Studio runtime missing' }
+          & $py -X utf8 rg_remote_control/open_source_v1/probe_rg904_5_audalign_epoch_shadow_v1.py
+          if ($LASTEXITCODE -ne 0) { throw "Audalign 904_5 shadow proof failed ($LASTEXITCODE)" }
