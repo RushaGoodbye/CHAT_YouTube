@@ -4,10 +4,11 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_premiere_native_xml.py",
+      "rg_multi_dialogue.py",
+      "rg_cigarette_blur.py",
       "rg_studio_postrun.py",
-      "rg_studio_version.py"
+      "rg_studio_update_worker.py"
     ]
   },
-  "nonce": "read-only-smoking-markers-export-inspection-20261010"
+  "nonce": "smoking-markers-postexport-readonly-followup-20261010"
 }
