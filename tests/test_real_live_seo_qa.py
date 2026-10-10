@@ -720,6 +720,7 @@ def test_private_long_live_semantic_qa_saves_review_draft_without_export(
             rows, max_chars=5000, max_span_seconds=300
         ))
         kwargs["progress"](f"Аналіз фрагментів: 1/{total} · PRIVATE")
+        kwargs["progress"](f"Аналіз фрагментів: 5/{total} · PRIVATE")
         return {
             "source_integrity_verified": True, "blocks_total": total,
             "blocks_analyzed": total, "blocks_with_evidence": total,
@@ -733,14 +734,21 @@ def test_private_long_live_semantic_qa_saves_review_draft_without_export(
         "title_variants": ["A", "B", "C"], "tags": ["PRIVATE"],
     })
     monkeypatch.setattr(subject, "review_seo_package", lambda **_k: [])
+    checks = {"first": 0}
+    def aggregate_gpu_check():
+        checks["first"] += 1
+        return checks["first"] == 1
+
     result = subject.run(
         db_path=db, private_root=root, client_factory=FakeClient,
         chat=lambda *_a, **_kw: (_ for _ in ()).throw(
             AssertionError("Ollama is mocked during unit tests")
         ),
-        gpu_check=lambda: True,
+        gpu_check=aggregate_gpu_check,
+        foreign_gpu_check=lambda: False,
     )
     assert called["analyze"] == 1
+    assert checks["first"] == 1  # Own Ollama activity cannot cancel QA
     assert result["status"] == "STRUCTURE_PASS"
     assert result["private_draft_saved"] is True
     assert result["ab_titles_count"] == 3
@@ -783,3 +791,18 @@ def test_staged_long_live_qa_does_not_call_owner_api_when_gpu_busy(
     assert result["status"] == "GPU_BUSY"
     assert result["youtube_data_api_calls"] == 0
     assert result["private_draft_saved"] is False
+
+
+def test_foreign_cuda_check_ignores_ollama_but_blocks_other_heavy_process(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_staged_long_live_semantic_qa as subject
+    monkeypatch.setattr(subject.subprocess, "run", lambda *_a, **_kw: SimpleNamespace(
+        stdout="C:/Users/test/AppData/Local/Programs/Ollama/ollama.exe, 8122\n"
+    ))
+    assert subject._foreign_gpu_compute_active() is False
+    monkeypatch.setattr(subject.subprocess, "run", lambda *_a, **_kw: SimpleNamespace(
+        stdout="C:/Users/test/AppData/Local/Programs/Ollama/ollama.exe, 8122\n"
+               "D:/Video/RenderEngine.exe, 3500\n"
+    ))
+    assert subject._foreign_gpu_compute_active() is True
