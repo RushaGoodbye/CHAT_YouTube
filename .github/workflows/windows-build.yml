@@ -112,6 +112,86 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $file.FullName,$checksum,"installer\latest.json" -DestinationPath $zip -CompressionLevel Optimal
 
+      - name: Verify Windows update package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          if (-not $line) { throw "Project version not found" }
+          $version = $line.Matches[0].Groups[1].Value
+          $zipPath = "installer\\RG_YouTube_Control_Update_$version.zip"
+          if (-not (Test-Path $zipPath)) { throw "Update ZIP missing: $zipPath" }
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipPath))
+          try {
+            $names = @($zip.Entries | ForEach-Object { $_.Name })
+            $exes = @($names | Where-Object { $_ -match '\\.exe        continue-on-error: true
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'push' &&
+           startsWith(github.event.head_commit.message, 'Release '))
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          $tag = "v$version"
+
+          function Invoke-ReleasePublish {
+            gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+            if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag installer\*.exe installer\*.sha256 installer\latest.json installer\*.zip --clobber --repo $env:GITHUB_REPOSITORY
+            } else {
+              gh release create $tag installer\*.exe installer\*.sha256 installer\latest.json installer\*.zip --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "RG YouTube Control $version" --notes "Windows update $version"
+            }
+            return $LASTEXITCODE
+          }
+
+          $ok = $false
+          foreach ($attempt in 1..2) {
+            Write-Host "Release publish attempt $attempt/2"
+            $code = Invoke-ReleasePublish
+            if ($code -eq 0) {
+              $ok = $true
+              break
+            }
+            if ($attempt -lt 2) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not $ok) {
+            Write-Warning "GitHub Release $tag was not published. Build artifacts and GitHub Pages update feed remain authoritative."
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: RG-YouTube-Control-Windows
+          path: |
+            installer\*.exe
+            installer\*.sha256
+            installer\latest.json
+            installer\*.zip })
+            if ($exes.Count -ne 1) { throw "ZIP must contain exactly one installer EXE" }
+            foreach ($required in @("latest.json", "$($exes[0]).sha256")) {
+              if ($names -notcontains $required) { throw "ZIP missing $required" }
+            }
+            $installer = Join-Path installer $exes[0]
+            $shaPath = "$installer.sha256"
+            $expected = ((Get-Content $shaPath -Raw).Trim() -split '\\s+')[0].ToLowerInvariant()
+            $actual = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expected -ne $actual) { throw "SHA256 mismatch" }
+            $manifest = Get-Content installer\\latest.json -Raw | ConvertFrom-Json
+            if ($manifest.version -ne $version -or $manifest.installer_name -ne $exes[0]) {
+              throw "Manifest version/installer mismatch"
+            }
+            Write-Host "VERIFIED UPDATE: $version / $($exes[0]) / SHA256=$actual"
+          }
+          finally { $zip.Dispose() }
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
