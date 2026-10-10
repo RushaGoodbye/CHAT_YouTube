@@ -15,6 +15,7 @@ def test_review_accept_requires_safe_three_options():
     body = ast.get_source_segment(code, method)
     assert "title_variants_json" in body
     assert "reviewed_seo_acceptance_issues(" in body
+    assert 'original_description=draft["source_description"]' in body
     assert "status != \"safe\"" in body
     assert 'if len(options) != 3:' in body
     assert "if issues:" in body
