@@ -372,9 +372,9 @@ def ab_title_issues(
         # A shared supported keyword must not conceal an invented unrelated
         # two-word subject (regression: "family psychology" in political SEO).
         unsupported_subjects = (
-            (r"семейн\\w*\\s+психолог\\w*", ("семейн", "психолог")),
-            (r"сімейн\\w*\\s+психолог\\w*", ("сімейн", "психолог")),
-            (r"семейной\\s+психологии", ("семейн", "психолог")),
+            (r"семейн\w*\s+психолог\w*", ("семейн", "психолог")),
+            (r"сімейн\w*\s+психолог\w*", ("сімейн", "психолог")),
+            (r"семейной\s+психологии", ("семейн", "психолог")),
         )
         for index, value in enumerate(values, 1):
             title_lower = value.casefold()
