@@ -5,29 +5,29 @@ import logging
 import os
 import sys
 import subprocess
-from html import escape as html_escape
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen, QCursor
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
-    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget, QToolTip,
+    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
 )
 
 import updater
 from media_intelligence import add_bookmark, clean_tags
 from thumbnails import ThumbnailThread
+from hover_preview import MediaHoverPopup
 from file_operations import trash_file, rename_file, move_file
 from recycle_utils import normalize_recycle_path
 from video_fit import detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.0'
+VERSION = '0.3.1'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -629,6 +629,7 @@ class MainWindow(QMainWindow):
         self._thumb_hover_timer.setInterval(450)
         self._thumb_hover_timer.timeout.connect(self._show_hover_thumbnail)
         self._thumbnail_failures = set()
+        self._hover_popup = MediaHoverPopup(self)
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
@@ -903,7 +904,7 @@ class MainWindow(QMainWindow):
         if (watched is self.table.viewport() and event.type() == QEvent.Type.Leave):
             self._hover_item = None
             self._thumb_hover_timer.stop()
-            QToolTip.hideText()
+            self._hover_popup.hide()
         if event.type() != QEvent.Type.KeyPress or QApplication.activeModalWidget():
             return super().eventFilter(watched, event)
         focus = QApplication.focusWidget()
@@ -1255,7 +1256,7 @@ class MainWindow(QMainWindow):
     def _media_row_hovered(self, index):
         item = self.model.item_at(index.row()) if index.isValid() else None
         self._hover_item = item
-        QToolTip.hideText()
+        self._hover_popup.hide()
         if item:
             self._thumb_hover_timer.start()
 
@@ -1294,13 +1295,12 @@ class MainWindow(QMainWindow):
         if not item or source != item.path:
             return
         try:
-            url = QUrl.fromLocalFile(image_path).toString()
-            title = html_escape(display_media_name(item.name)[:120])
-            tooltip = (f'<img src="{html_escape(url, quote=True)}"><br>'
-                       f'<b>{title}</b><br>{human_size(item.size)}')
-            QToolTip.showText(QCursor.pos(), tooltip, self.table.viewport())
+            self._hover_popup.show_media(
+                image_path,
+                display_media_name(item.name),
+                human_size(item.size))
         except (OSError, ValueError):
-            return
+            self._hover_popup.hide()
 
     def current_markers(self):
         if self.preview.current and self.preview.current.kind == 'video':
@@ -1537,7 +1537,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._hover_item = None
         self._thumb_hover_timer.stop()
-        QToolTip.hideText()
+        self._hover_popup.hide()
         if self._thumbnail_thread and self._thumbnail_thread.isRunning():
             if not self._thumbnail_thread.wait(1500):
                 self.status.setText('Зачекайте завершення створення мініатюри')
@@ -1600,7 +1600,10 @@ def main():
                 and not hasattr(main_window.preview.video_view, 'video')
                 and not hasattr(main_window, 'rescan_button')
                 and not hasattr(main_window, 'header_toolbar')
-                and main_window.settings_btn.parentWidget() is not None)
+                and main_window.settings_btn.parentWidget() is not None
+                and main_window._hover_popup.width() == 306
+                and main_window._hover_popup.image.alignment() & Qt.AlignmentFlag.AlignHCenter
+                and main_window._hover_popup.parentWidget() is main_window)
             main_window.preview.set_playback_rate(1.5)
             main_window.preview.set_muted(True)
             passed = passed and main_window.preview._playback_rate == 1.5
