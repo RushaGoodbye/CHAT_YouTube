@@ -1,6 +1,8 @@
 """Conservative local SEO quality report; never publishes to YouTube."""
 from __future__ import annotations
 
+import re
+
 from .dialogue_seo import ab_title_issues, preserve_outline_topics
 
 
@@ -10,6 +12,7 @@ def review_seo_package(
     description: str,
     variants: list[str],
     evidence_report: dict | None,
+    original_description: str | None = None,
 ) -> list[str]:
     """Return actionable warnings that must prevent READY status.
 
@@ -23,6 +26,13 @@ def review_seo_package(
     if any(str(v).strip().casefold() == main_title.casefold() for v in variants):
         issues.append("A/B-альтернативи повторюють основну назву.")
 
+    if original_description is not None:
+        # Retain original URL destinations when compressing existing descriptions.
+        url_pattern = r"https?://[^\s<>\"']+"
+        old_urls = {url.rstrip(".,;!)") for url in re.findall(url_pattern, original_description)}
+        new_urls = {url.rstrip(".,;!)") for url in re.findall(url_pattern, description)}
+        if old_urls - new_urls:
+            issues.append("Новий опис втратив посилання з оригіналу; перевірте збереження URL.")
     report = evidence_report or {}
     blocks = report.get("blocks") or []
     if not blocks:
