@@ -266,6 +266,37 @@ jobs:
           Write-Host ("NEW QA WARNINGS: " + $r.candidate_gate_warnings)
           Write-Host ("PRIVATE DRAFT UPDATED: " + $r.private_draft_updated)
 
+      - name: ONE SHOT repair private LIVE description from verified cached evidence
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-description-repair' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_private_description_repair.py
+          if ($LASTEXITCODE -ne 0) { throw "Private offline description repair did not complete" }
+
+      - name: Validate anonymous description repair counters
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-description-repair' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_private_description_repair_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing private description QA output" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("NOT_READY", "REVIEW_REQUIRED", "IMPROVED_REVIEW_DRAFT")) {
+            throw "Unexpected private description result"
+          }
+          if ($r.youtube_data_api_calls -ne 0 -or $r.youtube_modified -or
+              $r.nas_modified -or $r.ollama_called -or $r.caption_downloads -ne 0 -or
+              $r.source_text_exported -or $r.video_ids_exported -or $r.draft_content_exported) {
+            throw "Private description repair safety contract violated"
+          }
+          Write-Host ("PRIVATE DESCRIPTION STATUS: " + $r.status)
+          Write-Host ("VERIFIED BLOCKS: " + $r.verified_blocks)
+          Write-Host ("PREVIOUS WARNINGS: " + $r.previous_warnings)
+          Write-Host ("REPAIRED WARNINGS: " + $r.candidate_warnings)
+          Write-Host ("PRIVATE DRAFT UPDATED: " + $r.private_draft_updated)
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -278,5 +309,6 @@ jobs:
             rg_youtube_owner_caption_download_anonymous.json
             rg_youtube_staged_long_live_semantic_anonymous.json
             rg_youtube_private_ab_repair_anonymous.json
+            rg_youtube_private_description_repair_anonymous.json
           if-no-files-found: ignore
           retention-days: 7
