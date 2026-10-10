@@ -62,4 +62,24 @@ class LibraryTests(unittest.TestCase):
             self.assertFalse(settings['safe_selection'])
             self.assertEqual(settings['file_fit_modes'], {'D:/clip.mp4': 'fill'})
 
+
+    def test_manual_crop_settings_validation_and_round_trip(self):
+        from library import valid_manual_crops
+        valid = {'D:/video.mp4': [0.12, 0.30, 0.88, 0.91],
+                 'invalid': [0.9, 0.1, 0.1, 0.7],
+                 'nan': [0.1, float('nan'), 0.8, 0.9],
+                 'too_small': [0.2, 0.2, 0.22, 0.6]}
+        self.assertEqual(valid_manual_crops(valid),
+                         {'D:/video.mp4': [0.12, 0.30, 0.88, 0.91]})
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'settings.json'
+            save_settings({'roots': [], 'favorites': [],
+                           'file_manual_crops': valid,
+                           'file_fit_modes': {'D:/video.mp4': 'manual'}}, path)
+            config = load_settings(path)
+            self.assertEqual(config['file_fit_modes']['D:/video.mp4'], 'manual')
+            self.assertEqual(config['file_manual_crops']['D:/video.mp4'],
+                             [0.12, 0.30, 0.88, 0.91])
+            self.assertNotIn('invalid', config['file_manual_crops'])
+
 if __name__ == '__main__': unittest.main()
