@@ -252,3 +252,20 @@ def test_family_psychology_requires_phrase_not_scattered_keywords():
         "Семейные вопросы и война: спор с россиянами",
     ]
     assert any("сімейної психології" in issue for issue in ab_title_issues(titles, report))
+
+
+def test_generated_summary_does_not_count_as_family_psychology_evidence():
+    report = {"blocks": [{"start_stamp": "00:00:00", "topics": [{
+        "topic": "Семейная психология",
+        "summary_uk": "Семейная психология: вигадане пояснення моделі",
+        "evidence": "Путин отвечает на вопросы о войне",
+    }]}]}
+    titles = [
+        "Путин и семейная психология: странный разговор",
+        "Путин отвечает на вопросы о войне с россиянами",
+        "Вопросы о войне: что Путин ответил россиянам",
+    ]
+    assert any(
+        "сімейної психології" in issue
+        for issue in ab_title_issues(titles, report)
+    )
