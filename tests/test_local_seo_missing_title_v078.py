@@ -155,6 +155,8 @@ def test_source_grounded_ab_repair_replaces_titles_only_when_gate_improves(
     monkeypatch, recovered_is_better
 ):
     _mock_related_helpers(monkeypatch)
+    # Evidence mode passes max_chars to the description quality validator.
+    monkeypatch.setattr(ft, "_description_quality_error", lambda *_a, **_k: "")
     original = [
         "Старый спор о бензине в России",
         "Россияне про бензин и цены",
