@@ -1,0 +1,57 @@
+name: RG Telegram R10 Validation Only
+on:
+  push:
+    branches:
+      - telegram-r10-self-hosted-validation-20261010
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-telegram-r10-validation
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    steps:
+      - name: Verify authorized runner
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'R10 validation requires ALEXPC runner' }
+
+      - name: Install Node 22 for read-only validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Clone exact R10 candidate (no production modifications)
+        shell: powershell
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'rg-telegram-r10-source'
+          git clone --quiet --depth 1 --branch telegram-stability-bounded-safety-20261010 https://github.com/RushaGoodbye/rasha-goodbye-news-bot.git $source
+          if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+          $actual = (git -C $source rev-parse HEAD).Trim()
+          $expected = '8a266f5197f96cc47091e5c77293c4b6fcee116b'
+          if ($actual -ne $expected) { throw "Candidate SHA drift: $actual" }
+          "RG_R10_SOURCE=$source" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "R10 pinned source SHA validated: $actual"
+
+      - name: Run dependency-free R10 worker regressions
+        shell: powershell
+        run: |
+          $root = Join-Path $env:RG_R10_SOURCE 'cloudflare-alerts'
+          node --check (Join-Path $root 'src/index.js')
+          if ($LASTEXITCODE -ne 0) { throw 'Worker JavaScript syntax check failed' }
+          node (Join-Path $root 'scripts/test-safety-barrier.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Safety barrier regression failed' }
+          node (Join-Path $root 'scripts/validate-scheduling.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Scheduling regression failed' }
+          node (Join-Path $root 'scripts/validate-moderation-e2e-contracts.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Moderation contract regression failed' }
+
+      - name: CI verdict
+        shell: powershell
+        run: Write-Host 'RG_TELEGRAM_R10_SELF_HOSTED_VALIDATION_PASS'
