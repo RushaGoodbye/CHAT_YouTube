@@ -149,3 +149,19 @@ def test_approval_keeps_original_links_after_user_edit(tmp_path):
         original_description="Донати: https://donate.rginfoua.pp.ua",
     )
     assert not any("втратив посилання" in issue for issue in issues)
+
+
+def test_approval_rejects_empty_tag_set_when_source_had_tags(tmp_path):
+    _save(tmp_path)
+    issues = reviewed_seo_acceptance_issues(
+        generation=SOURCE_GENERATION,
+        video_id=VIDEO_ID,
+        title="Цензура музики та ціни на бензин у Росії",
+        description=("Цензура музики: Забороняють слухати пісні. "
+                     "Ціни на бензин: Бензин знову подорожчав."),
+        variants=VARIANTS,
+        data_dir=tmp_path,
+        original_tags=["чат рулетка"],
+        tags=[],
+    )
+    assert any("усі теги" in issue for issue in issues)
