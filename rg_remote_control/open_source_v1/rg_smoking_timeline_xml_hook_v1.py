@@ -132,7 +132,7 @@ def mark_xml(xml: str, reports: list[dict], stream: str, dialogue: str):
     spans, unlocated = _uncertain_spans(reports, stream, fps)
     markers = []
     for start, end, reason in spans:
-        for cin, cout, tl0 in mapping:
+        for clip_index, (cin, cout, tl0) in enumerate(mapping):
             ia = max(int(round(start * fps)), cin)
             ib = min(int(round(end * fps)), cout)
             if ib <= ia: continue
@@ -140,19 +140,19 @@ def mark_xml(xml: str, reports: list[dict], stream: str, dialogue: str):
             b = tl0 + (ib - cin)
             if a < 0 or b > limit:
                 raise ValueError("Marker escapes final timeline")
-            markers.append((a, b, reason))
+            markers.append((a, b, reason, clip_index))
     markers = sorted(set(markers))
     # Coalesce contiguous frame markers, but do not combine across a video cut.
     merged = []
-    for a,b,reason in markers:
-        if merged and merged[-1][1] == a and merged[-1][2] == reason:
-            merged[-1] = (merged[-1][0],b,reason)
+    for a,b,reason,clip_index in markers:
+        if merged and merged[-1][1] == a and merged[-1][2] == reason and merged[-1][3] == clip_index:
+            merged[-1] = (merged[-1][0],b,reason,clip_index)
         else:
-            merged.append((a,b,reason))
+            merged.append((a,b,reason,clip_index))
     for old in list(seq.findall("marker")):
         if (old.findtext("name") or "").startswith(MARK_NAME):
             seq.remove(old)
-    for i,(a,b,reason) in enumerate(merged,1):
+    for i,(a,b,reason,_clip_index) in enumerate(merged,1):
         m=ET.SubElement(seq,"marker")
         ET.SubElement(m,"name").text=f"{MARK_NAME} #{i:02d}"
         ET.SubElement(m,"comment").text=f"AI: перевірити куріння. Причина: {reason}"
@@ -169,7 +169,7 @@ def mark_xml(xml: str, reports: list[dict], stream: str, dialogue: str):
             "dialogue":str(dialogue), "stream":str(stream),
             "fps":fps, "markers":[{"start_frame":a,"end_frame":b,
                                    "start_sec":round(a/fps,5),"end_sec":round(b/fps,5),
-                                   "reason":reason} for a,b,reason in merged],
+                                   "reason":reason} for a,b,reason,_clip_index in merged],
             "warning_codes":([] if not unlocated else ["AI_EVENTS_WITHOUT_SOURCE_TIMECODE"])
                 + ([] if mapping or not spans else ["NO_RETAINED_SOURCE_CLIP_MAP"]),
             "low_confidence_blocks_dialogue":False,
