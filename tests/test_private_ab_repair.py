@@ -162,3 +162,42 @@ def test_invalid_model_titles_fallback_to_verified_timeline_topic(tmp_path, monk
     assert "Ціни на бензин у Росії" in package["title_variants"][2]
     assert result["youtube_data_api_calls"] == 0
     assert "PRIVATE CAPTION" not in str(result)
+
+
+def test_verified_title_triplet_can_use_topics_across_whole_timeline():
+    from rg_youtube_private_ab_repair import choose_verified_title_triplet
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+    report = {"blocks": [
+        {
+            "verified": True, "start_stamp": f"00:{i*5:02d}:00",
+            "topics": [{
+                "topic": topic,
+                "evidence": quote,
+                "summary_uk": topic,
+            }],
+        }
+        for i, (topic, quote) in enumerate([
+            ("Ціни на бензин у Росії", "На заправках бензин подорожал"),
+            ("Релігія та заборони пісень", "Про религию много вопросов"),
+            ("Війна Росії проти України", "Россия развязала войну"),
+            ("Російська пропаганда", "Это постоянно в телевизоре"),
+        ])
+    ]}
+    titles = choose_verified_title_triplet(
+        ["Загальний випуск без конкретики"], report,
+        "РАША ГУДБАЙ ЧАТ РУЛЕТКА - всі розмови",
+    )
+    assert len(titles) == 3
+    assert ab_title_issues(titles, report) == []
+    assert all("ЧАТ РУЛЕТКА" in x for x in titles)
+    assert len(set(x.casefold() for x in titles)) == 3
+
+
+def test_verified_title_triplet_rejects_unverified_model_claims():
+    from rg_youtube_private_ab_repair import choose_verified_title_triplet
+    report = {"blocks": [
+        {"verified": False, "topics": [
+            {"topic": "Вигаданий факт про Кремль", "evidence": "Немає доказів"},
+        ]},
+    ]}
+    assert choose_verified_title_triplet([], report, "") == []
