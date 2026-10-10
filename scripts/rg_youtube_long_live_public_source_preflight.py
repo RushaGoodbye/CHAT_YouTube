@@ -92,35 +92,41 @@ def run(
     eligible.sort(key=lambda row: (-row[1], row[0]))
     for video_id, cached_duration in eligible[:cap]:
         result["probed_count"] += 1
+        metadata = {}
         try:
             metadata = dict(metadata_fetch(video_id) or {})
         except Exception as exc:
             if yt_dlp_auth_blocked(exc):
                 result["public_metadata_access_denied"] += 1
-            continue
-        if str(metadata.get("video_id") or "") != video_id:
+            # Metadata can be bot-blocked while the independent transcript API
+            # remains available. Probe captions anyway but never claim a
+            # complete SEO source without the original description.
+        if metadata and str(metadata.get("video_id") or "") != video_id:
             result["metadata_identifier_mismatches"] += 1
             continue
-        result["public_metadata_retrieved"] += 1
-        description_found = bool(str(metadata.get("description") or "").strip())
-        if description_found:
-            result["original_description_retrieved"] += 1
-        if metadata.get("tags"):
-            result["original_tags_retrieved"] += 1
-        try:
-            remote_duration = int(metadata.get("duration") or 0)
-        except (ValueError, TypeError, OverflowError):
-            remote_duration = 0
-        if remote_duration and remote_duration < MIN_LONG_LIVE_SECONDS:
-            result["duration_mismatch_count"] += 1
-            continue
-        duration_seconds = remote_duration or cached_duration
+        description_found = False
+        duration_seconds = cached_duration
+        if metadata:
+            result["public_metadata_retrieved"] += 1
+            description_found = bool(str(metadata.get("description") or "").strip())
+            if description_found:
+                result["original_description_retrieved"] += 1
+            if metadata.get("tags"):
+                result["original_tags_retrieved"] += 1
+            try:
+                remote_duration = int(metadata.get("duration") or 0)
+            except (ValueError, TypeError, OverflowError):
+                remote_duration = 0
+            if remote_duration and remote_duration < MIN_LONG_LIVE_SECONDS:
+                result["duration_mismatch_count"] += 1
+                continue
+            duration_seconds = remote_duration or cached_duration
         captions = []
         try:
             captions = list(transcript_fetch(video_id) or [])
         except Exception:
             captions = []
-        if not captions:
+        if not captions and metadata:
             try:
                 captions = list(track_fetch(metadata, timeout=15.0) or [])
             except Exception:
