@@ -32,6 +32,58 @@ from rg_youtube_staged_long_live_semantic_qa import DEFAULT_PRIVATE_ROOT
 OUTPUT = Path("rg_youtube_private_ab_repair_anonymous.json")
 
 
+def choose_verified_title_triplet(existing: list[str], report: dict, main_title: str) -> list[str]:
+    """Find three distinct hooks from real verified topics, never fabricate one.
+
+    Prefer retaining usable model proposals; sample evidence across the entire
+    timeline, not just the first few minutes. Every triplet must pass the
+    existing independent, source-grounded AB gate before being accepted.
+    """
+    from itertools import combinations
+
+    blocks = list(report.get("blocks") or [])
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        title = " ".join(str(value or "").split())
+        key = title.casefold()
+        if (
+            20 <= len(title) <= 100
+            and key != str(main_title).strip().casefold()
+            and key not in seen
+        ):
+            seen.add(key)
+            candidates.append(title)
+
+    for title in existing:
+        add(title)
+    if blocks:
+        positions = sorted({
+            int(i * (len(blocks) - 1) / 15) for i in range(16)
+        })
+        for pos in positions:
+            block = blocks[pos]
+            if block.get("verified") is not True:
+                continue
+            for item in (block.get("topics") or [])[:2]:
+                if not isinstance(item, dict) or not str(item.get("evidence") or "").strip():
+                    continue
+                topic = " ".join(str(item.get("topic") or "").split())
+                if 8 <= len(topic) <= 72:
+                    add(topic + " | ЧАТ РУЛЕТКА")
+                if len(candidates) >= 25:
+                    break
+            if len(candidates) >= 25:
+                break
+    for chosen in combinations(candidates, 3):
+        if not ab_title_issues(chosen, report):
+            return list(chosen)
+    return []
+
+
+
+
 def _no_missing_block_model(*_args, **_kwargs):
     raise RuntimeError("Private cached evidence missing: no full inference permitted")
 
@@ -151,12 +203,15 @@ def run(
                 proposed = []
             proposed = [str(item).strip() for item in (proposed or []) if str(item).strip()]
             if len(proposed) != 3 or ab_title_issues(proposed, report):
-                # Deterministic fallback: preserve existing reviewed choices
-                # and add only a literal topic from verified private evidence.
-                # This remains REVIEW_REQUIRED, never auto-publishes.
+                # Deterministic fallback: preserve existing choices when valid
+                # and select others from ALL verified timeline sections.
                 proposed = complete_grounded_ab_variants(
                     old_variants, report, main_title=str(package.get("title") or ""),
                 )
+                if len(proposed) != 3 or ab_title_issues(proposed, report):
+                    proposed = choose_verified_title_triplet(
+                        old_variants, report, str(package.get("title") or ""),
+                    )
             result["candidate_ab_titles_count"] = len(proposed)
             if (
                 len(proposed) != 3
