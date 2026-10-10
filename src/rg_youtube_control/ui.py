@@ -112,7 +112,23 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
-from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
+from .ai_repair_status import (
+    ACTIONS_URL as AI_REPAIR_ACTIONS_URL,
+    fetch_ai_repair_status,
+    format_ai_repair_status,
+)
+from .seo_review_acceptance import (
+    SOURCE_GENERATION,
+    load_local_evidence_report,
+    reviewed_seo_acceptance_issues,
+)
+from .seo_quality_gate import review_seo_package
+from .seo_publish_guard import ready_package_blockers
+from .rejected_seo import rejected_package_key, package_fingerprint
+from .cached_metadata import (
+    cached_public_metadata, merge_verified_public_source_metadata,
+    recover_original_from_owner_api, yt_dlp_auth_blocked,
+)
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
     fetch_public_metadata,
@@ -3622,7 +3638,18 @@ class MainWindow(QMainWindow):
             f"{str(item['optimized_at'] or '')[:10]} {str(item['changed_fields'] or '')}"
             for item in history
         )
-        if draft == "ready":
+        if draft == "ready" and self._draft_ready_blockers(
+            get_optimization_draft(self.conn, video_id)
+        ):
+            self.context_primary_btn.setEnabled(True)
+            next_text = (
+                "Старий статус ГОТОВО не підтверджено. "
+                "Потрібна змістовна перевірка відео, опису і тегів."
+            )
+            self.context_primary_btn.setText("Аналізувати діалоги · 0 квоти")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
+        elif draft == "ready":
             can_write = self._quota_write_available(
                 VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
             )
@@ -3742,6 +3769,54 @@ class MainWindow(QMainWindow):
         if reasons:
             return "blocked", reasons
         return "safe", []
+
+    @staticmethod
+    def _queue_effective_draft_status(row) -> str:
+        """Do not present pre-evidence legacy draft as 'ready' in the archive."""
+        status = str(row["draft_status"] or "")
+        if status != "ready":
+            return status
+        generation = str(row["draft_generation"] or "")
+        quality = str(row["draft_quality_state"] or "").casefold()
+        scheduled = bool(row["scheduled_publish_at"])
+        if generation != SOURCE_GENERATION and not scheduled:
+            return "draft"
+        if quality != "safe":
+            return "draft"
+        return status
+
+    def _draft_ready_blockers(self, draft) -> list[str]:
+        """Recheck legacy READY rows without network or any writes."""
+        if draft is None:
+            return ["SEO-пакет відсутній."]
+        video_id = str(draft["video_id"])
+        try:
+            tags = json.loads(draft["tags_json"] or "[]")
+            variants = json.loads(draft["title_variants_json"] or "[]")
+            original_tags = json.loads(draft["source_tags_json"] or "[]")
+            if not all(isinstance(value, list) for value in (tags, variants, original_tags)):
+                return ["Некоректні теги або A/B-назви в збереженому пакеті."]
+        except (TypeError, ValueError):
+            return ["Пошкоджений пакет: теги або A/B-назви не читаються."]
+        row = self.conn.execute(
+            "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        scheduled = bool(row and row["scheduled_publish_at"])
+        evidence = None if scheduled else load_local_evidence_report(
+            self.data_dir, video_id
+        )
+        return ready_package_blockers(
+            title=str(draft["new_title"] or ""),
+            description=str(draft["description"] or ""),
+            chapters=str(draft["chapters"] or ""),
+            tags=tags,
+            variants=variants,
+            scheduled=scheduled,
+            evidence_report=evidence,
+            original_description=str(draft["source_description"] or ""),
+            original_tags=original_tags,
+        )
 
     def _legacy_draft_count(self) -> int:
         return int(
@@ -3908,6 +3983,81 @@ class MainWindow(QMainWindow):
         columns.addLayout(right, 1)
         layout.addLayout(columns, 1)
 
+        try:
+            variants = json.loads(draft["title_variants_json"] or "[]")
+        except (TypeError, ValueError):
+            variants = []
+        ab_preview = QPlainTextEdit()
+        ab_preview.setReadOnly(True)
+        ab_preview.setMaximumHeight(100)
+        ab_preview.setPlainText(
+            "\n".join(f"{i}. {name}" for i, name in enumerate(variants, 1))
+            if isinstance(variants, list) and variants
+            else "A/B-назви не підтверджені"
+        )
+        layout.addWidget(QLabel("ТРИ A/B-НАЗВИ - перевірте перед підтвердженням"))
+        layout.addWidget(ab_preview)
+
+        if str(draft["generation"] or "") == SOURCE_GENERATION:
+            proof = load_local_evidence_report(
+                self.data_dir, video_id,
+            )
+            if proof is None:
+                warning = QLabel(
+                    "УВАГА: доказовий звіт недоступний. "
+                    "Підтвердження цього SEO-пакета заблоковано."
+                )
+                warning.setWordWrap(True)
+                warning.setObjectName("warningLabel")
+                layout.addWidget(warning)
+            else:
+                blocks = proof.get("blocks") or []
+                proof_text = "\n".join(
+                    f"{block.get('start_stamp', '')} | "
+                    + "; ".join(
+                        str(t.get("topic") or "") + " / " + str(t.get("evidence") or "")
+                        for t in (block.get("topics") or [])
+                        if isinstance(t, dict)
+                    )
+                    for block in blocks if isinstance(block, dict)
+                )
+                layout.addWidget(QLabel(
+                    f"Доказова карта діалогів: {len(blocks)} часових фрагментів "
+                    "(повний JSON збережено локально)"
+                ))
+                evidence_box = QPlainTextEdit()
+                evidence_box.setReadOnly(True)
+                evidence_box.setMaximumHeight(140)
+                evidence_box.setPlainText(proof_text[:30000] + (
+                    "\n... Продовження у повному локальному JSON-звіті"
+                    if len(proof_text) > 30000 else ""
+                ))
+                layout.addWidget(evidence_box)
+
+                def show_full_evidence_map() -> None:
+                    # Entire local evidence map, not a shortened 30k preview.
+                    # This dialog never sends content to GitHub or YouTube.
+                    full_dialog = QDialog(dialog)
+                    full_dialog.setWindowTitle(
+                        f"Повна доказова карта · {video_id}"
+                    )
+                    full_dialog.resize(1060, 740)
+                    full_layout = QVBoxLayout(full_dialog)
+                    full_text = QPlainTextEdit()
+                    full_text.setReadOnly(True)
+                    full_text.setPlainText(proof_text)
+                    full_layout.addWidget(full_text, 1)
+                    close_full = QPushButton("Закрити")
+                    close_full.clicked.connect(full_dialog.accept)
+                    full_layout.addWidget(close_full)
+                    full_dialog.exec()
+
+                open_full_map_btn = QPushButton(
+                    "ВІДКРИТИ ВСЮ ДОКАЗОВУ КАРТУ"
+                )
+                open_full_map_btn.clicked.connect(show_full_evidence_map)
+                layout.addWidget(open_full_map_btn)
+
         actions = QHBoxLayout()
         accept_btn = QPushButton("Прийняти")
         accept_btn.setProperty("role", "success")
@@ -3938,20 +4088,19 @@ class MainWindow(QMainWindow):
                FROM optimization_drafts d
                JOIN videos v ON v.video_id=d.video_id
                WHERE v.profile=? AND d.status='draft'
-                 AND COALESCE(d.generation,'legacy')!='legacy'
+                 AND COALESCE(d.generation,'legacy') NOT IN
+                     ('legacy', 'safe-metadata-0.7.6')
                ORDER BY d.updated_at ASC""",
             (self.current_profile,),
         ).fetchall()
         if not rows:
-            legacy = self._legacy_draft_count()
-            if legacy:
-                self._discard_all_legacy_drafts()
-            else:
-                QMessageBox.information(
-                    self,
-                    APP_NAME,
-                    "Пакетів, які очікують перевірки, немає.",
-                )
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Змістовних SEO-пакетів для перевірки немає. "
+                "Технічні пакети метаданих не є SEO-оптимізацією "
+                "і не включаються до цього списку.",
+            )
             return
 
         accepted = 0
@@ -3966,6 +4115,67 @@ class MainWindow(QMainWindow):
                 skipped += 1
                 continue
             if action == "accept":
+                # A click must not override missing evidence or an incomplete A/B set.
+                quality_state = str(draft["quality_state"] or "").casefold()
+                try:
+                    options = json.loads(draft["title_variants_json"] or "[]")
+                except Exception:
+                    options = []
+                generation = str(draft["generation"] or "")
+                issues = []
+                if len(options) != 3:
+                    issues.append("Потрібні три коректні A/B-назви.")
+                try:
+                    original_tags = json.loads(draft["source_tags_json"] or "[]")
+                    if not isinstance(original_tags, list):
+                        original_tags = []
+                except (TypeError, ValueError):
+                    original_tags = []
+                    issues.append("Не вдалося перевірити вихідні теги SEO-пакета.")
+                try:
+                    stored_tags = json.loads(draft["tags_json"] or "[]")
+                    if not isinstance(stored_tags, list):
+                        stored_tags = []
+                except (TypeError, ValueError):
+                    stored_tags = []
+                    issues.append("Не вдалося прочитати SEO-теги чернетки.")
+                if generation == SOURCE_GENERATION:
+                    # Fully evidenced drafts are intentionally saved as
+                    # needs_review. Permit approval ONLY after rechecking the
+                    # saved timeline proof and the currently edited text.
+                    issues.extend(reviewed_seo_acceptance_issues(
+                        generation=generation,
+                        video_id=video_id,
+                        title=str(draft["new_title"] or ""),
+                        description=str(draft["description"] or ""),
+                        variants=options if isinstance(options, list) else [],
+                        data_dir=self.data_dir,
+                        original_description=draft["source_description"],
+                        original_tags=original_tags,
+                        tags=stored_tags,
+                    ))
+                elif quality_state != "safe":
+                    issues.append("Пакет не пройшов перевірку якості.")
+                status, metadata_issues = self._package_quality_gate(
+                    title=str(draft["new_title"] or ""),
+                    description=str(draft["description"] or ""),
+                    chapters=str(draft["chapters"] or ""),
+                    tags=stored_tags if isinstance(stored_tags, list) else [],
+                    require_ukrainian=True,
+                )
+                if status != "safe":
+                    issues.extend(metadata_issues)
+                issues.extend(self._draft_ready_blockers(draft))
+                if issues:
+                    QMessageBox.warning(
+                        self,
+                        "SEO-пакет ще не готовий",
+                        "Ручне підтвердження не скасовує перевірку якості. "
+                        "Виправте наведені проблеми та повторіть перевірку:\n\n"
+                        + "\n".join(f"- {item}" for item in dict.fromkeys(issues)),
+                    )
+                    skipped += 1
+                    continue
                 set_optimization_draft_status(self.conn, video_id, "ready")
                 annotate_optimization_draft(
                     self.conn,
@@ -3982,6 +4192,19 @@ class MainWindow(QMainWindow):
                 )
                 accepted += 1
             elif action == "reject":
+                try:
+                    rejected_tags = json.loads(draft["tags_json"] or "[]")
+                except Exception:
+                    rejected_tags = []
+                set_setting(
+                    self.conn,
+                    rejected_package_key(video_id),
+                    package_fingerprint(
+                        str(draft["new_title"] or ""),
+                        str(draft["description"] or ""),
+                        rejected_tags,
+                    ),
+                )
                 self.conn.execute(
                     "DELETE FROM optimization_drafts WHERE video_id=?",
                     (video_id,),
@@ -4074,7 +4297,12 @@ class MainWindow(QMainWindow):
         draft = get_optimization_draft(self.conn, video_id)
         status = str(draft["status"] or "") if draft is not None else ""
         if status == "ready":
-            self.apply_content_package()
+            if self._draft_ready_blockers(draft):
+                # Rebuild legacy template from real transcript instead of
+                # asking the user to hand-edit fabricated SEO copy.
+                self.local_seo_selected()
+            else:
+                self.apply_content_package()
         elif status == "applied":
             self.tabs.setCurrentIndex(5)
             self.load_optimization_results()
@@ -6170,6 +6398,35 @@ class MainWindow(QMainWindow):
         diagnostics_buttons.addWidget(open_diag_log_btn)
         diagnostics_buttons.addStretch()
         diagnostics_card.addLayout(diagnostics_buttons)
+
+        # Experimental AI code repair: status/report only, never apply a patch.
+        ai_card = settings_card(
+            diagnostics_layout,
+            "AI-автовиправлення · тестовий режим",
+            "Ollama пропонує патч у GitHub. Перевірка виконується окремо. "
+            "Жодні виправлення, оновлення програми чи зміни YouTube "
+            "не встановлюються автоматично.",
+        )
+        self.ai_repair_status_label = QLabel(
+            "Натисніть «Перевірити стан», щоб переглянути останні перевірки GitHub. "
+            "Автоматичне застосування змін ВИМКНЕНО."
+        )
+        self.ai_repair_status_label.setWordWrap(True)
+        self.ai_repair_status_label.setObjectName("QuotaSummary")
+        ai_card.addWidget(self.ai_repair_status_label)
+
+        ai_buttons = QHBoxLayout()
+        self.ai_repair_refresh_btn = QPushButton("Перевірити стан AI")
+        self.ai_repair_refresh_btn.clicked.connect(self.refresh_ai_repair_status)
+        ai_buttons.addWidget(self.ai_repair_refresh_btn)
+        ai_review_btn = QPushButton("Журнал GitHub / рев'ю патчів")
+        ai_review_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(AI_REPAIR_ACTIONS_URL))
+        )
+        ai_buttons.addWidget(ai_review_btn)
+        ai_buttons.addStretch()
+        ai_card.addLayout(ai_buttons)
+
         diagnostics_layout.addStretch()
         self.settings_sections.addTab(diagnostics_page, "Діагностика")
 
@@ -6227,6 +6484,39 @@ class MainWindow(QMainWindow):
         self.reload_action_log()
         if hasattr(self, "log_sections"):
             self.log_sections.setCurrentIndex(1)
+
+    def refresh_ai_repair_status(self) -> None:
+        """Read-only GitHub check in background; never block the main UI."""
+        active = getattr(self, "_ai_repair_worker", None)
+        if active is not None and active.isRunning():
+            return
+        self.ai_repair_refresh_btn.setEnabled(False)
+        self.ai_repair_status_label.setText(
+            "Отримую стан GitHub... Застосування патчів ВИМКНЕНО."
+        )
+        worker = LocalToolWorker(fetch_ai_repair_status, self)
+        self._ai_repair_worker = worker
+
+        def succeeded(result) -> None:
+            self.ai_repair_status_label.setText(format_ai_repair_status(result))
+
+        def failed(message: str) -> None:
+            self.ai_repair_status_label.setText(
+                "GitHub тимчасово недоступний. Статус перевірок НЕ ПІДТВЕРДЖЕНО. "
+                "Автоматичне застосування патчів ВИМКНЕНО. "
+                + str(message)[:180]
+            )
+
+        def finished() -> None:
+            self.ai_repair_refresh_btn.setEnabled(True)
+            self._ai_repair_worker = None
+            worker.deleteLater()
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
 
     def refresh_diagnostics_panel(self) -> None:
         try:
@@ -8596,7 +8886,7 @@ class MainWindow(QMainWindow):
             title_text = str(row["title"] or "")
             video_id = str(row["video_id"] or "")
             issue_text = _issue_labels(issues)
-            draft_key_for_search = str(row["draft_status"] or "")
+            draft_key_for_search = self._queue_effective_draft_status(row)
             status_search_text = {
                 "draft": "потрібно перевірити чернетки черновики проверить",
                 "ready": "готово готові готовые до youtube",
@@ -8614,7 +8904,7 @@ class MainWindow(QMainWindow):
                 )
             ):
                 continue
-            draft_key = str(row["draft_status"] or "")
+            draft_key = self._queue_effective_draft_status(row)
             ctr = float(row["ctr_percent"] or 0)
             impressions = int(row["impressions"] or 0)
             matches_status = (
@@ -8701,7 +8991,7 @@ class MainWindow(QMainWindow):
                 if (transcript_dir / f"{row['video_id']}.srt").exists()
                 else ""
             )
-            draft_key = str(row["draft_status"] or "")
+            draft_key = self._queue_effective_draft_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
@@ -9629,6 +9919,8 @@ class MainWindow(QMainWindow):
                     draft["title_variants_json"] or "[]"
                 )
                 status = draft["status"]
+                if status == "ready" and self._draft_ready_blockers(draft):
+                    status = "draft"
 
             dialog = ContentOptimizationDialog(
                 title,
@@ -9658,6 +9950,33 @@ class MainWindow(QMainWindow):
                 tags=tags,
                 require_ukrainian=False,
             )
+            if status == "ready":
+                evidence = (
+                    None if scheduled_publish_at
+                    else load_local_evidence_report(self.data_dir, video_id)
+                )
+                issues = ready_package_blockers(
+                    title=new_title,
+                    description=description,
+                    chapters=chapters,
+                    tags=tags,
+                    variants=title_variants,
+                    scheduled=bool(scheduled_publish_at),
+                    evidence_report=evidence,
+                    original_description=current_description,
+                    original_tags=current_tags,
+                )
+                if issues:
+                    status = "draft"
+                    quality_state = "blocked"
+                    quality_reasons = list(dict.fromkeys(
+                        [*quality_reasons, *issues]
+                    ))
+                    QMessageBox.warning(
+                        self, "Пакет залишено чернеткою",
+                        "Публікацію заблоковано до перевірки:\n\n"
+                        + "\n".join(f"- {reason}" for reason in issues[:8]),
+                    )
             save_optimization_draft(
                 self.conn,
                 video_id,
@@ -9696,7 +10015,9 @@ class MainWindow(QMainWindow):
         new_title: str,
         new_description: str,
         new_tags: list[str],
+        title_variants: list[str] | None = None,
         evidence_report: dict | None = None,
+        prompt_coverage: dict | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -9713,11 +10034,16 @@ class MainWindow(QMainWindow):
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
+            source_ok = evidence_report.get("source_integrity_verified") is True
             evidence_label = QLabel(
-                f"Переглянуто ВСІ часові фрагменти: {total}; "
+                f"Часових фрагментів: {total}; "
                 f"з доказовими цитатами: {verified}/{total}. "
-                "Межі діалогів не визначаються без розмітки. "
-                "Перевірте повноту тем до підтвердження."
+                + (
+                    "Цілісність транскрипту: ПІДТВЕРДЖЕНО (SHA-256). "
+                    if source_ok else
+                    "УВАГА: цілісність повного транскрипту НЕ ПІДТВЕРДЖЕНО. "
+                )
+                + "Межі діалогів не визначаються без розмітки."
             )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
@@ -9738,6 +10064,68 @@ class MainWindow(QMainWindow):
                 )
             )
             layout.addWidget(evidence_details)
+
+        if evidence_report:
+            grounded_topics = list(dict.fromkeys(
+                str(item.get("topic") or "").strip()
+                for block in evidence_report.get("blocks") or []
+                for item in block.get("topics") or []
+                if str(item.get("topic") or "").strip()
+            ))
+            missing_topics = [
+                topic for topic in grounded_topics
+                if topic.casefold() not in new_description.casefold()
+            ]
+            retention_label = QLabel(
+                f"Збереження тем: {len(grounded_topics) - len(missing_topics)}/"
+                f"{len(grounded_topics)} підтверджених тем присутні в описі."
+            )
+            retention_label.setWordWrap(True)
+            layout.addWidget(retention_label)
+            if missing_topics:
+                missing_label = QLabel(
+                    "УВАГА: теми не знайдені дослівно в новому описі: "
+                    + "; ".join(missing_topics[:12])
+                )
+                missing_label.setWordWrap(True)
+                missing_label.setObjectName("warningLabel")
+                layout.addWidget(missing_label)
+
+        if prompt_coverage and prompt_coverage.get("timeline_prompt_detail_shortened"):
+            omitted = int(prompt_coverage.get("timeline_prompt_omitted_count") or 0)
+            total = int(prompt_coverage.get("timeline_prompt_topics_total") or 0)
+            included = int(prompt_coverage.get("timeline_prompt_topics_included") or 0)
+            prompt_warning = QLabel(
+                "УВАГА: для довгого відео контекст Ollama скорочено. "
+                f"Тем у звіті: {total}; передано моделі: {included}; "
+                f"поза контекстом: {omitted}. "
+                "Повний звіт збережено. Потрібна ручна перевірка."
+            )
+            prompt_warning.setWordWrap(True)
+            prompt_warning.setObjectName("warningLabel")
+            layout.addWidget(prompt_warning)
+
+        if title_variants is not None:
+            variants = [str(value).strip() for value in title_variants if str(value).strip()]
+            ab_heading = QLabel("A/B-назви · 3 альтернативи до основної назви")
+            ab_heading.setWordWrap(True)
+            layout.addWidget(ab_heading)
+            if len(variants) != 3:
+                ab_warning = QLabel(
+                    f"НЕПОВНИЙ A/B-НАБІР: {len(variants)}/3. "
+                    "Чернетка потребує доопрацювання; це не готовий SEO-пакет."
+                )
+                ab_warning.setWordWrap(True)
+                ab_warning.setObjectName("warningLabel")
+                layout.addWidget(ab_warning)
+            ab_options = QPlainTextEdit()
+            ab_options.setReadOnly(True)
+            ab_options.setMaximumHeight(112)
+            ab_options.setPlainText(
+                "\n".join(f"{i}. {value}" for i, value in enumerate(variants, 1))
+                if variants else "Варіанти не згенеровано"
+            )
+            layout.addWidget(ab_options)
 
         change_map = QFrame()
         change_map.setObjectName("QueueCard")
@@ -9870,15 +10258,6 @@ class MainWindow(QMainWindow):
         return True, "OK"
 
     def apply_content_package(self) -> None:
-        required_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
-        if not self._quota_write_available(required_cost):
-            QMessageBox.information(
-                self,
-                "Квота в резерві",
-                "Застосування заблоковано, щоб не витрачати захищений резерв.\n\n"
-                "Пакет залишиться готовим і буде доступний після відновлення квоти.",
-            )
-            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -9898,6 +10277,26 @@ class MainWindow(QMainWindow):
                 self,
                 APP_NAME,
                 "Пакет повинен мати статус «Готово до застосування».",
+            )
+            return
+        blockers = self._draft_ready_blockers(draft)
+        if blockers:
+            QMessageBox.warning(
+                self, "Застосування заблоковано",
+                "Застарілий статус «Готово» не є доказом якості. "
+                "YouTube не змінено.\n\n"
+                + "\n".join(f"- {reason}" for reason in blockers[:9]),
+            )
+            self._update_optimization_context_card()
+            return
+
+        required_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
+        if not self._quota_write_available(required_cost):
+            QMessageBox.information(
+                self,
+                "Квота в резерві",
+                "Застосування заблоковано, щоб не витрачати захищений резерв.\n\n"
+                "Пакет залишиться готовим і буде доступний після відновлення квоти.",
             )
             return
 
@@ -12281,6 +12680,32 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
 
 
+    def _show_local_tool_progress(self, label: str, message: str) -> None:
+        """Reflect completed evidence blocks without claiming SEO is finished."""
+        match = re.search(r"Аналіз фрагментів:\s*(\d+)/(\d+)", message)
+        if match:
+            done = int(match.group(1))
+            total = int(match.group(2))
+            if total > 0:
+                progress = 10 + round(65 * min(done, total) / total)
+                self._set_process(
+                    label,
+                    message,
+                    percent=progress,
+                    eta=f"Аналіз транскрипту · {min(done, total)}/{total} · YouTube API: 0",
+                )
+                return
+        if "Фінальна SEO-генерація" in message:
+            self._set_process(
+                label,
+                message,
+                percent=80,
+                eta="Генерація назв A/B, опису і тегів · YouTube API: 0",
+            )
+            return
+        self._set_process(label, message, percent=None, eta="локально · YouTube API: 0")
+
+
     def _run_local_tool(self, label: str, func, on_success) -> None:
         worker = getattr(self, "_local_tool_worker", None)
         if worker is not None and worker.isRunning():
@@ -12368,12 +12793,7 @@ class MainWindow(QMainWindow):
             self._local_tool_worker = None
 
         worker.progress.connect(
-            lambda message: self._set_process(
-                label,
-                message,
-                percent=None,
-                eta="автоматичний retry",
-            )
+            lambda message: self._show_local_tool_progress(label, message)
         )
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
@@ -12473,14 +12893,26 @@ class MainWindow(QMainWindow):
         context = dict(cached_context)
         public_metadata_attempted = False
         public_metadata_error = ""
-        if not context.get("title"):
-            # yt-dlp is a last resort, never a mandatory dependency when the
-            # authenticated channel metadata is already cached in SQLite.
+        missing_title = not str(context.get("title") or "").strip()
+        missing_original_description = not bool(
+            context.get("source_description_available")
+        )
+        if missing_title or missing_original_description:
+            # Source description is as important as the cached title:
+            # without it, we cannot prove that existing URLs were preserved.
+            # Public yt-dlp costs zero YouTube Data API quota.
             public_metadata_attempted = True
             if on_progress is not None:
-                on_progress("Немає назви в базі · резервний запит yt-dlp")
+                on_progress(
+                    "Відновлення оригінального опису · yt-dlp · API 0"
+                    if not missing_title else
+                    "Немає назви в базі · резервний запит yt-dlp"
+                )
             try:
-                context = fetch_public_metadata(video_id)
+                public_context = fetch_public_metadata(video_id)
+                context = merge_verified_public_source_metadata(
+                    context, video_id, public_context
+                )
             except Exception as exc:
                 public_metadata_error = str(exc)
                 live_tokens = (
@@ -12494,17 +12926,40 @@ class MainWindow(QMainWindow):
                         "Відео визначено як майбутній/живий стрім. "
                         "Архівний локальний SEO для нього заблоковано."
                     ) from exc
-                if yt_dlp_auth_blocked(exc):
+                # Public source is unavailable. Owner videos.list is the
+                # validated 1-unit read-only fallback (never a write).
+                # Respect quota reserve and account for the request on the
+                # worker thread's own SQLite connection, not self.conn.
+                try:
+                    with sqlite3.connect(
+                        str(self.data_dir / "rg_youtube_control.db")
+                    ) as quota_conn:
+                        quota_conn.row_factory = sqlite3.Row
+                        budget = quota_budget_status(quota_conn)
+                    if budget["exhausted"] or int(budget["spendable"]) < READ_REQUEST_COST:
+                        raise RuntimeError("Немає вільної квоти понад резерв.")
+                    if on_progress is not None:
+                        on_progress("Оригінальний опис · авторизований канал · 1 одиниця API")
+                    context, owner_calls = recover_original_from_owner_api(
+                        context, video_id, profile=self.current_profile
+                    )
+                    if owner_calls:
+                        with sqlite3.connect(
+                            str(self.data_dir / "rg_youtube_control.db")
+                        ) as usage_conn:
+                            usage_conn.row_factory = sqlite3.Row
+                            record_quota_units(
+                                usage_conn, owner_calls * READ_REQUEST_COST,
+                                purpose="video",
+                            )
+                    public_metadata_error = ""
+                except Exception as owner_exc:
                     raise RuntimeError(
-                        "YouTube обмежив публічний доступ yt-dlp, а "
-                        "локальних метаданих цього відео ще немає. "
-                        "Синхронізуйте канал у програмі та повторіть спробу. "
-                        "Cookies та вхід у браузер не потрібні."
-                    ) from exc
-                raise RuntimeError(
-                    "Немає локальних метаданих і yt-dlp недоступний: "
-                    + public_metadata_error[:250]
-                ) from exc
+                        "Неможливо підтвердити вихідний опис через yt-dlp "
+                        "або авторизований канал. Чернетка SEO не створена, "
+                        "YouTube не змінено. Перевірте доступну квоту й "
+                        "підключення LIVE-каналу."
+                    ) from owner_exc
         elif on_progress is not None:
             on_progress(
                 "Метадані отримано з локальної бази · yt-dlp не потрібен · API 0"
@@ -12918,7 +13373,17 @@ class MainWindow(QMainWindow):
                     raise RuntimeError(
                         "Автоперевірка пакета: " + "; ".join(quality_reasons)
                     )
+                if package_fingerprint(title, description, tags) == get_setting(
+                    self.conn, rejected_package_key(video_id), ""
+                ):
+                    raise RuntimeError("Тотожний SEO-пакет уже було відхилено")
                 context = dict(item.get("context") or {})
+                evidence_issues = review_seo_package(
+                    title=title,
+                    description=description,
+                    variants=variants,
+                    evidence_report=item.get("evidence_report"),
+                )
                 save_optimization_draft(
                     self.conn,
                     video_id,
@@ -12929,8 +13394,8 @@ class MainWindow(QMainWindow):
                     "draft",
                     variants,
                     generation="local-seo-0.6",
-                    quality_state="review",
-                    quality_reason="Автоперевірка пройдена; потрібне підтвердження",
+                    quality_state="needs_review" if evidence_issues else "review",
+                    quality_reason="; ".join(evidence_issues) if evidence_issues else "Автоперевірка пройдена; потрібне підтвердження",
                     source_title=str(context.get("title") or ""),
                     source_description=str(context.get("description") or ""),
                     source_tags=list(context.get("tags") or []),
@@ -13071,6 +13536,16 @@ class MainWindow(QMainWindow):
             title,
         ).after
 
+        if package_fingerprint(title, description, tags) == get_setting(
+            self.conn, rejected_package_key(video_id), ""
+        ):
+            QMessageBox.information(
+                self, APP_NAME,
+                "Цей самий SEO-пакет уже відхилено. "
+                "Створіть змістовно змінений варіант перед новою перевіркою.",
+            )
+            return
+
         before_title = str(context.get("title") or "")
         before_description = str(context.get("description") or "")
         before_tags = list(context.get("tags") or [])
@@ -13085,7 +13560,9 @@ class MainWindow(QMainWindow):
                 safe_description_fix(description, title).after
             ),
             new_tags=tags,
+            title_variants=variants,
             evidence_report=evidence_report,
+            prompt_coverage=package,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
@@ -13106,9 +13583,19 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        evidence_issues = review_seo_package(
+            title=title,
+            description=description,
+            variants=variants,
+            evidence_report=evidence_report,
+            original_description=before_description,
+            original_tags=before_tags,
+            tags=tags,
+        )
+        requires_review = bool(package.get("needs_review")) or bool(evidence_issues)
         draft_reason = (
-            str(package.get("review_reason") or "").strip()
+            "; ".join(evidence_issues)
+            or str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
             if requires_review else "Переглянуто користувачем"
         )

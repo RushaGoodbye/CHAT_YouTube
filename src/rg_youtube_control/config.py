@@ -30,7 +30,11 @@ PACKAGE_BRIDGE_URL = "http://AlexLosServer:8790"
 
 
 def normalize_nas_unc_path(value: str | None, default: str) -> str:
-    text = (value or "").strip().replace("/", "\\")
+    # A local POSIX directory (used by NAS/Linux and CI) is not a Windows UNC.
+    raw = (value or "").strip()
+    if os.name != "nt" and raw.startswith("/"):
+        return raw
+    text = raw.replace("/", "\\")
     if not text:
         text = default
 

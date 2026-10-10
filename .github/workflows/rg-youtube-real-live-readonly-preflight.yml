@@ -1,0 +1,315 @@
+name: RG YouTube Real LIVE Readonly Preflight
+
+on:
+  push:
+    branches:
+      - audit/youtube-control-0710-comprehensive-qa
+    paths:
+      - ".github/workflows/rg-youtube-real-live-readonly-preflight.yml"
+      - "scripts/rg_youtube_real_live_seo_qa.py"
+      - "scripts/rg_youtube_long_live_public_source_preflight.py"
+      - "scripts/rg_youtube_long_live_owner_source_preflight.py"
+      - "scripts/rg_youtube_owner_caption_inventory_once.py"
+      - "scripts/rg_youtube_owner_caption_download_once.py"
+      - "scripts/rg_youtube_staged_long_live_semantic_qa.py"
+      - "scripts/rg_youtube_private_ab_repair.py"
+      - "scripts/rg_youtube_private_description_repair.py"
+      - "src/rg_youtube_control/cached_metadata.py"
+      - "src/rg_youtube_control/config.py"
+      - "src/rg_youtube_control/dialogue_seo.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-real-live-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  live-source-preflight:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 120
+    steps:
+      - name: Check runner is AlexPC
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Only ALEXPC is allowed" }
+          Write-Host "RG YOUTUBE PREFLIGHT: host verified"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare isolated local Python dependencies
+        shell: powershell
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "Could not create isolated Python environment" }
+          & ".\\.venv\\Scripts\\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Could not install isolated runtime dependencies" }
+
+      - name: Read local LIVE metadata and NAS SRT availability without network
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_real_live_seo_qa.py --long-live --preflight-only --caption-probes 0
+          if ($LASTEXITCODE -ne 0) { throw "Readonly LIVE preflight execution failed" }
+
+      - name: Validate anonymous, non-publishing output
+        shell: powershell
+        run: |
+          $p = "rg_youtube_real_live_seo_anonymous_qa.json"
+          if (-not (Test-Path $p)) { throw "No preflight result" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("SOURCE_READY", "NOT_READY")) { throw "Unexpected readiness status" }
+          if ($r.youtube_modified -or $r.source_text_exported -or $r.generated_content_exported) {
+            throw "Read-only or anonymization guarantee failed"
+          }
+          if ($r.caption_lookups -ne 0 -or $r.youtube_data_api_calls -ne 0) {
+            throw "Network / API cap violated"
+          }
+          Write-Host ("REAL LIVE PREFLIGHT: " + $r.status)
+          Write-Host ("LONG SOURCE ARCHIVES: " + $r.duration_qualified_source_archives)
+          Write-Host ("NAS SRT FOUND: " + $r.nas_srt_sources_available)
+          Write-Host ("SOURCE TYPE: " + $r.selected_source_type)
+          Write-Host ("NEXT ACTION: " + $r.reason)
+
+      - name: Inspect public source descriptions and captions for five long LIVE
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_long_live_public_source_preflight.py --max-videos 5
+          if ($LASTEXITCODE -ne 0) { throw "Public read-only source check could not complete" }
+
+      - name: Validate anonymous public-source diagnostic
+        shell: powershell
+        run: |
+          $p = "rg_youtube_long_live_public_source_anonymous.json"
+          if (-not (Test-Path $p)) { throw "No public-source diagnostic output" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("SOURCE_READY", "NOT_READY")) { throw "Unknown public-source status" }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.ollama_called -or
+              $r.source_text_exported -or $r.source_identifiers_exported -or
+              $r.generated_content_exported -or $r.private_metadata_saved -or
+              $r.youtube_data_api_calls -ne 0 -or $r.probed_count -gt 5) {
+            throw "Public probe safety validation failed"
+          }
+          Write-Host ("PUBLIC SOURCE: " + $r.status)
+          Write-Host ("LONG VIDEOS PROBED: " + $r.probed_count)
+          Write-Host ("ORIGINAL DESCRIPTIONS FOUND: " + $r.original_description_retrieved)
+          Write-Host ("CAPTION TRACKS FOUND: " + $r.captions_retrieved)
+          Write-Host ("COMPLETE CAPTION TRACKS: " + $r.full_span_caption_sources)
+          Write-Host ("FULLY READY CANDIDATES: " + $r.ready_source_candidates)
+          Write-Host ("YT-DLP ACCESS DENIED: " + $r.public_metadata_access_denied)
+
+      - name: Recover original descriptions via one owner read-only videos.list if public source failed
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          $public = Get-Content "rg_youtube_long_live_public_source_anonymous.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($public.status -eq "SOURCE_READY") {
+            Write-Host "OWNER SOURCE: skipped; zero-quota public sources already sufficient"
+          } else {
+            & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_long_live_owner_source_preflight.py
+            if ($LASTEXITCODE -ne 0) { throw "Owner read-only source check failed" }
+          }
+
+      - name: Validate owner output is anonymous and no writes occurred
+        shell: powershell
+        run: |
+          $p = "rg_youtube_long_live_owner_source_anonymous.json"
+          if (Test-Path $p) {
+            $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($r.status -notin @("SOURCE_READY", "NOT_READY")) { throw "Unexpected owner source result" }
+            if ($r.youtube_modified -or $r.nas_modified -or $r.db_modified -or
+                $r.source_text_exported -or $r.source_identifiers_exported -or
+                $r.credentials_exported -or $r.oauth_browser_opened -or
+                $r.ollama_called -or $r.youtube_data_api_calls -gt 1 -or
+                $r.requested_ids -gt 5) {
+              throw "Owner source read-only safety assertion failed"
+            }
+            Write-Host ("OWNER SOURCE: " + $r.status)
+            Write-Host ("API REQUESTS (one-unit read): " + $r.youtube_data_api_calls)
+            Write-Host ("OWNER DESCRIPTIONS FOUND: " + $r.source_descriptions_available)
+            Write-Host ("OWNER PROFILE CONNECTED: " + $r.owner_profile_authorized)
+          }
+
+      - name: ONE SHOT inspect owner caption tracks for one long LIVE within quota reserve
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_owner_caption_inventory_once.py
+          if ($LASTEXITCODE -ne 0) { throw "Bounded owner captions inventory did not complete" }
+
+      - name: Validate one-shot caption inventory is anonymous and no downloads
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_owner_caption_inventory_anonymous.json"
+          if (-not (Test-Path $p)) { throw "No owner caption inventory report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.youtube_modified -or $r.nas_modified -or $r.source_text_exported -or
+              $r.video_identifiers_exported -or $r.caption_identifiers_exported -or
+              $r.credentials_exported -or $r.caption_downloads -gt 0 -or
+              $r.ollama_called -or $r.caption_lists_requested -gt 1 -or
+              $r.quota_units_accounted -gt 50) {
+            throw "Owner caption read-only safety contract violated"
+          }
+          Write-Host ("OWNER CAPTIONS STATUS: " + $r.status)
+          Write-Host ("TRACKS DISCOVERED: " + $r.available_tracks)
+          Write-Host ("ASR TRACKS: " + $r.asr_tracks)
+          Write-Host ("QUOTA USED: " + $r.quota_units_accounted)
+
+      - name: ONE SHOT stage complete owner ASR privately on F drive
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-srt-stage' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_owner_caption_download_once.py
+          if ($LASTEXITCODE -ne 0) { throw "Owner ASR staging script failed" }
+
+      - name: Validate SRT stage did not export source or modify YouTube
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-srt-stage' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_owner_caption_download_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing stage safety report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.youtube_modified -or $r.nas_modified -or $r.video_ids_exported -or
+              $r.source_text_exported -or $r.caption_text_exported -or
+              $r.credentials_exported -or $r.ollama_called -or
+              $r.api_requests_sent -gt 2 -or $r.quota_units_accounted -gt 250) {
+            throw "Private owner SRT source safety check failed"
+          }
+          Write-Host ("OWNER SRT STATUS: " + $r.status)
+          Write-Host ("CAPTION ROWS: " + $r.caption_rows)
+          Write-Host ("FULL LONG SPAN: " + $r.full_span_coverage)
+          Write-Host ("PRIVATE SOURCE STAGED: " + $r.local_private_source_staged)
+          Write-Host ("OWNER QUOTA ACCOUNTED: " + $r.quota_units_accounted)
+
+      - name: ONE SHOT resume 47-block real LIVE SEO from private Ollama evidence cache
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-long-live-semantic' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B -u scripts/rg_youtube_staged_long_live_semantic_qa.py
+          if ($LASTEXITCODE -ne 0) { throw "Full long LIVE local semantic QA process failed" }
+
+      - name: Validate complete semantic QA exported only anonymous metrics
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-long-live-semantic' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_staged_long_live_semantic_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing long LIVE anonymous QA report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("STRUCTURE_PASS", "REVIEW_REQUIRED", "GPU_BUSY", "NOT_READY")) {
+            throw "Unknown long LIVE semantic result"
+          }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.source_text_exported -or
+              $r.video_ids_exported -or $r.draft_content_exported -or
+              $r.credentials_exported -or $r.caption_downloads -ne 0 -or
+              $r.youtube_data_api_calls -gt 1) {
+            throw "Private local semantic QA safety guarantee failed"
+          }
+          Write-Host ("REAL 3H+ SEO STATUS: " + $r.status)
+          Write-Host ("CAPTION ROWS VERIFIED: " + $r.source_caption_rows)
+          Write-Host ("ALL BLOCKS: " + $r.timeline_blocks)
+          Write-Host ("GROUNDED BLOCKS: " + $r.grounded_blocks)
+          Write-Host ("A/B TITLES: " + $r.ab_titles_count)
+          Write-Host ("SEO WARNINGS: " + $r.semantic_gate_warnings_count)
+          Write-Host ("PRIVATE SEO DRAFT SAVED: " + $r.private_draft_saved)
+          Write-Host ("ELAPSED SECONDS: " + $r.elapsed_seconds)
+
+      - name: ONE SHOT recover three A/B titles from verified private LIVE evidence
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-ab-only-repair' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B -u scripts/rg_youtube_private_ab_repair.py
+          if ($LASTEXITCODE -ne 0) { throw "Private evidence-only title repair failed" }
+
+      - name: Validate private title repair exported only anonymous counters
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-ab-only-repair' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_private_ab_repair_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing private AB repair report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("NOT_READY", "REVIEW_REQUIRED", "ALREADY_VALID_AB", "IMPROVED_REVIEW_DRAFT")) {
+            throw "Unexpected AB repair status"
+          }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.captions_downloaded -or
+              $r.source_text_exported -or $r.source_identifiers_exported -or
+              $r.generated_content_exported -or $r.youtube_data_api_calls -ne 0 -or
+              $r.ollama_title_calls -gt 1) { throw "AB repair safety validation failed" }
+          Write-Host ("PRIVATE AB STATUS: " + $r.status)
+          Write-Host ("VERIFIED EVIDENCE BLOCKS: " + $r.evidence_blocks_verified)
+          Write-Host ("PREVIOUS TITLES: " + $r.previous_ab_titles_count)
+          Write-Host ("NEW TITLES: " + $r.candidate_ab_titles_count)
+          Write-Host ("PREVIOUS QA WARNINGS: " + $r.previous_gate_warnings)
+          Write-Host ("NEW QA WARNINGS: " + $r.candidate_gate_warnings)
+          Write-Host ("PRIVATE DRAFT UPDATED: " + $r.private_draft_updated)
+
+      - name: ONE SHOT repair private LIVE description from verified cached evidence
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-description-repair' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_private_description_repair.py
+          if ($LASTEXITCODE -ne 0) { throw "Private offline description repair did not complete" }
+
+      - name: Validate anonymous description repair counters
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-description-repair' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_private_description_repair_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing private description QA output" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("NOT_READY", "REVIEW_REQUIRED", "IMPROVED_REVIEW_DRAFT")) {
+            throw "Unexpected private description result"
+          }
+          if ($r.youtube_data_api_calls -ne 0 -or $r.youtube_modified -or
+              $r.nas_modified -or $r.ollama_called -or $r.caption_downloads -ne 0 -or
+              $r.source_text_exported -or $r.video_ids_exported -or $r.draft_content_exported) {
+            throw "Private description repair safety contract violated"
+          }
+          Write-Host ("PRIVATE DESCRIPTION STATUS: " + $r.status)
+          Write-Host ("VERIFIED BLOCKS: " + $r.verified_blocks)
+          Write-Host ("PREVIOUS WARNINGS: " + $r.previous_warnings)
+          Write-Host ("REPAIRED WARNINGS: " + $r.candidate_warnings)
+          Write-Host ("PRIVATE DRAFT UPDATED: " + $r.private_draft_updated)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rg-youtube-live-readonly-preflight
+          path: |
+            rg_youtube_real_live_seo_anonymous_qa.json
+            rg_youtube_long_live_public_source_anonymous.json
+            rg_youtube_long_live_owner_source_anonymous.json
+            rg_youtube_owner_caption_inventory_anonymous.json
+            rg_youtube_owner_caption_download_anonymous.json
+            rg_youtube_staged_long_live_semantic_anonymous.json
+            rg_youtube_private_ab_repair_anonymous.json
+            rg_youtube_private_description_repair_anonymous.json
+          if-no-files-found: ignore
+          retention-days: 7

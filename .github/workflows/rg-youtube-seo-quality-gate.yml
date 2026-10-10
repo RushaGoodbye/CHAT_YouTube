@@ -1,0 +1,167 @@
+name: RG YouTube SEO Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/rg_youtube_control/**"
+      - "tests/test_seo_*.py"
+      - "tests/test_rejected_seo.py"
+      - "tests/test_content_vs_technical_review.py"
+      - "tests/test_review_quality_accept.py"
+      - ".github/workflows/rg-youtube-seo-quality-gate.yml"
+      - ".github/workflows/rg-youtube-autonomous-repair.yml"
+      - "scripts/rg_youtube_seo_repair_agent.py"
+      - "scripts/rg_youtube_ollama_repair_drill.py"
+      - "scripts/rg_youtube_proposal_only.py"
+      - "scripts/rg_youtube_validate_proposal.py"
+      - "scripts/rg_youtube_prepare_hosted_smoke.py"
+      - "tests/test_autonomous_repair_safety.py"
+      - "tests/test_safe_proposal_pipeline.py"
+      - "tests/test_ai_repair_status.py"
+      - "tests/test_evidence_context_budget.py"
+      - "tests/test_seo_review_acceptance.py"
+      - "tests/test_real_srt_preflight.py"
+      - "tests/test_real_seo_anonymous_qa.py"
+      - "tests/test_live_captions_preflight.py"
+      - "tests/test_grounded_quote_retention.py"
+      - "tests/test_real_live_seo_qa.py"
+      - "tests/test_ytdlp_cached_fallback_v0710.py"
+      - "scripts/rg_youtube_real_live_seo_qa.py"
+      - "scripts/rg_youtube_live_captions_preflight.py"
+      - "scripts/rg_youtube_real_seo_local_qa.py"
+      - "scripts/rg_youtube_real_srt_preflight.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-seo-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safety-and-content-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Qt runtime libraries for headless Linux tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile proposal generation and hosted validator
+        run: python -m py_compile scripts/rg_youtube_proposal_only.py scripts/rg_youtube_validate_proposal.py
+      - name: Compile isolated repair drill and hosted smoke fixture
+        run: python -m py_compile scripts/rg_youtube_ollama_repair_drill.py scripts/rg_youtube_prepare_hosted_smoke.py
+      - name: Run SEO safeguards
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src
+        run: |
+          mkdir -p qa-results
+          python -m pytest -q \
+            tests/test_seo_preview_ab_contract.py \
+            tests/test_seo_quality_gate.py \
+            tests/test_seo_publish_guard.py \
+            tests/test_rejected_seo.py \
+            tests/test_content_vs_technical_review.py \
+            tests/test_review_quality_accept.py \
+            tests/test_autonomous_repair_safety.py \
+            tests/test_safe_proposal_pipeline.py \
+            tests/test_ai_repair_status.py \
+            tests/test_evidence_context_budget.py \
+            tests/test_seo_review_acceptance.py \
+            tests/test_real_srt_preflight.py \
+            tests/test_real_seo_anonymous_qa.py \
+            tests/test_live_captions_preflight.py \
+            tests/test_grounded_quote_retention.py \
+            tests/test_real_live_seo_qa.py \
+            tests/test_ytdlp_cached_fallback_v0710.py \
+            --junitxml=qa-results/seo-safety-tests.xml
+      - name: Verify autonomous repair agent in no-write mode
+        env:
+          PYTHONPATH: src
+        run: python scripts/rg_youtube_seo_repair_agent.py
+      - name: Upload QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-seo-quality-report
+          path: qa-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  artifact-producer:
+    name: Host-only proposal artifact roundtrip - producer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare deterministic synthetic proposal (no model call)
+        run: python scripts/rg_youtube_prepare_hosted_smoke.py
+      - name: Upload untrusted JSON as GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-artifact-roundtrip-candidate
+          path: rg_youtube_proposed_candidate.json
+          if-no-files-found: error
+          retention-days: 1
+
+  artifact-validator:
+    name: Host-only proposal artifact roundtrip - validator
+    needs: artifact-producer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install headless Qt libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install full project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Download JSON artifact from independent GitHub job
+        uses: actions/download-artifact@v4
+        with:
+          name: rg-youtube-artifact-roundtrip-candidate
+          path: .
+      - name: Hosted validation of delivered candidate
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/rg_youtube_validate_proposal.py
+      - name: Check full-suite PASS and checkout integrity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("rg_youtube_hosted_validation.json").read_text())
+          assert report["status"] == "DRILL_PASS", report
+          assert report["targeted_pass"] and report["full_pass"], report
+          print("ARTIFACT ROUNDTRIP: PASS, full suite PASS")
+          PY
+          git diff --exit-code -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py
+      - name: Upload cross-job validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-artifact-roundtrip-report
+          path: rg_youtube_hosted_validation.json
+          if-no-files-found: ignore
+          retention-days: 14

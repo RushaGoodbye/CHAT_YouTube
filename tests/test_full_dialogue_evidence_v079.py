@@ -212,3 +212,115 @@ def test_final_generator_prompt_no_longer_starts_only_with_first_12k():
     assert "ab_title_issues(" in block
     assert "evidence_report: dict[str, Any] | None = None" in block
     assert 'or bool(evidence_report)' in block
+
+
+def test_source_integrity_proof_covers_long_cues_and_last_caption(tmp_path):
+    rows = [
+        {"text": "Перша важлива тема про ціни 2026 року.", "start": 0, "duration": 3},
+        {"text": "А" * 700 + " кінець дуже довгої репліки.", "start": 20, "duration": 6},
+        {"text": "   ", "start": 35, "duration": 2},
+        {"text": "У фіналі: інша новина про бензин та санкції!", "start": 2400, "duration": 5},
+    ]
+    # A generator must be materialized exactly once, not consumed by the
+    # preliminary integrity check before timeline segmentation.
+    result = analyze_all_timeline_blocks(
+        (row for row in rows), model="offline", chat=lambda *_a, **_k: '{"topics":[]}',
+        cache_dir=tmp_path, max_chars=250, max_span_seconds=150,
+    )
+    assert result["source_rows_total"] == 4
+    assert result["source_rows_with_text"] == 3
+    assert result["source_text_chars"] == result["covered_text_chars"]
+    assert result["source_text_sha256"] == result["covered_text_sha256"]
+    assert result["source_integrity_verified"] is True
+    assert result["blocks_total"] == result["blocks_analyzed"]
+    assert result["blocks_total"] >= 4
+    assert result["blocks"][-1]["start"] == 2400
+
+
+def test_seo_progress_shows_actual_timeline_fraction_not_instant_success():
+    from rg_youtube_control.ui import MainWindow
+
+    class Reporter:
+        def __init__(self):
+            self.calls = []
+        def _set_process(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    reporter = Reporter()
+    MainWindow._show_local_tool_progress(
+        reporter, "Локальне SEO", "Аналіз фрагментів: 4/20 · 00:02:30"
+    )
+    arguments, options = reporter.calls[-1]
+    assert arguments[0] == "Локальне SEO"
+    assert options["percent"] == 23
+    assert "4/20" in options["eta"]
+
+    MainWindow._show_local_tool_progress(
+        reporter, "Локальне SEO",
+        "Фінальна SEO-генерація: назви A/B, опис, теги · API 0",
+    )
+    assert reporter.calls[-1][1]["percent"] == 80
+    MainWindow._show_local_tool_progress(reporter, "Локальне SEO", "Очікування")
+    assert reporter.calls[-1][1]["percent"] is None
+
+
+def test_preview_does_not_claim_full_video_analyzed_without_hash_proof():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    start = source.index("    def _preview_deep_content_package(")
+    end = source.index("    def ", start + 10)
+    preview = source[start:end]
+    assert 'source_integrity_verified' in preview
+    assert 'Цілісність транскрипту: ПІДТВЕРДЖЕНО' in preview
+    assert 'НЕ ПІДТВЕРДЖЕНО' in preview
+    assert 'Переглянуто ВСІ часові фрагменти' not in preview
+
+
+def test_unverified_timeline_block_gets_one_bounded_grounded_retry(tmp_path):
+    rows = _rows(9)
+    attempts = []
+    def chat(messages, **kwargs):
+        attempts.append(messages[-1]["content"])
+        if len(attempts) == 1:
+            return '{"topics":[]}'
+        return _fake_chat(messages, **kwargs)
+    report = analyze_all_timeline_blocks(
+        rows, model="test-retry", chat=chat,
+        cache_dir=tmp_path, max_chars=500,
+    )
+    assert report["source_integrity_verified"] is True
+    assert report["blocks_with_evidence"] == report["blocks_total"]
+    assert len(attempts) == report["blocks_total"] + 1
+    attempts.clear()
+    again = analyze_all_timeline_blocks(
+        rows, model="test-retry", chat=chat,
+        cache_dir=tmp_path, max_chars=500,
+    )
+    assert again["cache_hits"] == again["blocks_total"]
+    assert attempts == []
+
+
+def test_grounded_ab_fallback_adds_third_from_verified_source_only():
+    from rg_youtube_control.dialogue_seo import complete_grounded_ab_variants
+    report = {"blocks": [
+        {"verified": True, "topics": [{"topic": "Ціни на бензин у Росії"}]},
+        {"verified": True, "topics": [{"topic": "Російська пропаганда та війна"}]},
+        {"verified": False, "topics": [{"topic": "НЕПІДТВЕРДЖЕНА ВИГАДКА"}]},
+    ]}
+    existing = [
+        "Бензин и цены: что говорят россияне",
+        "Война и пропаганда: разговор с россиянами",
+    ]
+    result = complete_grounded_ab_variants(existing, report, main_title="ЧАТ РУЛЕТКА: архів")
+    assert len(result) == 3
+    assert result[:2] == existing
+    assert "Ціни на бензин у Росії" in result[2]
+    assert "НЕПІДТВЕРДЖЕНА" not in str(result)
+
+
+def test_grounded_ab_fallback_never_invents_third_if_source_lacks_topics():
+    from rg_youtube_control.dialogue_seo import complete_grounded_ab_variants
+    choices = complete_grounded_ab_variants(
+        ["Бензин и цены: что говорят россияне", "Что с войной: ответы россиян"],
+        {"blocks": [{"verified": False, "topics": [{"topic": "Путін відповів на запитання"}]}]},
+    )
+    assert len(choices) == 2

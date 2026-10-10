@@ -148,3 +148,116 @@ def test_local_seo_without_transcript_requires_manual_review(monkeypatch):
     assert result["needs_review"] is True
     assert "Транскрипт відсутній" in result["review_reason"]
     assert result["youtube_data_api_quota"] == 0
+
+
+@pytest.mark.parametrize("recovered_is_better", [True, False])
+def test_source_grounded_ab_repair_replaces_titles_only_when_gate_improves(
+    monkeypatch, recovered_is_better
+):
+    _mock_related_helpers(monkeypatch)
+    # Evidence mode passes max_chars to the description quality validator.
+    monkeypatch.setattr(ft, "_description_quality_error", lambda *_a, **_k: "")
+    original = [
+        "Старый спор о бензине в России",
+        "Россияне про бензин и цены",
+        "Бензин в России: что случилось",
+    ]
+    improved = [
+        "Кто объяснил рост цен на бензин в России",
+        "Почему на АЗС спорят о стоимости топлива",
+        "Новые цены на бензин: мнение собеседника",
+    ]
+    monkeypatch.setattr(
+        ft, "ollama_chat",
+        lambda *_a, **_kw: json.dumps({
+            "title": CURRENT_TITLE,
+            "title_variants": original,
+            "description": GOOD_DESCRIPTION,
+            "tags": ["цены на бензин"] * 10,
+            "chapters": "",
+        }, ensure_ascii=False),
+    )
+    monkeypatch.setattr(
+        ft, "_grounded_tags_from_transcript",
+        lambda *_a: [f"конкретний тег {n}" for n in range(10)],
+    )
+    monkeypatch.setattr(ft, "_tag_is_grounded", lambda *_a: True)
+    recovered = []
+    monkeypatch.setattr(
+        ft, "_recover_title_variants",
+        lambda **_kw: recovered.append(1) or (
+            improved if recovered_is_better else original
+        ),
+    )
+    monkeypatch.setattr(
+        ft, "ab_title_issues",
+        lambda variants, *_a: [] if list(variants) == improved else [
+            "Недостатньо різні A/B назви"
+        ],
+    )
+    result = ft.generate_seo_package_local(
+        current_title=CURRENT_TITLE,
+        transcript=TRANSCRIPT,
+        is_short=True,
+        evidence_report={
+            "blocks": [{"start_stamp": "00:00:00", "topics": [{
+                "topic": "Ціни на бензин",
+                "summary_uk": "Співрозмовник говорить про АЗС",
+                "evidence": "бензин в России, цены на АЗС",
+            }]}]
+        },
+        fast_mode=False,
+        timeout=1,
+    )
+    assert recovered == [1]
+    assert result["title_variants"] == (
+        improved if recovered_is_better else original
+    )
+    assert result["ab_quality_issues"] == (
+        [] if recovered_is_better else ["Недостатньо різні A/B назви"]
+    )
+    assert result["youtube_data_api_quota"] == 0
+
+
+def test_two_ab_titles_get_one_final_bounded_repair_to_three(monkeypatch):
+    _mock_related_helpers(monkeypatch)
+    monkeypatch.setattr(ft, "_description_quality_error", lambda *_a, **_kw: "")
+    source_variants = ["Бензин у Росії - тема діалогу", "Ціни на АЗС - відповіді росіян"]
+    full_variants = [
+        "Співрозмовник пояснює ситуацію з бензином у Росії",
+        "Ціни на АЗС: які питання ставили росіянам",
+        "Топливо та ціни: різні відповіді співрозмовників",
+    ]
+    monkeypatch.setattr(ft, "ollama_chat", lambda *_a, **_kw: json.dumps({
+        "title": CURRENT_TITLE, "title_variants": source_variants,
+        "description": GOOD_DESCRIPTION, "tags": [], "chapters": "",
+    }, ensure_ascii=False))
+    monkeypatch.setattr(
+        ft, "_grounded_tags_from_transcript",
+        lambda *_a: [f"конкретний тег {n}" for n in range(10)],
+    )
+    calls = []
+    def recover(**_kw):
+        calls.append(1)
+        return source_variants if len(calls) == 1 else full_variants
+    monkeypatch.setattr(ft, "_recover_title_variants", recover)
+    monkeypatch.setattr(
+        ft, "ab_title_issues",
+        lambda variants, *_a: [] if list(variants) == full_variants
+        else ["Потрібно рівно 3 назви для A/B."],
+    )
+    result = ft.generate_seo_package_local(
+        current_title=CURRENT_TITLE, transcript=TRANSCRIPT,
+        evidence_report={
+            "blocks": [{"start_stamp": "00:00:00", "topics": [{
+                "topic": "Ціни на бензин",
+                "summary_uk": "Співрозмовник говорить про АЗС",
+                "evidence": "бензин в России, цены на АЗС",
+            }]}]
+        },
+        fast_mode=False, is_short=True, timeout=1,
+    )
+    assert calls == [1, 1]
+    assert result["title_variants"] == full_variants
+    assert result["ab_quality_issues"] == []
+    assert result["youtube_data_api_quota"] == 0

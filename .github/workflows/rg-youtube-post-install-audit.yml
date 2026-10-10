@@ -1,0 +1,207 @@
+name: RG YouTube Post-Install Readonly Audit
+
+on:
+  push:
+    branches:
+      - audit/youtube-control-0710-comprehensive-qa
+    paths:
+      - ".github/workflows/rg-youtube-post-install-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-post-install-audit
+  cancel-in-progress: false
+
+jobs:
+  installed-version-audit:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - name: Read actual installed version and running GUI on ALEXPC
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Only ALEXPC authorized' }
+          $entries = @()
+          foreach ($hive in @(
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )) {
+            $entries += @(Get-ItemProperty -Path $hive -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like 'RG YouTube Control*' })
+          }
+          $entries = @($entries | Sort-Object DisplayVersion, InstallLocation -Unique)
+          $version = if ($entries.Count -eq 1) { [string]$entries[0].DisplayVersion } else { '' }
+          $folder = if ($entries.Count -eq 1) { [string]$entries[0].InstallLocation } else { '' }
+          $installedExe = if ($folder) { Join-Path $folder 'RG YouTube Control.exe' } else { '' }
+          $exePresent = [bool]($installedExe -and (Test-Path -LiteralPath $installedExe -PathType Leaf))
+          $running = @(Get-Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProcessName -eq 'RG YouTube Control' })
+          $runningPaths = @($running | ForEach-Object {
+              try { [string]$_.Path } catch { '' }
+          } | Where-Object { $_ })
+          $runningInstalled = [bool]($installedExe -and @(
+              $runningPaths | Where-Object { $_ -ieq $installedExe }
+          ).Count -gt 0)
+          # Portable installs and per-user Inno installs may not be visible in
+          # the runner service account's HKCU registry hive. Check the actual
+          # running executable without exporting paths or inspecting user data.
+          $runtimeExePresent = $false
+          $runtimeFileVersion = ''
+          $runtimeProductVersion = ''
+          $runtimeModifiedToday = $false
+          $runtimeStartedToday = $false
+          $runtimeUnderProgramFiles = $false
+          $runtimeUnderUserProfile = $false
+          $runtimePathAccessible = $runningPaths.Count -gt 0
+          if ($runningPaths.Count -eq 1 -and (Test-Path -LiteralPath $runningPaths[0] -PathType Leaf)) {
+            $runtimeExePresent = $true
+            $runtimeFile = Get-Item -LiteralPath $runningPaths[0]
+            $runtimeFileVersion = [string]$runtimeFile.VersionInfo.FileVersion
+            $runtimeProductVersion = [string]$runtimeFile.VersionInfo.ProductVersion
+            $runtimeModifiedToday = $runtimeFile.LastWriteTime.Date -eq (Get-Date).Date
+            $runtimeUnderProgramFiles = $runningPaths[0].StartsWith(
+                [string]$env:ProgramFiles, [System.StringComparison]::OrdinalIgnoreCase)
+            $runtimeUnderUserProfile = $runningPaths[0].StartsWith(
+                [string]$env:USERPROFILE, [System.StringComparison]::OrdinalIgnoreCase)
+          }
+          foreach ($proc in $running) {
+            try {
+              if ($proc.StartTime.Date -eq (Get-Date).Date) { $runtimeStartedToday = $true }
+            } catch {}
+          }
+          $otherRegistryMatches = @()
+          foreach ($hive in @(
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )) {
+            $otherRegistryMatches += @(Get-ItemProperty -Path $hive -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like '*YouTube*Control*' })
+          }
+          $oldVersionPresent = @($entries | Where-Object { $_.DisplayVersion -eq '0.7.10' }).Count -gt 0
+          $result = [ordered]@{
+            schema = 'RG_YOUTUBE_POST_INSTALL_AUDIT_V2'
+            expected_version = '0.7.11'
+            registry_entries = $entries.Count
+            installed_version = $version
+            executable_present = $exePresent
+            running_process_count = $running.Count
+            running_from_registered_install = $runningInstalled
+            running_executable_accessible = $runtimeExePresent
+            running_executable_path_accessible = $runtimePathAccessible
+            running_file_version = $runtimeFileVersion
+            running_product_version = $runtimeProductVersion
+            running_executable_modified_today = $runtimeModifiedToday
+            running_process_started_today = $runtimeStartedToday
+            running_under_program_files = $runtimeUnderProgramFiles
+            running_under_runner_user_profile = $runtimeUnderUserProfile
+            partial_registry_matches = $otherRegistryMatches.Count
+            legacy_0710_entry = $oldVersionPresent
+            youtube_api_calls = 0
+            youtube_modified = $false
+            private_data_read = $false
+            settings_modified = $false
+          }
+          $result['status'] = if ($entries.Count -eq 1 -and $version -eq '0.7.11' -and $exePresent -and -not $oldVersionPresent) {
+              'INSTALLED'
+          } else {
+              'NEEDS_ATTENTION'
+          }
+          $result | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 'rg_youtube_post_install_anonymous.json'
+          Write-Host "POST-INSTALL VERSION: $version"
+          Write-Host "POST-INSTALL STATUS: $($result.status)"
+          Write-Host "POST-INSTALL EXE EXISTS: $exePresent"
+          Write-Host "POST-INSTALL GUI PROCESS COUNT: $($running.Count)"
+          Write-Host "POST-INSTALL GUI FROM INSTALLED EXE: $runningInstalled"
+          Write-Host "RUNTIME EXE ACCESSIBLE: $runtimeExePresent"
+          Write-Host "RUNTIME FILE VERSION: $runtimeFileVersion"
+          Write-Host "RUNTIME PRODUCT VERSION: $runtimeProductVersion"
+          Write-Host "RUNTIME EXE MODIFIED TODAY: $runtimeModifiedToday"
+          Write-Host "RUNTIME PROCESS STARTED TODAY: $runtimeStartedToday"
+          Write-Host "RUNTIME UNDER PROGRAM FILES: $runtimeUnderProgramFiles"
+          Write-Host "PARTIAL REGISTRY MATCHES: $($otherRegistryMatches.Count)"
+          if ($result.status -ne 'INSTALLED') { Write-Warning 'Installed 0.7.11 not confirmed, no changes made' }
+
+      - name: Check read-only SQLite and local Ollama runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Only ALEXPC" }
+          @'
+          import json
+          import os
+          from pathlib import Path
+          import sqlite3
+          import urllib.request
+
+          state = {
+              "schema": "RG_YOUTUBE_RUNTIME_HEALTH_RO_V1",
+              "sqlite_visible": False,
+              "sqlite_quick_check_ok": None,
+              "archive_video_count": None,
+              "seo_draft_count": None,
+              "ollama_localhost_responds": False,
+              "qwen3_8b_available": False,
+              "youtube_api_calls": 0,
+              "database_modified": False,
+              "youtube_modified": False,
+              "private_content_exported": False,
+          }
+          root = Path(os.getenv("LOCALAPPDATA") or "") / "RGYouTubeControl"
+          db = root / "rg_youtube_control.db"
+          if db.is_file():
+              state["sqlite_visible"] = True
+              try:
+                  with sqlite3.connect("file:" + db.as_posix() + "?mode=ro",
+                                       uri=True, timeout=5) as conn:
+                      conn.execute("PRAGMA query_only=ON")
+                      state["sqlite_quick_check_ok"] = (
+                          conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+                      )
+                      for table, key in (("videos", "archive_video_count"),
+                                         ("optimization_drafts", "seo_draft_count")):
+                          found = conn.execute(
+                              "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                              (table,),
+                          ).fetchone()
+                          if found:
+                              state[key] = conn.execute(
+                                  'SELECT count(*) FROM "' + table + '"'
+                              ).fetchone()[0]
+              except sqlite3.Error:
+                  state["sqlite_quick_check_ok"] = False
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:11434/api/tags",
+                                          timeout=4) as reply:
+                  raw = json.load(reply)
+              state["ollama_localhost_responds"] = True
+              state["qwen3_8b_available"] = any(
+                  str(item.get("name") or "").lower().startswith("qwen3:8b")
+                  for item in (raw.get("models") or [])
+                  if isinstance(item, dict)
+              )
+          except (OSError, ValueError, TimeoutError):
+              pass
+          with open("rg_youtube_runtime_health_anonymous.json", "w", encoding="utf8") as out:
+              json.dump(state, out, indent=2)
+          for key in ("sqlite_visible", "sqlite_quick_check_ok", "archive_video_count",
+                      "seo_draft_count", "ollama_localhost_responds",
+                      "qwen3_8b_available"):
+              print("RUNTIME " + key.upper() + ": " + str(state[key]), flush=True)
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw "Runtime read-only health process failed" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rg-youtube-post-install-anonymous
+          path: |
+            rg_youtube_post_install_anonymous.json
+            rg_youtube_runtime_health_anonymous.json
+          if-no-files-found: ignore
+          retention-days: 7

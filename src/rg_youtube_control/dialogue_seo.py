@@ -170,11 +170,32 @@ def analyze_all_timeline_blocks(
     timeout: float = 180.0,
 ) -> dict[str, Any]:
     """Analyze every caption block, with bounded input and resumable cache."""
+    # Ground coverage in the actual input captions, not a model-estimated
+    # block count. Spaces/timestamps are not evidence and can be normalized;
+    # lexical characters must be preserved in source order, exactly once.
+    input_rows = list(rows)
     blocks = split_timeline(
-        rows, max_chars=max_chars, max_span_seconds=max_span_seconds
+        input_rows, max_chars=max_chars, max_span_seconds=max_span_seconds
     )
     if not blocks:
         raise ValueError("Немає субтитрів для аналізу всіх діалогів.")
+    input_stream = "".join(
+        "".join(_compact(row.get("text")).split())
+        for row in input_rows
+    )
+    covered_stream = "".join(
+        "".join(str(block["text"]).split())
+        for block in blocks
+    )
+    input_digest = hashlib.sha256(input_stream.encode("utf-8")).hexdigest()
+    covered_digest = hashlib.sha256(covered_stream.encode("utf-8")).hexdigest()
+    complete_source = (
+        len(input_stream) > 0 and
+        len(input_stream) == len(covered_stream) and
+        input_digest == covered_digest
+    )
+    if not complete_source:
+        raise ValueError("Втрата тексту транскрипту під час розбиття на фрагменти.")
     cache = Path(cache_dir) if cache_dir is not None else None
     if cache is not None:
         cache.mkdir(parents=True, exist_ok=True)
@@ -224,6 +245,28 @@ def analyze_all_timeline_blocks(
                 item = _validate_topics(candidate, block)
             except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                 item = _validate_topics({}, block)
+            # One bounded retry for an empty/invalid topic response. All
+            # previously verified blocks are served from the private cache.
+            # Never manufacture a topic or assert coverage without evidence.
+            if not item["verified"]:
+                try:
+                    retry_prompt = (
+                        prompt + "\\n\\nПОПЕРЕДНЯ ВІДПОВІДЬ НЕ ПРОЙШЛА "
+                        "ПЕРЕВІРКУ. Поверни рівно одну тему з ДОСЛІВНОЮ "
+                        "цитатою з цього фрагмента або topics=[] якщо "
+                        "достовірної теми немає."
+                    )
+                    retry_raw = chat(
+                        [
+                            {"role": "system", "content": "Тільки JSON з перевірюваними цитатами."},
+                            {"role": "user", "content": retry_prompt},
+                        ],
+                        model=model, timeout=timeout,
+                        temperature=0.05, json_mode=True,
+                    )
+                    item = _validate_topics(json.loads(str(retry_raw).strip()), block)
+                except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                    item = _validate_topics({}, block)
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
@@ -257,6 +300,13 @@ def analyze_all_timeline_blocks(
         "unverified_blocks": failed,
         "cache_hits": cache_hits,
         "rows_covered": sum(b["pieces"] for b in blocks),
+        "source_rows_total": len(input_rows),
+        "source_rows_with_text": sum(bool(_compact(row.get("text"))) for row in input_rows),
+        "source_text_chars": len(input_stream),
+        "covered_text_chars": len(covered_stream),
+        "source_text_sha256": input_digest,
+        "covered_text_sha256": covered_digest,
+        "source_integrity_verified": complete_source,
         "blocks": results,
         # "100% of blocks processed" does not mean 100% of claims verified.
         "needs_review": bool(failed),
@@ -329,6 +379,108 @@ def preserve_outline_topics(
         base += footer + "\n".join(f"• {item}" for item in included)
     return base, excluded
 
+
+
+
+def preserve_one_grounded_quote(
+    description: str,
+    report: dict[str, Any],
+    *,
+    max_body_bytes: int = 3900,
+) -> tuple[str, bool]:
+    """Retain one *verbatim, analyst-verified* excerpt without deleting topics.
+
+    The fallback is not a new factual claim: it quotes a subtitle excerpt
+    that already passed per-block evidence validation. Never force truncation
+    or let an excerpt exceed the SEO description budget. Returns whether a
+    verified quote was *added*; a package remains review-only until approved.
+    """
+    source = str(description or "").strip()
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for block in report.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("verified") is not True:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            quote = _compact(item.get("evidence"))
+            topic = _compact(item.get("topic"))
+            if not (8 <= len(quote) <= 240):
+                continue
+            if quote.casefold() in seen:
+                continue
+            seen.add(quote.casefold())
+            candidates.append((topic, quote))
+
+    # Do not add another quote when the existing description already carries
+    # literal evidence. Model-produced punctuation variants can be handled
+    # manually rather than silently claiming an approximate quote is verbatim.
+    if any(quote.casefold() in source.casefold() for _, quote in candidates):
+        return source, False
+
+    candidates.sort(key=lambda candidate: (
+        0 if candidate[0].casefold() in source.casefold() else 1,
+        0 if 25 <= len(candidate[1]) <= 145 else 1,
+        len(candidate[1]),
+    ))
+    for _topic, quote in candidates:
+        addition = f"\n\nДослівний фрагмент розмови: «{quote}»"
+        if len((source + addition).encode("utf-8")) <= max_body_bytes:
+            return source + addition, True
+    return source, False
+
+
+
+def complete_grounded_ab_variants(
+    variants: Iterable[str],
+    report: dict[str, Any],
+    *,
+    main_title: str = "",
+) -> list[str]:
+    """Fill missing A/B choices using only verified source topics.
+
+    No claim, quote, date or named event is inferred. The result remains
+    editor-review only; this is a source-grounded fallback, not model approval.
+    """
+    from difflib import SequenceMatcher
+
+    chosen: list[str] = []
+    for value in variants:
+        clean = _compact(value)
+        if (
+            20 <= len(clean) <= 100
+            and clean.casefold() != _compact(main_title).casefold()
+            and clean.casefold() not in {v.casefold() for v in chosen}
+        ):
+            chosen.append(clean)
+        if len(chosen) >= 3:
+            return chosen[:3]
+
+    for block in report.get("blocks") or []:
+        if block.get("verified") is not True:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            topic = _compact(item.get("topic"))
+            if not (8 <= len(topic) <= 72):
+                continue
+            proposed = f"{topic} | ЧАТ РУЛЕТКА"
+            if not (20 <= len(proposed) <= 100):
+                continue
+            if proposed.casefold() == _compact(main_title).casefold():
+                continue
+            if any(
+                SequenceMatcher(None, proposed.casefold(), v.casefold()).ratio() >= 0.85
+                for v in chosen
+            ):
+                continue
+            # Topic words are copied verbatim from verified per-block evidence.
+            chosen.append(proposed)
+            if len(chosen) == 3:
+                return chosen
+    return chosen
 
 
 def ab_title_issues(

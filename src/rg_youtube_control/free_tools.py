@@ -1649,7 +1649,11 @@ def _recover_chapters_from_transcript(
     return last if not _chapters_quality_error(last, transcript) else ""
 
 
-from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
+from .dialogue_seo import (
+    ab_title_issues, complete_grounded_ab_variants, evidence_outline_text, preserve_outline_topics,
+    preserve_one_grounded_quote,
+)
+from .evidence_context import bounded_evidence_context
 
 
 def generate_seo_package_local(
@@ -1666,7 +1670,15 @@ def generate_seo_package_local(
     evidence_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = public_context or {}
-    verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    prompt_evidence = (
+        bounded_evidence_context(evidence_report)
+        if evidence_report else None
+    )
+    verified_evidence = prompt_evidence.text if prompt_evidence else ""
+    if prompt_evidence and prompt_evidence.compacted:
+        # Every downstream recovery helper must use the same bounded context.
+        # The COMPLETE timeline remains in evidence_report and its saved audit.
+        transcript = verified_evidence
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три різні A/B назви: A - головний конфлікт, B - несподівана теза, "
@@ -1845,7 +1857,7 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
-            if evidence_report and not fast_mode:
+            if evidence_report and not fast_mode and len(candidate["title_variants"]) == 3:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
                 )
@@ -1993,11 +2005,49 @@ chapters: рядок з підтвердженими таймкодами та �
         str(payload.get("description") or "").strip()
     )
     omitted_topics: list[str] = []
+    grounded_quote_added = False
     if evidence_report:
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
         )
+        description, grounded_quote_added = preserve_one_grounded_quote(
+            description, evidence_report,
+        )
+    # One targeted local retry only when existing A/B variants fail the
+    # evidence-based quality gate. Keep original candidates unless the
+    # alternate set has *fewer* verified quality problems. Never use the
+    # model's own confidence as an acceptance decision.
+    if evidence_report and not fast_mode and len(variants) < 3:
+        original_ab_issues = ab_title_issues(variants, evidence_report)
+        if original_ab_issues:
+            try:
+                repaired_variants = _recover_title_variants(
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+                if (
+                    len(repaired_variants) == 3
+                    and len(ab_title_issues(repaired_variants, evidence_report))
+                    < len(original_ab_issues)
+                ):
+                    variants = repaired_variants
+            except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                pass
+    grounded_ab_fallback_used = False
+    if evidence_report and len(variants) < 3:
+        completed = complete_grounded_ab_variants(
+            variants, evidence_report, main_title=title,
+        )
+        grounded_ab_fallback_used = len(completed) > len(variants)
+        variants = completed
     title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
+    prompt_topics_omitted = (
+        list(prompt_evidence.topics_omitted) if prompt_evidence else []
+    )
+    prompt_detail_shortened = bool(
+        prompt_evidence and prompt_evidence.detail_shortened
+    )
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])
@@ -2056,18 +2106,32 @@ chapters: рядок з підтвердженими таймкодами та �
         "chapters": chapters,
         "provider": f"ollama:{model}",
         "title_fallback_used": title_fallback_used,
+        "grounded_ab_fallback_used": grounded_ab_fallback_used,
         "needs_review": (
             title_fallback_used
+            or grounded_ab_fallback_used
             or len(variants) < 3
             or not transcript.strip()
             or bool(evidence_report)
             or bool(omitted_topics)
             or bool(title_issues)
+            or prompt_detail_shortened
+            or bool(prompt_topics_omitted)
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
+        "timeline_grounded_quote_added": grounded_quote_added,
+        "timeline_prompt_topics_total": (
+            prompt_evidence.topic_total if prompt_evidence else 0
+        ),
+        "timeline_prompt_topics_included": (
+            prompt_evidence.topic_included if prompt_evidence else 0
+        ),
+        "timeline_prompt_omitted_count": len(prompt_topics_omitted),
+        "timeline_prompt_omitted_topics": prompt_topics_omitted[:30],
+        "timeline_prompt_detail_shortened": prompt_detail_shortened,
         "ab_quality_issues": title_issues,
         "review_reason": "; ".join(
             message for condition, message in (
@@ -2077,6 +2141,16 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (
+                    prompt_detail_shortened,
+                    "Карта довгого відео скорочена для контексту Ollama; "
+                    "звірте повний звіт перед використанням SEO-пакета",
+                ),
+                (
+                    bool(prompt_topics_omitted),
+                    f"{len(prompt_topics_omitted)} тем не потрапили "
+                    "в контекст фінальної AI-генерації",
+                ),
             )
             if condition
         ),
