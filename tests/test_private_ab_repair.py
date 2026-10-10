@@ -85,7 +85,9 @@ def test_title_only_improves_private_draft_without_source_export(tmp_path, monke
     assert result["ollama_title_calls"] == 1
     assert result["private_draft_updated"] is True
     assert json.loads(p.read_text(encoding="utf-8"))["package"]["title_variants"] == GOOD
-    assert "PRIVATE" not in str(result)
+    assert "PRIVATE ORIGINAL DESCRIPTION" not in str(result)
+    assert "PRIVATE CAPTION" not in str(result)
+    assert "PRIVATE SUMMARY" not in str(result)
     assert VIDEO not in str(result)
     assert result["youtube_data_api_calls"] == 0
     assert result["youtube_modified"] is False
