@@ -1,0 +1,120 @@
+name: RG Smoking Compliance Candidate QA
+on:
+  push:
+    branches: [release/smoking-compliance-20261009]
+    paths:
+      - rg_remote_control/smoking_release/rg_smoking_*.py
+      - rg_remote_control/smoking_release/test_*.py
+      - rg_remote_control/smoking_release/run_real_four_layer_qa.py
+      - rg_remote_control/smoking_release/run_studio_integration_qa.py
+      - .github/workflows/rg-smoking-compliance-candidate.yml
+permissions:
+  contents: read
+concurrency:
+  group: rg-smoking-compliance-candidate
+  cancel-in-progress: false
+jobs:
+  core-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated core dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.2.6 opencv-python-headless==4.11.0.86
+      - name: Media tools in disposable GitHub test host
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Four-layer geometry, media, XML, audio and release safety regression
+        run: python -m unittest discover -s rg_remote_control/smoking_release -p 'test_*.py' -v
+  alexpc-real-four-layer:
+    needs: core-regression
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build real candidate in existing isolated SAM2 environment
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+          $active=Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match '^pythonw?\.exe$' -and
+            ($_.CommandLine -like '*rg_production_wrapper.py*' -or
+             $_.CommandLine -like '*rg_multi_dialogue.py*' -or
+             $_.CommandLine -like '*rg_auto_edit_one_button.py*')
+          }
+          if ($active) { throw 'Production processing active; GPU QA deferred' }
+          $out=Join-Path 'F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\smoking_release_candidate_v1' $env:GITHUB_SHA
+          "RG_FOUR_LAYER_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PYTHONNOUSERSITE='1'
+          $env:PYTHONPATH=$null
+          $env:SAM2_BUILD_CUDA='0'
+          & $py -X utf8 -u rg_remote_control/smoking_release/run_real_four_layer_qa.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'Real candidate failed; Studio remains unchanged' }
+      - name: Collect completed or failed real candidate diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path smoking-real-qa -Force | Out-Null
+          if ($env:RG_FOUR_LAYER_OUT -and (Test-Path -LiteralPath $env:RG_FOUR_LAYER_OUT)) {
+            foreach ($name in @('RG_SMOKING_REAL_FOUR_LAYER_CANDIDATE_QA_V1.zip','report.json','failure.txt')) {
+              $file=Join-Path $env:RG_FOUR_LAYER_OUT $name
+              if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file smoking-real-qa\ }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-real-four-layer-${{ github.run_id }}
+          path: smoking-real-qa/
+          retention-days: 14
+          if-no-files-found: warn
+  alexpc-studio-integration:
+    needs: [core-regression, alexpc-real-four-layer]
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test an isolated copy of the actual installed Studio
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+          $active=Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match '^pythonw?\.exe$' -and
+            ($_.CommandLine -like '*rg_production_wrapper.py*' -or
+             $_.CommandLine -like '*rg_multi_dialogue.py*' -or
+             $_.CommandLine -like '*rg_auto_edit_one_button.py*')
+          }
+          if ($active) { throw 'Production processing active; integration deferred' }
+          $out=Join-Path 'F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\smoking_integration_v1' $env:GITHUB_SHA
+          "RG_EVIDENCE_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PYTHONNOUSERSITE='1'
+          $env:PYTHONPATH=$null
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          & $py -X utf8 -u rg_remote_control/smoking_release/run_studio_integration_qa.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'Staged integration failed; diagnostics retained' }
+      - name: Checkpoint staged integration evidence on NAS
+        if: always()
+        shell: powershell
+        run: |
+          if ($env:RG_EVIDENCE_OUT) {
+            $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+            & $py -X utf8 -u rg_remote_control/smoking_release/checkpoint_evidence.py --output $env:RG_EVIDENCE_OUT --artifact smoking-integration-artifact
+            if ($LASTEXITCODE -ne 0) { throw 'Integration NAS checkpoint failed' }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-studio-integration-${{ github.run_id }}
+          path: smoking-integration-artifact/
+          retention-days: 14
+          if-no-files-found: warn
