@@ -123,6 +123,7 @@ from .seo_review_acceptance import (
     reviewed_seo_acceptance_issues,
 )
 from .seo_quality_gate import review_seo_package
+from .seo_publish_guard import ready_package_blockers
 from .rejected_seo import rejected_package_key, package_fingerprint
 from .cached_metadata import (
     cached_public_metadata, merge_verified_public_source_metadata,
@@ -3637,7 +3638,18 @@ class MainWindow(QMainWindow):
             f"{str(item['optimized_at'] or '')[:10]} {str(item['changed_fields'] or '')}"
             for item in history
         )
-        if draft == "ready":
+        if draft == "ready" and self._draft_ready_blockers(
+            get_optimization_draft(self.conn, video_id)
+        ):
+            self.context_primary_btn.setEnabled(True)
+            next_text = (
+                "Старий статус ГОТОВО не підтверджено. "
+                "Потрібна змістовна перевірка відео, опису і тегів."
+            )
+            self.context_primary_btn.setText("Перевірити пакет")
+            if hasattr(self, "context_discard_btn"):
+                self.context_discard_btn.setVisible(False)
+        elif draft == "ready":
             can_write = self._quota_write_available(
                 VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
             )
@@ -3757,6 +3769,39 @@ class MainWindow(QMainWindow):
         if reasons:
             return "blocked", reasons
         return "safe", []
+
+    def _draft_ready_blockers(self, draft) -> list[str]:
+        """Recheck legacy READY rows without network or any writes."""
+        if draft is None:
+            return ["SEO-пакет відсутній."]
+        video_id = str(draft["video_id"])
+        try:
+            tags = json.loads(draft["tags_json"] or "[]")
+            variants = json.loads(draft["title_variants_json"] or "[]")
+            original_tags = json.loads(draft["source_tags_json"] or "[]")
+            if not all(isinstance(value, list) for value in (tags, variants, original_tags)):
+                return ["Некоректні теги або A/B-назви в збереженому пакеті."]
+        except (TypeError, ValueError):
+            return ["Пошкоджений пакет: теги або A/B-назви не читаються."]
+        row = self.conn.execute(
+            "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        scheduled = bool(row and row["scheduled_publish_at"])
+        evidence = None if scheduled else load_local_evidence_report(
+            self.data_dir, video_id
+        )
+        return ready_package_blockers(
+            title=str(draft["new_title"] or ""),
+            description=str(draft["description"] or ""),
+            chapters=str(draft["chapters"] or ""),
+            tags=tags,
+            variants=variants,
+            scheduled=scheduled,
+            evidence_report=evidence,
+            original_description=str(draft["source_description"] or ""),
+            original_tags=original_tags,
+        )
 
     def _legacy_draft_count(self) -> int:
         return int(
@@ -4236,7 +4281,10 @@ class MainWindow(QMainWindow):
         draft = get_optimization_draft(self.conn, video_id)
         status = str(draft["status"] or "") if draft is not None else ""
         if status == "ready":
-            self.apply_content_package()
+            if self._draft_ready_blockers(draft):
+                self.edit_content_package()
+            else:
+                self.apply_content_package()
         elif status == "applied":
             self.tabs.setCurrentIndex(5)
             self.load_optimization_results()
@@ -9853,6 +9901,8 @@ class MainWindow(QMainWindow):
                     draft["title_variants_json"] or "[]"
                 )
                 status = draft["status"]
+                if status == "ready" and self._draft_ready_blockers(draft):
+                    status = "draft"
 
             dialog = ContentOptimizationDialog(
                 title,
@@ -9882,6 +9932,33 @@ class MainWindow(QMainWindow):
                 tags=tags,
                 require_ukrainian=False,
             )
+            if status == "ready":
+                evidence = (
+                    None if scheduled_publish_at
+                    else load_local_evidence_report(self.data_dir, video_id)
+                )
+                issues = ready_package_blockers(
+                    title=new_title,
+                    description=description,
+                    chapters=chapters,
+                    tags=tags,
+                    variants=title_variants,
+                    scheduled=bool(scheduled_publish_at),
+                    evidence_report=evidence,
+                    original_description=current_description,
+                    original_tags=current_tags,
+                )
+                if issues:
+                    status = "draft"
+                    quality_state = "blocked"
+                    quality_reasons = list(dict.fromkeys(
+                        [*quality_reasons, *issues]
+                    ))
+                    QMessageBox.warning(
+                        self, "Пакет залишено чернеткою",
+                        "Публікацію заблоковано до перевірки:\\n\\n"
+                        + "\\n".join(f"- {reason}" for reason in issues[:8]),
+                    )
             save_optimization_draft(
                 self.conn,
                 video_id,
@@ -10192,6 +10269,16 @@ class MainWindow(QMainWindow):
                 APP_NAME,
                 "Пакет повинен мати статус «Готово до застосування».",
             )
+            return
+        blockers = self._draft_ready_blockers(draft)
+        if blockers:
+            QMessageBox.warning(
+                self, "Застосування заблоковано",
+                "Застарілий статус «Готово» не є доказом якості. "
+                "YouTube не змінено.\\n\\n"
+                + "\\n".join(f"- {reason}" for reason in blockers[:9]),
+            )
+            self._update_optimization_context_card()
             return
 
         import json
