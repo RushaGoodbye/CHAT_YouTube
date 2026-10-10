@@ -689,11 +689,12 @@ class MainWindow(QMainWindow):
         mode_actions = {}
         for value, title in [('fit', 'Вписати (не обрізати)'),
                              ('fill', 'Заповнити (може обрізати краї)'),
-                             ('auto', 'Авто (прибирати чорні поля)')]:
+                             ('auto', 'Авто-контент (основний відеоблок)')]:
             action = mode_menu.addAction(title)
             action.setCheckable(True)
             action.setChecked(self.preview.video_view.fit_mode == value)
             mode_actions[action] = value
+        manual_action = menu.addAction('▣ Виділити основний відеокадр мишею...')
         menu.addSeparator()
         safe = menu.addAction('Безпечний вибір: один клік не змінює ефір')
         safe.setCheckable(True)
@@ -712,6 +713,8 @@ class MainWindow(QMainWindow):
             self.set_auto_crop(auto.isChecked())
         elif choice in mode_actions:
             self.set_fit_mode(mode_actions[choice])
+        elif choice == manual_action:
+            self.select_manual_crop()
         elif choice == safe:
             self.safe_selection = safe.isChecked()
             self._save()
@@ -1417,13 +1420,15 @@ class MainWindow(QMainWindow):
         options = {}
         for value, title in [('fit', 'Вписати (повний кадр)'),
                              ('fill', 'Заповнити (обрізати краї)'),
-                             ('auto', 'Авто (прибрати чорні поля)')]:
+                             ('auto', 'Авто-контент (зайві поля й написи)')]:
             action = menu.addAction(title)
             action.setCheckable(True)
             action.setChecked(self.preview.video_view.fit_mode == value)
             action.setEnabled(bool(current and current.kind == 'video'))
             options[action] = value
         menu.addSeparator()
+        manual = menu.addAction('▣ Виділити основне відео мишею...')
+        manual.setEnabled(bool(current and current.kind == 'video'))
         portrait = menu.addAction('Вертикальний кадр 9:16 (V)')
         portrait.setCheckable(True)
         portrait.setChecked(self.preview.video_view.forced_portrait)
@@ -1431,9 +1436,33 @@ class MainWindow(QMainWindow):
         choice = menu.exec(self.preview.video_view.mapToGlobal(pos))
         if choice in options:
             self.set_fit_mode(options[choice])
+        elif choice == manual:
+            self.select_manual_crop()
         elif choice == portrait:
             self.preview.video_view.set_forced_portrait(portrait.isChecked())
             self.status.setText('Вертикальне кадрування 9:16' if portrait.isChecked() else 'Звичайний кадр')
+
+    def select_manual_crop(self):
+        current = self.preview.current
+        if not current or current.kind != 'video':
+            self.status.setText('Запустіть відео перед вибором кадру')
+            return
+        image = self.preview.video_view._image
+        if image is None or image.isNull():
+            self.status.setText('Зачекайте першого кадру відео')
+            return
+        key = normalize_path(current.path)
+        existing = self.file_manual_crops.get(key)
+        crop = Crop(*existing) if existing else self.preview.video_view.crop
+        dialog = CropSelectionDialog(image, crop, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.crop is None:
+            return
+        self.preview.video_view.set_manual_crop(dialog.crop)
+        self.file_manual_crops[key] = [
+            dialog.crop.left, dialog.crop.top, dialog.crop.right, dialog.crop.bottom]
+        self.file_fit_modes[key] = 'manual'
+        self._save()
+        self.status.setText('Ручну область відео збережено для цього файлу')
 
     def set_fit_mode(self, mode: str):
         current = self.preview.current
