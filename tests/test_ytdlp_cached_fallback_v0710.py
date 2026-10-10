@@ -344,3 +344,156 @@ def test_public_metadata_empty_description_does_not_claim_source_verification():
                 cached, VIDEO, {"video_id": VIDEO, "description": empty}
             )
     assert cached["source_description_available"] is False
+
+
+def test_owner_source_helper_checks_channel_and_requires_one_request(tmp_path):
+    from rg_youtube_control.cached_metadata import recover_original_from_owner_api
+    from rg_youtube_control.config import PROFILE_TARGETS
+    cached = {
+        "title": "TRUSTED", "description": "",
+        "source_description_available": False,
+        "channel_id": PROFILE_TARGETS["live"],
+    }
+    class OneRead:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            return object()
+        def video_details_with_request_count(self, video_ids):
+            assert video_ids == [VIDEO]
+            return [{
+                "id": VIDEO, "snippet": {
+                    "channelId": PROFILE_TARGETS["live"],
+                    "description": "Донати: https://donate.rginfoua.pp.ua",
+                    "tags": ["чат рулетка"],
+                },
+            }], 1
+    source, count = recover_original_from_owner_api(
+        cached, VIDEO, profile="live", client_factory=OneRead
+    )
+    assert count == 1
+    assert source["source"] == "sqlite-plus-owner-readonly"
+    assert source["youtube_data_api_quota"] == 1
+    assert source["title"] == "TRUSTED"
+    assert source["description"].startswith("Донати:")
+    assert source["tags"] == ["чат рулетка"]
+
+
+def test_owner_source_helper_rejects_foreign_channel():
+    from rg_youtube_control.cached_metadata import recover_original_from_owner_api
+    from rg_youtube_control.config import PROFILE_TARGETS
+    cached = {
+        "title": "TRUSTED", "description": "",
+        "source_description_available": False,
+        "channel_id": PROFILE_TARGETS["live"],
+    }
+    class OtherChannel:
+        def __init__(self, *, profile):
+            pass
+        def credentials(self):
+            return object()
+        def video_details_with_request_count(self, ids):
+            return [{
+                "id": VIDEO,
+                "snippet": {
+                    "channelId": "FOREIGN_CHANNEL",
+                    "description": "FOREIGN PRIVATE TEXT",
+                },
+            }], 1
+    with pytest.raises(ValueError, match="does not match"):
+        recover_original_from_owner_api(
+            cached, VIDEO, profile="live", client_factory=OtherChannel
+        )
+
+
+def test_local_seo_owner_api_fallback_accounts_for_one_read_and_preserves_source(
+    monkeypatch, tmp_path,
+):
+    import rg_youtube_control.ui as ui
+    from rg_youtube_control.cached_metadata import merge_verified_public_source_metadata
+    from rg_youtube_control.service import today_quota_units
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.execute("DELETE FROM metadata_history WHERE video_id=?", (VIDEO,))
+    conn.execute(
+        "UPDATE optimization_drafts SET source_description='', source_tags_json='[]' "
+        "WHERE video_id=?", (VIDEO,)
+    )
+    conn.commit()
+    before_units = today_quota_units(conn)
+    conn.close()
+    monkeypatch.setattr(ui, "fetch_public_metadata", lambda _id: (
+        _ for _ in ()
+    ).throw(RuntimeError("Public extractor unavailable")))
+    owner_calls = []
+    def owner_source(cached, video_id, *, profile):
+        owner_calls.append((video_id, profile))
+        source = merge_verified_public_source_metadata(
+            cached, video_id, {
+                "video_id": video_id,
+                "description": "Донати: https://donate.rginfoua.pp.ua",
+                "tags": ["чат рулетка"],
+            }
+        )
+        return source, 1
+    monkeypatch.setattr(ui, "recover_original_from_owner_api", owner_source)
+    monkeypatch.setattr(ui, "fetch_transcript", lambda *_a: [{
+        "text": "Поговорим про Перуна и веру в России.",
+        "start": 0.0, "duration": 5,
+    }])
+    monkeypatch.setattr(ui, "analyze_all_timeline_blocks", lambda *_a, **_k: {
+        "blocks_total": 1, "blocks_with_evidence": 1,
+        "source_integrity_verified": True, "blocks": [{
+            "start_stamp": "00:00:00", "topics": [{
+                "topic": "Віра в Перуна", "summary_uk": "Розмова про релігію",
+                "evidence": "Поговорим про Перуна",
+            }],
+        }],
+    })
+    observed = {}
+    monkeypatch.setattr(ui, "generate_seo_package_local", lambda **kw: (
+        observed.update(kw) or {
+            "title": kw["current_title"], "description": "Підтверджений опис",
+            "title_variants": [], "tags": [], "needs_review": True,
+        }
+    ))
+    stages = []
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    result = ui.MainWindow._generate_local_seo_result(
+        state, VIDEO, on_progress=stages.append
+    )
+    assert owner_calls == [(VIDEO, "main")]
+    assert observed["current_description"].startswith(
+        "Донати: https://donate.rginfoua.pp.ua"
+    )
+    assert result["context"]["source"] == "sqlite-plus-owner-readonly" or (
+        result["context"]["source"] == "sqlite-plus-public-source"
+    )
+    with sqlite3.connect(tmp_path / "rg_youtube_control.db") as verify:
+        assert today_quota_units(verify) == before_units + 1
+    assert any("1 одиниця API" in message for message in stages)
+
+
+def test_owner_source_fallback_respects_quota_reserve(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.execute("DELETE FROM metadata_history WHERE video_id=?", (VIDEO,))
+    conn.execute(
+        "UPDATE optimization_drafts SET source_description='', source_tags_json='[]' "
+        "WHERE video_id=?", (VIDEO,)
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(ui, "fetch_public_metadata", lambda *_a: (
+        _ for _ in ()
+    ).throw(RuntimeError("Public metadata unavailable")))
+    monkeypatch.setattr(ui, "quota_budget_status", lambda _conn: {
+        "exhausted": True, "spendable": 0,
+    })
+    monkeypatch.setattr(ui, "recover_original_from_owner_api", lambda *_a, **_k: (
+        _ for _ in ()
+    ).throw(AssertionError("Must not use owner quota over reserve")))
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    with pytest.raises(RuntimeError, match="квоту"):
+        ui.MainWindow._generate_local_seo_result(state, VIDEO)
