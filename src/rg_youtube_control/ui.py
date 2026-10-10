@@ -4073,6 +4073,7 @@ class MainWindow(QMainWindow):
                         description=str(draft["description"] or ""),
                         variants=options if isinstance(options, list) else [],
                         data_dir=self.data_dir,
+                        original_description=draft["source_description"],
                     ))
                 elif quality_state != "safe":
                     issues.append("Пакет не пройшов перевірку якості.")
