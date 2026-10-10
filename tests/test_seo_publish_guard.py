@@ -157,3 +157,20 @@ def test_ready_filter_uses_effective_not_raw_sqlite_status():
     body = ast.get_source_segment(source, method)
     assert "draft_key_for_search = self._queue_effective_draft_status(row)" in body
     assert "draft_key = self._queue_effective_draft_status(row)" in body
+
+
+def test_invalid_ready_primary_button_runs_full_transcript_seo_not_manual_edit():
+    source = (Path(__file__).resolve().parents[1]
+              / "src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    def method(name):
+        return next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef) and n.name == name)
+    action = ast.get_source_segment(source, method("_run_context_primary_action"))
+    assert "if self._draft_ready_blockers(draft):" in action
+    assert "self.local_seo_selected()" in action
+    assert action.index("self._draft_ready_blockers(draft)") < action.index(
+        "self.local_seo_selected()"
+    )
+    context = ast.get_source_segment(source, method("_update_optimization_context_card"))
+    assert "Аналізувати діалоги · 0 квоти" in context
