@@ -229,3 +229,106 @@ def test_scheduled_stream_still_blocked_before_network(monkeypatch, tmp_path):
     state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
     with pytest.raises(RuntimeError, match="запланований"):
         ui.MainWindow._generate_local_seo_result(state, VIDEO)
+
+
+def test_missing_original_description_is_recovered_even_with_cached_title(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    from rg_youtube_control.cached_metadata import merge_verified_public_source_metadata
+
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.execute("DELETE FROM metadata_history WHERE video_id=?", (VIDEO,))
+    conn.execute(
+        "UPDATE optimization_drafts SET source_description='',source_tags_json='[]' "
+        "WHERE video_id=?", (VIDEO,)
+    )
+    conn.commit()
+    cached = cached_public_metadata(conn, VIDEO, "main")
+    assert cached["title"]
+    assert cached["source_description_available"] is False
+    conn.close()
+
+    original = "Підтримка: https://donate.rginfoua.pp.ua"
+    public = {
+        "video_id": VIDEO,
+        "title": "REMOTE TITLE MUST NOT REPLACE CACHED TITLE",
+        "description": original,
+        "tags": ["чат рулетка", "Перун"],
+        "duration": 2125,
+        "_caption_tracks": {},
+    }
+    recovered = merge_verified_public_source_metadata(cached, VIDEO, public)
+    assert recovered["title"] == cached["title"]
+    assert recovered["description"] == original
+    assert recovered["tags"] == ["чат рулетка", "Перун"]
+    assert recovered["source_description_available"] is True
+    assert recovered["youtube_data_api_quota"] == 0
+
+    probes = []
+    monkeypatch.setattr(ui, "fetch_public_metadata", lambda video: (
+        probes.append(video) or public
+    ))
+    monkeypatch.setattr(ui, "fetch_transcript", lambda _id: [{
+        "text": "Поговорим про Перуна и веру в России.",
+        "start": 0.0, "duration": 4.0,
+    }])
+    monkeypatch.setattr(ui, "analyze_all_timeline_blocks", lambda *_a, **_kw: {
+        "blocks_total": 1, "blocks_with_evidence": 1, "source_integrity_verified": True,
+        "blocks": [{"start_stamp": "00:00:00", "topics": [{
+            "topic": "Віра в Перуна", "summary_uk": "Розмова про релігію",
+            "evidence": "Поговорим про Перуна",
+        }]}],
+    })
+    observed = {}
+    def generate(**kwargs):
+        observed.update(kwargs)
+        return {
+            "title": kwargs["current_title"],
+            "description": "Оригінал збережено",
+            "title_variants": [], "tags": ["Перун"], "needs_review": True,
+        }
+    monkeypatch.setattr(ui, "generate_seo_package_local", generate)
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    result = ui.MainWindow._generate_local_seo_result(state, VIDEO)
+    assert probes == [VIDEO]
+    assert observed["current_description"] == original
+    assert observed["current_tags"] == ["чат рулетка", "Перун"]
+    assert observed["current_title"] == cached["title"]
+    assert result["context"]["source_description_verified"] is True
+    assert result["context"]["youtube_data_api_quota"] == 0
+
+
+def test_missing_source_description_fails_closed_when_public_lookup_blocked(monkeypatch, tmp_path):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.execute("DELETE FROM metadata_history WHERE video_id=?", (VIDEO,))
+    conn.execute(
+        "UPDATE optimization_drafts SET source_description='', source_tags_json='[]' "
+        "WHERE video_id=?", (VIDEO,)
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(ui, "fetch_public_metadata", lambda _id: (_ for _ in ()).throw(
+        RuntimeError("Sign in to confirm you're not a bot")
+    ))
+    monkeypatch.setattr(ui, "fetch_transcript", lambda _id: (_ for _ in ()).throw(
+        AssertionError("No transcript or model calls before original metadata proof")
+    ))
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    with pytest.raises(RuntimeError, match="вихідний опис"):
+        ui.MainWindow._generate_local_seo_result(state, VIDEO)
+    assert not (tmp_path / "seo_evidence").exists()
+
+
+def test_public_source_merge_rejects_cross_video_and_missing_description():
+    from rg_youtube_control.cached_metadata import merge_verified_public_source_metadata
+    original = {"title": "TRUSTED CACHED TITLE", "source_description_available": False}
+    with pytest.raises(ValueError, match="another video"):
+        merge_verified_public_source_metadata(original, VIDEO, {
+            "video_id": "ZZZZZZZZZZZ", "description": "FOREIGN SOURCE",
+        })
+    with pytest.raises(ValueError, match="original description"):
+        merge_verified_public_source_metadata(original, VIDEO, {
+            "video_id": VIDEO, "title": "UNTRUSTED",
+        })
