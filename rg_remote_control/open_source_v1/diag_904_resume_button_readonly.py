@@ -29,6 +29,7 @@ def scan_code(name,queries,maxhits=65):
 def main():
     u=scan_code("rg_studio_ui.py",[
         r"ПРОДОВЖИТИ",r"resume",r"continue",r"clicked.connect",r"start_single",r"def _preflight",r"rg_multi_dialogue"],80)
+    st=scan_code("rg_studio_state.py",[r"def load_state",r"def update_state",r"status",r"state_file"],35)
     m=scan_code("rg_multi_dialogue.py",[r"resume",r"can_resume",r"RG_RESUME_PROTECT_PREFIX",r"revision_output_path",r"resume_rows"],32)
     p=APP/"RG_EDITED_904_MULTI_DIALOGUE.json"; meta={}
     if p.is_file():
@@ -48,6 +49,25 @@ def main():
         for x in (j if isinstance(j,list) else [j]):
             procs.append({"pid":x.get("ProcessId"),"name":x.get("Name"),"command_tail":str(x.get("CommandLine"))[-320:]})
     except Exception as exc:procs=[{"error":str(exc)}]
+    resume_state_files=[]
+    state_candidates=[
+        APP/"run_manifests"/"904"/"STUDIO_STATE.json",
+        APP/"run_manifests"/"904"/"RUN_STATE.json",
+        APP/"run_manifests"/"904"/"RG_STUDIO_RUN_STATE.json",
+        LOCAL/"RG_AUTO_EDIT"/"904"/"state.json",
+        LOCAL/"RG_AUTO_EDIT"/"studio_run_state"/"904.json",
+        LOCAL/"RG_Auto_Edit"/"904"/"state.json",
+    ]
+    for f in state_candidates:
+        if f.is_file():
+            resume_state_files.append({"path":str(f),"value":text(f)[:4000]})
+    uifile=APP/"rg_studio_ui.py"
+    uirows=text(uifile).splitlines()
+    specific={}
+    for q in ["from rg_studio_state import", "load_state(", "def _start_stream", "def _backend_finished",
+              "def _start_postrun_qa", "def _refresh_resume_state", "def resume_incomplete_run", "def _on_finished"]:
+        locs=[i for i,row in enumerate(uirows) if q in row]
+        specific[q]=[around(uirows,i,4,32) for i in locs[:4]]
     print("RG_904_RESUME_BUTTON_READONLY_DIAG")
-    print(json.dumps({"schema":"RG_904_RESUME_BUTTON_READONLY_V1","studio_version":text(APP/"rg_studio_version.py").splitlines()[:2],"ui":u,"multi":m,"manifest":meta,"log_tail":tail,"processes":procs,"mutated":False},ensure_ascii=False,indent=2))
+    print(json.dumps({"schema":"RG_904_RESUME_BUTTON_READONLY_V1","studio_version":text(APP/"rg_studio_version.py").splitlines()[:2],"ui":u,"multi":m,"state_module":st,"manifest":meta,"log_tail":tail,"processes":procs,"ui_specific":specific,"state_file_candidates":resume_state_files,"mutated":False},ensure_ascii=False,indent=2))
 if __name__=="__main__":main()
