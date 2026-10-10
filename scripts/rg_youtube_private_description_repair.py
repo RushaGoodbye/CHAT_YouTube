@@ -75,6 +75,7 @@ def run(*, root: Path | None = None, db_path: Path | None = None) -> dict:
         "source_text_exported": False, "video_ids_exported": False,
         "draft_content_exported": False, "private_draft_updated": False,
         "verified_blocks": 0, "previous_warnings": -1,
+        "youtube_description_character_limit": 5000,
         "candidate_warnings": -1, "description_chars": 0,
     }
     private = root or DEFAULT_PRIVATE_ROOT
