@@ -379,7 +379,7 @@ def ab_title_issues(
         for index, value in enumerate(values, 1):
             title_lower = value.casefold()
             for pattern, roots in unsupported_subjects:
-                if re.search(pattern, title_lower, flags=re.UNICODE) and not any(
+                if re.search(pattern, title_lower, flags=re.UNICODE) and not all(
                     root in source for root in roots
                 ):
                     issues.append(
