@@ -17,11 +17,11 @@ permissions:
 
 concurrency:
   group: rg-youtube-real-live-readonly-preflight
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   live-source-preflight:
-    runs-on: [self-hosted, rg, alexpc, windows]
+    runs-on: [self-hosted, windows]
     timeout-minutes: 12
     steps:
       - name: Check runner is AlexPC
@@ -34,13 +34,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare isolated local Python dependencies
+        shell: powershell
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "Could not create isolated Python environment" }
+          & ".\\.venv\\Scripts\\python.exe" -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Could not install isolated runtime dependencies" }
+
       - name: Read local LIVE metadata and NAS SRT availability without network
         shell: powershell
         env:
           PYTHONPATH: src
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          python -B scripts/rg_youtube_real_live_seo_qa.py --long-live --preflight-only --caption-probes 0
+          & ".\\.venv\\Scripts\\python.exe" -B scripts/rg_youtube_real_live_seo_qa.py --long-live --preflight-only --caption-probes 0
           if ($LASTEXITCODE -ne 0) { throw "Readonly LIVE preflight execution failed" }
 
       - name: Validate anonymous, non-publishing output
