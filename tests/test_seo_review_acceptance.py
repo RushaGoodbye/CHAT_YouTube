@@ -56,7 +56,7 @@ def _save(tmp_path, report=None):
     )
 
 
-def _check(tmp_path, *, variants=None, description=None, generation=SOURCE_GENERATION):
+def _check(tmp_path, *, variants=None, description=None, generation=SOURCE_GENERATION, original_description=None):
     return reviewed_seo_acceptance_issues(
         generation=generation,
         video_id=VIDEO_ID,
@@ -67,6 +67,7 @@ def _check(tmp_path, *, variants=None, description=None, generation=SOURCE_GENER
         ),
         variants=VARIANTS if variants is None else variants,
         data_dir=tmp_path,
+        original_description=original_description,
     )
 
 
@@ -125,3 +126,26 @@ def test_path_traversal_and_invalid_report_are_rejected(tmp_path):
     f = tmp_path / "seo_evidence" / f"{VIDEO_ID}.json"
     f.write_text("{invalid", encoding="utf-8")
     assert _check(tmp_path)
+
+
+def test_approval_rejects_removed_source_donation_link(tmp_path):
+    _save(tmp_path)
+    issues = _check(
+        tmp_path,
+        original_description="Донати: https://donate.rginfoua.pp.ua",
+    )
+    assert any("втратив посилання" in issue for issue in issues)
+
+
+def test_approval_keeps_original_links_after_user_edit(tmp_path):
+    _save(tmp_path)
+    issues = _check(
+        tmp_path,
+        description=(
+            "Цензура музики: Забороняють слухати пісні. "
+            "Ціни на бензин: Бензин знову подорожчав. "
+            "https://donate.rginfoua.pp.ua"
+        ),
+        original_description="Донати: https://donate.rginfoua.pp.ua",
+    )
+    assert not any("втратив посилання" in issue for issue in issues)
