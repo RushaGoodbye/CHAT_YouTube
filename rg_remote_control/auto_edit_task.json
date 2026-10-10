@@ -4,13 +4,10 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_studio_version.py",
-      "rg_auto_edit_config.json",
-      "rg_auto_edit_one_button.py",
-      "rg_final_release_gate.py",
+      "rg_premiere_native_xml.py",
       "rg_studio_postrun.py",
-      "rg_cigarette_blur.py"
+      "rg_studio_version.py"
     ]
   },
-  "nonce": "final-cigarette-blur-live-verify-20261007-1337"
+  "nonce": "read-only-smoking-markers-export-inspection-20261010"
 }
