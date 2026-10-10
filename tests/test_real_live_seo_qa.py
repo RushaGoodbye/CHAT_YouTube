@@ -118,7 +118,7 @@ def test_long_live_mode_accepts_at_least_15_blocks(tmp_path, monkeypatch):
     _db(tmp_path)
     monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(p, "fetch_transcript", lambda _: [
-        {"text": "PRIVATE CAPTION " + str(n), "start": n * 300, "duration": 5}
+        {"text": "PRIVATE CAPTION " + str(n), "start": n * 600, "duration": 5}
         for n in range(20)
     ])
     monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k: {
