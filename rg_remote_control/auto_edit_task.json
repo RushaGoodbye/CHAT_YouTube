@@ -1,9 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_run_log",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "stream": "904"
+    "files": [
+      "RG_EDITED_904_5_audio_source_audit.json",
+      "904/RG_EDITED_904_5_audio_source_audit.json",
+      "rg_auto_edit_one_button.py",
+      "rg_multi_dialogue.py",
+      "904/RG_EDITED_904_MULTI_DIALOGUE.json"
+    ]
   },
-  "nonce": "rg-904-error-4-of-6-log-readonly-20261010"
+  "nonce": "read-only-904-audalign-failed-dlg-20261010"
 }
