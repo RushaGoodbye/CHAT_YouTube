@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import argparse
 from pathlib import Path
 import sqlite3
 
@@ -23,7 +24,7 @@ from rg_youtube_real_seo_local_qa import anonymous_metrics, anonymous_issue_cate
 OUTPUT = Path("rg_youtube_real_live_seo_anonymous_qa.json")
 
 
-def run(*, max_caption_lookups: int = 8) -> dict:
+def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dict:
     output = {
         "schema": "RG_REAL_LIVE_SEO_LOCAL_QA_V1",
         "status": "NOT_READY",
@@ -36,6 +37,7 @@ def run(*, max_caption_lookups: int = 8) -> dict:
         "youtube_data_api_calls": 0,
         "youtube_modified": False,
         "manual_review_required": True,
+        "length_profile": "long" if require_long_live else "moderate",
     }
     db = app_data_dir() / "rg_youtube_control.db"
     if not db.is_file():
@@ -69,14 +71,17 @@ def run(*, max_caption_lookups: int = 8) -> dict:
             if not captions or len(captions) < 25:
                 continue
             block_count = len(split_timeline(captions, max_chars=5000, max_span_seconds=300))
-            if 2 <= block_count <= 14:
+            if (block_count >= 15 if require_long_live else 2 <= block_count <= 14):
                 selected = (title, captions)
                 break
         except (OSError, ValueError, RuntimeError, TimeoutError, TypeError):
             continue
 
     if selected is None:
-        output["reason"] = "No fully-captioned moderate-length LIVE archive in bounded sample"
+        output["reason"] = (
+            "No fully-captioned long LIVE archive in bounded sample"
+            if require_long_live else "No fully-captioned moderate-length LIVE archive in bounded sample"
+        )
         return output
 
     title, captions = selected
@@ -120,7 +125,10 @@ def run(*, max_caption_lookups: int = 8) -> dict:
 
 
 def main() -> int:
-    result = run()
+    parser = argparse.ArgumentParser(description="Private read-only LIVE SEO QA")
+    parser.add_argument("--long-live", action="store_true", help="Require at least 15 timeline blocks")
+    args = parser.parse_args()
+    result = run(require_long_live=args.long_live)
     OUTPUT.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     print("REAL LIVE SEO:", result["status"], flush=True)
     print("LIVE CANDIDATES TRIED:", result["caption_lookups"], flush=True)
