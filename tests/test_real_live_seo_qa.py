@@ -576,3 +576,100 @@ def test_single_owner_caption_inventory_respects_quota_reserve(tmp_path, monkeyp
     assert result["status"] == "SKIPPED_BUDGET"
     assert result["caption_lists_requested"] == 0
     assert result["quota_units_accounted"] == 0
+
+
+def test_owner_long_srt_oneshot_privately_stages_full_source(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_owner_caption_download_once as subject
+    from rg_youtube_control.service import today_quota_units
+    db = _db(tmp_path, duration="PT3H0M0S")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda conn: {
+        "exhausted": False, "spendable": 300
+    })
+    def stamp(n):
+        return f"{n // 3600:02}:{(n // 60) % 60:02}:{n % 60:02},000"
+    sample = "\n\n".join(
+        f"{i+1}\n{stamp(i*60)} --> {stamp(i*60+20)}\nPRIVATE CAPTION {i}"
+        for i in range(180)
+    )
+    class Fake:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            return object()
+        def caption_tracks(self, _video_id):
+            return [{"id": "PRIVATE TRACK", "snippet": {
+                "trackKind": "ASR", "language": "ru"
+            }}]
+        def download_caption_srt(self, caption_id):
+            assert caption_id == "PRIVATE TRACK"
+            return sample
+    private_root = tmp_path / "private"
+    result = subject.run(
+        db_path=db, private_root=private_root, client_factory=Fake
+    )
+    assert result["status"] == "SOURCE_STAGED"
+    assert result["local_private_source_staged"] is True
+    assert result["full_span_coverage"] is True
+    assert result["caption_rows"] == 180
+    assert result["quota_units_accounted"] == 250
+    assert result["api_requests_sent"] == 2
+    assert (private_root / "ABCDEFGHIJK.srt").read_text() == sample
+    assert "PRIVATE CAPTION" not in str(result)
+    assert "ABCDEFGHIJK" not in str(result)
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        assert today_quota_units(conn) == 250
+
+
+def test_owner_long_srt_oneshot_never_calls_api_below_quota_reserve(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_owner_caption_download_once as subject
+    db = _db(tmp_path, duration="PT3H0M0S")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda _conn: {
+        "exhausted": False, "spendable": 249
+    })
+    result = subject.run(
+        db_path=db, private_root=tmp_path / "private",
+        client_factory=lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("No API authorization when reserve prohibits")
+        ),
+    )
+    assert result["status"] == "SKIPPED_BUDGET"
+    assert result["api_requests_sent"] == 0
+    assert result["quota_units_accounted"] == 0
+
+
+def test_owner_long_srt_oneshot_handles_unavailable_download_no_export(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_owner_caption_download_once as subject
+    db = _db(tmp_path, duration="PT3H0M0S")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda _conn: {
+        "exhausted": False, "spendable": 300
+    })
+    class Fake:
+        def __init__(self, *, profile):
+            pass
+        def credentials(self):
+            return object()
+        def caption_tracks(self, _video_id):
+            return [{"id": "PRIVATE TRACK", "snippet": {"trackKind": "ASR"}}]
+        def download_caption_srt(self, _caption_id):
+            raise PermissionError("PRIVATE FORBIDDEN")
+    private_root = tmp_path / "private"
+    result = subject.run(
+        db_path=db, private_root=private_root, client_factory=Fake
+    )
+    assert result["status"] == "DOWNLOAD_UNAVAILABLE"
+    assert result["quota_units_accounted"] == 250
+    assert result["local_private_source_staged"] is False
+    assert not private_root.exists()
+    assert "PRIVATE" not in str(result)
