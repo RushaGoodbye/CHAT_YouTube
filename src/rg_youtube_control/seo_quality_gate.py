@@ -13,6 +13,8 @@ def review_seo_package(
     variants: list[str],
     evidence_report: dict | None,
     original_description: str | None = None,
+    original_tags: list[str] | None = None,
+    tags: list[str] | None = None,
 ) -> list[str]:
     """Return actionable warnings that must prevent READY status.
 
@@ -33,6 +35,12 @@ def review_seo_package(
         new_urls = {url.rstrip(".,;!)") for url in re.findall(url_pattern, description)}
         if old_urls - new_urls:
             issues.append("Новий опис втратив посилання з оригіналу; перевірте збереження URL.")
+    # Replacing a populated source tag set with no tags is a loss, not
+    # SEO optimization. Relevance-based tag replacement remains allowed.
+    if original_tags and tags is not None and not [
+        str(tag).strip() for tag in tags if str(tag).strip()
+    ]:
+        issues.append("SEO-пакет втратив усі теги з оригіналу.")
     report = evidence_report or {}
     blocks = report.get("blocks") or []
     if not blocks:
