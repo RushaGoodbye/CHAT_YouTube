@@ -1,15 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "inspect_auto_edit_run_log",
   "args": {
-    "files": [
-      "rg_studio_version.py",
-      "rg_auto_edit_one_button.py",
-      "rg_smoking_auto_export_v2.py",
-      "rg_smoking_uncertainty_timeline_v1.py",
-      "rg_studio_postrun.py"
-    ]
+    "stream": "904"
   },
-  "nonce": "verify-smoking-markers-r1-installed-20261010-after-user-confirmation"
+  "nonce": "read-only-check-live-904-after-user-start-20261010"
 }
