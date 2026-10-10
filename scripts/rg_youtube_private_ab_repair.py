@@ -106,6 +106,7 @@ def run(
         "generated_content_exported": False,
         "private_draft_updated": False,
         "ollama_title_calls": 0,
+        "verified_topic_triplet_used": False,
         "evidence_blocks_verified": 0,
         "previous_ab_titles_count": 0,
         "candidate_ab_titles_count": 0,
@@ -212,6 +213,7 @@ def run(
                     proposed = choose_verified_title_triplet(
                         old_variants, report, str(package.get("title") or ""),
                     )
+                    result["verified_topic_triplet_used"] = len(proposed) == 3
             result["candidate_ab_titles_count"] = len(proposed)
             if (
                 len(proposed) != 3
