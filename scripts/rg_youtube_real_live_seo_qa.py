@@ -104,6 +104,9 @@ def run(
         except sqlite3.OperationalError:
             setting = None
         rows = []
+        cached_long_count = 0
+        unknown_duration_count = 0
+        cached_long_without_description = 0
         for video_id, title in video_rows:
             if not title or not isinstance(video_id, str) or len(video_id) != 11:
                 continue
@@ -111,10 +114,17 @@ def run(
             # source-only cache as the Windows SEO generator; NEVER confuse
             # generated draft metadata with the original YouTube metadata.
             metadata = cached_public_metadata(conn, video_id, "live")
-            if metadata.get("source_description_available"):
+            duration = int(metadata.get("duration") or 0)
+            has_source_description = bool(metadata.get("source_description_available"))
+            if duration <= 0:
+                unknown_duration_count += 1
+            if duration >= MIN_LONG_LIVE_SECONDS:
+                cached_long_count += 1
+                if not has_source_description:
+                    cached_long_without_description += 1
+            if has_source_description:
                 rows.append((video_id, title, str(metadata["description"]),
-                             list(metadata.get("tags") or []),
-                             int(metadata.get("duration") or 0)))
+                             list(metadata.get("tags") or []), duration))
         conn.close()
     except sqlite3.Error:
         output["reason"] = "Read-only LIVE database query failed"
@@ -122,6 +132,25 @@ def run(
 
     output["available_public_archives"] = len(video_rows)
     output["archives_with_cached_original_description"] = len(rows)
+    output["archives_with_cached_duration_ge_3h"] = cached_long_count
+    output["archives_with_missing_cached_duration"] = unknown_duration_count
+    output["long_archives_missing_original_description"] = cached_long_without_description
+    # Anonymous NAS inventory: file names never enter the report.
+    raw_nas = str(setting[0] or "").strip() if setting else ""
+    nas_root = Path(normalize_nas_unc_path(raw_nas, DEFAULT_NAS_TRANSCRIPTS_PATH))
+    try:
+        srt_ids = {
+            item.stem for item in nas_root.glob("*.srt")
+            if len(item.stem) == 11 and item.is_file()
+        } if nas_root.is_dir() else set()
+    except OSError:
+        srt_ids = set()
+    output["nas_srt_matched_public_live"] = sum(
+        video_id in srt_ids for video_id, _ in video_rows
+    )
+    output["nas_srt_matched_with_source_description"] = sum(
+        video_id in srt_ids for video_id, *_ in rows
+    )
     if not rows:
         output["reason"] = "No LIVE archives with a cached original description"
         return output
@@ -255,6 +284,13 @@ def main() -> int:
         max_caption_lookups=caption_probes,
     )
     OUTPUT.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    print("PUBLIC LIVE ARCHIVES:", result.get("available_public_archives", 0), flush=True)
+    print("SOURCE DESCRIPTIONS CACHED:", result.get("archives_with_cached_original_description", 0), flush=True)
+    print("CACHED LONG DURATIONS:", result.get("archives_with_cached_duration_ge_3h", 0), flush=True)
+    print("MISSING CACHED DURATIONS:", result.get("archives_with_missing_cached_duration", 0), flush=True)
+    print("LONG VIDEO DESCRIPTIONS MISSING:", result.get("long_archives_missing_original_description", 0), flush=True)
+    print("LIVE SRT FILES ON NAS:", result.get("nas_srt_matched_public_live", 0), flush=True)
+    print("LIVE SRT WITH SOURCE DESCRIPTION:", result.get("nas_srt_matched_with_source_description", 0), flush=True)
     print("REAL LIVE SEO:", result["status"], flush=True)
     print("LIVE CANDIDATES TRIED:", result["caption_lookups"], flush=True)
     print("VERIFIED BLOCKS:", result.get("grounded_blocks", 0), "/", result.get("timeline_blocks", 0), flush=True)
