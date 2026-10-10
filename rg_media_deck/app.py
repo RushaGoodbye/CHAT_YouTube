@@ -619,7 +619,20 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         auto = menu.addAction('Автоматично прибирати чорні поля (Z)')
         auto.setCheckable(True)
-        auto.setChecked(self.preview.video_view.auto_crop)
+        auto.setChecked(self.preview.video_view.fit_mode == 'auto')
+        mode_menu = menu.addMenu('Масштабування поточного відео')
+        mode_actions = {}
+        for value, title in [('fit', 'Вписати (не обрізати)'),
+                             ('fill', 'Заповнити (може обрізати краї)'),
+                             ('auto', 'Авто (прибирати чорні поля)')]:
+            action = mode_menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(self.preview.video_view.fit_mode == value)
+            mode_actions[action] = value
+        menu.addSeparator()
+        safe = menu.addAction('Безпечний вибір: один клік не змінює ефір')
+        safe.setCheckable(True)
+        safe.setChecked(self.safe_selection)
         menu.addSeparator()
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
@@ -631,6 +644,13 @@ class MainWindow(QMainWindow):
             self.scan()
         elif choice == auto:
             self.set_auto_crop(auto.isChecked())
+        elif choice in mode_actions:
+            self.set_fit_mode(mode_actions[choice])
+        elif choice == safe:
+            self.safe_selection = safe.isChecked()
+            self._save()
+            self.status.setText('Безпечний вибір увімкнено' if self.safe_selection else
+                                'Автозапуск при виборі файлу увімкнено')
         elif choice == updates:
             self.open_settings()
 
@@ -1069,23 +1089,40 @@ class MainWindow(QMainWindow):
 
     def show_video_context_menu(self, pos):
         menu = QMenu(self)
-        mode = menu.addAction('Автоматично прибирати чорні поля (Z)')
-        mode.setCheckable(True)
-        mode.setChecked(self.preview.video_view.auto_crop)
+        current = self.preview.current
+        options = {}
+        for value, title in [('fit', 'Вписати (повний кадр)'),
+                             ('fill', 'Заповнити (обрізати краї)'),
+                             ('auto', 'Авто (прибрати чорні поля)')]:
+            action = menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(self.preview.video_view.fit_mode == value)
+            action.setEnabled(bool(current and current.kind == 'video'))
+            options[action] = value
+        menu.addSeparator()
         portrait = menu.addAction('Вертикальний кадр 9:16 (V)')
         portrait.setCheckable(True)
         portrait.setChecked(self.preview.video_view.forced_portrait)
+        portrait.setEnabled(bool(current and current.kind == 'video'))
         choice = menu.exec(self.preview.video_view.mapToGlobal(pos))
-        if choice == mode:
-            self.set_auto_crop(mode.isChecked())
+        if choice in options:
+            self.set_fit_mode(options[choice])
         elif choice == portrait:
             self.preview.video_view.set_forced_portrait(portrait.isChecked())
-            self.status.setText('Вертикальне кадрування 9:16' if portrait.isChecked() else 'Стандартне кадрування')
+            self.status.setText('Вертикальне кадрування 9:16' if portrait.isChecked() else 'Звичайний кадр')
+
+    def set_fit_mode(self, mode: str):
+        current = self.preview.current
+        if not current or current.kind != 'video':
+            self.status.setText('Спочатку запустіть відео')
+            return
+        self.preview.video_view.set_fit_mode(mode)
+        self.file_fit_modes[normalize_path(current.path)] = mode
+        self._save()
+        self.status.setText(f'Масштаб відео: {mode}')
 
     def set_auto_crop(self, enabled: bool):
-        self.preview.video_view.set_auto_crop(enabled)
-        self._save()
-        self.status.setText('Автокадрування увімкнено' if enabled else 'Автокадрування вимкнено')
+        self.set_fit_mode('auto' if enabled else 'fit')
 
     def _update_play_button(self, *_):
         player = self.preview.player
