@@ -2017,7 +2017,7 @@ chapters: рядок з підтвердженими таймкодами та �
     # evidence-based quality gate. Keep original candidates unless the
     # alternate set has *fewer* verified quality problems. Never use the
     # model's own confidence as an acceptance decision.
-    if evidence_report and not fast_mode:
+    if evidence_report and not fast_mode and len(variants) < 3:
         original_ab_issues = ab_title_issues(variants, evidence_report)
         if original_ab_issues:
             try:
