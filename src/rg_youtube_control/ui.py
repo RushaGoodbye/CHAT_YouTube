@@ -124,7 +124,10 @@ from .seo_review_acceptance import (
 )
 from .seo_quality_gate import review_seo_package
 from .rejected_seo import rejected_package_key, package_fingerprint
-from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
+from .cached_metadata import (
+    cached_public_metadata, merge_verified_public_source_metadata,
+    yt_dlp_auth_blocked,
+)
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
     fetch_public_metadata,
@@ -12784,14 +12787,26 @@ class MainWindow(QMainWindow):
         context = dict(cached_context)
         public_metadata_attempted = False
         public_metadata_error = ""
-        if not context.get("title"):
-            # yt-dlp is a last resort, never a mandatory dependency when the
-            # authenticated channel metadata is already cached in SQLite.
+        missing_title = not str(context.get("title") or "").strip()
+        missing_original_description = not bool(
+            context.get("source_description_available")
+        )
+        if missing_title or missing_original_description:
+            # Source description is as important as the cached title:
+            # without it, we cannot prove that existing URLs were preserved.
+            # Public yt-dlp costs zero YouTube Data API quota.
             public_metadata_attempted = True
             if on_progress is not None:
-                on_progress("Немає назви в базі · резервний запит yt-dlp")
+                on_progress(
+                    "Відновлення оригінального опису · yt-dlp · API 0"
+                    if not missing_title else
+                    "Немає назви в базі · резервний запит yt-dlp"
+                )
             try:
-                context = fetch_public_metadata(video_id)
+                public_context = fetch_public_metadata(video_id)
+                context = merge_verified_public_source_metadata(
+                    context, video_id, public_context
+                )
             except Exception as exc:
                 public_metadata_error = str(exc)
                 live_tokens = (
@@ -12807,14 +12822,13 @@ class MainWindow(QMainWindow):
                     ) from exc
                 if yt_dlp_auth_blocked(exc):
                     raise RuntimeError(
-                        "YouTube обмежив публічний доступ yt-dlp, а "
-                        "локальних метаданих цього відео ще немає. "
-                        "Синхронізуйте канал у програмі та повторіть спробу. "
-                        "Cookies та вхід у браузер не потрібні."
+                        "YouTube тимчасово обмежив yt-dlp, тому неможливо "
+                        "підтвердити вихідний опис і зберегти його посилання. "
+                        "Чернетка не створена, YouTube не змінено."
                     ) from exc
                 raise RuntimeError(
-                    "Немає локальних метаданих і yt-dlp недоступний: "
-                    + public_metadata_error[:250]
+                    "Неможливо підтвердити оригінальний опис відео "
+                    "через публічні метадані. SEO заблоковано без змін YouTube."
                 ) from exc
         elif on_progress is not None:
             on_progress(
