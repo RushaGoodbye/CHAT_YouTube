@@ -11,16 +11,32 @@ def _pilot(monkeypatch):
     return module
 
 
-def _db(folder: Path, video_id="ABCDEFGHIJK"):
+def _db(folder: Path, video_id="ABCDEFGHIJK", *, source_description="PRIVATE ORIGINAL DESCRIPTION", source_tags=None):
     db = folder / "rg_youtube_control.db"
     conn = sqlite3.connect(db)
     conn.execute(
         "CREATE TABLE videos (video_id TEXT, title TEXT, profile TEXT, "
-        "scheduled_publish_at TEXT, privacy_status TEXT)"
+        "scheduled_publish_at TEXT, privacy_status TEXT, duration TEXT, "
+        "views INTEGER, channel_id TEXT, published_at TEXT)"
     )
     conn.execute(
-        "INSERT INTO videos VALUES (?, ?, 'live', NULL, 'public')",
+        "INSERT INTO videos VALUES (?, ?, 'live', NULL, 'public', "
+        "'PT3H0M0S', 1, 'PRIVATE', '2026-01-01')",
         (video_id, "PRIVATE VIDEO TITLE"),
+    )
+    conn.execute(
+        "CREATE TABLE optimization_drafts "
+        "(video_id TEXT, source_description TEXT, source_tags_json TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO optimization_drafts VALUES (?, ?, ?)",
+        (video_id, source_description,
+         '["PRIVATE ORIGINAL TAG"]' if source_tags is None else source_tags),
+    )
+    conn.execute(
+        "CREATE TABLE metadata_history "
+        "(video_id TEXT, description TEXT, tags_json TEXT, "
+        "created_at TEXT, history_id INTEGER)"
     )
     conn.commit()
     conn.close()
@@ -135,3 +151,54 @@ def test_long_live_mode_accepts_at_least_15_blocks(tmp_path, monkeypatch):
     assert result["status"] == "STRUCTURE_PASS"
     assert result["youtube_modified"] is False
     assert "PRIVATE" not in str(result)
+
+
+def test_live_qa_passes_original_metadata_to_generator_and_quality_gate(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    original = "PRIVATE NOTE https://donate.rginfoua.pp.ua"
+    _db(tmp_path, source_description=original)
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: [
+        {"text": "PRIVATE CAPTION " + str(n), "start": n * 30, "duration": 5}
+        for n in range(30)
+    ])
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k: {
+        "source_integrity_verified": True, "blocks_total": 3,
+        "blocks_with_evidence": 3, "source_rows_with_text": 30, "blocks": [],
+    })
+    seen = {}
+    def generate(**kwargs):
+        seen["generation"] = kwargs
+        return {
+            "title": "PRIVATE VIDEO TITLE", "description": "PRIVATE SHORT DESCRIPTION",
+            "title_variants": ["PRIVATE A", "PRIVATE B", "PRIVATE C"], "tags": ["NEW TAG"],
+        }
+    def review(**kwargs):
+        seen["review"] = kwargs
+        return ["Новий опис втратив посилання з оригіналу."]
+    monkeypatch.setattr(p, "generate_seo_package_local", generate)
+    monkeypatch.setattr(p, "review_seo_package", review)
+    result = p.run()
+    assert seen["generation"]["current_description"] == original
+    assert seen["generation"]["current_tags"] == ["PRIVATE ORIGINAL TAG"]
+    assert seen["review"]["original_description"] == original
+    assert seen["review"]["original_tags"] == ["PRIVATE ORIGINAL TAG"]
+    assert seen["review"]["tags"] == ["NEW TAG"]
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert "PRIVATE NOTE" not in str(result)
+    assert "PRIVATE ORIGINAL TAG" not in str(result)
+    assert result["youtube_data_api_calls"] == 0
+
+
+def test_live_qa_missing_original_description_fails_closed(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, source_description="")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: (_ for _ in ()).throw(
+        AssertionError("No network without cached source metadata")
+    ))
+    result = p.run()
+    assert result["status"] == "NOT_READY"
+    assert result["archives_with_cached_original_description"] == 0
+    assert result["caption_lookups"] == 0
+    assert result["youtube_modified"] is False
