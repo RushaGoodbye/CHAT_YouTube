@@ -20,17 +20,20 @@ import xml.etree.ElementTree as ET
 APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
 AFTER_INSTALL=dt.datetime(2026,10,10,11,55,51,tzinfo=dt.timezone.utc).timestamp()
 MARK_NAME="RG | ПЕРЕВІРИТИ КУРІННЯ"
-SCAN_MAX=2400
+SCAN_MAX=8500
 FILE_CAP=7_000_000
 
 def valid(name:str):
     return re.match(r"^RG_EDITED_(\d{3,5})(?:_(\d+))?\.xml$",name,re.I)
 
 def walk_bounded():
-    folders=[APP]
+    # Prioritize recent numbered stream output folders before large app root.
+    folders=[]
     for p in APP.iterdir():
         if p.is_dir() and re.fullmatch(r"\d{3,5}",p.name):
             folders.append(p)
+    folders.sort(key=lambda p:(p.stat().st_mtime,int(p.name)),reverse=True)
+    folders.append(APP)
     files=[]
     visited=0
     for root in folders:
