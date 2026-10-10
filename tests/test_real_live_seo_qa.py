@@ -309,3 +309,43 @@ def test_public_captions_fallback_works_when_nas_source_missing(tmp_path, monkey
     assert result["selected_source_type"] == "public-captions"
     assert result["caption_lookups"] == 1
     assert result["youtube_data_api_calls"] == 0
+
+
+def test_long_live_filters_duration_before_bounded_source_probe(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    db = _db(tmp_path, duration="PT3H0M0S")
+    conn = sqlite3.connect(db)
+    for i in range(45):
+        short_id = "Z" + str(i).zfill(10)
+        conn.execute(
+            "INSERT INTO videos VALUES (?, ?, 'live', NULL, 'public', "
+            "'PT20M0S', 1, 'PRIVATE', '2026-01-02')",
+            (short_id, "PRIVATE SHORT TITLE"),
+        )
+        conn.execute(
+            "INSERT INTO optimization_drafts VALUES (?, ?, ?)",
+            (short_id, "PRIVATE ORIGINAL SHORT DESCRIPTION", "[]"),
+        )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / "ABCDEFGHIJK.srt").write_text("PRIVATE SOURCE", encoding="utf-8")
+    monkeypatch.setattr(p, "normalize_nas_unc_path", lambda _raw, _default: str(nas))
+    monkeypatch.setattr(p, "load_srt_transcript", lambda _path: [
+        {"text": "PRIVATE FULL CAPTION " + str(n), "start": n * 60}
+        for n in range(180)
+    ])
+    monkeypatch.setattr(p, "fetch_transcript", lambda _id: (_ for _ in ()).throw(
+        AssertionError("The long NAS source must take priority")
+    ))
+    result = p.run(
+        require_long_live=True, preflight_only=True,
+        max_caption_lookups=0, max_nas_candidates=2,
+    )
+    assert result["available_public_archives"] == 46
+    assert result["duration_qualified_source_archives"] == 1
+    assert result["nas_srt_candidates_checked"] == 1
+    assert result["status"] == "SOURCE_READY"
+    assert "PRIVATE" not in str(result)
