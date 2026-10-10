@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
+from media_intelligence import search_match, clean_tags, clean_bookmarks
 
 VIDEO_EXTS = frozenset({
     '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.wmv', '.mpeg',
@@ -96,14 +97,15 @@ def scan_media(roots: Iterable[str], stop: Callable[[], bool] | None = None,
 
 
 def filter_media(items: Iterable[MediaItem], query: str, kind: str = 'all',
-                 favorites: set[str] | None = None, favorites_only: bool = False) -> list[MediaItem]:
-    words = query.casefold().split()
+                 favorites: set[str] | None = None, favorites_only: bool = False,
+                 tags: dict[str, list[str]] | None = None) -> list[MediaItem]:
+    tags = tags or {}
     favorites = favorites or set()
     matches = (
         item for item in items
         if (kind == 'all' or item.kind == kind)
         and (not favorites_only or normalize_path(item.path) in favorites)
-        and all(w in item.name.casefold() for w in words)
+        and search_match(query, item.name, tags.get(normalize_path(item.path), []))
     )
     return sorted(matches, key=lambda item: (
         normalize_path(item.path) not in favorites,
@@ -134,7 +136,7 @@ def normalize_playback_rate(value) -> float:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'tags': {}, 'bookmarks': {}}
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
@@ -157,6 +159,10 @@ def load_settings(path: Path | None = None) -> dict:
             'file_fit_modes': {k: v for k, v in data.get('file_fit_modes', {}).items()
                                if isinstance(k, str) and v in ('fit', 'fill', 'auto')}
                               if isinstance(data.get('file_fit_modes'), dict) else {},
+            'tags': {k: clean_tags(v) for k, v in list(data.get('tags', {}).items())[:10000]
+                     if isinstance(k, str)}
+                    if isinstance(data.get('tags'), dict) else {},
+            'bookmarks': clean_bookmarks(data.get('bookmarks', {})),
         }
     except (ValueError, OSError, UnicodeError):
         return defaults
