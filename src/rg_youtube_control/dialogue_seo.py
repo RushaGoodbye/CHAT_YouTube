@@ -372,20 +372,23 @@ def ab_title_issues(
         # A shared supported keyword must not conceal an invented unrelated
         # two-word subject (regression: "family psychology" in political SEO).
         unsupported_subjects = (
-            (r"семейн\w*\s+психолог\w*", ("семейн", "психолог")),
-            (r"сімейн\w*\s+психолог\w*", ("сімейн", "психолог")),
-            (r"семейной\s+психологии", ("семейн", "психолог")),
+            r"семейн\w*\s+психолог\w*",
+            r"сімейн\w*\s+психолог\w*",
+            r"семейной\s+психологии",
+        )
+        supported_family_topic = any(
+            re.search(pattern, source, flags=re.UNICODE)
+            for pattern in unsupported_subjects
         )
         for index, value in enumerate(values, 1):
             title_lower = value.casefold()
-            for pattern, roots in unsupported_subjects:
-                if re.search(pattern, title_lower, flags=re.UNICODE) and not all(
-                    root in source for root in roots
-                ):
-                    issues.append(
-                        f"A/B варіант {index} містить непідтверджену тему сімейної психології."
-                    )
-                    break
+            if not supported_family_topic and any(
+                re.search(pattern, title_lower, flags=re.UNICODE)
+                for pattern in unsupported_subjects
+            ):
+                issues.append(
+                    f"A/B варіант {index} містить непідтверджену тему сімейної психології."
+                )
             words = re.findall(
                 r"[a-zа-яё0-9]{5,}",
                 value.casefold().translate(
