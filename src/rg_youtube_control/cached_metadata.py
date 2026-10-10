@@ -117,3 +117,42 @@ def yt_dlp_auth_blocked(exc: BaseException | str) -> bool:
             "http error 429",
         )
     )
+
+
+def merge_verified_public_source_metadata(
+    cached: dict[str, Any],
+    video_id: str,
+    public: dict[str, Any],
+) -> dict[str, Any]:
+    """Recover missing original description without overwriting trusted title.
+
+    Caller fetches only public metadata with yt-dlp, never YouTube Data API.
+    A remote ID mismatch cannot silently contaminate another video's draft.
+    This is a temporary source-only context, not a database write.
+    """
+    video_id = str(video_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        raise ValueError("Invalid source video identifier")
+    if str(public.get("video_id") or "") != video_id:
+        raise ValueError("Public metadata refers to another video")
+    if "description" not in public:
+        raise ValueError("Public metadata does not include original description")
+    context = dict(cached)
+    if not str(context.get("title") or "").strip():
+        context["title"] = str(public.get("title") or "").strip()
+    if not str(context.get("title") or "").strip():
+        raise ValueError("No original video title")
+    if not bool(cached.get("source_description_available")):
+        context["description"] = str(public.get("description") or "")
+        context["source_description_available"] = True
+        context["source_description_verified"] = True
+    if not context.get("tags"):
+        context["tags"] = [
+            str(tag).strip() for tag in (public.get("tags") or [])
+            if str(tag).strip()
+        ]
+    if not context.get("_caption_tracks") and public.get("_caption_tracks"):
+        context["_caption_tracks"] = public["_caption_tracks"]
+    context["source"] = "sqlite-plus-public-source" if cached else "yt-dlp"
+    context["youtube_data_api_quota"] = 0
+    return context
