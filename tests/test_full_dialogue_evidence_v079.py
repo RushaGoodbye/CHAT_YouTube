@@ -297,3 +297,30 @@ def test_unverified_timeline_block_gets_one_bounded_grounded_retry(tmp_path):
     )
     assert again["cache_hits"] == again["blocks_total"]
     assert attempts == []
+
+
+def test_grounded_ab_fallback_adds_third_from_verified_source_only():
+    from rg_youtube_control.dialogue_seo import complete_grounded_ab_variants
+    report = {"blocks": [
+        {"verified": True, "topics": [{"topic": "Ціни на бензин у Росії"}]},
+        {"verified": True, "topics": [{"topic": "Російська пропаганда та війна"}]},
+        {"verified": False, "topics": [{"topic": "НЕПІДТВЕРДЖЕНА ВИГАДКА"}]},
+    ]}
+    existing = [
+        "Бензин и цены: что говорят россияне",
+        "Война и пропаганда: разговор с россиянами",
+    ]
+    result = complete_grounded_ab_variants(existing, report, main_title="ЧАТ РУЛЕТКА: архів")
+    assert len(result) == 3
+    assert result[:2] == existing
+    assert "Ціни на бензин у Росії" in result[2]
+    assert "НЕПІДТВЕРДЖЕНА" not in str(result)
+
+
+def test_grounded_ab_fallback_never_invents_third_if_source_lacks_topics():
+    from rg_youtube_control.dialogue_seo import complete_grounded_ab_variants
+    choices = complete_grounded_ab_variants(
+        ["Бензин и цены: что говорят россияне", "Что с войной: ответы россиян"],
+        {"blocks": [{"verified": False, "topics": [{"topic": "Путін відповів на запитання"}]}]},
+    )
+    assert len(choices) == 2
