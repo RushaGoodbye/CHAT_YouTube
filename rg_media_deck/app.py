@@ -1533,17 +1533,20 @@ class MainWindow(QMainWindow):
             return
         self.preview_seek.setValue(0)
         self.preview_seek.setEnabled(self.selected.kind == 'video')
+        coordinates = None
         if self.selected.kind == 'video':
             key = normalize_path(self.selected.path)
             saved = self.file_fit_modes.get(key, 'auto')
-            coordinates = self.file_manual_crops.get(key)
-            if saved == 'manual' and coordinates:
-                self.preview.video_view.set_manual_crop(Crop(*coordinates))
-            else:
-                self.preview.video_view.set_fit_mode(saved if saved != 'manual' else 'auto')
+            coordinates = self.file_manual_crops.get(key) if saved == 'manual' else None
+            self.preview.video_view.set_fit_mode(saved if saved != 'manual' or coordinates
+                                                 else 'auto')
         if not self.preview.play_item(self.selected):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        # PlayerSurface.play_item() resets the last frame and current crop.
+        # Restore the user's per-file manual rectangle AFTER that reset.
+        if coordinates and self.selected.kind == 'video':
+            self.preview.video_view.set_manual_crop(Crop(*coordinates))
         self.file_title.setText(display_media_name(self.selected.name))
         self.file_title.setToolTip(self.selected.path)
         self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
