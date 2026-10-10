@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 
 from rg_youtube_control.config import app_data_dir
+from rg_youtube_control.cached_metadata import cached_public_metadata
 from rg_youtube_control.dialogue_seo import (
     analyze_all_timeline_blocks, evidence_outline_text, split_timeline,
 )
@@ -47,20 +48,35 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
     try:
         conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
         conn.execute("PRAGMA query_only=ON")
-        rows = conn.execute(
+        video_rows = conn.execute(
             """SELECT video_id, title FROM videos WHERE profile='live'
                AND scheduled_publish_at IS NULL
                AND COALESCE(privacy_status, 'public')='public'
                ORDER BY video_id DESC"""
         ).fetchall()
+        rows = []
+        for video_id, title in video_rows:
+            if not title or not isinstance(video_id, str) or len(video_id) != 11:
+                continue
+            # The videos table has no description/tags. Reuse the same
+            # source-only cache as the Windows SEO generator; NEVER confuse
+            # generated draft metadata with the original YouTube metadata.
+            metadata = cached_public_metadata(conn, video_id, "live")
+            if metadata.get("source_description_available"):
+                rows.append((video_id, title, str(metadata["description"]),
+                             list(metadata.get("tags") or [])))
         conn.close()
     except sqlite3.Error:
         output["reason"] = "Read-only LIVE database query failed"
         return output
 
-    output["available_public_archives"] = len(rows)
+    output["available_public_archives"] = len(video_rows)
+    output["archives_with_cached_original_description"] = len(rows)
+    if not rows:
+        output["reason"] = "No LIVE archives with a cached original description"
+        return output
     selected = None
-    for video_id, title in rows:
+    for video_id, title, source_description, source_tags in rows:
         if output["caption_lookups"] >= max(1, min(int(max_caption_lookups), 8)):
             break
         if not title or not isinstance(video_id, str) or len(video_id) != 11:
@@ -72,7 +88,7 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
                 continue
             block_count = len(split_timeline(captions, max_chars=5000, max_span_seconds=300))
             if (block_count >= 15 if require_long_live else 2 <= block_count <= 14):
-                selected = (title, captions)
+                selected = (title, source_description, source_tags, captions)
                 break
         except (OSError, ValueError, RuntimeError, TimeoutError, TypeError):
             continue
@@ -84,7 +100,7 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
         )
         return output
 
-    title, captions = selected
+    title, source_description, source_tags, captions = selected
     try:
         evidence = analyze_all_timeline_blocks(
             captions, model=DEFAULT_OLLAMA_MODEL, chat=ollama_chat,
@@ -98,8 +114,8 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
 
         package = generate_seo_package_local(
             current_title=title,
-            current_description="",
-            current_tags=[],
+            current_description=source_description,
+            current_tags=source_tags,
             transcript=evidence_outline_text(evidence),
             evidence_report=evidence,
             model=DEFAULT_OLLAMA_MODEL, timeout=120,
@@ -110,6 +126,9 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
             description=package.get("description") or "",
             variants=package.get("title_variants") or [],
             evidence_report=evidence,
+            original_description=source_description,
+            original_tags=source_tags,
+            tags=package.get("tags") or [],
         )
         output["semantic_gate_warnings_count"] = len(issues)
         output["semantic_gate_warning_categories"] = anonymous_issue_categories(issues)
