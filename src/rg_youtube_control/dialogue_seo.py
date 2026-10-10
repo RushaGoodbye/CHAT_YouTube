@@ -245,6 +245,28 @@ def analyze_all_timeline_blocks(
                 item = _validate_topics(candidate, block)
             except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                 item = _validate_topics({}, block)
+            # One bounded retry for an empty/invalid topic response. All
+            # previously verified blocks are served from the private cache.
+            # Never manufacture a topic or assert coverage without evidence.
+            if not item["verified"]:
+                try:
+                    retry_prompt = (
+                        prompt + "\\n\\nПОПЕРЕДНЯ ВІДПОВІДЬ НЕ ПРОЙШЛА "
+                        "ПЕРЕВІРКУ. Поверни рівно одну тему з ДОСЛІВНОЮ "
+                        "цитатою з цього фрагмента або topics=[] якщо "
+                        "достовірної теми немає."
+                    )
+                    retry_raw = chat(
+                        [
+                            {"role": "system", "content": "Тільки JSON з перевірюваними цитатами."},
+                            {"role": "user", "content": retry_prompt},
+                        ],
+                        model=model, timeout=timeout,
+                        temperature=0.05, json_mode=True,
+                    )
+                    item = _validate_topics(json.loads(str(retry_raw).strip()), block)
+                except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                    item = _validate_topics({}, block)
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
