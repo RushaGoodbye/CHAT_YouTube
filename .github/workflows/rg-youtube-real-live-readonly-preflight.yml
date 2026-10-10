@@ -1,0 +1,71 @@
+name: RG YouTube Real LIVE Readonly Preflight
+
+on:
+  push:
+    branches:
+      - audit/youtube-control-0710-comprehensive-qa
+    paths:
+      - ".github/workflows/rg-youtube-real-live-readonly-preflight.yml"
+      - "scripts/rg_youtube_real_live_seo_qa.py"
+      - "src/rg_youtube_control/cached_metadata.py"
+      - "src/rg_youtube_control/config.py"
+      - "src/rg_youtube_control/dialogue_seo.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-real-live-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  live-source-preflight:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    timeout-minutes: 12
+    steps:
+      - name: Check runner is AlexPC
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Only ALEXPC is allowed" }
+          Write-Host "RG YOUTUBE PREFLIGHT: host verified"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Read local LIVE metadata and NAS SRT availability without network
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -B scripts/rg_youtube_real_live_seo_qa.py --long-live --preflight-only --caption-probes 0
+          if ($LASTEXITCODE -ne 0) { throw "Readonly LIVE preflight execution failed" }
+
+      - name: Validate anonymous, non-publishing output
+        shell: powershell
+        run: |
+          $p = "rg_youtube_real_live_seo_anonymous_qa.json"
+          if (-not (Test-Path $p)) { throw "No preflight result" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("SOURCE_READY", "NOT_READY")) { throw "Unexpected readiness status" }
+          if ($r.youtube_modified -or $r.source_text_exported -or $r.generated_content_exported) {
+            throw "Read-only or anonymization guarantee failed"
+          }
+          if ($r.caption_lookups -ne 0 -or $r.youtube_data_api_calls -ne 0) {
+            throw "Network / API cap violated"
+          }
+          Write-Host ("REAL LIVE PREFLIGHT: " + $r.status)
+          Write-Host ("LONG SOURCE ARCHIVES: " + $r.duration_qualified_source_archives)
+          Write-Host ("NAS SRT FOUND: " + $r.nas_srt_sources_available)
+          Write-Host ("SOURCE TYPE: " + $r.selected_source_type)
+          Write-Host ("NEXT ACTION: " + $r.reason)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rg-youtube-live-readonly-preflight
+          path: rg_youtube_real_live_seo_anonymous_qa.json
+          if-no-files-found: ignore
+          retention-days: 7
