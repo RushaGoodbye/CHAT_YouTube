@@ -23,6 +23,38 @@ from rg_youtube_control.seo_quality_gate import review_seo_package
 from rg_youtube_real_seo_local_qa import anonymous_metrics, anonymous_issue_categories
 
 OUTPUT = Path("rg_youtube_real_live_seo_anonymous_qa.json")
+MIN_LONG_LIVE_SECONDS = 3 * 60 * 60
+
+
+def _captions_span_full_long_live(captions: list[dict], duration_seconds: int) -> bool:
+    """Fail closed on a short video or an excerpt mistaken for a full LIVE.
+
+    Timestamp span alone is insufficient: 30 isolated caption lines spread
+    across three hours are not evidence that the whole stream was transcribed.
+    This is a minimum *coverage preflight*, not proof of semantic correctness.
+    """
+    if duration_seconds < MIN_LONG_LIVE_SECONDS:
+        return False
+    if len(captions) < max(25, duration_seconds // 60):
+        return False
+    positions = []
+    for row in captions:
+        try:
+            start = float(row.get("start"))
+            if start >= 0 and str(row.get("text") or "").strip():
+                positions.append(start)
+        except (TypeError, ValueError, OverflowError):
+            continue
+    if len(positions) < max(25, duration_seconds // 60):
+        return False
+    if min(positions) > min(600, duration_seconds * 0.1):
+        return False
+    if max(positions) < duration_seconds * 0.9:
+        return False
+    if max(positions) > duration_seconds + 600:
+        return False
+    return True
+
 
 
 def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dict:
@@ -64,7 +96,8 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
             metadata = cached_public_metadata(conn, video_id, "live")
             if metadata.get("source_description_available"):
                 rows.append((video_id, title, str(metadata["description"]),
-                             list(metadata.get("tags") or [])))
+                             list(metadata.get("tags") or []),
+                             int(metadata.get("duration") or 0)))
         conn.close()
     except sqlite3.Error:
         output["reason"] = "Read-only LIVE database query failed"
@@ -76,15 +109,21 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
         output["reason"] = "No LIVE archives with a cached original description"
         return output
     selected = None
-    for video_id, title, source_description, source_tags in rows:
+    for video_id, title, source_description, source_tags, duration_seconds in rows:
         if output["caption_lookups"] >= max(1, min(int(max_caption_lookups), 8)):
             break
         if not title or not isinstance(video_id, str) or len(video_id) != 11:
+            continue
+        if require_long_live and duration_seconds < MIN_LONG_LIVE_SECONDS:
             continue
         output["caption_lookups"] += 1
         try:
             captions = fetch_transcript(video_id)
             if not captions or len(captions) < 25:
+                continue
+            if require_long_live and not _captions_span_full_long_live(
+                captions, duration_seconds
+            ):
                 continue
             block_count = len(split_timeline(captions, max_chars=5000, max_span_seconds=300))
             if (block_count >= 15 if require_long_live else 2 <= block_count <= 14):
@@ -95,7 +134,7 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
 
     if selected is None:
         output["reason"] = (
-            "No fully-captioned long LIVE archive in bounded sample"
+            "No long LIVE with verified duration and full-span source captions in bounded sample"
             if require_long_live else "No fully-captioned moderate-length LIVE archive in bounded sample"
         )
         return output
@@ -145,7 +184,7 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Private read-only LIVE SEO QA")
-    parser.add_argument("--long-live", action="store_true", help="Require at least 15 timeline blocks")
+    parser.add_argument("--long-live", action="store_true", help="Require >=3h duration, full-span captions and >=15 timeline blocks")
     args = parser.parse_args()
     result = run(require_long_live=args.long_live)
     OUTPUT.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
