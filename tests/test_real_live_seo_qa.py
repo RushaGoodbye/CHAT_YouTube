@@ -93,3 +93,45 @@ def test_review_warnings_only_report_categories(tmp_path, monkeypatch):
     assert result["status"] == "REVIEW_REQUIRED"
     assert result["semantic_gate_warning_categories"] == ["EVIDENCE_QUOTES"]
     assert "PRIVATE_PERSON" not in str(result)
+
+
+def test_long_live_mode_rejects_short_sample(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path)
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: [
+        {"text": "PRIVATE CAPTION " + str(n), "start": n * 30, "duration": 5}
+        for n in range(30)
+    ])
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k:
+                        (_ for _ in ()).throw(AssertionError("Do not analyze short LIVE")))
+    result = p.run(require_long_live=True)
+    assert result["status"] == "NOT_READY"
+    assert result["length_profile"] == "long"
+    assert result["caption_lookups"] == 1
+    assert "long LIVE" in result["reason"]
+    assert result["youtube_modified"] is False
+
+
+def test_long_live_mode_accepts_at_least_15_blocks(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path)
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: [
+        {"text": "PRIVATE CAPTION " + str(n), "start": n * 300, "duration": 5}
+        for n in range(20)
+    ])
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k: {
+        "source_integrity_verified": True, "blocks_total": 20,
+        "blocks_with_evidence": 20, "source_rows_with_text": 20, "blocks": [],
+    })
+    monkeypatch.setattr(p, "generate_seo_package_local", lambda **_k: {
+        "title": "PRIVATE VIDEO TITLE", "description": "PRIVATE SEO",
+        "title_variants": ["A", "B", "C"], "tags": [],
+    })
+    monkeypatch.setattr(p, "review_seo_package", lambda **_k: [])
+    result = p.run(require_long_live=True)
+    assert result["length_profile"] == "long"
+    assert result["status"] == "STRUCTURE_PASS"
+    assert result["youtube_modified"] is False
+    assert "PRIVATE" not in str(result)
