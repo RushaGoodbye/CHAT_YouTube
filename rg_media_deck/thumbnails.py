@@ -11,7 +11,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal, QSize
+from PySide6.QtCore import QThread, Signal, QSize, Qt
 from PySide6.QtGui import QImageReader
 
 from library import settings_path
@@ -42,7 +42,7 @@ def make_thumbnail(source: str, kind: str, *, ffmpeg: str | None = None) -> Path
                 reader.setAutoTransform(True)
                 size = reader.size()
                 if size.isValid():
-                    size.scale(THUMB_SIZE, 1)  # Keep aspect ratio
+                    size.scale(THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio)
                     reader.setScaledSize(size)
                 image = reader.read()
                 if image.isNull() or not image.save(str(tmp), "PNG"):
