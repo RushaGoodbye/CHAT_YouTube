@@ -1,0 +1,84 @@
+name: RG YouTube Post-Install Readonly Audit
+
+on:
+  push:
+    branches:
+      - audit/youtube-control-0710-comprehensive-qa
+    paths:
+      - ".github/workflows/rg-youtube-post-install-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-post-install-audit
+  cancel-in-progress: false
+
+jobs:
+  installed-version-audit:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - name: Read actual installed version and running GUI on ALEXPC
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Only ALEXPC authorized' }
+          $entries = @()
+          foreach ($hive in @(
+              'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )) {
+            $entries += @(Get-ItemProperty -Path $hive -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -eq 'RG YouTube Control' })
+          }
+          $entries = @($entries | Sort-Object DisplayVersion, InstallLocation -Unique)
+          $version = if ($entries.Count -eq 1) { [string]$entries[0].DisplayVersion } else { '' }
+          $folder = if ($entries.Count -eq 1) { [string]$entries[0].InstallLocation } else { '' }
+          $installedExe = if ($folder) { Join-Path $folder 'RG YouTube Control.exe' } else { '' }
+          $exePresent = [bool]($installedExe -and (Test-Path -LiteralPath $installedExe -PathType Leaf))
+          $running = @(Get-Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProcessName -eq 'RG YouTube Control' })
+          $runningPaths = @($running | ForEach-Object {
+              try { [string]$_.Path } catch { '' }
+          } | Where-Object { $_ })
+          $runningInstalled = [bool]($installedExe -and @(
+              $runningPaths | Where-Object { $_ -ieq $installedExe }
+          ).Count -gt 0)
+          $oldVersionPresent = @($entries | Where-Object { $_.DisplayVersion -eq '0.7.10' }).Count -gt 0
+          $result = [ordered]@{
+            schema = 'RG_YOUTUBE_POST_INSTALL_AUDIT_V1'
+            expected_version = '0.7.11'
+            registry_entries = $entries.Count
+            installed_version = $version
+            executable_present = $exePresent
+            running_process_count = $running.Count
+            running_from_registered_install = $runningInstalled
+            legacy_0710_entry = $oldVersionPresent
+            youtube_api_calls = 0
+            youtube_modified = $false
+            private_data_read = $false
+            settings_modified = $false
+          }
+          $result['status'] = if ($entries.Count -eq 1 -and $version -eq '0.7.11' -and $exePresent -and -not $oldVersionPresent) {
+              'INSTALLED'
+          } else {
+              'NEEDS_ATTENTION'
+          }
+          $result | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 'rg_youtube_post_install_anonymous.json'
+          Write-Host "POST-INSTALL VERSION: $version"
+          Write-Host "POST-INSTALL STATUS: $($result.status)"
+          Write-Host "POST-INSTALL EXE EXISTS: $exePresent"
+          Write-Host "POST-INSTALL GUI PROCESS COUNT: $($running.Count)"
+          Write-Host "POST-INSTALL GUI FROM INSTALLED EXE: $runningInstalled"
+          if ($result.status -ne 'INSTALLED') { Write-Warning 'Installed 0.7.11 not confirmed, no changes made' }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rg-youtube-post-install-anonymous
+          path: rg_youtube_post_install_anonymous.json
+          if-no-files-found: ignore
+          retention-days: 7
