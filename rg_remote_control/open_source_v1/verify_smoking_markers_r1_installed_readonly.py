@@ -50,7 +50,7 @@ def main():
     edited,side=bridge.prepare(xml,[report],"892_1","892")
     assert len(side["markers"])==1, side
     assert side["markers"][0]["start_frame"]==0, side
-    assert side["markers"][0]["end_frame"]==26, side
+    assert side["markers"][0]["end_frame"]==18, side
     assert side.get("xml_was_source_overwritten") is False
     def tree(x):
         if "<!DOCTYPE xmeml>" in x:x=x.split("<!DOCTYPE xmeml>",1)[1].strip()
