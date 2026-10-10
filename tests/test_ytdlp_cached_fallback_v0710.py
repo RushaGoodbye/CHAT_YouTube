@@ -291,7 +291,8 @@ def test_missing_original_description_is_recovered_even_with_cached_title(monkey
     state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
     result = ui.MainWindow._generate_local_seo_result(state, VIDEO)
     assert probes == [VIDEO]
-    assert observed["current_description"] == original
+    assert observed["current_description"].startswith(original)
+    assert "https://donate.rginfoua.pp.ua" in observed["current_description"]
     assert observed["current_tags"] == ["чат рулетка", "Перун"]
     assert observed["current_title"] == cached["title"]
     assert result["context"]["source_description_verified"] is True
