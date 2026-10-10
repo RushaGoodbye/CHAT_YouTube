@@ -139,12 +139,17 @@ def run(
     raw_nas = str(setting[0] or "").strip() if setting else ""
     nas_root = Path(normalize_nas_unc_path(raw_nas, DEFAULT_NAS_TRANSCRIPTS_PATH))
     try:
+        output["nas_directory_reachable"] = nas_root.is_dir()
+    except OSError:
+        output["nas_directory_reachable"] = False
+    try:
         srt_ids = {
             item.stem for item in nas_root.glob("*.srt")
             if len(item.stem) == 11 and item.is_file()
         } if nas_root.is_dir() else set()
     except OSError:
         srt_ids = set()
+    output["nas_srt_files_found"] = len(srt_ids)
     output["nas_srt_matched_public_live"] = sum(
         video_id in srt_ids for video_id, _ in video_rows
     )
@@ -289,6 +294,8 @@ def main() -> int:
     print("CACHED LONG DURATIONS:", result.get("archives_with_cached_duration_ge_3h", 0), flush=True)
     print("MISSING CACHED DURATIONS:", result.get("archives_with_missing_cached_duration", 0), flush=True)
     print("LONG VIDEO DESCRIPTIONS MISSING:", result.get("long_archives_missing_original_description", 0), flush=True)
+    print("NAS DIRECTORY REACHABLE:", result.get("nas_directory_reachable", False), flush=True)
+    print("SRT FILES IN DIRECTORY:", result.get("nas_srt_files_found", 0), flush=True)
     print("LIVE SRT FILES ON NAS:", result.get("nas_srt_matched_public_live", 0), flush=True)
     print("LIVE SRT WITH SOURCE DESCRIPTION:", result.get("nas_srt_matched_with_source_description", 0), flush=True)
     print("REAL LIVE SEO:", result["status"], flush=True)
