@@ -1,0 +1,64 @@
+name: RG 904 Resume R2 Safe Hotfix
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - 'rg_remote_control/open_source_v1/install_904_resume_r2_safe.py'
+      - '.github/workflows/rg-904-resume-r2-hotfix.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shadow-apply-verify:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Snapshot preserved 904 dialogue XML SHA256
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $names=@('RG_EDITED_904_1.xml','RG_EDITED_904_2.xml','RG_EDITED_904_4.xml')
+          $data=@{}
+          foreach($n in $names) {
+            $p=Join-Path $root $n
+            if (-not (Test-Path $p)) { throw "Existing XML not found: $n" }
+            $data[$n]=(Get-FileHash $p -Algorithm SHA256).Hash
+          }
+          $data | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\rg_904_resume_r2_xml_before.json"
+      - name: Confirm exact UI anchors and 3 of 6 state in shadow, no write
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Studio runtime missing' }
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_resume_r2_safe.py --shadow
+          if ($LASTEXITCODE -ne 0) { throw "R2 shadow failed: $LASTEXITCODE" }
+      - name: Install UI-only backed-up resume fix while backend stopped
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_resume_r2_safe.py --apply
+          if ($LASTEXITCODE -ne 0) { throw "R2 install failed: $LASTEXITCODE" }
+      - name: Verify installed code and preserved XML hashes
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_resume_r2_safe.py --verify
+          if ($LASTEXITCODE -ne 0) { throw "R2 code verification failed: $LASTEXITCODE" }
+          $before=Get-Content "$env:RUNNER_TEMP\rg_904_resume_r2_xml_before.json" -Raw | ConvertFrom-Json
+          foreach($n in @('RG_EDITED_904_1.xml','RG_EDITED_904_2.xml','RG_EDITED_904_4.xml')) {
+            $h=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\$n" -Algorithm SHA256).Hash
+            if ($h -ne $before.$n) { throw "Protected XML changed: $n" }
+          }
+          Write-Output 'RG_904_RESUME_R2_PRESERVED_XML_SHA256_PASS'
