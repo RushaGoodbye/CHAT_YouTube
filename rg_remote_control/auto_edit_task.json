@@ -1,9 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "stream": "904"
+    "files": [
+      "rg_oss_sync.py",
+      "rg_piecewise_sync.py",
+      "rg_auto_edit_one_button.py",
+      "rg_studio_version.py",
+      "rg_audalign_epoch_904_r1.py"
+    ]
   },
-  "nonce": "rg904-before-resume-checkpoints-readonly-20261010"
+  "nonce": "904-audalign-epoch-r1-post-install-verify-readonly-20261010"
 }
