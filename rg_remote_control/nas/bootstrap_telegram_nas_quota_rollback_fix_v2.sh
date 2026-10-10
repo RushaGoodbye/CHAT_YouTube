@@ -83,7 +83,7 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
   sleep 4
 done
 LOCK_OWNED=1
-printf '%s\\n' "$" > "$LOCK_DIR/pid"
+printf '%s\n' "$" > "$LOCK_DIR/pid"
 date +%s > "$LOCK_DIR/started_at"
 
 if cmp -s "$TMP" "$TARGET"; then
@@ -94,7 +94,7 @@ else
   cp -p "$TARGET" "$BACKUP"
   chmod 755 "$TMP"
   mv -f "$TMP" "$TARGET"
-  printf '%s\\n' "$BACKUP" > "$STATE/rg_nas_quota_rollback_fix_backup"
+  printf '%s\n' "$BACKUP" > "$STATE/rg_nas_quota_rollback_fix_backup"
   echo "RG_TELEGRAM_NAS_DEPLOY_SCRIPT_UPDATED: OK"
   echo "SOURCE_COMMIT: $SOURCE_COMMIT"
   echo "BACKUP: $BACKUP"
@@ -117,9 +117,9 @@ PY
 then
   NOW_EPOCH="$(date -u +%s)"
   NEXT_RESET=$(( ((NOW_EPOCH / 86400) + 1) * 86400 + 300 ))
-  printf '%s\\n' "$NEXT_RESET" > "$STATE/cloudflare_quota_resume_epoch"
-  printf '%s\\n' "DO_OR_KV_FREE_DAILY_LIMIT" > "$STATE/cloudflare_quota_reason"
-  printf '%s\\n' "$(date -Iseconds)" > "$STATE/cloudflare_quota_detected_at"
+  printf '%s\n' "$NEXT_RESET" > "$STATE/cloudflare_quota_resume_epoch"
+  printf '%s\n' "DO_OR_KV_FREE_DAILY_LIMIT" > "$STATE/cloudflare_quota_reason"
+  printf '%s\n' "$(date -Iseconds)" > "$STATE/cloudflare_quota_detected_at"
   echo "RG_CLOUDFLARE_QUOTA_COOLDOWN_SET until_utc_epoch=$NEXT_RESET"
 else
   echo "RG_CLOUDFLARE_QUOTA_COOLDOWN_NOT_SET: no recent quota proof"
