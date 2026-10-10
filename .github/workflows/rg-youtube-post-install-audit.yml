@@ -32,7 +32,7 @@ jobs:
               'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
           )) {
             $entries += @(Get-ItemProperty -Path $hive -ErrorAction SilentlyContinue |
-                Where-Object { $_.DisplayName -match '^RG YouTube Control(?:\\s+[0-9]+(?:\\.[0-9]+)+)?)
+                Where-Object { $_.DisplayName -like 'RG YouTube Control*' })
           }
           $entries = @($entries | Sort-Object DisplayVersion, InstallLocation -Unique)
           $version = if ($entries.Count -eq 1) { [string]$entries[0].DisplayVersion } else { '' }
