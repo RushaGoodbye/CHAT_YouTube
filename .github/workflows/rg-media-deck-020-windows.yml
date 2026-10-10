@@ -5,7 +5,7 @@ on:
     branches: [rg-media-deck-0-2-0]
     paths:
       - 'rg_media_deck/**'
-      - '.github/workflows/rg-media-deck-019-windows.yml'
+      - '.github/workflows/rg-media-deck-020-windows.yml'
 permissions:
   contents: write
 jobs:
