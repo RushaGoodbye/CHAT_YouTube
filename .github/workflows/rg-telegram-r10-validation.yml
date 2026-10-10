@@ -30,22 +30,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Clone exact R10 candidate (no production modifications)
-        shell: powershell
-        run: |
-          $source = Join-Path $env:RUNNER_TEMP 'rg-telegram-r10-source'
-          git clone --quiet --depth 1 --branch telegram-stability-bounded-safety-20261010 https://github.com/RushaGoodbye/rasha-goodbye-news-bot.git $source
-          if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
-          $actual = (git -C $source rev-parse HEAD).Trim()
-          $expected = '8a266f5197f96cc47091e5c77293c4b6fcee116b'
-          if ($actual -ne $expected) { throw "Candidate SHA drift: $actual" }
-          "RG_R10_SOURCE=$source" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          Write-Host "R10 pinned source SHA validated: $actual"
+      - name: Fetch pinned R10 candidate (Git optional)
+        uses: actions/checkout@v4
+        with:
+          repository: RushaGoodbye/rasha-goodbye-news-bot
+          ref: 8a266f5197f96cc47091e5c77293c4b6fcee116b
+          path: newsbot-r10
+          persist-credentials: false
 
       - name: Run dependency-free R10 worker regressions
         shell: powershell
         run: |
-          $root = Join-Path $env:RG_R10_SOURCE 'cloudflare-alerts'
+          $root = Join-Path $env:GITHUB_WORKSPACE 'newsbot-r10/cloudflare-alerts'
           node --check (Join-Path $root 'src/index.js')
           if ($LASTEXITCODE -ne 0) { throw 'Worker JavaScript syntax check failed' }
           node (Join-Path $root 'scripts/test-safety-barrier.mjs')
