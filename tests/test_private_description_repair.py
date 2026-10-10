@@ -25,7 +25,7 @@ def test_repair_covers_verified_topics_quote_and_original_urls():
             or "По телевизору всё время говорят про войну" in repaired)
     assert "https://donate.rginfoua.pp.ua/" in repaired
     assert "https://links.rginfoua.pp.ua/" in repaired
-    assert len(repaired.encode("utf-8")) <= 3900
+    assert len(repaired) <= 5000
 
 
 def test_no_verified_topics_never_creates_description():
@@ -46,3 +46,23 @@ def test_excessive_verified_topics_fail_closed_instead_of_truncating():
     assert grounded_description(
         "Опис", "https://donate.rginfoua.pp.ua", report
     ) == ""
+
+
+def test_cyrillic_source_topics_are_limited_in_characters_not_utf8_bytes():
+    report = {"blocks": [
+        {"verified": True, "topics": [{
+            "topic": "Ціни на паливо та черги на автозаправках",
+            "evidence": "У нас длинные очереди за бензином и много вопросов",
+        }]}
+    ]}
+    # Valid Unicode text easily exceeds 3900 bytes while fitting in YouTube.
+    description = ("Це підтверджена розмова співрозмовників. " * 55)
+    result = grounded_description(
+        description,
+        "https://donate.rginfoua.pp.ua/",
+        report,
+    )
+    assert result
+    assert len(result.encode("utf-8")) > 3900
+    assert len(result) <= 5000
+    assert "Ціни на паливо та черги" in result
