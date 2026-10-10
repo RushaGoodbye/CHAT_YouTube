@@ -3770,6 +3770,21 @@ class MainWindow(QMainWindow):
             return "blocked", reasons
         return "safe", []
 
+    @staticmethod
+    def _queue_effective_draft_status(row) -> str:
+        """Do not present pre-evidence legacy draft as 'ready' in the archive."""
+        status = str(row["draft_status"] or "")
+        if status != "ready":
+            return status
+        generation = str(row["draft_generation"] or "")
+        quality = str(row["draft_quality_state"] or "").casefold()
+        scheduled = bool(row["scheduled_publish_at"])
+        if generation != SOURCE_GENERATION and not scheduled:
+            return "draft"
+        if quality != "safe":
+            return "draft"
+        return status
+
     def _draft_ready_blockers(self, draft) -> list[str]:
         """Recheck legacy READY rows without network or any writes."""
         if draft is None:
@@ -8869,7 +8884,7 @@ class MainWindow(QMainWindow):
             title_text = str(row["title"] or "")
             video_id = str(row["video_id"] or "")
             issue_text = _issue_labels(issues)
-            draft_key_for_search = str(row["draft_status"] or "")
+            draft_key_for_search = self._queue_effective_draft_status(row)
             status_search_text = {
                 "draft": "потрібно перевірити чернетки черновики проверить",
                 "ready": "готово готові готовые до youtube",
@@ -8887,7 +8902,7 @@ class MainWindow(QMainWindow):
                 )
             ):
                 continue
-            draft_key = str(row["draft_status"] or "")
+            draft_key = self._queue_effective_draft_status(row)
             ctr = float(row["ctr_percent"] or 0)
             impressions = int(row["impressions"] or 0)
             matches_status = (
@@ -8974,7 +8989,7 @@ class MainWindow(QMainWindow):
                 if (transcript_dir / f"{row['video_id']}.srt").exists()
                 else ""
             )
-            draft_key = str(row["draft_status"] or "")
+            draft_key = self._queue_effective_draft_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
