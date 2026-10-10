@@ -1,0 +1,29 @@
+name: RG 904 Epoch R1 Installed Readonly Proof
+on:
+  push:
+    branches:
+      - 'auto-edit/892-threezone-shadow-20261010'
+    paths:
+      - 'rg_remote_control/open_source_v1/verify_904_audalign_epoch_r1_installed_readonly.py'
+      - '.github/workflows/rg-904-epoch-r1-installed-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify real 904 Audalign fix and checkpoint safety without writes
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py = 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Missing Studio Python runtime' }
+          & $py -X utf8 rg_remote_control/open_source_v1/verify_904_audalign_epoch_r1_installed_readonly.py
+          if ($LASTEXITCODE -ne 0) { throw "Audalign installed verification failed: $LASTEXITCODE" }
