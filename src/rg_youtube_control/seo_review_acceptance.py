@@ -40,6 +40,7 @@ def reviewed_seo_acceptance_issues(
     description: str,
     variants: list[str],
     data_dir: str | Path,
+    original_description: str | None = None,
 ) -> list[str]:
     """Empty list means evidence/AB content is eligible for *manual* approval.
 
@@ -59,4 +60,5 @@ def reviewed_seo_acceptance_issues(
         description=str(description or ""),
         variants=cleaned,
         evidence_report=report,
+        original_description=original_description,
     )
