@@ -126,7 +126,7 @@ from .seo_quality_gate import review_seo_package
 from .rejected_seo import rejected_package_key, package_fingerprint
 from .cached_metadata import (
     cached_public_metadata, merge_verified_public_source_metadata,
-    yt_dlp_auth_blocked,
+    recover_original_from_owner_api, yt_dlp_auth_blocked,
 )
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -12820,16 +12820,38 @@ class MainWindow(QMainWindow):
                         "Відео визначено як майбутній/живий стрім. "
                         "Архівний локальний SEO для нього заблоковано."
                     ) from exc
-                if yt_dlp_auth_blocked(exc):
+                # Public source is unavailable. Owner videos.list is the
+                # validated 1-unit read-only fallback (never a write).
+                # Respect quota reserve and account for the request on the
+                # worker thread's own SQLite connection, not self.conn.
+                try:
+                    with sqlite3.connect(
+                        str(self.data_dir / "rg_youtube_control.db")
+                    ) as quota_conn:
+                        budget = quota_budget_status(quota_conn)
+                    if budget["exhausted"] or int(budget["spendable"]) < READ_REQUEST_COST:
+                        raise RuntimeError("Немає вільної квоти понад резерв.")
+                    if on_progress is not None:
+                        on_progress("Оригінальний опис · авторизований канал · 1 одиниця API")
+                    context, owner_calls = recover_original_from_owner_api(
+                        context, video_id, profile=self.current_profile
+                    )
+                    if owner_calls:
+                        with sqlite3.connect(
+                            str(self.data_dir / "rg_youtube_control.db")
+                        ) as usage_conn:
+                            record_quota_units(
+                                usage_conn, owner_calls * READ_REQUEST_COST,
+                                purpose="video",
+                            )
+                    public_metadata_error = ""
+                except Exception as owner_exc:
                     raise RuntimeError(
-                        "YouTube тимчасово обмежив yt-dlp, тому неможливо "
-                        "підтвердити вихідний опис і зберегти його посилання. "
-                        "Чернетка не створена, YouTube не змінено."
-                    ) from exc
-                raise RuntimeError(
-                    "Неможливо підтвердити оригінальний опис відео "
-                    "через публічні метадані. SEO заблоковано без змін YouTube."
-                ) from exc
+                        "Неможливо підтвердити вихідний опис через yt-dlp "
+                        "або авторизований канал. Чернетка SEO не створена, "
+                        "YouTube не змінено. Перевірте доступну квоту й "
+                        "підключення LIVE-каналу."
+                    ) from owner_exc
         elif on_progress is not None:
             on_progress(
                 "Метадані отримано з локальної бази · yt-dlp не потрібен · API 0"
