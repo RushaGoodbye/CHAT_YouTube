@@ -1,0 +1,61 @@
+name: RG 892 Threezone GPU Shadow (AlexPC)
+
+on:
+  push:
+    branches:
+      - 'auto-edit/892-threezone-shadow-20261010'
+    paths:
+      - '.github/workflows/rg-smoking-threezone-gpu-shadow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-892-threezone-gpu-shadow
+  cancel-in-progress: false
+
+jobs:
+  real-892-shadow:
+    runs-on: [self-hosted, rg, alexpc, windows]
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify isolated F disk runtime and input quarantine
+        run: |
+          $ErrorActionPreference='Stop'
+          $script='rg_remote_control/open_source_v1/smoking_threezone_892_shadow_v1.py'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow'
+          if (!(Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Missing isolated F: SAM2 Python' }
+          if (!(Test-Path -LiteralPath $root -PathType Container)) { throw 'Shadow root missing' }
+          if (!(Test-Path -LiteralPath $script -PathType Leaf)) { throw 'Pinned test source missing' }
+          & $python -I -B -u $script --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Threezone synthetic preflight failed' }
+          Write-Host 'RG_THREEZONE_ALEXPC_SHADOW_PREFLIGHT_PASS'
+      - name: Execute 60-frame GPU visual QA only
+        env:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+          PYTHONNOUSERSITE: '1'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+          $script='rg_remote_control/open_source_v1/smoking_threezone_892_shadow_v1.py'
+          & $python -I -B -u $script --run
+          if ($LASTEXITCODE -ne 0) { throw 'Threezone GPU shadow stopped without production changes' }
+          Write-Host 'RG_THREEZONE_ALEXPC_GPU_SHADOW_RUN_PASS'
+      - name: Upload isolated review ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-892-threezone-gpu-shadow
+          path: F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\smoking_threezone_892_60frame_shadow_v1\RG_892_THREEZONE_FUSION_SHADOW_V1.zip
+          if-no-files-found: warn
+          retention-days: 14
