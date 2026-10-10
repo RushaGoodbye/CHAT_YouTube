@@ -41,6 +41,8 @@ def reviewed_seo_acceptance_issues(
     variants: list[str],
     data_dir: str | Path,
     original_description: str | None = None,
+    original_tags: list[str] | None = None,
+    tags: list[str] | None = None,
 ) -> list[str]:
     """Empty list means evidence/AB content is eligible for *manual* approval.
 
@@ -61,4 +63,6 @@ def reviewed_seo_acceptance_issues(
         variants=cleaned,
         evidence_report=report,
         original_description=original_description,
+        original_tags=original_tags,
+        tags=tags,
     )
