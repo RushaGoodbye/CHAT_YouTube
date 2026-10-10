@@ -251,6 +251,9 @@ def run(
                 model=DEFAULT_OLLAMA_MODEL, timeout=120,
             )
             out.update(anonymous_metrics(evidence, package))
+            out["ab_generation_gate_issues_count"] = len(
+                package.get("ab_quality_issues") or []
+            )
             issues = review_seo_package(
                 title=package.get("title") or "",
                 description=package.get("description") or "",
