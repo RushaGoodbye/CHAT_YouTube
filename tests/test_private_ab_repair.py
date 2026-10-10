@@ -121,3 +121,41 @@ def test_missing_cached_blocks_prevents_title_model_call(tmp_path, monkeypatch):
     assert result["status"] == "NOT_READY"
     assert result["private_draft_updated"] is False
     assert called == []
+
+
+def test_invalid_model_titles_fallback_to_verified_timeline_topic(tmp_path, monkeypatch):
+    qa, root, db, draft_path = _setup(tmp_path, monkeypatch)
+    verified = {
+        "source_integrity_verified": True,
+        "blocks_total": 1, "blocks_with_evidence": 1,
+        "cache_hits": 1, "unverified_blocks": [],
+        "blocks": [{
+            "verified": True, "start_stamp": "00:00:00",
+            "topics": [{
+                "topic": "Ціни на бензин у Росії",
+                "evidence": "PRIVATE CAPTION",
+                "summary_uk": "Розмова про вартість пального",
+            }],
+        }],
+    }
+    monkeypatch.setattr(qa, "analyze_all_timeline_blocks", lambda *_a, **_k: verified)
+    monkeypatch.setattr(
+        qa, "ab_title_issues",
+        lambda titles, *_a: [] if len(titles) == 3 else ["Three titles required"],
+    )
+    monkeypatch.setattr(
+        qa, "review_seo_package",
+        lambda **kw: ["Manual quote review"] if len(kw["variants"]) == 3
+        else ["Incomplete A/B", "Manual quote review"],
+    )
+    result = qa.run(
+        private_root=root, db_path=db,
+        recover=lambda **_k: ["Not enough", "Still not enough"],
+    )
+    assert result["status"] == "IMPROVED_REVIEW_DRAFT"
+    assert result["candidate_ab_titles_count"] == 3
+    assert result["private_draft_updated"] is True
+    package = json.loads(draft_path.read_text(encoding="utf-8"))["package"]
+    assert "Ціни на бензин у Росії" in package["title_variants"][2]
+    assert result["youtube_data_api_calls"] == 0
+    assert "PRIVATE CAPTION" not in str(result)
