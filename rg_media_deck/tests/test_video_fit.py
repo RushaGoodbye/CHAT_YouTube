@@ -1,5 +1,5 @@
 import unittest
-from video_fit import Crop, detect_letterbox, stable_crop, video_geometry, fitted_frame_rect
+from video_fit import Crop, detect_letterbox, stable_crop, video_geometry, fitted_frame_rect, fill_frame_crop
 
 
 def rectangle_mask(w=192, h=108, x0=67, y0=9, x1=125, y1=101):
@@ -65,6 +65,20 @@ class VideoFitTests(unittest.TestCase):
     def test_safe_geometry_when_view_hidden(self):
         self.assertEqual(video_geometry(0,0,1920,1080,Crop(0.25,0,0.75,1)),(0,0,1,1))
 
+
+    def test_fill_crop_is_bounded_and_fills_viewport(self):
+        rect = fill_frame_crop(900, 660, 1920, 1080)
+        target, source = fitted_frame_rect(900, 660, 1920, 1080, rect)
+        self.assertAlmostEqual(target[2], 900)
+        self.assertAlmostEqual(target[3], 660)
+        self.assertGreaterEqual(source[0], 0)
+        self.assertLessEqual(source[0] + source[2], 1920.0001)
+
+    def test_portrait_fill_center_crops_vertically(self):
+        rect = fill_frame_crop(1000, 400, 1080, 1920)
+        target, _ = fitted_frame_rect(1000, 400, 1080, 1920, rect)
+        self.assertAlmostEqual(target[2], 1000)
+        self.assertAlmostEqual(target[3], 400)
 
 if __name__ == '__main__':
     unittest.main()
