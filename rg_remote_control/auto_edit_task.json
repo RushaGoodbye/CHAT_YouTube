@@ -1,14 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "inspect_auto_edit_stream_result",
   "args": {
-    "files": [
-      "rg_oss_sync.py",
-      "rg_piecewise_sync.py",
-      "rg_audio_fast.py",
-      "rg_build.py"
-    ]
+    "stream": "904"
   },
-  "nonce": "read-only-904-audalign-robust-piecewise-source-20261010"
+  "nonce": "rg904-before-resume-checkpoints-readonly-20261010"
 }
