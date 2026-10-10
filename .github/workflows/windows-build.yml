@@ -112,6 +112,50 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $file.FullName,$checksum,"installer\latest.json" -DestinationPath $zip -CompressionLevel Optimal
 
+      - name: Smoke test ZIP updater in isolated Windows temp storage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:PYTHONPATH = "src"
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "RG_YouTube_ZIP_Smoke_Data"
+          New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $env:RG_EXPECTED_TEST_VERSION = $line.Matches[0].Groups[1].Value
+          @'
+          import os
+          from pathlib import Path
+          import rg_youtube_control.updater as updater
+
+          updater.__version__ = "0.7.10"
+          files = list(Path("installer").glob("RG_YouTube_Control_Update_*.zip"))
+          assert len(files) == 1, files
+          info, installer = updater.prepare_update_from_zip(files[0])
+          assert info.version == os.environ["RG_EXPECTED_TEST_VERSION"]
+          assert Path(installer).is_file()
+          print("ZIP_UPDATER_SMOKE_PASS")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw "ZIP updater smoke failed" }
+
+      - name: Smoke test installer and uninstaller in isolated Windows temp directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem installer\RG_YouTube_Control_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer artifact missing" }
+          $staged = Join-Path $env:RUNNER_TEMP "RG_YouTube_Installer_Smoke"
+          $args = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", ('/DIR="' + $staged + '"'))
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList $args -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Smoke install failed with exit $($install.ExitCode)" }
+          $binary = Join-Path $staged "RG YouTube Control.exe"
+          if (-not (Test-Path $binary)) { throw "Installed executable not found" }
+          Write-Host "WINDOWS_INSTALLER_INSTALL_SMOKE_PASS"
+          $uninstallFile = Join-Path $staged "unins000.exe"
+          if (-not (Test-Path $uninstallFile)) { throw "Uninstaller missing" }
+          $uninstall = Start-Process -FilePath $uninstallFile -ArgumentList @("/VERYSILENT", "/NORESTART") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Smoke uninstall failed with exit $($uninstall.ExitCode)" }
+          if (Test-Path $binary) { throw "Uninstalled executable still exists" }
+          Write-Host "WINDOWS_INSTALLER_UNINSTALL_SMOKE_PASS"
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
