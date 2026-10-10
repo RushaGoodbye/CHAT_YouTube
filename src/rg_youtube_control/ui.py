@@ -4150,6 +4150,7 @@ class MainWindow(QMainWindow):
                 )
                 if status != "safe":
                     issues.extend(metadata_issues)
+                issues.extend(self._draft_ready_blockers(draft))
                 if issues:
                     QMessageBox.warning(
                         self,
@@ -9956,8 +9957,8 @@ class MainWindow(QMainWindow):
                     ))
                     QMessageBox.warning(
                         self, "Пакет залишено чернеткою",
-                        "Публікацію заблоковано до перевірки:\\n\\n"
-                        + "\\n".join(f"- {reason}" for reason in issues[:8]),
+                        "Публікацію заблоковано до перевірки:\n\n"
+                        + "\n".join(f"- {reason}" for reason in issues[:8]),
                     )
             save_optimization_draft(
                 self.conn,
@@ -10240,15 +10241,6 @@ class MainWindow(QMainWindow):
         return True, "OK"
 
     def apply_content_package(self) -> None:
-        required_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
-        if not self._quota_write_available(required_cost):
-            QMessageBox.information(
-                self,
-                "Квота в резерві",
-                "Застосування заблоковано, щоб не витрачати захищений резерв.\n\n"
-                "Пакет залишиться готовим і буде доступний після відновлення квоти.",
-            )
-            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -10275,10 +10267,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, "Застосування заблоковано",
                 "Застарілий статус «Готово» не є доказом якості. "
-                "YouTube не змінено.\\n\\n"
-                + "\\n".join(f"- {reason}" for reason in blockers[:9]),
+                "YouTube не змінено.\n\n"
+                + "\n".join(f"- {reason}" for reason in blockers[:9]),
             )
             self._update_optimization_context_card()
+            return
+
+        required_cost = VIDEO_UPDATE_COST + (2 * READ_REQUEST_COST)
+        if not self._quota_write_available(required_cost):
+            QMessageBox.information(
+                self,
+                "Квота в резерві",
+                "Застосування заблоковано, щоб не витрачати захищений резерв.\n\n"
+                "Пакет залишиться готовим і буде доступний після відновлення квоти.",
+            )
             return
 
         import json
