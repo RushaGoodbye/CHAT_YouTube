@@ -2013,6 +2013,27 @@ chapters: рядок з підтвердженими таймкодами та �
         description, grounded_quote_added = preserve_one_grounded_quote(
             description, evidence_report,
         )
+    # One targeted local retry only when existing A/B variants fail the
+    # evidence-based quality gate. Keep original candidates unless the
+    # alternate set has *fewer* verified quality problems. Never use the
+    # model's own confidence as an acceptance decision.
+    if evidence_report and not fast_mode:
+        original_ab_issues = ab_title_issues(variants, evidence_report)
+        if original_ab_issues:
+            try:
+                repaired_variants = _recover_title_variants(
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+                if (
+                    len(repaired_variants) == 3
+                    and len(ab_title_issues(repaired_variants, evidence_report))
+                    < len(original_ab_issues)
+                ):
+                    variants = repaired_variants
+            except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                pass
     title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
     prompt_topics_omitted = (
         list(prompt_evidence.topics_omitted) if prompt_evidence else []
