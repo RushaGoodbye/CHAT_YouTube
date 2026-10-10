@@ -1,9 +1,19 @@
 import tempfile
 import unittest
 from pathlib import Path
-from library import MediaItem, SPEED_PRESETS, scan_media, filter_media, load_settings, save_settings, normalize_playback_rate
+from library import display_media_name, MediaItem, SPEED_PRESETS, scan_media, filter_media, load_settings, save_settings, normalize_playback_rate
 
 class LibraryTests(unittest.TestCase):
+    def test_display_name_hides_only_known_media_extensions(self):
+        self.assertEqual(display_media_name('Новини.2026.mp4'), 'Новини.2026')
+        self.assertEqual(display_media_name('ФОТО.JPG'), 'ФОТО')
+        self.assertEqual(display_media_name('recording.MKV'), 'recording')
+        self.assertEqual(display_media_name('my.mov.backup'), 'my.mov.backup')
+        self.assertEqual(display_media_name('strangefile'), 'strangefile')
+        self.assertEqual(display_media_name('.mp4'), '.mp4')
+        self.assertEqual(display_media_name('sound.mp3'), 'sound')
+
+
     def test_scan_search_subfolders_and_ignored_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

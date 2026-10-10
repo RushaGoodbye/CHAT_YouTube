@@ -21,7 +21,7 @@ SHA_PATTERN = re.compile(r'^[a-fA-F0-9]{64}$')
 INSTALLER_NAME = 'RG_Media_Deck_Setup.exe'
 CHECKSUM_NAME = INSTALLER_NAME + '.sha256'
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
-AGENT = 'RG-Media-Deck-Updater/0.1.5'
+AGENT = 'RG-Media-Deck-Updater/0.1.6'
 
 
 def version_tuple(version: str) -> tuple[int, int, int]:

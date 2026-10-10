@@ -1,11 +1,11 @@
-name: RG Media Deck 0.1.5 Windows Installer
+name: RG Media Deck 0.1.6 Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [rg-media-deck-0-1-5]
+    branches: [rg-media-deck-0-1-6]
     paths:
       - 'rg_media_deck/**'
-      - '.github/workflows/rg-media-deck-015-windows.yml'
+      - '.github/workflows/rg-media-deck-016-windows.yml'
 permissions:
   contents: write
 jobs:
@@ -56,18 +56,18 @@ jobs:
       - name: Upload installer build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RG_Media_Deck_0.1.5_Setup
+          name: RG_Media_Deck_0.1.6_Setup
           path: |
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe.sha256
           if-no-files-found: error
       - name: Publish app-only tagged release
-        if: github.ref == 'refs/heads/rg-media-deck-0-1-5'
+        if: github.ref == 'refs/heads/rg-media-deck-0-1-6'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag='rg-media-deck-v0.1.5'
+          $tag='rg-media-deck-v0.1.6'
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists, refusing overwrite" }
-          gh release create $tag dist_installer/RG_Media_Deck_Setup.exe dist_installer/RG_Media_Deck_Setup.exe.sha256 --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.5' --notes 'Windows installer. Dark UI, separate large PLAY PAUSE STOP, one-click mute, adjustable playback speed. In-app updates preserved.'
+          gh release create $tag dist_installer/RG_Media_Deck_Setup.exe dist_installer/RG_Media_Deck_Setup.exe.sha256 --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.6' --notes 'Windows installer. Compact single-row controls, larger OBS capture preview, media extensions hidden in UI, clean dark theme. In-app updates preserved.'

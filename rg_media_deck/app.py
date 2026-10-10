@@ -15,44 +15,43 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider,
     QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
-    QHeaderView, QAbstractItemView, QStyle,
+    QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
 )
 
 import updater
 
-from library import MediaItem, SPEED_PRESETS, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
+from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.1.5'
+VERSION = '0.1.6'
 
 STYLE = """
-QWidget { background:#08090b; color:#e8e9ec; font-family:'Segoe UI'; font-size:13px; }
-QMainWindow { background:#08090b; }
-QFrame#Panel { background:#111215; border:1px solid #292b30; border-radius:13px; }
-QLineEdit { background:#090a0d; border:1px solid #31333a; border-radius:8px; padding:10px 13px; font-size:15px; selection-background-color:#9e2635; }
-QLineEdit:focus { border:1px solid #bd3a4e; }
-QPushButton { border:1px solid #393a40; border-radius:9px; background:#202126; padding:9px 13px; color:#f1f2f4; font-weight:650; }
-QPushButton:hover { background:#303137; border-color:#575a62; }
-QPushButton:pressed { background:#3a3c43; }
-QPushButton:disabled { background:#191a1f; color:#66676f; border-color:#303137; }
-QPushButton#PlayButton { background:#b82840; border-color:#ce3951; color:white; font-size:18px; font-weight:800; padding:12px 8px; }
-QPushButton#PlayButton:hover { background:#d1334b; }
-QPushButton#PauseButton, QPushButton#StopButton { background:#24252a; border-color:#3f4047; font-size:18px; font-weight:750; padding:12px 8px; }
-QPushButton#PauseButton:hover, QPushButton#StopButton:hover { background:#35363c; }
-QPushButton#MuteButton { background:#1d2024; border:1px solid #44464c; font-size:15px; font-weight:750; padding:12px 13px; }
-QPushButton#MuteButton:hover { background:#303137; }
-QPushButton#MuteButton:checked { background:#4b1c25; border-color:#b0394a; color:#ffb4c0; }
-QPushButton#SpeedStep { min-width:36px; font-size:23px; font-weight:700; padding:4px 8px; }
-QTableView { border:0; background:#111215; alternate-background-color:#17181c; selection-background-color:#55222c; selection-color:white; gridline-color:#28292e; }
-QHeaderView::section { background:#1a1b20; border:0; border-bottom:1px solid #35363a; padding:9px; color:#c1c3ca; font-weight:800; }
-QComboBox { border:1px solid #3b3d44; background:#1d1e23; padding:9px; border-radius:8px; min-width:100px; }
-QComboBox QAbstractItemView { background:#202126; color:#ededf0; selection-background-color:#66313d; }
-QSlider::groove:horizontal { background:#34353c; height:7px; border-radius:3px; }
-QSlider::sub-page:horizontal { background:#b02e46; border-radius:3px; }
-QSlider::handle:horizontal { background:#f0f1f4; width:17px; margin:-6px 0; border-radius:8px; }
-QLabel#Status { color:#9d9fa8; font-size:12px; }
-QLabel#SectionTitle { color:#ededf0; font-size:16px; font-weight:800; }
-QLabel#ControlCaption { color:#9c9ea6; font-size:12px; font-weight:750; }
-QCheckBox { spacing:8px; }
+QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
+QMainWindow { background:#090a0c; }
+QFrame#Panel { background:#111216; border:1px solid #262930; border-radius:9px; }
+QLineEdit { background:#17191e; border:1px solid #33363e; border-radius:6px; padding:7px 10px; font-size:14px; selection-background-color:#9b2739; }
+QLineEdit:focus { border:1px solid #b5384a; }
+QPushButton { border:1px solid #363941; border-radius:6px; background:#1c1e24; padding:5px 9px; color:#f2f3f5; font-size:12px; font-weight:600; }
+QPushButton:hover { background:#30333b; border-color:#5a5f69; }
+QPushButton:pressed { background:#3e414a; }
+QPushButton:disabled { background:#17191d; color:#777c85; border-color:#292d33; }
+QPushButton#PlayButton { background:#b72b43; border:1px solid #ca3b52; color:white; font-size:16px; font-weight:700; padding:0; }
+QPushButton#PlayButton:hover { background:#cd3a53; }
+QPushButton#PauseButton, QPushButton#StopButton { background:#24262c; border:1px solid #41444d; font-size:15px; font-weight:700; padding:0; }
+QPushButton#MuteButton { background:#24262c; border:1px solid #41444d; font-size:12px; font-weight:650; padding:0 5px; }
+QPushButton#MuteButton:checked { background:#45242b; color:#ffb8c2; border-color:#aa4253; }
+QPushButton#SpeedStep { font-size:16px; font-weight:700; padding:0; }
+QTableView { border:0; background:#111216; alternate-background-color:#191b20; selection-background-color:#5a2732; selection-color:white; gridline-color:#282a30; font-size:13px; }
+QHeaderView::section { background:#1d1f25; border:0; border-bottom:1px solid #30333a; padding:7px; color:#cbd0d8; font-weight:650; }
+QComboBox { border:1px solid #41444d; background:#202228; padding:5px 8px; border-radius:6px; min-width:65px; font-size:12px; }
+QComboBox QAbstractItemView { background:#202228; color:#f3f3f5; selection-background-color:#723342; }
+QSlider::groove:horizontal { background:#393b43; height:5px; border-radius:2px; }
+QSlider::sub-page:horizontal { background:#c33950; border-radius:2px; }
+QSlider::handle:horizontal { background:#eff1f4; width:14px; margin:-5px 0; border-radius:7px; }
+QLabel#Status { color:#c0c4cb; font-size:11px; }
+QLabel#SectionTitle { color:#f2f2f4; font-size:14px; font-weight:700; }
+QLabel#SelectedFilename { color:#adb2bc; font-size:12px; }
+QCheckBox { spacing:7px; }
+QSplitter::handle { background:#090a0c; }
 """
 
 
@@ -79,6 +78,30 @@ def timestamp(ms: int) -> str:
     hours, remain = divmod(seconds, 3600)
     minutes, second = divmod(remain, 60)
     return f'{hours:02d}:{minutes:02d}:{second:02d}' if hours else f'{minutes:02d}:{second:02d}'
+
+
+class ElidedLabel(QLabel):
+    """A single-line label that preserves the full text in its tooltip."""
+    def __init__(self, initial: str = ''):
+        super().__init__('')
+        self.full_text = ''
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(95)
+        self.setText(initial)
+
+    def setText(self, text: str):
+        self.full_text = str(text)
+        self.setToolTip(self.full_text)
+        self._elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        super().setText(self.fontMetrics().elidedText(
+            self.full_text, Qt.TextElideMode.ElideMiddle, max(30, self.width() - 8)
+        ))
 
 
 class AspectImage(QLabel):
@@ -161,7 +184,7 @@ class MediaModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return [
                 '📷' if item.kind == 'photo' else '▶',
-                item.name,
+                display_media_name(item.name),
             ][index.column()]
         if role == Qt.ItemDataRole.ToolTipRole:
             return item.path
@@ -450,7 +473,7 @@ class MainWindow(QMainWindow):
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
         self.resize(1460, 850)
-        self.setMinimumSize(1040, 675)
+        self.setMinimumSize(1050, 620)
         self.setStyleSheet(STYLE)
         self._init_ui()
         self._shortcuts()
@@ -483,20 +506,18 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(17, 15, 17, 10)
-        root.setSpacing(12)
+        root.setContentsMargins(12, 10, 12, 8)
+        root.setSpacing(8)
         top = QHBoxLayout()
         title = QLabel('RG  MEDIA  DECK')
-        title.setStyleSheet('font-size:24px; font-weight:900; color:#fff;')
+        title.setStyleSheet('font-size:20px; font-weight:800; color:#fff;')
         top.addWidget(title)
-        tag = QLabel('Фото + відео + аудіо  •  OBS')
-        tag.setStyleSheet('color:#8eacc1; font-size:13px; margin-left:12px;')
-        top.addWidget(tag)
         top.addStretch(1)
-        top.addWidget(make_button('📁 Додати папку', self.add_folder))
-        top.addWidget(make_button('⚙ Папки', self.manage_folders))
-        top.addWidget(make_button('⚙ Налаштування', self.open_settings))
-        self.rescan_button = make_button('↻ Оновити бібліотеку', self.scan)
+        top.addWidget(make_button('Додати папку', self.add_folder))
+        top.addWidget(make_button('Папки', self.manage_folders))
+        top.addWidget(make_button('Налаштування', self.open_settings))
+        self.rescan_button = make_button('Оновити', self.scan)
+        self.rescan_button.setToolTip('Повторно сканувати папки медіатеки')
         top.addWidget(self.rescan_button)
         root.addLayout(top)
 
@@ -506,8 +527,8 @@ class MainWindow(QMainWindow):
 
         left = self._panel()
         lv = QVBoxLayout(left)
-        lv.setContentsMargins(13, 14, 13, 12)
-        lv.setSpacing(10)
+        lv.setContentsMargins(11, 11, 11, 9)
+        lv.setSpacing(8)
         heading = QLabel('ФАКТАЖ ПРОЄКТУ РАША ГУДБАЙ')
         heading.setObjectName('SectionTitle')
         lv.addWidget(heading)
@@ -533,25 +554,29 @@ class MainWindow(QMainWindow):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(35)
+        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.horizontalHeader().resizeSection(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         lv.addWidget(self.table, 1)
         self.count = QLabel('Файлів: 0')
-        self.count.setStyleSheet('color:#89a4b8;')
+        self.count.setStyleSheet('color:#abb0b9; font-size:11px;')
         lv.addWidget(self.count)
         split.addWidget(left)
 
         right = self._panel()
         rv = QVBoxLayout(right)
-        rv.setContentsMargins(15, 14, 15, 15)
-        rv.setSpacing(10)
+        rv.setContentsMargins(10, 10, 10, 10)
+        rv.setSpacing(6)
         preview_head = QHBoxLayout()
         h = QLabel('ПОПЕРЕДНІЙ ПЕРЕГЛЯД')
         h.setObjectName('SectionTitle')
         preview_head.addWidget(h)
-        preview_head.addStretch(1)
+        self.file_title = ElidedLabel('Файл не обрано')
+        self.file_title.setObjectName('SelectedFilename')
+        preview_head.addWidget(self.file_title, 1)
         self.star = make_button('☆ В обране', self.toggle_favorite)
         preview_head.addWidget(self.star)
         rv.addLayout(preview_head)
@@ -561,80 +586,73 @@ class MainWindow(QMainWindow):
         self.preview.set_playback_rate(self.settings['playback_rate'])
         self.preview.black.setText('Оберіть фото або відео з бібліотеки')
         self.preview.black.setStyleSheet('background:#000; color:#999aa0;')
-        self.preview.setMinimumHeight(250)
-        rv.addWidget(self.preview, 4)
-        self.file_title = QLabel('Файл не обрано')
-        self.file_title.setWordWrap(True)
-        self.file_title.setStyleSheet('font-weight:700; color:white;')
-        rv.addWidget(self.file_title)
-        self.file_path = QLabel('')
-        self.file_path.setWordWrap(True)
-        self.file_path.setStyleSheet('color:#7d9bb1; font-size:11px;')
-        rv.addWidget(self.file_path)
+        self.preview.setMinimumHeight(300)
+        rv.addWidget(self.preview, 1)
         timeline = QHBoxLayout()
-        timeline.setSpacing(13)
+        timeline.setSpacing(8)
         self.preview_seek = QSlider(Qt.Orientation.Horizontal)
         self.preview_seek.setRange(0, 0)
-        self.preview_seek.setMinimumHeight(26)
+        self.preview_seek.setFixedHeight(20)
         timeline.addWidget(self.preview_seek, 1)
         self.preview_time = QLabel('00:00 / 00:00')
-        self.preview_time.setStyleSheet('color:#b8bac1; font-size:13px; min-width:94px;')
+        self.preview_time.setStyleSheet('color:#c4c8d0; font-size:12px; min-width:92px;')
         timeline.addWidget(self.preview_time)
         rv.addLayout(timeline)
 
-        transport = QHBoxLayout()
-        transport.setSpacing(10)
-        self.preview_play = make_button('▶  PLAY', self.play_selected, 'PlayButton')
-        self.preview_pause = make_button('Ⅱ  PAUSE', self.pause_playback, 'PauseButton')
-        self.preview_stop = make_button('■  STOP', self.stop_playback, 'StopButton')
-        for button in (self.preview_play, self.preview_pause, self.preview_stop):
-            button.setMinimumHeight(66)
-            button.setMinimumWidth(115)
-            transport.addWidget(button, 1)
-        rv.addLayout(transport)
-
-        audio_controls = QHBoxLayout()
-        audio_controls.setSpacing(12)
+        # Exactly one compact transport row: play/pause/stop, mute,
+        # volume and speed. Reserve the remaining vertical space for OBS capture.
+        self.control_row = QWidget()
+        self.control_row.setObjectName('TransportRow')
+        self.control_row.setStyleSheet('QWidget#TransportRow { background:transparent; border:0; }')
+        transport = QHBoxLayout(self.control_row)
+        transport.setContentsMargins(0, 0, 0, 0)
+        transport.setSpacing(6)
+        self.preview_play = make_button('▶', self.play_selected, 'PlayButton')
+        self.preview_pause = make_button('Ⅱ', self.pause_playback, 'PauseButton')
+        self.preview_stop = make_button('■', self.stop_playback, 'StopButton')
+        for button, hint in (
+            (self.preview_play, 'Відтворити вибраний файл'),
+            (self.preview_pause, 'Пауза'),
+            (self.preview_stop, 'Зупинити відтворення'),
+        ):
+            button.setFixedSize(52, 34)
+            button.setToolTip(hint)
+            transport.addWidget(button)
         self.mute_button = make_button('', self.toggle_mute, 'MuteButton')
         self.mute_button.setCheckable(True)
-        self.mute_button.setMinimumHeight(56)
-        self.mute_button.setMinimumWidth(180)
-        audio_controls.addWidget(self.mute_button)
+        self.mute_button.setFixedSize(102, 34)
+        transport.addWidget(self.mute_button)
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(self.settings['volume'])
-        self.volume.setMinimumHeight(40)
-        audio_controls.addWidget(self.volume, 1)
+        self.volume.setFixedHeight(34)
+        self.volume.setMinimumWidth(68)
+        transport.addWidget(self.volume, 1)
         self.vol_value = QLabel(f'{self.settings["volume"]}%')
-        self.vol_value.setMinimumWidth(46)
-        self.vol_value.setStyleSheet('font-size:16px; font-weight:700;')
-        audio_controls.addWidget(self.vol_value)
-        rv.addLayout(audio_controls)
-        self._refresh_mute_button()
-
-        speed_controls = QHBoxLayout()
-        speed_controls.setSpacing(10)
-        speed_title = QLabel('ШВИДКІСТЬ ВІДТВОРЕННЯ')
-        speed_title.setObjectName('ControlCaption')
-        speed_controls.addWidget(speed_title)
-        speed_controls.addStretch(1)
+        self.vol_value.setFixedWidth(36)
+        self.vol_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vol_value.setStyleSheet('font-size:12px; color:#d1d4db;')
+        transport.addWidget(self.vol_value)
         self.speed_slower = make_button('−', lambda: self.step_speed(-1), 'SpeedStep')
-        self.speed_slower.setMinimumHeight(44)
-        speed_controls.addWidget(self.speed_slower)
+        self.speed_slower.setFixedSize(30, 34)
+        self.speed_slower.setToolTip('Уповільнити')
+        transport.addWidget(self.speed_slower)
         self.speed_selector = QComboBox()
         for speed in SPEED_PRESETS:
             self.speed_selector.addItem(f'{speed:g}×', speed)
         self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(self.settings['playback_rate']))
-        self.speed_selector.setMinimumHeight(44)
-        self.speed_selector.setMinimumWidth(95)
-        speed_controls.addWidget(self.speed_selector)
+        self.speed_selector.setFixedSize(74, 34)
+        self.speed_selector.setToolTip('Швидкість відтворення')
+        transport.addWidget(self.speed_selector)
         self.speed_faster = make_button('+', lambda: self.step_speed(1), 'SpeedStep')
-        self.speed_faster.setMinimumHeight(44)
-        speed_controls.addWidget(self.speed_faster)
-        rv.addLayout(speed_controls)
+        self.speed_faster.setFixedSize(30, 34)
+        self.speed_faster.setToolTip('Прискорити')
+        transport.addWidget(self.speed_faster)
+        rv.addWidget(self.control_row)
+        self._refresh_mute_button()
         self._refresh_speed_buttons()
         split.addWidget(right)
-        split.setSizes([650, 790])
+        split.setSizes([520, 920])
         self.status = QLabel('Готово до відтворення.')
         self.status.setObjectName('Status')
         root.addWidget(self.status)
@@ -757,8 +775,8 @@ class MainWindow(QMainWindow):
         if not item:
             return
         self.selected = item
-        self.file_title.setText(item.name)
-        self.file_path.setText(item.path)
+        self.file_title.setText(display_media_name(item.name))
+        self.file_title.setToolTip(item.path)
         self.star.setText('★ В обраному' if normalize_path(item.path) in self.favorites else '☆ В обране')
         self.play_selected()
 
@@ -812,14 +830,14 @@ class MainWindow(QMainWindow):
         if (self.preview.current is not None and self.preview.current.path == self.selected.path
                 and self.selected.kind == 'video' and self.preview.player is not None):
             self.preview.player.play()
-            self.status.setText(f'Відтворюється: {self.selected.name}')
+            self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
             return
         self.preview_seek.setValue(0)
         self.preview_seek.setEnabled(self.selected.kind == 'video')
         if not self.preview.play_item(self.selected):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
-        self.status.setText(f'Відтворюється: {self.selected.name}')
+        self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
 
     def stop_playback(self):
         self.preview.black_out()
@@ -831,8 +849,9 @@ class MainWindow(QMainWindow):
     def _refresh_mute_button(self):
         muted = self.preview._muted
         self.mute_button.setChecked(muted)
-        self.mute_button.setText('🔇  БЕЗ ЗВУКУ' if muted else '🔊  ГУЧНІСТЬ')
-        self.mute_button.setToolTip('Натисніть для увімкнення або вимкнення звуку')
+        self.mute_button.setText('ЗВУК ВИМК.' if muted else 'ГУЧНІСТЬ')
+        self.mute_button.setToolTip('Увімкнути звук' if muted else 'Вимкнути звук')
+        self.mute_button.setAccessibleName('Перемикач гучності')
 
     def toggle_mute(self):
         self.preview.set_muted(not self.preview._muted)
@@ -905,9 +924,15 @@ def main():
         dialog.close()
         if passed:
             main_window = MainWindow()
-            passed = (main_window.preview_play.minimumHeight() >= 60
-                and main_window.preview_pause.minimumHeight() >= 60
-                and main_window.preview_stop.minimumHeight() >= 60
+            passed = (main_window.preview_play.height() <= 36
+                and main_window.preview_pause.height() <= 36
+                and main_window.preview_stop.height() <= 36
+                and main_window.preview_play.parentWidget() is main_window.control_row
+                and main_window.preview_pause.parentWidget() is main_window.control_row
+                and main_window.preview_stop.parentWidget() is main_window.control_row
+                and main_window.mute_button.parentWidget() is main_window.control_row
+                and main_window.speed_selector.parentWidget() is main_window.control_row
+                and not hasattr(main_window, 'file_path')
                 and main_window.mute_button.isCheckable()
                 and main_window.speed_selector.count() == len(SPEED_PRESETS)
                 and not hasattr(main_window, 'repeat')
@@ -920,6 +945,7 @@ def main():
             passed = passed and not main_window.preview._muted
             main_window.step_speed(1)
             passed = passed and main_window.speed_selector.currentData() == 1.25
+            passed = passed and display_media_name('Назва відео.mp4') == 'Назва відео'
             main_window.preview.shutdown()
             main_window.close()
         return 0 if passed else 1

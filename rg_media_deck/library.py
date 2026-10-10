@@ -34,6 +34,11 @@ class MediaItem:
         return str(Path(self.path).parent)
 
 
+def display_media_name(name: str) -> str:
+    """Human-readable filename without a recognized media extension."""
+    base, ext = os.path.splitext(name)
+    return base if base and ext.casefold() in MEDIA_EXTS else name
+
 def normalize_path(path: str) -> str:
     return os.path.normcase(os.path.normpath(os.path.abspath(os.path.expanduser(path))))
 
