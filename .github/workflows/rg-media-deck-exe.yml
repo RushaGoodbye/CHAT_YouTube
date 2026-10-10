@@ -1,4 +1,4 @@
-name: RG Media Deck 0.1.2 Windows EXE
+name: RG Media Deck 0.1.3 Windows EXE
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows-exe:
@@ -32,12 +32,12 @@ jobs:
           root = pathlib.Path('rg_media_deck/build')
           target = root / 'work'
           target.mkdir(parents=True, exist_ok=True)
-          payload = (root / 'source_012.b64').read_text(encoding='utf-8').strip()
+          payload = (root / 'source_013.b64').read_text(encoding='utf-8').strip()
           archive = base64.b64decode(payload, validate=True)
           with zipfile.ZipFile(io.BytesIO(archive)) as z:
-              assert sorted(z.namelist()) == ['app.py', 'library.py', 'requirements.txt'], z.namelist()
+              assert sorted(z.namelist()) == ['app.py', 'library.py', 'requirements.txt', 'tests/test_updater.py', 'updater.py'], z.namelist()
               z.extractall(target)
-          assert "VERSION = '0.1.2'" in (target / 'app.py').read_text(encoding='utf-8')
+          assert "VERSION = '0.1.3'" in (target / 'app.py').read_text(encoding='utf-8')
           print('Source restored and version checked')
           '@ | python -
 
@@ -47,6 +47,14 @@ jobs:
           python -m pip install --disable-pip-version-check --upgrade pip
           python -m pip install --disable-pip-version-check -r rg_media_deck/build/work/requirements.txt "pyinstaller>=6.12,<7"
           python -c "from PySide6.QtMultimedia import QMediaPlayer; from PySide6.QtWidgets import QApplication; print('PySide6 Windows multimedia imports OK')"
+
+      - name: Run updater safety tests
+        shell: pwsh
+        run: |
+          Push-Location rg_media_deck/build/work
+          python -m unittest discover -s tests -v
+          python -m compileall -q .
+          Pop-Location
 
       - name: Freeze standalone executable
         shell: pwsh
@@ -65,14 +73,14 @@ jobs:
         shell: pwsh
         run: |
           @'
-          RG MEDIA DECK 0.1.2 - WINDOWS EXE
+          RG MEDIA DECK 0.1.3 - WINDOWS EXE
           
           1. Распакуйте ZIP в любую папку (например D:\RG_Media_Deck).
           2. Дважды щелкните RG_Media_Deck.exe. Python не нужен.
-          3. Разрешите доступ к своей папке с фото и видео, если Windows спросит.
+          3. Укажите папки с фото и видео в приложении.
           4. В OBS захватывайте отдельное окно RG MEDIA DECK - OBS OUTPUT.
           5. Для звука настройте один источник, без дубля Desktop Audio.
-          6. Проверьте видео A -> видео B: звук A должен полностью прекратиться.
+          6. Проверьте видео A -> видео B: звук A должен полностью прекратиться.\n          7. ⚙ Налаштування -> Перевірити оновлення. Установка только после завершения стрима.
           
           Настройки автоматически берутся из предыдущей версии:
           %LOCALAPPDATA%\RGMediaDeck\settings.json
@@ -83,12 +91,26 @@ jobs:
           '@ | Set-Content -Path "README_FIRST_RU.txt" -Encoding utf8
           $sha = (Get-FileHash -Path dist/RG_Media_Deck.exe -Algorithm SHA256).Hash
           "RG_Media_Deck.exe SHA256 $sha" | Set-Content -Path "SHA256.txt" -Encoding ascii
+          "$sha  RG_Media_Deck.exe" | Set-Content -Path "RG_Media_Deck.exe.sha256" -Encoding ascii
           Copy-Item dist/RG_Media_Deck.exe -Destination RG_Media_Deck.exe
-          Compress-Archive -Path RG_Media_Deck.exe,README_FIRST_RU.txt,SHA256.txt -DestinationPath RG_Media_Deck_0.1.2_EXE.zip -CompressionLevel Optimal -Force
+          Compress-Archive -Path RG_Media_Deck.exe,README_FIRST_RU.txt,SHA256.txt -DestinationPath RG_Media_Deck_0.1.3_EXE.zip -CompressionLevel Optimal -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RG_Media_Deck_0.1.2_EXE_Windows
-          path: RG_Media_Deck_0.1.2_EXE.zip
+          name: RG_Media_Deck_0.1.3_EXE_Windows
+          path: RG_Media_Deck_0.1.3_EXE.zip
           retention-days: 14
           if-no-files-found: error
+
+      - name: Publish app-specific GitHub prerelease for the built-in updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = 'rg-media-deck-v0.1.3'
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag RG_Media_Deck.exe RG_Media_Deck.exe.sha256 RG_Media_Deck_0.1.3_EXE.zip --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $tag RG_Media_Deck.exe RG_Media_Deck.exe.sha256 RG_Media_Deck_0.1.3_EXE.zip --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.3 (EXE, updater)' --notes 'Windows EXE beta. Search, preview, OBS output, audio switch fix, Settings > Updates with SHA256 verification and rollback. First validate on a non-live stream.' --prerelease
+          }
