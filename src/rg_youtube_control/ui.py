@@ -4062,6 +4062,20 @@ class MainWindow(QMainWindow):
                 issues = []
                 if len(options) != 3:
                     issues.append("Потрібні три коректні A/B-назви.")
+                try:
+                    original_tags = json.loads(draft["source_tags_json"] or "[]")
+                    if not isinstance(original_tags, list):
+                        original_tags = []
+                except (TypeError, ValueError):
+                    original_tags = []
+                    issues.append("Не вдалося перевірити вихідні теги SEO-пакета.")
+                try:
+                    stored_tags = json.loads(draft["tags_json"] or "[]")
+                    if not isinstance(stored_tags, list):
+                        stored_tags = []
+                except (TypeError, ValueError):
+                    stored_tags = []
+                    issues.append("Не вдалося прочитати SEO-теги чернетки.")
                 if generation == SOURCE_GENERATION:
                     # Fully evidenced drafts are intentionally saved as
                     # needs_review. Permit approval ONLY after rechecking the
@@ -4074,13 +4088,11 @@ class MainWindow(QMainWindow):
                         variants=options if isinstance(options, list) else [],
                         data_dir=self.data_dir,
                         original_description=draft["source_description"],
+                        original_tags=original_tags,
+                        tags=stored_tags,
                     ))
                 elif quality_state != "safe":
                     issues.append("Пакет не пройшов перевірку якості.")
-                try:
-                    stored_tags = json.loads(draft["tags_json"] or "[]")
-                except (TypeError, ValueError):
-                    stored_tags = []
                 status, metadata_issues = self._package_quality_gate(
                     title=str(draft["new_title"] or ""),
                     description=str(draft["description"] or ""),
@@ -13433,6 +13445,8 @@ class MainWindow(QMainWindow):
             variants=variants,
             evidence_report=evidence_report,
             original_description=before_description,
+            original_tags=before_tags,
+            tags=tags,
         )
         requires_review = bool(package.get("needs_review")) or bool(evidence_issues)
         draft_reason = (
