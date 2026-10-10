@@ -244,3 +244,68 @@ def test_temporal_preflight_requires_first_and_last_caption(tmp_path, monkeypatc
     assert not p._captions_span_full_long_live(missing_end, 10800)
     missing_start = complete[20:]
     assert not p._captions_span_full_long_live(missing_start, 10800)
+
+
+def test_nas_first_long_live_preflight_never_contacts_public_or_ollama(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, duration="PT3H0M0S")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / "ABCDEFGHIJK.srt").write_text("PRIVATE SRT PLACEHOLDER", encoding="utf-8")
+    monkeypatch.setattr(p, "normalize_nas_unc_path", lambda _raw, _default: str(nas))
+    monkeypatch.setattr(p, "load_srt_transcript", lambda _path: [
+        {"text": "PRIVATE NAS CAPTION " + str(n), "start": n * 60, "duration": 15}
+        for n in range(180)
+    ])
+    def forbidden(*_a, **_k):
+        raise AssertionError("Preflight must not contact public captions or Ollama")
+    monkeypatch.setattr(p, "fetch_transcript", forbidden)
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", forbidden)
+    monkeypatch.setattr(p, "generate_seo_package_local", forbidden)
+    result = p.run(require_long_live=True, preflight_only=True, max_caption_lookups=0)
+    assert result["status"] == "SOURCE_READY"
+    assert result["nas_srt_sources_available"] == 1
+    assert result["selected_source_type"] == "nas-srt"
+    assert result["selected_timeline_blocks"] >= 15
+    assert result["caption_lookups"] == 0
+    assert result["semantic_quality_verified"] is False
+    assert result["youtube_data_api_calls"] == 0
+    assert result["youtube_modified"] is False
+    assert "PRIVATE NAS CAPTION" not in str(result)
+    assert "ABCDEFGHIJK" not in str(result)
+
+
+def test_preflight_without_nas_and_zero_probes_never_uses_network(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, duration="PT3H0M0S")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "normalize_nas_unc_path",
+                        lambda _raw, _default: str(tmp_path / "missing-nas"))
+    monkeypatch.setattr(p, "fetch_transcript", lambda _id: (
+        _ for _ in ()
+    ).throw(AssertionError("Zero caption budget must prohibit network")))
+    result = p.run(require_long_live=True, preflight_only=True, max_caption_lookups=0)
+    assert result["status"] == "NOT_READY"
+    assert result["caption_lookups"] == 0
+    assert result["source_ready"] is False
+    assert result["youtube_modified"] is False
+
+
+def test_public_captions_fallback_works_when_nas_source_missing(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, duration="PT3H0M0S")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "normalize_nas_unc_path",
+                        lambda _raw, _default: str(tmp_path / "missing-nas"))
+    monkeypatch.setattr(p, "fetch_transcript", lambda _id: [
+        {"text": "PRIVATE PUBLIC CAPTION " + str(n), "start": n * 60}
+        for n in range(180)
+    ])
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k:
+                        (_ for _ in ()).throw(AssertionError("No AI in preflight")))
+    result = p.run(require_long_live=True, preflight_only=True, max_caption_lookups=1)
+    assert result["status"] == "SOURCE_READY"
+    assert result["selected_source_type"] == "public-captions"
+    assert result["caption_lookups"] == 1
+    assert result["youtube_data_api_calls"] == 0
