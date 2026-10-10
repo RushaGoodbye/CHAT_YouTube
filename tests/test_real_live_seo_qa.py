@@ -11,7 +11,7 @@ def _pilot(monkeypatch):
     return module
 
 
-def _db(folder: Path, video_id="ABCDEFGHIJK", *, source_description="PRIVATE ORIGINAL DESCRIPTION", source_tags=None):
+def _db(folder: Path, video_id="ABCDEFGHIJK", *, source_description="PRIVATE ORIGINAL DESCRIPTION", source_tags=None, duration="PT3H0M0S"):
     db = folder / "rg_youtube_control.db"
     conn = sqlite3.connect(db)
     conn.execute(
@@ -21,8 +21,8 @@ def _db(folder: Path, video_id="ABCDEFGHIJK", *, source_description="PRIVATE ORI
     )
     conn.execute(
         "INSERT INTO videos VALUES (?, ?, 'live', NULL, 'public', "
-        "'PT3H0M0S', 1, 'PRIVATE', '2026-01-01')",
-        (video_id, "PRIVATE VIDEO TITLE"),
+        "?, 1, 'PRIVATE', '2026-01-01')",
+        (video_id, "PRIVATE VIDEO TITLE", duration),
     )
     conn.execute(
         "CREATE TABLE optimization_drafts "
@@ -134,12 +134,12 @@ def test_long_live_mode_accepts_at_least_15_blocks(tmp_path, monkeypatch):
     _db(tmp_path)
     monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(p, "fetch_transcript", lambda _: [
-        {"text": "PRIVATE CAPTION " + str(n), "start": n * 600, "duration": 5}
-        for n in range(30)
+        {"text": "PRIVATE CAPTION " + str(n), "start": n * 60, "duration": 5}
+        for n in range(180)
     ])
     monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k: {
-        "source_integrity_verified": True, "blocks_total": 30,
-        "blocks_with_evidence": 30, "source_rows_with_text": 30, "blocks": [],
+        "source_integrity_verified": True, "blocks_total": 180,
+        "blocks_with_evidence": 180, "source_rows_with_text": 180, "blocks": [],
     })
     monkeypatch.setattr(p, "generate_seo_package_local", lambda **_k: {
         "title": "PRIVATE VIDEO TITLE", "description": "PRIVATE SEO",
@@ -202,3 +202,45 @@ def test_live_qa_missing_original_description_fails_closed(tmp_path, monkeypatch
     assert result["archives_with_cached_original_description"] == 0
     assert result["caption_lookups"] == 0
     assert result["youtube_modified"] is False
+
+
+def test_long_live_rejects_short_metadata_without_caption_fetch(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, duration="PT1H30M0S")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: (_ for _ in ()).throw(
+        AssertionError("Short archives must not be fetched for long LIVE QA")
+    ))
+    result = p.run(require_long_live=True)
+    assert result["status"] == "NOT_READY"
+    assert result["caption_lookups"] == 0
+    assert result["youtube_modified"] is False
+
+
+def test_long_live_rejects_sparse_three_hour_caption_excerpt(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    _db(tmp_path, duration="PT3H0M0S")
+    monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
+    # Thirty captions scattered across three hours are not full coverage.
+    monkeypatch.setattr(p, "fetch_transcript", lambda _: [
+        {"text": "PRIVATE EXCERPT " + str(n), "start": n * 360}
+        for n in range(30)
+    ])
+    monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k:
+                        (_ for _ in ()).throw(AssertionError("Incomplete captions")))
+    result = p.run(require_long_live=True)
+    assert result["status"] == "NOT_READY"
+    assert result["caption_lookups"] == 1
+
+
+def test_temporal_preflight_requires_first_and_last_caption(tmp_path, monkeypatch):
+    p = _pilot(monkeypatch)
+    complete = [
+        {"text": "PRIVATE REAL CAPTION", "start": n * 60, "duration": 15}
+        for n in range(180)
+    ]
+    assert p._captions_span_full_long_live(complete, 10800)
+    missing_end = complete[:-22]
+    assert not p._captions_span_full_long_live(missing_end, 10800)
+    missing_start = complete[20:]
+    assert not p._captions_span_full_long_live(missing_start, 10800)
