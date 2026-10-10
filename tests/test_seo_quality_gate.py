@@ -232,3 +232,37 @@ def test_preserved_original_urls_do_not_trigger_retention_warning():
         original_description="https://links.rginfoua.pp.ua https://donate.rginfoua.pp.ua",
     )
     assert not any("втратив посилання" in issue for issue in issues)
+
+
+def test_removal_of_all_original_tags_requires_manual_review():
+    report = _complete_report()
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description="Цензура музики. Забороняють слухати пісні. Ціни на бензин.",
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+        original_tags=["чат рулетка", "Раша Гудбай"],
+        tags=[],
+    )
+    assert any("усі теги" in issue for issue in issues)
+
+
+def test_replacement_of_original_tags_remains_allowed():
+    report = _complete_report()
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description="Цензура музики. Забороняють слухати пісні. Ціни на бензин.",
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+        original_tags=["старий загальний тег"],
+        tags=["ціни на бензин"],
+    )
+    assert not any("усі теги" in issue for issue in issues)
