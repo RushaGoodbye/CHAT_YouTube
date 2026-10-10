@@ -119,11 +119,11 @@ def test_long_live_mode_accepts_at_least_15_blocks(tmp_path, monkeypatch):
     monkeypatch.setattr(p, "app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(p, "fetch_transcript", lambda _: [
         {"text": "PRIVATE CAPTION " + str(n), "start": n * 600, "duration": 5}
-        for n in range(20)
+        for n in range(30)
     ])
     monkeypatch.setattr(p, "analyze_all_timeline_blocks", lambda *_a, **_k: {
-        "source_integrity_verified": True, "blocks_total": 20,
-        "blocks_with_evidence": 20, "source_rows_with_text": 20, "blocks": [],
+        "source_integrity_verified": True, "blocks_total": 30,
+        "blocks_with_evidence": 30, "source_rows_with_text": 30, "blocks": [],
     })
     monkeypatch.setattr(p, "generate_seo_package_local", lambda **_k: {
         "title": "PRIVATE VIDEO TITLE", "description": "PRIVATE SEO",
