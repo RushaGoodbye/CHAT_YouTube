@@ -526,3 +526,53 @@ def test_owner_live_wrong_channel_does_not_accept_description(tmp_path, monkeypa
     assert result["channel_id_mismatch"] == 1
     assert result["source_descriptions_available"] == 0
     assert result["status"] == "NOT_READY"
+
+
+def test_single_owner_caption_inventory_counts_tracks_and_accounts_quota(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_owner_caption_inventory_once as subject
+    from rg_youtube_control.service import today_quota_units
+    db = _db(tmp_path, duration="PT3H0M0S")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda conn: {
+        "exhausted": False, "spendable": 100
+    })
+    class Fake:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            return object()
+        def caption_tracks(self, video_id):
+            assert video_id == "ABCDEFGHIJK"
+            return [
+                {"snippet": {"trackKind": "ASR", "language": "ru"}},
+                {"snippet": {"trackKind": "standard", "language": "uk"}},
+            ]
+    result = subject.run(db_path=db, client_factory=Fake)
+    assert result["status"] == "TRACKS_FOUND"
+    assert result["available_tracks"] == 2
+    assert result["asr_tracks"] == 1
+    assert result["caption_downloads"] == 0
+    assert result["quota_units_accounted"] == 50
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        assert today_quota_units(conn) == 50
+    assert "ABCDEFGHIJK" not in str(result)
+
+
+def test_single_owner_caption_inventory_respects_quota_reserve(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_owner_caption_inventory_once as subject
+    db = _db(tmp_path, duration="PT3H0M0S")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda conn: {
+        "exhausted": False, "spendable": 49
+    })
+    def never(**_kw):
+        raise AssertionError("No credentials or API calls below reserve")
+    result = subject.run(db_path=db, client_factory=never)
+    assert result["status"] == "SKIPPED_BUDGET"
+    assert result["caption_lists_requested"] == 0
+    assert result["quota_units_accounted"] == 0
