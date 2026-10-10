@@ -628,6 +628,7 @@ class MainWindow(QMainWindow):
         self._thumb_hover_timer.setSingleShot(True)
         self._thumb_hover_timer.setInterval(450)
         self._thumb_hover_timer.timeout.connect(self._show_hover_thumbnail)
+        self._thumbnail_failures = set()
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
@@ -670,6 +671,7 @@ class MainWindow(QMainWindow):
         safe.setCheckable(True)
         safe.setChecked(self.safe_selection)
         menu.addSeparator()
+        help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
         if choice == add:
@@ -687,6 +689,8 @@ class MainWindow(QMainWindow):
             self._save()
             self.status.setText('Безпечний вибір увімкнено' if self.safe_selection else
                                 'Автозапуск при виборі файлу увімкнено')
+        elif choice == help_action:
+            self.shortcuts_help()
         elif choice == updates:
             self.open_settings()
 
@@ -889,12 +893,17 @@ class MainWindow(QMainWindow):
             ('F5', self.scan),
             ('Ctrl+P', self.toggle_preview),
             ('Ctrl+O', self.add_folder),
+            ('F1', self.shortcuts_help),
         ]:
             sc = QShortcut(QKeySequence(sequence), self)
             sc.activated.connect(callback)
         QApplication.instance().installEventFilter(self)
 
     def eventFilter(self, watched, event):
+        if (watched is self.table.viewport() and event.type() == QEvent.Type.Leave):
+            self._hover_item = None
+            self._thumb_hover_timer.stop()
+            QToolTip.hideText()
         if event.type() != QEvent.Type.KeyPress or QApplication.activeModalWidget():
             return super().eventFilter(watched, event)
         focus = QApplication.focusWidget()
@@ -905,7 +914,17 @@ class MainWindow(QMainWindow):
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         on_table = bool(focus is self.table or (focus and self.table.isAncestorOf(focus)))
-        if key == Qt.Key.Key_Space and not ctrl:
+        if key == Qt.Key.Key_B and not ctrl:
+            self.bookmark_now()
+        elif key == Qt.Key.Key_BracketLeft and not ctrl:
+            self.jump_marker(False)
+        elif key == Qt.Key.Key_BracketRight and not ctrl:
+            self.jump_marker(True)
+        elif key == Qt.Key.Key_T and ctrl:
+            items = self.selected_files()
+            if items:
+                self.edit_tags(items)
+        elif key == Qt.Key.Key_Space and not ctrl:
             self.toggle_preview()
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not ctrl:
             self.play_selected()
@@ -1242,7 +1261,7 @@ class MainWindow(QMainWindow):
 
     def _show_hover_thumbnail(self):
         item = self._hover_item
-        if not item or self._thumbnail_thread is not None:
+        if not item or self._thumbnail_thread is not None or item.path in self._thumbnail_failures:
             return
         from thumbnails import thumbnail_path
         try:
@@ -1262,13 +1281,17 @@ class MainWindow(QMainWindow):
         old = self._thumbnail_thread
         self._thumbnail_thread = None
         if old:
+            source = old.source
             old.deleteLater()
-        if self._hover_item:
-            self._thumb_hover_timer.start(500)
+            if self._hover_item and self._hover_item.path != source:
+                self._thumb_hover_timer.start(500)
 
     def _thumbnail_ready(self, source: str, image_path: str):
         item = self._hover_item
-        if not item or source != item.path or not image_path:
+        if not image_path:
+            self._thumbnail_failures.add(source)
+            return
+        if not item or source != item.path:
             return
         try:
             url = QUrl.fromLocalFile(image_path).toString()
@@ -1428,6 +1451,7 @@ class MainWindow(QMainWindow):
 
     def preview_duration(self, duration: int):
         self.preview_seek.setRange(0, max(0, duration))
+        self.refresh_timeline_markers()
         position = self.preview.player.position() if self.preview.player is not None else 0
         self.preview_progress(position)
 
@@ -1462,6 +1486,7 @@ class MainWindow(QMainWindow):
         self.preview.black_out()
         self.preview.black.setText('')
         self.preview_seek.setValue(0)
+        self.preview_seek.update_markers([], 0)
         self.preview_time.setText('00:00 / 00:00')
         self.status.setText('Відтворення зупинено')
         self.file_title.setText('Нічого не відтворюється')
@@ -1510,6 +1535,14 @@ class MainWindow(QMainWindow):
             logging.error('Preview media error: %s', description)
 
     def closeEvent(self, event):
+        self._hover_item = None
+        self._thumb_hover_timer.stop()
+        QToolTip.hideText()
+        if self._thumbnail_thread and self._thumbnail_thread.isRunning():
+            if not self._thumbnail_thread.wait(1500):
+                self.status.setText('Зачекайте завершення створення мініатюри')
+                event.ignore()
+                return
         if self.scanner and self.scanner.isRunning():
             self.scanner.requestInterruption()
             if not self.scanner.wait(1500):
