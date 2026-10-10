@@ -1017,75 +1017,144 @@ class MainWindow(QMainWindow):
         if self.selected and self.selected.path == item.path:
             self.star.setText('★ В обраному' if normalized in self.favorites else '☆ В обране')
 
+    def selected_files(self, context_item=None) -> list[MediaItem]:
+        indices = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+        items = [self.model.item_at(i) for i in indices]
+        items = [item for item in items if item is not None]
+        if context_item and not any(item.path == context_item.path for item in items):
+            return [context_item]
+        return items or ([context_item] if context_item else [])
+
     def show_file_context_menu(self, pos):
         index = self.table.indexAt(pos)
         item = self.model.item_at(index.row()) if index.isValid() else None
         if item is None:
             return
+        items = self.selected_files(item)
+        many = len(items) > 1
         menu = QMenu(self)
-        delete_action = menu.addAction('Видалити файл')
-        key = normalize_path(item.path)
-        favorite_action = menu.addAction('Прибрати з обраного' if key in self.favorites else 'Додати в обране')
+        delete_action = menu.addAction(f'Видалити до кошика ({len(items)})' if many else 'Видалити файл до кошика')
+        favorite_action = menu.addAction('Додати в обране')
+        rename_action = menu.addAction('Перейменувати файл...')
+        move_action = menu.addAction('Перемістити до папки...')
         reveal_action = menu.addAction('Показати розташування')
+        rename_action.setEnabled(not many)
         choice = menu.exec(self.table.viewport().mapToGlobal(pos))
         if choice == delete_action:
-            self.confirm_delete_file(item)
+            self.confirm_delete_files(items)
         elif choice == favorite_action:
-            self.toggle_favorite_item(item)
+            for target in items:
+                self.favorites.add(normalize_path(target.path))
+            self._save()
+            self.apply_filter()
+        elif choice == rename_action:
+            self.rename_selected_file(item)
+        elif choice == move_action:
+            self.move_selected_files(items)
         elif choice == reveal_action:
             self.reveal_file(item)
 
     def reveal_file(self, item: MediaItem):
         if os.name == 'nt':
-            subprocess.Popen(['explorer.exe', '/select,', os.path.normpath(item.path)],
-                             close_fds=True)
+            subprocess.Popen(['explorer.exe', '/select,', os.path.normpath(item.path),], close_fds=True)
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(item.path).parent)))
 
     def confirm_delete_file(self, item: MediaItem):
-        if QMessageBox.question(self, 'Видалити файл?',
-                f'Перемістити файл до кошика Windows?\n\n{item.name}\n\n'
-                'Файл буде вилучено також з вихідної папки.',
+        self.confirm_delete_files([item])
+
+    def confirm_delete_files(self, items: list[MediaItem]):
+        if not items:
+            return
+        count = len(items)
+        message = (f'Перемістити {count} файлів до кошика Windows?\n\n'
+                   + ('\n'.join(item.name for item in items[:5]))
+                   + ('\n…' if count > 5 else '')
+                   + '\n\nОперацію можна скасувати через кошик Windows.')
+        if QMessageBox.question(self, 'Підтвердження видалення', message,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
-        # Windows will refuse moving a video while its decoder owns the file.
-        if self.preview.current and normalize_path(self.preview.current.path) == normalize_path(item.path):
+        live = normalize_path(self.preview.current.path) if self.preview.current else None
+        if any(normalize_path(item.path) == live for item in items):
             self.stop_playback()
-        self.status.setText('Переміщення файлу до кошика...')
-        QTimer.singleShot(250, lambda: self._delete_file_from_disk(item))
+        self.status.setText('Переміщення файлів до кошика...')
+        QTimer.singleShot(350, lambda: self._delete_files_from_disk(items))
 
-    def _delete_file_from_disk(self, item: MediaItem):
+    def _delete_files_from_disk(self, items):
+        removed, errors = set(), []
+        for item in items:
+            try:
+                trash_file(item.path)
+                removed.add(normalize_path(item.path))
+            except Exception as exc:
+                errors.append(f'{item.name}: {exc}')
+        if removed:
+            self.favorites.difference_update(removed)
+            self.file_fit_modes = {key: value for key, value in self.file_fit_modes.items() if key not in removed}
+            self.all_media = [f for f in self.all_media if normalize_path(f.path) not in removed]
+            if self.selected and normalize_path(self.selected.path) in removed:
+                self.selected = None
+                self.star.setText('☆ В обране')
+            self._save()
+            self.apply_filter()
+        self.status.setText(f'Переміщено до кошика: {len(removed)}. Помилок: {len(errors)}')
+        if errors:
+            QMessageBox.warning(self, 'Не всі файли видалені', '\n'.join(errors[:12]))
+
+    def _stop_if_active(self, items):
+        live = normalize_path(self.preview.current.path) if self.preview.current else None
+        if any(normalize_path(x.path) == live for x in items):
+            self.stop_playback()
+
+    def rename_selected_file(self, item: MediaItem):
+        value, accepted = QInputDialog.getText(self, 'Перейменувати файл',
+                                               'Нова назва (розширення збережеться):',
+                                               text=display_media_name(item.name))
+        if not accepted:
+            return
+        self._stop_if_active([item])
         try:
-            # Scan results may contain F:/folder\subfolder paths. Windows
-            # Recycle Bin APIs expect normalized backslashes.
-            recycle_path = (normalize_recycle_path(item.path) if os.name == 'nt'
-                            else os.path.abspath(item.path))
-            if not os.path.isfile(recycle_path):
-                raise FileNotFoundError(recycle_path)
-            send2trash(recycle_path)
-        except FileNotFoundError:
-            QMessageBox.warning(self, 'Файл не знайдено',
-                                'Файл уже відсутній на диску. Оновіть медіатеку, '
-                                'щоб прибрати застарілий запис.\n\n' + item.path)
-            self.status.setText('Файл не знайдено: оновіть медіатеку')
+            new_path = rename_file(item.path, value)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, 'Не вдалося перейменувати', str(exc))
             return
-        except Exception as exc:
-            QMessageBox.warning(self, 'Файл не видалено',
-                                'Не вдалося перемістити файл до кошика Windows. '
-                                'Файл не видалено назавжди.\n\n' + str(exc))
-            self.status.setText('Не вдалося перемістити файл до кошика')
-            return
-        normalized = normalize_path(item.path)
-        self.favorites.discard(normalized)
-        self.all_media = [f for f in self.all_media if normalize_path(f.path) != normalized]
-        if self.selected and normalize_path(self.selected.path) == normalized:
-            self.selected = None
-            self.file_title.setText('Файл не обрано')
-            self.star.setText('☆ В обране')
+        old_key = normalize_path(item.path)
+        if old_key in self.favorites:
+            self.favorites.discard(old_key)
+            self.favorites.add(normalize_path(new_path))
+        if old_key in self.file_fit_modes:
+            self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+        self.selected = None
         self._save()
-        self.apply_filter()
-        self.status.setText(f'Файл переміщено до кошика: {display_media_name(item.name)}')
+        self.scan()
+        self.status.setText(f'Перейменовано: {Path(new_path).name}')
+
+    def move_selected_files(self, items: list[MediaItem]):
+        folder = QFileDialog.getExistingDirectory(self, 'Куди перемістити файли?')
+        if not folder:
+            return
+        self._stop_if_active(items)
+        moved, errors = 0, []
+        for item in items:
+            try:
+                new_path = move_file(item.path, folder)
+            except (OSError, ValueError) as exc:
+                errors.append(f'{item.name}: {exc}')
+                continue
+            moved += 1
+            old_key = normalize_path(item.path)
+            if old_key in self.favorites:
+                self.favorites.remove(old_key)
+                self.favorites.add(normalize_path(new_path))
+            if old_key in self.file_fit_modes:
+                self.file_fit_modes[normalize_path(new_path)] = self.file_fit_modes.pop(old_key)
+        self.selected = None
+        self._save()
+        self.scan()
+        self.status.setText(f'Переміщено: {moved}. Помилок: {len(errors)}')
+        if errors:
+            QMessageBox.warning(self, 'Не всі файли переміщено', '\n'.join(errors[:12]))
 
     def show_video_context_menu(self, pos):
         menu = QMenu(self)
