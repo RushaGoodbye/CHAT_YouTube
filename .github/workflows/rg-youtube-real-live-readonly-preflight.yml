@@ -12,6 +12,7 @@ on:
       - "scripts/rg_youtube_owner_caption_inventory_once.py"
       - "scripts/rg_youtube_owner_caption_download_once.py"
       - "scripts/rg_youtube_staged_long_live_semantic_qa.py"
+      - "scripts/rg_youtube_private_ab_repair.py"
       - "src/rg_youtube_control/cached_metadata.py"
       - "src/rg_youtube_control/config.py"
       - "src/rg_youtube_control/dialogue_seo.py"
@@ -233,6 +234,38 @@ jobs:
           Write-Host ("PRIVATE SEO DRAFT SAVED: " + $r.private_draft_saved)
           Write-Host ("ELAPSED SECONDS: " + $r.elapsed_seconds)
 
+      - name: ONE SHOT recover three A/B titles from verified private LIVE evidence
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-ab-only-repair' }}"
+        shell: powershell
+        env:
+          PYTHONPATH: src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          & ".\\.venv\\Scripts\\python.exe" -B -u scripts/rg_youtube_private_ab_repair.py
+          if ($LASTEXITCODE -ne 0) { throw "Private evidence-only title repair failed" }
+
+      - name: Validate private title repair exported only anonymous counters
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-ab-only-repair' }}"
+        shell: powershell
+        run: |
+          $p = "rg_youtube_private_ab_repair_anonymous.json"
+          if (-not (Test-Path $p)) { throw "Missing private AB repair report" }
+          $r = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -notin @("NOT_READY", "REVIEW_REQUIRED", "ALREADY_VALID_AB", "IMPROVED_REVIEW_DRAFT")) {
+            throw "Unexpected AB repair status"
+          }
+          if ($r.youtube_modified -or $r.nas_modified -or $r.captions_downloaded -or
+              $r.source_text_exported -or $r.source_identifiers_exported -or
+              $r.generated_content_exported -or $r.youtube_data_api_calls -ne 0 -or
+              $r.ollama_title_calls -gt 1) { throw "AB repair safety validation failed" }
+          Write-Host ("PRIVATE AB STATUS: " + $r.status)
+          Write-Host ("VERIFIED EVIDENCE BLOCKS: " + $r.evidence_blocks_verified)
+          Write-Host ("PREVIOUS TITLES: " + $r.previous_ab_titles_count)
+          Write-Host ("NEW TITLES: " + $r.candidate_ab_titles_count)
+          Write-Host ("PREVIOUS QA WARNINGS: " + $r.previous_gate_warnings)
+          Write-Host ("NEW QA WARNINGS: " + $r.candidate_gate_warnings)
+          Write-Host ("PRIVATE DRAFT UPDATED: " + $r.private_draft_updated)
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -244,5 +277,6 @@ jobs:
             rg_youtube_owner_caption_inventory_anonymous.json
             rg_youtube_owner_caption_download_anonymous.json
             rg_youtube_staged_long_live_semantic_anonymous.json
+            rg_youtube_private_ab_repair_anonymous.json
           if-no-files-found: ignore
           retention-days: 7
