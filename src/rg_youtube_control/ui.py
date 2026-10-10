@@ -13431,6 +13431,7 @@ class MainWindow(QMainWindow):
             description=description,
             variants=variants,
             evidence_report=evidence_report,
+            original_description=before_description,
         )
         requires_review = bool(package.get("needs_review")) or bool(evidence_issues)
         draft_reason = (
