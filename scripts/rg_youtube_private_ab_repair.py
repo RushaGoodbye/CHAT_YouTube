@@ -17,7 +17,8 @@ from typing import Callable
 from rg_youtube_control.cached_metadata import cached_public_metadata
 from rg_youtube_control.config import app_data_dir
 from rg_youtube_control.dialogue_seo import (
-    ab_title_issues, analyze_all_timeline_blocks, evidence_outline_text,
+    ab_title_issues, analyze_all_timeline_blocks, complete_grounded_ab_variants,
+    evidence_outline_text,
 )
 from rg_youtube_control.free_tools import (
     DEFAULT_OLLAMA_MODEL, _recover_title_variants, load_srt_transcript,
@@ -140,12 +141,22 @@ def run(
                 result["reason"] = "Three grounded A/B titles already exist"
                 return result
             result["ollama_title_calls"] = 1
-            proposed = recover(
-                current_title=str(draft.get("source_title") or ""),
-                transcript=evidence_outline_text(report),
-                model=DEFAULT_OLLAMA_MODEL,
-            )
+            try:
+                proposed = recover(
+                    current_title=str(draft.get("source_title") or ""),
+                    transcript=evidence_outline_text(report),
+                    model=DEFAULT_OLLAMA_MODEL,
+                )
+            except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                proposed = []
             proposed = [str(item).strip() for item in (proposed or []) if str(item).strip()]
+            if len(proposed) != 3 or ab_title_issues(proposed, report):
+                # Deterministic fallback: preserve existing reviewed choices
+                # and add only a literal topic from verified private evidence.
+                # This remains REVIEW_REQUIRED, never auto-publishes.
+                proposed = complete_grounded_ab_variants(
+                    old_variants, report, main_title=str(package.get("title") or ""),
+                )
             result["candidate_ab_titles_count"] = len(proposed)
             if (
                 len(proposed) != 3
