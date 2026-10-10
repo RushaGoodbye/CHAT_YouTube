@@ -112,6 +112,30 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $file.FullName,$checksum,"installer\latest.json" -DestinationPath $zip -CompressionLevel Optimal
 
+      - name: Verify ZIP installer and manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $line = Select-String -Path pyproject.toml -Pattern "version = "
+          $version = ($line.Line -split '"')[1]
+          $zipPath = "installer/RG_YouTube_Control_Update_$version.zip"
+          if (-not (Test-Path $zipPath)) { throw "ZIP missing" }
+          $manifest = Get-Content installer/latest.json -Raw | ConvertFrom-Json
+          if ($manifest.version -ne $version) { throw "Version mismatch" }
+          $installer = Join-Path installer $manifest.installer_name
+          if (-not (Test-Path $installer)) { throw "Installer missing" }
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = (Get-Content "$installer.sha256" -Raw).Substring(0,64).ToLowerInvariant()
+          if ($hash -ne $expected) { throw "SHA256 mismatch" }
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipPath))
+          try {
+            $names = @($zip.Entries | ForEach-Object { $_.Name })
+            foreach ($name in @($manifest.installer_name, "$($manifest.installer_name).sha256", "latest.json")) {
+              if ($names -notcontains $name) { throw "Missing ZIP entry: $name" }
+            }
+          } finally { $zip.Dispose() }
+          Write-Host "Verified update package $version"
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
