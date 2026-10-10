@@ -1857,7 +1857,7 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
-            if evidence_report and not fast_mode:
+            if evidence_report and not fast_mode and len(candidate["title_variants"]) == 3:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
                 )
