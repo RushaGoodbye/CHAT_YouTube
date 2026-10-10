@@ -673,3 +673,112 @@ def test_owner_long_srt_oneshot_handles_unavailable_download_no_export(
     assert result["local_private_source_staged"] is False
     assert not private_root.exists()
     assert "PRIVATE" not in str(result)
+
+
+def test_private_long_live_semantic_qa_saves_review_draft_without_export(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_staged_long_live_semantic_qa as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    root = tmp_path / "private_qa"
+    source_dir = root / "private_source"
+    source_dir.mkdir(parents=True)
+    def stamp(n):
+        return f"{n//3600:02}:{(n//60)%60:02}:{n%60:02},000"
+    sample = "\n\n".join(
+        f"{i+1}\n{stamp(i*60)} --> {stamp(i*60+15)}\nPRIVATE SAYING {i}"
+        for i in range(180)
+    )
+    (source_dir / "ABCDEFGHIJK.srt").write_text(sample, encoding="utf-8")
+    monkeypatch.setattr(subject, "quota_budget_status", lambda _conn: {
+        "exhausted": False, "spendable": 100
+    })
+    class FakeClient:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            return object()
+        def video_details_with_request_count(self, ids):
+            assert ids == ["ABCDEFGHIJK"]
+            return [{
+                "id": "ABCDEFGHIJK",
+                "snippet": {
+                    "channelId": "PRIVATE",
+                    "title": "PRIVATE LONG LIVE TITLE",
+                    "description": "PRIVATE https://donate.rginfoua.pp.ua",
+                    "tags": ["PRIVATE TAG"],
+                },
+            }], 1
+    called = {"analyze": 0}
+    def analyze(rows, **kwargs):
+        called["analyze"] += 1
+        assert kwargs["cache_dir"] == root / "private_semantic_cache" / "ABCDEFGHIJK"
+        total = len(subject.split_timeline(
+            rows, max_chars=5000, max_span_seconds=300
+        ))
+        kwargs["progress"](f"Аналіз фрагментів: 1/{total} · PRIVATE")
+        return {
+            "source_integrity_verified": True, "blocks_total": total,
+            "blocks_analyzed": total, "blocks_with_evidence": total,
+            "source_rows_with_text": len(rows), "blocks": [],
+        }
+    monkeypatch.setattr(subject, "analyze_all_timeline_blocks", analyze)
+    monkeypatch.setattr(subject, "evidence_outline_text", lambda _e: "PRIVATE OUTLINE")
+    monkeypatch.setattr(subject, "generate_seo_package_local", lambda **kw: {
+        "title": "PRIVATE TITLE",
+        "description": "PRIVATE https://donate.rginfoua.pp.ua",
+        "title_variants": ["A", "B", "C"], "tags": ["PRIVATE"],
+    })
+    monkeypatch.setattr(subject, "review_seo_package", lambda **_k: [])
+    result = subject.run(
+        db_path=db, private_root=root, client_factory=FakeClient,
+        chat=lambda *_a, **_kw: (_ for _ in ()).throw(
+            AssertionError("Ollama is mocked during unit tests")
+        ),
+        gpu_check=lambda: True,
+    )
+    assert called["analyze"] == 1
+    assert result["status"] == "STRUCTURE_PASS"
+    assert result["private_draft_saved"] is True
+    assert result["ab_titles_count"] == 3
+    assert result["source_caption_rows"] == 180
+    assert result["youtube_data_api_calls"] == 1
+    assert result["youtube_modified"] is False
+    assert result["source_text_exported"] is False
+    assert "PRIVATE" not in str(result)
+    assert "ABCDEFGHIJK" not in str(result)
+    draft = root / "private_drafts" / "ABCDEFGHIJK.json"
+    assert draft.is_file()
+    content = draft.read_text(encoding="utf-8")
+    assert "PRIVATE https://donate.rginfoua.pp.ua" in content
+    assert '"review_required": true' in content
+
+
+def test_staged_long_live_qa_does_not_call_owner_api_when_gpu_busy(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_staged_long_live_semantic_qa as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+    root = tmp_path / "private"
+    source = root / "private_source"
+    source.mkdir(parents=True)
+    (source / "ABCDEFGHIJK.srt").write_text("PRIVATE SRT", encoding="utf-8")
+    monkeypatch.setattr(subject, "load_srt_transcript", lambda _p: [
+        {"text": "PRIVATE SEGMENT " + str(n), "start": n * 60, "duration": 20}
+        for n in range(180)
+    ])
+    result = subject.run(
+        db_path=db, private_root=root, gpu_check=lambda: False,
+        client_factory=lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("No owner requests when GPU is busy")
+        ),
+    )
+    assert result["status"] == "GPU_BUSY"
+    assert result["youtube_data_api_calls"] == 0
+    assert result["private_draft_saved"] is False
