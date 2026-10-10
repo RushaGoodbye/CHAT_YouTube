@@ -70,6 +70,7 @@ jobs:
           python -m pytest -q \
             tests/test_seo_preview_ab_contract.py \
             tests/test_seo_quality_gate.py \
+            tests/test_seo_publish_guard.py \
             tests/test_rejected_seo.py \
             tests/test_content_vs_technical_review.py \
             tests/test_review_quality_accept.py \
