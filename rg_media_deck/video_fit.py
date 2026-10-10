@@ -102,3 +102,26 @@ def video_geometry(view_width: int, view_height: int, source_width: int,
     x = (view_width - active_w*scale)/2 - source_width*crop.left*scale
     y = (view_height - active_h*scale)/2 - source_height*crop.top*scale
     return (round(x),round(y),max(1,round(full_w)),max(1,round(full_h)))
+
+
+def fitted_frame_rect(view_width: int, view_height: int, source_width: int,
+                      source_height: int, crop: Crop | None = None
+                      ) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    """Return fixed-canvas paint target and source image rect, WITHOUT resizing a widget.
+
+    The target lies entirely inside the original viewport, with no stretching.
+    A letterboxed source is cropped in pixel coordinates before aspect-fit.
+    """
+    if min(view_width, view_height, source_width, source_height) <= 0:
+        return (0.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)
+    if crop is None:
+        crop = Crop(0.0, 0.0, 1.0, 1.0)
+    if (crop.left < 0 or crop.top < 0 or crop.right > 1 or crop.bottom > 1
+            or crop.width <= 0 or crop.height <= 0):
+        raise ValueError('Invalid normalized source crop')
+    sx, sy = source_width * crop.left, source_height * crop.top
+    sw, sh = source_width * crop.width, source_height * crop.height
+    scale = min(view_width / sw, view_height / sh)
+    dw, dh = sw * scale, sh * scale
+    tx, ty = (view_width - dw) / 2, (view_height - dh) / 2
+    return (tx, ty, dw, dh), (sx, sy, sw, sh)

@@ -8,9 +8,8 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu,
@@ -20,11 +19,11 @@ from PySide6.QtWidgets import (
 
 import updater
 from send2trash import send2trash
-from video_fit import detect_letterbox, stable_crop, video_geometry
+from video_fit import detect_letterbox, stable_crop, fitted_frame_rect
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.1.7'
+VERSION = '0.1.8'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -41,6 +40,8 @@ QPushButton#PlayButton:hover { background:#cd3a53; }
 QPushButton#PauseButton, QPushButton#StopButton { background:#24262c; border:1px solid #41444d; font-size:15px; font-weight:700; padding:0; }
 QPushButton#MuteButton { background:#24262c; border:1px solid #41444d; font-size:12px; font-weight:650; padding:0 5px; }
 QPushButton#MuteButton:checked { background:#45242b; color:#ffb8c2; border-color:#aa4253; }
+QPushButton#SettingsGear { background:#24262c; color:#e7e9ec; font-size:21px; padding:0; border-color:#33363e; }
+QPushButton#SettingsGear:hover { background:#363942; }
 QPushButton#SpeedStep { font-size:16px; font-weight:700; padding:0; }
 QTableView { border:0; background:#111216; alternate-background-color:#191b20; selection-background-color:#5a2732; selection-color:white; gridline-color:#282a30; font-size:13px; }
 QHeaderView::section { background:#1d1f25; border:0; border-bottom:1px solid #30333a; padding:7px; color:#cbd0d8; font-weight:650; }
@@ -150,31 +151,32 @@ class AspectImage(QLabel):
 
 
 class FitVideoViewport(QWidget):
-    """Clipping parent for GPU-backed video; never distort the picture ratio.
+    """Fixed OBS capture area. Crop only image pixels, NEVER resize the widget.
 
-    Normal source videos use native KeepAspectRatio. A repeated strong black
-    matte detection zooms the *encoded* picture behind this viewport instead.
+    QVideoSink supplies video frames and QPainter draws them inside this
+    widget's existing rectangle. Thus automatic matte removal cannot grow any
+    Qt child window, QSplitter pane or OBS capture region.
     """
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setStyleSheet('background:#000;')
-        self.video = QVideoWidget(self)
-        self.video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
         self.source_size = (0, 0)
         self.crop = None
         self.auto_crop = True
         self.forced_portrait = False
         self._samples = []
         self._frame_count = 0
-        self.video.setGeometry(self.rect())
+        self._image = None
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def reset_crop(self):
         self.crop = None
         self._samples.clear()
         self._frame_count = 0
-        self.source_size = (0,0)
-        self.video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
-        self._place_video()
+        self.source_size = (0, 0)
+        self._image = None
+        self.update()
 
     def set_auto_crop(self, enabled):
         self.auto_crop = bool(enabled)
@@ -183,8 +185,10 @@ class FitVideoViewport(QWidget):
 
     def set_forced_portrait(self, enabled: bool):
         self.forced_portrait = bool(enabled)
-        self.reset_crop()
+        self.crop = None
+        self._samples.clear()
         self._force_portrait_if_possible()
+        self.update()
 
     def _force_portrait_if_possible(self):
         if not self.forced_portrait:
@@ -192,45 +196,41 @@ class FitVideoViewport(QWidget):
         sw, sh = self.source_size
         if sw > sh > 0:
             active_width = sh * 9 / 16
-            x = (sw - active_width) / 2 / sw
+            x = (sw - active_width) / (2 * sw)
             from video_fit import Crop
-            self.crop = Crop(x, 0, 1-x, 1)
-            self.video.setAspectRatioMode(Qt.AspectRatioMode.IgnoreAspectRatio)
-            self._place_video()
+            self.crop = Crop(x, 0, 1 - x, 1)
+            self.update()
 
-    def _place_video(self):
-        if self.crop is not None and (self.auto_crop or self.forced_portrait):
-            self.video.setGeometry(*video_geometry(
-                self.width(), self.height(), *self.source_size, self.crop
-            ))
-        else:
-            self.video.setGeometry(self.rect())
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._place_video()
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.GlobalColor.black)
+        if self._image is None or self._image.isNull():
+            return
+        crop = self.crop if (self.auto_crop or self.forced_portrait) else None
+        target, source = fitted_frame_rect(self.width(), self.height(),
+                                           self._image.width(), self._image.height(), crop)
+        from PySide6.QtCore import QRectF
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(QRectF(*target), self._image, QRectF(*source))
 
     def observe_frame(self, frame):
         if not frame.isValid():
             return
-        size = frame.size()
-        if size.isValid():
-            self.source_size = (size.width(), size.height())
+        # Conversion is needed for pixel-space cropping; no separate decoder,
+        # and no resize of a GPU-backed QVideoWidget that could escape OBS.
+        picture = frame.toImage()
+        if picture.isNull():
+            return
+        self._image = picture
+        self.source_size = (picture.width(), picture.height())
+        self.update()
         if self.forced_portrait:
             self._force_portrait_if_possible()
             return
         if not self.auto_crop or self.crop is not None:
             return
         self._frame_count += 1
-        # Only inspect a few early non-black frames. Avoid decoding video frames
-        # into Python on every paint (all playback remains hardware-backed).
         if self._frame_count not in (6, 14, 23, 35, 48, 64):
-            return
-        picture = frame.toImage()
-        if picture.isNull():
-            return
-        self.source_size = (picture.width(), picture.height())
-        if not all(self.source_size):
             return
         small = picture.scaled(192, 108, Qt.AspectRatioMode.IgnoreAspectRatio,
                                Qt.TransformationMode.FastTransformation)
@@ -246,8 +246,7 @@ class FitVideoViewport(QWidget):
         detected = stable_crop(self._samples)
         if detected is not None:
             self.crop = detected
-            self.video.setAspectRatioMode(Qt.AspectRatioMode.IgnoreAspectRatio)
-            self._place_video()
+            self.update()
 
 
 class ScanThread(QThread):
@@ -331,8 +330,8 @@ class PlayerSurface(QWidget):
         self.black = QLabel('')
         self.black.setStyleSheet('background:black;')
         self.video_view = FitVideoViewport()
-        self.video = self.video_view.video
-        self.video.videoSink().videoFrameChanged.connect(self.video_view.observe_frame)
+        self.video_sink = QVideoSink(self)
+        self.video_sink.videoFrameChanged.connect(self.video_view.observe_frame)
         self.photo = AspectImage()
         self.stack.addWidget(self.black)
         self.stack.addWidget(self.video_view)
@@ -345,7 +344,7 @@ class PlayerSurface(QWidget):
     def _create_player(self):
         player = QMediaPlayer(self)
         self.player = player
-        player.setVideoOutput(self.video)
+        player.setVideoSink(self.video_sink)
         self.audio = QAudioOutput(self)
         self.audio.setVolume(self._volume)
         self.audio.setMuted(self._muted)
@@ -598,6 +597,30 @@ class MainWindow(QMainWindow):
         dialog.setStyleSheet(STYLE)
         dialog.exec()
 
+    def open_actions_menu(self):
+        """All previously top-row controls are now near the favorite button."""
+        menu = QMenu(self)
+        add = menu.addAction('＋ Додати папку...')
+        folders = menu.addAction('▣ Папки медіатеки...')
+        refresh = menu.addAction('↻ Оновити медіатеку (F5)')
+        menu.addSeparator()
+        auto = menu.addAction('Автоматично прибирати чорні поля (Z)')
+        auto.setCheckable(True)
+        auto.setChecked(self.preview.video_view.auto_crop)
+        menu.addSeparator()
+        updates = menu.addAction('⚙ Налаштування та оновлення програми...')
+        choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
+        if choice == add:
+            self.add_folder()
+        elif choice == folders:
+            self.manage_folders()
+        elif choice == refresh:
+            self.scan()
+        elif choice == auto:
+            self.set_auto_crop(auto.isChecked())
+        elif choice == updates:
+            self.open_settings()
+
     def _install_update(self, staged: Path, sha256: str, version: str):
         command = updater.prepare_installer(Path(staged), sha256, version)
         if self.scanner and self.scanner.isRunning():
@@ -619,19 +642,6 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 10, 12, 8)
         root.setSpacing(8)
-        top = QHBoxLayout()
-        title = QLabel('RG  MEDIA  DECK')
-        title.setStyleSheet('font-size:20px; font-weight:800; color:#fff;')
-        top.addWidget(title)
-        top.addStretch(1)
-        top.addWidget(make_button('Додати папку', self.add_folder))
-        top.addWidget(make_button('Папки', self.manage_folders))
-        top.addWidget(make_button('Налаштування', self.open_settings))
-        self.rescan_button = make_button('Оновити', self.scan)
-        self.rescan_button.setToolTip('Повторно сканувати папки медіатеки')
-        top.addWidget(self.rescan_button)
-        root.addLayout(top)
-
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
         root.addWidget(split, 1)
@@ -691,6 +701,12 @@ class MainWindow(QMainWindow):
         preview_head.addWidget(self.file_title, 1)
         self.star = make_button('☆ В обране', self.toggle_favorite)
         preview_head.addWidget(self.star)
+        self.settings_btn = make_button('⚙', self.open_actions_menu)
+        self.settings_btn.setObjectName('SettingsGear')
+        self.settings_btn.setFixedSize(34, 32)
+        self.settings_btn.setAccessibleName('Налаштування та керування медіатекою')
+        self.settings_btn.setToolTip('Налаштування, папки та оновлення')
+        preview_head.addWidget(self.settings_btn)
         rv.addLayout(preview_head)
         self.preview = PlayerSurface()
         self.preview.set_volume(self.settings['volume'] / 100)
@@ -905,7 +921,6 @@ class MainWindow(QMainWindow):
             self.status.setText('Зупиняю поточне сканування для нового запуску...')
             return
         self._pending_rescan = False
-        self.rescan_button.setEnabled(False)
         self.status.setText('Сканування папок...')
         self.scanner = ScanThread(self.roots)
         self.scanner.counted.connect(lambda n: self.status.setText(f'Знайдено {n} файлів...'))
@@ -914,7 +929,6 @@ class MainWindow(QMainWindow):
         self.scanner.start()
 
     def scan_finished(self):
-        self.rescan_button.setEnabled(True)
         if self._pending_rescan:
             self._pending_rescan = False
             QTimer.singleShot(0, self.scan)
@@ -1200,8 +1214,11 @@ def main():
                 and not hasattr(main_window, 'file_black_button')
                 and main_window.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
                 and main_window.preview.video_view.auto_crop
-                and main_window.preview.video_view.video.parentWidget() is main_window.preview.video_view
-                and main_window.preview.video_view.video.aspectRatioMode() == Qt.AspectRatioMode.KeepAspectRatio)
+                and main_window.preview.video_sink is not None
+                and not hasattr(main_window.preview.video_view, 'video')
+                and not hasattr(main_window, 'rescan_button')
+                and not hasattr(main_window, 'header_toolbar')
+                and main_window.settings_btn.parentWidget() is not None)
             main_window.preview.set_playback_rate(1.5)
             main_window.preview.set_muted(True)
             passed = passed and main_window.preview._playback_rate == 1.5

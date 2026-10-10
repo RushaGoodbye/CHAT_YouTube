@@ -1,8 +1,8 @@
-name: RG Media Deck 0.1.7 Windows Installer
+name: RG Media Deck 0.1.8 Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [rg-media-deck-0-1-7]
+    branches: [rg-media-deck-0-1-8]
     paths:
       - 'rg_media_deck/**'
       - '.github/workflows/rg-media-deck-017-windows.yml'
@@ -56,18 +56,18 @@ jobs:
       - name: Upload installer build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RG_Media_Deck_0.1.7_Setup
+          name: RG_Media_Deck_0.1.8_Setup
           path: |
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe.sha256
           if-no-files-found: error
       - name: Publish app-only tagged release
-        if: github.ref == 'refs/heads/rg-media-deck-0-1-7'
+        if: github.ref == 'refs/heads/rg-media-deck-0-1-8'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag='rg-media-deck-v0.1.7'
+          $tag='rg-media-deck-v0.1.8'
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists, refusing overwrite" }
-          gh release create $tag dist_installer/RG_Media_Deck_Setup.exe dist_installer/RG_Media_Deck_Setup.exe.sha256 --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.7' --notes 'Windows installer. Combined Play/Pause, keyboard shortcuts, safe context-menu deletion to Windows Recycle Bin, automatic letterbox fitting with 9:16 override. In-app updates preserved.'
+          gh release create $tag dist_installer/RG_Media_Deck_Setup.exe dist_installer/RG_Media_Deck_Setup.exe.sha256 --target $env:GITHUB_SHA --title 'RG Media Deck 0.1.8' --notes 'Windows installer. Fixed-size video frame rendering for OBS, compact settings gear beside Favorites; libraries and updater preserved.'

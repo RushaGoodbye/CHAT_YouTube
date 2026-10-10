@@ -1,5 +1,5 @@
 import unittest
-from video_fit import Crop, detect_letterbox, stable_crop, video_geometry
+from video_fit import Crop, detect_letterbox, stable_crop, video_geometry, fitted_frame_rect
 
 
 def rectangle_mask(w=192, h=108, x0=67, y0=9, x1=125, y1=101):
@@ -39,6 +39,28 @@ class VideoFitTests(unittest.TestCase):
         self.assertLess(x,0)
         self.assertGreater(w,900)
         self.assertLess(y,10)
+
+    def test_automatic_crop_cannot_resize_viewport(self):
+        target, source = fitted_frame_rect(900, 660, 1920, 1080, Crop(0.35, 0.05, 0.65, 0.95))
+        x, y, w, h = target
+        self.assertGreaterEqual(x, 0)
+        self.assertGreaterEqual(y, 0)
+        self.assertLessEqual(x+w, 900.0001)
+        self.assertLessEqual(y+h, 660.0001)
+        self.assertAlmostEqual(h, 660)
+        self.assertAlmostEqual(w/h, source[2]/source[3], places=8)
+
+    def test_landscape_aspect_fit_is_bounded(self):
+        target, source = fitted_frame_rect(800, 500, 1920, 1080)
+        self.assertEqual(source, (0, 0, 1920, 1080))
+        self.assertAlmostEqual(target[2], 800)
+        self.assertLess(target[3], 500)
+
+    def test_portrait_uses_full_height_without_widget_growth(self):
+        target, source = fitted_frame_rect(900, 660, 1080, 1920)
+        self.assertAlmostEqual(target[3], 660)
+        self.assertLess(target[2], 900)
+        self.assertAlmostEqual(target[0] * 2 + target[2], 900)
 
     def test_safe_geometry_when_view_hidden(self):
         self.assertEqual(video_geometry(0,0,1920,1080,Crop(0.25,0,0.75,1)),(0,0,1,1))
