@@ -369,7 +369,23 @@ def ab_title_issues(
             word[:5] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
             if word not in {"цитата", "тема", "теза", "співрозмовник"}
         }
+        # A shared supported keyword must not conceal an invented unrelated
+        # two-word subject (regression: "family psychology" in political SEO).
+        unsupported_subjects = (
+            (r"семейн\\w*\\s+психолог\\w*", ("семейн", "психолог")),
+            (r"сімейн\\w*\\s+психолог\\w*", ("сімейн", "психолог")),
+            (r"семейной\\s+психологии", ("семейн", "психолог")),
+        )
         for index, value in enumerate(values, 1):
+            title_lower = value.casefold()
+            for pattern, roots in unsupported_subjects:
+                if re.search(pattern, title_lower, flags=re.UNICODE) and not any(
+                    root in source for root in roots
+                ):
+                    issues.append(
+                        f"A/B варіант {index} містить непідтверджену тему сімейної психології."
+                    )
+                    break
             words = re.findall(
                 r"[a-zа-яё0-9]{5,}",
                 value.casefold().translate(
