@@ -376,8 +376,16 @@ def ab_title_issues(
             r"сімейн\w*\s+психолог\w*",
             r"семейной\s+психологии",
         )
+        # Only verified verbatim evidence supports a subject. A generated
+        # summary/topic is not evidence, even when it repeats title words.
+        evidence_text = " ".join(
+            _compact(item.get("evidence")).casefold()
+            for block in report.get("blocks") or []
+            for item in block.get("topics") or []
+            if isinstance(item, dict)
+        )
         supported_family_topic = any(
-            re.search(pattern, source, flags=re.UNICODE)
+            re.search(pattern, evidence_text, flags=re.UNICODE)
             for pattern in unsupported_subjects
         )
         for index, value in enumerate(values, 1):
