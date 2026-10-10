@@ -197,7 +197,7 @@ jobs:
           Write-Host ("PRIVATE SOURCE STAGED: " + $r.local_private_source_staged)
           Write-Host ("OWNER QUOTA ACCOUNTED: " + $r.quota_units_accounted)
 
-      - name: ONE SHOT analyze every verified long LIVE block locally with Ollama
+      - name: ONE SHOT resume 47-block real LIVE SEO from private Ollama evidence cache
         if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-long-live-semantic' }}"
         shell: powershell
         env:
