@@ -1,0 +1,28 @@
+name: RG 904 Resume Button Readonly Diagnostic
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - 'rg_remote_control/open_source_v1/diag_904_resume_button_readonly.py'
+      - '.github/workflows/rg-904-resume-button-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Diagnose live 904 resume button and checkpoint without writes
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if (-not (Test-Path $py)) { throw 'Runtime unavailable' }
+          & $py -X utf8 rg_remote_control/open_source_v1/diag_904_resume_button_readonly.py
+          if ($LASTEXITCODE -ne 0) { throw 'Resume diagnostics failed' }
