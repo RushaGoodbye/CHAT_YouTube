@@ -1650,7 +1650,7 @@ def _recover_chapters_from_transcript(
 
 
 from .dialogue_seo import (
-    ab_title_issues, evidence_outline_text, preserve_outline_topics,
+    ab_title_issues, complete_grounded_ab_variants, evidence_outline_text, preserve_outline_topics,
     preserve_one_grounded_quote,
 )
 from .evidence_context import bounded_evidence_context
@@ -2034,6 +2034,13 @@ chapters: рядок з підтвердженими таймкодами та �
                     variants = repaired_variants
             except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                 pass
+    grounded_ab_fallback_used = False
+    if evidence_report and len(variants) < 3:
+        completed = complete_grounded_ab_variants(
+            variants, evidence_report, main_title=title,
+        )
+        grounded_ab_fallback_used = len(completed) > len(variants)
+        variants = completed
     title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
     prompt_topics_omitted = (
         list(prompt_evidence.topics_omitted) if prompt_evidence else []
@@ -2099,8 +2106,10 @@ chapters: рядок з підтвердженими таймкодами та �
         "chapters": chapters,
         "provider": f"ollama:{model}",
         "title_fallback_used": title_fallback_used,
+        "grounded_ab_fallback_used": grounded_ab_fallback_used,
         "needs_review": (
             title_fallback_used
+            or grounded_ab_fallback_used
             or len(variants) < 3
             or not transcript.strip()
             or bool(evidence_report)
