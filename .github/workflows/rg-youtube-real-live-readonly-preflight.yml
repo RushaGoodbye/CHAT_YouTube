@@ -138,7 +138,7 @@ jobs:
           }
 
       - name: ONE SHOT inspect owner caption tracks for one long LIVE within quota reserve
-        if: github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory'
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory' }}"
         shell: powershell
         env:
           PYTHONPATH: src
@@ -148,7 +148,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Bounded owner captions inventory did not complete" }
 
       - name: Validate one-shot caption inventory is anonymous and no downloads
-        if: github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory'
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'qa: one-shot-caption-inventory' }}"
         shell: powershell
         run: |
           $p = "rg_youtube_owner_caption_inventory_anonymous.json"
