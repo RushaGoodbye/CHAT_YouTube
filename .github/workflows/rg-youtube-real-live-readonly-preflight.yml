@@ -13,6 +13,7 @@ on:
       - "scripts/rg_youtube_owner_caption_download_once.py"
       - "scripts/rg_youtube_staged_long_live_semantic_qa.py"
       - "scripts/rg_youtube_private_ab_repair.py"
+      - "scripts/rg_youtube_private_description_repair.py"
       - "src/rg_youtube_control/cached_metadata.py"
       - "src/rg_youtube_control/config.py"
       - "src/rg_youtube_control/dialogue_seo.py"
