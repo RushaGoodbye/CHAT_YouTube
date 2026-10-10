@@ -125,3 +125,19 @@ def fitted_frame_rect(view_width: int, view_height: int, source_width: int,
     dw, dh = sw * scale, sh * scale
     tx, ty = (view_width - dw) / 2, (view_height - dh) / 2
     return (tx, ty, dw, dh), (sx, sy, sw, sh)
+
+
+def fill_frame_crop(view_width: int, view_height: int, source_width: int,
+                    source_height: int) -> Crop | None:
+    """Center-crop source to fill the viewport without stretching/resizing widget."""
+    if min(view_width, view_height, source_width, source_height) <= 0:
+        return None
+    viewport_ratio = view_width / view_height
+    source_ratio = source_width / source_height
+    if source_ratio > viewport_ratio:
+        fractional_width = viewport_ratio / source_ratio
+        left = (1 - fractional_width) / 2
+        return Crop(left, 0.0, 1-left, 1.0)
+    fractional_height = source_ratio / viewport_ratio
+    top = (1-fractional_height)/2
+    return Crop(0.0, top, 1.0, 1-top)
