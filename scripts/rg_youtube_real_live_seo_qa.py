@@ -11,13 +11,16 @@ import argparse
 from pathlib import Path
 import sqlite3
 
-from rg_youtube_control.config import app_data_dir
+from rg_youtube_control.config import (
+    DEFAULT_NAS_TRANSCRIPTS_PATH, app_data_dir, normalize_nas_unc_path,
+)
 from rg_youtube_control.cached_metadata import cached_public_metadata
 from rg_youtube_control.dialogue_seo import (
     analyze_all_timeline_blocks, evidence_outline_text, split_timeline,
 )
 from rg_youtube_control.free_tools import (
-    DEFAULT_OLLAMA_MODEL, fetch_transcript, generate_seo_package_local, ollama_chat,
+    DEFAULT_OLLAMA_MODEL, fetch_transcript, generate_seo_package_local,
+    load_srt_transcript, ollama_chat,
 )
 from rg_youtube_control.seo_quality_gate import review_seo_package
 from rg_youtube_real_seo_local_qa import anonymous_metrics, anonymous_issue_categories
@@ -57,14 +60,22 @@ def _captions_span_full_long_live(captions: list[dict], duration_seconds: int) -
 
 
 
-def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dict:
+def run(
+    *, max_caption_lookups: int = 8, require_long_live: bool = False,
+    preflight_only: bool = False, max_nas_candidates: int = 40,
+) -> dict:
     output = {
         "schema": "RG_REAL_LIVE_SEO_LOCAL_QA_V1",
         "status": "NOT_READY",
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "profile": "live",
-        "mode": "READ_ONLY_PUBLIC_CAPTIONS_LOCAL_OLLAMA",
+        "mode": ("READ_ONLY_SOURCE_PREFLIGHT_NO_AI" if preflight_only
+                 else "READ_ONLY_CAPTIONS_LOCAL_OLLAMA"),
         "caption_lookups": 0,
+        "nas_srt_candidates_checked": 0,
+        "nas_srt_sources_available": 0,
+        "source_ready": False,
+        "semantic_quality_verified": False,
         "source_text_exported": False,
         "generated_content_exported": False,
         "youtube_data_api_calls": 0,
@@ -86,6 +97,12 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
                AND COALESCE(privacy_status, 'public')='public'
                ORDER BY video_id DESC"""
         ).fetchall()
+        try:
+            setting = conn.execute(
+                "SELECT value FROM settings WHERE key='nas_transcripts_path'"
+            ).fetchone()
+        except sqlite3.OperationalError:
+            setting = None
         rows = []
         for video_id, title in video_rows:
             if not title or not isinstance(video_id, str) or len(video_id) != 11:
@@ -108,35 +125,69 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
     if not rows:
         output["reason"] = "No LIVE archives with a cached original description"
         return output
+    # First inspect existing NAS source SRTs. This does not make network or
+    # YouTube API calls, and avoids wasting public caption lookups or Ollama.
+    raw_nas = str(setting[0] or "").strip() if setting else ""
+    nas_root = Path(normalize_nas_unc_path(raw_nas, DEFAULT_NAS_TRANSCRIPTS_PATH))
     selected = None
-    for video_id, title, source_description, source_tags, duration_seconds in rows:
-        if output["caption_lookups"] >= max(1, min(int(max_caption_lookups), 8)):
-            break
-        if not title or not isinstance(video_id, str) or len(video_id) != 11:
-            continue
+    try:
+        public_budget = max(0, min(int(max_caption_lookups), 8))
+        nas_budget = max(1, min(int(max_nas_candidates), 100))
+    except (ValueError, TypeError, OverflowError):
+        output["reason"] = "Invalid read-only sample size"
+        return output
+    for video_id, title, source_description, source_tags, duration_seconds in rows[:nas_budget]:
         if require_long_live and duration_seconds < MIN_LONG_LIVE_SECONDS:
             continue
-        output["caption_lookups"] += 1
+        captions = []
+        source_type = ""
+        path = nas_root / f"{video_id}.srt"
+        output["nas_srt_candidates_checked"] += 1
         try:
-            captions = fetch_transcript(video_id)
-            if not captions or len(captions) < 25:
+            if path.is_file() and 0 < path.stat().st_size <= 40_000_000:
+                captions = load_srt_transcript(path)
+                if captions:
+                    source_type = "nas-srt"
+                    output["nas_srt_sources_available"] += 1
+        except (OSError, ValueError, RuntimeError, UnicodeError):
+            captions = []
+        if not captions:
+            if output["caption_lookups"] >= public_budget:
                 continue
-            if require_long_live and not _captions_span_full_long_live(
-                captions, duration_seconds
-            ):
+            output["caption_lookups"] += 1
+            try:
+                captions = fetch_transcript(video_id)
+                source_type = "public-captions"
+            except (OSError, ValueError, RuntimeError, TimeoutError, TypeError):
                 continue
-            block_count = len(split_timeline(captions, max_chars=5000, max_span_seconds=300))
-            if (block_count >= 15 if require_long_live else 2 <= block_count <= 14):
-                selected = (title, source_description, source_tags, captions)
-                break
-        except (OSError, ValueError, RuntimeError, TimeoutError, TypeError):
+        if not captions or len(captions) < 25:
             continue
+        if require_long_live and not _captions_span_full_long_live(
+            captions, duration_seconds
+        ):
+            continue
+        try:
+            block_count = len(split_timeline(
+                captions, max_chars=5000, max_span_seconds=300
+            ))
+        except (ValueError, TypeError):
+            continue
+        if (block_count >= 15 if require_long_live else 2 <= block_count <= 14):
+            selected = (title, source_description, source_tags, captions)
+            output["source_ready"] = True
+            output["selected_source_type"] = source_type
+            output["selected_timeline_blocks"] = block_count
+            break
 
     if selected is None:
         output["reason"] = (
             "No long LIVE with verified duration and full-span source captions in bounded sample"
-            if require_long_live else "No fully-captioned moderate-length LIVE archive in bounded sample"
+            if require_long_live else "No complete moderate-length LIVE sample with source metadata"
         )
+        return output
+    if preflight_only:
+        output["status"] = "SOURCE_READY"
+        output["reason"] = "A complete source candidate exists; no Ollama or SEO generation ran"
         return output
 
     title, source_description, source_tags, captions = selected
@@ -185,8 +236,17 @@ def run(*, max_caption_lookups: int = 8, require_long_live: bool = False) -> dic
 def main() -> int:
     parser = argparse.ArgumentParser(description="Private read-only LIVE SEO QA")
     parser.add_argument("--long-live", action="store_true", help="Require >=3h duration, full-span captions and >=15 timeline blocks")
+    parser.add_argument("--preflight-only", action="store_true", help="Check source readiness without calling Ollama")
+    parser.add_argument("--caption-probes", type=int, default=None, help="Public caption lookup limit, 0-8")
     args = parser.parse_args()
-    result = run(require_long_live=args.long_live)
+    caption_probes = args.caption_probes if args.caption_probes is not None else (
+        0 if args.preflight_only else 8
+    )
+    result = run(
+        require_long_live=args.long_live,
+        preflight_only=args.preflight_only,
+        max_caption_lookups=caption_probes,
+    )
     OUTPUT.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     print("REAL LIVE SEO:", result["status"], flush=True)
     print("LIVE CANDIDATES TRIED:", result["caption_lookups"], flush=True)
