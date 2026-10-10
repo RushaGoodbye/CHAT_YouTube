@@ -452,3 +452,77 @@ def test_public_probe_still_checks_captions_when_metadata_bot_blocked(tmp_path, 
     assert result["status"] == "NOT_READY"
     assert result["youtube_data_api_calls"] == 0
     assert "PRIVATE" not in str(result)
+
+
+def test_owner_live_readonly_metadata_one_request_without_export(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_owner_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    seen = {}
+    class FakeClient:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            return object()
+        def video_details_with_request_count(self, video_ids):
+            seen["ids"] = video_ids
+            return ([{
+                "id": "ABCDEFGHIJK",
+                "snippet": {
+                    "channelId": "PRIVATE",
+                    "description": "PRIVATE ORIGINAL https://donate.rginfoua.pp.ua",
+                    "tags": ["PRIVATE SOURCE TAG"],
+                },
+            }], 1)
+    result = subject.run(db_path=db, client_factory=FakeClient)
+    assert seen["ids"] == ["ABCDEFGHIJK"]
+    assert result["status"] == "SOURCE_READY"
+    assert result["owner_profile_authorized"] is True
+    assert result["youtube_data_api_calls"] == 1
+    assert result["source_descriptions_available"] == 1
+    assert result["source_tags_available"] == 1
+    assert result["youtube_modified"] is False
+    assert result["db_modified"] is False
+    assert "PRIVATE" not in str(result)
+    assert "ABCDEFGHIJK" not in str(result)
+
+
+def test_owner_live_unavailable_auth_never_calls_owner_api(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_owner_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    class NoToken:
+        def __init__(self, *, profile):
+            assert profile == "live"
+        def credentials(self):
+            raise RuntimeError("PRIVATE TOKEN MISSING")
+        def video_details_with_request_count(self, ids):
+            raise AssertionError("Do not send request without stored credentials")
+    result = subject.run(db_path=db, client_factory=NoToken)
+    assert result["status"] == "NOT_READY"
+    assert result["youtube_data_api_calls"] == 0
+    assert result["owner_profile_authorized"] is False
+    assert "PRIVATE TOKEN MISSING" not in str(result)
+
+
+def test_owner_live_wrong_channel_does_not_accept_description(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    import rg_youtube_long_live_owner_source_preflight as subject
+    db = _db(tmp_path, duration="PT3H0M0S", source_description="")
+    class OtherChannel:
+        def __init__(self, *, profile):
+            pass
+        def credentials(self):
+            return object()
+        def video_details_with_request_count(self, ids):
+            return ([{
+                "id": "ABCDEFGHIJK",
+                "snippet": {
+                    "channelId": "WRONG_CHANNEL",
+                    "description": "PRIVATE CROSS-CHANNEL SOURCE",
+                },
+            }], 1)
+    result = subject.run(db_path=db, client_factory=OtherChannel)
+    assert result["channel_id_mismatch"] == 1
+    assert result["source_descriptions_available"] == 0
+    assert result["status"] == "NOT_READY"
