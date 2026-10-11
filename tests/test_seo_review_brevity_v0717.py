@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from rg_youtube_control.dialogue_seo import preserve_outline_topics
-from rg_youtube_control.free_tools import _description_quality_error
+from rg_youtube_control.free_tools import _description_quality_error, _tag_is_grounded
 
 
 def test_final_grounded_synopsis_is_not_a_timeline_dump():
@@ -62,3 +62,16 @@ def test_qa_preview_includes_all_three_ab_titles_and_review_warning():
     )[0]
     assert "title_variants=variants" in save_method
     assert 'review_reason=str(package.get("review_reason") or "")' in save_method
+
+
+def test_weak_model_composite_tags_do_not_reach_youtube():
+    title = "ПОХОВАВ ДРУЗІВ І МОВЧИТЬ: ПРАВДА ПРО ВІЙНУ"
+    transcript = (
+        "Війна і система, війна і позиція, війна і бензин. "
+        "Обговорили Пензенську область і мобілізацію."
+    )
+    assert not _tag_is_grounded("війна і система", title, transcript)
+    assert not _tag_is_grounded("війна і позиція", title, transcript)
+    assert not _tag_is_grounded("війна і бензин", title, transcript)
+    assert _tag_is_grounded("мобілізація", title, transcript)
+    assert _tag_is_grounded("чат рулетка", title, transcript)
