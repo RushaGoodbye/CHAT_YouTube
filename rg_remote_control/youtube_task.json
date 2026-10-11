@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_archive_worklist_readonly",
   "args": {
-    "nonce": "installed-0717-main-live-archive-worklist-20261011-v1"
+    "nonce": "main-live-worklist-after-0717-installed-20261011"
   }
 }
