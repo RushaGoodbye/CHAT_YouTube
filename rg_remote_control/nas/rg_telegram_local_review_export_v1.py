@@ -57,7 +57,7 @@ def render(rows,now=None):
 <title>RG Telegram — локальна черга перевірки</title>
 <style>body{background:#11161e;color:#f7f7f7;font:15px system-ui,sans-serif;margin:26px auto;max-width:1140px;padding:0 14px}h1{font-size:26px}h2{font-size:18px}p,small{color:#b6bdc9}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}article{background:#202a36;border:1px solid #324052;border-radius:12px;overflow:hidden}img{object-fit:contain;background:#131a22;width:100%;height:200px}.content{padding:12px}a{color:#8fc9ff}code{color:#ffd9aa}</style></head><body>
 <h1>RG Telegram — локальна модерація (тільки перегляд)</h1>
-<p>Публікації вимкнені. Зображення завантажуються лише під час перегляду з браузера. Перевіряй водяні знаки, достовірність і якість матеріалів.</p>'''
+<p>Публікації вимкнені. Зображення завантажуються лише під час перегляду з браузера. Матеріали з водяними знаками допускаються після ручного схвалення модератором. Перевіряй достовірність, фото, джерело та якість матеріалів.</p>'''
  return header+info+"<main>"+"".join(cards)+"</main></body></html>",counts
 def write_atomic(path,content):
  if path.is_symlink():raise ValueError("output_symlink")
