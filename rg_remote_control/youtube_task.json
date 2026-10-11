@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_archive_pilot_batch_0717",
+  "action": "youtube_stage_0717_review_drafts",
   "args": {
-    "nonce": "two-high-traffic-main-archive-full-seo-preview-0717"
+    "nonce": "copy-three-source-matched-qa-pilots-to-needs-review-only-20261011"
   }
 }
