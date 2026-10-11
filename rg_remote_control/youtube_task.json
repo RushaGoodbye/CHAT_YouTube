@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_first_archive_batch_readonly",
   "args": {
-    "nonce": "real-top-regular-archives-after-0717-20261011"
+    "nonce": "exclude-iso8601-true-shorts-0717-archive-top-v2"
   }
 }
