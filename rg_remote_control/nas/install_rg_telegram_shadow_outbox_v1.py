@@ -7,7 +7,7 @@ ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SCRIPTS=[
- ("rg_telegram_local_review_decision_v1.py","de2ab84bfb883e3a60f68b67e6305ecb191ae4b7"),
+ ("rg_telegram_local_review_decision_v1.py","5dda3f0c1bae844acc76fee505326f985bf7a972"),
  ("rg_telegram_nas_delivery_shadow_outbox_v1.py","e8e1ecfa3d157dd1ed0bd680a6e0af6394331447")
 ]
 HOOK_MARK="# RG_NAS_DELIVERY_SHADOW_OUTBOX_V1"
