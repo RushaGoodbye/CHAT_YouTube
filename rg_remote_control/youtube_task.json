@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_agent_runtime_probe",
+  "action": "youtube_single_gui_startup",
   "args": {
-    "nonce": "agent-proc-probe-20261011"
+    "nonce": "single-gui-startup-20261011"
   }
 }
