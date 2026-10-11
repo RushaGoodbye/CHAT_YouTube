@@ -1,14 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_ui.py",
-      "rg_thumbnail_chatgpt.py",
-      "rg_chatgpt_browser_automation.py",
-      "rg_studio_version.py"
-    ]
-  },
-  "nonce": "rg-chatgpt-two-failures-source-audit-20261011"
+  "action": "inspect_auto_edit_chatgpt_collage_flow",
+  "args": {},
+  "nonce": "rg-chatgpt-selection-payload-path-inspection-20261011"
 }
