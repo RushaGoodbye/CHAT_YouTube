@@ -1147,6 +1147,60 @@ def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
     )
 
 
+def _source_quote_ab_titles(
+    report: dict[str, Any],
+    current_title: str = "",
+) -> list[str]:
+    """Fail-safe REVIEW titles made from verbatim quotes in different blocks.
+
+    This never infers facts from a model-generated topic. Every visible
+    quoted phrase is a contiguous excerpt of an actual transcript quote.
+    A shortened quote ends in an ellipsis, and no titles are auto-published.
+    """
+    from itertools import combinations
+
+    candidates: list[tuple[int, str]] = []
+    for index, block in enumerate(report.get("blocks") or []):
+        if not isinstance(block, dict):
+            continue
+        for topic in block.get("topics") or []:
+            if not isinstance(topic, dict):
+                continue
+            quote = " ".join(str(topic.get("evidence") or "").split())
+            quote = quote.strip(' "«»„“”')
+            if len(quote) < 30 or len(quote.split()) < 5:
+                continue
+            excerpt = quote
+            if len(excerpt) > 75:
+                excerpt = excerpt[:76].rsplit(" ", 1)[0].rstrip(" ,.;:")
+                if len(excerpt) < 30:
+                    continue
+                excerpt += "…"
+            title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
+            if not 30 <= len(title) <= 100:
+                continue
+            if title.casefold() == current_title.strip().casefold():
+                continue
+            candidates.append((index, title))
+            break  # only one quoted story per timeline block
+    if len(candidates) < 3:
+        return []
+    # Pick the widest temporal coverage first; do not take three adjacent
+    # quotes from one conversation when later material exists.
+    triplets = sorted(
+        combinations(candidates, 3),
+        key=lambda triplet: (
+            -(triplet[-1][0] - triplet[0][0]),
+            abs(triplet[1][0] - (triplet[0][0] + triplet[-1][0]) / 2),
+        ),
+    )
+    for triple in triplets:
+        titles = [title for _, title in triple]
+        if not ab_title_issues(titles, report):
+            return titles
+    return []
+
+
 def _recover_independent_ab_titles(
     *,
     report: dict[str, Any],
@@ -1179,15 +1233,20 @@ def _recover_independent_ab_titles(
             item = _normalize_seo_candidate(_extract_json_object(raw))
             title = str(item.get("title") or "").strip()
         except (ValueError, RuntimeError, TimeoutError):
-            return []
+            # Do not erase two valid hooks because one model request failed.
+            continue
         if not 25 <= len(title) <= 100:
-            return []
+            continue
         if title.casefold() == current_title.strip().casefold():
-            return []
+            continue
         if any(title.casefold() == existing.casefold() for existing in titles):
-            return []
+            continue
         titles.append(title)
-    return titles if len(titles) == 3 else []
+    if len(titles) == 3 and not ab_title_issues(titles, report):
+        return titles
+    # A direct source quotation is less polished but is never invented and
+    # is always displayed for manual review when the model is unreliable.
+    return _source_quote_ab_titles(report, current_title)
 
 
 def _recover_title_variants(
@@ -1958,6 +2017,15 @@ chapters: рядок з підтвердженими таймкодами та �
                     )
                     if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
                         candidate["title_variants"] = independent
+                # Never silently ship an empty A/B panel if three distinct
+                # verified transcript excerpts can be recovered safely.
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    safe_quotes = _source_quote_ab_titles(
+                        evidence_report, current_title,
+                    )
+                    if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
+                        candidate["title_variants"] = safe_quotes
+                        candidate["ab_source_quote_fallback_used"] = True
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
@@ -2098,6 +2166,7 @@ chapters: рядок з підтвердженими таймкодами та �
             description, evidence_report,
         )
     title_issues = ab_title_issues(variants, evidence_report)
+    source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])
@@ -2158,7 +2227,10 @@ chapters: рядок з підтвердженими таймкодами та �
         "provider": f"ollama:{model}",
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
+        "ab_source_quote_fallback_used": source_quote_fallback,
         "needs_review": (
+            source_quote_fallback
+            or
             title_fallback_used
             or unchanged_title
             or len(variants) < 3
@@ -2177,6 +2249,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (title_fallback_used, "Модель не створила нову назву"),
                 (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
                 (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
+                (source_quote_fallback, "A/B створено з дослівних цитат: перевірити редакційний стиль"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
