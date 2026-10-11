@@ -533,7 +533,12 @@ class ContentOptimizationDialog(QDialog):
             lines.append("\nРЕКОМЕНДАЦІЇ:")
             lines.extend(f"- {item}" for item in display_warnings)
         if not check.errors and not display_warnings:
-            lines.append("\nПакет повністю готовий до застосування.")
+            lines.append(
+                "\nТехнічно коректно. Редакторське схвалення "
+                "потрібне перед записом на YouTube."
+                if _status != "ready"
+                else "\nТехнічна перевірка завершена."
+            )
 
         message = "\n".join(lines)
         if check.ready:
@@ -572,6 +577,23 @@ class ContentOptimizationDialog(QDialog):
                     self,
                     "Пакет не готовий",
                     "\n".join(f"- {item}" for item in check.errors),
+                )
+                return
+            approved, reasons = ready_for_youtube(
+                status="ready",
+                generation=self.generation,
+                quality_state=(
+                    "safe_metadata" if self.generation.startswith("safe-metadata")
+                    else "editor_approved"
+                ),
+                variants=title_variants,
+                scheduled=bool(self.scheduled_publish_at),
+            )
+            if not approved:
+                QMessageBox.warning(
+                    self,
+                    "Потрібна редакторська перевірка",
+                    "\n".join(reasons) + "\n\nЗбережіть як «Чернетка».",
                 )
                 return
 
