@@ -11,6 +11,7 @@ from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
 from settings_safety import backup_settings_once_daily, recover_settings_from_backup
 from media_collections import clean_collections
+from streamdeck_hotkeys import validated_bindings
 
 VIDEO_EXTS = frozenset({
     '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.wmv', '.mpeg',
@@ -157,7 +158,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'streamdeck_bindings': {}, 'deck_collections': {}}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -192,6 +193,10 @@ def load_settings(path: Path | None = None) -> dict:
             'hover_thumbnails': data.get('hover_thumbnails', True) is not False,
             'auto_library_updates': data.get('auto_library_updates', True) is not False,
             'collections': clean_collections(data.get('collections', {})),
+            'streamdeck_bindings': validated_bindings(data.get('streamdeck_bindings', {})),
+            'deck_collections': {key: value for key, value in data.get('deck_collections', {}).items()
+                                 if key in ('collection_1', 'collection_2') and isinstance(value, str)}
+                                if isinstance(data.get('deck_collections'), dict) else {},
             'file_manual_crops': valid_manual_crops(data.get('file_manual_crops', {})),
         }
     except (ValueError, OSError, UnicodeError):
