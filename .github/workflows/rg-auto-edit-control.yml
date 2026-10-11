@@ -39,11 +39,14 @@ jobs:
         run: |
           $task = Get-Content "rg_remote_control/auto_edit_task.json" -Raw | ConvertFrom-Json
           if ($task.action -eq "apply_auto_edit_used_render_v1") {
+            python rg_remote_control/auto_edit_features/test_used_render_v1.py
+            if ($LASTEXITCODE -ne 0) { throw "Usage registry regression tests failed" }
             if ($task.args.apply -eq $true) {
               python rg_remote_control/auto_edit_features/install_used_render_v1.py --apply
             } else {
               python rg_remote_control/auto_edit_features/install_used_render_v1.py
             }
+            if ($LASTEXITCODE -ne 0) { throw "Auto Edit usage/progress patch failed" }
           } elseif ($task.action -in @("install_rg_resilience","probe_rg_resilience","repair_rg_resilience","inspect_rg_resilience_runtime","finalize_rg_resilience","bootstrap_youtube_runtime","finalize_control_settings")) {
             python rg_remote_control/resilience_tool.py rg_remote_control/auto_edit_task.json
           } else {
