@@ -8399,6 +8399,7 @@ class MainWindow(QMainWindow):
                        d.status AS draft_status,
                        d.generation AS draft_generation,
                        d.quality_state AS draft_quality_state,
+                       d.title_variants_json AS draft_variants,
                        d.quality_reason AS draft_quality_reason,
                        a.analytics_views,a.impressions,a.ctr_percent,
                        a.avd_seconds,a.subs_gained,
@@ -8503,6 +8504,19 @@ class MainWindow(QMainWindow):
             if repackage_cohort
             else 0.0
         )
+
+        def displayed_status(row) -> str:
+            status = str(row["draft_status"] or "")
+            if status != "ready":
+                return status
+            approved, _ = ready_for_youtube(
+                status=status,
+                generation=str(row["draft_generation"] or ""),
+                quality_state=str(row["draft_quality_state"] or ""),
+                variants=str(row["draft_variants"] or "[]"),
+                scheduled=bool(row["scheduled_publish_at"]),
+            )
+            return "ready" if approved else "draft"
 
         prepared = []
         for row in rows:
@@ -8649,7 +8663,7 @@ class MainWindow(QMainWindow):
             title_text = str(row["title"] or "")
             video_id = str(row["video_id"] or "")
             issue_text = _issue_labels(issues)
-            draft_key_for_search = str(row["draft_status"] or "")
+            draft_key_for_search = displayed_status(row)
             status_search_text = {
                 "draft": "потрібно перевірити чернетки черновики проверить",
                 "ready": "готово готові готовые до youtube",
@@ -8667,7 +8681,7 @@ class MainWindow(QMainWindow):
                 )
             ):
                 continue
-            draft_key = str(row["draft_status"] or "")
+            draft_key = displayed_status(row)
             ctr = float(row["ctr_percent"] or 0)
             impressions = int(row["impressions"] or 0)
             matches_status = (
@@ -8754,7 +8768,7 @@ class MainWindow(QMainWindow):
                 if (transcript_dir / f"{row['video_id']}.srt").exists()
                 else ""
             )
-            draft_key = str(row["draft_status"] or "")
+            draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
