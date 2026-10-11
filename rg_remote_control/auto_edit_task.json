@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "apply_auto_edit_used_render_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "used-render-tests-and-precheck-20261011-b"
+  "nonce": "used-render-safe-deploy-20261011"
 }
