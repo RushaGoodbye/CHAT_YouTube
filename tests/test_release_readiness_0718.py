@@ -62,9 +62,15 @@ def test_no_ambiguous_non_video_search_override():
     assert exact_video_id_search("123456789012") == ""
 
 
+_QT_APP = None
+
+
 def _app():
+    global _QT_APP
     from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
+    if _QT_APP is None:
+        _QT_APP = QApplication.instance() or QApplication([])
+    return _QT_APP
 
 
 def test_editor_does_not_invent_generic_chapters():
