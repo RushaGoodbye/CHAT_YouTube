@@ -174,7 +174,7 @@ def verify():
     functions=[n for n in tree.body if isinstance(n,ast.FunctionDef)
             and n.name in ("_rg_verified_root_xml_for_qa","_rg_documented_skipped_ids","_multi_dialogue_manifest")]
     subset=ast.Module(body=functions,type_ignores=[])
-    ns={"Path":Path,"json":json}
+    ns={"Path":Path,"json":json,"__file__":str(TARGET)}
     exec(compile(subset,str(TARGET),"exec"),ns,ns)
     ids={"1","2","4","5","6","7"}
     skipped=ns["_rg_documented_skipped_ids"](APP/STREAM,STREAM,ids)
