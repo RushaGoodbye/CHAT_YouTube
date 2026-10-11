@@ -32,7 +32,7 @@ def run(root,intake_path,limit):
         else:stats["rejected"]+=1
     db.close()
     return stats
-def selftest():
+def selftest(intake_path):
     with tempfile.TemporaryDirectory() as td:
         root=pathlib.Path(td)
         with sqlite3.connect(str(root/"migration_shadow.sqlite3")) as db:
@@ -42,14 +42,14 @@ def selftest():
         (src/"event1.json").write_text(json.dumps(v),"utf-8")
         (src/"event2.json").write_text(json.dumps(v),"utf-8")
         (src/"bad.json").write_text("{not-json","utf-8")
-        a=run(root,pathlib.Path(__file__).parent/"rg_telegram_nas_event_intake_v1.py",20)
+        a=run(root,intake_path,20)
         assert a=={"stored":1,"duplicates":1,"rejected":1,"left":0},a
     print(json.dumps({"selftest":"PASS","stored":1,"dedupe":1,"rejected":1,"network_calls":0,"publishing_enabled":False}))
 def main():
     p=argparse.ArgumentParser();p.add_argument("mode",choices=["selftest","initialize","once","status"])
     p.add_argument("--root",default=str(DEFAULT_ROOT));p.add_argument("--intake",default=str(DEFAULT_ROOT/"rg_telegram_nas_event_intake_v1.py"))
     a=p.parse_args();root=pathlib.Path(a.root)
-    if a.mode=="selftest":selftest();return
+    if a.mode=="selftest":selftest(pathlib.Path(a.intake));return
     if a.mode=="initialize":
         for x in ("incoming","processed","rejected"):(root/x).mkdir(parents=True,exist_ok=True)
         print(json.dumps({"status":"BRIDGE_READY","publishing_enabled":False}));return
