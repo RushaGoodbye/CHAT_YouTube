@@ -399,7 +399,10 @@ def ab_title_issues(
     }
     content_stems = [
         {
-            word[:5] for word in re.findall(
+            # Compare short event roots, not inflected endings:
+            # "увольнение" and "уволен", "план" and "плану".
+            word.replace("ь", "").replace("ъ", "").replace("ё", "е")[:4]
+            for word in re.findall(
                 r"[a-zа-яёіїєґ]{4,}", value.casefold()
             )
             if word not in common_words
