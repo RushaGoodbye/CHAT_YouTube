@@ -1,0 +1,23 @@
+name: RG Unblock YouTube Runner
+
+on:
+  push:
+    paths:
+      - ".github/workflows/rg-unblock-youtube-runner.yml"
+
+permissions:
+  actions: write
+
+jobs:
+  cancel_stuck_readonly_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel only stalled read-only inventory run 38132730057
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$REPO/actions/runs/38132730057/cancel"
+          echo "Requested cancellation of stale read-only YouTube inventory."
