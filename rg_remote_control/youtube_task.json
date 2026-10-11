@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_ollama_official_repair",
+  "action": "youtube_full_seo_0712_qa",
   "args": {
-    "nonce": "official-sha256-repair-missing-llama-server-20261011"
+    "nonce": "fullseo-auto-after-official-ollama-repair-20261011"
   }
 }
