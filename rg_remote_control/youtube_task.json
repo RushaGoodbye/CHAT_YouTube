@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_first_archive_batch_readonly",
+  "action": "youtube_archive_priority_readonly",
   "args": {
-    "nonce": "exclude-iso8601-true-shorts-0717-archive-top-v2"
+    "nonce": "0717-ranking-isoduration-longform-filter-20261011"
   }
 }
