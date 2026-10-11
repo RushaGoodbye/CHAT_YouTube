@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_chatgpt_browser_automation",
+  "action": "inspect_auto_edit_chatgpt_collage_flow",
   "args": {},
-  "nonce": "rg-collage-title-browser-diagnostic-20261011"
+  "nonce": "rg-chatgpt-ui-trigger-readonly-20261011"
 }
