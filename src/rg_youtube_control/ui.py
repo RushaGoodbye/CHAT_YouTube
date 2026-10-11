@@ -186,6 +186,7 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
+from .seo_readiness import exact_video_id_search, ready_for_youtube
 from .public_comments import csv_safe_public_comment_cell, fetch_public_comment_sample
 from .updater import (
     UpdateInfo,
@@ -369,8 +370,11 @@ class ContentOptimizationDialog(QDialog):
         title_variants: list[str] | None = None,
         scheduled_publish_at: str | None = None,
         parent=None,
+        *,
+        generation: str = "",
     ) -> None:
         super().__init__(parent)
+        self.generation = str(generation or "")
         self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
@@ -410,7 +414,7 @@ class ContentOptimizationDialog(QDialog):
             self.chapters_edit.setMaximumHeight(54)
         else:
             self.chapters_edit.setPlaceholderText(
-                "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
+                "Необовʼязково. Лише підтверджені часові мітки розмов."
             )
         normalized_tags = normalize_package_tags(tags)
         self.tags_edit = QPlainTextEdit(
@@ -428,7 +432,8 @@ class ContentOptimizationDialog(QDialog):
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
         self.status_combo.addItem("Готово до застосування", "ready")
-        self.status_combo.addItem("Застосовано", "applied")
+        if status == "applied":
+            self.status_combo.addItem("Застосовано", "applied")
         idx = self.status_combo.findData(status)
         if idx >= 0:
             self.status_combo.setCurrentIndex(idx)
@@ -528,7 +533,12 @@ class ContentOptimizationDialog(QDialog):
             lines.append("\nРЕКОМЕНДАЦІЇ:")
             lines.extend(f"- {item}" for item in display_warnings)
         if not check.errors and not display_warnings:
-            lines.append("\nПакет повністю готовий до застосування.")
+            lines.append(
+                "\nТехнічно коректно. Редакторське схвалення "
+                "потрібне перед записом на YouTube."
+                if _status != "ready"
+                else "\nТехнічна перевірка завершена."
+            )
 
         message = "\n".join(lines)
         if check.ready:
@@ -567,6 +577,23 @@ class ContentOptimizationDialog(QDialog):
                     self,
                     "Пакет не готовий",
                     "\n".join(f"- {item}" for item in check.errors),
+                )
+                return
+            approved, reasons = ready_for_youtube(
+                status="ready",
+                generation=self.generation,
+                quality_state=(
+                    "safe_metadata" if self.generation.startswith("safe-metadata")
+                    else "editor_approved"
+                ),
+                variants=title_variants,
+                scheduled=bool(self.scheduled_publish_at),
+            )
+            if not approved:
+                QMessageBox.warning(
+                    self,
+                    "Потрібна редакторська перевірка",
+                    "\n".join(reasons) + "\n\nЗбережіть як «Чернетка».",
                 )
                 return
 
@@ -3003,7 +3030,7 @@ class MainWindow(QMainWindow):
         self.optimization_search.setPlaceholderText("Пошук: назва, Video ID, проблема")
         self.optimization_search.setClearButtonEnabled(True)
         self.optimization_search.setMinimumWidth(260)
-        self.optimization_search.textChanged.connect(self.reload_optimization_queue)
+        self.optimization_search.textChanged.connect(self._optimization_search_changed)
 
         self.optimization_filter = QComboBox()
         self.optimization_filter.addItem("Усі відео", "all")
@@ -3431,6 +3458,35 @@ class MainWindow(QMainWindow):
                 self.optimization_status_filter.setCurrentIndex(index)
             self.optimization_status_filter.blockSignals(False)
 
+    def _optimization_search_changed(self, _text: str = "") -> None:
+        # A precise Video ID must never disappear behind remembered filters.
+        candidate = exact_video_id_search(self.optimization_search.text())
+        if candidate:
+            row = self.conn.execute(
+                "SELECT 1 FROM videos WHERE video_id=? AND profile=?",
+                (candidate, self.current_profile),
+            ).fetchone()
+            if row:
+                for field, setting in (
+                    ("optimization_filter", "optimization_queue_filter_"),
+                    ("optimization_status_filter", "optimization_status_filter_"),
+                ):
+                    combo = getattr(self, field, None)
+                    if combo is None or combo.currentData() == "all":
+                        continue
+                    index = combo.findData("all")
+                    if index >= 0:
+                        combo.blockSignals(True)
+                        try:
+                            combo.setCurrentIndex(index)
+                        finally:
+                            combo.blockSignals(False)
+                        set_setting(self.conn, setting + self.current_profile, "all")
+                self.statusBar().showMessage(
+                    "Точний Video ID: фільтри автоматично скинуто", 4500
+                )
+        self.reload_optimization_queue()
+
     def _optimization_view_changed(self, _index: int = -1) -> None:
         if hasattr(self, "optimization_filter"):
             set_setting(
@@ -3588,7 +3644,7 @@ class MainWindow(QMainWindow):
         except Exception:
             audit_data = {}
         score = int(audit_data.get("score") or 0)
-        draft = str(row["draft_status"] or "")
+        draft = self._effective_optimization_status(video_id)
         try:
             transcript_dir = self._nas_path(
                 "nas_transcripts_path",
@@ -4066,13 +4122,36 @@ class MainWindow(QMainWindow):
         self.update_task_center()
         self._toast("Пакет відхилено · YouTube не змінено")
 
+    def _effective_optimization_status(self, video_id: str) -> str:
+        row = self.conn.execute(
+            """SELECT d.status,d.generation,d.quality_state,
+                      d.title_variants_json,v.scheduled_publish_at
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE d.video_id=? AND v.profile=?""",
+            (video_id, self.current_profile),
+        ).fetchone()
+        if row is None:
+            return ""
+        status = str(row["status"] or "")
+        if status != "ready":
+            return status
+        allowed, _ = ready_for_youtube(
+            status=status,
+            generation=str(row["generation"] or ""),
+            quality_state=str(row["quality_state"] or ""),
+            variants=str(row["title_variants_json"] or "[]"),
+            scheduled=bool(row["scheduled_publish_at"]),
+        )
+        return "ready" if allowed else "draft"
+
     def _run_context_primary_action(self) -> None:
         video_id = self._selected_optimization_video_id()
         if not video_id:
             self._toast("Виберіть відео")
             return
         draft = get_optimization_draft(self.conn, video_id)
-        status = str(draft["status"] or "") if draft is not None else ""
+        status = self._effective_optimization_status(video_id)
         if status == "ready":
             self.apply_content_package()
         elif status == "applied":
@@ -8172,7 +8251,10 @@ class MainWindow(QMainWindow):
                WHERE v.profile=? AND d.status='ready'""",
             (self.current_profile,),
         ).fetchall()
-        ready = {str(row["video_id"]) for row in ready_rows}
+        ready = {
+            str(row["video_id"]) for row in ready_rows
+            if self._effective_optimization_status(str(row["video_id"])) == "ready"
+        }
         return [video_id for video_id in requested if video_id in ready]
 
     def prepare_safe_queue(self) -> None:
@@ -8233,7 +8315,10 @@ class MainWindow(QMainWindow):
                ORDER BY v.views DESC""",
             (self.current_profile,),
         ).fetchall()
-        queue = [str(row["video_id"]) for row in ready_rows]
+        queue = [
+            str(row["video_id"]) for row in ready_rows
+            if self._effective_optimization_status(str(row["video_id"])) == "ready"
+        ]
         for item in ranked:
             video_id = item[-1]
             if video_id not in queue:
@@ -8346,6 +8431,7 @@ class MainWindow(QMainWindow):
                        d.status AS draft_status,
                        d.generation AS draft_generation,
                        d.quality_state AS draft_quality_state,
+                       d.title_variants_json AS draft_variants,
                        d.quality_reason AS draft_quality_reason,
                        a.analytics_views,a.impressions,a.ctr_percent,
                        a.avd_seconds,a.subs_gained,
@@ -8450,6 +8536,19 @@ class MainWindow(QMainWindow):
             if repackage_cohort
             else 0.0
         )
+
+        def displayed_status(row) -> str:
+            status = str(row["draft_status"] or "")
+            if status != "ready":
+                return status
+            approved, _ = ready_for_youtube(
+                status=status,
+                generation=str(row["draft_generation"] or ""),
+                quality_state=str(row["draft_quality_state"] or ""),
+                variants=str(row["draft_variants"] or "[]"),
+                scheduled=bool(row["scheduled_publish_at"]),
+            )
+            return "ready" if approved else "draft"
 
         prepared = []
         for row in rows:
@@ -8596,7 +8695,7 @@ class MainWindow(QMainWindow):
             title_text = str(row["title"] or "")
             video_id = str(row["video_id"] or "")
             issue_text = _issue_labels(issues)
-            draft_key_for_search = str(row["draft_status"] or "")
+            draft_key_for_search = displayed_status(row)
             status_search_text = {
                 "draft": "потрібно перевірити чернетки черновики проверить",
                 "ready": "готово готові готовые до youtube",
@@ -8614,7 +8713,7 @@ class MainWindow(QMainWindow):
                 )
             ):
                 continue
-            draft_key = str(row["draft_status"] or "")
+            draft_key = displayed_status(row)
             ctr = float(row["ctr_percent"] or 0)
             impressions = int(row["impressions"] or 0)
             matches_status = (
@@ -8701,7 +8800,7 @@ class MainWindow(QMainWindow):
                 if (transcript_dir / f"{row['video_id']}.srt").exists()
                 else ""
             )
-            draft_key = str(row["draft_status"] or "")
+            draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
@@ -9639,6 +9738,7 @@ class MainWindow(QMainWindow):
                 title_variants,
                 scheduled_publish_at,
                 self,
+                generation=(str(draft["generation"] or "") if draft is not None else "manual"),
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
@@ -9923,6 +10023,26 @@ class MainWindow(QMainWindow):
                 self,
                 APP_NAME,
                 "Пакет повинен мати статус «Готово до застосування».",
+            )
+            return
+
+        video_kind = self.conn.execute(
+            "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        allowed, blocking_reasons = ready_for_youtube(
+            status=str(draft["status"] or ""),
+            generation=str(draft["generation"] or ""),
+            quality_state=str(draft["quality_state"] or ""),
+            variants=str(draft["title_variants_json"] or "[]"),
+            scheduled=bool(video_kind and video_kind["scheduled_publish_at"]),
+        )
+        if not allowed:
+            QMessageBox.warning(
+                self,
+                "Пакет потребує редакторської перевірки",
+                "\n".join(blocking_reasons)
+                + "\n\nПублікацію заблоковано. Чернетку збережено.",
             )
             return
 
