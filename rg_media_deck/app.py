@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
@@ -32,7 +32,7 @@ from crop_selection import CropSelectionDialog
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.4'
+VERSION = '0.3.5'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -1699,6 +1699,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('RG Media Deck')
     app.setStyle('Fusion')
+    resources_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    icon_file = resources_root / 'assets' / 'RG_Media_Deck.ico'
+    if icon_file.is_file():
+        app.setWindowIcon(QIcon(str(icon_file)))
     if '--selftest' in sys.argv:
         surface = PlayerSurface()
         passed = surface.player is not None and surface.audio is not None
