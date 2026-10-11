@@ -43,7 +43,14 @@ jobs:
           } elseif ($task.action -eq "youtube_full_seo_0712_qa") {
             & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_full_seo_0712_qa.py" | Tee-Object -FilePath $resultPath
           } elseif ($task.action -eq "youtube_full_seo_0713_qa") {
-            & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_full_seo_0713_qa.py" | Tee-Object -FilePath $resultPath
+            $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
+            $deps = Join-Path $env:RUNNER_TEMP "rg_youtube_0713_qa_dependencies"
+            if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {
+              & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+              if ($LASTEXITCODE -ne 0) { throw "Unable to prepare isolated SEO QA dependency" }
+            }
+            $env:PYTHONPATH = "$deps;$env:PYTHONPATH"
+            & $py -B "rg_remote_control/youtube_full_seo_0713_qa.py" | Tee-Object -FilePath $resultPath
             if ($LASTEXITCODE -ne 0) { throw "SEO generation QA script failed" }
           } elseif ($task.action -eq "youtube_ollama_chat_diagnose") {
             & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_ollama_chat_diagnose.py" | Tee-Object -FilePath $resultPath
