@@ -40,6 +40,15 @@ def main():
     for rel in ("cloudflare-admin-control/src/index.js","cloudflare-admin-control/src/health-freshness.js","cloudflare-admin-control/scripts/test-health-freshness.mjs"):
      p=subprocess.run(["node","--check",str(path/rel)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=15)
      report.append({"check":"js_syntax:"+rel,"status":"PASS" if p.returncode==0 else "ERROR"})
+   # Run the actual regression suite in an isolated local Node container.
+   # This does not access Cloudflare or publish. Node dependencies are built-in.
+   if subprocess.run(["sh","-c","command -v docker >/dev/null 2>&1"],stdout=subprocess.DEVNULL).returncode==0:
+    docker=subprocess.run(["docker","image","inspect","node:22-bookworm-slim"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+    if docker.returncode==0:
+     cp=subprocess.run(["docker","run","--rm","--network","none","--read-only","-v",str(path/"cloudflare-admin-control")+":/app:ro","-w","/app","node:22-bookworm-slim","node","scripts/test-health-freshness.mjs"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
+     report.append({"check":"health_freshness_regression","status":"PASS" if cp.returncode==0 else "ERROR","exit_code":cp.returncode})
+    else:report.append({"check":"health_freshness_regression","status":"WARNING","reason":"node_image_not_cached"})
+   else:report.append({"check":"health_freshness_regression","status":"WARNING","reason":"docker_unavailable"})
  summary={x:sum(v.get("status")==x for v in report) for x in ("PASS","ERROR")}
  print(json.dumps({"schema":"RG_TELEGRAM_PRODUCTION_PREFLIGHT_V1","overall":"PASS" if not summary["ERROR"] else "ERROR","commit":REF[:12],"summary":summary,"checks":report,"cloudflare_calls":0,"telegram_sends":0,"production_changes":0},ensure_ascii=False,indent=2))
  return 0 if not summary["ERROR"] else 2
