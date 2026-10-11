@@ -1,0 +1,48 @@
+name: RG Smoking Quality Resource Preflight
+on:
+  push:
+    branches: [release/smoking-compliance-20261009]
+    paths:
+      - rg_remote_control/smoking_release/probe_quality_resources.py
+      - .github/workflows/rg-smoking-quality-resources.yml
+permissions:
+  contents: read
+concurrency:
+  group: rg-smoking-quality-resources
+  cancel-in-progress: false
+jobs:
+  alexpc-quality-resources:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only annotation and public model access check
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_siglip_independent_shadow_v1\Scripts\python.exe'
+          $out=Join-Path 'F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_shadow\smoking_quality_resources_v1' $env:GITHUB_SHA
+          "RG_EVIDENCE_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PYTHONNOUSERSITE='1'
+          $env:PYTHONPATH=$null
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          & $py -X utf8 -u rg_remote_control/smoking_release/probe_quality_resources.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'Resource check failed; diagnostics retained' }
+      - name: Save resource and failure references to NAS
+        if: always()
+        shell: powershell
+        run: |
+          if ($env:RG_EVIDENCE_OUT) {
+            $py='F:\RG_AUTO_EDIT\RG Auto Edit Data\oss_envs\rg_sam2_native_shadow_v1\Scripts\python.exe'
+            & $py -X utf8 -u rg_remote_control/smoking_release/checkpoint_evidence.py --output $env:RG_EVIDENCE_OUT --artifact smoking-quality-resources-artifact
+            if ($LASTEXITCODE -ne 0) { throw 'Resource NAS checkpoint failed' }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-quality-resources-${{ github.run_id }}
+          path: smoking-quality-resources-artifact/
+          retention-days: 14
+          if-no-files-found: warn

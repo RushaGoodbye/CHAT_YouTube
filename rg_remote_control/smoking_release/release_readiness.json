@@ -1,0 +1,116 @@
+{
+  "schema": "RG_SMOKING_RELEASE_READINESS_V1",
+  "date": "2026-10-09",
+  "status": "BLOCKED_SEMANTIC_QUALITY_AND_MISSING_RESOURCES",
+  "stable_release_allowed": false,
+  "production_installed": false,
+  "working_studio_version": "0.20.20.3",
+  "working_studio_changed": false,
+  "tested_code_commit": "b3ddef38b9201cda772c09ef90b7499bbc376510",
+  "tests": {
+    "software_regressions": 45,
+    "local": "PASS",
+    "github_hosted": "PASS",
+    "isolated_actual_studio_gate": "PASS",
+    "real_lossless_30fps_render_verified_frames": 60,
+    "encoded_frames_exactly_match_compositor": true,
+    "source_pixels_outside_alpha_unchanged": true,
+    "premiere_application_import_verified": false
+  },
+  "source_evidence": {
+    "892": {
+      "source_sha256": "bf2e3e585afeaa0b0ba3c347066a6ca1adcacfec282cba691cc7ec9d1ae3b49c",
+      "source_shape_hw": [
+        1080,
+        1920
+      ],
+      "source_frame_count": 720,
+      "expected_frames": 720,
+      "decoded_frames": 720,
+      "all_source_frames_decoded": true,
+      "frames_with_model_proposals": 332,
+      "raw_model_boxes": 487,
+      "known_microphone_fixture_proposal_frames": 0,
+      "masks_applied": 0,
+      "zero_detections_certify_negative": false,
+      "semantic_accuracy_measured": false,
+      "frame_evidence_sha256": "ce82224cd5c414ad8f73d242f80c8bc5e5ad0c34537860d914630e844fc83675",
+      "seconds": 26.19,
+      "release_allowed": false
+    },
+    "886_5": {
+      "source_sha256": "ff0a2ff504eb2bfe8b760336fe6438eb7ed1cbf55fa1f52d84bb0d7f6f20edd0",
+      "source_shape_hw": [
+        1080,
+        1920
+      ],
+      "source_frame_count": 453081,
+      "expected_frames": 10708,
+      "decoded_frames": 10708,
+      "all_source_frames_decoded": true,
+      "frames_with_model_proposals": 8,
+      "raw_model_boxes": 8,
+      "known_microphone_fixture_proposal_frames": 6,
+      "masks_applied": 0,
+      "zero_detections_certify_negative": false,
+      "semantic_accuracy_measured": false,
+      "frame_evidence_sha256": "1ac7ae33805b8ec9db5cbacaff83f4059fae186463726a69b720394b7b0f1991",
+      "seconds": 347.77,
+      "release_allowed": false
+    }
+  },
+  "quarantine_886_5": {
+    "preserved": true,
+    "hold_sha256": "3de162d841807c33214b3191b905c0f43830239f2be8321095f20617ba4cefef",
+    "primary_xml_withheld": true,
+    "delivered_xml_withheld": true,
+    "whole_stream_exemption": false,
+    "withheld_clean_xml_validator": {
+      "passed": true,
+      "detail": {
+        "video_tracks": 4,
+        "audio_tracks": 2,
+        "video_clips": 233,
+        "audio_clips": 172,
+        "duration": "10703"
+      }
+    }
+  },
+  "model_access": {
+    "model": "facebook/sam3",
+    "public_check_http_status": 401,
+    "existing_client_check_http_status": 403,
+    "existing_client_check_run": 37970732916,
+    "checkpoint_cached_on_alexpc_or_scanned_nas": false,
+    "new_model_conditions_accepted": false,
+    "credentials_exposed": false
+  },
+  "quality_blockers": [
+    "Smoke envelope leaves visible plume outside mask; SAM2 smoke proposals capture background.",
+    "Grip and cigarette prompts describe one test scene, not a generalized automatic detector.",
+    "Mouth is proposed throughout the short scene; conditional smoking phases are not validated.",
+    "Full 24-second example has been scanned, but only source frames 360-419 have a four-layer render.",
+    "No independently verified pixel annotations were found in checked packages and resource locations.",
+    "23 existing 886_5 clips have a one-frame difference between source and timeline spans; source audit is complete, replacement mapping conservatively requires separate review.",
+    "One-button four-layer inference/QA production flow and the Studio censorship UI are not implemented or qualified; installing the new gate alone would block existing exports."
+  ],
+  "negative_references": {
+    "frames": 8,
+    "previously_confirmed_microphone_fixture": 6,
+    "additional_ai_visual_inspection": "2 frames: fingers near ear, no cigarette in the proposal region",
+    "human_pixel_ground_truth_created": false,
+    "automatic_negative_certification": false
+  },
+  "evidence_runs": {
+    "full_sources": "https://github.com/RushaGoodbye/CHAT_YouTube/actions/runs/37965475774",
+    "candidate_and_isolated_studio": "https://github.com/RushaGoodbye/CHAT_YouTube/actions/runs/37968212748",
+    "quality_resources": "https://github.com/RushaGoodbye/CHAT_YouTube/actions/runs/37970732916"
+  },
+  "nas_checkpoints": [
+    "\\\\AlexLosServer\\docker\\RG_NAS_MCP\\ALEXPC\\smoking_release\\20261009\\f430053c16a4488ebe8904c99deeb04c6e11c3b6",
+    "\\\\AlexLosServer\\docker\\RG_NAS_MCP\\ALEXPC\\smoking_release\\20261009\\b3ddef38b9201cda772c09ef90b7499bbc376510",
+    "\\\\AlexLosServer\\docker\\RG_NAS_MCP\\ALEXPC\\smoking_release\\20261009\\a07bb7296bb768bc5371aa6ae2d66f0a854e027d"
+  ],
+  "source_baseline_archive_sha256": "72d2eabe4ad2a3ea2f5c3ea19994a64f981c55a9f651ac83cdee07566c696b36",
+  "next_required_input": "An authorized SAM3 checkpoint/model snapshot on NAS, or independently annotated smoking data for supervised smoke/grip/phase calibration."
+}
