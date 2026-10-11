@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_archive_pilot_0717_qa",
+  "action": "youtube_archive_transcript_alignment_0717",
   "args": {
-    "nonce": "first-popular-main-nonshort-15minute-full-seo-pilot"
+    "nonce": "verify-title-fridge-vs-war-transcript-video-Ati19utM7Ck"
   }
 }
