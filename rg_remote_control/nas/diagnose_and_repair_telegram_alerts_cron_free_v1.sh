@@ -7,7 +7,7 @@ STATE="$ROOT/RG_NAS_STATE"
 ENV_FILE="$ROOT/RG_ALERTS_DEPLOY/deploy.env"
 WRANGLER="$ROOT/RG_ALERTS_DEPLOY/cloudflare-alerts/wrangler.toml"
 SCRIPT_NAME="rasha-goodbye-air-alerts"
-MODE="\${1:-audit}"
+MODE="${1:-audit}"
 case "$MODE" in audit|repair) ;; *) echo "ERROR: audit or repair only" >&2; exit 2 ;; esac
 [ "$(id -u)" = "0" ] || { echo "ERROR: sudo required" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || exit 2
