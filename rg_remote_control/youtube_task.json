@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_update_install_audit",
   "args": {
-    "nonce": "verify-installed-0715-after-user-update-20261011-2001"
+    "nonce": "audit-user-0715-install-20261011-2005"
   }
 }
