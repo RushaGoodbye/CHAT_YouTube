@@ -129,6 +129,7 @@ def stage_verified_previous(current_version: str, progress=None, cancelled=None)
     expected = updater.fetch_checksum(release["sha_url"])
     dest = storage() / f"RG_Media_Deck_Previous_{current_version}.exe"
     if dest.is_file() and updater.verify_checksum(dest, expected):
+        save_rollback_manifest(current_version, dest, expected)
         return dest, expected
     if cancelled is not None and cancelled():
         raise InterruptedError("Скасовано")
@@ -139,7 +140,36 @@ def stage_verified_previous(current_version: str, progress=None, cancelled=None)
     if not updater.verify_checksum(dest, expected):
         dest.unlink(missing_ok=True)
         raise ValueError("SHA256 резервного інсталятора не збігається")
+    save_rollback_manifest(current_version, dest, expected)
     return dest, expected
+
+
+def save_rollback_manifest(version: str, path: Path, sha: str) -> None:
+    updater.version_tuple(version)
+    # Only persist a verified installer in our private rollback directory.
+    if Path(path).resolve().parent != storage().resolve() or not updater.verify_checksum(path, sha):
+        raise ValueError("Невірний інсталятор відкату")
+    body = {"version": version, "file": Path(path).name, "sha256": sha.lower()}
+    temporary = storage() / "rollback_manifest.tmp"
+    temporary.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, storage() / "rollback_manifest.json")
+
+
+def verified_saved_rollback() -> tuple[str, Path, str] | None:
+    try:
+        info = json.loads((storage() / "rollback_manifest.json").read_text(encoding="utf-8"))
+        version = info["version"]
+        updater.version_tuple(version)
+        expected_file = f"RG_Media_Deck_Previous_{version}.exe"
+        if info.get("file") != expected_file:
+            return None
+        path = storage() / expected_file
+        sha = info["sha256"]
+        if not updater.verify_checksum(path, sha):
+            return None
+        return version, path, sha
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def prepare_supervised_update(new_installer: Path, new_sha: str, new_version: str,
