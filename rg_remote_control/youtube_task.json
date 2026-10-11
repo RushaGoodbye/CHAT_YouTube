@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_ollama_and_console_probe",
+  "action": "youtube_ollama_official_repair",
   "args": {
-    "nonce": "ollama-missing-server-black-window-fault-20261011"
+    "nonce": "official-sha256-repair-missing-llama-server-20261011"
   }
 }
