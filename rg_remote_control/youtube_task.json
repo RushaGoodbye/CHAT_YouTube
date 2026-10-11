@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_ollama_download_state",
+  "action": "youtube_ollama_chat_diagnose",
   "args": {
-    "nonce": "partial-resume-after-stalled-official-installer-20261011"
+    "nonce": "qwen-chat-smoke-after-server-restored-20261011"
   }
 }
