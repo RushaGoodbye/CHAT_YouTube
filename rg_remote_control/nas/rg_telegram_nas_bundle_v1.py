@@ -31,11 +31,10 @@ def stage(folder):
             # The observer's sample and import commands touch NAS state; never invoke here.
             pass
         if name=="rg_telegram_nas_shadow_store_v1.py" or name=="rg_telegram_shadow_queue_v1.py" or name=="rg_telegram_nas_event_intake_v1.py" or name=="rg_telegram_shadow_file_bridge_v1.py" or name=="rg_telegram_kyiv_alert_shadow_fsm_v1.py":
-            kwargs={"timeout":55}
             if name=="rg_telegram_shadow_file_bridge_v1.py":
                 command=[sys.executable,str(folder/name),"selftest","--intake",str(folder/"rg_telegram_nas_event_intake_v1.py")]
             else: command=[sys.executable,str(folder/name),"selftest"]
-            run(command,**kwargs)
+            run(command)
     return out
 def install(root,folder):
     backup=root/("bundle-backup-"+datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
