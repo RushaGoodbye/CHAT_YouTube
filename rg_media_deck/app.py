@@ -774,6 +774,125 @@ class MainWindow(QMainWindow):
         else:
             QTimer.singleShot(250, self.add_folder)
 
+    def _refresh_collections(self):
+        """Update compact filter in place, preserving the active collection."""
+        current = self.collection_filter.currentData() if self.collection_filter.count() else ''
+        self.collection_filter.blockSignals(True)
+        self.collection_filter.clear()
+        self.collection_filter.addItem('Усі добірки', '')
+        for name in sorted(self.collections, key=str.casefold):
+            self.collection_filter.addItem(name, name)
+        idx = self.collection_filter.findData(current)
+        self.collection_filter.setCurrentIndex(max(0, idx))
+        self.collection_filter.blockSignals(False)
+
+    def add_selected_to_collection(self, items):
+        if not items:
+            return
+        options = ['＋ Нова добірка...'] + sorted(self.collections, key=str.casefold)
+        selected, ok = QInputDialog.getItem(self, 'Додати до добірки',
+                                             'Тематична добірка:', options, 0, False)
+        if not ok:
+            return
+        if selected == options[0]:
+            selected, ok = QInputDialog.getText(self, 'Нова добірка', 'Назва добірки:')
+            if not ok or not selected.strip():
+                return
+        try:
+            self.collections = add_files(self.collections, selected,
+                                         [item.path for item in items])
+        except ValueError as exc:
+            QMessageBox.warning(self, 'Некоректна добірка', str(exc))
+            return
+        self._save()
+        self._refresh_collections()
+        self.status.setText(f'Додано до добірки «{selected}»: {len(items)} файлів')
+
+    def manage_collections(self):
+        if not self.collections:
+            QMessageBox.information(self, 'Добірки',
+                'Добірок поки немає. Правий клік по файлу → Додати до добірки.')
+            return
+        names = sorted(self.collections, key=str.casefold)
+        name, ok = QInputDialog.getItem(self, 'Тематичні добірки',
+            'Оберіть добірку для відкриття або видалення:', names, 0, False)
+        if not ok:
+            return
+        question = QMessageBox(self)
+        question.setWindowTitle(f'Добірка: {name}')
+        question.setText(f'{len(self.collections[name])} файлів. Оригінали залишаються на диску.')
+        open_btn = question.addButton('Показати', QMessageBox.ButtonRole.ActionRole)
+        delete_btn = question.addButton('Видалити добірку', QMessageBox.ButtonRole.DestructiveRole)
+        question.addButton('Скасувати', QMessageBox.ButtonRole.RejectRole)
+        question.exec()
+        if question.clickedButton() == open_btn:
+            self.collection_filter.setCurrentIndex(self.collection_filter.findData(name))
+        elif question.clickedButton() == delete_btn:
+            if QMessageBox.question(self, 'Видалити добірку',
+                 f'Видалити добірку «{name}»? Відео на диску залишаться.',
+                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                 QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                self.collections.pop(name, None)
+                self._save()
+                self._refresh_collections()
+                self.apply_filter()
+
+    def _setup_library_watcher(self):
+        self._library_watcher.stop()
+        if not self.auto_library_updates or not self.roots:
+            return
+        try:
+            errors = self._library_watcher.start(self.roots)
+        except (OSError, RuntimeError) as exc:
+            errors = [str(exc)]
+        if errors:
+            logging.warning('Folder watcher: %s', '; '.join(errors))
+
+    def _on_external_file_change(self, path, directory):
+        if not self.auto_library_updates:
+            return
+        if directory:
+            self._directory_changed = True
+        elif path:
+            self._changed_paths.add(path)
+        self._library_timer.start()
+
+    def _apply_external_file_changes(self):
+        if self.scanner and self.scanner.isRunning():
+            self._library_timer.start(2000)
+            return
+        paths, full = self._changed_paths, self._directory_changed
+        self._changed_paths, self._directory_changed = set(), False
+        if full or len(paths) > 300:
+            self.scan()
+            return
+        if not paths:
+            return
+        updated = changed_files(self.all_media, paths, self.roots)
+        if updated != self.all_media:
+            self.all_media = updated
+            self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
+            self.apply_filter()
+            self.status.setText(f'Файли оновлено автоматично: {len(paths)} змін')
+
+    def _streamdeck_action(self, action: str):
+        """Invoked only from a registered Windows global hotkey."""
+        if action == 'play_pause':
+            self.toggle_preview()
+        elif action == 'stop':
+            self.stop_playback()
+        elif action == 'mute':
+            self.toggle_mute()
+        elif action == 'play_selected':
+            self.play_selected()
+        elif action == 'next_media':
+            row = self.table.currentIndex().row()
+            next_row = 0 if row < 0 else row + 1
+            if next_row < self.model.rowCount():
+                self.table.selectRow(next_row)
+                if self.safe_selection:
+                    self.play_selected()
+
     def open_settings(self):
         dialog = UpdatesDialog(self, self._install_update)
         dialog.setStyleSheet(STYLE)
