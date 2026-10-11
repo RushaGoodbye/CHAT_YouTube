@@ -25,6 +25,26 @@ def main():
   temp=STATE/("."+DEST.name+".new")
   temp.write_bytes(source)
   os.replace(temp,DEST)
+ sched=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
+ hook='''# RG_KV_READ_SHADOW_V1
+if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_cf_kv_decision_bridge_v1.py" ]; then
+  if [ "$(date +%M)" = "10" ]; then
+    python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_cf_kv_decision_bridge_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/cf_kv_import.log" 2>&1 || true
+  fi
+fi
+'''
+ if sched.is_file():
+  before=sched.read_text("utf-8")
+  anchor='AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"'
+  if "RG_KV_READ_SHADOW_V1" not in before and before.count(anchor)==1:
+   changed=before.replace(anchor,hook+"\\n"+anchor)
+   valid=subprocess.run(["/bin/sh","-n"],input=changed,text=True,capture_output=True)
+   if valid.returncode:raise RuntimeError("scheduler_syntax_failed")
+   shutil.copy2(sched,sched.with_suffix(".sh.kv-backup"))
+   tmp_sched=sched.with_suffix(".sh.kv-new")
+   tmp_sched.write_text(changed,"utf-8")
+   shutil.copymode(sched,tmp_sched)
+   os.replace(tmp_sched,sched)
  print(json.dumps({"status":"KV_BRIDGE_INSTALLED","selftest":"PASS","worker_deploy":False,"telegram_sends":0}))
  run=subprocess.run([sys.executable,str(DEST),"once"],capture_output=True,text=True,timeout=50)
  print(run.stdout.strip() or run.stderr.strip())
