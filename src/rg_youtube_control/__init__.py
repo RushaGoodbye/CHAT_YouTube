@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.10 package validation fix."""
+"""RG YouTube Control desktop application."""
 
-__version__ = "0.7.10"
+__version__ = "0.7.12"
