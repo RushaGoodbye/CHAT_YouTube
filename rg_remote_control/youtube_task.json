@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_full_seo_0712_qa",
+  "action": "youtube_keepalive_no_console_fix",
   "args": {
-    "nonce": "fullseo-auto-after-official-ollama-repair-20261011"
+    "nonce": "backup-first-suppress-console-flicker-20261011"
   }
 }
