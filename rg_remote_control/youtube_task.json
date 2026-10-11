@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_0718_runtime_audit_readonly",
+  "action": "youtube_stage_verified_0718",
   "args": {
-    "nonce": "whole-program-DB-ready-vs-reviewed-audit-20261011"
+    "nonce": "deliver-340-pass-editorial-gate-0718-on-alexpc-20261011"
   }
 }
