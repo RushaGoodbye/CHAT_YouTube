@@ -1,0 +1,68 @@
+name: RG 904 Final QA Expected IDs R1B
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - 'rg_remote_control/open_source_v1/fix_904_postrun_expected_ids_r1b.py'
+      - '.github/workflows/rg-904-postrun-expected-ids-r1b.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  correct-qa-label-and-verify:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record protected original XML checksums
+        shell: powershell
+        run: |
+          $hashes=@{}
+          foreach($id in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_'+$id+'.xml')
+            $hashes[$n]=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+          }
+          $hashes | ConvertTo-Json | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\rg904_expected_ids_before.json"
+      - name: Dry run then safely update postrun label
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $p='rg_remote_control/open_source_v1/fix_904_postrun_expected_ids_r1b.py'
+          & $py -X utf8 $p --shadow
+          if ($LASTEXITCODE -ne 0) { throw 'Dry-run failed' }
+          & $py -X utf8 $p --apply
+          if ($LASTEXITCODE -ne 0) { throw 'Patch failed' }
+          & $py -X utf8 $p --verify
+          if ($LASTEXITCODE -ne 0) { throw 'Patch verification failed' }
+      - name: Re-run only existing final QA checks using original XML
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --rerun-qa
+          if ($LASTEXITCODE -ne 0) { throw 'Final QA failed after text fix' }
+          $report='F:\RG_AUTO_EDIT\RG Auto Edit App\904\RG_POSTRUN_QA.json'
+          $d=Get-Content $report -Raw | ConvertFrom-Json
+          $completeness=$d.checks | Where-Object { $_.name -eq 'Повнота діалогів' } | Select-Object -First 1
+          if (-not $d.passed -or -not $completeness.ok) { throw 'QA completeness failed' }
+          if ($completeness.detail -ne 'PASS • expected=1,2,4,5,6,7') {
+            throw "Expected dialogue label wrong: $($completeness.detail)"
+          }
+          Write-Output 'RG_904_POSTRUN_EXPECTED_IDS_6_ACCEPTED_ONLY_PASS'
+      - name: Ensure protected original six XML remained byte-identical
+        shell: powershell
+        run: |
+          $before=Get-Content "$env:RUNNER_TEMP\rg904_expected_ids_before.json" -Raw | ConvertFrom-Json
+          foreach($id in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_'+$id+'.xml')
+            $actual=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+            if ($actual -ne $before.$n) { throw "Original XML modified: $n" }
+          }
+          Write-Output 'RG_904_FINAL_QA_R1B_ORIGINAL_XML_SAME_SHA_PASS'
