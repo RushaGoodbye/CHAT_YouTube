@@ -897,11 +897,8 @@ class MainWindow(QMainWindow):
             return
         paths, full = self._changed_paths, self._directory_changed
         self._changed_paths, self._directory_changed = set(), False
-        if full or len(paths) > 300:
-            self.scan()
-            return
-        if not paths:
-            return
+        # Migrate names BEFORE a directory rescan; otherwise old paths vanish
+        # before their tags, bookmarks and collections can be rebound.
         for src, dst, is_dir in self._pending_moves:
             if is_dir:
                 for media in list(self.all_media):
@@ -911,6 +908,11 @@ class MainWindow(QMainWindow):
             elif os.path.isfile(dst):
                 self._migrate_metadata(src, dst)
         self._pending_moves.clear()
+        if full or len(paths) > 300:
+            self.scan()
+            return
+        if not paths:
+            return
         for path in paths:
             prev = self._file_identities.match_new_file(path)
             if prev:
@@ -922,6 +924,132 @@ class MainWindow(QMainWindow):
             self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
             self.apply_filter()
             self.status.setText(f'Файли оновлено автоматично: {len(paths)} змін')
+
+    def _on_external_file_move(self, source: str, dest: str, directory: bool):
+        if not self.auto_library_updates:
+            return
+        self._pending_moves.append((source, dest, directory))
+        if directory:
+            self._directory_changed = True
+        else:
+            self._changed_paths.update((source, dest))
+        self._library_timer.start()
+
+    def _migrate_metadata(self, old_path: str, new_path: str):
+        old, new = normalize_path(old_path), normalize_path(new_path)
+        if old == new:
+            return
+        if old in self.favorites:
+            self.favorites.discard(old)
+            self.favorites.add(new)
+        for field in ("file_tags", "bookmarks", "file_fit_modes", "file_manual_crops"):
+            table = getattr(self, field)
+            if old in table and new not in table:
+                table[new] = table.pop(old)
+            elif old in table:
+                table.pop(old, None)
+        self.collections = migrate_path(self.collections, old, new)
+        self._save()
+
+    def _check_root_availability(self):
+        now = tuple(os.path.isdir(root) for root in self.roots)
+        if now != self._known_root_status:
+            self._known_root_status = now
+            self.status.setText("Змінився доступ до дисків. Оновлюю медіатеку, метадані збережені.")
+            self.scan()
+
+    def _check_broadcast_resources(self):
+        self._broadcast_guard.sample()
+        if not self._broadcast_guard.can_preload():
+            self.preview._cancel_staged()
+        now = time.monotonic()
+        if not hasattr(self, "_last_state_written") or now-self._last_state_written > 15:
+            self._last_state_written = now
+            player = self.preview.player
+            current = self.preview.current
+            state = ("photo" if current and current.kind == "photo" else
+                     "playing" if player and current and
+                        player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+                     else "paused" if current else "stopped")
+            try:
+                self._broadcast_guard.write_state(settings_path().parent, state,
+                                                   current.path if current else "")
+            except OSError:
+                pass
+
+    def configure_streamdeck(self):
+        choices = [f"{label} ({action})" for action, label in ACTIONS.items()]
+        selected, ok = QInputDialog.getItem(self, "Stream Deck: керування",
+            "Яку дію налаштувати?", choices, 0, False)
+        if not ok:
+            return
+        action = list(ACTIONS)[choices.index(selected)]
+        original = self.deck_bindings.get(action, DEFAULT_BINDINGS[action])
+        value, ok = QInputDialog.getText(
+            self, "Глобальна комбінація Stream Deck",
+            "Комбінація (Ctrl+Alt+Shift+F6…F12):", text=original)
+        if not ok:
+            return
+        try:
+            canonical, _, _ = parse_hotkey(value)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Некоректна клавіша", str(exc))
+            return
+        if canonical in [v for k, v in self.deck_bindings.items() if k != action]:
+            QMessageBox.warning(self, "Конфлікт", f"{canonical} вже призначено іншій дії")
+            return
+        self.deck_bindings[action] = canonical
+        if action.startswith("collection_"):
+            options = sorted(self.collections, key=str.casefold)
+            if options:
+                current = self.deck_collections.get(action)
+                idx = options.index(current) if current in options else 0
+                chosen, ok = QInputDialog.getItem(
+                    self, "Добірка для Stream Deck", "Оберіть тематичну добірку:",
+                    options, idx, False)
+                if ok:
+                    self.deck_collections[action] = chosen
+            else:
+                QMessageBox.information(self, "Stream Deck",
+                    "Створіть тематичну добірку, потім призначте її цій кнопці")
+        self._streamdeck.configure(self.deck_bindings)
+        self._save()
+        if self._streamdeck.errors:
+            QMessageBox.warning(self, "Конфлікти OBS або Windows",
+                                "\n".join(self._streamdeck.errors))
+        else:
+            self.status.setText("Клавіші Stream Deck оновлено: " + canonical)
+
+    def restore_previous_app(self):
+        candidate = update_rollback.verified_saved_rollback()
+        if not candidate:
+            QMessageBox.information(self, "Відкат версії",
+                                    "Немає збереженого перевіреного попереднього інсталятора.")
+            return
+        old_version, old_installer, digest = candidate
+        if updater.version_tuple(old_version) >= updater.version_tuple(VERSION):
+            QMessageBox.warning(self, "Відкат версії", "Попередня версія не старша за поточну.")
+            return
+        if self.preview.current or self.scanner and self.scanner.isRunning():
+            QMessageBox.warning(self, "Відкат версії",
+                                "Зупиніть ефір та дочекайтесь завершення сканування.")
+            return
+        if QMessageBox.question(
+                self, "Відновити версію",
+                f"Повернути RG Media Deck {old_version}? Програма закриється. "
+                "Медіафайли залишаться на диску.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        if not updater.verify_checksum(old_installer, digest):
+            QMessageBox.critical(self, "Відкат заблоковано", "SHA256 не збігається.")
+            return
+        subprocess.Popen(
+            [str(old_installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+             "/CLOSEAPPLICATIONS"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True)
+        QTimer.singleShot(0, self.close)
 
     def _streamdeck_action(self, action: str):
         """Invoked only from a registered Windows global hotkey."""
