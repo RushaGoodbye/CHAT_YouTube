@@ -19,7 +19,11 @@ CORE='const core = worker.scheduled(event, optimizedEnv(env), ctx);'
 def transform(raw):
     if raw.count(CORE)!=1:
         raise ValueError("ambiguous scheduled core")
-    if raw.count(NEW)==1 and raw.count(OLD)==0:
+    if raw.count("watchdogSlotMinute % 15 === 0")==1:
+        start=raw.index("watchdogSlotMinute % 15 === 0")
+        nearby=raw[start:start+300]
+        if OLD.strip() not in nearby:
+            raise ValueError("existing guard does not enclose watchdog call")
         return raw, "ALREADY_GUARDED"
     if raw.count(OLD)!=1:
         raise ValueError("unexpected watchdog expression")
