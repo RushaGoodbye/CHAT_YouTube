@@ -17,33 +17,35 @@ def ready_for_youtube(
     scheduled: bool = False,
 ) -> tuple[bool, tuple[str, ...]]:
     """Fail closed for legacy or unreviewed full SEO packages."""
+    # Collect *all* editorial failures, even while the editor displays
+    # "Чернетка". An early return for status hid the actual A/B problem.
+    reasons: list[str] = []
     if status != "ready":
-        return False, ("Пакет не має статусу готовності.",)
+        reasons.append("Пакет не має статусу готовності.")
     generation = (generation or "").strip()
     quality_state = (quality_state or "").strip()
     # Scheduled streams and safe description/tag-only optimization do not
     # replace the video title and therefore do not require A/B titles.
-    if scheduled:
-        return True, ()
-    if generation.startswith("safe-metadata") and quality_state == "safe_metadata":
-        return True, ()
+    if scheduled or (
+        generation.startswith("safe-metadata")
+        and quality_state == "safe_metadata"
+    ):
+        return not reasons, tuple(reasons)
     if quality_state not in {"safe", "editor_approved"}:
-        return False, ("SEO не підтверджено редактором; залишити чернеткою.",)
+        reasons.append("SEO не підтверджено редактором; залишити чернеткою.")
     if isinstance(variants, str):
         try:
-            parsed = json.loads(variants)
+            variants = json.loads(variants)
         except (ValueError, TypeError):
-            parsed = []
-        variants = parsed
+            variants = []
     if not isinstance(variants, list):
         variants = []
-    names = [str(x).strip() for x in variants if str(x).strip()]
+    names = [str(x).strip() for x in variants if isinstance(x, str) and x.strip()]
     if len(names) != 3:
-        return False, ("Для повного SEO потрібні три A/B назви.",)
-    issues = ab_title_issues(names)
-    if issues:
-        return False, tuple(issues)
-    return True, ()
+        reasons.append("Для повного SEO потрібні три A/B назви.")
+    else:
+        reasons.extend(ab_title_issues(names))
+    return not reasons, tuple(reasons)
 
 
 def exact_video_id_search(search_text: str) -> str:
