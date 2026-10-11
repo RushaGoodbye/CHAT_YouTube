@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.18 package validation fix."""
+"""RG YouTube Control package. 0.7.19 editorial review and A/B diversity."""
 
-__version__ = "0.7.18"
+__version__ = "0.7.19"
