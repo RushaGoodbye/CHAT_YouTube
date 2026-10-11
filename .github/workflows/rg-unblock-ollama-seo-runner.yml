@@ -1,0 +1,21 @@
+name: RG Unblock Ollama SEO Runner
+on:
+  push:
+    paths:
+      - ".github/workflows/rg-unblock-ollama-seo-runner.yml"
+permissions:
+  actions: write
+jobs:
+  unblock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel stalled Ollama download and blocked SEO retry only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$REPO/actions/runs/38152338538/cancel" || true
+          gh api --method POST "repos/$REPO/actions/runs/38151850992/cancel" || true
+          echo "Requested cancellation of oversized Ollama installer job and dependent premature SEO retry."
