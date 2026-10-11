@@ -48,11 +48,34 @@ def logtail(name,path):
    except Exception:pass
   return {"name":name,"status":"PASS" if age<3600 else "WARNING","age_sec":age,"recent_statuses":statuses}
  except Exception as e:return {"name":name,"status":"WARNING","reason":type(e).__name__}
+def deployment_check():
+ p=STATE/"last_deploy_status"
+ if not p.is_file():return {"name":"deploy_status","status":"WARNING","reason":"missing"}
+ value=p.read_text(errors="replace").strip()[:80]
+ return {"name":"deploy_status","status":("PASS" if value in ("OK","COMPLETE","SUCCESS") else "WARNING" if value in ("DEFERRED_QUOTA","QUOTA_COOLDOWN","DEFERRED") else "ERROR"),"value":value}
+def workflow_gate(checks):
+ by_name={c["name"]:c for c in checks}
+ has_decisions=by_name.get("sqlite",{}).get("counts",{}).get("real_moderation_decisions",0)>0
+ watchdog=by_name.get("watchdog_status",{}).get("status")
+ return {"name":"end_to_end_readiness","status":"ERROR" if watchdog=="ERROR" else "WARNING","real_decisions_present":has_decisions,"publish_delivery_confirmed":False,"reason":"no_verified_live_delivery_or_moderation_evidence"}
+def process_health():
+ paths=[
+ ("watchdog_issue_file",STATE/"telegram_watchdog_issues"),
+ ("live_smoke_status",STATE/"live_smoke_status"),
+ ("scheduler_dispatch_error",STATE/"scheduler_dispatch_error"),
+ ("nas_command_bus_error",STATE/"nas_command_bus_error")
+ ]
+ out=[]
+ for name,p in paths:
+  if p.is_file():
+   value=p.read_text(errors="replace").strip()[:160]
+   out.append({"name":name,"status":"ERROR" if name in ("live_smoke_status","scheduler_dispatch_error","nas_command_bus_error") and value and value not in ("OK","PASS") else "WARNING","value":value})
+ return out
 def run():
  checks=[
   file_check("scheduler_heartbeat",STATE/"scheduler_last_check_at",600),
   file_check("control_plane_heartbeat",STATE/"telegram_control_plane_last_sync_at",600),
-  val("deploy_status",STATE/"last_deploy_status",["ERROR","FAILED"]),
+  deployment_check(),
   val("watchdog_status",STATE/"telegram_watchdog_status",["ERROR","FAILED"]),
   file_check("synology_scheduler_script",ROOT/"RG_NAS_SCHEDULER_TICK.sh"),
   file_check("kyiv_live_adapter",TG/"rg_telegram_kyiv_ubilling_live_shadow_v1.py"),
@@ -74,7 +97,9 @@ def run():
   sched=(ROOT/"RG_NAS_SCHEDULER_TICK.sh").read_text(errors="replace")
   checks.append({"name":"scheduler_hooks","status":"PASS" if "RG_KV_READ_SHADOW_V1" in sched and "RG_KYIV_SHADOW_POLL_BEGIN" in sched else "WARNING","kv_import":("RG_KV_READ_SHADOW_V1" in sched),"kyiv_poll":("RG_KYIV_SHADOW_POLL_BEGIN" in sched or "RG_NAS_SHADOW_RUNTIME_V1_BEGIN" in sched)})
  except Exception:pass
+ checks.extend(process_health())
+ checks.append(workflow_gate(checks))
  summary={x:sum(1 for c in checks if c["status"]==x) for x in ("PASS","WARNING","ERROR")}
  overall="ERROR" if summary["ERROR"] else "WARNING" if summary["WARNING"] else "PASS"
- print(json.dumps({"schema":"RG_TELEGRAM_NAS_FULL_CHECK_V1","overall":overall,"summary":summary,"checks":checks,"network_calls":0,"publish_calls":0,"modifications":0},ensure_ascii=False,indent=2))
+ print(json.dumps({"schema":"RG_TELEGRAM_NAS_FULL_CHECK_V2","overall":overall,"summary":summary,"checks":checks,"network_calls":0,"publish_calls":0,"modifications":0},ensure_ascii=False,indent=2))
 if __name__=="__main__":run()
