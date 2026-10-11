@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_keepalive_no_console_fix",
+  "action": "youtube_ollama_download_state",
   "args": {
-    "nonce": "backup-first-suppress-console-flicker-20261011"
+    "nonce": "partial-resume-after-stalled-official-installer-20261011"
   }
 }
