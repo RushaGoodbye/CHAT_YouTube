@@ -186,6 +186,7 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
+from .seo_readiness import exact_video_id_search, ready_for_youtube
 from .public_comments import csv_safe_public_comment_cell, fetch_public_comment_sample
 from .updater import (
     UpdateInfo,
@@ -410,7 +411,7 @@ class ContentOptimizationDialog(QDialog):
             self.chapters_edit.setMaximumHeight(54)
         else:
             self.chapters_edit.setPlaceholderText(
-                "00:00 Вступ\n05:20 Наступний блок\n12:40 Фінальна частина"
+                "Необовʼязково. Лише підтверджені часові мітки розмов."
             )
         normalized_tags = normalize_package_tags(tags)
         self.tags_edit = QPlainTextEdit(
@@ -3003,7 +3004,7 @@ class MainWindow(QMainWindow):
         self.optimization_search.setPlaceholderText("Пошук: назва, Video ID, проблема")
         self.optimization_search.setClearButtonEnabled(True)
         self.optimization_search.setMinimumWidth(260)
-        self.optimization_search.textChanged.connect(self.reload_optimization_queue)
+        self.optimization_search.textChanged.connect(self._optimization_search_changed)
 
         self.optimization_filter = QComboBox()
         self.optimization_filter.addItem("Усі відео", "all")
