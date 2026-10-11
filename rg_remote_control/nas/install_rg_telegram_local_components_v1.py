@@ -12,10 +12,17 @@ REV_PROJECTION="a08664f89bd0c9d9c3e2fe5e397a591d4be8e1d3"
 FILENAMES=[
  ("rg_telegram_local_candidate_ingest_v1.py",REV_INGEST),
  ("rg_telegram_moderation_projection_v1.py",REV_PROJECTION),
+ ("rg_telegram_local_rss_scanner_v1.py","3859c9a1f7322a114a1762314c57f6b483186758"),
 ]
 MARK="RG_NAS_LOCAL_CANDIDATE_INGEST_V1"
 ANCHOR="# RG_NAS_SHADOW_RUNTIME_V1_BEGIN"
 HOOK='''# RG_NAS_LOCAL_CANDIDATE_INGEST_V1
+# Public RSS shadow scan at most 3 times/hour. Only articles with photo.
+if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_rss_scanner_v1.py" ]; then
+  case "$(date +%M)" in
+    05|25|45) /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_rss_scanner_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/local_rss_scanner.log" 2>&1 || true ;;
+  esac
+fi
 # File-only intake; the existing moderation projection consumes saved events.
 if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_candidate_ingest_v1.py" ]; then
   /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_candidate_ingest_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/local_candidate_ingest.log" 2>&1 || true
@@ -76,8 +83,8 @@ def main():
     os.replace(tmp,SCHED)
    finally:
     if os.path.exists(tmp):os.unlink(tmp)
-  print(json.dumps({"status":"LOCAL_COMPONENTS_INSTALLED","selftests":"PASS","tests":tests,"scheduler_hook":MARK in SCHED.read_text(errors="replace"),"cloudflare_calls":0,"telegram_sends":0,"local_news_inbox":str(STATE/"candidate_inbox.jsonl")},ensure_ascii=False))
-  for name,mode in [(FILENAMES[0][0],"once"),(FILENAMES[1][0],"once"),(FILENAMES[0][0],"status")]:
+  print(json.dumps({"status":"LOCAL_COMPONENTS_INSTALLED","selftests":"PASS","tests":tests,"scheduler_hook":MARK in SCHED.read_text(errors="replace"),"cloudflare_calls":0,"telegram_sends":0,"local_news_inbox":str(STATE/"candidate_inbox.jsonl"),"rss_sources":2},ensure_ascii=False))
+  for name,mode in [(FILENAMES[2][0],"once"),(FILENAMES[0][0],"once"),(FILENAMES[1][0],"once"),(FILENAMES[0][0],"status")]:
    print(execute([sys.executable,str(STATE/name),mode]))
 if __name__=="__main__":
  try:main()
