@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_agent_runtime_probe",
   "args": {
-    "nonce": "verify-agent-startup-runner-dedup-20261011"
+    "nonce": "agent-proc-probe-20261011"
   }
 }
