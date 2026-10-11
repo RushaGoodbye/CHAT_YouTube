@@ -1,13 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "apply_auto_edit_used_render_v1",
   "args": {
-    "files": [
-      "rg_final_compilation.py",
-      "rg_final_ffmpeg.py",
-      "rg_studio_ui.py"
-    ]
+    "apply": false
   },
-  "nonce": "rg-used-dialogues-ffmpeg-progress-inspection-20261011"
+  "nonce": "used-render-precheck-20261011"
 }
