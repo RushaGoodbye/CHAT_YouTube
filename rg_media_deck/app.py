@@ -2066,8 +2066,10 @@ class MainWindow(QMainWindow):
             self.preview.video_view.set_fit_mode(saved if saved != 'manual' or coordinates
                                                  else 'auto')
         if not self.preview.play_item(self.selected):
+            self._broadcast_guard.decoder_errors += 1
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        self._broadcast_guard.switch_count += 1
         self._playback_health.reset(int(time.monotonic() * 1000))
         # PlayerSurface.play_item() resets the last frame and current crop.
         # Restore the user's per-file manual rectangle AFTER that reset.
@@ -2128,6 +2130,7 @@ class MainWindow(QMainWindow):
 
     def _preview_error(self, error, description):
         if error != QMediaPlayer.Error.NoError:
+            self._broadcast_guard.decoder_errors += 1
             self.status.setText(f'ПОМИЛКА відтворення: {description}. ⚙ → Повторити поточне відео')
             logging.error('Preview media error: %s', description)
 
@@ -2144,6 +2147,7 @@ class MainWindow(QMainWindow):
                 int(time.monotonic() * 1000),
                 playing=player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
                 buffering=buffering):
+            self._broadcast_guard.stalled_count += 1
             self.status.setText('ВІДТВОРЕННЯ НЕ ПРОСУВАЄТЬСЯ. ⚙ → Повторити поточне відео')
             logging.warning('Playback stall, position=%s, file=%s', player.position(), item.path)
 
