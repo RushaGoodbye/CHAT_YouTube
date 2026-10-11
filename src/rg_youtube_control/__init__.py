@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.15 package validation fix."""
+"""RG YouTube Control package. 0.7.16 package validation fix."""
 
-__version__ = "0.7.15"
+__version__ = "0.7.16"
