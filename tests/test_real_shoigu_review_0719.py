@@ -104,3 +104,65 @@ def test_editor_does_not_display_unverified_stored_ready(monkeypatch):
     )
     ui.MainWindow.edit_content_package(fake_window)
     assert inspected == ["draft"]
+
+
+def test_real_shoigu_draft_reports_both_status_and_duplicate_topics():
+    """Regression from operator screenshot in installed 0.7.19."""
+    ready, issues = ready_for_youtube(
+        status="draft", generation="local-seo",
+        quality_state="review", variants=SHOIGU_VARIANTS,
+    )
+    assert not ready
+    assert "Пакет не має статусу готовності." in issues
+    assert any("повторюють один сюжетний гачок" in issue for issue in issues)
+    assert any("SEO не підтверджено" in issue for issue in issues)
+
+
+def test_draft_safe_metadata_and_scheduled_do_not_require_ab():
+    for generation, quality, scheduled in [
+        ("safe-metadata-0.7.6", "safe_metadata", False),
+        ("scheduled-import", "", True),
+    ]:
+        ready, issues = ready_for_youtube(
+            status="draft", generation=generation, quality_state=quality,
+            variants=[], scheduled=scheduled,
+        )
+        assert not ready
+        assert issues == ("Пакет не має статусу готовності.",)
+
+
+def test_editor_review_button_shows_ab_even_for_draft(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from rg_youtube_control.ui import ContentOptimizationDialog
+    app = QApplication.instance() or QApplication([])
+    alerts = []
+    monkeypatch.setattr(
+        QMessageBox, "warning",
+        lambda _parent, _title, message: alerts.append(message),
+    )
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        lambda _parent, _title, message: alerts.append(message),
+    )
+    dialog = ContentOptimizationDialog(
+        "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ",
+        (
+            "У цьому випуску чат-рулетки росіяни обговорюють зміну посади "
+            "Шойгу та причини кадрових рішень у Міністерстві оборони РФ. "
+        ) * 4,
+        "00:00 Вступ і головне запитання\\n00:43 Версії причин зміни Шойгу",
+        ["РАША ГУДБАЙ", "чат рулетка", "Шойгу", "увольнение Шойгу",
+         "Белоусов", "Тимур Иванов", "Совет безопасности России",
+         "Министерство обороны России", "коррупция в России", "Россия"],
+        "draft", SHOIGU_VARIANTS, generation="local-seo",
+    )
+    try:
+        dialog.validate_package_now()
+        assert alerts
+        result = alerts[-1]
+        assert "Пакет не має статусу готовності." in result
+        assert "повторюють один сюжетний гачок" in result
+        assert "перефразування однієї події" in result
+        assert "Пакет НЕ готовий" in result
+    finally:
+        dialog.close()

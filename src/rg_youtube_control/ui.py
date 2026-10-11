@@ -534,10 +534,7 @@ class ContentOptimizationDialog(QDialog):
             lines.extend(f"- {item}" for item in display_warnings)
         if not check.errors and not display_warnings:
             lines.append(
-                "\nТехнічно коректно. Редакторське схвалення "
-                "потрібне перед записом на YouTube."
-                if _status != "ready"
-                else "\nТехнічна перевірка завершена."
+                "\nПоля пакета перевірено. Редакторські зауваження - нижче."
             )
 
         # The editor button must report the same A/B gate as saving and
@@ -555,6 +552,11 @@ class ContentOptimizationDialog(QDialog):
         if not editorial_ok:
             lines.append("\nРЕДАКТОРСЬКА ПЕРЕВІРКА:")
             lines.extend(f"- {reason}" for reason in editorial_reasons)
+            if any("повторюють один сюжетний гачок" in reason for reason in editorial_reasons):
+                lines.append(
+                    "- Підготуйте різні сюжетні акценти A/B за транскриптом, "
+                    "а не три перефразування однієї події."
+                )
         if check.ready and editorial_ok:
             lines.append("\nПакет пройшов перевірку. Зміни на YouTube не застосовано.")
         else:
