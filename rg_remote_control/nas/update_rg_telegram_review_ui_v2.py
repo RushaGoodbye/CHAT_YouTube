@@ -8,7 +8,7 @@ STATE=ROOT/"RG_TELEGRAM_STATE"
 SOURCE=STATE/"rg_telegram_local_review_server_v1.py"
 PASSWORD=ROOT/"RG_SECRETS/rg_local_review_ui_password"
 MARK="RG_NAS_LOCAL_REVIEW_V1"
-COMMIT="c7e7ba10952ce586cb8bfef3715bc3a197922321"
+COMMIT="4bcf2b6f9ef80f4e6c51487cb3728d13f6464649"
 URL=("https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"+COMMIT+
     "/rg_remote_control/nas/rg_telegram_local_review_server_v1.py")
 LOG=STATE/"local_review_ui.log"
