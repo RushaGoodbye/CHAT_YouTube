@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_full_seo_0715_qa",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "final-0715-independent-ab-real-dialogue-qa-20261011"
+    "nonce": "verify-installed-0715-after-user-update-20261011-2001"
   }
 }
