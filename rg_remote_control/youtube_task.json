@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_single_gui_startup",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "single-gui-startup-20261011"
+    "nonce": "verify-installed-0712-after-user-update-20261011-1740"
   }
 }
