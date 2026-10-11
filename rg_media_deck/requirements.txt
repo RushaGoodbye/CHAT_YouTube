@@ -2,3 +2,4 @@ PySide6>=6.8,<6.11
 Send2Trash==1.8.3
 imageio-ffmpeg>=0.6,<0.7
 watchdog==6.0.0
+psutil>=6.1,<8
