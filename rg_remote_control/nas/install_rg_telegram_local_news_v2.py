@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upgrade the NAS local-news chain: dated RSS, versioned intake, review board.
+"""Upgrade NAS local-news chain: dated RSS, versioned intake, review board and decisions.
 No Cloudflare or Telegram calls; does not change approval or publication state.
 """
 import datetime,json,os,pathlib,shutil,subprocess,sys,tempfile,urllib.request
@@ -11,6 +11,7 @@ SCRIPTS=(
  ("rg_telegram_local_candidate_ingest_v1.py","9df4b66a2527c2d55fd02389519448639a449316"),
  ("rg_telegram_local_rss_scanner_v1.py","b3769e3163740f6145f9ca4d3560193d57844222"),
  ("rg_telegram_local_review_export_v1.py","ad0f62cfd0f2ff82b19b139b988afcd2192c4f6c"),
+ ("rg_telegram_local_review_decision_v1.py","8adcca88798d0753ec66af6c32930117dc654d8f"),
 )
 HOOK_MARK="# RG_NAS_LOCAL_REVIEW_EXPORT_V1"
 ANCHORS=("# RG_NAS_SHADOW_RUNTIME_V1_END",'AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"',"# RG_NAS_SHADOW_RUNTIME_V1_BEGIN")
@@ -87,6 +88,7 @@ def main():
   if not mod.is_file():raise ValueError("moderation_projection_missing")
   print(command([sys.executable,str(mod),"once"],timeout=30))
   print(command([sys.executable,str(STATE/SCRIPTS[2][0]),"once"],timeout=30))
+  print(command([sys.executable,str(STATE/SCRIPTS[3][0]),"status"],timeout=30))
   print(json.dumps({"status":"LOCAL_NEWS_V2_INSTALLED","selftests":"PASS","checks":checks,"scheduler_mode":sched_status,"delivery_enabled":False,"telegram_sends":0,"cloudflare_calls":0},ensure_ascii=False))
 if __name__=="__main__":
  try:main()
