@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 import updater
 from media_intelligence import add_bookmark, clean_tags
+from media_search_index import IndexedMediaLibrary
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
 from file_operations import trash_file, rename_file, move_file
@@ -29,7 +30,7 @@ from crop_selection import CropSelectionDialog
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.2'
+VERSION = '0.3.3'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -643,11 +644,13 @@ class MainWindow(QMainWindow):
         self.roots = list(dict.fromkeys(self.settings['roots']))
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
         self.all_media: list[MediaItem] = []
+        self.search_index = IndexedMediaLibrary()
         self.selected: MediaItem | None = None
         self.safe_selection = self.settings['safe_selection']
         self.file_fit_modes = dict(self.settings['file_fit_modes'])
         self.file_manual_crops = dict(self.settings['file_manual_crops'])
         self.file_tags = dict(self.settings['tags'])
+        self.hover_thumbnails = self.settings['hover_thumbnails']
         self.bookmarks = dict(self.settings['bookmarks'])
         self._hover_item = None
         self._thumbnail_thread = None
@@ -696,6 +699,9 @@ class MainWindow(QMainWindow):
             mode_actions[action] = value
         manual_action = menu.addAction('▣ Виділити основний відеокадр мишею...')
         menu.addSeparator()
+        thumbs = menu.addAction('Мініатюри при наведенні (диск)')
+        thumbs.setCheckable(True)
+        thumbs.setChecked(self.hover_thumbnails)
         safe = menu.addAction('Безпечний вибір: один клік не змінює ефір')
         safe.setCheckable(True)
         safe.setChecked(self.safe_selection)
@@ -715,6 +721,13 @@ class MainWindow(QMainWindow):
             self.set_fit_mode(mode_actions[choice])
         elif choice == manual_action:
             self.select_manual_crop()
+        elif choice == thumbs:
+            self.hover_thumbnails = thumbs.isChecked()
+            if not self.hover_thumbnails:
+                self._thumb_hover_timer.stop()
+                self._hover_popup.hide()
+            self._save()
+            self.status.setText('Мініатюри увімкнено' if self.hover_thumbnails else 'Мініатюри вимкнено для економії диска')
         elif choice == safe:
             self.safe_selection = safe.isChecked()
             self._save()
@@ -1011,6 +1024,7 @@ class MainWindow(QMainWindow):
                 'file_manual_crops': self.file_manual_crops,
                 'tags': self.file_tags,
                 'bookmarks': self.bookmarks,
+                'hover_thumbnails': self.hover_thumbnails,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -1067,18 +1081,20 @@ class MainWindow(QMainWindow):
 
     def scan_complete(self, items: list[MediaItem]):
         self.all_media = items
+        self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
         self.status.setText(f'Бібліотека оновлена: {len(items)} медіафайлів. Файли на диску не змінено.')
 
     def apply_filter(self):
         old_path = self.selected.path if self.selected else None
-        filtered = filter_media(self.all_media, self.search.text(), self.kind.currentData(),
-                                self.favorites, self.only_favorites.isChecked(), self.file_tags)
-        self.model.replace(filtered)
-        self.count.setText(f'Показано: {len(filtered)}   •   Усього: {len(self.all_media)}')
-        # Filtering must not trigger selection_changed or interrupt the playing file.
+        filtered = self.search_index.filter(self.search.text(), self.kind.currentData(),
+                                           self.favorites, self.only_favorites.isChecked())
+        # Block selection signals BEFORE model reset. No user selection should
+        # start another video just because the filter changed.
         from PySide6.QtCore import QSignalBlocker
         with QSignalBlocker(self.table.selectionModel()):
+            self.model.replace(filtered)
+            self.count.setText(f'Показано: {len(filtered)}   •   Усього: {len(self.all_media)}')
             if old_path:
                 for idx, item in enumerate(filtered):
                     if item.path == old_path:
@@ -1198,6 +1214,7 @@ class MainWindow(QMainWindow):
                 self.selected = None
                 self.star.setText('☆ В обране')
             self._save()
+            self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
             self.apply_filter()
         self.status.setText(f'Переміщено до кошика: {len(removed)}. Помилок: {len(errors)}')
         if errors:
@@ -1286,6 +1303,7 @@ class MainWindow(QMainWindow):
             else:
                 self.file_tags.pop(key, None)
         self._save()
+        self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
         self.status.setText(f'Збережено теги для {len(items)} файлів')
 
@@ -1293,12 +1311,12 @@ class MainWindow(QMainWindow):
         item = self.model.item_at(index.row()) if index.isValid() else None
         self._hover_item = item
         self._hover_popup.hide()
-        if item:
+        if item and self.hover_thumbnails:
             self._thumb_hover_timer.start()
 
     def _show_hover_thumbnail(self):
         item = self._hover_item
-        if not item or self._thumbnail_thread is not None or item.path in self._thumbnail_failures:
+        if not self.hover_thumbnails or not item or self._thumbnail_thread is not None or item.path in self._thumbnail_failures:
             return
         from thumbnails import thumbnail_path
         try:
