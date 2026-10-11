@@ -271,10 +271,12 @@ def evidence_outline_text(report: dict[str, Any]) -> str:
         topics = block.get("topics") or []
         if topics:
             for item in topics:
+                if not isinstance(item, dict):
+                    continue
                 lines.append(
-                    f"[{stamp}] ТЕМА: {item['topic']} | "
-                    f"ТЕЗА: {item['summary_uk']} | "
-                    f"ЦИТАТА: {item['evidence']}"
+                    f"[{stamp}] ТЕМА: {item.get('topic', '')} | "
+                    f"ТЕЗА: {item.get('summary_uk', '')} | "
+                    f"ЦИТАТА: {item.get('evidence', '')}"
                 )
         else:
             lines.append(
