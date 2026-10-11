@@ -2,7 +2,7 @@
 """Safe local NAS shadow outbox install. Two pinned scripts, selftests, backups.
 Never sends Telegram, reads or changes Cloudflare, or toggles live delivery.
 """
-import datetime,json,os,pathlib,shutil,subprocess,sys,tempfile,urllib.request
+import datetime,json,os,pathlib,shutil,sqlite3,subprocess,sys,tempfile,urllib.request
 ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
@@ -65,6 +65,18 @@ def main():
    script=staging/name
    run([sys.executable,"-m","py_compile",str(script)])
    checks.append({"module":name,"result":run([sys.executable,str(script),"selftest"])})
+  # Mandatory: test the staged module against a read-consistent snapshot of the
+  # actual live NAS SQLite schema and current data BEFORE replacing installed code.
+  # Python sqlite3.backup copies WAL-aware committed state safely.
+  snapshot=staging/"nas_live_schema_preflight.sqlite3"
+  live_db=STATE/"migration_shadow.sqlite3"
+  with sqlite3.connect(str(live_db),timeout=12) as live:
+   with sqlite3.connect(str(snapshot),timeout=12) as copy:
+    live.backup(copy)
+  smoke=run([sys.executable,str(staging/SCRIPTS[1][0]),"stage","--db",str(snapshot)])
+  snapshot_status=run([sys.executable,str(staging/SCRIPTS[1][0]),"status","--db",str(snapshot)])
+  print(json.dumps({"status":"SHADOW_LIVE_SCHEMA_SNAPSHOT_PASS","test_output":smoke,"snapshot_status":snapshot_status,
+    "live_database_changes":0,"telegram_sends":0},ensure_ascii=False))
   stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
   for name,sha in SCRIPTS:
    dest=STATE/name
@@ -85,11 +97,14 @@ def main():
     os.replace(newname,SCHED)
    finally:
     if os.path.exists(newname):os.unlink(newname)
-  print(json.dumps({"status":"LOCAL_SHADOW_OUTBOX_INSTALLED","selftests":"PASS","tests":checks,
-   "scheduler":schedule_mode,"telegram_sends":0,"cloudflare_calls":0},ensure_ascii=False))
   script=STATE/SCRIPTS[1][0]
-  print(run([sys.executable,str(script),"stage"]))
-  print(run([sys.executable,str(script),"status"]))
+  stage_result=run([sys.executable,str(script),"stage"])
+  queue_result=run([sys.executable,str(script),"status"])
+  print(stage_result)
+  print(queue_result)
+  print(json.dumps({"status":"LOCAL_SHADOW_OUTBOX_READY","selftests":"PASS",
+    "production_schema_snapshot":"PASS","tests":checks,
+    "scheduler":schedule_mode,"telegram_sends":0,"cloudflare_calls":0},ensure_ascii=False))
 if __name__=="__main__":
  try:main()
  except Exception as e:
