@@ -1,15 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_topaz_automation.py",
-      "rg_internal_browser.py",
-      "rg_studio_ui.py",
-      "rg_thumbnail_chatgpt.py",
-      "rg_studio_version.py"
-    ]
-  },
-  "nonce": "topaz-chatgpt-v209-updater-audit"
+  "action": "inspect_auto_edit_runtime_state",
+  "args": {},
+  "nonce": "overnight-preflight-queue-state-20261011"
 }
