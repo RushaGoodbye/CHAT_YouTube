@@ -1,5 +1,5 @@
 #define MyAppName "RG Media Deck"
-#define MyAppVersion "0.4.1"
+#define MyAppVersion "0.4.2"
 #define MyAppExeName "RG_Media_Deck.exe"
 [Setup]
 AppId={{C69CBCC4-3124-4124-804D-75D0B97D0224}
