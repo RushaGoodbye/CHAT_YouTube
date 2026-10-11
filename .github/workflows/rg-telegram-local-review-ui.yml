@@ -1,0 +1,22 @@
+name: RG Telegram Local Review UI
+on:
+  push:
+    paths:
+      - 'rg_remote_control/nas/rg_telegram_local_review_server_v1.py'
+      - 'rg_remote_control/nas/install_rg_telegram_local_review_ui_v1.py'
+      - '.github/workflows/rg-telegram-local-review-ui.yml'
+  workflow_dispatch:
+jobs:
+  offline-review-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Python syntax
+        run: |
+          python3 -m py_compile rg_remote_control/nas/rg_telegram_local_review_server_v1.py
+          python3 -m py_compile rg_remote_control/nas/install_rg_telegram_local_review_ui_v1.py
+      - name: Run local review security and scheduler tests
+        run: |
+          python3 rg_remote_control/nas/rg_telegram_local_review_server_v1.py selftest
+          python3 rg_remote_control/nas/install_rg_telegram_local_review_ui_v1.py selftest
