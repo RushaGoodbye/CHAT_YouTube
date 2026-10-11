@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_installed_seo_readonly",
+  "action": "youtube_seo_0712_preflight",
   "args": {
-    "nonce": "realvideo-draft-readonly-0712-20261011"
+    "nonce": "fullseo-model-subtitle-preflight-20261011-1750"
   }
 }
