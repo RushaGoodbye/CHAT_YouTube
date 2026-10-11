@@ -1,0 +1,27 @@
+name: RG 904 Cigarette QA Content Readonly
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - 'rg_remote_control/open_source_v1/diag_904_cigarette_qa_content_readonly.py'
+      - '.github/workflows/rg-904-cigarette-qa-content-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect real cigarette QA and postrun mismatched sidecar paths
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $p -X utf8 rg_remote_control/open_source_v1/diag_904_cigarette_qa_content_readonly.py
+          if ($LASTEXITCODE -ne 0) { throw "904 read-only evidence inspection failed ($LASTEXITCODE)" }
