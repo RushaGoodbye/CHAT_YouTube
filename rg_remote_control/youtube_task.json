@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_update_install_audit",
+  "action": "youtube_stage_verified_0715",
   "args": {
-    "nonce": "audit-user-0715-install-20261011-2005"
+    "nonce": "place-verified-0715-installer-in-downloads-after-user-update-20261011"
   }
 }
