@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 import updater
 import update_rollback
-from media_intelligence import add_bookmark, clean_tags
+from broadcast_guard import BroadcastGuardfrom media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
@@ -31,8 +31,8 @@ from content_region import detect_content_region
 from playback_health import DynamicCropState, PlaybackHealth
 from crop_selection import CropSelectionDialog
 from media_collections import add_files, remove_file_references, migrate_path
-from live_library import RecursiveMediaWatcher, changed_files
-from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide
+from live_library import RecursiveMediaWatcher, changed_files, keep_offline_entries, unavailable_roots, relocated_path, FileIdentityIndex
+from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide, ACTIONS, DEFAULT_BINDINGS, validated_bindings, parse_hotkey
 from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
@@ -757,13 +757,28 @@ class MainWindow(QMainWindow):
         self.auto_library_updates = self.settings['auto_library_updates']
         self._changed_paths = set()
         self._directory_changed = False
+        self._pending_moves = []
+        self._file_identities = FileIdentityIndex()
+        self._known_root_status = tuple(os.path.isdir(r) for r in self.roots)
+        self._root_timer = QTimer(self)
+        self._root_timer.setInterval(30000)
+        self._root_timer.timeout.connect(self._check_root_availability)
+        self._root_timer.start()
         self._library_watcher = RecursiveMediaWatcher()
         self._library_watcher.bridge.changed.connect(self._on_external_file_change)
+        self._library_watcher.bridge.moved.connect(self._on_external_file_move)
         self._library_timer = QTimer(self)
         self._library_timer.setSingleShot(True)
         self._library_timer.setInterval(1700)
         self._library_timer.timeout.connect(self._apply_external_file_changes)
-        self._streamdeck = GlobalMediaHotkeys(self._streamdeck_action)
+        self.deck_bindings = validated_bindings(self.settings['streamdeck_bindings'])
+        self.deck_collections = dict(self.settings['deck_collections'])
+        self._streamdeck = GlobalMediaHotkeys(self._streamdeck_action, self.deck_bindings)
+        self._broadcast_guard = BroadcastGuard()
+        self._resource_timer = QTimer(self)
+        self._resource_timer.setInterval(5000)
+        self._resource_timer.timeout.connect(self._check_broadcast_resources)
+        self._resource_timer.start()
         self._hover_item = None
         self._thumbnail_thread = None
         self._thumb_hover_timer = QTimer(self)
@@ -887,9 +902,23 @@ class MainWindow(QMainWindow):
             return
         if not paths:
             return
+        for src, dst, is_dir in self._pending_moves:
+            if is_dir:
+                for media in list(self.all_media):
+                    new_path = relocated_path(media.path, src, dst)
+                    if new_path and os.path.isfile(new_path):
+                        self._migrate_metadata(media.path, new_path)
+            elif os.path.isfile(dst):
+                self._migrate_metadata(src, dst)
+        self._pending_moves.clear()
+        for path in paths:
+            prev = self._file_identities.match_new_file(path)
+            if prev:
+                self._migrate_metadata(prev, path)
         updated = changed_files(self.all_media, paths, self.roots)
         if updated != self.all_media:
             self.all_media = updated
+            self._file_identities.seed(self.all_media)
             self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
             self.apply_filter()
             self.status.setText(f'Файли оновлено автоматично: {len(paths)} змін')
@@ -904,6 +933,16 @@ class MainWindow(QMainWindow):
             self.toggle_mute()
         elif action == 'play_selected':
             self.play_selected()
+        elif action in ('collection_1', 'collection_2'):
+            name = self.deck_collections.get(action)
+            if name in self.collections:
+                self.collection_filter.setCurrentIndex(self.collection_filter.findData(name))
+                if self.model.rowCount() > 0:
+                    self.table.selectRow(0)
+                    if self.safe_selection:
+                        self.play_selected()
+            else:
+                self.status.setText('Виберіть добірку для цієї клавіші через ⚙')
         elif action == 'next_media':
             row = self.table.currentIndex().row()
             next_row = 0 if row < 0 else row + 1
@@ -956,6 +995,9 @@ class MainWindow(QMainWindow):
         clear_cache = maintenance_menu.addAction('Очистити старі мініатюри')
         restore_settings = maintenance_menu.addAction('Відновити останню копію налаштувань')
         deck_action = menu.addAction('⌨ Stream Deck: глобальні клавіші')
+        deck_setup = menu.addAction('⌨ Налаштувати кнопки Stream Deck...')
+        rollback_action = maintenance_menu.addAction('Повернути попередню версію програми...')
+        rollback_status_action = maintenance_menu.addAction('Стан останнього оновлення')
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
@@ -1017,11 +1059,17 @@ class MainWindow(QMainWindow):
                     self.status.setText('Налаштування відновлено. Перезапустіть RG Media Deck.')
                 else:
                     QMessageBox.information(self, 'Резервні копії', 'Збережених копій не знайдено.')
+        elif choice == deck_setup:
+            self.configure_streamdeck()
+        elif choice == rollback_status_action:
+            QMessageBox.information(self, 'Перевірка оновлення', update_rollback.rollback_status())
+        elif choice == rollback_action:
+            self.restore_previous_app()
         elif choice == deck_action:
             QMessageBox.information(self, 'Stream Deck',
-                'У Stream Deck виберіть дію Hotkey і задайте:\n' + hotkey_guide()
-                + ('\n\nЗайняті системою клавіші:\n' + '\n'.join(self._streamdeck.errors)
-                   if self._streamdeck.errors else '\n\nДіє, навіть коли OBS у фокусі.'))
+                ('У Stream Deck виберіть дію Hotkey:\n' + hotkey_guide(self.deck_bindings)
+                 + ('\n\nКонфлікти:\n' + '\n'.join(self._streamdeck.errors)
+                    if self._streamdeck.errors else '\n\nКомбінації діють навіть з відкритим OBS.')))
         elif choice == help_action:
             self.shortcuts_help()
         elif choice == updates:
@@ -1328,6 +1376,8 @@ class MainWindow(QMainWindow):
                 'hover_thumbnails': self.hover_thumbnails,
                 'collections': self.collections,
                 'auto_library_updates': self.auto_library_updates,
+                'streamdeck_bindings': self.deck_bindings,
+                'deck_collections': self.deck_collections,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -1383,11 +1433,19 @@ class MainWindow(QMainWindow):
             self.status.setText('Сканування зупинене')
 
     def scan_complete(self, items: list[MediaItem]):
-        self.all_media = items
+        self.all_media = keep_offline_entries(items, self.all_media, self.roots)
+        for media in self.all_media:
+            prev = self._file_identities.match_new_file(media.path)
+            if prev:
+                self._migrate_metadata(prev, media.path)
+        self._file_identities.seed(self.all_media)
         self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
         self._setup_library_watcher()
-        self.status.setText(f'Бібліотека оновлена: {len(items)} медіафайлів. Файли на диску не змінено.')
+        offline = unavailable_roots(self.roots)
+        self.status.setText(f'Бібліотека: {len(self.all_media)} файлів. ' +
+            (f'Недоступних папок: {len(offline)}. Метадані збережені.' if offline
+             else 'Папки доступні, файли не змінено.'))
 
     def apply_filter(self):
         old_path = self.selected.path if self.selected else None
@@ -1421,7 +1479,10 @@ class MainWindow(QMainWindow):
         if not self.safe_selection:
             self.play_selected()
         else:
-            self.preview.prepare_item(item)
+            if self._broadcast_guard.can_preload():
+                self.preview.prepare_item(item)
+            else:
+                self.preview._cancel_staged()
 
     def toggle_favorite(self):
         if self.selected:
@@ -1983,6 +2044,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._library_timer.stop()
+        self._root_timer.stop()
+        self._resource_timer.stop()
         self._library_watcher.stop()
         self._streamdeck.close()
         QApplication.instance().removeNativeEventFilter(self._streamdeck)
