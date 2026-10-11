@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_repair_shortcuts",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "consolidate-shortcuts-20261011-v1"
+    "nonce": "verify-source-removal-20261011T1304"
   }
 }
