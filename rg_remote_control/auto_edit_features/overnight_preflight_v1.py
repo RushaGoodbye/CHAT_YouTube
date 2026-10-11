@@ -65,6 +65,56 @@ for st in streams[:25]:
         roots=[v for k,v in candidate_roots.items() if kind in k.lower() and isinstance(v,str)]
         row[kind+"_candidates"]=[{"file":str(Path(root)/(str(st)+ext)),"exists":(Path(root)/(str(st)+ext)).is_file()} for root in roots[:5]]
     out["inputs"][st]=row
+
+# RG_OVERNIGHT_INPUT_RESOLVER_V2: the exact same network root and resolver as Studio.
+try:
+    cfg=read_json(APP/"rg_server_paths.json")
+    assert isinstance(cfg,dict) and cfg.get("video_root") and cfg.get("audio_root") and cfg.get("screen_root"),"Studio path config missing"
+    out["actual_roots"]={k:str(cfg[k]) for k in ("video_root","audio_root","screen_root")}
+    sys.path.insert(0,str(APP))
+    from rg_server_resolver import resolve_video,resolve_audio,resolve_screenshots
+    targets=TARGETS or list((out["queue"] or {}).get("queue") or [])
+    for st in targets[:25]:
+        st=str(st)
+        row=out["inputs"].setdefault(st,{"stream":st})
+        for kind,func,rootkey in (
+            ("video",resolve_video,"video_root"),
+            ("audio",resolve_audio,"audio_root"),
+            ("screenshots",resolve_screenshots,"screen_root")):
+            try:
+                result=func(cfg[rootkey],st)
+                if kind=="screenshots":
+                    paths=list(result)
+                    row[kind]={"ok":bool(paths),"count":len(paths),"sample":[{"name":p.name,"bytes":p.stat().st_size} for p in paths[:5]],"all_nonempty":all(p.stat().st_size>0 for p in paths)}
+                else:
+                    selected,root,candidates=result
+                    row[kind]={"ok":selected.is_file() and selected.stat().st_size>0,
+                               "name":selected.name,"bytes":selected.stat().st_size,
+                               "candidates":len(candidates)}
+            except Exception as exc:
+                row[kind]={"ok":False,"error":type(exc).__name__+": "+str(exc)[:210]}
+        rs=read_json(DATA/"run_state"/st/"RUN_STATE.json")
+        row["last_run_status"]=rs.get("status") if isinstance(rs,dict) else None
+        row["last_run_error"]=str(rs.get("error_tail") or "")[-350:] if isinstance(rs,dict) else None
+        postrun=read_json(APP/st/"RG_POSTRUN_QA.json")
+        row["postrun_passed"]=postrun.get("passed") if isinstance(postrun,dict) else None
+        mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
+        if not isinstance(mani,dict):mani={}
+        outputs=mani.get("outputs") or []
+        row["manifest_dialogue_count"]=mani.get("dialogue_count")
+        row["manifest_output_count"]=len(outputs)
+        paths=[Path(x.get("xml") or "") for x in outputs if isinstance(x,dict)]
+        row["xml_existing"]=sum(p.is_file() and p.stat().st_size>0 for p in paths)
+        row["complete_state"]=str(row["last_run_status"] or "").upper()=="COMPLETE"
+        row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
+        row["already_complete"]=bool(row["complete_state"] or row["complete_manifest"])
+        row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
+        row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
+                             "MISSING_INPUT" if not row["inputs_ready"] else
+                             "RUN_EXPECTED")
+except Exception as exc:
+    out["resolver_error"]=repr(exc)
+
 out["checks"]={
 "queue_not_empty":bool(queue.get("queue")),
 "queue_running":bool(queue.get("running")),
