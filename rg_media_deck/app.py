@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
     QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
-    QHeaderView, QAbstractItemView, QSizePolicy, QStyle,
+    QHeaderView, QAbstractItemView, QSizePolicy, QStyle, QStyleOptionSlider,
 )
 
 import updater
@@ -38,7 +38,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.1'
+VERSION = '0.4.2'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -290,11 +290,74 @@ class FitVideoViewport(QWidget):
             self.update()
 
 class MarkedSlider(QSlider):
-    """Timeline bookmarks rendered as non-interactive amber ticks."""
+    """Clickable / draggable timeline with non-interactive amber bookmark ticks."""
+
+    seekRequested = Signal(int)
+
     def __init__(self, orientation):
         super().__init__(orientation)
         self.markers = []
         self.duration_ms = 0
+        self._groove_drag = False
+
+    def _position_for_mouse(self, point) -> int:
+        """Map click to timestamp using Qt style groove + handle geometry."""
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        style = self.style()
+        groove = style.subControlRect(QStyle.ComplexControl.CC_Slider, option,
+                                      QStyle.SubControl.SC_SliderGroove, self)
+        handle = style.subControlRect(QStyle.ComplexControl.CC_Slider, option,
+                                      QStyle.SubControl.SC_SliderHandle, self)
+        if self.orientation() == Qt.Orientation.Horizontal:
+            distance = round(point.x() - groove.left() - handle.width() / 2)
+            span = max(1, groove.width() - handle.width())
+        else:
+            distance = round(point.y() - groove.top() - handle.height() / 2)
+            span = max(1, groove.height() - handle.height())
+        return QStyle.sliderValueFromPosition(
+            self.minimum(), self.maximum(), distance, span, option.upsideDown)
+
+    def mousePressEvent(self, event):
+        if (event.button() != Qt.MouseButton.LeftButton or
+                not self.isEnabled() or self.maximum() <= self.minimum()):
+            super().mousePressEvent(event)
+            return
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        handle = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, option,
+            QStyle.SubControl.SC_SliderHandle, self)
+        if handle.contains(event.position().toPoint()):
+            super().mousePressEvent(event)
+            return
+        self._groove_drag = True
+        self.setSliderDown(True)
+        position = self._position_for_mouse(event.position())
+        self.setSliderPosition(position)
+        self.seekRequested.emit(position)
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if not self._groove_drag:
+            super().mouseMoveEvent(event)
+            return
+        position = self._position_for_mouse(event.position())
+        if self.sliderPosition() != position:
+            self.setSliderPosition(position)
+            self.seekRequested.emit(position)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if not self._groove_drag or event.button() != Qt.MouseButton.LeftButton:
+            super().mouseReleaseEvent(event)
+            return
+        position = self._position_for_mouse(event.position())
+        self.setSliderPosition(position)
+        self.setSliderDown(False)
+        self.seekRequested.emit(position)
+        self._groove_drag = False
+        event.accept()
 
     def update_markers(self, markers, duration_ms: int):
         self.markers = [int(mark['ms']) for mark in markers if isinstance(mark, dict) and
@@ -446,6 +509,16 @@ class PlayerSurface(QWidget):
         if self.player is source:
             signal.emit(*args)
 
+    def _sync_player_metadata(self, source):
+        """An already preloaded media source emitted duration before UI connected.
+
+        Replay the current metadata only for the active player, never a retired
+        or background player. This keeps timeline range correct on transitions.
+        """
+        if source is self.player and self.current is not None and self.current.kind == 'video':
+            self.durationChanged.emit(max(0, int(source.duration())))
+            self.positionChanged.emit(max(0, int(source.position())))
+
     def _retire(self, player, audio):
         if audio is not None:
             audio.setMuted(True)
@@ -573,6 +646,10 @@ class PlayerSurface(QWidget):
                 sink.deleteLater()
             self.player, self.audio = player, audio
             self._wire_player(player)
+            # The staged player loaded duration before becoming active.
+            # Re-send it now; Qt may not emit durationChanged on promotion.
+            self._sync_player_metadata(player)
+            QTimer.singleShot(0, lambda source=player: self._sync_player_metadata(source))
             if image is not None:
                 self.video_view._image = image
                 self.video_view.update()
@@ -1320,8 +1397,9 @@ class MainWindow(QMainWindow):
         self.preview_seek = MarkedSlider(Qt.Orientation.Horizontal)
         self.preview_seek.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.preview_seek.customContextMenuRequested.connect(self.timeline_context_menu)
-        self.preview_seek.setToolTip('B: мітка • [ / ]: попередня / наступна • правий клік: усі мітки')
+        self.preview_seek.setToolTip('Лівий клік або перетягування: перемотка • B: мітка • правий клік: усі мітки')
         self.preview_seek.setRange(0, 0)
+        self.preview_seek.setEnabled(False)
         self.preview_seek.setFixedHeight(20)
         timeline.addWidget(self.preview_seek, 1)
         self.preview_time = QLabel('00:00 / 00:00')
@@ -1400,6 +1478,7 @@ class MainWindow(QMainWindow):
         self.preview.positionChanged.connect(self.preview_progress)
         self.preview.durationChanged.connect(self.preview_duration)
         self.preview_seek.sliderMoved.connect(self.preview.set_position)
+        self.preview_seek.seekRequested.connect(self.preview.set_position)
         self.preview.errorOccurred.connect(self._preview_error)
         self.preview.mediaStatusChanged.connect(self._preview_media_status)
         self.preview.playbackStateChanged.connect(self._update_play_button)
@@ -2058,6 +2137,8 @@ class MainWindow(QMainWindow):
             self.status.setText(f'Відтворюється: {display_media_name(self.selected.name)}')
             return
         self.preview_seek.setValue(0)
+        # Drop the old player's range. New media duration is synchronized below.
+        self.preview_seek.setRange(0, 0)
         self.preview_seek.setEnabled(self.selected.kind == 'video')
         coordinates = None
         if self.selected.kind == 'video':
@@ -2072,6 +2153,10 @@ class MainWindow(QMainWindow):
             return
         self._broadcast_guard.switch_count += 1
         self._playback_health.reset(int(time.monotonic() * 1000))
+        if self.selected.kind == 'video' and self.preview.player is not None:
+            # This is essential for a preloaded QMediaPlayer: its
+            # durationChanged signal fired before it was made active.
+            self.preview_duration(self.preview.player.duration())
         # PlayerSurface.play_item() resets the last frame and current crop.
         # Restore the user's per-file manual rectangle AFTER that reset.
         if coordinates and self.selected.kind == 'video':
@@ -2086,6 +2171,8 @@ class MainWindow(QMainWindow):
         self.preview.black_out()
         self.preview.black.setText('')
         self.preview_seek.setValue(0)
+        self.preview_seek.setRange(0, 0)
+        self.preview_seek.setEnabled(False)
         self.preview_seek.update_markers([], 0)
         self.preview_time.setText('00:00 / 00:00')
         self.status.setText('Відтворення зупинено')
