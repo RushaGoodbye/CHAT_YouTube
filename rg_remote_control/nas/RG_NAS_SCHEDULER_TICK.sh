@@ -48,6 +48,13 @@ if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_kyiv_ubilling_live_shadow_v1.py" ];
 fi
 # RG_KYIV_SHADOW_POLL_END
 
+# RG_MODERATION_SHADOW_PROJECTION_V1
+# Read-only event projection; no Bot API sends and no Cloudflare calls.
+if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_moderation_projection_v1.py" ]; then
+  /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_moderation_projection_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/moderation_shadow.log" 2>&1 || true
+fi
+
+
 AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"
 if [ ! -x "$AUTODEPLOY" ]; then
   printf '%s\n' "ERROR" > "$STATE/scheduler_last_check_status"
