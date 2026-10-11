@@ -1,0 +1,47 @@
+name: RG SEO 0.7.17 Real-Video Quality Gate
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/rg-seo-0717-real-video-gate.yml"]
+permissions:
+  contents: read
+jobs:
+  real-video-qa:
+    runs-on: self-hosted
+    timeout-minutes: 18
+    steps:
+      - name: Pinned candidate 0.7.17 source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          ref: a89e2e29a4825496f0a42aae0740013c7c39f79f
+      - name: Full real video read-only SEO quality QA
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "ALEXPC") { throw "Expected ALEXPC, not $env:COMPUTERNAME" }
+          $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
+          $deps = Join-Path $env:RUNNER_TEMP "rg_youtube_0717_qa_deps"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+            if ($LASTEXITCODE -ne 0) { throw "Isolated dependency setup failed" }
+          }
+          $env:PYTHONPATH = "$deps;$env:PYTHONPATH"
+          & $py -B "rg_remote_control/youtube_full_seo_0717_qa.py" | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "rg_seo_0717_qa_log.txt")
+          if ($LASTEXITCODE -ne 0) { throw "Full 0.7.17 SEO generation failed" }
+          $proof = Join-Path $env:LOCALAPPDATA "RGYouTubeControl\\diagnostics\\full_seo_0717_QA_LM0vkW9YoKg.json"
+          $report = Get-Content -LiteralPath $proof -Raw -Encoding utf8 | ConvertFrom-Json
+          $report | ConvertTo-Json -Depth 9 | Out-File (Join-Path $env:RUNNER_TEMP "rg_seo_0717_qa_report.json") -Encoding utf8
+          if ($report.status -ne "PASS") { throw "REAL VIDEO 0.7.17 content quality gate: $($report.status)" }
+          if ($report.package.title_variants.Count -ne 3) { throw "Missing 3 A/B titles" }
+          Write-Host "RG_0717_REAL_VIDEO_QUALITY_GATE_PASS"
+      - name: Preserve exact QC proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-0717-full-video-proof
+          path: |
+            ${{ runner.temp }}/rg_seo_0717_qa_log.txt
+            ${{ runner.temp }}/rg_seo_0717_qa_report.json
+          retention-days: 7
+          if-no-files-found: ignore
