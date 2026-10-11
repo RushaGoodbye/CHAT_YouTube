@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_installed_seo_readonly",
   "args": {
-    "nonce": "verify-real-installed-0715-after-admin-setup-20261011"
+    "nonce": "verify-local-seo-database-after-0715-real-install-20261011"
   }
 }
