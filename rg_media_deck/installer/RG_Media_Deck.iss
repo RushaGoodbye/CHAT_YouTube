@@ -1,5 +1,5 @@
 #define MyAppName "RG Media Deck"
-#define MyAppVersion "0.3.4"
+#define MyAppVersion "0.3.5"
 #define MyAppExeName "RG_Media_Deck.exe"
 [Setup]
 AppId={{C69CBCC4-3124-4124-804D-75D0B97D0224}
@@ -10,6 +10,7 @@ AppPublisher=RushaGoodbye
 DefaultDirName={localappdata}\Programs\RG Media Deck
 DefaultGroupName=RG Media Deck
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=..\assets\RG_Media_Deck.ico
 OutputDir=..\dist_installer
 OutputBaseFilename=RG_Media_Deck_Setup
 Compression=lzma2
