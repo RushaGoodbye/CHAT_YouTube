@@ -1,14 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_topaz_automation.py",
-      "rg_studio_version.py",
-      "rg_topaz_prefs.py",
-      "rg_topaz_model_resolver.py"
-    ]
-  },
-  "nonce": "rg-topaz-low-resolution-missing-20261011"
+  "action": "inspect_auto_edit_updater_state",
+  "args": {},
+  "nonce": "rg-topaz-rollback-audit-20261011"
 }
