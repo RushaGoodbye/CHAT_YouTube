@@ -155,7 +155,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True}
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
@@ -182,6 +182,7 @@ def load_settings(path: Path | None = None) -> dict:
                      if isinstance(k, str)}
                     if isinstance(data.get('tags'), dict) else {},
             'bookmarks': clean_bookmarks(data.get('bookmarks', {})),
+            'hover_thumbnails': data.get('hover_thumbnails', True) is not False,
             'file_manual_crops': valid_manual_crops(data.get('file_manual_crops', {})),
         }
     except (ValueError, OSError, UnicodeError):
