@@ -18,8 +18,6 @@ def qa(i):
     d=load(APP/(b+"_CIGARETTE_BLUR_DETECTIONS.json"))
     marker=load(APP/(b+"_CIGARETTE_REVIEW_MARKERS.json"))
     gate=load(APP/(b+"_FINAL_RELEASE_GATE.json"))
-    if (APP/(b+"_CIGARETTE_BLUR_QA.json")).is_file():
-        assert (APP/b.replace("RG_EDITED","904/RG_EDITED")).exists() is False or True
     return {"dialogue":i,
             "root_sidecar_exists":(APP/(b+"_CIGARETTE_BLUR_QA.json")).is_file(),
             "folder_sidecar_exists":(APP/"904"/(b+"_CIGARETTE_BLUR_QA.json")).is_file(),
@@ -30,8 +28,8 @@ def qa(i):
             "det":keys(d,["schema","status","passed","raw_detection_count","confirmed_track_count",
                           "rejected_track_count","failures","unconfirmed_detection_count"]),
             "review_marker_keys":sorted(marker.keys())[:25],
-            "review_marker_summary":keys(marker,["schema","status","count","marker_count","review_required","markers"]),
-            "release_gate":keys(gate,["passed","status","release_allowed","blockers","reasons","checks"])}
+            "review_marker_summary":keys(marker,["schema","status","count","marker_count","review_required"]),
+            "release_gate":keys(gate,["passed","status","release_allowed"])}
 def main():
     m=load(APP/"RG_EDITED_904_MULTI_DIALOGUE.json")
     qa_files=[qa(i) for i in IDs]
