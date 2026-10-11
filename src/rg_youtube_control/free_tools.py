@@ -1824,7 +1824,7 @@ def generate_seo_package_local(
 - основна назва та РІВНО 3 різні A/B варіанти назви: російською;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
-- опис: українською, 400-2400 символів змістовного тексту до службових посилань;
+- опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
 - не копіюй російську назву відео як перше речення опису; перефразуй тему природною українською;
 - головне джерело змісту - ТРАНСКРИПТ; назва лише задає тему, старий опис не є джерелом фактів;
 - перші 1-2 речення мають назвати конкретну тему, людину/подію/питання з відео, якщо це прямо є в транскрипті;
@@ -1892,7 +1892,7 @@ SHORTS: {is_short}
 Поверни ТІЛЬКИ валідний JSON з ключами title, title_variants, description, tags, chapters.
 title: російською, до 100 символів, конкретний і підтверджений транскриптом.
 title_variants: РІВНО 3 різні варіанти, кожен до 100 символів.
-description: українською, 400-2400 символів, конкретно за всіма підтвердженими темами, без шаблонних фраз і ENGLISH SUMMARY.
+description: українською, 400-900 символів, головна тема і 2-3 важливі деталі з різних частин, без переліку всіх епізодів, шаблонів та ENGLISH SUMMARY.
 tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
 chapters: рядок з підтвердженими таймкодами та українськими назвами або порожній рядок.
 Не вигадуй фактів. Не роби тверджень про економіку, зарплати, соцгарантії чи інші результати, якщо цього немає в транскрипті.
@@ -2037,7 +2037,7 @@ chapters: рядок з підтвердженими таймкодами та �
             description_error = _description_quality_error(
                 description_candidate,
                 transcript,
-                **({"max_chars": 3000} if evidence_report else {}),
+                **({"max_chars": 950} if evidence_report else {}),
             )
             if transcript.strip():
                 if fast_mode:
@@ -2051,7 +2051,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            **({"max_chars": 3000} if evidence_report else {}),
+                            **({"max_chars": 950} if evidence_report else {}),
                         )
                 elif description_error:
                     # Only pay for a repair pass when the candidate actually
@@ -2069,7 +2069,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            **({"max_chars": 3000} if evidence_report else {}),
+                            **({"max_chars": 950} if evidence_report else {}),
                         )
                     if description_error:
                         fallback_description = _grounded_description_from_transcript(
@@ -2081,7 +2081,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = _description_quality_error(
                             description_candidate,
                             transcript,
-                            **({"max_chars": 3000} if evidence_report else {}),
+                            **({"max_chars": 950} if evidence_report else {}),
                         )
             if transcript.strip() and description_error:
                 raise ValueError(
@@ -2168,6 +2168,8 @@ chapters: рядок з підтвердженими таймкодами та �
     if evidence_report:
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
+            max_topic_bullets=2,
+            max_body_bytes=2300,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
@@ -2217,8 +2219,8 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель створила назву довшу за 100 символів.")
     if not description:
         raise ValueError("Локальна модель не створила опис.")
-    if len(description) > 5000:
-        raise ValueError("Локальна модель створила опис довший за 5000 символів.")
+    if len(description) > (1150 if evidence_report else 5000):
+        raise ValueError("SEO-опис надто довгий: скоротіть текст; всі теми збережені в карті доказів.")
     if is_short:
         chapters = ""
 
