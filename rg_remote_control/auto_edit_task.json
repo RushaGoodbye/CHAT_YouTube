@@ -1,14 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_main.py",
-      "rg_studio_version.py",
-      "rg_final_compilation.py",
-      "rg_final_ffmpeg.py"
-    ]
-  },
-  "nonce": "rg-ffmpeg-integration-verification-20261011"
+  "action": "inspect_auto_edit_thumbnail_final_render",
+  "args": {},
+  "nonce": "rg-ffmpeg-final-ui-route-readonly-20261011"
 }
