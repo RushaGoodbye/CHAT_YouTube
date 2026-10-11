@@ -37,18 +37,18 @@ def password():
 def review_rows(db_path,now=None):
  now=int(time.time()) if now is None else int(now)
  with sqlite3.connect("file:"+str(db_path)+"?mode=ro",uri=True,timeout=4) as db:
-  # Read projected candidates and the latest dated source event.
-  sql="""SELECT p.candidate_id,p.headline,p.image_url,p.source_url,p.status,p.decision,
-      (SELECT json_extract(e.payload,'$.detected_at') FROM events e
-       WHERE e.kind='news_candidate'
-         AND json_extract(e.payload,'$.candidate_id')=p.candidate_id
-         AND CAST(json_extract(e.payload,'$.detected_at') AS INTEGER)>0
-       ORDER BY e.rowid DESC LIMIT 1) AS published
-   FROM moderation_projection p ORDER BY p.rowid DESC LIMIT 150"""
+  # No SQLite JSON1 extension required (Synology Python compatibility).
+  dates={}
+  for (raw,) in db.execute("SELECT payload FROM events WHERE kind='news_candidate' ORDER BY rowid DESC LIMIT 5000"):
+   try:
+    p=json.loads(raw);cid=p.get("candidate_id");ts=p.get("detected_at")
+    if isinstance(cid,str) and cid not in dates and isinstance(ts,int) and not isinstance(ts,bool) and ts>0:
+     dates[cid]=ts
+   except (ValueError,TypeError):pass
   results=[]
-  for cid,title,img,src,state,decision,published in db.execute(sql):
-   try:published=int(published)
-   except (ValueError,TypeError):published=0
+  for cid,title,img,src,state,decision in db.execute(
+    "SELECT candidate_id,headline,image_url,source_url,status,decision FROM moderation_projection ORDER BY rowid DESC LIMIT 150"):
+   published=dates.get(cid,0)
    fresh=published>0 and now-36*3600<=published<=now+300
    results.append({"id":cid,"title":title or "","image":img or "","url":src or "","state":state,"decision":decision,"published":published,"fresh":fresh})
   return results
@@ -68,8 +68,7 @@ def render(rows,key,message=""):
   cid=row["id"]
   safe_id=esc(cid)
   fresh=row["fresh"]
-  htmls+=['<article class="card"><img loading="lazy" referrerpolicy="no-referrer" src="',esc(row["image"]),'"
-    alt="Фото новини"><div class="in"><span class="badge">',esc(row["state"]),'</span> ',
+  htmls+=['<article class="card"><img loading="lazy" referrerpolicy="no-referrer" src="',esc(row["image"]),'" alt="Фото новини"><div class="in"><span class="badge">',esc(row["state"]),'</span> ',
     '<span class="meta '+('fresh' if fresh else 'old')+'">',('Свіжа новина' if fresh else 'Дата не підтверджена / застаріла'),'</span>',
     '<h3 class="headline">',esc(row["title"]),'</h3><p class="meta">',safe_id,'</p><p><a target="_blank" rel="noopener noreferrer" href="',esc(row["url"]),'">Перевірити першоджерело</a></p>']
   if row["state"] not in ("rejected",):
