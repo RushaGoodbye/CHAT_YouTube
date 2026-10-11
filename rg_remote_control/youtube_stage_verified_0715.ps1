@@ -2,6 +2,7 @@
 # No execution, no UAC, no app shutdown or YouTube changes.
 $ErrorActionPreference="Stop"
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $token=[string]$env:RG_ARTIFACT_READ_TOKEN
 if([string]::IsNullOrWhiteSpace($token)){throw "Missing scoped GitHub Actions read token"}
 $id=11708554913
