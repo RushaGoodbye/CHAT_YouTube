@@ -29,7 +29,7 @@ def candidate(row):
  detected=row.get("detected_at")
  if detected is None:detected=0
  if isinstance(detected,bool) or not isinstance(detected,int) or detected<0:raise ValueError("detected_at_invalid")
- return {"event_id":"nasnews:"+cid,"kind":"news_candidate","source":"nas-local-spool","payload":{"candidate_id":cid,"headline":headline.strip(),"source_url":source,"image_url":image,"detected_at":detected}}
+ return {"event_id":("nasnews:v2:" if detected>0 else "nasnews:")+cid,"kind":"news_candidate","source":"nas-local-spool","payload":{"candidate_id":cid,"headline":headline.strip(),"source_url":source,"image_url":image,"detected_at":detected}}
 def intake_module():
  f=pathlib.Path(__file__).with_name("rg_telegram_nas_event_intake_v1.py")
  if not f.is_file():raise ValueError("event_intake_missing")
@@ -77,10 +77,12 @@ def selftest():
   assert b["stored"]==0 and b["duplicates"]==2,b
   with sqlite3.connect(str(dbp)) as db:
    assert db.execute("SELECT count(*) FROM events WHERE kind='news_candidate'").fetchone()[0]==1
+  assert candidate({**example,"detected_at":1000})["event_id"]=="nasnews:v2:aabbccddeeff"
+  assert candidate({**example,"detected_at":0})["event_id"]=="nasnews:aabbccddeeff"
   assert not https_url("http://example.org/asset.jpg")
   assert not https_url("https://user:pass@example.org/a")
   assert not https_url("https://example.org/a#fragment")
- print(json.dumps({"selftest":"PASS","inbox_dedup":"PASS","required_image":"PASS","url_validation":"PASS","delivery_enabled":False,"network_calls":0}))
+ print(json.dumps({"selftest":"PASS","inbox_dedup":"PASS","required_image":"PASS","timestamp_migration":"PASS","url_validation":"PASS","delivery_enabled":False,"network_calls":0}))
 def main():
  p=argparse.ArgumentParser()
  p.add_argument("mode",choices=["selftest","once","status"])
