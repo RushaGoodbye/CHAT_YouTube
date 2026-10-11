@@ -40,6 +40,14 @@ if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
   fi
 fi
 
+# RG_KYIV_SHADOW_POLL_BEGIN
+# Read-only Kyiv alert sampler. It never sends Telegram messages.
+# Ubilling cache and 429 cooldown are enforced inside the Python adapter.
+if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_kyiv_ubilling_live_shadow_v1.py" ]; then
+  /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_kyiv_ubilling_live_shadow_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/kyiv_shadow.log" 2>&1 || true
+fi
+# RG_KYIV_SHADOW_POLL_END
+
 AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"
 if [ ! -x "$AUTODEPLOY" ]; then
   printf '%s\n' "ERROR" > "$STATE/scheduler_last_check_status"
