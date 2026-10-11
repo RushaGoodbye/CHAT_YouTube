@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_verified_0717",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "realvideo-qa-passed-0717-stage-verified-installer-20261011"
+    "nonce": "verify-installed-0717-user-confirmed-20261011-v1"
   }
 }
