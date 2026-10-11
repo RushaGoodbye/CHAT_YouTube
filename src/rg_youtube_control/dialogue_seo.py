@@ -373,19 +373,21 @@ def ab_title_issues(
         # two-word subject (regression: "family psychology" in political SEO).
         unsupported_subjects = (
             r"семейн\w*\s+психолог\w*",
+            r"семей\w*\s+психолог\w*",
             r"сімейн\w*\s+психолог\w*",
-            r"семейной\s+психологии",
+            r"сімей\w*\s+психолог\w*",
         )
-        # Only verified verbatim evidence supports a subject. A generated
-        # summary/topic is not evidence, even when it repeats title words.
-        evidence_text = " ".join(
+        # A phrase must occur inside ONE source quotation, never across
+        # separate dialogue fragments or in model-written topic summaries.
+        evidence_fragments = [
             _compact(item.get("evidence")).casefold()
             for block in report.get("blocks") or []
             for item in block.get("topics") or []
             if isinstance(item, dict)
-        )
+        ]
         supported_family_topic = any(
-            re.search(pattern, evidence_text, flags=re.UNICODE)
+            re.search(pattern, fragment, flags=re.UNICODE)
+            for fragment in evidence_fragments
             for pattern in unsupported_subjects
         )
         for index, value in enumerate(values, 1):
