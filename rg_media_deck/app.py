@@ -29,10 +29,13 @@ from video_fit import Crop, detect_letterbox, stable_crop, fitted_frame_rect, fi
 from content_region import detect_content_region
 from playback_health import DynamicCropState, PlaybackHealth
 from crop_selection import CropSelectionDialog
+from media_collections import add_files, remove_file_references, migrate_path
+from live_library import RecursiveMediaWatcher, changed_files
+from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.5'
+VERSION = '0.4.0'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -731,6 +734,17 @@ class MainWindow(QMainWindow):
         self.file_tags = dict(self.settings['tags'])
         self.hover_thumbnails = self.settings['hover_thumbnails']
         self.bookmarks = dict(self.settings['bookmarks'])
+        self.collections = dict(self.settings['collections'])
+        self.auto_library_updates = self.settings['auto_library_updates']
+        self._changed_paths = set()
+        self._directory_changed = False
+        self._library_watcher = RecursiveMediaWatcher()
+        self._library_watcher.bridge.changed.connect(self._on_external_file_change)
+        self._library_timer = QTimer(self)
+        self._library_timer.setSingleShot(True)
+        self._library_timer.setInterval(1700)
+        self._library_timer.timeout.connect(self._apply_external_file_changes)
+        self._streamdeck = GlobalMediaHotkeys(self._streamdeck_action)
         self._hover_item = None
         self._thumbnail_thread = None
         self._thumb_hover_timer = QTimer(self)
@@ -752,6 +766,9 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(STYLE)
         self._init_ui()
         self._shortcuts()
+        if '--selftest' not in sys.argv:
+            QApplication.instance().installNativeEventFilter(self._streamdeck)
+            self._streamdeck.register()
         if self.roots:
             QTimer.singleShot(250, self.scan)
         else:
@@ -768,6 +785,10 @@ class MainWindow(QMainWindow):
         add = menu.addAction('＋ Додати папку...')
         folders = menu.addAction('▣ Папки медіатеки...')
         refresh = menu.addAction('↻ Оновити медіатеку (F5)')
+        collection_editor = menu.addAction('▣ Тематичні добірки...')
+        auto_sync = menu.addAction('Автооновлення файлів у папках')
+        auto_sync.setCheckable(True)
+        auto_sync.setChecked(self.auto_library_updates)
         menu.addSeparator()
         auto = menu.addAction('Автоматично прибирати чорні поля (Z)')
         auto.setCheckable(True)
@@ -792,6 +813,7 @@ class MainWindow(QMainWindow):
         safe.setCheckable(True)
         safe.setChecked(self.safe_selection)
         menu.addSeparator()
+        deck_action = menu.addAction('⌨ Stream Deck: глобальні клавіші')
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
@@ -801,6 +823,14 @@ class MainWindow(QMainWindow):
             self.manage_folders()
         elif choice == refresh:
             self.scan()
+        elif choice == collection_editor:
+            self.manage_collections()
+        elif choice == auto_sync:
+            self.auto_library_updates = auto_sync.isChecked()
+            self._save()
+            self._setup_library_watcher()
+            self.status.setText('Автооновлення медіатеки увімкнено' if self.auto_library_updates else
+                                'Автооновлення медіатеки вимкнено')
         elif choice == auto:
             self.set_auto_crop(auto.isChecked())
         elif choice in mode_actions:
@@ -821,6 +851,11 @@ class MainWindow(QMainWindow):
             self._save()
             self.status.setText('Безпечний вибір увімкнено' if self.safe_selection else
                                 'Автозапуск при виборі файлу увімкнено')
+        elif choice == deck_action:
+            QMessageBox.information(self, 'Stream Deck',
+                'У Stream Deck виберіть дію Hotkey і задайте:\n' + hotkey_guide()
+                + ('\n\nЗайняті системою клавіші:\n' + '\n'.join(self._streamdeck.errors)
+                   if self._streamdeck.errors else '\n\nДіє, навіть коли OBS у фокусі.'))
         elif choice == help_action:
             self.shortcuts_help()
         elif choice == updates:
@@ -830,6 +865,8 @@ class MainWindow(QMainWindow):
         command = updater.prepare_installer(Path(staged), sha256, version)
         if self.scanner and self.scanner.isRunning():
             raise RuntimeError('Зачекайте завершення сканування перед встановленням')
+        if self.preview.current is not None:
+            raise RuntimeError('Зупиніть трансляцію матеріалу перед оновленням програми')
         # Inno Setup installs the next version without a console; close this app first.
         subprocess.Popen(command, cwd=str(Path(command[0]).parent),
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
@@ -870,6 +907,11 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.kind)
         self.only_favorites = QCheckBox('★ Обране')
         controls.addWidget(self.only_favorites)
+        self.collection_filter = QComboBox()
+        self.collection_filter.setMinimumWidth(110)
+        self.collection_filter.addItem('Усі добірки', '')
+        self._refresh_collections()
+        controls.addWidget(self.collection_filter)
         controls.addStretch(1)
         lv.addLayout(controls)
         self.model = MediaModel()
@@ -1003,6 +1045,7 @@ class MainWindow(QMainWindow):
         self.search.textChanged.connect(self.filter_timer.start)
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
+        self.collection_filter.currentIndexChanged.connect(self.apply_filter)
         self.table.selectionModel().currentRowChanged.connect(self.selection_changed)
         self.table.doubleClicked.connect(lambda _: self.play_selected())
         self.table.customContextMenuRequested.connect(self.show_file_context_menu)
@@ -1113,6 +1156,8 @@ class MainWindow(QMainWindow):
                 'tags': self.file_tags,
                 'bookmarks': self.bookmarks,
                 'hover_thumbnails': self.hover_thumbnails,
+                'collections': self.collections,
+                'auto_library_updates': self.auto_library_updates,
             })
         except OSError as exc:
             self.status.setText(f'Налаштування не збережені: {exc}')
@@ -1171,12 +1216,17 @@ class MainWindow(QMainWindow):
         self.all_media = items
         self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
+        self._setup_library_watcher()
         self.status.setText(f'Бібліотека оновлена: {len(items)} медіафайлів. Файли на диску не змінено.')
 
     def apply_filter(self):
         old_path = self.selected.path if self.selected else None
         filtered = self.search_index.filter(self.search.text(), self.kind.currentData(),
                                            self.favorites, self.only_favorites.isChecked())
+        collection = self.collection_filter.currentData()
+        if collection:
+            members = set(self.collections.get(collection, []))
+            filtered = [item for item in filtered if normalize_path(item.path) in members]
         # Block selection signals BEFORE model reset. No user selection should
         # start another video just because the filter changed.
         from PySide6.QtCore import QSignalBlocker
@@ -1200,6 +1250,8 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Обрано: {display_media_name(item.name)} | В ефірі: {live}. Enter / подвійний клік: показати')
         if not self.safe_selection:
             self.play_selected()
+        else:
+            self.preview.prepare_item(item)
 
     def toggle_favorite(self):
         if self.selected:
@@ -1237,6 +1289,7 @@ class MainWindow(QMainWindow):
         rename_action = menu.addAction('Перейменувати файл...')
         move_action = menu.addAction('Перемістити до папки...')
         tags_action = menu.addAction('Теги для пошуку...')
+        to_collection = menu.addAction('＋ Додати до добірки...')
         reveal_action = menu.addAction('Показати розташування')
         rename_action.setEnabled(not many)
         choice = menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -1253,6 +1306,8 @@ class MainWindow(QMainWindow):
             self.move_selected_files(items)
         elif choice == tags_action:
             self.edit_tags(items)
+        elif choice == to_collection:
+            self.add_selected_to_collection(items)
         elif choice == reveal_action:
             self.reveal_file(item)
 
@@ -1293,6 +1348,7 @@ class MainWindow(QMainWindow):
                 errors.append(f'{item.name}: {exc}')
         if removed:
             self.favorites.difference_update(removed)
+            self.collections = remove_file_references(self.collections, list(removed))
             self.file_fit_modes = {key: value for key, value in self.file_fit_modes.items() if key not in removed}
             self.file_manual_crops = {key: value for key, value in self.file_manual_crops.items() if key not in removed}
             self.file_tags = {key: value for key, value in self.file_tags.items() if key not in removed}
@@ -1337,6 +1393,7 @@ class MainWindow(QMainWindow):
             self.file_tags[normalize_path(new_path)] = self.file_tags.pop(old_key)
         if old_key in self.bookmarks:
             self.bookmarks[normalize_path(new_path)] = self.bookmarks.pop(old_key)
+        self.collections = migrate_path(self.collections, item.path, new_path)
         self.selected = None
         self._save()
         self.scan()
@@ -1355,6 +1412,7 @@ class MainWindow(QMainWindow):
                 errors.append(f'{item.name}: {exc}')
                 continue
             moved += 1
+            self.collections = migrate_path(self.collections, item.path, new_path)
             old_key = normalize_path(item.path)
             if old_key in self.favorites:
                 self.favorites.remove(old_key)
@@ -1754,6 +1812,10 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
+        self._library_timer.stop()
+        self._library_watcher.stop()
+        self._streamdeck.close()
+        QApplication.instance().removeNativeEventFilter(self._streamdeck)
         self._watchdog_timer.stop()
         self._hover_item = None
         self._thumb_hover_timer.stop()
