@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_install_boot_ready",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "migrate-to-nas-agent-20261006"
+    "nonce": "diagnose-duplicate-install-black-console-20261011"
   }
 }
