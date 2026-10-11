@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import os
 import sys
 import subprocess
@@ -26,11 +27,12 @@ from file_operations import trash_file, rename_file, move_file
 from recycle_utils import normalize_recycle_path
 from video_fit import Crop, detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
 from content_region import detect_content_region
+from playback_health import DynamicCropState, PlaybackHealth
 from crop_selection import CropSelectionDialog
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.3.3'
+VERSION = '0.3.4'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -174,15 +176,13 @@ class FitVideoViewport(QWidget):
         self.fit_mode = 'auto'
         self.manual_crop = None
         self.forced_portrait = False
-        self._samples = []
-        self._frame_count = 0
+        self._dynamic_crop = DynamicCropState()
         self._image = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def reset_crop(self):
         self.crop = None
-        self._samples.clear()
-        self._frame_count = 0
+        self._dynamic_crop.reset()
         self.source_size = (0, 0)
         self._image = None
         self.update()
@@ -210,13 +210,13 @@ class FitVideoViewport(QWidget):
         self.auto_crop = False
         self.forced_portrait = False
         self.crop = crop
-        self._samples.clear()
+        self._dynamic_crop.reset()
         self.update()
 
     def set_forced_portrait(self, enabled: bool):
         self.forced_portrait = bool(enabled)
         self.crop = None
-        self._samples.clear()
+        self._dynamic_crop.reset()
         self._force_portrait_if_possible()
         self.update()
 
@@ -260,10 +260,7 @@ class FitVideoViewport(QWidget):
         if self.forced_portrait:
             self._force_portrait_if_possible()
             return
-        if not self.auto_crop or self.crop is not None:
-            return
-        self._frame_count += 1
-        if self._frame_count not in (6, 14, 23, 35, 48, 64):
+        if not self.auto_crop or not self._dynamic_crop.next_frame():
             return
         small = picture.scaled(192, 108, Qt.AspectRatioMode.IgnoreAspectRatio,
                                Qt.TransformationMode.FastTransformation)
@@ -282,11 +279,8 @@ class FitVideoViewport(QWidget):
         # The content-region detector handles title cards or colored captions
         # outside a composited video. Letterbox detection remains a fallback.
         inset = detect_content_region(colors)
-        self._samples.append(inset if inset is not None else detect_letterbox(mask))
-        self._samples = self._samples[-3:]
-        detected = stable_crop(self._samples)
-        if detected is not None:
-            self.crop = detected
+        if self._dynamic_crop.observe(inset if inset is not None else detect_letterbox(mask)):
+            self.crop = self._dynamic_crop.crop
             self.update()
 
 class MarkedSlider(QSlider):
@@ -660,6 +654,11 @@ class MainWindow(QMainWindow):
         self._thumb_hover_timer.timeout.connect(self._show_hover_thumbnail)
         self._thumbnail_failures = set()
         self._hover_popup = MediaHoverPopup(self)
+        self._playback_health = PlaybackHealth()
+        self._watchdog_timer = QTimer(self)
+        self._watchdog_timer.setInterval(2000)
+        self._watchdog_timer.timeout.connect(self._check_playback_health)
+        self._watchdog_timer.start()
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
@@ -702,6 +701,8 @@ class MainWindow(QMainWindow):
         thumbs = menu.addAction('Мініатюри при наведенні (диск)')
         thumbs.setCheckable(True)
         thumbs.setChecked(self.hover_thumbnails)
+        retry = menu.addAction('↻ Повторити поточне відео після збою')
+        retry.setEnabled(bool(self.preview.current and self.preview.current.kind == 'video'))
         safe = menu.addAction('Безпечний вибір: один клік не змінює ефір')
         safe.setCheckable(True)
         safe.setChecked(self.safe_selection)
@@ -728,6 +729,8 @@ class MainWindow(QMainWindow):
                 self._hover_popup.hide()
             self._save()
             self.status.setText('Мініатюри увімкнено' if self.hover_thumbnails else 'Мініатюри вимкнено для економії диска')
+        elif choice == retry:
+            self.retry_live_video()
         elif choice == safe:
             self.safe_selection = safe.isChecked()
             self._save()
@@ -1524,6 +1527,8 @@ class MainWindow(QMainWindow):
                 self.status.setText('Пауза')
 
     def preview_progress(self, position: int):
+        if self.preview.current and self.preview.current.kind == 'video':
+            self._playback_health.progress(int(time.monotonic() * 1000), position)
         if not self.preview_seek.isSliderDown():
             self.preview_seek.setValue(position)
         duration = self.preview.player.duration() if self.preview.player is not None else 0
@@ -1561,6 +1566,7 @@ class MainWindow(QMainWindow):
         if not self.preview.play_item(self.selected):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        self._playback_health.reset(int(time.monotonic() * 1000))
         # PlayerSurface.play_item() resets the last frame and current crop.
         # Restore the user's per-file manual rectangle AFTER that reset.
         if coordinates and self.selected.kind == 'video':
@@ -1571,6 +1577,7 @@ class MainWindow(QMainWindow):
         self._update_play_button()
 
     def stop_playback(self):
+        self._playback_health = PlaybackHealth()
         self.preview.black_out()
         self.preview.black.setText('')
         self.preview_seek.setValue(0)
@@ -1619,10 +1626,50 @@ class MainWindow(QMainWindow):
 
     def _preview_error(self, error, description):
         if error != QMediaPlayer.Error.NoError:
-            self.status.setText(f'ПОМИЛКА відтворення: {description}')
+            self.status.setText(f'ПОМИЛКА відтворення: {description}. ⚙ → Повторити поточне відео')
             logging.error('Preview media error: %s', description)
 
+    def _check_playback_health(self):
+        player, item = self.preview.player, self.preview.current
+        if player is None or item is None or item.kind != 'video':
+            return
+        status = player.mediaStatus()
+        buffering = status in (
+            QMediaPlayer.MediaStatus.BufferingMedia,
+            QMediaPlayer.MediaStatus.LoadingMedia,
+        )
+        if self._playback_health.stalled(
+                int(time.monotonic() * 1000),
+                playing=player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+                buffering=buffering):
+            self.status.setText('ВІДТВОРЕННЯ НЕ ПРОСУВАЄТЬСЯ. ⚙ → Повторити поточне відео')
+            logging.warning('Playback stall, position=%s, file=%s', player.position(), item.path)
+
+    def retry_live_video(self):
+        """Explicit recovery only, never spontaneously replace on-air content."""
+        current, old_player = self.preview.current, self.preview.player
+        if current is None or current.kind != 'video' or old_player is None:
+            self.status.setText('Немає відео для відновлення')
+            return
+        position = max(0, old_player.position())
+        saved_mode = self.file_fit_modes.get(normalize_path(current.path), 'auto')
+        rectangle = self.file_manual_crops.get(normalize_path(current.path))
+        self.preview.video_view.set_fit_mode(saved_mode if rectangle or saved_mode != 'manual' else 'auto')
+        if not self.preview.play_item(current):
+            self.status.setText('Не вдалося відновити відтворення')
+            return
+        if saved_mode == 'manual' and rectangle:
+            self.preview.video_view.set_manual_crop(Crop(*rectangle))
+        new_player = self.preview.player
+        self._playback_health.reset(int(time.monotonic() * 1000), position)
+        def restore_position():
+            if self.preview.current is current and self.preview.player is new_player:
+                new_player.setPosition(position)
+        QTimer.singleShot(650, restore_position)
+        self.status.setText(f'Відео перезапущено з {timestamp(position)}')
+
     def closeEvent(self, event):
+        self._watchdog_timer.stop()
         self._hover_item = None
         self._thumb_hover_timer.stop()
         self._hover_popup.hide()
