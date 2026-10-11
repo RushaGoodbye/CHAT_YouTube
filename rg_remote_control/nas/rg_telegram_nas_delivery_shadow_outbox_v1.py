@@ -27,21 +27,32 @@ def setup(db):
  db.execute("CREATE INDEX IF NOT EXISTS nas_shadow_delivery_outbox_status ON nas_shadow_delivery_outbox(status)")
 def required(db):
  names={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
- need={"events","moderation_projection","shadow_publish_intents"}
+ need={"events","moderation_projection","shadow_publish_intents","shadow_event_receipts"}
  if not need<=names:raise RuntimeError("stage1_tables_missing")
+def verified_receipt(db,eid,kind,source,payload):
+ # The NAS events table intentionally has NO source column. Source is captured
+ # in the deduplication hash in shadow_event_receipts by the intake module.
+ row=db.execute("SELECT payload_sha256 FROM shadow_event_receipts WHERE event_id=?",(eid,)).fetchone()
+ if not row:return False
+ expected=hashlib.sha256((kind+"\0"+source+"\0"+payload).encode("utf-8")).hexdigest()
+ return row[0]==expected
 def decision_event(db,cid,eid,review_at):
- row=db.execute("SELECT kind,source,payload FROM events WHERE event_id=?",(eid,)).fetchone()
+ row=db.execute("SELECT kind,payload FROM events WHERE event_id=?",(eid,)).fetchone()
  if row is None:return False
- kind,source,payload=row
+ kind,payload=row
  d=decode(payload)
- return (kind=="moderation_decision" and source=="nas-operator-review"
-  and d.get("candidate_id")==cid and d.get("decision")=="approved" and
-  d.get("reviewed_at")==review_at)
+ return (kind=="moderation_decision"
+  and eid=="nasreview:"+cid+":"+str(review_at)+":approved"
+  and verified_receipt(db,eid,kind,"nas-operator-review",payload)
+  and d.get("candidate_id")==cid and d.get("decision")=="approved"
+  and d.get("reviewed_at")==review_at and d.get("reason_code")=="operator_verified")
 def latest_news(db,cid,headline,image,source,now):
- rows=db.execute("SELECT payload FROM events WHERE kind='news_candidate' ORDER BY rowid DESC LIMIT 5000")
- for (raw,) in rows:
+ rows=db.execute("SELECT event_id,kind,payload FROM events WHERE kind='news_candidate' ORDER BY rowid DESC LIMIT 5000")
+ for eid,kind,raw in rows:
   d=decode(raw)
   if d.get("candidate_id")!=cid or d.get("headline")!=headline or d.get("source_url")!=source or d.get("image_url")!=image:continue
+  if not (eid in ("nasnews:"+cid,"nasnews:v2:"+cid)):continue
+  if not verified_receipt(db,eid,kind,"nas-local-spool",raw):continue
   ts=d.get("detected_at")
   if isinstance(ts,int) and not isinstance(ts,bool) and now-MAX_AGE<=ts<=now+300:return d
  return None
@@ -116,24 +127,41 @@ def selftest():
  now=1760212800
  with tempfile.TemporaryDirectory() as tmp:
   with sqlite3.connect(str(pathlib.Path(tmp)/"test.sqlite"),isolation_level=None) as db:
-   db.execute("CREATE TABLE events(event_id TEXT PRIMARY KEY,kind TEXT,payload TEXT)")
+   # Exactly the NAS Stage 1 schema (no events.source column).
+   db.execute("""CREATE TABLE events(
+     event_id TEXT PRIMARY KEY,kind TEXT,payload TEXT,
+     created_at INTEGER,state TEXT)""")
+   db.execute("""CREATE TABLE shadow_event_receipts(
+     event_id TEXT PRIMARY KEY,payload_sha256 TEXT NOT NULL,
+     first_seen_at INTEGER NOT NULL)""")
    db.execute("""CREATE TABLE moderation_projection(
     candidate_id TEXT PRIMARY KEY,headline TEXT,image_url TEXT,source_url TEXT,
     decision TEXT,status TEXT,review_event_id TEXT,review_at INTEGER)""")
    db.execute("CREATE TABLE shadow_publish_intents(candidate_id TEXT PRIMARY KEY,event_id TEXT,status TEXT)")
+   def ingest(eid,kind,source,payload):
+    raw=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(",",":"))
+    digest=hashlib.sha256((kind+"\0"+source+"\0"+raw).encode("utf-8")).hexdigest()
+    db.execute("INSERT INTO events VALUES(?,?,?,?,?)",(eid,kind,raw,now,"shadow"))
+    db.execute("INSERT INTO shadow_event_receipts VALUES(?,?,?)",(eid,digest,now))
    cid="abcde0123456";eid="nasreview:"+cid+":"+str(now)+":approved"
    title="Підтверджена новина з фото";img="https://example.org/photo.jpg";url="https://example.org/news"
-   db.execute("INSERT INTO events VALUES(?,?,?)",("nasnews:v2:"+cid,"news_candidate",json.dumps({"candidate_id":cid,"headline":title,"image_url":img,"source_url":url,"detected_at":now-180})))
-   db.execute("INSERT INTO events VALUES(?,?,?)",(eid,"moderation_decision",json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now})))
-   # Adjust event source to production shape
-   db.execute("ALTER TABLE events ADD COLUMN source TEXT")
-   db.execute("UPDATE events SET source='nas-local-spool' WHERE kind='news_candidate'")
-   db.execute("UPDATE events SET source='nas-operator-review' WHERE kind='moderation_decision'")
+   ingest("nasnews:v2:"+cid,"news_candidate","nas-local-spool",{"candidate_id":cid,"headline":title,"image_url":img,"source_url":url,"detected_at":now-180})
+   ingest(eid,"moderation_decision","nas-operator-review",{"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"})
    db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?,?,?,?)",(cid,title,img,url,"approved","ready_shadow",eid,now))
    db.execute("INSERT INTO shadow_publish_intents VALUES(?,?,?)",(cid,eid,"shadow_only"))
    assert stage(db,now)["changed"]==1
    assert report(db)["staged"]==1
    assert stage(db,now)["changed"]==0
+   # Tampered event must be blocked even when projection still looks approved.
+   db.execute("UPDATE events SET payload=? WHERE event_id=?",(json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"}),eid))
+   assert stage(db,now)["changed"]==1
+   assert dict(db.execute("SELECT reason,count(*) FROM nas_shadow_delivery_outbox GROUP BY reason"))["review_event_unverified"]==1
+   db.execute("DELETE FROM events WHERE event_id=?",(eid,))
+   ingest2=json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"},sort_keys=True,ensure_ascii=False,separators=(",",":"))
+   # Restoring the exact original serialized payload reestablishes the proof.
+   db.execute("INSERT INTO events VALUES(?,?,?,?,?)",(eid,"moderation_decision",ingest2,now,"shadow"))
+   assert stage(db,now)["changed"]==1
+   assert report(db)["staged"]==1
    db.execute("UPDATE moderation_projection SET decision='rejected',status='rejected'")
    db.execute("DELETE FROM shadow_publish_intents")
    assert stage(db,now)["changed"]==1
@@ -143,7 +171,8 @@ def selftest():
    assert stage(db,now+MAX_AGE+3600)["changed"]==1
    assert dict(db.execute("SELECT reason,count(*) FROM nas_shadow_delivery_outbox GROUP BY reason"))["news_record_stale_or_mismatch"]==1
    assert report(db)["live_delivery_enabled"] is False
- print(json.dumps({"selftest":"PASS","dedup":"PASS","revocation":"PASS","expiration":"PASS",
+ print(json.dumps({"selftest":"PASS","production_events_schema":"PASS","receipt_provenance":"PASS",
+    "dedup":"PASS","tamper_detection":"PASS","revocation":"PASS","expiration":"PASS",
     "cloudflare_receipts_gate":"CLOSED","telegram_sends":0,"network_calls":0}))
 def main():
  p=argparse.ArgumentParser()
