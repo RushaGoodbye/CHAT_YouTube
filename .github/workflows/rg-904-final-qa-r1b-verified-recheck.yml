@@ -1,0 +1,63 @@
+name: RG 904 Final QA R1B Verified Recheck
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - '.github/workflows/rg-904-final-qa-r1b-verified-recheck.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-final-qa-r1b:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify installed expected IDs correction and snapshot XML hashes
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/fix_904_postrun_expected_ids_r1b.py --verify
+          if ($LASTEXITCODE -ne 0) { throw 'R1B is not installed' }
+          $hashes=@{}
+          foreach($i in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_'+$i+'.xml')
+            $hashes[$n]=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+          }
+          $hashes | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\rg904_final_before_sha.json"
+      - name: Run only 904 postrun QA, without backend or cleanup
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --rerun-qa
+          if ($LASTEXITCODE -ne 0) { throw '904 QA-only rerun failed' }
+      - name: Confirm real PASS and exactly six expected dialogue IDs
+        shell: pwsh
+        run: |
+          $data=Get-Content 'F:\RG_AUTO_EDIT\RG Auto Edit App\904\RG_POSTRUN_QA.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+          if (-not $data.passed -or $data.xml_count -ne 6) { throw 'Not final PASS with six primary XMLs' }
+          $row=$data.checks | Where-Object { $_.name -eq 'Повнота діалогів' } | Select-Object -First 1
+          if (-not $row.ok -or $row.detail -ne 'PASS • expected=1,2,4,5,6,7') { throw "Unexpected completeness: $($row.detail)" }
+          foreach($name in @('Блюр сигарети','Сигарети • детекція/blur','Аудіо ORIGINAL SOURCE','Перевірка XML','Premiere сумісність','Контроль меж')) {
+            $check=$data.checks | Where-Object { $_.name -eq $name } | Select-Object -First 1
+            if (-not $check.ok) { throw "Failed check: $name" }
+          }
+          Write-Output 'RG_904_POSTRUN_EXPECTED_IDS_6_ACCEPTED_ONLY_PASS'
+      - name: Compare source XML SHA256 against snapshot
+        shell: pwsh
+        run: |
+          $before=Get-Content "$env:RUNNER_TEMP\rg904_final_before_sha.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach($i in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_'+$i+'.xml')
+            $sha=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+            if ($sha -ne $before.$n) { throw "XML changed: $n" }
+          }
+          Write-Output 'RG_904_ALL_SIX_ORIGINAL_XML_SHA256_UNCHANGED_PASS'
