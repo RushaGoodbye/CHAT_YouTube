@@ -1,0 +1,83 @@
+name: RG 904 Final Postrun QA R1 Repair
+on:
+  push:
+    branches: ['auto-edit/892-threezone-shadow-20261010']
+    paths:
+      - 'rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py'
+      - '.github/workflows/rg-904-final-postrun-qa-r1-repair.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-and-repair-final-qa-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture immutable 904 original dialogue XML checksums
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App\904'
+          $hashes=@{}
+          foreach ($id in @(1,2,4,5,6,7)) {
+            $name=('RG_EDITED_904_' + $id + '.xml')
+            $p=Join-Path $root $name
+            if (-not (Test-Path $p)) { throw "Original XML not found: $name" }
+            $hashes[$name]=(Get-FileHash $p -Algorithm SHA256).Hash
+          }
+          $hashes | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\rg904_postrun_before.json"
+      - name: Dry run - six real cigarette QAs and documented skip only
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --shadow
+          if ($LASTEXITCODE -ne 0) { throw "Postrun QA R1 shadow failed ($LASTEXITCODE)" }
+      - name: Back up and patch ONLY final QA collector
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --apply
+          if ($LASTEXITCODE -ne 0) { throw "Postrun QA R1 install failed ($LASTEXITCODE)" }
+      - name: Verify installed code and original XML snapshot
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --verify
+          if ($LASTEXITCODE -ne 0) { throw "Postrun QA R1 verify failed ($LASTEXITCODE)" }
+          $hashes=Get-Content "$env:RUNNER_TEMP\rg904_postrun_before.json" -Raw | ConvertFrom-Json
+          foreach ($id in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_' + $id + '.xml')
+            $h=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+            if ($h -ne $hashes.$n) { throw "Protected XML changed: $n" }
+          }
+          Write-Output 'RG_904_XML_SNAPSHOT_SHA256_PASS'
+      - name: Run only postrun QA from saved six XML, never backend
+        shell: powershell
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_remote_control/open_source_v1/install_904_postrun_qa_r1_safe.py --rerun-qa
+          if ($LASTEXITCODE -ne 0) { throw "Real 904 final QA R1 failed ($LASTEXITCODE)" }
+      - name: Verify all six original XML files remained byte-identical
+        shell: powershell
+        run: |
+          $hashes=Get-Content "$env:RUNNER_TEMP\rg904_postrun_before.json" -Raw | ConvertFrom-Json
+          foreach ($id in @(1,2,4,5,6,7)) {
+            $n=('RG_EDITED_904_' + $id + '.xml')
+            $h=(Get-FileHash "F:\RG_AUTO_EDIT\RG Auto Edit App\904\$n" -Algorithm SHA256).Hash
+            if ($h -ne $hashes.$n) { throw "Protected original XML changed: $n" }
+          }
+          Write-Output 'RG_904_FINAL_POSTRUN_QA_R1_ORIGINAL_XML_UNCHANGED_PASS'
