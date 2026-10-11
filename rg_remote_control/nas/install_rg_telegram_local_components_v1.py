@@ -84,7 +84,11 @@ def main():
    finally:
     if os.path.exists(tmp):os.unlink(tmp)
   print(json.dumps({"status":"LOCAL_COMPONENTS_INSTALLED","selftests":"PASS","tests":tests,"scheduler_hook":MARK in SCHED.read_text(errors="replace"),"cloudflare_calls":0,"telegram_sends":0,"local_news_inbox":str(STATE/"candidate_inbox.jsonl"),"rss_sources":2},ensure_ascii=False))
-  for name,mode in [(FILENAMES[2][0],"once"),(FILENAMES[0][0],"once"),(FILENAMES[1][0],"once"),(FILENAMES[0][0],"status")]:
+  # External RSS availability is non-critical: installation has already passed
+  # static selftests. Feed failures cannot roll back a valid local install.
+  scanner=subprocess.run([sys.executable,str(STATE/FILENAMES[2][0]),"once"],capture_output=True,text=True,timeout=50)
+  print(scanner.stdout.strip() or scanner.stderr.strip() or json.dumps({"status":"RSS_SCAN_UNAVAILABLE"}))
+  for name,mode in [(FILENAMES[0][0],"once"),(FILENAMES[1][0],"once"),(FILENAMES[0][0],"status")]:
    print(execute([sys.executable,str(STATE/name),mode]))
 if __name__=="__main__":
  try:main()
