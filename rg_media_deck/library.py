@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
+from settings_safety import backup_settings_once_daily, recover_settings_from_backup
 
 VIDEO_EXTS = frozenset({
     '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.wmv', '.mpeg',
@@ -157,7 +158,12 @@ def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
     defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True}
     try:
-        data = json.loads(p.read_text(encoding='utf-8'))
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+        except (ValueError, OSError, UnicodeError):
+            data = recover_settings_from_backup(p)
+            if data is None:
+                return defaults
         if not isinstance(data, dict):
             return defaults
         roots = data.get('roots', [])
@@ -197,6 +203,11 @@ def save_settings(data: dict, path: Path | None = None) -> None:
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             json.dump(data, stream, ensure_ascii=False, indent=2)
         os.replace(tmp, p)
+        try:
+            backup_settings_once_daily(p)
+        except (OSError, ValueError):
+            # Backups are best-effort: do not fail an otherwise successful save.
+            pass
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
