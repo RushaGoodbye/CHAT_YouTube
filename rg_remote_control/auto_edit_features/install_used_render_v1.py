@@ -196,7 +196,7 @@ def patch_ui(src):
             self.thumbnail_refresh_dialogues()
             self.thumb_status.setText(f"Оновлено статус {count} діалогів • файли не перейменовувалися")
         except Exception as exc:
-            QMessageBox.warning(self,"Діалоги",f"Не вдалося зберегти позначки:\\\\n{exc}")
+            QMessageBox.warning(self,"Діалоги",f"Не вдалося зберегти позначки:\\n{exc}")
 
     def _thumbnail_checked_paths(self):'''
     src=replace_one(src,old,new,"manual status method")
@@ -206,7 +206,7 @@ def patch_ui(src):
         flags=statuses(selected)
         old=[Path(p).name for p in selected if flags[p]["used"]]
         if old:
-            prompt="Ці діалоги вже використовувались:\\\\n"+", ".join(old[:12])+"\\\\n\\\\nЗібрати повторно?"
+            prompt="Ці діалоги вже використовувались:\\n"+", ".join(old[:12])+"\\n\\nЗібрати повторно?"
             if QMessageBox.question(self,"Повторне використання",prompt,QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes:
                 return
         job=self._thumbnail_ensure_job()
