@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
-  "args": {
-    "streams": []
-  },
-  "nonce": "overnight-readiness-all-20261011-2300"
+  "action": "inspect_auto_edit_live_cigarette_failure_v1",
+  "args": {},
+  "nonce": "overnight-cigarette-no-hard-block-audit-20261011"
 }
