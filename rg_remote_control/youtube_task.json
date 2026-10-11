@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_ollama_chat_diagnose",
+  "action": "youtube_ollama_and_console_probe",
   "args": {
-    "nonce": "ollama-direct-chat-repro-20261011"
+    "nonce": "ollama-missing-server-black-window-fault-20261011"
   }
 }
