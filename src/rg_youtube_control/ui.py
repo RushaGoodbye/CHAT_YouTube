@@ -540,8 +540,28 @@ class ContentOptimizationDialog(QDialog):
                 else "\nТехнічна перевірка завершена."
             )
 
+        # The editor button must report the same A/B gate as saving and
+        # publication. Passing technical checks does not mean publishable.
+        editorial_ok, editorial_reasons = ready_for_youtube(
+            status=_status,
+            generation=self.generation,
+            quality_state=(
+                "safe_metadata" if self.generation.startswith("safe-metadata")
+                else "editor_approved" if _status == "ready" else "review"
+            ),
+            variants=title_variants,
+            scheduled=bool(self.scheduled_publish_at),
+        )
+        if not editorial_ok:
+            lines.append("\nРЕДАКТОРСЬКА ПЕРЕВІРКА:")
+            lines.extend(f"- {reason}" for reason in editorial_reasons)
+        if check.ready and editorial_ok:
+            lines.append("\nПакет пройшов перевірку. Зміни на YouTube не застосовано.")
+        else:
+            lines.append("\nПакет НЕ готовий до застосування на YouTube.")
+
         message = "\n".join(lines)
-        if check.ready:
+        if check.ready and editorial_ok:
             QMessageBox.information(self, "Перевірка пакета", message)
         else:
             QMessageBox.warning(self, "Перевірка пакета", message)
@@ -9728,6 +9748,10 @@ class MainWindow(QMainWindow):
                     draft["title_variants_json"] or "[]"
                 )
                 status = draft["status"]
+                # A stored "ready" flag is not editorial approval. Keep the
+                # original DB record intact, but show the effective status.
+                if status == "ready" and self._effective_optimization_status(video_id) != "ready":
+                    status = "draft"
 
             dialog = ContentOptimizationDialog(
                 title,
