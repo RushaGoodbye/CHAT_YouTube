@@ -1,19 +1,6 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
-  "args": {
-    "streams": [
-      "886",
-      "891",
-      "892",
-      "893",
-      "899",
-      "901",
-      "902",
-      "903",
-      "904",
-      "905"
-    ]
-  }
+  "action": "inspect_auto_edit_901_diagnostic",
+  "args": {}
 }
