@@ -3432,6 +3432,35 @@ class MainWindow(QMainWindow):
                 self.optimization_status_filter.setCurrentIndex(index)
             self.optimization_status_filter.blockSignals(False)
 
+    def _optimization_search_changed(self, _text: str = "") -> None:
+        # A precise Video ID must never disappear behind remembered filters.
+        candidate = exact_video_id_search(self.optimization_search.text())
+        if candidate:
+            row = self.conn.execute(
+                "SELECT 1 FROM videos WHERE video_id=? AND profile=?",
+                (candidate, self.current_profile),
+            ).fetchone()
+            if row:
+                for field, setting in (
+                    ("optimization_filter", "optimization_queue_filter_"),
+                    ("optimization_status_filter", "optimization_status_filter_"),
+                ):
+                    combo = getattr(self, field, None)
+                    if combo is None or combo.currentData() == "all":
+                        continue
+                    index = combo.findData("all")
+                    if index >= 0:
+                        combo.blockSignals(True)
+                        try:
+                            combo.setCurrentIndex(index)
+                        finally:
+                            combo.blockSignals(False)
+                        set_setting(self.conn, setting + self.current_profile, "all")
+                self.statusBar().showMessage(
+                    "Точний Video ID: фільтри автоматично скинуто", 4500
+                )
+        self.reload_optimization_queue()
+
     def _optimization_view_changed(self, _index: int = -1) -> None:
         if hasattr(self, "optimization_filter"):
             set_setting(
