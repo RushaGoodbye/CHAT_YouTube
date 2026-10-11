@@ -19,7 +19,8 @@ def test_long_timeline_keeps_six_topics_not_twenty_in_description():
     assert description.count("• ") == 6
     assert "Тема 00" in description
     assert "Тема 20" in description
-    assert "Тема 10" in description
+    assert "Тема 08" in description
+    assert "Тема 12" in description
     assert len(omitted) == 15
     assert all(topic not in description for topic in omitted)
 
