@@ -1,5 +1,5 @@
 #define MyAppName "RG Media Deck"
-#define MyAppVersion "0.4.0"
+#define MyAppVersion "0.4.1"
 #define MyAppExeName "RG_Media_Deck.exe"
 [Setup]
 AppId={{C69CBCC4-3124-4124-804D-75D0B97D0224}
@@ -42,5 +42,5 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: ShouldStartWhenSilent
 [Code]
 function ShouldStartWhenSilent(): Boolean;
 begin
-  Result := WizardSilent;
+  Result := WizardSilent and (Pos('/NOAUTOSTART', Uppercase(GetCmdTail)) = 0);
 end;
