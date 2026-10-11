@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_verified_0716",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "single-final-installer-stage-0716-after-realqa-and-windows-pass-20261011"
+    "nonce": "verify-real-installed-0716-after-admin-setup-20261011"
   }
 }
