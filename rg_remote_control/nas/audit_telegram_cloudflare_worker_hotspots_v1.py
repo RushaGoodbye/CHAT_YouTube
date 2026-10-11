@@ -8,15 +8,15 @@ import sys
 ROOT = pathlib.Path("/volume1/docker/RG_ALERTS_DEPLOY")
 ALLOWED = {".js", ".mjs", ".cjs", ".ts", ".tsx"}
 PATTERNS = {
-    "do_namespace_access": r"\\.get\\s*\\(.*\\)|idFrom(Name|String)\\s*\\(",
-    "do_stub_fetch": r"\\b(stub|durableObject|durable_object|room)\\.fetch\\s*\\(",
-    "kv_read": r"\\b(?:KV|kv|STATE|CACHE|CONFIG|store|namespace)\\.get\\s*\\(",
-    "kv_write": r"\\b(?:KV|kv|STATE|CACHE|CONFIG|store|namespace)\\.put\\s*\\(",
-    "external_fetch": r"\\bfetch\\s*\\(",
-    "scheduled_entrypoint": r"\\bscheduled\\s*\\(",
-    "alarm": r"\\b(?:setAlarm|getAlarm|alarm)\\s*\\(",
-    "loop": r"\\b(?:while|for)\\s*\\(",
-    "retry": r"\\b(?:retry|backoff|setInterval|setTimeout)\\b",
+    "do_namespace_access": r"\.get\s*\(.*\)|idFrom(Name|String)\s*\(",
+    "do_stub_fetch": r"\b(stub|durableObject|durable_object|room)\.fetch\s*\(",
+    "kv_read": r"\b(?:KV|kv|STATE|CACHE|CONFIG|store|namespace)\.get\s*\(",
+    "kv_write": r"\b(?:KV|kv|STATE|CACHE|CONFIG|store|namespace)\.put\s*\(",
+    "external_fetch": r"\bfetch\s*\(",
+    "scheduled_entrypoint": r"\bscheduled\s*\(",
+    "alarm": r"\b(?:setAlarm|getAlarm|alarm)\s*\(",
+    "loop": r"\b(?:while|for)\s*\(",
+    "retry": r"\b(?:retry|backoff|setInterval|setTimeout)\b",
 }
 SKIP = {"node_modules", ".git", "dist", "build", ".wrangler", "coverage"}
 
