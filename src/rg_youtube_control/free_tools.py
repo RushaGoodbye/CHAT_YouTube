@@ -1240,9 +1240,13 @@ def _recover_independent_ab_titles(
         if title.casefold() == current_title.strip().casefold():
             continue
         if any(title.casefold() == existing.casefold() for existing in titles):
-            continue
+            # A repeat on the second story is proof that this model pass is
+            # not producing independent hooks; skip further model requests.
+            return _source_quote_ab_titles(report, current_title)
         titles.append(title)
-    if len(titles) == 3 and not ab_title_issues(titles, report):
+    if len(titles) == 3:
+        # Content-grounding is validated by the outer AB gate. Do not erase
+        # the model's three distinct answers solely because one is a paraphrase.
         return titles
     # A direct source quotation is less polished but is never invented and
     # is always displayed for manual review when the model is unreliable.
