@@ -59,10 +59,10 @@ def selftest():
   dbp=pathlib.Path(tmp)/"test.db"
   with sqlite3.connect(str(dbp),isolation_level=None) as db:
    db.execute("CREATE TABLE events(event_id TEXT PRIMARY KEY,kind TEXT,payload TEXT,created_at INTEGER,state TEXT)")
-   db.execute("CREATE TABLE moderation_projection(candidate_id TEXT PRIMARY KEY,headline TEXT,image_url TEXT,source_url TEXT,status TEXT)")
+   db.execute("CREATE TABLE moderation_projection(candidate_id TEXT PRIMARY KEY,headline TEXT,image_url TEXT,source_url TEXT,status TEXT,review_at INTEGER)")
    mod.init(db)
    cid="aabbccddeeff"
-   db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?)",(cid,"Latest verified report","https://example.org/image.jpg","https://example.org/news","awaiting_review"))
+   db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?,?)",(cid,"Latest verified report","https://example.org/image.jpg","https://example.org/news","awaiting_review",None))
    mod.intake(db,{"event_id":"nasnews:v2:"+cid,"kind":"news_candidate","source":"nas-local-spool",
       "payload":{"candidate_id":cid,"headline":"Latest verified report","source_url":"https://example.org/news","image_url":"https://example.org/image.jpg","detected_at":1000}})
   try:submit(dbp,cid,"approved",now=1050)
@@ -71,6 +71,9 @@ def selftest():
   good=submit(dbp,cid,"approved",confirmed=True,now=1050)
   assert good["status"]=="SHADOW_STORED"
   assert submit(dbp,cid,"approved",confirmed=True,now=1050)["status"]=="DUPLICATE"
+  # Mimic projection applying approval before an immediate same-second revocation.
+  with sqlite3.connect(str(dbp)) as db:
+   db.execute("UPDATE moderation_projection SET review_at=1050 WHERE candidate_id=?",(cid,))
   try:submit(dbp,cid,"approved",confirmed=True,now=1000+MAX_AGE+1)
   except ValueError as e:assert str(e)=="stale_or_undated_news"
   else:raise AssertionError("stale_approved")
