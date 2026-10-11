@@ -1118,6 +1118,35 @@ def _recover_missing_description(
     return ""
 
 
+def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
+    """Three different source-grounded story hints from across the timeline."""
+    entries: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for block in report.get("blocks") or []:
+        stamp = str(block.get("start_stamp") or "")
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            topic = " ".join(str(item.get("topic") or "").split())
+            quote = " ".join(str(item.get("evidence") or "").split())
+            if not topic or not quote or topic.casefold() in seen:
+                continue
+            seen.add(topic.casefold())
+            entries.append((stamp, topic, quote[:220]))
+    if len(entries) < 3:
+        return ""
+    n = len(entries)
+    selections: list[int] = []
+    for target in (0, (n - 1) // 2, n - 1):
+        remaining = [i for i in range(n) if i not in selections]
+        selections.append(min(remaining, key=lambda i: abs(i - target)))
+    return "\n".join(
+        f"{label}: [{entries[i][0]}] ТЕМА: {entries[i][1]}; "
+        f"ЦИТАТА: {entries[i][2]}"
+        for label, i in zip(("A", "B", "C"), selections)
+    )
+
+
 def _recover_title_variants(
     *,
     current_title: str,
@@ -1859,9 +1888,18 @@ chapters: рядок з підтвердженими таймкодами та �
                     # One focused recovery using the full grounded outline.
                     # Keep the original candidates if the retry is worse.
                     try:
+                        brief = _ab_distinct_evidence_brief(evidence_report)
+                        targeted = (
+                            "ТРИ РІЗНІ ОПОРИ З РЕАЛЬНИХ ФРАГМЕНТІВ:\n"
+                            + brief + "\n"
+                            + "A/B/C мають висвітлювати РІЗНІ теми, "
+                            + "не змінювати одну фразу тричі. "
+                            + "Без вигаданих фактів.\n\n"
+                            if brief else ""
+                        )
                         recovered = _recover_title_variants(
                             current_title=current_title,
-                            transcript=transcript,
+                            transcript=targeted + transcript,
                             model=model,
                         )
                         if len(ab_title_issues(recovered, evidence_report)) < len(issues):
@@ -2007,7 +2045,7 @@ chapters: рядок з підтвердженими таймкодами та �
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
         )
-    title_issues = ab_title_issues(variants, evidence_report) if evidence_report else []
+    title_issues = ab_title_issues(variants, evidence_report)
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])

@@ -384,6 +384,40 @@ def ab_title_issues(
                     f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
                 )
 
+    # Compare meaningful topic words as well as surface string similarity.
+    # A/B must represent different stories, not three paraphrases with the
+    # same hook (observed on a real 50-minute RG video).
+    common_words = {
+        "россияне", "россия", "росії", "росіян", "россии",
+        "украина", "україна", "война", "війна", "війни",
+        "почему", "чому", "не", "але", "что", "что-то",
+        "вони", "вона", "вони", "этот", "этого", "всі",
+        "для", "как", "кого", "про", "или", "цей", "після",
+        "раша", "гудбай", "чат", "рулетка",
+    }
+    content_stems = [
+        {
+            word[:5] for word in re.findall(
+                r"[a-zа-яёіїєґ]{4,}", value.casefold()
+            )
+            if word not in common_words
+        }
+        for value in normal
+    ]
+    for left in range(3):
+        for right in range(left + 1, 3):
+            a, b = content_stems[left], content_stems[right]
+            shared = a & b
+            union = a | b
+            overlap = len(shared) / len(union) if union else 0.0
+            if len(shared) >= 3 and overlap >= 0.57:
+                warning = (
+                    f"Варіанти {left + 1} і {right + 1} "
+                    "повторюють один сюжетний гачок."
+                )
+                if warning not in issues:
+                    issues.append(warning)
+
     if report:
         # Conservative case-folded stem overlap. Lack of overlap is a review
         # warning, not proof that the proposed phrase is false.
