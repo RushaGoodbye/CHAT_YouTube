@@ -34,6 +34,14 @@ def password():
  text=KEY.read_text("utf-8").strip()
  if len(text)<32:raise RuntimeError("weak_password")
  return text
+def safe_https_url(url):
+ if not isinstance(url,str) or len(url)>1800:return ""
+ try:
+  p=urllib.parse.urlsplit(url)
+  if p.scheme=="https" and p.hostname and not p.username and not p.password and not p.fragment and p.port in (None,443):
+   return url
+ except ValueError:pass
+ return ""
 def review_rows(db_path,now=None):
  now=int(time.time()) if now is None else int(now)
  with sqlite3.connect("file:"+str(db_path)+"?mode=ro",uri=True,timeout=4) as db:
@@ -183,6 +191,8 @@ def selftest():
  assert "a=1&amp;b=2" in page
  assert "Схвалити" not in page
  assert "Відхилити" in page and "Відкласти" in page
+ assert safe_https_url("javascript:alert(1)") == ""
+ assert safe_https_url("https://example.org/")=="https://example.org/"
  assert csrf(key,row["id"],"review") in page
  assert csrf(key,row["id"],"review")!=csrf(key,"otherid","review")
  assert hmac.compare_digest(csrf(key,row["id"],"review"),csrf(key,row["id"],"review"))
