@@ -76,9 +76,9 @@ def render(rows,key,message=""):
   cid=row["id"]
   safe_id=esc(cid)
   fresh=row["fresh"]
-  htmls+=['<article class="card"><img loading="lazy" referrerpolicy="no-referrer" src="',esc(row["image"]),'" alt="Фото новини"><div class="in"><span class="badge">',esc(row["state"]),'</span> ',
+  htmls+=['<article class="card"><img loading="lazy" referrerpolicy="no-referrer" src="',esc(safe_https_url(row["image"])),'" alt="Фото новини"><div class="in"><span class="badge">',esc(row["state"]),'</span> ',
     '<span class="meta '+('fresh' if fresh else 'old')+'">',('Свіжа новина' if fresh else 'Дата не підтверджена / застаріла'),'</span>',
-    '<h3 class="headline">',esc(row["title"]),'</h3><p class="meta">',safe_id,'</p><p><a target="_blank" rel="noopener noreferrer" href="',esc(row["url"]),'">Перевірити першоджерело</a></p>']
+    '<h3 class="headline">',esc(row["title"]),'</h3><p class="meta">',safe_id,'</p><p><a target="_blank" rel="noopener noreferrer" href="',esc(safe_https_url(row["url"])),'">Перевірити першоджерело</a></p>']
   if row["state"] not in ("rejected",):
    htmls+=['<form method="post" action="/decision"><input type="hidden" name="candidate_id" value="',safe_id,'">']
    htmls+=['<label><input type="checkbox" name="verified" value="yes" required> Я перевірив(ла) зміст, фото та відсутність чужих водяних знаків</label><div class="actions">']
