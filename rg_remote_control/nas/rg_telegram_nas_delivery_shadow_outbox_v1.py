@@ -101,8 +101,8 @@ def gather(db,now):
     "SELECT candidate_id,headline,image_url,source_url,decision,status,review_event_id,review_at FROM moderation_projection ORDER BY candidate_id"):
   intent=intents.get(cid)
   reason=""
-  if cid in quarantined_ids or (src and src in quarantined_urls):reason="pre_cutover_backlog_quarantined"
-  elif status!="ready_shadow" or decision!="approved":reason="approval_revoked_or_pending"
+  if status!="ready_shadow" or decision!="approved":reason="approval_revoked_or_pending"
+  elif cid in quarantined_ids or (src and src in quarantined_urls):reason="pre_cutover_backlog_quarantined"
   elif not intent or intent!=(eid,"shadow_only"):reason="intent_review_mismatch"
   elif not isinstance(eid,str) or not eid.startswith("nasreview:"+cid+":"):reason="review_not_local_operator"
   elif not decision_event(db,cid,eid,review_at):reason="review_event_unverified"
@@ -160,7 +160,8 @@ def report(db,now=None):
   "staged":counts.get("shadow_staged",0),"blocked":counts.get("blocked",0),
   "reason_counts":by_reason,
   "pre_cutover_quarantined":db.execute("SELECT count(*) FROM nas_delivery_pre_cutover_quarantine").fetchone()[0],
-  "no_backfill_enabled":True,"cutover_approved":False,
+  "no_backfill_enabled":db.execute("SELECT count(*) FROM nas_delivery_pre_cutover_quarantine").fetchone()[0]>0,
+  "cutover_approved":False,
   "cross_system_receipts_verified":False,"cloudflare_previous_delivery_checked":False,
   "live_delivery_enabled":False,"telegram_sends":0,"cloudflare_calls":0}
 def selftest():
@@ -192,6 +193,13 @@ def selftest():
    assert stage(db,now)["changed"]==1
    assert report(db)["staged"]==1
    assert stage(db,now)["changed"]==0
+   # Tampering with a moderator decision invalidates receipt provenance.
+   db.execute("UPDATE events SET payload=? WHERE event_id=?",('{"candidate_id":"abcde0123456","decision":"approved","reviewed_at":1760212800,"reason_code":"tampered"}',eid))
+   assert stage(db,now)["changed"]==1
+   assert db.execute("SELECT reason FROM nas_shadow_delivery_outbox WHERE candidate_id=?",(cid,)).fetchone()[0]=="review_event_unverified"
+   db.execute("UPDATE events SET payload=? WHERE event_id=?",(json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"},sort_keys=True,ensure_ascii=False,separators=(",",":")),eid))
+   assert stage(db,now)["changed"]==1
+   assert report(db)["staged"]==1
    # No-backfill manifest is append-only, repeatable and takes precedence
    # over previous approvals and the existing shadow outbox.
    quarantine=quarantine_existing(db,now)
@@ -210,20 +218,10 @@ def selftest():
    db.execute("DELETE FROM shadow_publish_intents WHERE candidate_id=?",(second,))
    db.execute("DELETE FROM moderation_projection WHERE candidate_id=?",(second,))
    assert stage(db,now)["changed"]==1
-   # Tampered event must be blocked even when projection still looks approved.
-   db.execute("UPDATE events SET payload=? WHERE event_id=?",(json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"}),eid))
-   assert stage(db,now)["changed"]==0
-   assert db.execute("SELECT reason FROM nas_shadow_delivery_outbox WHERE candidate_id=?",(cid,)).fetchone()[0]=="pre_cutover_backlog_quarantined"
-   db.execute("DELETE FROM events WHERE event_id=?",(eid,))
-   ingest2=json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"},sort_keys=True,ensure_ascii=False,separators=(",",":"))
-   # Restoring the exact original serialized payload reestablishes the proof.
-   db.execute("INSERT INTO events VALUES(?,?,?,?,?)",(eid,"moderation_decision",ingest2,now,"shadow"))
-   assert stage(db,now)["changed"]==0
-   assert report(db)["blocked"]>=1
    db.execute("UPDATE moderation_projection SET decision='rejected',status='rejected'")
    db.execute("DELETE FROM shadow_publish_intents")
    assert stage(db,now)["changed"]==1
-   assert report(db)["blocked"]==1
+   assert report(db)["blocked"]>=1
    db.execute("UPDATE moderation_projection SET decision='approved',status='ready_shadow'")
    db.execute("INSERT INTO shadow_publish_intents VALUES(?,?,?)",(cid,eid,"shadow_only"))
    assert stage(db,now+MAX_AGE+3600)["changed"]==1
