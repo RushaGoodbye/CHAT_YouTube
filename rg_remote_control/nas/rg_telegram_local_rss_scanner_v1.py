@@ -35,7 +35,7 @@ def published_epoch(item):
  raw=(item.findtext("pubDate") or item.findtext("{http://www.w3.org/2005/Atom}published") or item.findtext("{http://www.w3.org/2005/Atom}updated") or "").strip()
  if not raw:return None
  try:
-  if re.match(r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}",raw):
+  if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}",raw):
    import datetime
    dt=datetime.datetime.fromisoformat(raw.replace("Z","+00:00"))
   else:
