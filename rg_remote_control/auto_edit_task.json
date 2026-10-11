@@ -1,7 +1,13 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_execution_functions",
-  "args": {},
-  "nonce": "overnight-postrun-and-batch-resume-verification"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_server_resolver.py",
+      "rg_studio_ui.py",
+      "rg_studio_postrun.py"
+    ]
+  },
+  "nonce": "rg-overnight-resolver-20261011"
 }
