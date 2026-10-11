@@ -22,7 +22,7 @@ def transform(raw):
     if raw.count("watchdogSlotMinute % 15 === 0")==1:
         start=raw.index("watchdogSlotMinute % 15 === 0")
         nearby=raw[start:start+300]
-        if OLD.strip() not in nearby:
+        if "ctx.waitUntil(runDoModerationWatchdog(env)" not in nearby:
             raise ValueError("existing guard does not enclose watchdog call")
         return raw, "ALREADY_GUARDED"
     if raw.count(OLD)!=1:
@@ -78,7 +78,7 @@ def main():
         updated,status=transform(original)
         check_node(updated)
     except (ValueError,subprocess.CalledProcessError,subprocess.TimeoutExpired) as e:
-        raise SystemExit(f"BLOCKED: {type(e).__name__}")
+        raise SystemExit(f"BLOCKED: {type(e).__name__}: {str(e)[:200]}")
     if args.mode=="audit":
         print(f"{status} NODE_SYNTAX_PASS no_changes=true")
         return
