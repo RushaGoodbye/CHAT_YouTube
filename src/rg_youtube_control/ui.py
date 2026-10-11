@@ -9751,7 +9751,7 @@ class MainWindow(QMainWindow):
             ]
             while len(ab_lines) < 3:
                 ab_lines.append(f"{'ABC'[len(ab_lines)]}. Немає підтвердженої назви")
-            ab_box.setPlainText("\\n".join(ab_lines))
+            ab_box.setPlainText("\n".join(ab_lines))
             layout.addWidget(QLabel("ТРИ A/B НАЗВИ · окремо від основної назви"))
             layout.addWidget(ab_box)
         if review_reason:
