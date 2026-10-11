@@ -269,3 +269,24 @@ def test_generated_summary_does_not_count_as_family_psychology_evidence():
         "сімейної психології" in issue
         for issue in ab_title_issues(titles, report)
     )
+
+
+def test_family_psychology_nominative_and_split_quotes():
+    base = {"blocks": [
+        {"start_stamp": "00:00:00", "topics": [{
+            "topic": "Питання родини", "summary_uk": "Говорять про сім'ю",
+            "evidence": "Семейная",
+        }]},
+        {"start_stamp": "00:02:00", "topics": [{
+            "topic": "Психологія", "summary_uk": "Інша розмова",
+            "evidence": "психология",
+        }]},
+    ]}
+    titles = [
+        "Семейная психология: разговор с россиянами",
+        "Путин и война: ответы в чат рулетке",
+        "Россияне о войне: неудобные вопросы",
+    ]
+    assert any("сімейної психології" in x for x in ab_title_issues(titles, base))
+    base["blocks"][0]["topics"][0]["evidence"] = "Семейная психология в отношениях"
+    assert not any("сімейної психології" in x for x in ab_title_issues(titles, base))
