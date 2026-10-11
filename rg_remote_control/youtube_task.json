@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_restore_alexpc_agent",
   "args": {
-    "nonce": "safe-repair-agent-runner-20261011"
+    "nonce": "safe-repair-agent-runner-20261011-v2"
   }
 }
