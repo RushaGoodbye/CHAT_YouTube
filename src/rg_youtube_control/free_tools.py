@@ -1356,6 +1356,12 @@ def _chapters_are_generic(chapters: str) -> bool:
         "фінальна частина",
         "завершення",
         "початок",
+        "розвиток головної теми",
+        "думки співрозмовників",
+        "подальше обговорення",
+        "підсумок розмови",
+        "розвиток розмови",
+        "головна тема",
     )
     return all(any(token in label for token in generic) for label in labels)
 
@@ -1937,8 +1943,8 @@ chapters: рядок з підтвердженими таймкодами та �
             merged_tags: list[str] = []
             seen_tags: set[str] = set()
 
-            primary_tags = grounded_tags if transcript.strip() else model_tags
-            fallback_tags = model_tags if transcript.strip() else grounded_tags
+            primary_tags = model_tags if evidence_report and transcript.strip() else grounded_tags
+            fallback_tags = grounded_tags if evidence_report and transcript.strip() else model_tags
 
             for item in primary_tags:
                 key = item.casefold()
@@ -1982,6 +1988,10 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     if fast_mode:
         title = _clean_project_title_for_seo(title)
+    unchanged_title = bool(
+        str(current_title or "").strip()
+        and title.casefold() == str(current_title or "").strip().casefold()
+    )
     variants = [
         _clean_project_title_for_seo(str(item).strip())
         if fast_mode
@@ -2034,7 +2044,8 @@ chapters: рядок з підтвердженими таймкодами та �
             )
         if chapters and _chapters_quality_error(chapters, transcript):
             chapters = ""
-        if fast_mode and chapters and _chapters_are_generic(chapters):
+        # Generic timestamps are not real dialogue chapters, regardless of mode.
+        if chapters and _chapters_are_generic(chapters):
             chapters = ""
 
     if not title:
@@ -2056,8 +2067,10 @@ chapters: рядок з підтвердженими таймкодами та �
         "chapters": chapters,
         "provider": f"ollama:{model}",
         "title_fallback_used": title_fallback_used,
+        "title_unchanged": unchanged_title,
         "needs_review": (
             title_fallback_used
+            or unchanged_title
             or len(variants) < 3
             or not transcript.strip()
             or bool(evidence_report)
@@ -2072,6 +2085,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
+                (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
                 (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
