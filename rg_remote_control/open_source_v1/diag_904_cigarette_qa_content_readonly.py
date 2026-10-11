@@ -22,6 +22,7 @@ def qa(i):
             "root_sidecar_exists":(APP/(b+"_CIGARETTE_BLUR_QA.json")).is_file(),
             "folder_sidecar_exists":(APP/"904"/(b+"_CIGARETTE_BLUR_QA.json")).is_file(),
             "qa_keys":sorted(q.keys())[:75],
+            "qa_coverage":keys(q.get("coverage_qa") or {},["coverage_ratio","missing_frames","passed"]),
             "qa":keys(q,["schema","passed","status","raw_detection_count","confirmed_track_count",
                          "overlay_count","review_required","review_reasons","failures","unconfirmed_detection_count",
                          "missing_masks","missing_overlay_count","cigarette_blur_enabled"]),
@@ -47,6 +48,8 @@ def main():
          "manifest_skipped":m.get("skipped_screenshots"),
          "per_dialogue":qa_files,
          "postrun_expectation_implementation":frag(88,153),
+         "postrun_header_and_args":frag(1,87),
+         "postrun_footer":frag(153,min(290,len(lines))),
          "operations_guard_summary_implementation":"\n".join(f"{i+1}: {op[i]}" for i in range(k,min(k+70,len(op)))) if k is not None else "not found",
          "read_only":True,
          "production_files_modified":False
