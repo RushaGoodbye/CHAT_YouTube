@@ -15,19 +15,43 @@ FILENAMES=[
  ("rg_telegram_local_rss_scanner_v1.py","3859c9a1f7322a114a1762314c57f6b483186758"),
 ]
 MARK="RG_NAS_LOCAL_CANDIDATE_INGEST_V1"
-ANCHOR="# RG_NAS_SHADOW_RUNTIME_V1_BEGIN"
-HOOK='''# RG_NAS_LOCAL_CANDIDATE_INGEST_V1
-# Public RSS shadow scan at most 3 times/hour. Only articles with photo.
+RSS_MARK="RG_NAS_LOCAL_RSS_SHADOW_V1"
+ANCHORS=("# RG_NAS_SHADOW_RUNTIME_V1_BEGIN",'AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"',"# RG_NAS_SHADOW_RUNTIME_V1_END")
+RSS_HOOK='''# RG_NAS_LOCAL_RSS_SHADOW_V1
 if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_rss_scanner_v1.py" ]; then
   case "$(date +%M)" in
     05|25|45) /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_rss_scanner_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/local_rss_scanner.log" 2>&1 || true ;;
   esac
 fi
-# File-only intake; the existing moderation projection consumes saved events.
+'''
+INTAKE_HOOK='''# RG_NAS_LOCAL_CANDIDATE_INGEST_V1
 if [ -f "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_candidate_ingest_v1.py" ]; then
   /usr/bin/python3 "$ROOT/RG_TELEGRAM_STATE/rg_telegram_local_candidate_ingest_v1.py" once >> "$ROOT/RG_TELEGRAM_STATE/local_candidate_ingest.log" 2>&1 || true
 fi
 '''
+def plan_scheduler(before):
+    need_rss="rg_telegram_local_rss_scanner_v1.py" not in before
+    need_intake="rg_telegram_local_candidate_ingest_v1.py" not in before
+    if not need_rss and not need_intake:
+        return before,"ALREADY_INSTALLED"
+    anchor=next((a for a in ANCHORS if before.count(a)==1),None)
+    if anchor is None:
+        return before,"UNSUPPORTED_SCHEDULER_LAYOUT"
+    addition=(RSS_HOOK if need_rss else "")+(INTAKE_HOOK if need_intake else "")
+    return before.replace(anchor,addition+"\n"+anchor,1),"PATCHED"
+def scheduler_selftest():
+    for anchor in ANCHORS:
+        fixture='#!/bin/sh\nROOT="/volume1/docker"\n'+anchor+'\nexit 0\n'
+        result,status=plan_scheduler(fixture)
+        assert status=="PATCHED" and result.count(RSS_MARK)==1 and result.count(MARK)==1
+        again,status=plan_scheduler(result)
+        assert status=="ALREADY_INSTALLED" and again==result
+        prior=fixture.replace(anchor,INTAKE_HOOK+anchor)
+        result,status=plan_scheduler(prior)
+        assert status=="PATCHED" and result.count(RSS_MARK)==1 and result.count(MARK)==1
+    result,status=plan_scheduler('#!/bin/sh\nexit 0\n')
+    assert status=="UNSUPPORTED_SCHEDULER_LAYOUT"
+    return "PASS"
 def fetch(filename,commit):
  path="rg_remote_control/nas/"+filename
  url="https://raw.githubusercontent.com/"+REPO+"/"+commit+"/"+path
@@ -42,6 +66,10 @@ def execute(cmd,timeout=25):
  if result.returncode:raise RuntimeError("selftest_failed:"+pathlib.Path(cmd[1]).name)
  return result.stdout.strip()
 def main():
+ if len(sys.argv)>1 and sys.argv[1]=="selftest":
+  print(json.dumps({"status":"INSTALLER_SELFTEST","scheduler_fixtures":scheduler_selftest(),"telegram_sends":0}))
+  return
+ if scheduler_selftest()!="PASS":raise RuntimeError("scheduler_unit_test_failed")
  if len(sys.argv)>1 and sys.argv[1]=="status":
   print(json.dumps({"status":"LOCAL_COMPONENTS","intake_installed":(STATE/FILENAMES[0][0]).is_file(),"moderation_installed":(STATE/FILENAMES[1][0]).is_file(),"scheduler_hook":SCHED.is_file() and MARK in SCHED.read_text(errors="replace"),"telegram_sends":0}))
   return
@@ -58,9 +86,7 @@ def main():
    execute([sys.executable,"-m","py_compile",str(p)])
    tests.append({"module":name,"selftest":execute([sys.executable,str(p),"selftest"])})
   before=SCHED.read_text("utf-8")
-  if MARK in before:patched=before
-  elif before.count(ANCHOR)==1:patched=before.replace(ANCHOR,HOOK+"\n"+ANCHOR)
-  else:raise RuntimeError("scheduler_anchor_invalid")
+  patched,schedule_mode=plan_scheduler(before)
   syntax=subprocess.run(["/bin/sh","-n"],input=patched,text=True,capture_output=True,timeout=10)
   if syntax.returncode:raise RuntimeError("scheduler_syntax_failed")
   stamp=datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -83,7 +109,7 @@ def main():
     os.replace(tmp,SCHED)
    finally:
     if os.path.exists(tmp):os.unlink(tmp)
-  print(json.dumps({"status":"LOCAL_COMPONENTS_INSTALLED","selftests":"PASS","tests":tests,"scheduler_hook":MARK in SCHED.read_text(errors="replace"),"cloudflare_calls":0,"telegram_sends":0,"local_news_inbox":str(STATE/"candidate_inbox.jsonl"),"rss_sources":2},ensure_ascii=False))
+  print(json.dumps({"status":"LOCAL_COMPONENTS_INSTALLED","selftests":"PASS","tests":tests,"scheduler_hook":MARK in SCHED.read_text(errors="replace"),"scheduler_mode":schedule_mode,"cloudflare_calls":0,"telegram_sends":0,"local_news_inbox":str(STATE/"candidate_inbox.jsonl"),"rss_sources":2},ensure_ascii=False))
   # External RSS availability is non-critical: installation has already passed
   # static selftests. Feed failures cannot roll back a valid local install.
   scanner=subprocess.run([sys.executable,str(STATE/FILENAMES[2][0]),"once"],capture_output=True,text=True,timeout=50)
