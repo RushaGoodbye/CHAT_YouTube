@@ -5,7 +5,7 @@ ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE"
 DEST=STATE/"rg_telegram_cf_kv_decision_bridge_v1.py"
 TOKEN=ROOT/"RG_SECRETS/github_token"
-SHA="3fb0105a239fd503f5f26fe9739abf7f3319f9f3"
+SHA="e85bf7057c282cd0fee5f8fff00df2546a7529ac"
 def main():
  if not TOKEN.is_file() or not (STATE/"migration_shadow.sqlite3").is_file():raise ValueError("missing_prerequisite")
  token=TOKEN.read_text().strip()
