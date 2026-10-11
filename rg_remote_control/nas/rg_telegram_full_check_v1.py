@@ -71,6 +71,22 @@ def process_health():
    value=p.read_text(errors="replace").strip()[:160]
    out.append({"name":name,"status":"ERROR" if name in ("live_smoke_status","scheduler_dispatch_error","nas_command_bus_error") and value and value not in ("OK","PASS") else "WARNING","value":value})
  return out
+def release_gate(checks):
+ names={c["name"]:c for c in checks}
+ deploy=names.get("deploy_status",{}).get("value","UNKNOWN")
+ wd=names.get("watchdog_status",{}).get("value","UNKNOWN")
+ smoke=names.get("live_smoke_status",{}).get("value","UNKNOWN")
+ db=names.get("sqlite",{}).get("counts",{})
+ result={
+ "name":"production_release_gate",
+ "status":"PASS" if deploy=="OK" and wd=="OK" and smoke=="OK" else "ERROR",
+ "deploy":deploy,"watchdog":wd,"live_smoke":smoke,
+ "moderation_decisions":db.get("real_moderation_decisions",0),
+ "telegram_delivery_verified":False,
+ "reason":"Read-only status cannot verify real Telegram delivery; require signed delivery record"
+ }
+ if result["status"]=="PASS":result["status"]="WARNING"
+ return result
 def run():
  checks=[
   file_check("scheduler_heartbeat",STATE/"scheduler_last_check_at",600),
@@ -99,7 +115,8 @@ def run():
  except Exception:pass
  checks.extend(process_health())
  checks.append(workflow_gate(checks))
+ checks.append(release_gate(checks))
  summary={x:sum(1 for c in checks if c["status"]==x) for x in ("PASS","WARNING","ERROR")}
  overall="ERROR" if summary["ERROR"] else "WARNING" if summary["WARNING"] else "PASS"
- print(json.dumps({"schema":"RG_TELEGRAM_NAS_FULL_CHECK_V2","overall":overall,"summary":summary,"checks":checks,"network_calls":0,"publish_calls":0,"modifications":0},ensure_ascii=False,indent=2))
+ print(json.dumps({"schema":"RG_TELEGRAM_NAS_FULL_CHECK_V3","overall":overall,"summary":summary,"checks":checks,"network_calls":0,"publish_calls":0,"modifications":0},ensure_ascii=False,indent=2))
 if __name__=="__main__":run()
