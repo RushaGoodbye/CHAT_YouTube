@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """RG Telegram production deploy preflight v1. Read-only, zero Cloudflare calls."""
-import base64,json,os,pathlib,subprocess,sys,tempfile,urllib.error,urllib.request
+import base64,json,os,pathlib,subprocess,sys,tempfile,urllib.error,urllib.request,shutil
 ROOT=pathlib.Path("/volume1/docker")
 TOKEN_FILE=ROOT/"RG_SECRETS/github_token"
 REPO="RushaGoodbye/rasha-goodbye-news-bot"
@@ -42,15 +42,16 @@ def main():
      report.append({"check":"js_syntax:"+rel,"status":"PASS" if p.returncode==0 else "ERROR"})
    # Run the actual regression suite in an isolated local Node container.
    # This does not access Cloudflare or publish. Node dependencies are built-in.
-   if subprocess.run(["sh","-c","command -v docker >/dev/null 2>&1"],stdout=subprocess.DEVNULL).returncode==0:
-    docker=subprocess.run(["docker","image","inspect","node:22-bookworm-slim"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+   docker_bin=shutil.which("docker") or next((p for p in ("/usr/local/bin/docker","/var/packages/ContainerManager/target/usr/bin/docker","/var/packages/Docker/target/usr/bin/docker") if os.path.isfile(p) and os.access(p,os.X_OK)),None)
+   if docker_bin:
+    docker=subprocess.run([docker_bin,"image","inspect","node:22-bookworm-slim"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
     if docker.returncode==0:
-     cp=subprocess.run(["docker","run","--rm","--network","none","--read-only","-v",str(path/"cloudflare-admin-control")+":/app:ro","-w","/app","node:22-bookworm-slim","node","scripts/test-health-freshness.mjs"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
+     cp=subprocess.run([docker_bin,"run","--rm","--network","none","--read-only","-v",str(path/"cloudflare-admin-control")+":/app:ro","-w","/app","node:22-bookworm-slim","node","scripts/test-health-freshness.mjs"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
      report.append({"check":"health_freshness_regression","status":"PASS" if cp.returncode==0 else "ERROR","exit_code":cp.returncode})
     else:report.append({"check":"health_freshness_regression","status":"WARNING","reason":"node_image_not_cached"})
    else:report.append({"check":"health_freshness_regression","status":"WARNING","reason":"docker_unavailable"})
- summary={x:sum(v.get("status")==x for v in report) for x in ("PASS","ERROR")}
- print(json.dumps({"schema":"RG_TELEGRAM_PRODUCTION_PREFLIGHT_V1","overall":"PASS" if not summary["ERROR"] else "ERROR","commit":REF[:12],"summary":summary,"checks":report,"cloudflare_calls":0,"telegram_sends":0,"production_changes":0},ensure_ascii=False,indent=2))
+ summary={x:sum(v.get("status")==x for v in report) for x in ("PASS","WARNING","ERROR")}
+ print(json.dumps({"schema":"RG_TELEGRAM_PRODUCTION_PREFLIGHT_V1","overall":"ERROR" if summary["ERROR"] else "WARNING" if summary["WARNING"] else "PASS","commit":REF[:12],"summary":summary,"checks":report,"cloudflare_calls":0,"telegram_sends":0,"production_changes":0},ensure_ascii=False,indent=2))
  return 0 if not summary["ERROR"] else 2
 if __name__=="__main__":
  try:sys.exit(main())
