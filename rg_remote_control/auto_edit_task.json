@@ -1,14 +1,20 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "inspect_auto_edit_overnight_preflight_v1",
   "args": {
-    "files": [
-      "rg_server_paths.json",
-      "rg_pack400_productivity.py",
-      "rg_pack120.py",
-      "rg_studio_main.py"
+    "streams": [
+      "886",
+      "891",
+      "892",
+      "893",
+      "899",
+      "901",
+      "902",
+      "903",
+      "904",
+      "905"
     ]
   },
-  "nonce": "overnight-inputs-and-completion-code"
+  "nonce": "overnight-targeted-preflight-10-20261011"
 }
