@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_ollama_chat_diagnose",
+  "action": "youtube_full_seo_0712_qa",
   "args": {
-    "nonce": "qwen-chat-smoke-after-server-restored-20261011"
+    "nonce": "fullseo-after-inference-pass-20261011-v2"
   }
 }
