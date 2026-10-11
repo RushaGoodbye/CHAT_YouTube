@@ -1,15 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_thumbnail_mix_prep.py",
-      "rg_thumbnail_prep.py",
-      "rg_thumbnail_chatgpt.py",
-      "rg_chatgpt_browser_automation.py",
-      "rg_internal_browser.py"
-    ]
-  },
-  "nonce": "rg-collage-portrait-combined-readonly-20261011"
+  "action": "inspect_auto_edit_update_format",
+  "args": {},
+  "nonce": "rg-pack-portrait-chatgpt-update-format"
 }
