@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_full_seo_0713_qa",
   "args": {
-    "nonce": "session-installed-version-check-20261011-after-v0713"
+    "nonce": "installed-0713-evidence-draft-realvideo-20261011-v1"
   }
 }
