@@ -9,7 +9,7 @@ SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SOURCE="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"
 SCRIPTS=(
  ("rg_telegram_local_candidate_ingest_v1.py","9df4b66a2527c2d55fd02389519448639a449316"),
- ("rg_telegram_local_rss_scanner_v1.py","b3769e3163740f6145f9ca4d3560193d57844222"),
+ ("rg_telegram_local_rss_scanner_v1.py","f661362e0e00379f7d0b474685385ab4953ad099"),
  ("rg_telegram_local_review_export_v1.py","ad0f62cfd0f2ff82b19b139b988afcd2192c4f6c"),
  ("rg_telegram_local_review_decision_v1.py","8adcca88798d0753ec66af6c32930117dc654d8f"),
 )
@@ -43,7 +43,9 @@ def download(name,commit):
  return data
 def command(cmd,timeout=20):
  r=subprocess.run(cmd,text=True,capture_output=True,timeout=timeout)
- if r.returncode:raise RuntimeError("validation_failed:"+pathlib.Path(cmd[1]).name)
+ if r.returncode:
+  detail=(r.stderr.strip() or r.stdout.strip())[-550:]
+  raise RuntimeError("validation_failed:"+pathlib.Path(cmd[1]).name+" "+detail)
  return r.stdout.strip()
 def main():
  if len(sys.argv)>1 and sys.argv[1]=="selftest":selftest();return
