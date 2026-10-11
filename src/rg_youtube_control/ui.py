@@ -9697,10 +9697,12 @@ class MainWindow(QMainWindow):
         new_description: str,
         new_tags: list[str],
         evidence_report: dict | None = None,
+        title_variants: list[str] | None = None,
+        review_reason: str = "",
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
-        dialog.resize(1180, 760)
+        dialog.resize(1180, 840)
         layout = QVBoxLayout(dialog)
 
         note = QLabel(
@@ -9738,6 +9740,25 @@ class MainWindow(QMainWindow):
                 )
             )
             layout.addWidget(evidence_details)
+
+        if title_variants is not None:
+            ab_box = QPlainTextEdit()
+            ab_box.setReadOnly(True)
+            ab_box.setMaximumHeight(102)
+            ab_lines = [
+                f"{label}. {variant}"
+                for label, variant in zip("ABC", title_variants[:3])
+            ]
+            while len(ab_lines) < 3:
+                ab_lines.append(f"{'ABC'[len(ab_lines)]}. Немає підтвердженої назви")
+            ab_box.setPlainText("\n".join(ab_lines))
+            layout.addWidget(QLabel("ТРИ A/B НАЗВИ · окремо від основної назви"))
+            layout.addWidget(ab_box)
+        if review_reason:
+            quality_note = QLabel("ПОТРІБНА РЕДАКТОРСЬКА ПЕРЕВІРКА: " + review_reason)
+            quality_note.setWordWrap(True)
+            quality_note.setObjectName("StatusWarn")
+            layout.addWidget(quality_note)
 
         change_map = QFrame()
         change_map.setObjectName("QueueCard")
@@ -9814,7 +9835,11 @@ class MainWindow(QMainWindow):
         )
         buttons.button(
             QDialogButtonBox.StandardButton.Ok
-        ).setText("Перевірено · продовжити")
+        ).setText(
+            "Зберегти як чернетку · без YouTube"
+            if review_reason or current_title.strip() == new_title.strip()
+            else "Перевірено · продовжити"
+        )
         buttons.button(
             QDialogButtonBox.StandardButton.Cancel
         ).setText("Скасувати")
@@ -13086,6 +13111,8 @@ class MainWindow(QMainWindow):
             ),
             new_tags=tags,
             evidence_report=evidence_report,
+            title_variants=variants,
+            review_reason=str(package.get("review_reason") or ""),
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
