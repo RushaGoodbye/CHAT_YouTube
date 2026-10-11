@@ -73,4 +73,4 @@ with sqlite3.connect(db.resolve().as_uri()+"?mode=ro",uri=True,timeout=10) as cn
                 AND json_array_length(d.title_variants_json)=3
                 AND v.privacy_status='public' AND v.scheduled_publish_at IS NULL""",(profile,)).fetchone()[0]
         }
-print(json.dumps(report,ensure_ascii=False,separators=(",",":")),flush=True)
+print(json.dumps(report,ensure_ascii=True,separators=(",",":")),flush=True)
