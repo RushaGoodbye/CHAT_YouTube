@@ -1,9 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "stream": "904"
+    "files": [
+      "rg_studio_main.py",
+      "rg_studio_version.py",
+      "rg_final_compilation.py",
+      "rg_final_ffmpeg.py"
+    ]
   },
-  "nonce": "rg904-final-audit-xml-results-20261011"
+  "nonce": "rg-ffmpeg-integration-verification-20261011"
 }
