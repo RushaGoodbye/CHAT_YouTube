@@ -1705,7 +1705,8 @@ def main():
         app.setWindowIcon(QIcon(str(icon_file)))
     if '--selftest' in sys.argv:
         surface = PlayerSurface()
-        passed = surface.player is not None and surface.audio is not None
+        passed = (surface.player is not None and surface.audio is not None
+                  and not app.windowIcon().isNull())
         surface.shutdown()
         dialog = UpdatesDialog(None, lambda *args: None)
         passed = passed and dialog.version_info.text().endswith(VERSION)
