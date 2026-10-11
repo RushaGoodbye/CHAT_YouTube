@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_local_repair_shortcuts",
   "args": {
-    "nonce": "readonly-ps-inventory-v2-20261011"
+    "nonce": "consolidate-shortcuts-20261011-v1"
   }
 }
