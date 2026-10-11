@@ -1,10 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_used_render_v1",
-  "args": {
-    "backfill": true,
-    "apply": true
-  },
-  "nonce": "known-ffmpeg-20261011-backfill-apply"
+  "action": "inspect_auto_edit_chatgpt_browser_automation",
+  "args": {},
+  "nonce": "rg-collage-title-browser-diagnostic-20261011"
 }
