@@ -1,0 +1,49 @@
+name: RG SEO 0.7.16 Real-Video Gate
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/rg-seo-0716-batch-qa.yml"
+permissions:
+  contents: read
+jobs:
+  real_video_qa:
+    runs-on: self-hosted
+    timeout-minutes: 16
+    steps:
+      - name: Read verified candidate source in isolated checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          ref: 141c0f0bfccb4e8d6eba94466e144e96ac1f4d9d
+      - name: Execute full transcript and SEO QA without writes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "ALEXPC") { throw "QA requires ALEXPC" }
+          $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
+          $deps = Join-Path $env:RUNNER_TEMP "rg_youtube_0716_qa_dependencies"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to prepare isolated SEO QA dependency" }
+          }
+          $env:PYTHONPATH = "$deps;$env:PYTHONPATH"
+          & $py -B "rg_remote_control/youtube_full_seo_0716_qa.py" | Tee-Object -FilePath "$env:RUNNER_TEMP\\rg_seo_0716_qa_log.txt"
+          if ($LASTEXITCODE -ne 0) { throw "Full 0.7.16 SEO QA execution failed" }
+          $proof = Join-Path $env:LOCALAPPDATA "RGYouTubeControl\\diagnostics\\full_seo_0716_QA_LM0vkW9YoKg.json"
+          $report = Get-Content $proof -Raw | ConvertFrom-Json
+          if ($report.status -ne "PASS") { throw "Real-video content quality gate failed: $($report.status)" }
+          if ($report.package.title_variants.Count -ne 3) { throw "Three A/B titles missing" }
+          if ($report.package.ab_source_quote_fallback_used -and (-not $report.package.needs_review)) { throw "Source-backed fallback may not auto-publish" }
+          Write-Host "RG_0716_REAL_VIDEO_QUALITY_GATE_PASS"
+      - name: Upload full review proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-0716-real-video-qa
+          path: |
+            ${{ runner.temp }}/rg_seo_0716_qa_log.txt
+            ${{ runner.temp }}/rg_seo_0716_qa_summary.json
+          retention-days: 7
+          if-no-files-found: ignore
