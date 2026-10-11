@@ -4,7 +4,7 @@
   "action": "apply_auto_edit_used_render_v1",
   "args": {
     "backfill": true,
-    "apply": false
+    "apply": true
   },
-  "nonce": "known-ffmpeg-20261011-backfill-precheck"
+  "nonce": "known-ffmpeg-20261011-backfill-apply"
 }
