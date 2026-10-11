@@ -37,7 +37,7 @@ with sqlite3.connect(database.resolve().as_uri()+"?mode=ro",uri=True,timeout=10)
    if row["privacy_status"]=="public":counts["public"]+=1
    status=str(row["status"] or "")
    if status in counts:counts[status]+=1
-   if status=="draft":counts["drafts"]+=0
+   if status=="draft":counts["drafts"]+=1
    generation=str(row["generation"] or "")
    quality=str(row["quality_state"] or "")
    try:
