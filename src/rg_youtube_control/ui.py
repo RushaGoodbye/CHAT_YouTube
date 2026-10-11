@@ -9956,6 +9956,26 @@ class MainWindow(QMainWindow):
             )
             return
 
+        video_kind = self.conn.execute(
+            "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        allowed, blocking_reasons = ready_for_youtube(
+            status=str(draft["status"] or ""),
+            generation=str(draft["generation"] or ""),
+            quality_state=str(draft["quality_state"] or ""),
+            variants=str(draft["title_variants_json"] or "[]"),
+            scheduled=bool(video_kind and video_kind["scheduled_publish_at"]),
+        )
+        if not allowed:
+            QMessageBox.warning(
+                self,
+                "Пакет потребує редакторської перевірки",
+                "\n".join(blocking_reasons)
+                + "\n\nПублікацію заблоковано. Чернетку збережено.",
+            )
+            return
+
         import json
         try:
             video_row = self.conn.execute(
