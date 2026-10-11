@@ -4,10 +4,11 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_server_resolver.py",
-      "rg_studio_ui.py",
-      "rg_studio_postrun.py"
+      "rg_server_paths.json",
+      "rg_pack400_productivity.py",
+      "rg_pack120.py",
+      "rg_studio_main.py"
     ]
   },
-  "nonce": "rg-overnight-resolver-20261011"
+  "nonce": "overnight-inputs-and-completion-code"
 }
