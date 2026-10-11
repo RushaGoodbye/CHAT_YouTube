@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 import updater
+import update_rollback
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from thumbnails import ThumbnailThread
@@ -36,7 +37,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.0'
+VERSION = '0.4.1'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -615,6 +616,9 @@ class UpdateThread(QThread):
         try:
             if self.action == 'check':
                 self.checked.emit(updater.fetch_latest(VERSION))
+            elif self.action == 'safety':
+                self.downloaded.emit(('safety', update_rollback.stage_verified_previous(
+                    VERSION, self.progress.emit, self.isInterruptionRequested)))
             else:
                 self.downloaded.emit(updater.download_update(
                     self.release, self.progress.emit, self.isInterruptionRequested))
@@ -631,6 +635,7 @@ class UpdatesDialog(QDialog):
         self.staged = None
         self.worker = None
         self.install_callback = install_callback
+        self._checking_safety = False
         layout = QVBoxLayout(self)
         layout.setSpacing(13)
         self.version_info = QLabel(f'Поточна версія: {VERSION}')
@@ -686,17 +691,30 @@ class UpdatesDialog(QDialog):
         self._work('download')
 
     def on_downloaded(self, outcome):
+        if isinstance(outcome, tuple) and len(outcome) == 2 and outcome[0] == 'safety':
+            self._checking_safety = False
+            old_installer, old_hash = outcome[1]
+            self.state.setText('Резервну версію перевірено. Готую безпечне оновлення...')
+            try:
+                self.install_callback(self.staged[0], self.staged[1],
+                                      self.release['version'], old_installer, old_hash)
+            except Exception as exc:
+                QMessageBox.critical(self, 'Оновлення заблоковано', str(exc))
+            else:
+                self.accept()
+            return
         self.staged = outcome  # (path, SHA256)
         self.state.setText('Інсталятор перевірено (SHA256). Можна оновлювати.')
 
     def on_error(self, message):
-        self.state.setText('Помилка: ' + message)
+        self._checking_safety = False
+        self.state.setText('Оновлення НЕ розпочато: ' + message)
 
     def on_finished(self):
         self.worker = None
         self.check_btn.setEnabled(True)
         self.download_btn.setEnabled(self.release is not None and self.staged is None)
-        self.install_btn.setEnabled(self.staged is not None)
+        self.install_btn.setEnabled(self.staged is not None and not self._checking_safety)
 
     def install(self):
         if not self.staged or not self.release:
@@ -705,12 +723,12 @@ class UpdatesDialog(QDialog):
                 'Програма закриється, оновиться та запуститься знову. Показ в OBS перерветься.\n'
                 'Запускати оновлення?') != QMessageBox.StandardButton.Yes:
             return
-        try:
-            self.install_callback(self.staged[0], self.staged[1], self.release['version'])
-        except Exception as exc:
-            QMessageBox.critical(self, 'Не вдалося підготувати оновлення', str(exc))
-        else:
-            self.accept()
+        # Preserve a SHA256-verified previous release before changing the EXE.
+        # The network operation runs off the Qt UI thread. If it fails, do not
+        # modify the installed working version.
+        self._checking_safety = True
+        self.state.setText('Завантажую перевірену резервну версію для автоматичного відкату...')
+        self._work('safety')
 
     def reject(self):
         if self.worker is not None and self.worker.isRunning():
@@ -1009,14 +1027,18 @@ class MainWindow(QMainWindow):
         elif choice == updates:
             self.open_settings()
 
-    def _install_update(self, staged: Path, sha256: str, version: str):
-        command = updater.prepare_installer(Path(staged), sha256, version)
+    def _install_update(self, staged: Path, sha256: str, version: str,
+                        old_installer: Path, old_sha256: str):
         if self.scanner and self.scanner.isRunning():
             raise RuntimeError('Зачекайте завершення сканування перед встановленням')
         if self.preview.current is not None:
             raise RuntimeError('Зупиніть трансляцію матеріалу перед оновленням програми')
-        # Inno Setup installs the next version without a console; close this app first.
-        subprocess.Popen(command, cwd=str(Path(command[0]).parent),
+        command = update_rollback.prepare_supervised_update(
+            Path(staged), sha256, version, Path(old_installer), old_sha256, VERSION)
+        # The watchdog runs from LOCALAPPDATA, outside the installed EXE folder.
+        # It waits for this app to exit, checks the new EXE, and restores the
+        # previous verified installer if health validation fails.
+        subprocess.Popen(command, cwd=str(update_rollback.storage()),
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                          close_fds=True)
         QTimer.singleShot(0, self.close)
