@@ -38,7 +38,14 @@ jobs:
           PYTHONIOENCODING: "utf-8"
         run: |
           $task = Get-Content "rg_remote_control/auto_edit_task.json" -Raw | ConvertFrom-Json
-          if ($task.action -eq "apply_auto_edit_used_render_v1") {
+          if ($task.action -eq "apply_auto_edit_used_render_v1" -and $task.args.backfill -eq $true) {
+            if ($task.args.apply -eq $true) {
+              python rg_remote_control/auto_edit_features/backfill_known_final_v1.py --apply
+            } else {
+              python rg_remote_control/auto_edit_features/backfill_known_final_v1.py
+            }
+            if ($LASTEXITCODE -ne 0) { throw "Backfill rejected by media safety checks" }
+          } elseif ($task.action -eq "apply_auto_edit_used_render_v1") {
             python rg_remote_control/auto_edit_features/test_used_render_v1.py
             if ($LASTEXITCODE -ne 0) { throw "Usage registry regression tests failed" }
             if ($task.args.apply -eq $true) {
