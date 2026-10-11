@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_restore_user_startup",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "alexpc-agent-user-startup-fix-20261011"
+    "nonce": "verify-agent-startup-runner-dedup-20261011"
   }
 }
