@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_archive_worklist_readonly",
+  "action": "youtube_first_archive_batch_readonly",
   "args": {
-    "nonce": "0717-archive-win-console-ascii-retry-20261011"
+    "nonce": "real-top-regular-archives-after-0717-20261011"
   }
 }
