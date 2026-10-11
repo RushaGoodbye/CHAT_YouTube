@@ -69,3 +69,12 @@ def test_duplicate_model_answer_is_rejected(monkeypatch):
     )
     assert titles == []
     assert len(calls) == 2
+
+
+def test_empty_model_json_is_never_silently_used(monkeypatch):
+    monkeypatch.setattr(free_tools, "ollama_chat", lambda *a, **k: "{}")
+    assert free_tools._recover_independent_ab_titles(
+        report=_three_verified_topics(),
+        current_title="Текущая тема",
+        model="qwen3:8b",
+    ) == []
