@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
 
 import updater
 import update_rollback
-from broadcast_guard import BroadcastGuardfrom media_intelligence import add_bookmark, clean_tags
+from broadcast_guard import BroadcastGuard
+from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
