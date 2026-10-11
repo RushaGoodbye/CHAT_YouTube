@@ -1,7 +1,13 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_cigarette_failure_v1",
-  "args": {},
-  "nonce": "overnight-cigarette-no-hard-block-audit-20261011"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_auto_edit_one_button.py",
+      "rg_auto_edit_config.json",
+      "rg_studio_postrun.py"
+    ]
+  },
+  "nonce": "overnight-cigarette-gating-source-20261011"
 }
