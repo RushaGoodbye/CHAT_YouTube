@@ -8,7 +8,7 @@ STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SECRET=ROOT/"RG_SECRETS/rg_local_review_ui_password"
 NAME="rg_telegram_local_review_server_v1.py"
-REV="178422ddedf03d6bace0d32a46fca6739d567e82"
+REV="229902c8c8c9cfe66b80a6b349a6d813ffda8c1a"
 SOURCE="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"+REV+"/rg_remote_control/nas/"+NAME
 MARK="# RG_NAS_LOCAL_REVIEW_UI_SERVICE_V1"
 ANCHORS=("# RG_NAS_SHADOW_RUNTIME_V1_END",'AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"',"# RG_NAS_SHADOW_RUNTIME_V1_BEGIN")
