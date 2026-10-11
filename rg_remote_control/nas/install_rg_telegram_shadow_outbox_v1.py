@@ -8,7 +8,7 @@ STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SCRIPTS=[
  ("rg_telegram_local_review_decision_v1.py","5dda3f0c1bae844acc76fee505326f985bf7a972"),
- ("rg_telegram_nas_delivery_shadow_outbox_v1.py","c826211f5f5f556511f194110fd286d5e422c7b5")
+ ("rg_telegram_nas_delivery_shadow_outbox_v1.py","c0f2b75ce05e7548d926e79fbd45ce50dd2f86f3")
 ]
 HOOK_MARK="# RG_NAS_DELIVERY_SHADOW_OUTBOX_V1"
 ANCHORS=("# RG_NAS_SHADOW_RUNTIME_V1_END",'AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"',"# RG_NAS_SHADOW_RUNTIME_V1_BEGIN")
@@ -73,9 +73,15 @@ def main():
   with sqlite3.connect(str(live_db),timeout=12) as live:
    with sqlite3.connect(str(snapshot),timeout=12) as copy:
     live.backup(copy)
+  cutover_dryrun=run([sys.executable,str(staging/SCRIPTS[1][0]),"quarantine","--db",str(snapshot)])
   smoke=run([sys.executable,str(staging/SCRIPTS[1][0]),"stage","--db",str(snapshot)])
   snapshot_status=run([sys.executable,str(staging/SCRIPTS[1][0]),"status","--db",str(snapshot)])
-  print(json.dumps({"status":"SHADOW_LIVE_SCHEMA_SNAPSHOT_PASS","test_output":smoke,"snapshot_status":snapshot_status,
+  proof=json.loads(snapshot_status)
+  if not proof.get("no_backfill_enabled") or proof.get("staged",0)>0 or proof.get("cutover_approved") is not False:
+   raise RuntimeError("quarantine_snapshot_safety_failed")
+  print(json.dumps({"status":"NO_BACKFILL_SNAPSHOT_PASS",
+    "quarantine_dryrun":json.loads(cutover_dryrun).get("quarantine"),
+    "snapshot_status":proof,
     "live_database_changes":0,"telegram_sends":0},ensure_ascii=False))
   stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
   for name,sha in SCRIPTS:
@@ -98,13 +104,19 @@ def main():
    finally:
     if os.path.exists(newname):os.unlink(newname)
   script=STATE/SCRIPTS[1][0]
+  quarantine_result=run([sys.executable,str(script),"quarantine"])
   stage_result=run([sys.executable,str(script),"stage"])
   queue_result=run([sys.executable,str(script),"status"])
+  proof=json.loads(queue_result)
+  if not proof.get("no_backfill_enabled") or proof.get("staged",0)>0 or proof.get("cutover_approved") is not False:
+   raise RuntimeError("live_quarantine_safety_failed")
+  print(quarantine_result)
   print(stage_result)
   print(queue_result)
-  print(json.dumps({"status":"LOCAL_SHADOW_OUTBOX_READY","selftests":"PASS",
+  print(json.dumps({"status":"NAS_NO_BACKFILL_GUARD_READY","selftests":"PASS",
     "production_schema_snapshot":"PASS","tests":checks,
-    "scheduler":schedule_mode,"telegram_sends":0,"cloudflare_calls":0},ensure_ascii=False))
+    "scheduler":schedule_mode,"telegram_sends":0,"cloudflare_calls":0,
+    "live_delivery_enabled":False},ensure_ascii=False))
 if __name__=="__main__":
  try:main()
  except Exception as e:
