@@ -4,12 +4,11 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_internal_browser.py",
-      "rg_chatgpt_browser_automation.py",
-      "rg_thumbnail_chatgpt.py",
+      "rg_topaz_automation.py",
       "rg_studio_version.py",
-      "rg_thumbnail_mix_prep.py"
+      "rg_topaz_prefs.py",
+      "rg_topaz_model_resolver.py"
     ]
   },
-  "nonce": "rg-chatgpt-embedded-browser-fix-source-20261011"
+  "nonce": "rg-topaz-low-resolution-missing-20261011"
 }
