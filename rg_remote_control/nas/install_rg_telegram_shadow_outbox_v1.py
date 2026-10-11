@@ -8,7 +8,7 @@ STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SCRIPTS=[
  ("rg_telegram_local_review_decision_v1.py","5dda3f0c1bae844acc76fee505326f985bf7a972"),
- ("rg_telegram_nas_delivery_shadow_outbox_v1.py","e8e1ecfa3d157dd1ed0bd680a6e0af6394331447")
+ ("rg_telegram_nas_delivery_shadow_outbox_v1.py","c826211f5f5f556511f194110fd286d5e422c7b5")
 ]
 HOOK_MARK="# RG_NAS_DELIVERY_SHADOW_OUTBOX_V1"
 ANCHORS=("# RG_NAS_SHADOW_RUNTIME_V1_END",'AUTODEPLOY="$ROOT/RG_NAS_AUTO_DEPLOY.sh"',"# RG_NAS_SHADOW_RUNTIME_V1_BEGIN")
