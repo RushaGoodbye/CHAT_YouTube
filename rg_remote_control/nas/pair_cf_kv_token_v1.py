@@ -19,7 +19,7 @@ def main():
  token=getpass.getpass("Cloudflare KV token: ").strip()
  if not 20<=len(token)<=512 or any(x.isspace() for x in token):raise RuntimeError("invalid_token_format")
  auth=check(token,"user/tokens/verify")
- kv=check(token,"accounts/"+ACCOUNT+"/storage/kv/namespaces/"+NS+"/keys?limit=1")
+ kv=check(token,"accounts/"+ACCOUNT+"/storage/kv/namespaces/"+NS+"/keys?limit=10")
  if auth!=200 or kv!=200:
   print(json.dumps({"status":"BLOCKED","token_verify_http":auth,"kv_read_http":kv,"saved":False}))
   return 1
