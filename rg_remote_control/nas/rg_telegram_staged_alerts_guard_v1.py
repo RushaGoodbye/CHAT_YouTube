@@ -33,9 +33,9 @@ def transform(raw):
     return candidate,"PATCH_READY"
 
 def check_node(source):
-    node=shutil.which("node")
+    node=shutil.which("node") or next((str(x) for x in [pathlib.Path("/usr/local/bin/node"),pathlib.Path("/usr/bin/node")] if x.is_file()),None)
     if not node:
-        docker=shutil.which("docker")
+        docker=shutil.which("docker") or next((str(x) for x in [pathlib.Path("/usr/local/bin/docker"),pathlib.Path("/usr/bin/docker"),pathlib.Path("/var/packages/ContainerManager/target/usr/bin/docker")] if x.is_file()),None)
         if not docker:
             raise ValueError("Node and Docker unavailable")
         inspect=subprocess.run([docker,"inspect","-f","{{.Config.Image}}","rg-alerts-deploy-deploy-1"],capture_output=True,text=True,timeout=10)
