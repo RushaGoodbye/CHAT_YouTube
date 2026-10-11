@@ -1,9 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_run_log",
+  "action": "inspect_auto_edit_stream_result",
   "args": {
     "stream": "904"
   },
-  "nonce": "rg904-r2-resume-readonly-confirm-progress-20261010"
+  "nonce": "rg904-final-audit-xml-results-20261011"
 }
