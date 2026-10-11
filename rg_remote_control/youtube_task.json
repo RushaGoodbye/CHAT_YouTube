@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_archive_priority_readonly",
+  "action": "youtube_archive_pilot_0717_qa",
   "args": {
-    "nonce": "0717-ranking-isoduration-longform-filter-20261011"
+    "nonce": "first-popular-main-nonshort-15minute-full-seo-pilot"
   }
 }
