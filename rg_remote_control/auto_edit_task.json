@@ -1,7 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_runtime_state",
-  "args": {},
-  "nonce": "overnight-preflight-queue-state-20261011"
+  "action": "inspect_auto_edit_run_log",
+  "args": {
+    "stream": "886"
+  },
+  "nonce": "overnight-explain-886-error-20261011"
 }
