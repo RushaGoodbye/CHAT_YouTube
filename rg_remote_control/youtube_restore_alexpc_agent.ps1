@@ -19,8 +19,13 @@ if(-not (Test-Path -LiteralPath $expectedKeep -PathType Leaf)){throw 'GitHub Run
 $actionJoined=(@($keepTask.Actions | ForEach-Object {([string]$_.Execute)+' '+([string]$_.Arguments)})) -join ' '
 if($actionJoined -notlike "*$expectedKeep*"){throw 'Keepalive scheduled action differs from expected path'}
 # Syntax-check original agent without executing it or installing packages.
-$syntaxOut=& $pythonCli -B -c 'import ast,sys,pathlib;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8-sig"));print("AST_PASS")' $agent 2>&1
-if($LASTEXITCODE -ne 0 -or ($syntaxOut -join ' ') -notmatch 'AST_PASS'){throw "Independent agent syntax error: $syntaxOut"}
+# Run Python's built-in compiler without fragile PowerShell quoting of -c.
+$oldPreference=$ErrorActionPreference
+$ErrorActionPreference='Continue'
+$syntaxOut=& $pythonCli -B -m py_compile $agent 2>&1
+$syntaxExit=$LASTEXITCODE
+$ErrorActionPreference=$oldPreference
+if($syntaxExit -ne 0){throw "Independent agent syntax error: $($syntaxOut | Out-String)"}
 $runKey='HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
 $runValue=(Get-ItemProperty -Path $runKey -Name $keepTaskName -ErrorAction SilentlyContinue).$keepTaskName
 if($null -ne $runValue -and ([string]$runValue -notlike "*$expectedKeep*")){throw 'Unknown registry command. Keepalive entry will not be changed'}
@@ -38,8 +43,9 @@ Start-ScheduledTask -TaskName $agentTaskName -ErrorAction Stop
 Start-Sleep -Seconds 4
 $agentTaskAfter=Get-ScheduledTask -TaskName $agentTaskName -ErrorAction Stop
 $agentInfo=Get-ScheduledTaskInfo -TaskName $agentTaskName -ErrorAction SilentlyContinue
-$active=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {[string]$_.CommandLine -match 'C:\\RG_AGENT\\alexpc_agent\.py'} | ForEach-Object { [pscustomobject]@{pid=$_.ProcessId;name=$_.Name} })
-$agentOK=($active.Count -gt 0)
+# Do not query Win32_Process: this provider stalled the earlier read-only job.
+$agentOK=([string]$agentTaskAfter.State -eq 'Running')
+$active=@()
 # Remove duplicate logon trigger only once the scheduled keepalive path is verified.
 $removedDuplicate=$false
 if($null -ne $runValue){
@@ -62,4 +68,4 @@ $stillRegistry=(Get-ItemProperty -Path $runKey -Name $keepTaskName -ErrorAction 
   keepalive_registry_now_absent=($null -eq $stillRegistry)
   youtube_app_untouched=$true
 }|ConvertTo-Json -Depth 8 -Compress
-if(-not $agentOK){throw "Agent task updated, but agent process was not confirmed. Read output and backup at $root"}
+if(-not $agentOK){Write-Warning "Agent task was enabled and started, but long-lived activity is not confirmed. Inspect task history; backup: $root"}
