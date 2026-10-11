@@ -229,7 +229,7 @@ def selftest():
  assert "Схвалити" not in page
  assert "Відхилити" in page and "Відкласти" in page
  assert "awaiting_review</span>" not in page
- assert "Водяні знаки" not in page
+ assert "Водяні знаки на фото ДОЗВОЛЕНІ" in page
  assert "водяні знаки" in page
  assert "ДОЗВОЛЕНІ після ручного схвалення" in page
  page2=render([row,fresh],key,view="pending")
