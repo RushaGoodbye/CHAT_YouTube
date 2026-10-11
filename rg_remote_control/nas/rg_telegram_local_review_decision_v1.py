@@ -39,9 +39,12 @@ def submit(db_path,cid,decision,confirmed=False,now=None):
   mod.init(db)
   if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='moderation_projection'").fetchone():
    raise ValueError("moderation_projection_missing")
-  row=db.execute("SELECT headline,image_url,source_url,status FROM moderation_projection WHERE candidate_id=?",(cid,)).fetchone()
+  row=db.execute("SELECT headline,image_url,source_url,status,review_at FROM moderation_projection WHERE candidate_id=?",(cid,)).fetchone()
   if row is None:raise ValueError("candidate_not_found")
-  headline,image,source,status=row
+  headline,image,source,status,last_review_at=row
+  # A second action in the same wall-clock second must override the first.
+  # Keep the per-candidate review timestamp strictly increasing.
+  if last_review_at is not None and int(last_review_at)>=now:now=int(last_review_at)+1
   if decision=="approved":
    if not headline or not check_https(image) or not check_https(source):raise ValueError("incomplete_news")
    if not last_news_age(db,cid,now):raise ValueError("stale_or_undated_news")
@@ -71,10 +74,15 @@ def selftest():
   try:submit(dbp,cid,"approved",confirmed=True,now=1000+MAX_AGE+1)
   except ValueError as e:assert str(e)=="stale_or_undated_news"
   else:raise AssertionError("stale_approved")
-  assert submit(dbp,cid,"rejected",confirmed=True,now=1000+MAX_AGE+1)["status"]=="SHADOW_STORED"
+  revoked=submit(dbp,cid,"rejected",confirmed=True,now=1050)
+  assert revoked["status"]=="SHADOW_STORED"
   with sqlite3.connect(str(dbp)) as db:
-   assert db.execute("SELECT count(*) FROM events WHERE kind='moderation_decision'").fetchone()[0]==2
- print(json.dumps({"selftest":"PASS","human_confirmation":"PASS","freshness_gate":"PASS","dedup":"PASS","rejection_allowed":"PASS","telegram_sends":0}))
+   items=[json.loads(x[0]) for x in db.execute("SELECT payload FROM events WHERE kind='moderation_decision' ORDER BY rowid").fetchall()]
+   assert len(items)==2 and items[-1]["reviewed_at"]==1051
+  assert submit(dbp,cid,"deferred",confirmed=True,now=1000+MAX_AGE+1)["status"]=="SHADOW_STORED"
+  with sqlite3.connect(str(dbp)) as db:
+   assert db.execute("SELECT count(*) FROM events WHERE kind='moderation_decision'").fetchone()[0]==3
+ print(json.dumps({"selftest":"PASS","human_confirmation":"PASS","freshness_gate":"PASS","dedup":"PASS","rejection_allowed":"PASS","same_second_revocation":"PASS","telegram_sends":0}))
 def main():
  p=argparse.ArgumentParser()
  p.add_argument("mode",choices=["selftest","record","status"])
