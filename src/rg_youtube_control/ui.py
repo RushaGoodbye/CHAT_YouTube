@@ -370,8 +370,11 @@ class ContentOptimizationDialog(QDialog):
         title_variants: list[str] | None = None,
         scheduled_publish_at: str | None = None,
         parent=None,
+        *,
+        generation: str = "",
     ) -> None:
         super().__init__(parent)
+        self.generation = str(generation or "")
         self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
@@ -429,7 +432,8 @@ class ContentOptimizationDialog(QDialog):
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
         self.status_combo.addItem("Готово до застосування", "ready")
-        self.status_combo.addItem("Застосовано", "applied")
+        if status == "applied":
+            self.status_combo.addItem("Застосовано", "applied")
         idx = self.status_combo.findData(status)
         if idx >= 0:
             self.status_combo.setCurrentIndex(idx)
@@ -9712,6 +9716,7 @@ class MainWindow(QMainWindow):
                 title_variants,
                 scheduled_publish_at,
                 self,
+                generation=(str(draft["generation"] or "") if draft is not None else "manual"),
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
