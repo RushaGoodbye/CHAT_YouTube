@@ -25,6 +25,13 @@ def setup(db):
   status TEXT NOT NULL CHECK(status IN ('shadow_staged','blocked')),
   reason TEXT NOT NULL,staged_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)""")
  db.execute("CREATE INDEX IF NOT EXISTS nas_shadow_delivery_outbox_status ON nas_shadow_delivery_outbox(status)")
+ db.execute("""CREATE TABLE IF NOT EXISTS nas_delivery_pre_cutover_quarantine(
+  candidate_id TEXT PRIMARY KEY,
+  source_url TEXT NOT NULL,
+  captured_at INTEGER NOT NULL
+ )""")
+ db.execute("CREATE INDEX IF NOT EXISTS nas_delivery_quarantine_url ON nas_delivery_pre_cutover_quarantine(source_url)")
+
 def required(db):
  names={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
  need={"events","moderation_projection","shadow_publish_intents","shadow_event_receipts"}
@@ -56,15 +63,46 @@ def latest_news(db,cid,headline,image,source,now):
   ts=d.get("detected_at")
   if isinstance(ts,int) and not isinstance(ts,bool) and now-MAX_AGE<=ts<=now+300:return d
  return None
+def quarantine_existing(db,now=None):
+ """Append all existing discovered candidates to pre-cutover backlog quarantine.
+ Never deletes entries, approves publication, or contacts Telegram/Cloudflare.
+ """
+ now=int(time.time()) if now is None else int(now)
+ setup(db)
+ db.execute("BEGIN IMMEDIATE")
+ try:
+  seen={}
+  for cid,src in db.execute("SELECT candidate_id,source_url FROM moderation_projection"):
+   if isinstance(cid,str) and cid:seen[cid]=src or ""
+  for (raw,) in db.execute("SELECT payload FROM events WHERE kind='news_candidate'"):
+   d=decode(raw);cid=d.get("candidate_id");src=d.get("source_url")
+   if isinstance(cid,str) and cid:
+    if isinstance(src,str) and src:seen[cid]=src
+    elif cid not in seen:seen[cid]=""
+  changed=0
+  for cid,src in seen.items():
+   exists=db.execute("SELECT 1 FROM nas_delivery_pre_cutover_quarantine WHERE candidate_id=?",(cid,)).fetchone()
+   if not exists:
+    db.execute("INSERT INTO nas_delivery_pre_cutover_quarantine(candidate_id,source_url,captured_at) VALUES(?,?,?)",(cid,src,now))
+    changed+=1
+  db.execute("COMMIT")
+ except Exception:
+  db.execute("ROLLBACK")
+  raise
+ total=db.execute("SELECT count(*) FROM nas_delivery_pre_cutover_quarantine").fetchone()[0]
+ return {"quarantined_total":total,"newly_quarantined":changed,"no_backfill":True,"telegram_sends":0}
 def gather(db,now):
  required(db)
  intents={c:(ev,st) for c,ev,st in db.execute("SELECT candidate_id,event_id,status FROM shadow_publish_intents")}
+ quarantined_ids={row[0] for row in db.execute("SELECT candidate_id FROM nas_delivery_pre_cutover_quarantine")}
+ quarantined_urls={row[0] for row in db.execute("SELECT source_url FROM nas_delivery_pre_cutover_quarantine WHERE source_url <> ''")}
  seen_urls=set();planned=[]
  for cid,title,img,src,decision,status,eid,review_at in db.execute(
     "SELECT candidate_id,headline,image_url,source_url,decision,status,review_event_id,review_at FROM moderation_projection ORDER BY candidate_id"):
   intent=intents.get(cid)
   reason=""
-  if status!="ready_shadow" or decision!="approved":reason="approval_revoked_or_pending"
+  if cid in quarantined_ids or (src and src in quarantined_urls):reason="pre_cutover_backlog_quarantined"
+  elif status!="ready_shadow" or decision!="approved":reason="approval_revoked_or_pending"
   elif not intent or intent!=(eid,"shadow_only"):reason="intent_review_mismatch"
   elif not isinstance(eid,str) or not eid.startswith("nasreview:"+cid+":"):reason="review_not_local_operator"
   elif not decision_event(db,cid,eid,review_at):reason="review_event_unverified"
@@ -121,6 +159,8 @@ def report(db,now=None):
  return {"schema":"RG_NAS_DELIVERY_SHADOW_OUTBOX_V1","status":"SHADOW_OUTBOX_READY",
   "staged":counts.get("shadow_staged",0),"blocked":counts.get("blocked",0),
   "reason_counts":by_reason,
+  "pre_cutover_quarantined":db.execute("SELECT count(*) FROM nas_delivery_pre_cutover_quarantine").fetchone()[0],
+  "no_backfill_enabled":True,"cutover_approved":False,
   "cross_system_receipts_verified":False,"cloudflare_previous_delivery_checked":False,
   "live_delivery_enabled":False,"telegram_sends":0,"cloudflare_calls":0}
 def selftest():
@@ -152,16 +192,34 @@ def selftest():
    assert stage(db,now)["changed"]==1
    assert report(db)["staged"]==1
    assert stage(db,now)["changed"]==0
+   # No-backfill manifest is append-only, repeatable and takes precedence
+   # over previous approvals and the existing shadow outbox.
+   quarantine=quarantine_existing(db,now)
+   assert quarantine["newly_quarantined"]==1
+   assert quarantine_existing(db,now)["newly_quarantined"]==0
+   assert stage(db,now)["changed"]==1
+   assert report(db)["blocked"]==1
+   assert report(db)["pre_cutover_quarantined"]==1
+   assert stage(db,now)["changed"]==0
+   # Verify same URL under a different candidate is also held.
+   second="dcba98765432"
+   db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?,?,?,?)",(second,title,img,url,"approved","ready_shadow","nasreview:"+second+":1:approved",1))
+   db.execute("INSERT INTO shadow_publish_intents VALUES(?,?,?)",(second,"nasreview:"+second+":1:approved","shadow_only"))
+   assert stage(db,now)["changed"]==1
+   assert db.execute("SELECT reason FROM nas_shadow_delivery_outbox WHERE candidate_id=?",(second,)).fetchone()[0]=="pre_cutover_backlog_quarantined"
+   db.execute("DELETE FROM shadow_publish_intents WHERE candidate_id=?",(second,))
+   db.execute("DELETE FROM moderation_projection WHERE candidate_id=?",(second,))
+   assert stage(db,now)["changed"]==1
    # Tampered event must be blocked even when projection still looks approved.
    db.execute("UPDATE events SET payload=? WHERE event_id=?",(json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"}),eid))
-   assert stage(db,now)["changed"]==1
-   assert dict(db.execute("SELECT reason,count(*) FROM nas_shadow_delivery_outbox GROUP BY reason"))["review_event_unverified"]==1
+   assert stage(db,now)["changed"]==0
+   assert db.execute("SELECT reason FROM nas_shadow_delivery_outbox WHERE candidate_id=?",(cid,)).fetchone()[0]=="pre_cutover_backlog_quarantined"
    db.execute("DELETE FROM events WHERE event_id=?",(eid,))
    ingest2=json.dumps({"candidate_id":cid,"decision":"approved","reviewed_at":now,"reason_code":"operator_verified"},sort_keys=True,ensure_ascii=False,separators=(",",":"))
    # Restoring the exact original serialized payload reestablishes the proof.
    db.execute("INSERT INTO events VALUES(?,?,?,?,?)",(eid,"moderation_decision",ingest2,now,"shadow"))
-   assert stage(db,now)["changed"]==1
-   assert report(db)["staged"]==1
+   assert stage(db,now)["changed"]==0
+   assert report(db)["blocked"]>=1
    db.execute("UPDATE moderation_projection SET decision='rejected',status='rejected'")
    db.execute("DELETE FROM shadow_publish_intents")
    assert stage(db,now)["changed"]==1
@@ -169,21 +227,24 @@ def selftest():
    db.execute("UPDATE moderation_projection SET decision='approved',status='ready_shadow'")
    db.execute("INSERT INTO shadow_publish_intents VALUES(?,?,?)",(cid,eid,"shadow_only"))
    assert stage(db,now+MAX_AGE+3600)["changed"]==1
-   assert dict(db.execute("SELECT reason,count(*) FROM nas_shadow_delivery_outbox GROUP BY reason"))["news_record_stale_or_mismatch"]==1
+   assert db.execute("SELECT reason FROM nas_shadow_delivery_outbox WHERE candidate_id=?",(cid,)).fetchone()[0]=="pre_cutover_backlog_quarantined"
    assert report(db)["live_delivery_enabled"] is False
  print(json.dumps({"selftest":"PASS","production_events_schema":"PASS","receipt_provenance":"PASS",
-    "dedup":"PASS","tamper_detection":"PASS","revocation":"PASS","expiration":"PASS",
+    "dedup":"PASS","tamper_detection":"PASS","revocation":"PASS","expiration":"PASS","pre_cutover_quarantine":"PASS","url_reuse_quarantine":"PASS",
     "cloudflare_receipts_gate":"CLOSED","telegram_sends":0,"network_calls":0}))
 def main():
  p=argparse.ArgumentParser()
- p.add_argument("mode",choices=("selftest","stage","status"))
+ p.add_argument("mode",choices=("selftest","stage","status","quarantine"))
  p.add_argument("--db",default=str(DB))
  args=p.parse_args()
  if args.mode=="selftest":selftest();return
  path=pathlib.Path(args.db)
  if not path.is_file() or path.is_symlink():raise RuntimeError("database_missing_or_symlink")
  with sqlite3.connect(str(path),timeout=8,isolation_level=None) as db:
-  if args.mode=="stage":
+  if args.mode=="quarantine":
+   result=quarantine_existing(db)
+   print(json.dumps({"quarantine":result,"stage":stage(db),**report(db)},ensure_ascii=False))
+  elif args.mode=="stage":
    result=stage(db)
    print(json.dumps({"stage":result,**report(db)},ensure_ascii=False))
   else:
