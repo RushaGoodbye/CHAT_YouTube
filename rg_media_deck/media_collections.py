@@ -3,7 +3,11 @@
 Collections reference original absolute paths. They never move or copy videos.
 """
 from __future__ import annotations
-from library import normalize_path
+import os
+
+
+def normalize_path(path: str) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(os.path.expanduser(path))))
 
 def clean_collections(value: object) -> dict[str, list[str]]:
     if not isinstance(value, dict):
