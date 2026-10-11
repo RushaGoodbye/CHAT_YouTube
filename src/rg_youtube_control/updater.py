@@ -115,13 +115,17 @@ def check_for_update() -> UpdateInfo | None:
 
     try:
         manifest = _request_json(PAGES_MANIFEST_URL)
-        return _from_manifest(manifest)
+        info = _from_manifest(manifest)
+        if info is not None:
+            return info
     except Exception:
         pass
 
     try:
         manifest = _request_json(LATEST_MANIFEST_URL)
-        return _from_manifest(manifest)
+        info = _from_manifest(manifest)
+        if info is not None:
+            return info
     except Exception:
         pass
 

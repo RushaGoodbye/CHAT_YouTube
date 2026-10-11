@@ -57,3 +57,65 @@ def test_download_update_copies_from_nas_and_verifies_checksum(tmp_path, monkeyp
 
     assert downloaded.is_file()
     assert downloaded.read_bytes() == installer.read_bytes()
+
+
+def test_stale_pages_manifest_does_not_hide_newer_github_release(tmp_path, monkeypatch):
+    monkeypatch.setenv("RG_YOUTUBE_UPDATES_PATH", str(tmp_path))
+    checked = []
+
+    def request(url):
+        checked.append(url)
+        if url == updater.PAGES_MANIFEST_URL:
+            return {
+                "version": "0.1.0",
+                "installer_name": "old.exe",
+                "installer_url": "https://example.com/old.exe",
+            }
+        if url == updater.LATEST_MANIFEST_URL:
+            return {
+                "version": "9.9.9",
+                "installer_name": "new.exe",
+                "installer_url": "https://example.com/new.exe",
+            }
+        raise AssertionError(f"Unexpected update endpoint: {url}")
+
+    monkeypatch.setattr(updater, "_request_json", request)
+    info = updater.check_for_update()
+
+    assert info is not None
+    assert info.version == "9.9.9"
+    assert checked == [updater.PAGES_MANIFEST_URL, updater.LATEST_MANIFEST_URL]
+
+
+def test_stale_manifests_fall_back_to_release_api(tmp_path, monkeypatch):
+    monkeypatch.setenv("RG_YOUTUBE_UPDATES_PATH", str(tmp_path))
+    checked = []
+
+    def request(url):
+        checked.append(url)
+        if url in {updater.PAGES_MANIFEST_URL, updater.LATEST_MANIFEST_URL}:
+            return {
+                "version": "0.1.0",
+                "installer_name": "old.exe",
+                "installer_url": "https://example.com/old.exe",
+            }
+        if url == updater.LATEST_RELEASE_URL:
+            return {
+                "tag_name": "v9.9.9",
+                "assets": [{
+                    "name": "RG_YouTube_Control_Setup_9.9.9.exe",
+                    "browser_download_url": "https://example.com/new.exe",
+                }],
+            }
+        raise AssertionError(f"Unexpected update endpoint: {url}")
+
+    monkeypatch.setattr(updater, "_request_json", request)
+    info = updater.check_for_update()
+
+    assert info is not None
+    assert info.version == "9.9.9"
+    assert checked == [
+        updater.PAGES_MANIFEST_URL,
+        updater.LATEST_MANIFEST_URL,
+        updater.LATEST_RELEASE_URL,
+    ]

@@ -136,6 +136,23 @@ jobs:
             }
           } finally { $zip.Dispose() }
           Write-Host "Verified update package $version"
+      - name: Smoke test silent installation on isolated Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem installer/RG_YouTube_Control_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer is missing" }
+          $target = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA"
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          $args = @("/VERYSILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$target")
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList $args -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup exited with $($process.ExitCode)" }
+          $app = Join-Path $target "RG YouTube Control.exe"
+          if (-not (Test-Path $app)) { throw "Installed application EXE missing: $app" }
+          $internal = Join-Path $target "_internal"
+          if (-not (Test-Path $internal)) { throw "Installed PyInstaller runtime missing" }
+          Write-Host "QA installation successful: $app"
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
