@@ -1330,6 +1330,17 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
     if not tokens:
         return False
 
+    # Ukrainian/Russian single-word tags may be declined in speech.
+    # E.g. «мобілізація» appears as «мобілізацію» in the transcript.
+    # Require a sufficiently long word stem so short generic tags do not
+    # accidentally match unrelated subjects.
+    if len(tokens) == 1 and len(tokens[0]) >= 8:
+        stem = tokens[0][:max(6, len(tokens[0]) - 3)]
+        if any(word.startswith(stem) for word in re.findall(
+            r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", haystack
+        )):
+            return True
+
     # Multi-word tags may use a normalized phrase not present verbatim, but at
     # least half of their meaningful words must be visible in the source.
     hits = sum(1 for token in tokens if token in haystack)
