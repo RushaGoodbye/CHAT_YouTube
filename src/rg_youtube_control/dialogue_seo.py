@@ -289,6 +289,7 @@ def preserve_outline_topics(
     report: dict[str, Any],
     *,
     max_body_bytes: int = 3900,
+    max_topic_bullets: int = 6,
 ) -> tuple[str, list[str]]:
     """Add missing grounded topics without silently discarding the outline.
 
@@ -310,12 +311,36 @@ def preserve_outline_topics(
     missing = [topic for topic in unique if topic.casefold() not in source.casefold()]
     if not missing:
         return source, []
+    # Keep a concise representative spread across the WHOLE timeline.
+    # The full evidence map stays in seo_evidence/*.json; unlisted topics
+    # remain explicitly reported as omitted, rather than silently lost.
+    keep_count = max(0, int(max_topic_bullets))
+    if len(missing) > keep_count:
+        if keep_count <= 0:
+            selected_positions: set[int] = set()
+        elif keep_count == 1:
+            selected_positions = {len(missing) - 1}
+        else:
+            selected_positions = {
+                round(index * (len(missing) - 1) / (keep_count - 1))
+                for index in range(keep_count)
+            }
+        deferred = [
+            topic for index, topic in enumerate(missing)
+            if index not in selected_positions
+        ]
+        missing = [
+            topic for index, topic in enumerate(missing)
+            if index in selected_positions
+        ]
+    else:
+        deferred = []
 
     # Preserve the core synopsis and every distinct grounded subject where
     # possible. Do not byte-truncate Cyrillic or silently remove topics.
     base = source
     footer = "\n\nІнші підтверджені теми розмов:\n"
-    excluded: list[str] = []
+    excluded: list[str] = list(deferred)
     included: list[str] = []
     for topic in missing:
         candidate = base + footer + "\n".join(
