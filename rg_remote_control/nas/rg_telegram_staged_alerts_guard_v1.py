@@ -31,7 +31,18 @@ def transform(raw):
 def check_node(source):
     node=shutil.which("node")
     if not node:
-        raise ValueError("Node.js unavailable; refusing unsafe deployment")
+        docker=shutil.which("docker")
+        if not docker:
+            raise ValueError("Node and Docker unavailable")
+        inspect=subprocess.run([docker,"inspect","-f","{{.Config.Image}}","rg-alerts-deploy-deploy-1"],capture_output=True,text=True,timeout=10)
+        if inspect.returncode or not inspect.stdout.strip():
+            raise ValueError("Existing Alerts deploy image unavailable")
+        image=inspect.stdout.strip()
+        with tempfile.TemporaryDirectory() as d:
+            temp=pathlib.Path(d)/"candidate.mjs"
+            temp.write_text(source,"utf-8")
+            subprocess.run([docker,"run","--rm","--network","none","--entrypoint","node","-v",d+":/rg-check:ro",image,"--check","/rg-check/candidate.mjs"],check=True,timeout=45,capture_output=True)
+        return
     with tempfile.TemporaryDirectory() as d:
         temp=pathlib.Path(d)/"candidate.mjs"
         temp.write_text(source,"utf-8")
