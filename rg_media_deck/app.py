@@ -32,6 +32,7 @@ from crop_selection import CropSelectionDialog
 from media_collections import add_files, remove_file_references, migrate_path
 from live_library import RecursiveMediaWatcher, changed_files
 from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide
+from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
@@ -932,6 +933,10 @@ class MainWindow(QMainWindow):
         safe.setCheckable(True)
         safe.setChecked(self.safe_selection)
         menu.addSeparator()
+        maintenance_menu = menu.addMenu('Діагностика та відновлення')
+        report_action = maintenance_menu.addAction('Зберегти звіт діагностики (ZIP)')
+        clear_cache = maintenance_menu.addAction('Очистити старі мініатюри')
+        restore_settings = maintenance_menu.addAction('Відновити останню копію налаштувань')
         deck_action = menu.addAction('⌨ Stream Deck: глобальні клавіші')
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
@@ -970,6 +975,30 @@ class MainWindow(QMainWindow):
             self._save()
             self.status.setText('Безпечний вибір увімкнено' if self.safe_selection else
                                 'Автозапуск при виборі файлу увімкнено')
+        elif choice == report_action:
+            try:
+                result = write_diagnostics(version=VERSION, file_count=len(self.all_media))
+                self.status.setText(f'Звіт створено: {result}')
+                if os.name == 'nt':
+                    subprocess.Popen(['explorer.exe', '/select,', str(result)])
+            except OSError as exc:
+                QMessageBox.warning(self, 'Помилка діагностики', str(exc))
+        elif choice == clear_cache:
+            try:
+                deleted, freed = clean_thumbnail_cache(settings_path().parent / 'thumbnails')
+                self.status.setText(f'Кеш мініатюр очищено: {deleted} файлів, {freed // 1024 // 1024} МБ')
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(self, 'Помилка кешу', str(exc))
+        elif choice == restore_settings:
+            if QMessageBox.question(self, 'Відновити налаштування',
+                'Замінити поточні налаштування останньою резервною копією? '
+                'Перезапустіть програму після відновлення.',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                if restore_latest_backup():
+                    self.status.setText('Налаштування відновлено. Перезапустіть RG Media Deck.')
+                else:
+                    QMessageBox.information(self, 'Резервні копії', 'Збережених копій не знайдено.')
         elif choice == deck_action:
             QMessageBox.information(self, 'Stream Deck',
                 'У Stream Deck виберіть дію Hotkey і задайте:\n' + hotkey_guide()
