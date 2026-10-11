@@ -1147,6 +1147,49 @@ def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
     )
 
 
+def _recover_independent_ab_titles(
+    *,
+    report: dict[str, Any],
+    current_title: str,
+    model: str,
+) -> list[str]:
+    """Generate one verified Russian hook per separate dialogue story."""
+    outline = _ab_distinct_evidence_brief(report)
+    anchors = outline.splitlines() if outline else []
+    if len(anchors) != 3:
+        return []
+    titles: list[str] = []
+    for index, source_anchor in enumerate(anchors, 1):
+        prompt = (
+            f"Напиши ОДНУ назву російською, 25-95 символів, "
+            f"тільки про сюжет {index}:\n{source_anchor}\n"
+            "Без вигаданих фактів, персонажів чи причин. "
+            "Сформулюй конкретний гачок за цитатою. "
+            "Не повторюй інші сюжети та назви. "
+            'Поверни JSON лише {"title":"..."}.\n'
+            f"ПОТОЧНА НАЗВА (НЕ КОПІЮВАТИ): {current_title}\n"
+            f"ВЖЕ ВИКОРИСТАНІ НАЗВИ: {json.dumps(titles, ensure_ascii=False)}"
+        )
+        try:
+            raw = ollama_chat(
+                [{"role": "system", "content": "Точний редактор. Тільки JSON."},
+                 {"role": "user", "content": prompt}],
+                model=model, timeout=90.0, temperature=0.12, json_mode=True,
+            )
+            item = _normalize_seo_candidate(_extract_json_object(raw))
+            title = str(item.get("title") or "").strip()
+        except (ValueError, RuntimeError, TimeoutError):
+            return []
+        if not 25 <= len(title) <= 100:
+            return []
+        if title.casefold() == current_title.strip().casefold():
+            return []
+        if any(title.casefold() == existing.casefold() for existing in titles):
+            return []
+        titles.append(title)
+    return titles if len(titles) == 3 else []
+
+
 def _recover_title_variants(
     *,
     current_title: str,
@@ -1906,6 +1949,15 @@ chapters: рядок з підтвердженими таймкодами та �
                             candidate["title_variants"] = recovered[:3]
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
+                remaining = ab_title_issues(candidate["title_variants"], evidence_report)
+                if remaining:
+                    independent = _recover_independent_ab_titles(
+                        report=evidence_report,
+                        current_title=current_title,
+                        model=model,
+                    )
+                    if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
+                        candidate["title_variants"] = independent
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
