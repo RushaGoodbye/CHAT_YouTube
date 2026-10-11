@@ -8225,7 +8225,10 @@ class MainWindow(QMainWindow):
                WHERE v.profile=? AND d.status='ready'""",
             (self.current_profile,),
         ).fetchall()
-        ready = {str(row["video_id"]) for row in ready_rows}
+        ready = {
+            str(row["video_id"]) for row in ready_rows
+            if self._effective_optimization_status(str(row["video_id"])) == "ready"
+        }
         return [video_id for video_id in requested if video_id in ready]
 
     def prepare_safe_queue(self) -> None:
@@ -8286,7 +8289,10 @@ class MainWindow(QMainWindow):
                ORDER BY v.views DESC""",
             (self.current_profile,),
         ).fetchall()
-        queue = [str(row["video_id"]) for row in ready_rows]
+        queue = [
+            str(row["video_id"]) for row in ready_rows
+            if self._effective_optimization_status(str(row["video_id"])) == "ready"
+        ]
         for item in ranked:
             video_id = item[-1]
             if video_id not in queue:
