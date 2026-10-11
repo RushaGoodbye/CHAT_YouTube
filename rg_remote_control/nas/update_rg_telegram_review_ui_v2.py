@@ -8,7 +8,7 @@ STATE=ROOT/"RG_TELEGRAM_STATE"
 SOURCE=STATE/"rg_telegram_local_review_server_v1.py"
 PASSWORD=ROOT/"RG_SECRETS/rg_local_review_ui_password"
 MARK="RG_NAS_LOCAL_REVIEW_V1"
-COMMIT="4bcf2b6f9ef80f4e6c51487cb3728d13f6464649"
+COMMIT="b27a66e0e866878d3d0fb6c411a0fbe910e01cc8"
 URL=("https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"+COMMIT+
     "/rg_remote_control/nas/rg_telegram_local_review_server_v1.py")
 LOG=STATE/"local_review_ui.log"
@@ -22,7 +22,7 @@ def fetch():
   content=resp.read(60001)
  if not content.startswith(b"#!/usr/bin/env python3") or not 15000<len(content)<60000:
   raise RuntimeError("bad_source_size")
- if b'UI_VERSION="2"' not in content or b"api.telegram.org" in content:raise RuntimeError("wrong_release")
+ if b'UI_VERSION="2.1"' not in content or b"api.telegram.org" in content:raise RuntimeError("wrong_release")
  return content
 def command(args,timeout=20):
  r=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
@@ -105,8 +105,8 @@ def main():
     if os.path.exists(tmpname):os.unlink(tmpname)
    replaced=True
    result=start()
-   if result.get("ui_version")!="2" or not authenticated():raise RuntimeError("ui_v2_health_or_auth_failed")
-   output("LOCAL_REVIEW_UI_V2_READY",ui_version="2",auth="PASS",backup=str(backup),browser_url="http://127.0.0.1:18767",existing_password_unchanged=True)
+   if result.get("ui_version")!="2.1" or not authenticated():raise RuntimeError("ui_v2_health_or_auth_failed")
+   output("LOCAL_REVIEW_UI_V21_READY",ui_version="2.1",auth="PASS",backup=str(backup),browser_url="http://127.0.0.1:18767",existing_password_unchanged=True)
   except Exception as exc:
    if replaced:
     current=target_pids()
