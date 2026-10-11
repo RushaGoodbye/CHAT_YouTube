@@ -92,7 +92,9 @@ def render(rows,key,message="",view="pending",page_no=1):
  for row in visible:
   cid=row["id"];safe_id=esc(cid);fresh=row["fresh"]
   published=row.get("published") or 0
-  when=datetime.datetime.fromtimestamp(published,datetime.timezone.utc).strftime("%d.%m.%Y %H:%M UTC") if isinstance(published,int) and published>0 else "Дата відсутня"
+  try:
+   when=datetime.datetime.fromtimestamp(published,datetime.timezone.utc).strftime("%d.%m.%Y %H:%M UTC") if isinstance(published,int) and published>0 else "Дата відсутня"
+  except (OSError,OverflowError,ValueError):when="Дата недійсна"
   chunks+=['<article class="card"><img loading="lazy" referrerpolicy="no-referrer" src="',esc(safe_https_url(row["image"])),'" alt="Фото новини">',
   '<div class="in"><span class="state">',esc(STATES.get(row["state"],row["state"])),'</span> <span class="meta '+('fresh' if fresh else 'old')+'">',
   ('Свіжа' if fresh else 'Дата не підтверджена / застаріла'),'</span><h3 class="headline">',esc(row["title"]),'</h3>',
