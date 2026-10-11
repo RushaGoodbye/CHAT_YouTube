@@ -82,4 +82,14 @@ class LibraryTests(unittest.TestCase):
                              [0.12, 0.30, 0.88, 0.91])
             self.assertNotIn('invalid', config['file_manual_crops'])
 
+
+    def test_hover_thumbnail_preference_safe_default(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'settings.json'
+            save_settings({'roots': [], 'favorites': []}, path)
+            self.assertTrue(load_settings(path)['hover_thumbnails'])
+            save_settings({'roots': [], 'favorites': [],
+                           'hover_thumbnails': False}, path)
+            self.assertFalse(load_settings(path)['hover_thumbnails'])
+
 if __name__ == '__main__': unittest.main()
