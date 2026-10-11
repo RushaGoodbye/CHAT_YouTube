@@ -18,6 +18,13 @@ $running=@(Get-CimInstance Win32_Process | Where-Object {
   $_.CommandLine -match '(alexpc_agent\.py|youtube_nas_agent\.py|runner_keepalive\.ps1)'
 } | ForEach-Object { [pscustomobject]@{pid=$_.ProcessId;name=$_.Name;agent=if($_.CommandLine -match 'alexpc_agent\.py'){'alexpc'}elseif($_.CommandLine -match 'youtube_nas_agent\.py'){'youtube_nas'}else{'runner_keepalive'} } })
 $agentLength=if(Test-Path -LiteralPath $agent){(Get-Item -LiteralPath $agent).Length}else{0}
+$agentImports=@()
+$agentReferencesSource=$false
+if(Test-Path -LiteralPath $agent -PathType Leaf){
+  $agentImports=@(Get-Content -LiteralPath $agent -TotalCount 120 | Where-Object {$_ -match '^\s*(from|import)\s+'} | Select-Object -First 35)
+  $agentReferencesSource=[bool](Select-String -LiteralPath $agent -Pattern 'CHAT_YouTube-main|rg_youtube_control' -Quiet -ErrorAction SilentlyContinue)
+}
+
 $keepScript='C:\RG_GITHUB_RUNNER\runner_keepalive.ps1'
 $keepInfo=if(Test-Path -LiteralPath $keepScript){[pscustomobject]@{exists=$true;bytes=(Get-Item -LiteralPath $keepScript).Length}}else{[pscustomobject]@{exists=$false;bytes=0}}
 [pscustomobject]@{
@@ -25,6 +32,8 @@ schema='RG_AGENT_PREFLIGHT_V1'
 source_exists=(Test-Path -LiteralPath $old)
 alexpc_agent_exists=(Test-Path -LiteralPath $agent -PathType Leaf)
 alexpc_agent_bytes=$agentLength
+agent_imports=$agentImports
+agent_references_deleted_source=$agentReferencesSource
 python_candidates=$py
 agent_task_exists=($null -ne $task)
 agent_task_state=if($task){[string]$task.State}else{''}
