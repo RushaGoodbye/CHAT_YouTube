@@ -10,7 +10,7 @@ DB=STATE/"migration_shadow.sqlite3"
 KEY=ROOT/"RG_SECRETS/rg_local_review_ui_password"
 PORT=8767
 APP="RG_NAS_LOCAL_REVIEW_V1"
-UI_VERSION="2"
+UI_VERSION="2.1"
 VALID_VIEWS=("pending","stale","ready_shadow","rejected","deferred","all")
 LABELS={"pending":"Нові","stale":"Потрібна перевірка","ready_shadow":"Схвалені","rejected":"Відхилені","deferred":"Відкладені","all":"Усі"}
 STATES={"awaiting_review":"Очікує модерації","ready_shadow":"Схвалено локально","rejected":"Відхилено","deferred":"Відкладено","invalid":"Помилка"}
@@ -86,7 +86,7 @@ def render(rows,key,message="",view="pending",page_no=1):
  chunks+=['<nav class="nav" aria-label="Фільтри новин">']
  for name in VALID_VIEWS:
   chunks+=['<a class="',('sel' if view==name else ''),'" href="/?view=',name,'">',esc(LABELS[name]),' <strong>',str(counts[name]),'</strong></a>']
- chunks+=['</nav><p class="warning">Перед схваленням перевірте достовірність новини, фотографію, водяні знаки, чужі логотипи та можливі обрізані написи. Виявили порушення — відхиліть матеріал до заміни фото.</p>',
+ chunks+=['</nav><p class="warning">Водяні знаки на фото ДОЗВОЛЕНІ після ручного схвалення модератором. Перед схваленням перевірте достовірність, дату, фото, джерело, логотипи та відсутність обрізаного тексту. Якщо є інші порушення — відкладіть або відхиліть новину.</p>',
  '<p class="muted">Показано ',str(len(visible)),' із ',str(len(chosen)),' матеріалів · сторінка ',str(page_no),' із ',str(pages),'</p></header><main>']
  if not visible:chunks+=['<div class="empty">У цьому розділі зараз немає матеріалів.</div>']
  for row in visible:
@@ -103,7 +103,7 @@ def render(rows,key,message="",view="pending",page_no=1):
   if row["state"] in ("awaiting_review","deferred","ready_shadow"):
    chunks+=['<form method="post" action="/decision"><input type="hidden" name="candidate_id" value="',safe_id,'">',
    '<input type="hidden" name="return_view" value="',view,'">',
-   '<label><input type="checkbox" name="verified" value="yes" required> Перевірено зміст, фото, логотипи, водяні знаки та обриви тексту</label><div class="actions">']
+   '<label><input type="checkbox" name="verified" value="yes" required> Я перевірив(ла) зміст, дату, фото, водяні знаки/логотипи та цілісність тексту й схвалюю цей матеріал для наступного етапу</label><div class="actions">']
    for choice,label,klass in [("approved","Схвалити",""),("rejected","Відхилити","reject"),("deferred","Відкласти","defer")]:
     if choice=="approved" and (not fresh or row["state"]=="ready_shadow"):continue
     if choice=="deferred" and row["state"]=="deferred":continue
@@ -231,8 +231,10 @@ def selftest():
  assert "awaiting_review</span>" not in page
  assert "Водяні знаки" not in page
  assert "водяні знаки" in page
+ assert "ДОЗВОЛЕНІ після ручного схвалення" in page
  page2=render([row,fresh],key,view="pending")
  assert "Схвалити" in page2 and "Нові" in page2 and 'value="pending"' in page2
+ assert "водяні знаки/логотипи" in page2
  assert 'href="/?view=stale"' in page2
  assert safe_https_url("javascript:alert(1)")==""
  assert safe_https_url("https://example.org/")=="https://example.org/"
@@ -242,7 +244,7 @@ def selftest():
  assert len(filtered_rows([row]*50,"stale"))==50
  assert 'Наступна →' in render([fresh]*19,key,view="pending")
  assert '← Попередня' in render([fresh]*19,key,view="pending",page_no=2)
- print(json.dumps({"selftest":"PASS","ui_version":UI_VERSION,"escaped_markup":"PASS","tabs":"PASS","pagination":"PASS","stale_approval_blocked":"PASS","watermark_review":"MANUAL","csrf":"PASS","loopback_only":True,"telegram_sends":0}))
+ print(json.dumps({"selftest":"PASS","ui_version":UI_VERSION,"escaped_markup":"PASS","tabs":"PASS","pagination":"PASS","stale_approval_blocked":"PASS","watermark_review":"ALLOWED_AFTER_OPERATOR_APPROVAL","csrf":"PASS","loopback_only":True,"telegram_sends":0}))
 if __name__=="__main__":
  p=argparse.ArgumentParser();p.add_argument("mode",choices=["selftest","serve","ensure","status"]);a=p.parse_args()
  if a.mode=="selftest":selftest()
