@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_archive_worklist_readonly",
   "args": {
-    "nonce": "verify-installed-0717-user-confirmed-20261011-v1"
+    "nonce": "installed-0717-main-live-archive-worklist-20261011-v1"
   }
 }
