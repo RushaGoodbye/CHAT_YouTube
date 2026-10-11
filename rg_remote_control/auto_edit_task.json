@@ -1,7 +1,13 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_update_format",
-  "args": {},
-  "nonce": "rg-pack-portrait-chatgpt-update-format"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      "rg_update_supervisor.py",
+      "rg_studio_update_worker.py",
+      "rg_thumbnail_mix_prep.py"
+    ]
+  },
+  "nonce": "rg-package-supervisor-format-20261011"
 }
