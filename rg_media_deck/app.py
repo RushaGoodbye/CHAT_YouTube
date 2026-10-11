@@ -364,11 +364,10 @@ class MediaModel(QAbstractTableModel):
 
 
 class PlayerSurface(QWidget):
-    """Single capture surface with strict single-player audio ownership.
+    """A single fixed OBS surface; next video can be staged muted.
 
-    Qt's media loading is asynchronous. Reusing an old QMediaPlayer immediately
-    after stop() may leave a buffered audio backend audible during a fast switch.
-    Mute, stop, detach, clear and retire the OLD engine before creating a new one.
+    Old video frame stays visible until the first valid frame from the new
+    player. At most ONE QAudioOutput is unmuted at any moment.
     """
     mediaStatusChanged = Signal(object)
     errorOccurred = Signal(object, str)
@@ -384,6 +383,11 @@ class PlayerSurface(QWidget):
         self.player: QMediaPlayer | None = None
         self.audio: QAudioOutput | None = None
         self.current: MediaItem | None = None
+        self._staged_item: MediaItem | None = None
+        self._staged_player = None
+        self._staged_audio = None
+        self._staged_sink = None
+        self._staged_image = None
         self.setStyleSheet('background:black;')
         self.stack = QStackedWidget()
         self.stack.setStyleSheet('background:black;')
@@ -391,15 +395,35 @@ class PlayerSurface(QWidget):
         self.black.setStyleSheet('background:black;')
         self.video_view = FitVideoViewport()
         self.video_sink = QVideoSink(self)
-        self.video_sink.videoFrameChanged.connect(self.video_view.observe_frame)
+        self.video_sink.videoFrameChanged.connect(self._present_video_frame)
         self.photo = AspectImage()
-        self.stack.addWidget(self.black)
-        self.stack.addWidget(self.video_view)
-        self.stack.addWidget(self.photo)
+        for widget in (self.black, self.video_view, self.photo):
+            self.stack.addWidget(widget)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
         container.addWidget(self.stack)
         self._create_player()
+
+    def _present_video_frame(self, frame):
+        if not frame.isValid():
+            return
+        self.video_view.observe_frame(frame)
+        if self.current is not None and self.current.kind == 'video':
+            if self.stack.currentWidget() is not self.video_view:
+                self.stack.setCurrentWidget(self.video_view)
+
+    def _wire_player(self, player):
+        player.mediaStatusChanged.connect(
+            lambda status, source=player: self._emit_current(source, self.mediaStatusChanged, status))
+        player.errorOccurred.connect(
+            lambda error, description, source=player:
+                self._emit_current(source, self.errorOccurred, error, description))
+        player.positionChanged.connect(
+            lambda position, source=player: self._emit_current(source, self.positionChanged, position))
+        player.durationChanged.connect(
+            lambda duration, source=player: self._emit_current(source, self.durationChanged, duration))
+        player.playbackStateChanged.connect(
+            lambda state, source=player: self._emit_current(source, self.playbackStateChanged, state))
 
     def _create_player(self):
         player = QMediaPlayer(self)
@@ -410,46 +434,76 @@ class PlayerSurface(QWidget):
         self.audio.setMuted(self._muted)
         player.setAudioOutput(self.audio)
         player.setPlaybackRate(self._playback_rate)
-        # Bind signals to their owner. Status callbacks queued by an old engine
-        # must never interrupt a newly playing file.
-        player.mediaStatusChanged.connect(
-            lambda status, source=player: self._emit_current(source, self.mediaStatusChanged, status)
-        )
-        player.errorOccurred.connect(
-            lambda error, description, source=player: self._emit_current(
-                source, self.errorOccurred, error, description
-            )
-        )
-        player.positionChanged.connect(
-            lambda position, source=player: self._emit_current(source, self.positionChanged, position)
-        )
-        player.durationChanged.connect(
-            lambda duration, source=player: self._emit_current(source, self.durationChanged, duration)
-        )
-        player.playbackStateChanged.connect(
-            lambda state, source=player: self._emit_current(source, self.playbackStateChanged, state)
-        )
+        self._wire_player(player)
 
     def _emit_current(self, source, signal, *args):
         if self.player is source:
             signal.emit(*args)
 
+    def _retire(self, player, audio):
+        if audio is not None:
+            audio.setMuted(True)
+            audio.setVolume(0.0)
+        if player is not None:
+            player.stop()
+            player.setSource(QUrl())
+            player.setAudioOutput(None)
+            player.setVideoOutput(None)
+            player.deleteLater()
+        if audio is not None:
+            audio.deleteLater()
+
     def _release_player(self):
         old, old_audio = self.player, self.audio
-        # Invalidate all previous callbacks BEFORE stopping the player.
-        self.player = None
-        self.audio = None
-        if old_audio is not None:
-            old_audio.setMuted(True)
-            old_audio.setVolume(0.0)
-        if old is not None:
-            old.stop()
-            old.setSource(QUrl())  # Release decoder/source I/O
-            old.setAudioOutput(None)
-            old.setVideoOutput(None)
-            old.deleteLater()
-        if old_audio is not None:
-            old_audio.deleteLater()
+        self.player, self.audio = None, None
+        self._retire(old, old_audio)
+
+    def _cancel_staged(self):
+        player, audio, sink = self._staged_player, self._staged_audio, self._staged_sink
+        self._staged_player = self._staged_audio = self._staged_sink = None
+        self._staged_item = self._staged_image = None
+        self._retire(player, audio)
+        if sink is not None:
+            sink.deleteLater()
+
+    def prepare_item(self, item: MediaItem | None):
+        """Quiet pre-roll: decode first frame while current clip keeps playing."""
+        if (item is None or item.kind != 'video' or
+            not os.path.isfile(item.path) or
+            self.current is not None and self.current.path == item.path):
+            self._cancel_staged()
+            return
+        if self._staged_item is not None and self._staged_item.path == item.path:
+            return
+        self._cancel_staged()
+        self._staged_item = item
+        player = QMediaPlayer(self)
+        audio = QAudioOutput(self)
+        sink = QVideoSink(self)
+        audio.setMuted(True)
+        audio.setVolume(0)
+        player.setAudioOutput(audio)
+        player.setVideoSink(sink)
+        self._staged_player, self._staged_audio, self._staged_sink = player, audio, sink
+
+        def on_frame(frame, source=player):
+            if source is not self._staged_player or not frame.isValid() or self._staged_image is not None:
+                return
+            image = frame.toImage()
+            if not image.isNull():
+                self._staged_image = image
+                source.pause()  # silent ready state at the first visible frame
+                source.setPosition(0)
+
+        sink.videoFrameChanged.connect(on_frame)
+        player.setSource(QUrl.fromLocalFile(item.path))
+        player.play()
+
+    def is_prepared(self, item: MediaItem) -> bool:
+        return (self._staged_item is not None and
+                self._staged_item.path == item.path and
+                self._staged_player is not None and
+                self._staged_image is not None)
 
     def _restart_player(self):
         self._release_player()
@@ -477,36 +531,67 @@ class PlayerSurface(QWidget):
             self.player.setPosition(value)
 
     def play_item(self, item: MediaItem):
+        if not os.path.isfile(item.path):
+            return False
+        # Never show black while transitioning from one video to another.
+        prior_image = self.video_view._image
+        ready = self.is_prepared(item)
+        if not ready:
+            self._cancel_staged()
+        self._release_player()  # old sound muted before any new sound
         self.current = None
-        self.stack.setCurrentWidget(self.black)
-        self._restart_player()
         self.video_view.forced_portrait = False
         self.video_view.reset_crop()
         if item.kind == 'photo':
             if self.photo.set_file(item.path):
                 self.current = item
                 self.stack.setCurrentWidget(self.photo)
+                self._create_player()
                 return True
-            self.black_out()
+            self._create_player()
             return False
+
+        # Photo remains visible until first frame; old video freezes until new.
+        if prior_image is not None and not prior_image.isNull():
+            self.video_view._image = prior_image
+            self.video_view.update()
         self.current = item
-        self.stack.setCurrentWidget(self.video_view)
-        self.player.setSource(QUrl.fromLocalFile(item.path))
-        # Some multimedia backends reset speed when a new source is loaded.
+        if ready:
+            player, audio = self._staged_player, self._staged_audio
+            self._staged_item = self._staged_player = self._staged_audio = None
+            sink = self._staged_sink
+            image = self._staged_image
+            self._staged_sink = self._staged_image = None
+            player.setVideoSink(self.video_sink)
+            if sink is not None:
+                sink.deleteLater()
+            self.player, self.audio = player, audio
+            self._wire_player(player)
+            if image is not None:
+                self.video_view._image = image
+                self.video_view.update()
+                self.stack.setCurrentWidget(self.video_view)
+            player.setPosition(0)
+        else:
+            self._create_player()
+            self.player.setSource(QUrl.fromLocalFile(item.path))
         self.player.setPlaybackRate(self._playback_rate)
+        self.audio.setVolume(self._volume)
+        self.audio.setMuted(self._muted)
         self.player.play()
         return True
 
     def black_out(self):
         self.current = None
+        self._cancel_staged()
         self.stack.setCurrentWidget(self.black)
         self.photo.clear_image()
         self.video_view.reset_crop()
-        # Destroy even paused and buffered engines; no previous audio survives.
         self._restart_player()
 
     def shutdown(self):
         self.current = None
+        self._cancel_staged()
         self.stack.setCurrentWidget(self.black)
         self._release_player()
 
