@@ -43,12 +43,6 @@ jobs:
           } elseif ($task.action -eq "youtube_full_seo_0712_qa") {
             & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_full_seo_0712_qa.py" | Tee-Object -FilePath $resultPath
           } elseif ($task.action -eq "youtube_full_seo_0713_qa") {
-            git fetch --no-tags --depth=1 origin "refs/heads/fix/seo-quality-0713-20261011"
-            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch vetted 0.7.13 SEO source" }
-            $head = (git rev-parse FETCH_HEAD).Trim()
-            if ($head -ne "2bd718597d08651a96a96f294388ebed97176702") { throw "Unexpected source revision: $head" }
-            git checkout --detach --force FETCH_HEAD
-            if ($LASTEXITCODE -ne 0) { throw "Unable to checkout vetted SEO source" }
             & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_full_seo_0713_qa.py" | Tee-Object -FilePath $resultPath
             if ($LASTEXITCODE -ne 0) { throw "SEO generation QA script failed" }
           } elseif ($task.action -eq "youtube_ollama_chat_diagnose") {
