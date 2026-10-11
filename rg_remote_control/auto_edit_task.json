@@ -4,10 +4,11 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_update_supervisor.py",
-      "rg_studio_update_worker.py",
-      "rg_thumbnail_mix_prep.py"
+      "rg_studio_ui.py",
+      "rg_thumbnail_chatgpt.py",
+      "rg_chatgpt_browser_automation.py",
+      "rg_studio_version.py"
     ]
   },
-  "nonce": "rg-package-supervisor-format-20261011"
+  "nonce": "rg-chatgpt-two-failures-source-audit-20261011"
 }
