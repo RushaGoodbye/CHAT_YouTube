@@ -103,7 +103,7 @@ def render(rows,key,message="",view="pending",page_no=1):
   if row["state"] in ("awaiting_review","deferred","ready_shadow"):
    chunks+=['<form method="post" action="/decision"><input type="hidden" name="candidate_id" value="',safe_id,'">',
    '<input type="hidden" name="return_view" value="',view,'">',
-   '<label><input type="checkbox" name="verified" value="yes" required> Я перевірив(ла) зміст, дату, фото, водяні знаки/логотипи та цілісність тексту й схвалюю цей матеріал для наступного етапу</label><div class="actions">']
+   '<label><input type="checkbox" name="verified" value="yes" required> Я перевірив(ла) зміст, дату, фото, водяні знаки/логотипи та цілісність тексту й готовий(а) прийняти рішення</label><div class="actions">']
    for choice,label,klass in [("approved","Схвалити",""),("rejected","Відхилити","reject"),("deferred","Відкласти","defer")]:
     if choice=="approved" and (not fresh or row["state"]=="ready_shadow"):continue
     if choice=="deferred" and row["state"]=="deferred":continue
