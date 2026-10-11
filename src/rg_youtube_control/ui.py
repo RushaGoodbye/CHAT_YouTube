@@ -3618,7 +3618,7 @@ class MainWindow(QMainWindow):
         except Exception:
             audit_data = {}
         score = int(audit_data.get("score") or 0)
-        draft = str(row["draft_status"] or "")
+        draft = self._effective_optimization_status(video_id)
         try:
             transcript_dir = self._nas_path(
                 "nas_transcripts_path",
@@ -4096,13 +4096,36 @@ class MainWindow(QMainWindow):
         self.update_task_center()
         self._toast("Пакет відхилено · YouTube не змінено")
 
+    def _effective_optimization_status(self, video_id: str) -> str:
+        row = self.conn.execute(
+            """SELECT d.status,d.generation,d.quality_state,
+                      d.title_variants_json,v.scheduled_publish_at
+               FROM optimization_drafts d
+               JOIN videos v ON v.video_id=d.video_id
+               WHERE d.video_id=? AND v.profile=?""",
+            (video_id, self.current_profile),
+        ).fetchone()
+        if row is None:
+            return ""
+        status = str(row["status"] or "")
+        if status != "ready":
+            return status
+        allowed, _ = ready_for_youtube(
+            status=status,
+            generation=str(row["generation"] or ""),
+            quality_state=str(row["quality_state"] or ""),
+            variants=str(row["title_variants_json"] or "[]"),
+            scheduled=bool(row["scheduled_publish_at"]),
+        )
+        return "ready" if allowed else "draft"
+
     def _run_context_primary_action(self) -> None:
         video_id = self._selected_optimization_video_id()
         if not video_id:
             self._toast("Виберіть відео")
             return
         draft = get_optimization_draft(self.conn, video_id)
-        status = str(draft["status"] or "") if draft is not None else ""
+        status = self._effective_optimization_status(video_id)
         if status == "ready":
             self.apply_content_package()
         elif status == "applied":
