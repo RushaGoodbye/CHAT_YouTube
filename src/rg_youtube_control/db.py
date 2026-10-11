@@ -763,9 +763,18 @@ def save_optimization_draft(
           generation=excluded.generation,
           quality_state=excluded.quality_state,
           quality_reason=excluded.quality_reason,
-          source_title=excluded.source_title,
-          source_description=excluded.source_description,
-          source_tags_json=excluded.source_tags_json,
+          source_title=CASE
+            WHEN TRIM(COALESCE(optimization_drafts.source_title,''))<>''
+              THEN optimization_drafts.source_title
+            ELSE excluded.source_title END,
+          source_description=CASE
+            WHEN TRIM(COALESCE(optimization_drafts.source_description,''))<>''
+              THEN optimization_drafts.source_description
+            ELSE excluded.source_description END,
+          source_tags_json=CASE
+            WHEN TRIM(COALESCE(optimization_drafts.source_tags_json,'')) NOT IN ('','[]')
+              THEN optimization_drafts.source_tags_json
+            ELSE excluded.source_tags_json END,
           updated_at=excluded.updated_at""",
         (
             video_id,
@@ -810,13 +819,13 @@ def annotate_optimization_draft(
         fields.append("quality_reason=?")
         values.append(str(quality_reason))
     if source_title is not None:
-        fields.append("source_title=?")
+        fields.append("source_title=CASE WHEN TRIM(COALESCE(source_title,''))='' THEN ? ELSE source_title END")
         values.append(str(source_title))
     if source_description is not None:
-        fields.append("source_description=?")
+        fields.append("source_description=CASE WHEN TRIM(COALESCE(source_description,''))='' THEN ? ELSE source_description END")
         values.append(str(source_description))
     if source_tags is not None:
-        fields.append("source_tags_json=?")
+        fields.append("source_tags_json=CASE WHEN TRIM(COALESCE(source_tags_json,'')) IN ('','[]') THEN ? ELSE source_tags_json END")
         values.append(json.dumps(source_tags, ensure_ascii=False))
     if not fields:
         return
