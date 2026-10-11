@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_0717_review_drafts",
+  "action": "youtube_0718_runtime_audit_readonly",
   "args": {
-    "nonce": "copy-three-source-matched-qa-pilots-to-needs-review-only-20261011"
+    "nonce": "whole-program-DB-ready-vs-reviewed-audit-20261011"
   }
 }
