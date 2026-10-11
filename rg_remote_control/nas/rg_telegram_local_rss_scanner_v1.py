@@ -35,7 +35,7 @@ def published_epoch(item):
  raw=(item.findtext("pubDate") or item.findtext("{http://www.w3.org/2005/Atom}published") or item.findtext("{http://www.w3.org/2005/Atom}updated") or "").strip()
  if not raw:return None
  try:
-  if "T" in raw:
+  if re.match(r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}",raw):
    import datetime
    dt=datetime.datetime.fromisoformat(raw.replace("Z","+00:00"))
   else:
@@ -115,6 +115,8 @@ def selftest():
  rows,stat=parse(doc,now=now)
  assert len(rows)==1 and rows[0]["detected_at"]==now-900,(rows,stat)
  assert stat=={"missing_images":1,"stale_or_future":2,"undated":1},stat
+ assert published_epoch(ET.fromstring("<item><pubDate>Thu, 09 Oct 2025 16:00:00 +0000</pubDate></item>"))==now-48*3600
+ assert published_epoch(ET.fromstring("<item><pubDate>2025-10-11T16:00:00Z</pubDate></item>"))==now
  assert rows[0]["candidate_id"]==hashlib.sha256(b"https://example.org/n1").hexdigest()[:12]
  try:parse(b"<!DOCTYPE x><rss/>")
  except ValueError:pass
