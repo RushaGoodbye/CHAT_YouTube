@@ -109,6 +109,40 @@ try:
         row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
         row["already_complete"]=bool(row["complete_state"] or row["complete_manifest"])
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
+
+        if isinstance(postrun,dict) and "checks" in postrun:
+            row["qa_failures"]=[{"name":str(c.get("name","")),"detail":str(c.get("message") or c.get("reason") or c.get("detail") or "")[:230]}
+                                for c in (postrun.get("checks") or []) if isinstance(c,dict) and not c.get("ok")][:12]
+        if st in ("886","901"):
+            runlog=APP/"run_manifests"/st/"STUDIO_RUN.log"
+            if runlog.is_file():
+                lines=runlog.read_text(encoding="utf-8",errors="replace").splitlines()
+                row["run_log_errors"]=[x[-350:] for x in lines if any(key in x.lower() for key in ("runtimeerror:","traceback","error:","failed","blocked","cuda error"))][-12:]
+        if st=="903":
+            from rg_server_resolver import AUDIO_EXTS, _contains_stream_number
+            root=Path(cfg["audio_root"])
+            choices=[p for p in root.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTS and _contains_stream_number(p.name,st)]
+            choices=sorted(choices,key=lambda x:x.name.lower())
+            ffprobe=shutil.which("ffprobe") or str(APP/"tools"/"ffprobe.exe")
+            if not Path(ffprobe).is_file() and not shutil.which("ffprobe"):
+                ffprobe=None
+            row["audio_candidates_detailed"]=[]
+            for p in choices:
+                item={"name":p.name,"size_mb":round(p.stat().st_size/1048576)}
+                if ffprobe:
+                    probe=cmd([str(ffprobe),"-v","error","-show_entries","format=duration:stream=codec_type,sample_rate,channels","-of","json",str(p)],timeout=20)
+                    try:
+                        parsed=json.loads(probe.get("stdout") or "{}")
+                        item["duration_sec"]=round(float(parsed.get("format",{}).get("duration") or 0),1)
+                        item["audio_streams"]=len([s for s in parsed.get("streams",[]) if s.get("codec_type")=="audio"])
+                    except Exception:item["probe_error"]=probe.get("stderr") or probe.get("error")
+                row["audio_candidates_detailed"].append(item)
+            if ffprobe:
+                video=Path(cfg["video_root"])/str(st+".mp4")
+                probe=cmd([str(ffprobe),"-v","error","-show_entries","format=duration","-of","json",str(video)],timeout=20)
+                try:row["video_duration_sec"]=round(float(json.loads(probe.get("stdout") or "{}").get("format",{}).get("duration")),1)
+                except Exception:row["video_probe_error"]=probe.get("stderr") or probe.get("error")
+
         row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
                              "MISSING_INPUT" if not row["inputs_ready"] else
                              "RUN_EXPECTED")
