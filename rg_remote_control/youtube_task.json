@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_full_seo_0712_qa",
+  "action": "youtube_ollama_chat_diagnose",
   "args": {
-    "nonce": "full-manual-seo-qa-realvideo-20261011-v1"
+    "nonce": "ollama-direct-chat-repro-20261011"
   }
 }
