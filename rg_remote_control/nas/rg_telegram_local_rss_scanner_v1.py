@@ -31,6 +31,17 @@ def first_image(item):
    match=re.search(r'<img\b[^>]*\bsrc=["\'](https://[^"\']+)["\']',html.unescape(node.text),re.I)
    if match and safe_https(match.group(1)):return match.group(1)
  return None
+def news_reference_snippet(item):
+ # Short RSS description only, for moderator reference and rewriting.
+ # It is NOT a ready-to-publish caption or copied full article.
+ for key in ("description",ENC+"encoded","{http://www.w3.org/2005/Atom}summary"):
+  node=item.find(key)
+  if node is None or not node.text:continue
+  plain=html.unescape(re.sub(r"<[^>]+>"," ",node.text))
+  plain=" ".join(plain.split())
+  if len(plain)>240:plain=plain[:240].rsplit(" ",1)[0]
+  if len(plain)>=30:return plain
+ return ""
 def published_epoch(item):
  raw=(item.findtext("pubDate") or item.findtext("{http://www.w3.org/2005/Atom}published") or item.findtext("{http://www.w3.org/2005/Atom}updated") or "").strip()
  if not raw:return None
@@ -66,7 +77,7 @@ def parse(raw,now=None):
   cid=hashlib.sha256(link.encode("utf-8")).hexdigest()[:12]
   if cid in seen:continue
   seen.add(cid)
-  result.append({"candidate_id":cid,"headline":title,"source_url":link,"image_url":img,"detected_at":published})
+  result.append({"candidate_id":cid,"headline":title,"source_url":link,"image_url":img,"detected_at":published,"summary":news_reference_snippet(item)})
  return result,{"missing_images":missing,"stale_or_future":stale,"undated":undated}
 def scan(feeds,output):
  rows=[];errors=[];missing=0;stale=0;undated=0;seen=set()
@@ -118,10 +129,14 @@ def selftest():
  assert published_epoch(ET.fromstring("<item><pubDate>Thu, 09 Oct 2025 16:00:00 +0000</pubDate></item>"))==now-48*3600
  assert published_epoch(ET.fromstring("<item><pubDate>2025-10-11T16:00:00Z</pubDate></item>"))==now
  assert rows[0]["candidate_id"]==hashlib.sha256(b"https://example.org/n1").hexdigest()[:12]
+ sample=ET.fromstring("<item><description>&lt;p&gt;Відомості про важливу подію оприлюднено з офіційного повідомлення.&lt;/p&gt;</description></item>")
+ assert "важливу подію" in news_reference_snippet(sample)
+ assert "<" not in news_reference_snippet(sample)
+ assert news_reference_snippet(ET.fromstring("<item/>"))==""
  try:parse(b"<!DOCTYPE x><rss/>")
  except ValueError:pass
  else:raise AssertionError("DTD accepted")
- print(json.dumps({"selftest":"PASS","freshness_gate":"PASS","mandatory_image":"PASS","undated_rejected":"PASS","stable_candidate_ids":"PASS","telegram_sends":0,"cloudflare_calls":0}))
+ print(json.dumps({"selftest":"PASS","freshness_gate":"PASS","mandatory_image":"PASS","undated_rejected":"PASS","stable_candidate_ids":"PASS","rss_reference_snippet":"PASS","telegram_sends":0,"cloudflare_calls":0}))
 def main():
  p=argparse.ArgumentParser();p.add_argument("mode",choices=["selftest","once","status"])
  p.add_argument("--out",default=str(INBOX));a=p.parse_args()
