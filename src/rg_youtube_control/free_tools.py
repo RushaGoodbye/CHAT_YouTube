@@ -2004,6 +2004,7 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report and not fast_mode:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
+                    primary_title=str(candidate.get("title") or current_title),
                 )
                 if issues:
                     # One focused recovery using the full grounded outline.
@@ -2023,26 +2024,26 @@ chapters: рядок з підтвердженими таймкодами та �
                             transcript=targeted + transcript,
                             model=model,
                         )
-                        if len(ab_title_issues(recovered, evidence_report)) < len(issues):
+                        if len(ab_title_issues(recovered, evidence_report, primary_title=str(candidate.get("title") or current_title))) < len(issues):
                             candidate["title_variants"] = recovered[:3]
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
-                remaining = ab_title_issues(candidate["title_variants"], evidence_report)
+                remaining = ab_title_issues(candidate["title_variants"], evidence_report, primary_title=str(candidate.get("title") or current_title))
                 if remaining:
                     independent = _recover_independent_ab_titles(
                         report=evidence_report,
                         current_title=current_title,
                         model=model,
                     )
-                    if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
+                    if independent and len(ab_title_issues(independent, evidence_report, primary_title=str(candidate.get("title") or current_title))) < len(remaining):
                         candidate["title_variants"] = independent
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
-                if ab_title_issues(candidate["title_variants"], evidence_report):
+                if ab_title_issues(candidate["title_variants"], evidence_report, primary_title=str(candidate.get("title") or current_title)):
                     safe_quotes = _source_quote_ab_titles(
                         evidence_report, current_title,
                     )
-                    if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
+                    if safe_quotes and not ab_title_issues(safe_quotes, evidence_report, primary_title=str(candidate.get("title") or current_title)):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
             description_candidate = _polish_generated_description(
@@ -2190,7 +2191,7 @@ chapters: рядок з підтвердженими таймкодами та �
             max_topic_bullets=24,
             max_body_bytes=3500,
         )
-    title_issues = ab_title_issues(variants, evidence_report)
+    title_issues = ab_title_issues(variants, evidence_report, primary_title=title)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
         str(item).strip().lstrip("#")
