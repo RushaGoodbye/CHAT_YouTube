@@ -13432,6 +13432,9 @@ class MainWindow(QMainWindow):
                         "proposed_ab": variants,
                         "regressions": regressions,
                         "preserved_saved_draft": True,
+                        # Immutable pre-replacement backup for an explicitly
+                        # approved replacement. Never lose existing metadata.
+                        "previous_saved_draft": dict(existing),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -13439,17 +13442,26 @@ class MainWindow(QMainWindow):
                 encoding="utf-8",
             )
             tmp.replace(candidate_file)
-            QMessageBox.warning(
+            # Operator may consciously accept a shorter but source-verified
+            # candidate. Default is NO, and the previous full draft has
+            # already been backed up to the same versioned JSON.
+            answer = QMessageBox.question(
                 self,
                 "Захист наявного SEO-пакета",
-                "Новий кандидат має ризик втрати інформації. "
-                "Старий SEO-пакет НЕ перезаписано, YouTube не змінено.\n\n"
+                "Новий SEO-кандидат відрізняється від збереженого:\n\n"
                 + "\n".join("- " + item for item in regressions)
-                + "\n\nКандидата збережено окремо: "
-                + str(candidate_file),
+                + "\n\nРезервну копію старого пакета та новий кандидат "
+                  "збережено: " + str(candidate_file)
+                + "\n\nЗамінити ЛИШЕ локальну чернетку після перевірки? "
+                  "Жодних змін на YouTube.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            self._set_process_idle("SEO-кандидата збережено окремо")
-            return
+            if answer != QMessageBox.StandardButton.Yes:
+                self._set_process_idle("SEO-кандидата збережено окремо")
+                return
+            # Continue to technical quality checks below; even explicit
+            # replacement does NOT constitute permission to publish.
 
         quality_state, quality_reasons = self._package_quality_gate(
             title=title,
