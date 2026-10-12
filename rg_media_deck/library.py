@@ -11,7 +11,16 @@ from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
 from settings_safety import backup_settings_once_daily, recover_settings_from_backup
 from media_collections import clean_collections
-from streamdeck_hotkeys import validated_bindings
+from streamdeck_hotkeys import ACTIONS, validated_bindings
+
+
+def clean_saved_hotkeys(value) -> dict[str, str]:
+    """Carry explicit disabled keys through settings validation and relaunch."""
+    cleaned = validated_bindings(value)
+    if isinstance(value, dict):
+        cleaned.update({key: "" for key, raw in value.items()
+                        if key in ACTIONS and raw == ""})
+    return cleaned
 
 VIDEO_EXTS = frozenset({
     '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m4v', '.wmv', '.mpeg',
@@ -193,7 +202,7 @@ def load_settings(path: Path | None = None) -> dict:
             'hover_thumbnails': data.get('hover_thumbnails', True) is not False,
             'auto_library_updates': data.get('auto_library_updates', True) is not False,
             'collections': clean_collections(data.get('collections', {})),
-            'streamdeck_bindings': validated_bindings(data.get('streamdeck_bindings', {})),
+            'streamdeck_bindings': clean_saved_hotkeys(data.get('streamdeck_bindings', {})),
             'deck_collections': {key: value for key, value in data.get('deck_collections', {}).items()
                                  if key in ('collection_1', 'collection_2') and isinstance(value, str)}
                                 if isinstance(data.get('deck_collections'), dict) else {},
