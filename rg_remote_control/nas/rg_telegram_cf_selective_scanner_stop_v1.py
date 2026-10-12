@@ -52,6 +52,15 @@ def allowed():
  if not ENV.is_file() or ENV.is_symlink():raise RuntimeError("SCANNER_DEPLOY_ENV_MISSING")
  if not WORKER.is_dir():raise RuntimeError("SCANNER_SOURCE_MISSING")
  if (ROOT/"RG_NAS_STATE/deploy.lock").exists():raise RuntimeError("AUTO_DEPLOY_IN_PROGRESS")
+ # Do not pause the legacy scanner if Cloudflare's deployment quota is in
+ # cooldown: its independent DO alarm cannot be disabled without redeploying.
+ quota=ROOT/"RG_NAS_STATE/cloudflare_quota_resume_epoch"
+ if quota.is_file() and not quota.is_symlink():
+  import time
+  try:next_allowed=int(quota.read_text("utf-8").strip())
+  except (OSError,ValueError):next_allowed=0
+  if next_allowed>int(time.time())+30:
+   raise RuntimeError("CLOUDFLARE_DEPLOY_QUOTA_COOLDOWN")
  if not DEPLOYER.is_file() or DEPLOYER.is_symlink():raise RuntimeError("AUTODEPLOY_SOURCE_MISSING")
 def guard_source():
  source=(STAGED/"scanner_worker.js").read_text("utf-8")
@@ -122,6 +131,26 @@ def stop_scanner():
  emit("CF_LEGACY_SCANNER_CRON_PAUSED",video_cron=[],alerts_cron=observed[ALERTS],
    content_hub_cron=observed[CONTENT],independent_do_alarm="REQUIRES_GUARD_DEPLOY",
    live_mod_bot_still_cloudflare=True)
+def resume_scanner_cron():
+ """Emergency rollback only if the old Cloudflare scanner is still its owner."""
+ if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
+ if GATE.exists() or FULLPAUSE.exists():raise RuntimeError("OTHER_CUTOVER_ALREADY_ACTIVE")
+ t=mod().env_token()
+ current=snapshot(t)
+ if current[ALERTS]!=["* * * * *"] or current[CONTENT]!=["* * * * *"]:
+  raise RuntimeError("ALERT_OR_CONTENT_CRON_NOT_ORIGINAL")
+ if get_scanner_owner(t)!="cloudflare" and get_scanner_owner(t)!="UNDECLARED":
+  raise RuntimeError("SCANNER_OWNER_ALREADY_NAS_RESTORE_CODE_FIRST")
+ if current[VIDEO]==["*/5 * * * *"]:
+  emit("SCANNER_CRON_ALREADY_RUNNING",safe_to_continue=True);return
+ if current[VIDEO]!=[]:raise RuntimeError("UNEXPECTED_SCANNER_CRON")
+ mod().cf_call(t,"PUT",VIDEO,[{"cron":"*/5 * * * *"}])
+ restored=snapshot(t)
+ if restored[VIDEO]!=["*/5 * * * *"]:raise RuntimeError("SCANNER_CRON_ROLLBACK_NOT_VERIFIED")
+ if FREEZE.is_file() and not FREEZE.is_symlink():FREEZE.unlink()
+ emit("SCANNER_CRON_ROLLBACK_COMPLETE",scanner_cron=restored[VIDEO],
+  alerts_cron=restored[ALERTS],content_cron=restored[CONTENT],owner="cloudflare")
+
 def get_scanner_owner(token):
  s=sel();data=s.read_api(token,f"https://api.cloudflare.com/client/v4/accounts/{s.CF_ACCOUNT}/workers/scripts/{VIDEO}/settings")
  bindings=data.get("bindings") if isinstance(data,dict) else None
@@ -185,7 +214,7 @@ def selftest():
 if __name__=="__main__":
  try:
   p=argparse.ArgumentParser()
-  p.add_argument("mode",choices=("selftest","preflight","stop","deploy-guard","status"))
+  p.add_argument("mode",choices=("selftest","preflight","stop","deploy-guard","resume-cron","status"))
   a=p.parse_args().mode
   if a=="selftest":selftest()
   elif a=="preflight":
@@ -193,6 +222,7 @@ if __name__=="__main__":
     source_guard_checked=True)
   elif a=="stop":stop_scanner()
   elif a=="deploy-guard":deploy_guard()
+  elif a=="resume-cron":resume_scanner_cron()
   else:status()
  except Exception as ex:
   msg=str(ex)
