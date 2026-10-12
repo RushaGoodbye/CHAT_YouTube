@@ -2296,6 +2296,13 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    # Health checks must NEVER mutate a real user's volume, speed, folders,
+    # bookmarks or hotkey settings. Previous selftests saved speed=1.25, which
+    # broke the next health check even though the EXE itself was healthy.
+    if '--selftest' in sys.argv:
+        import tempfile
+        isolated_profile = tempfile.TemporaryDirectory(prefix='rg_deck_selftest_')
+        os.environ['LOCALAPPDATA'] = isolated_profile.name
     logging.basicConfig(
         filename=str(settings_path().parent / 'app.log') if settings_path().parent.exists() else None,
         level=logging.WARNING,
