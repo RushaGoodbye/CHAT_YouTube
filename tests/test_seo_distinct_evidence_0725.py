@@ -44,3 +44,32 @@ def test_unverified_model_claims_never_become_source():
        "excerpt": "частковий текст"}]}
     assert distinct_evidence_topics(report) == []
     assert "Вигадана подія" not in evidence_outline_text(report)
+
+
+def test_recovery_brief_does_not_invent_third_story():
+    from rg_youtube_control.free_tools import _ab_distinct_evidence_brief
+    quote = "Это одна и та же история, повторённая несколько раз подряд."
+    report = {"blocks": [
+        {"verified": True, "start_stamp": "00:00:00",
+         "topics": [{"topic": "Перший сюжет", "evidence": quote}]},
+        {"verified": True, "start_stamp": "00:10:00",
+         "topics": [{"topic": "Перефразована назва", "evidence": quote}]},
+    ]}
+    brief = _ab_distinct_evidence_brief(report)
+    assert brief.count("ЦИТАТА:") == 1
+    assert "C:" not in brief
+
+
+def test_recovery_brief_retains_three_distinct_quoted_anchors():
+    from rg_youtube_control.free_tools import _ab_distinct_evidence_brief
+    report = {"blocks": [
+        {"verified": True, "start_stamp": f"00:0{i}:00",
+         "topics": [{"topic": f"Сюжет {i}", "evidence": quote}]}
+        for i, quote in enumerate((
+            "Говорят о коррупции в министерстве и работе чиновников.",
+            "Говорят о нехватке топлива и высоких ценах на бензин.",
+            "Говорят о религии и отношении к церковным традициям.",
+        ))
+    ]}
+    brief = _ab_distinct_evidence_brief(report)
+    assert brief.count("ЦИТАТА:") == 3
