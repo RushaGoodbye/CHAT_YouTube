@@ -87,6 +87,33 @@ class Meta(HTMLParser):
   if tag=="title":self.in_title=False
  def handle_data(self,data):
   if self.in_title:self.title.append(data)
+class TelegramPublicPost(HTMLParser):
+ """Extract only a public post's own image/text, not generic Telegram logos."""
+ def __init__(self,expected):
+  super().__init__(convert_charrefs=True)
+  self.expected=expected;self.active=False;self.depth=0
+  self.message_depth=0;self.text=[];self.photo=""
+ def handle_starttag(self,tag,attrs):
+  values=dict(attrs);classes=values.get("class","").split()
+  if not self.active:
+   if values.get("data-post")==self.expected and "tgme_widget_message" in classes:
+    self.active=True;self.depth=1
+   return
+  self.depth+=1
+  if "tgme_widget_message_text" in classes:self.message_depth=self.depth
+  if "tgme_widget_message_photo_wrap" in classes:
+   style=values.get("style","")
+   match=re.search(r"background-image\s*:\s*url\(['\"]?(https://[^)'\"\s]+)",style,re.I)
+   if match and check_url(html.unescape(match.group(1))):self.photo=html.unescape(match.group(1))
+ def handle_endtag(self,tag):
+  if not self.active:return
+  if self.message_depth==self.depth:self.message_depth=0
+  self.depth-=1
+  if self.depth<=0:self.active=False
+ def handle_data(self,text):
+  if self.active and self.message_depth:self.text.append(text)
+ def extract(self):
+  return complete(" ".join(self.text)),self.photo
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,req,fp,code,msg,headers,newurl):
   raise Fail("source_redirect_not_accepted")
@@ -110,7 +137,7 @@ def public_html(url):
  p=Meta()
  try:p.feed(raw.decode("utf-8","replace"))
  except (ValueError,UnicodeError):raise Fail("source_parse_error") from None
- return p.meta," ".join(p.title)
+ return p.meta," ".join(p.title),raw.decode("utf-8","replace")
 def article_link(text):
  for match in re.finditer(r"https://[^\s<>()\[\]\"']+",str(text or "")):
   url=match.group(0).rstrip(".,;!?»”")
@@ -133,7 +160,19 @@ def normalize(url):
   url="https://t.me/"+match.group(1)+"/"+match.group(2)+"?embed=1"
  return url
 def source_to_post(url):
- page=normalize(url);meta,page_title=public_html(page)
+ page=normalize(url);meta,page_title,raw=public_html(page)
+ link=urllib.parse.urlsplit(url)
+ if link.hostname in ("t.me","telegram.me"):
+  m=re.fullmatch(r"/([A-Za-z_][A-Za-z0-9_]{3,})/(\d+)/?",link.path)
+  if not m:raise Fail("telegram_link_not_supported")
+  post=TelegramPublicPost(m.group(1)+"/"+m.group(2))
+  post.feed(raw)
+  body,photo=post.extract()
+  if not body or not photo:raise Fail("public_post_requires_photo_and_full_text")
+  # Use text from the exact Telegram message, never Telegram's generic OG card.
+  title=body[:100].rsplit(" ",1)[0]
+  if not 20<=len(title)<=250:raise Fail("telegram_post_title_missing")
+  return title,body,photo
  title=" ".join((meta.get("og:title") or page_title or "").split())[:260]
  body=complete(meta.get("og:description") or meta.get("description") or "")
  photo=meta.get("og:image") or meta.get("twitter:image") or ""
@@ -354,6 +393,12 @@ def selftest():
   assert hashlib.sha256(("link"+"\0"+"https://www.ukrinform.ua/example").encode()).hexdigest()[:16]==cid
   assert not check_url("https://127.0.0.1/a")
   assert not check_url("https://user:pass@evil.com/a")
+  sample=('<div class="tgme_widget_message" data-post="NewsUA/1234"><div class="tgme_widget_message_text">За даними офіційного повідомлення, стало відомо про важливі події в Україні. Відповідальні служби перевіряють повідомлення та оновлюють інформацію.</div><a class="tgme_widget_message_photo_wrap" style="background-image:url(\'https://example.org/photo.jpg\')"></a></div>')
+  post=TelegramPublicPost("NewsUA/1234");post.feed(sample)
+  body,photo=post.extract()
+  assert body.endswith(".") and photo=="https://example.org/photo.jpg"
+  other=TelegramPublicPost("OtherUA/1234");other.feed(sample)
+  assert other.extract()==("","")
   assert not complete("Незавершений текст…")
   assert isinstance(GATE,pathlib.Path)
  print(json.dumps({"selftest":"PASS","bot_callback_to_queue":"PASS","at_most_once":"PASS",
