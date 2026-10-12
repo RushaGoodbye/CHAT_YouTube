@@ -2225,8 +2225,8 @@ chapters: рядок з підтвердженими таймкодами та �
         # remains available separately if even this budget is insufficient.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=24,
-            max_body_bytes=3500,
+            max_topic_bullets=50,
+            max_body_bytes=3800,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
