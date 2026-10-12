@@ -125,9 +125,9 @@ class MaintenanceTests(unittest.TestCase):
 
 class StreamDeckHotkeysTests(unittest.TestCase):
     def test_all_five_actions_have_distinct_global_shortcuts(self):
-        self.assertEqual(len(ACTIONS), 7)
+        self.assertEqual(len(ACTIONS), 13)
         self.assertEqual(set(ACTIONS),
-                         {"play_pause", "stop", "mute", "play_selected", "next_media", "collection_1", "collection_2"})
+                         {"start", "pause", "speed_up", "speed_down", "volume_down", "volume_up", "play_pause", "stop", "mute", "play_selected", "next_media", "collection_1", "collection_2"})
         guide = hotkey_guide()
         self.assertIn("Ctrl+Alt+Shift+F6", guide)
         self.assertIn("Ctrl+Alt+Shift+F10", guide)
