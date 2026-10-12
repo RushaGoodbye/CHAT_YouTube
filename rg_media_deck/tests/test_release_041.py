@@ -76,7 +76,9 @@ class StreamDeckTests(unittest.TestCase):
             'play_pause': 'Ctrl+Alt+F6', 'stop': 'Ctrl+Alt+F6'})
         self.assertIn('play_pause', parsed)
         self.assertNotIn('stop', parsed)
-        self.assertEqual(len(set(parsed.values())), len(parsed))
+        # F17 is intentionally shared by START and PAUSE (one toggle hotkey).
+        self.assertEqual(len(set(parsed.values())), len(parsed) - 1)
+        self.assertEqual(parsed['start'], parsed['pause'])
 
     def test_config_roundtrip_old_settings(self):
         with tempfile.TemporaryDirectory() as root:
