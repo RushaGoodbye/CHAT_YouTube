@@ -303,6 +303,7 @@ def inspect_backups():
    scanner_original_wrangler_backup_present=(OUT/"wrangler.toml.before").is_file(),
    local_source_sha16=hashlib.sha256(original[0].encode()).hexdigest()[:16],
    safe_to_resume=safe,cloudflare_writes=0,production_files_changed=False)
+ if not safe:raise RuntimeError("ALERT_BACKUP_SOURCE_DRIFT_REFUSE_DEPLOY")
 def stop_auto_deploy(deployer):
  if MARKER in deployer:return
  old=DEPLOYER.read_text("utf-8")
