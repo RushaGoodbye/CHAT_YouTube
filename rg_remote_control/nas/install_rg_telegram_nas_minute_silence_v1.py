@@ -92,5 +92,5 @@ if __name__=="__main__":
   if a.mode=="selftest":selftest()
   else:main()
  except Exception as ex:
-  out("BLOCKED",reason=type(ex).__name__+":"+str(ex)[:110],live_delivery_enabled=False)
+  out("BLOCKED",reason=type(ex).__name__+":"+str(ex)[:360],live_delivery_enabled=False)
   sys.exit(1)
