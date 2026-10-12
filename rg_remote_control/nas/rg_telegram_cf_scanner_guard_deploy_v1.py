@@ -62,15 +62,19 @@ def check_source():
  "cron":'crons = ["*/5 * * * *"]' in config,
  "worker_name":'name = "rasha-goodbye-video-scanner"' in config}
  if not all(checks.values()):raise RuntimeError("SCANNER_GUARD_STAGE_INVALID")
+ # A wrangler deploy also REPLACES Cron triggers. Keep all scanner
+ # Cron triggers removed while activating the DO alarm stop guard.
  nextconf=config.replace('RG_MIGRATION_SCANNER_OWNER = "cloudflare"',
                          'RG_MIGRATION_SCANNER_OWNER = "nas"')
- if nextconf==config or nextconf.count('RG_MIGRATION_SCANNER_OWNER = "nas"')!=1:
+ nextconf=nextconf.replace('crons = ["*/5 * * * *"]','crons = []')
+ if nextconf==config or nextconf.count('RG_MIGRATION_SCANNER_OWNER = "nas"')!=1 or nextconf.count("crons = []")!=1:
   raise RuntimeError("SCANNER_CONFIG_PATCH_INVALID")
  return code,nextconf,checks
 def shell_test():
  sample='RG_MIGRATION_SCANNER_OWNER = "cloudflare"'
  assert sample.replace('"cloudflare"','"nas"')=='RG_MIGRATION_SCANNER_OWNER = "nas"'
  assert "deleteAlarm()" in "await state.storage.deleteAlarm()"
+ assert 'crons = ["*/5 * * * *"]'.replace('crons = ["*/5 * * * *"]','crons = []')=='crons = []'
  emit("CF_SCANNER_GUARD_SELFTEST_PASS",dry_run=True,no_telegram_calls=True)
 def readiness():
  if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
