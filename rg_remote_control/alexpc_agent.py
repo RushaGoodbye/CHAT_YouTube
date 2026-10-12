@@ -247,9 +247,11 @@ def _processes_json(filter_script: str) -> str:
 
 
 def ensure_youtube_gui() -> dict:
-    # Prefer the installed desktop build. The old behavior launched run_app.py
-    # from CHAT_YouTube-main every 60 seconds, which could reopen an outdated
-    # source build after an installer/update had just replaced the app.
+    """GUI_START_POLICY_MANUAL_V1: observe only; do not reopen closed windows.
+
+    The user deliberately closes the YouTube application. A background NAS
+    agent must respect that and continue processing other contours normally.
+    """
     installed_candidates = [
         Path(os.environ.get("ProgramFiles", r"C:\\Program Files"))
         / "RG YouTube Control"
@@ -259,99 +261,28 @@ def ensure_youtube_gui() -> dict:
         / "RG YouTube Control.exe",
     ]
     installed_exe = next((p for p in installed_candidates if p.is_file()), None)
-
+    running = False
     if installed_exe is not None:
         probe_cmd = (
             "$p=Get-CimInstance Win32_Process | Where-Object { "
-            "$_.Name -eq 'RG YouTube Control.exe' "
-            "-or ($_.ExecutablePath -and $_.ExecutablePath -eq '"
-            + str(installed_exe).replace("'", "''")
-            + "') }; "
-            "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
-            "ConvertTo-Json -Compress"
+            "$_.Name -eq 'RG YouTube Control.exe' }; "
+            "$p | Select-Object ProcessId | ConvertTo-Json -Compress"
         )
-        before = _processes_json(probe_cmd)
-        started = False
-        if not before or before in {"null", "[]"}:
-            flags = 0
-            if os.name == "nt":
-                flags = (
-                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                    | getattr(subprocess, "DETACHED_PROCESS", 0)
-                )
-            subprocess.Popen(
-                [str(installed_exe)],
-                cwd=str(installed_exe.parent),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=flags,
-                close_fds=True,
-            )
-            started = True
-            time.sleep(3)
-        after = _processes_json(probe_cmd)
-        return {
-            "ok": bool(after and after not in {"null", "[]"}),
-            "started": started,
-            "mode": "installed",
-            "executable": str(installed_exe),
-            "processes": after,
-        }
-
-    # Fallback for development/recovery PCs where no installer build exists.
-    target = Path.home() / "CHAT_YouTube-main"
-    run_app = target / "run_app.py"
-    pythonw = target / ".venv" / "Scripts" / "pythonw.exe"
-    if not run_app.is_file() or not pythonw.is_file():
-        return {
-            "ok": False,
-            "reason": "youtube_gui_runtime_missing",
-            "installed_candidates": [str(p) for p in installed_candidates],
-            "run_app": str(run_app),
-            "pythonw": str(pythonw),
-        }
-
-    probe_cmd = (
-        "$p=Get-CimInstance Win32_Process | Where-Object { "
-        "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
-        "-and $_.CommandLine -like '*CHAT_YouTube-main*run_app.py*' }; "
-        "$p | Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
-        "ConvertTo-Json -Compress"
-    )
-    before = _processes_json(probe_cmd)
-    started = False
-    if not before or before in {"null", "[]"}:
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(target / "src")
-        env.pop("RUNNER_TRACKING_ID", None)
-        flags = 0
-        if os.name == "nt":
-            flags = (
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                | getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-        subprocess.Popen(
-            [str(pythonw), str(run_app)],
-            cwd=str(target),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
-        started = True
-        time.sleep(3)
-    after = _processes_json(probe_cmd)
+        try:
+            processes = _processes_json(probe_cmd)
+            running = bool(processes and processes not in {"null", "[]"})
+        except Exception:
+            # Failure to inspect never authorizes launching the GUI.
+            running = False
     return {
-        "ok": bool(after and after not in {"null", "[]"}),
-        "started": started,
-        "mode": "source_fallback",
-        "processes": after,
+        "ok": True,
+        "mode": "manual",
+        "launch_policy": "manual",
+        "started": False,
+        "running": running,
+        "executable": str(installed_exe) if installed_exe else "",
+        "gui_process_untouched": True,
     }
-
 
 def ensure_ollama() -> dict:
     try:
