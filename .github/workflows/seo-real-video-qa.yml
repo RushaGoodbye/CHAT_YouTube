@@ -1,0 +1,49 @@
+name: RG SEO Real Video Acceptance (READ ONLY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "rg_remote_control/youtube_real_shoigu_branch_qa.py"
+      - "src/rg_youtube_control/dialogue_seo.py"
+      - "src/rg_youtube_control/free_tools.py"
+      - "src/rg_youtube_control/ui.py"
+      - ".github/workflows/seo-real-video-qa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  real_shoigu:
+    if: github.head_ref == 'fix/seo-quality-end-to-end-evidence-protection'
+    runs-on: self-hosted
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Ensure QA stays on AlexPC and never modifies YouTube
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Wrong computer" }
+          if (!(Test-Path "C:\Users\fauto\AppData\Local\RGYouTubeControl\rg_youtube_control.db")) { throw "No installed data" }
+      - name: Install transcript helper in temporary CI location
+        shell: powershell
+        run: |
+          $py="C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+          $deps=Join-Path $env:RUNNER_TEMP "rg_qa_temp_deps"
+          & $py -m pip install --disable-pip-version-check -q --target $deps youtube-transcript-api==1.2.4
+          if($LASTEXITCODE -ne 0){throw "Cannot load public caption helper"}
+          "PYTHONPATH=$deps;$((Get-Location).Path)\src" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Run real Shoigu full-video read-only SEO preview
+        shell: powershell
+        run: |
+          $py="C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+          & $py -B "rg_remote_control\youtube_real_shoigu_branch_qa.py"
+          if($LASTEXITCODE -ne 0){throw "Real-video SEO quality gate NOT PASSED"}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rg-real-shoigu-seo-qa
+          path: ${{ runner.temp }}/rg_real_shoigu_seo_qa.json
+          if-no-files-found: ignore
+          retention-days: 7
