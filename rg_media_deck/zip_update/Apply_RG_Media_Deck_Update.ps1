@@ -1,7 +1,8 @@
 param(
     [string]$InstallDir = "",
     [switch]$NonInteractive,
-    [int]$WaitPid = 0
+    [int]$WaitPid = 0,
+    [switch]$NoLaunch
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -74,7 +75,7 @@ try {
        Sort-Object -Property LastWriteTime -Descending |
        Select-Object -Skip 1 |
        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath $CurrentExe
+    if (-not $NoLaunch) { Start-Process -FilePath $CurrentExe }
     exit 0
 }
 catch {
