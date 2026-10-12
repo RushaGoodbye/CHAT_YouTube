@@ -196,7 +196,7 @@ def deploy_guard():
   save(f,value);os.chmod(f,mode)
  cmd=["docker","run","--rm","--env-file",str(ENV),"-v",str(WORKER)+":/app",
   "-w","/app","node:22-bookworm-slim","sh","-lc",
-  "npm install --no-audit --no-fund && node --check src/quota-entry-v2.js && npx wrangler deploy --config wrangler.toml"]
+  "npm install --no-audit --no-fund && npm run check && npx wrangler deploy --config wrangler.toml"]
  emit("CF_SCANNER_DO_STOP_DEPLOY_STARTED",source_backups=True,
    alerts_and_content_crons_preserved=True,worker_owner="nas")
  try:p=subprocess.run(cmd,capture_output=True,text=True,timeout=520)
