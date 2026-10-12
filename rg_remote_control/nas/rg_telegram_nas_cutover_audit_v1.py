@@ -7,7 +7,7 @@ ROOT=pathlib.Path("/volume1/docker")
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SECRETS=ROOT/"RG_SECRETS"
 ROOTS=(ROOT/"RG_ALERTS_DEPLOY/deploy.env",ROOT/"RG_CONTENT_DEPLOY/deploy.env",ROOT/"RG_DEPLOY/deploy.env")
-WORKERS=("rasha-goodbye-air-alerts","rasha-goodbye-content-hub")
+WORKERS=("rasha-goodbye-air-alerts","rasha-goodbye-content-hub","rasha-goodbye-video-scanner")
 ACCOUNT_ID="be73f73dbe2a5471c62384dc673c91e6"
 def safe_environment():
  env={}
@@ -65,10 +65,24 @@ def audit(with_cloudflare=False):
  token=SECRETS/"rg_telegram_bot_token"
  result["nas_bot"]={"source_installed":native.is_file() and not native.is_symlink(),
   "cutover_gate_present":gate.exists(),"credential_present":token.is_file() and not token.is_symlink()}
+ staged=ROOT/"RG_TELEGRAM_STATE/cf_moderation_handoff_stage_v1"
+ report=staged/"preflight_report.json"
+ report_ready=False;legacy_pending=True
+ if report.is_file() and not report.is_symlink():
+  try:
+   data=json.loads(report.read_text("utf-8"))
+   report_ready=(data.get("status")=="CF_OWNER_GUARD_STAGE_READY"
+     and data.get("inventory",{}).get("scanner_durable_object_alarm_guard_ready") is True)
+   legacy_pending=data.get("inventory",{}).get("legacy_moderation_cards_reconciliation_pending") is not False
+  except (OSError,ValueError):pass
+ result["migration_staging"]={"source_inventory_ready":report_ready,
+  "legacy_callback_reconciliation_pending":legacy_pending,
+  "disabling_cron_alone_does_not_stop_DO_alarm":True}
  if with_cloudflare:result["cloudflare"]=cloudflare_probe(safe_environment())
  result["requirements"]={
   "cloudflare_moderation_polling_disabled_verified":False,
   "cloudflare_scheduled_content_migration_verified":False,
+  "scanner_durable_object_alarm_disabled_verified":False,
   "old_moderation_cards_migrated":False,
   "native_bot_polling_active":False}
  return result
