@@ -494,7 +494,7 @@ def ab_title_issues(
     # all three repeated "стратегия" and two pairs reused another event.
     # Report this as a review problem and trigger independent-hook recovery.
     common_core = set.intersection(*content_stems) if content_stems else set()
-    common_core -= {"росс", "росі", "укра", "война", "війна"}
+    # A recurring protagonist is not evidence of repeating the same hook.\n    # Compare the event/claim instead of penalizing all titles about Shoigu.\n    common_core -= {"росс", "росі", "укра", "война", "війна", "шойг"}
     if common_core:
         repeated_pairs = sum(
             bool((content_stems[left] & content_stems[right]) - common_core)
