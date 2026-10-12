@@ -36,11 +36,12 @@ from media_collections import add_files, remove_file_references, migrate_path
 from live_library import RecursiveMediaWatcher, changed_files, keep_offline_entries, unavailable_roots, relocated_path, FileIdentityIndex
 from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide, ACTIONS, DEFAULT_BINDINGS, validated_bindings, parse_hotkey
 from hotkey_dialog import HotkeyEditor
+from mini_keyboard_diagnostics import MiniKeyboardDiagnostics
 from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.4'
+VERSION = '0.4.5'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -1192,6 +1193,7 @@ class MainWindow(QMainWindow):
         restore_settings = maintenance_menu.addAction('Відновити останню копію налаштувань')
         deck_action = menu.addAction('⌨ Stream Deck: глобальні клавіші')
         deck_setup = menu.addAction('⌨ Гарячі клавіші — додати / змінити...')
+        keyboard_test = menu.addAction('⌨ Перевірити mini keyboard (F17, F9, +/-)')
         deck_collections = menu.addAction('⌨ Stream Deck — призначити добірки...')
         rollback_action = maintenance_menu.addAction('Повернути попередню версію програми...')
         rollback_status_action = maintenance_menu.addAction('Стан останнього оновлення')
@@ -1258,6 +1260,10 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, 'Резервні копії', 'Збережених копій не знайдено.')
         elif choice == deck_setup:
             self.configure_streamdeck()
+        elif choice == keyboard_test:
+            dialog = MiniKeyboardDiagnostics(self._streamdeck, self)
+            dialog.setStyleSheet(STYLE)
+            dialog.exec()
         elif choice == deck_collections:
             self.configure_deck_collections()
         elif choice == rollback_status_action:
@@ -1576,7 +1582,7 @@ class MainWindow(QMainWindow):
                 'collections': self.collections,
                 'auto_library_updates': self.auto_library_updates,
                 'streamdeck_bindings': self.deck_bindings,
-                'hotkeys_layout_version': 2,
+                'hotkeys_layout_version': 3,
                 'deck_collections': self.deck_collections,
             })
         except OSError as exc:
