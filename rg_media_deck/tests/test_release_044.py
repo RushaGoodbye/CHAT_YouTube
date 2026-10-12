@@ -72,7 +72,7 @@ class ExistingSettingsMigrationTests(unittest.TestCase):
             saved = load_settings(config)
             for action, expected in BROADCAST_BINDINGS.items():
                 self.assertEqual(saved["streamdeck_bindings"][action], expected)
-            self.assertEqual(saved["hotkeys_layout_version"], 3)
+            self.assertEqual(saved["hotkeys_layout_version"], 4)
 
     def test_custom_and_disabled_assignments_never_overwritten(self):
         custom = dict(LEGACY_BINDINGS)
