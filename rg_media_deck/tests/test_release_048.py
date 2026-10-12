@@ -149,6 +149,7 @@ class KeyEditorTests(unittest.TestCase):
         dialog = HotkeyEditor(dict(DEFAULT_BINDINGS))
         try:
             dialog._reset_defaults()
+            self.assertTrue(dialog.fields["stop"].keySequence().isEmpty())
             for action in ("frame_back", "frame_forward"):
                 chord = dialog.fields[action].keySequence().toString(
                     QKeySequence.SequenceFormat.PortableText)
