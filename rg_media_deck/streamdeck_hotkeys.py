@@ -84,27 +84,35 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
 
 
 def validated_bindings(settings) -> dict[str, str]:
-    """Backwards compatible validation; empty string disables a binding."""
-    output = DEFAULT_BINDINGS.copy()
+    """Keep legacy user overrides before applying any new default shortcuts.
+
+    Priority is explicit user assignment > defaults. On collisions, the less
+    important default is disabled rather than silently overriding older keys.
+    Empty string explicitly disables an action across relaunches.
+    """
+    values = DEFAULT_BINDINGS.copy()
+    explicitly_set = set()
     if isinstance(settings, dict):
         for action, raw in settings.items():
             if action not in ACTIONS:
                 continue
             if raw == "":
-                output.pop(action, None)
+                values.pop(action, None)
+                explicitly_set.add(action)
                 continue
             try:
                 canonical, _, _ = parse_hotkey(raw)
             except ValueError:
                 continue
-            output[action] = canonical
-    # On a saved conflict, keep the first action and disable the duplicate.
-    used = set()
-    for action in list(ACTIONS):
-        combo = output.get(action)
-        if combo in used:
-            output.pop(action, None)
-        elif combo:
+            explicitly_set.add(action)
+            values[action] = canonical
+    priority = ([name for name in ACTIONS if name in explicitly_set]
+                + [name for name in ACTIONS if name not in explicitly_set])
+    used, output = set(), {}
+    for action in priority:
+        combo = values.get(action)
+        if combo and combo not in used:
+            output[action] = combo
             used.add(combo)
     return output
 
