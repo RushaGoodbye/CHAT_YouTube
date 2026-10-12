@@ -186,7 +186,23 @@ def selftest():
  sample='name = "rasha-goodbye-video-scanner"\nmain = "src/quota-entry-v2.js"\ncrons = ["*/5 * * * *"]'
  assert 'name = "rasha-goodbye-video-scanner"' in sample
  assert 'crons = ["*/5 * * * *"]' in sample
- assert "wrangler deploy --config wrangler.toml" in docker_restore.__code__.co_consts[-1] if False else True
+ assert any("npx --no-install wrangler deploy --config wrangler.toml" in v
+    for v in docker_restore.__code__.co_consts if isinstance(v,str))
+ from unittest import mock
+ with tempfile.TemporaryDirectory() as td:
+  root=pathlib.Path(td)
+  first=root/"quota-entry-v2.js.before"
+  second=root/"wrangler.toml.before"
+  first.write_text("export class ScannerCoordinator { constructor() {} }"+" "*128,encoding="utf-8")
+  second.write_text(sample+"\n",encoding="utf-8")
+  with mock.patch.dict(globals(),{"OUT":root,"BACKUPS":(first,second)}):
+   content,config=backup_sources()
+   assert "ScannerCoordinator" in content and "*/5" in config
+   second.write_text(sample.replace('*/5 * * * *','* * * * *'),encoding="utf-8")
+   try:backup_sources()
+   except RuntimeError as ex:
+    assert str(ex)=="SCANNER_ORIGINAL_CRON_INVALID"
+   else:raise AssertionError("bad_original_cron_was_accepted")
  assert GATE!=FREEZE and OUT==STATE/"rg_cf_moderation_handoff_v1"
  emit("CLOUDFLARE_SCANNER_RECOVERY_SELFTEST_PASS",network_calls=0,
   no_source_or_cf_writes=True)
