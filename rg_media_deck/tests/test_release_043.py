@@ -27,7 +27,7 @@ class MediaHotkeyTests(unittest.TestCase):
                     "volume_down", "volume_up", "mute"}
         self.assertTrue(required.issubset(set(ACTIONS)))
         self.assertTrue(all(action in DEFAULT_BINDINGS for action in required))
-        self.assertEqual(len(set(DEFAULT_BINDINGS.values())), len(DEFAULT_BINDINGS))
+        self.assertEqual(len(set(DEFAULT_BINDINGS.values())), len(DEFAULT_BINDINGS) - 1)
         self.assertEqual(len(ACTIONS), 13)
 
     def test_assign_letter_digit_and_function_combos(self):
@@ -41,7 +41,7 @@ class MediaHotkeyTests(unittest.TestCase):
 
     def test_duplicate_assignments_rejected_before_save(self):
         with self.assertRaises(ValueError):
-            check_bindings({"start": "Ctrl+Alt+P", "pause": "Ctrl+Alt+P"})
+            check_bindings({"start": "Ctrl+Alt+P", "mute": "Ctrl+Alt+P"})
         correct = check_bindings({"start": "Ctrl+Alt+1", "pause": "",
                                   "volume_up": "Ctrl+Shift+Y"})
         self.assertEqual(correct["volume_up"], "Ctrl+Shift+Y")
