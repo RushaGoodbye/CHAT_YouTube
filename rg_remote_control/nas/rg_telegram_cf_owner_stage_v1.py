@@ -7,7 +7,7 @@ import argparse,base64,hashlib,json,os,pathlib,re,subprocess,sys,tempfile,urllib
 ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE"
 GH_TOKEN=ROOT/"RG_SECRETS/github_token"
-PIN="50204a1721a103206342f2e39faada53f02ef730"
+PIN="25b9cdfdb7abfb2d7bcfdc55b812da71e4131aee"
 REPO="RushaGoodbye/rasha-goodbye-news-bot"
 FILES={"index.js":"cloudflare-alerts/src/index.js",
        "wrangler.toml":"cloudflare-alerts/wrangler.toml",
@@ -22,6 +22,8 @@ INVENTORY_FILES={
  "air_alert_index.js":"cloudflare-alerts/src/index.js",
  "air_alert_card.js":"cloudflare-alerts/src/alert-card.js",
  "minute_silence_asset.py":"cloudflare-alerts/scripts/prepare-minute-silence-asset.py",
+ "scanner_worker.js":"cloudflare-video-moderation/src/quota-entry-v2.js",
+ "scanner_worker.toml":"cloudflare-video-moderation/wrangler.toml",
 }
 STAGE=STATE/"cf_moderation_handoff_stage_v1"
 PROD=ROOT/"RG_ALERTS_DEPLOY/cloudflare-alerts"
@@ -88,6 +90,14 @@ def stage():
  inventory={name:contents(token,path) for name,path in INVENTORY_FILES.items()}
  del token
  checks=validate(files)
+ scanner=inventory["scanner_worker.js"].decode("utf-8")
+ scanner_toml=inventory["scanner_worker.toml"].decode("utf-8")
+ if not all(x in scanner for x in ("RG_MIGRATION_SCANNER_OWNER","DO_ALARM_STOPPED_NAS_OWNER",
+                                   'await this.rawState.storage.deleteAlarm()',
+                                   '"/admin/moderation-candidates"')):
+  raise RuntimeError("scanner_alarm_handoff_guard_missing")
+ if 'RG_MIGRATION_SCANNER_OWNER = "cloudflare"' not in scanner_toml:
+  raise RuntimeError("scanner_owner_default_not_safe")
  calendar=json.loads(inventory["editorial_calendar.json"])
  if not isinstance(calendar,dict) or not isinstance(calendar.get("events"),list):
   raise RuntimeError("calendar_manifest_invalid")
@@ -120,7 +130,9 @@ def stage():
    "scheduled_slots":slots,
    "emergency_services":["kyiv_air_alerts","minute_silence_09_00"],
    "holiday_image_renderer_source_saved":True,
-   "original_publication_queue_preserved":True},
+   "original_publication_queue_preserved":True,
+   "scanner_durable_object_alarm_guard_ready":True,
+   "legacy_moderation_cards_reconciliation_pending":True},
   "cutover_allowed":False,"telegram_sends":0,"telegram_polls":0,"cloudflare_writes":0}
  path=STAGE/"preflight_report.json"
  path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n","utf-8")
