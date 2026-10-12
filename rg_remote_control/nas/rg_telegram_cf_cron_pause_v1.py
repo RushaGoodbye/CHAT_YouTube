@@ -4,7 +4,7 @@ Authorised by operator. Never opens Telegram Bot getUpdates or sends messages.
 Does NOT claim scanner Durable Object alarms have stopped.
 Commands: selftest, status, pause, restore.
 """
-import argparse,datetime,json,os,pathlib,re,shutil,subprocess,sys,tempfile,urllib.error,urllib.request
+import argparse,datetime,json,os,pathlib,re,shutil,subprocess,sys,tempfile,time,urllib.error,urllib.request
 ROOT=pathlib.Path("/volume1/docker")
 SECRETS=ROOT/"RG_SECRETS"
 STATE=ROOT/"RG_TELEGRAM_STATE"
@@ -45,24 +45,56 @@ def env_token():
    token=names.get(name,"")
    if token and "$" not in token and len(token)>=25:return token
  raise RuntimeError("CF_API_TOKEN_UNAVAILABLE")
+def cf_get_ipv4_curl(token,endpoint,name):
+ """GET-only alternative transport; auth header is supplied on stdin, not argv."""
+ curl=shutil.which("curl")
+ if not curl:raise RuntimeError(f"CF_GET_{name}_CURL_MISSING")
+ if not re.fullmatch(r"[A-Za-z0-9_-]{25,500}",token):
+  raise RuntimeError("CF_TOKEN_FORMAT_INVALID")
+ cfg='header = "Authorization: Bearer '+token+'"\n'
+ try:
+  p=subprocess.run([curl,"-q","-4","-sS","-f","--connect-timeout","8","--max-time","22",
+    "--config","-",endpoint],input=cfg,text=True,capture_output=True,timeout=26)
+ except (OSError,subprocess.TimeoutExpired):
+  raise RuntimeError(f"CF_GET_{name}_CURL_TIMEOUT") from None
+ if p.returncode:
+  codes={6:"DNS",7:"CONNECT",22:"HTTP",28:"TIMEOUT",35:"TLS",51:"TLS",52:"EMPTY",56:"CONNECTION_RESET",60:"CA_CERT"}
+  raise RuntimeError(f"CF_GET_{name}_CURL_{codes.get(p.returncode,'ERROR')}") from None
+ if len(p.stdout)>65536:raise RuntimeError("CF_RESPONSE_TOO_LARGE")
+ try:return json.loads(p.stdout)
+ except ValueError:raise RuntimeError("CF_RESPONSE_JSON_INVALID") from None
 def cf_call(token,method,name,body=None):
  if name not in NAMES:raise RuntimeError("WORKER_NOT_APPROVED")
  endpoint=f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/workers/scripts/{name}/schedules"
- headers={"Authorization":"Bearer "+token,"User-Agent":"RG-NAS-Migration-Pause/1"}
+ headers={"Authorization":"Bearer "+token,"User-Agent":"RG-NAS-Migration-Pause/2"}
  if body is not None:headers["Content-Type"]="application/json"
- req=urllib.request.Request(endpoint,data=None if body is None else json.dumps(body,separators=(",",":")).encode("utf-8"),
-  headers=headers,method=method)
- try:
-  with urllib.request.urlopen(req,timeout=16) as r:raw=r.read(65536)
- except urllib.error.HTTPError as e:
-  raise RuntimeError(f"CF_{method}_{name}_HTTP_{e.code}") from None
- except (urllib.error.URLError,OSError,TimeoutError):
-  raise RuntimeError(f"CF_{method}_{name}_NETWORK_FAILED") from None
- try:response=json.loads(raw)
- except ValueError:raise RuntimeError("CF_RESPONSE_JSON_INVALID") from None
+ payload=None if body is None else json.dumps(body,separators=(",",":")).encode("utf-8")
+ response=None
+ # Only GETs are retried/fallbacked without side effects. Never replay an
+ # uncertain PUT: the caller must read back and reconcile first.
+ max_attempts=3 if method=="GET" else 1
+ for attempt in range(max_attempts):
+  req=urllib.request.Request(endpoint,data=payload,headers=headers,method=method)
+  try:
+   with urllib.request.urlopen(req,timeout=15) as r:raw=r.read(65537)
+   if len(raw)>65536:raise RuntimeError("CF_RESPONSE_TOO_LARGE")
+   response=json.loads(raw)
+   break
+  except urllib.error.HTTPError as e:
+   raise RuntimeError(f"CF_{method}_{name}_HTTP_{e.code}") from None
+  except ValueError:
+   raise RuntimeError("CF_RESPONSE_JSON_INVALID") from None
+  except (urllib.error.URLError,OSError,TimeoutError) as ex:
+   if method!="GET":
+    raise RuntimeError(f"CF_PUT_{name}_NETWORK_UNCERTAIN") from None
+   if attempt+1<max_attempts:
+    time.sleep(1+attempt)
+    continue
+   response=cf_get_ipv4_curl(token,endpoint,name)
  if not isinstance(response,dict) or response.get("success") is not True:
   raise RuntimeError(f"CF_{method}_{name}_ERROR")
- schedules=(response.get("result") or {}).get("schedules")
+ result=response.get("result")
+ schedules=result.get("schedules") if isinstance(result,dict) else None
  if not isinstance(schedules,list):raise RuntimeError("CF_SCHEDULES_MISSING")
  crons=[x.get("cron") for x in schedules if isinstance(x,dict)]
  if len(crons)!=len(schedules) or not all(isinstance(x,str) for x in crons):
@@ -224,6 +256,9 @@ def selftest():
  except RuntimeError:pass
  else:raise AssertionError("unrecognized_deployer_accepted")
  assert set(NAMES)=={"rasha-goodbye-air-alerts","rasha-goodbye-content-hub","rasha-goodbye-video-scanner"}
+ # Explicit contract tests for the human-readable errors formerly masked by RuntimeError.
+ assert re.fullmatch(r"CF_(GET|PUT)_rasha-goodbye-(video-scanner|air-alerts|content-hub)_(HTTP_[0-9]{3}|NETWORK_UNCERTAIN|CURL_[A-Z_]+|ERROR)","CF_GET_rasha-goodbye-air-alerts_CURL_DNS")
+ assert json.loads('{"success":true,"result":{"schedules":[{"cron":"* * * * *"}]}}')["result"]["schedules"][0]["cron"]=="* * * * *"
  emit("CF_MIGRATION_PAUSE_SELFTEST_PASS",rollback="IMPLEMENTED",dry_run=True,network_calls=0)
 if __name__=="__main__":
  try:
@@ -232,6 +267,9 @@ if __name__=="__main__":
   {"selftest":selftest,"status":status,"prepare":prepare,"pause":pause,"restore":restore,"watchdog":watchdog}[a.mode]()
  except Exception as e:
   msg=str(e)
-  safe=msg if re.fullmatch(r"[A-Z0-9_]{3,110}",msg) else type(e).__name__
+  # Built-in API error identifiers contain lower-case Worker names. Expose
+  # only these known diagnostics, never untrusted HTTP bodies or credentials.
+  known_error=bool(re.fullmatch(r"CF_(GET|PUT)_rasha-goodbye-(video-scanner|air-alerts|content-hub)_(HTTP_[0-9]{3}|NETWORK_UNCERTAIN|CURL_[A-Z_]+|ERROR)",msg))
+  safe=msg if known_error or re.fullmatch(r"[A-Z0-9_]{3,110}",msg) else type(e).__name__
   emit("BLOCKED",reason=safe)
   sys.exit(1)
