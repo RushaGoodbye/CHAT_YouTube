@@ -31,7 +31,10 @@ def build(root: Path | None = None, version: str = '0.4.3') -> Path:
                 raise ValueError(f"Symlink forbidden in patch: {path}")
             if path.is_file():
                 output.write(path, path.relative_to(root / 'dist').as_posix())
-        output.write(installer, 'Apply_RG_Media_Deck_Update.ps1')
+        # Windows PowerShell 5 reads UTF-8 WITHOUT BOM as legacy ANSI, which
+        # corrupts Cyrillic strings and breaks script parsing after extraction.
+        output.writestr('Apply_RG_Media_Deck_Update.ps1',
+                        bytes((0xEF, 0xBB, 0xBF)) + installer.read_bytes())
         output.write(launchers[0], launchers[0].name)
         output.writestr('version.txt', version)
     with zipfile.ZipFile(zip_path) as written:
