@@ -45,6 +45,9 @@ def save(db,cid,body,now=None):
     ON CONFLICT(candidate_id) DO UPDATE SET
     review_event_id='',source_url=excluded.source_url,image_url=excluded.image_url,
     body=excluded.body,verified=0,updated_at=excluded.updated_at""",(cid,source,image,text,now))
+  # A human edit replaces any preliminary RSS auto-draft classification.
+  if db.execute("SELECT 1 FROM sqlite_master WHERE name='nas_editorial_autodraft_metadata' AND type='table'").fetchone():
+   db.execute("DELETE FROM nas_editorial_autodraft_metadata WHERE candidate_id=?",(cid,))
   db.execute("COMMIT")
  except Exception:
   db.execute("ROLLBACK");raise
@@ -102,7 +105,10 @@ def selftest():
   assert "нові подробиці" in visible(db,cid)[1] and visible(db,cid)[0]==""
   assert seed(db,[{"candidate_id":"abcdefabcdef","source_url":url,"summary":"Цей фрагмент не повинен потрапити до іншої новини за чужим ідентифікатором."}],101)==0
   body="За офіційними відомостями, у місті стало відомо про важливу подію. Відповідальні служби перевіряють обставини та повідомлять додаткові деталі."
+  db.execute("CREATE TABLE nas_editorial_autodraft_metadata(candidate_id TEXT PRIMARY KEY,source_url TEXT,status TEXT,created_at INTEGER,origin TEXT)")
+  db.execute("INSERT INTO nas_editorial_autodraft_metadata VALUES(?,?,?,?,?)",(cid,url,"draft_unverified",99,"rss_complete_sentences"))
   assert save(db,cid,body,now=100)["verified"] is False
+  assert db.execute("SELECT count(*) FROM nas_editorial_autodraft_metadata").fetchone()[0]==0
   try:bind(db,cid)
   except ValueError:pass
   else:raise AssertionError("draft_approved_without_operator")
@@ -122,7 +128,7 @@ def selftest():
    except ValueError:pass
    else:raise AssertionError("invalid_body_accepted")
  print(json.dumps({"status":"EDITORIAL_STORE_SELFTEST_PASS","manual_only":"PASS","approval_bound":"PASS",
-  "edit_revokes_verified":"PASS","no_auto_publish":"PASS","telegram_sends":0,"network_calls":0}))
+  "edit_revokes_verified":"PASS","human_edit_clears_auto_marker":"PASS","no_auto_publish":"PASS","telegram_sends":0,"network_calls":0}))
 def main():
  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","initialize","status","seed"))
  p.add_argument("--db",default=str(DB));p.add_argument("--inbox",default="/volume1/docker/RG_TELEGRAM_STATE/candidate_inbox.jsonl")
