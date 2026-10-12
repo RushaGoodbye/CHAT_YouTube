@@ -159,6 +159,28 @@ def get_scanner_owner(token):
   if isinstance(b,dict) and b.get("name")=="RG_MIGRATION_SCANNER_OWNER" and b.get("type")=="plain_text":
    return str(b.get("text") or "UNKNOWN").lower()
  return "UNDECLARED"
+def docker_cli():
+ # Synology DSM sudo often has a restricted secure_path excluding
+ # /usr/local/bin; Container Manager installs the CLI there.
+ candidates=[shutil.which("docker"),
+  "/usr/local/bin/docker","/usr/bin/docker","/bin/docker",
+  "/var/packages/ContainerManager/target/usr/bin/docker",
+  "/var/packages/Docker/target/usr/bin/docker"]
+ for path in candidates:
+  if path and os.path.isfile(path) and os.access(path,os.X_OK):
+   return path
+ raise RuntimeError("DOCKER_CLI_NOT_FOUND")
+def docker_daemon(binary):
+ # Read-only check. Fail before touching Worker source if the engine is down.
+ try:
+  result=subprocess.run([binary,"info","--format","{{.ServerVersion}}"],
+   capture_output=True,text=True,timeout=14)
+ except (OSError,subprocess.TimeoutExpired):
+  raise RuntimeError("DOCKER_DAEMON_UNREACHABLE") from None
+ if result.returncode!=0:
+  raise RuntimeError("DOCKER_DAEMON_UNREACHABLE")
+ return result.stdout.strip()[:48]
+
 def deploy_guard_precheck():
  allowed()
  t=mod().env_token();current=snapshot(t)
@@ -169,13 +191,15 @@ def deploy_guard_precheck():
  source,cfg=guard_source()
  targets=(WORKER/"src/quota-entry-v2.js",WORKER/"wrangler.toml")
  if any(p.is_symlink() or not p.is_file() for p in targets):raise RuntimeError("SCANNER_WORKER_SOURCE_MISSING")
- if not shutil.which("docker"):raise RuntimeError("DOCKER_MISSING")
+ binary=docker_cli()
+ docker_daemon(binary)
  # Current Cloudflare JS built and shipped as a Worker; locally preserve
  # any existing package/node_modules, but require the pinned files present.
  if not (WORKER/"package.json").is_file():raise RuntimeError("SCANNER_PACKAGE_MISSING")
  return source,cfg,targets,current
 def deploy_guard():
  source,cfg,targets,baseline=deploy_guard_precheck()
+ docker_bin=docker_cli()
  t=mod().env_token()
  # If a previous attempt already deployed the guard, reconcile first:
  # do not rebuild/redeploy unnecessarily and preserve Cron changes.
@@ -194,7 +218,7 @@ def deploy_guard():
   import stat
   mode=stat.S_IMODE(f.stat().st_mode)
   save(f,value);os.chmod(f,mode)
- cmd=["docker","run","--rm","--env-file",str(ENV),"-v",str(WORKER)+":/app",
+ cmd=[docker_bin,"run","--rm","--env-file",str(ENV),"-v",str(WORKER)+":/app",
   "-w","/app","node:22-bookworm-slim","sh","-lc",
   "npm install --no-audit --no-fund && npm run check && npx wrangler deploy --config wrangler.toml"]
  emit("CF_SCANNER_DO_STOP_DEPLOY_STARTED",source_backups=True,
@@ -234,6 +258,17 @@ def selftest():
  result=code.replace('"cloudflare"','"nas"').replace('crons = ["*/5 * * * *"]','crons = []')
  assert 'RG_MIGRATION_SCANNER_OWNER = "nas"' in result and 'crons = []' in result
  assert set((VIDEO,ALERTS,CONTENT))==set(("rasha-goodbye-video-scanner","rasha-goodbye-air-alerts","rasha-goodbye-content-hub"))
+ # Regression: sudo does not see /usr/local/bin, but Synology Docker exists.
+ from unittest import mock
+ with mock.patch("shutil.which",return_value=None):
+  with mock.patch("os.path.isfile",side_effect=lambda p:p=="/usr/local/bin/docker"):
+   with mock.patch("os.access",side_effect=lambda p,m:p=="/usr/local/bin/docker"):
+    assert docker_cli()=="/usr/local/bin/docker"
+ with mock.patch("shutil.which",return_value=None):
+  with mock.patch("os.path.isfile",return_value=False):
+   try:docker_cli()
+   except RuntimeError as ex:assert str(ex)=="DOCKER_CLI_NOT_FOUND"
+   else:raise AssertionError("missing_docker_was_accepted")
  emit("CF_SELECTIVE_SCANNER_SELFTEST_PASS",network_calls=0)
 if __name__=="__main__":
  try:
@@ -248,6 +283,7 @@ if __name__=="__main__":
   elif a=="guard-precheck":
    src,config,files,live=deploy_guard_precheck()
    emit("CF_SELECTIVE_SCANNER_GUARD_PRECHECK_PASS",crons=live,
+    docker_cli=docker_cli(),docker_engine=docker_daemon(docker_cli()),
     deploy_image="node:22-bookworm-slim",source_size=len(src),
     original_cron_backup_present=True,deploy_freeze=True,
     no_remote_changes=True,independent_do_alarm_still_active_possible=True)
