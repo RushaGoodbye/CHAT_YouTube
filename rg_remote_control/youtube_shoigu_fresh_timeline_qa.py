@@ -71,6 +71,11 @@ try:
     result.update({
         "status": "PASS" if len(ab) == 3 and not issues and not omitted else "REVIEW",
         "transcript_source": source, "transcript_rows": len(rows),
+        "fresh_evidence": [
+            {"topic": str(t.get("topic") or "")[:160], "evidence": str(t.get("evidence") or "")[:250]}
+            for block in report.get("blocks") or []
+            for t in block.get("topics") or [] if isinstance(t, dict)
+        ],
         "timeline_blocks": report.get("blocks_total"),
         "verified_blocks": report.get("blocks_with_evidence"),
         "evidence_cache_hits": report.get("cache_hits"),
