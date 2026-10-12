@@ -1648,7 +1648,6 @@ def _grounded_chapters_from_transcript(
     transcript: str,
 ) -> str:
     """Deterministic safe chapter fallback using only verified transcript stamps."""
-    title_text = str(current_title or "").casefold()
     transcript_text = str(transcript or "")
     available = {
         match.group(1)
@@ -1660,25 +1659,10 @@ def _grounded_chapters_from_transcript(
     if not available:
         return ""
 
-    if "шойгу" in title_text:
-        preferred = (
-            ("00:00", "Вступ і головне запитання"),
-            ("00:43", "Версії причин зміни Шойгу"),
-            ("02:21", "Корупція та команда Шойгу"),
-            ("03:17", "Військова стратегія і нове керівництво"),
-            ("04:00", "Перехід Шойгу на іншу посаду"),
-            ("06:03", "Корупція чи кадровий план"),
-            ("08:11", "Тимур Іванов і команда Шойгу"),
-        )
-        lines = [
-            f"{stamp} {label}"
-            for stamp, label in preferred
-            if stamp in available or stamp == "00:00"
-        ]
-        value = "\n".join(lines)
-        if not _chapters_quality_error(value, transcript_text):
-            return value
-
+    # Never hard-code chapters for a named subject. In the old generator,
+    # every Shoigu video could inherit seven unrelated timestamps including
+    # an Ivanov chapter even if no corresponding dialogue existed.
+    # Source-grounded captions and human review are required.
     stamps = sorted(
         (
             (_chapter_timestamp_seconds(stamp), stamp)
@@ -1820,6 +1804,7 @@ def generate_seo_package_local(
     fast_mode: bool = False,
     timeout: float = 300.0,
     evidence_report: dict[str, Any] | None = None,
+    chapter_transcript: str = "",
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
@@ -2215,19 +2200,28 @@ chapters: рядок з підтвердженими таймкодами та �
         chapters = ""
 
     if not is_short and transcript.strip():
-        chapter_error = _chapters_quality_error(chapters, transcript)
-        if chapter_error and not fast_mode:
-            chapters = _recover_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-                model=model,
-            )
-        if not chapters or _chapters_quality_error(chapters, transcript):
-            chapters = _grounded_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-            )
-        if chapters and _chapters_quality_error(chapters, transcript):
+        # The evidence outline contains only 5-minute block starts, not
+        # the original 165 subtitle timestamps. All chapter validation
+        # must use the true caption timeline, never that 2-line outline.
+        chapter_source = (
+            str(chapter_transcript or "") if evidence_report else transcript
+        )
+        if chapter_source.strip():
+            chapter_error = _chapters_quality_error(chapters, chapter_source)
+            if chapter_error and not fast_mode:
+                chapters = _recover_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=chapter_source,
+                    model=model,
+                )
+            if not chapters or _chapters_quality_error(chapters, chapter_source):
+                chapters = _grounded_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=chapter_source,
+                )
+            if chapters and _chapters_quality_error(chapters, chapter_source):
+                chapters = ""
+        else:
             chapters = ""
         # Generic timestamps are not real dialogue chapters, regardless of mode.
         if chapters and _chapters_are_generic(chapters):
