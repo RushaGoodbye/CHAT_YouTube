@@ -116,7 +116,7 @@ def prerequisites(allow_frozen=False):
  if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
  if PAUSE.exists():raise RuntimeError("ALL_CLOUDFLARE_CRONS_PAUSED_REFUSE_SELECTIVE")
  if CUTOVER.exists():raise RuntimeError("NAS_GATE_ALREADY_ACTIVE")
- if FREEZE.exists() and not allow_frozen:raise RuntimeError("SELECTIVE_OWNER_FREEZE_ALREADY_PRESENT")
+ if not allow_frozen and FREEZE.exists():raise RuntimeError("SELECTIVE_OWNER_FREEZE_ALREADY_PRESENT")
  if not ENV.is_file() or ENV.is_symlink():raise RuntimeError("ALERT_DEPLOY_CREDENTIALS_MISSING")
  if not (STATE/"rg_telegram_nas_native_bot_v01.py").is_file():
   raise RuntimeError("NAS_MODERATION_BOT_MISSING")
@@ -133,8 +133,17 @@ def check():
  cf=module()
  t=cf.env_token()
  sc={n:cron(t,n) for n in (WORKER,)+OTHER}
- if sc[WORKER]!=["* * * * *"] or sc["rasha-goodbye-content-hub"]!=["* * * * *"] or sc["rasha-goodbye-video-scanner"]!=["*/5 * * * *"]:
-  raise RuntimeError("CF_SCHEDULES_NOT_ORIGINAL")
+ if sc[WORKER]!=["* * * * *"] or sc["rasha-goodbye-content-hub"]!=["* * * * *"] or sc["rasha-goodbye-video-scanner"]!=[]:
+  raise RuntimeError("CF_SCHEDULES_NOT_SELECTIVELY_PAUSED")
+ if not FREEZE.is_file() or FREEZE.is_symlink() or not (OUT/"scanner_guard_deployed.json").is_file():
+  raise RuntimeError("SELECTIVE_SCANNER_GUARD_NOT_READY")
+ # Confirm the scanner's independent DO alarm code now belongs to NAS.
+ checker=STATE/"rg_telegram_cf_selective_scanner_stop_v1.py"
+ if not checker.is_file() or checker.is_symlink():raise RuntimeError("SELECTIVE_SCANNER_MODULE_MISSING")
+ import importlib.util
+ spec=importlib.util.spec_from_file_location("rg_cf_scanner_guard_check",str(checker))
+ c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
+ if c.get_scanner_owner(t)!="nas":raise RuntimeError("SELECTIVE_SCANNER_OWNER_NOT_NAS")
  current=owner(t)
  if current not in ("cloudflare","nas","UNDECLARED"):
   raise RuntimeError("CF_OWNER_UNKNOWN")
@@ -155,6 +164,10 @@ def ensure_backup(original,deployer):
  vals=(original[0],original[1],deployer)
  for name,value in zip(names,vals):
   dest=OUT/name
+  if name=="RG_NAS_AUTO_DEPLOY.sh.before":
+   # Scanner stop phase created the original deployer backup first.
+   if not dest.exists():save(dest,value)
+   continue
   if dest.exists() and dest.read_text("utf-8")!=value:
    raise RuntimeError("EXISTING_BACKUP_DIFFERS")
   if not dest.exists():save(dest,value)
@@ -171,11 +184,10 @@ def stop_auto_deploy(deployer):
 def do_deploy():
  files,original,patched,dep,guard,sc,owner_before=check()
  if owner_before=="nas":raise RuntimeError("CLOUDFLARE_ALREADY_OWNED_BY_NAS")
- if FREEZE.exists():raise RuntimeError("SELECTIVE_FREEZE_ALREADY_PRESENT")
+ if not FREEZE.is_file() or FREEZE.is_symlink():
+  raise RuntimeError("SCANNER_FREEZE_NOT_READY")
  ensure_backup(original,DEPLOYER.read_text("utf-8"))
  stop_auto_deploy(dep)
- save(FREEZE,json.dumps({"purpose":"selective Telegram moderation cutover",
-   "created":datetime.datetime.now(datetime.timezone.utc).isoformat()})+"\n")
  for file,text in zip(files,patched[:2]):
   import stat
   modebits=stat.S_IMODE(file.stat().st_mode)
