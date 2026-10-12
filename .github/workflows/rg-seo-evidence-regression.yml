@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/seo-evidence-no-invented-third-20261012
+      - fix/seo-preview-parity-20261012
   workflow_dispatch:
 
 permissions:
@@ -20,4 +21,4 @@ jobs:
       - name: Run evidence regressions
         run: |
           python -m pip install pytest
-          PYTHONPATH=src python -m pytest -q tests/test_seo_distinct_evidence_0725.py tests/test_shoigu_topic_coverage_0724.py
+          PYTHONPATH=src python -m pytest -q tests/test_seo_distinct_evidence_0725.py tests/test_shoigu_topic_coverage_0724.py tests/test_seo_preview_parity_0726.py
