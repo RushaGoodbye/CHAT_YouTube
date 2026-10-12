@@ -649,7 +649,7 @@ def ab_title_issues(
         # Lexical overlap on "война" or a person's name cannot establish
         # an invented OUTCOME such as "war enters a new phase". A causal or
         # temporal consequence must be grounded as a phrase in transcript.
-        unsupported_new_phase = re.compile(r"\\bнов\\w*\\s+фаз\\w*\\b")
+        unsupported_new_phase = re.compile(r"\bнов\w*\s+фаз\w*\b")
         source_has_new_phase = bool(unsupported_new_phase.search(source))
         for number, value in enumerate(values, 1):
             normalized_title = value.casefold().translate(
