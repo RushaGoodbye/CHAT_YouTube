@@ -85,15 +85,16 @@ def run(db,now=None,transport=send_image,asset_provider=png_asset):
  if not eligible:return {"status":"NOT_DUE","key":key,"window":"09:00-09:05 Europe/Kyiv","telegram_sends":0}
  permitted()
  asset=asset_provider()
+ # Validate static inputs BEFORE creating the irreversible single-attempt row.
+ if TOKEN.is_symlink() or not TOKEN.is_file() or TOKEN.stat().st_mode&0o077:
+  raise Fail("token_unavailable")
+ token=TOKEN.read_text("utf-8").strip()
+ if not re.fullmatch(r"\d{5,13}:[A-Za-z0-9_-]{25,}",token):
+  raise Fail("token_invalid")
  now_ts=int(time.time()) if now is None else int(now.timestamp())
  if not reserve(db,key,now_ts):
   prev=db.execute("SELECT state,message_id FROM scheduled_publications WHERE date_key=? AND kind='minute_silence'",(key,)).fetchone()
   return {"status":"DUPLICATE_BLOCKED","state":prev[0],"message_id":prev[1],"telegram_sends":0}
- if TOKEN.is_symlink() or not TOKEN.is_file() or TOKEN.stat().st_mode&0o077:
-  return {"status":"DELIVERY_UNCERTAIN","reason":"token_unavailable","telegram_sends":0}
- token=TOKEN.read_text("utf-8").strip()
- if not re.fullmatch(r"\d{5,13}:[A-Za-z0-9_-]{25,}",token):
-  return {"status":"DELIVERY_UNCERTAIN","reason":"token_invalid","telegram_sends":0}
  try:
   message_id=transport(asset,token)
   db.execute("""UPDATE scheduled_publications SET state='published',message_id=?
