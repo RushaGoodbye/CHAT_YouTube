@@ -66,7 +66,7 @@ class StreamDeckTests(unittest.TestCase):
         self.assertEqual(name, 'Ctrl+Alt+F5')
         self.assertEqual(vk, 0x74)
         for invalid in ('F6', 'Shift+F6', 'Win+Ctrl+F7',
-                        'Ctrl+Alt+F13', 'Ctrl+Ctrl+F4', 'Alt+F1'):
+                        'Ctrl+Alt+F25', 'Ctrl+Ctrl+F4', 'Alt+F1'):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
                     parse_hotkey(invalid)
