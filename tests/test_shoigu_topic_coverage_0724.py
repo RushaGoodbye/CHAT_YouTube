@@ -88,3 +88,27 @@ def test_distinct_verified_subjects_do_not_trigger_common_story_gate():
         "Реакция на Путина: почему собеседник изменил мнение?",
     ]
     assert not any("Усі три A/B назви повторюють" in x for x in ab_title_issues(independent))
+
+
+def test_title_claim_must_be_grounded_in_quotes_not_model_summary():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+    report = {"blocks": [
+        {"start_stamp": "00:00:00", "topics": [{
+            "topic": "Шойгу, корупція, війна переходить у нову фазу",
+            "summary_uk": "Вигаданий машинний висновок: війна переходить у нову фазу",
+            "evidence": "Он с Путиным в хороших отношениях, а коррупция в армии была всегда.",
+        }]},
+        {"start_stamp": "00:05:03", "topics": [{
+            "topic": "Зміна посади Шойгу",
+            "summary_uk": "Припущення учасника про кадри",
+            "evidence": "Всё идёт по плану. А сейчас новый министр больше по финансам.",
+        }]},
+    ]}
+    actual_bad = [
+        "Шойгу и Путин: почему увольнение стало частью стратегии",
+        "Стратегия без Шойгу: как война переходит в новую фазу",
+        "Коррупция или стратегия: что стоит за увольнением",
+    ]
+    warnings = ab_title_issues(actual_bad, report)
+    assert any("A/B варіант 2 містить кілька формулювань" in x for x in warnings), warnings
+    assert any("Усі три A/B назви повторюють" in x for x in warnings), warnings
