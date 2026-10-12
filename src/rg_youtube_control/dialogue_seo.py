@@ -409,6 +409,23 @@ def ab_title_issues(
         }
         for value in normal
     ]
+    # Three different headlines can evade pairwise Jaccard by shuffling
+    # peripheral wording while all reuse one dominant event word. This is
+    # exactly what happened in the operator's real Shoigu A/B preview:
+    # all three repeated "стратегия" and two pairs reused another event.
+    # Report this as a review problem and trigger independent-hook recovery.
+    common_core = set.intersection(*content_stems) if content_stems else set()
+    common_core -= {"росс", "росі", "укра", "война", "війна"}
+    if common_core:
+        repeated_pairs = sum(
+            bool((content_stems[left] & content_stems[right]) - common_core)
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        )
+        if repeated_pairs >= 2:
+            issues.append(
+                "Усі три A/B назви повторюють одну основну сюжетну опору."
+            )
+
     for left in range(3):
         for right in range(left + 1, 3):
             a, b = content_stems[left], content_stems[right]
