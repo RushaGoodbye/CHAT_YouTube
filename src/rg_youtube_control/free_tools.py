@@ -2229,6 +2229,16 @@ chapters: рядок з підтвердженими таймкодами та �
                     transcript=chapter_source,
                     model=model,
                 )
+            if evidence_report and (
+                not chapters or _chapters_quality_error(chapters, chapter_source)
+            ):
+                # Caption-aligned quotation anchors provide meaningful chapter
+                # topics without predefined timestamps or guessed intervals.
+                from .dialogue_seo import grounded_chapters_from_evidence
+                chapters = grounded_chapters_from_evidence(
+                    evidence_report, chapter_source,
+                    current_title=current_title,
+                )
             if not chapters or _chapters_quality_error(chapters, chapter_source):
                 chapters = _grounded_chapters_from_transcript(
                     current_title=current_title,
