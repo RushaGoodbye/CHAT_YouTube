@@ -920,15 +920,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "tabs"):
             return
         profile = self.current_profile
-        drafts = int(
-            self.conn.execute(
-                """SELECT COUNT(*)
-                   FROM optimization_drafts d
-                   JOIN videos v ON v.video_id=d.video_id
-                   WHERE v.profile=? AND d.status='draft'""",
-                (profile,),
-            ).fetchone()[0]
-        )
+        drafts = len(self._pending_seo_review_rows())
         ready = len(self._prepared_queue_ids())
         comments = int(
             self.conn.execute(
@@ -1744,40 +1736,19 @@ class MainWindow(QMainWindow):
             )
             self.next_action_button.setText("Відкрити стрім")
         else:
-            draft_count = int(
-                self.conn.execute(
-                    """SELECT COUNT(*)
-                       FROM optimization_drafts d
-                       JOIN videos v ON v.video_id=d.video_id
-                       WHERE v.profile=? AND d.status='draft'""",
-                    (profile,),
-                ).fetchone()[0]
-            )
+            draft_count = len(self._pending_seo_review_rows())
             if draft_count:
-                legacy_count = self._legacy_draft_count()
-                if legacy_count:
-                    self._guided_next_action = "discard_legacy"
-                    self.next_action_state.setText("ОЧИЩЕННЯ")
-                    self.next_action_state.setObjectName("StatusWarn")
-                    self.next_action_title.setText(
-                        f"Прибрати старі експериментальні чернетки: {legacy_count}"
-                    )
-                    self.next_action_explanation.setText(
-                        "Ці пакети створені старими версіями генератора. "
-                        "Вони не будуть застосовані до YouTube."
-                    )
-                    self.next_action_button.setText("Очистити старі")
-                else:
-                    self._guided_next_action = "review_drafts"
-                    self.next_action_state.setText("ПОТРІБНА ПЕРЕВІРКА")
-                    self.next_action_state.setObjectName("StatusWarn")
-                    self.next_action_title.setText(
-                        f"Перевірити підготовлені пакети: {draft_count}"
-                    )
-                    self.next_action_explanation.setText(
-                        "Перевірка йде послідовно: ДО/ПІСЛЯ → Прийняти/Відхилити → Наступне."
-                    )
-                    self.next_action_button.setText("Почати перевірку")
+                self._guided_next_action = "review_drafts"
+                self.next_action_state.setText("ПОТРІБНА ПЕРЕВІРКА")
+                self.next_action_state.setObjectName("StatusWarn")
+                self.next_action_title.setText(
+                    f"Перевірити SEO-пакети: {draft_count}"
+                )
+                self.next_action_explanation.setText(
+                    "У черзі також старі пакети Ready, які не проходять новий "
+                    "редакторський контроль. Перегляд - по 10 за раз, без автопублікації."
+                )
+                self.next_action_button.setText("Почати перевірку")
             else:
                 ready_queue = self._prepared_queue_ids()
                 queued_comments = int(
@@ -4010,26 +3981,44 @@ class MainWindow(QMainWindow):
             4: "skip",
         }.get(result, "stop")
 
-    def review_draft_queue(self) -> None:
+    def _pending_seo_review_rows(self, limit: int | None = None) -> list:
+        """Review actual drafts AND old Ready rows rejected by today's gate.
+
+        Read-only classification: no destructive migration of saved packets.
+        """
         rows = self.conn.execute(
-            """SELECT d.*
+            """SELECT d.*,v.scheduled_publish_at AS video_scheduled_publish_at
                FROM optimization_drafts d
                JOIN videos v ON v.video_id=d.video_id
-               WHERE v.profile=? AND d.status='draft'
-                 AND COALESCE(d.generation,'legacy')!='legacy'
-               ORDER BY d.updated_at ASC""",
+               WHERE v.profile=? AND d.status IN ('draft','ready')
+               ORDER BY d.updated_at DESC""",
             (self.current_profile,),
         ).fetchall()
-        if not rows:
-            legacy = self._legacy_draft_count()
-            if legacy:
-                self._discard_all_legacy_drafts()
+        pending = []
+        for row in rows:
+            if str(row["status"] or "") == "draft":
+                pending.append(row)
             else:
-                QMessageBox.information(
-                    self,
-                    APP_NAME,
-                    "Пакетів, які очікують перевірки, немає.",
+                allowed, _ = ready_for_youtube(
+                    status=str(row["status"] or ""),
+                    generation=str(row["generation"] or ""),
+                    quality_state=str(row["quality_state"] or ""),
+                    variants=str(row["title_variants_json"] or "[]"),
+                    scheduled=bool(row["video_scheduled_publish_at"]),
                 )
+                if not allowed:
+                    pending.append(row)
+            if limit is not None and len(pending) >= limit:
+                break
+        return pending
+
+    def review_draft_queue(self) -> None:
+        total = len(self._pending_seo_review_rows())
+        rows = self._pending_seo_review_rows(limit=10)
+        if not rows:
+            QMessageBox.information(
+                self, APP_NAME, "Пакетів, які очікують перевірки, немає."
+            )
             return
 
         accepted = 0
@@ -4044,12 +4033,36 @@ class MainWindow(QMainWindow):
                 skipped += 1
                 continue
             if action == "accept":
+                # A click on "Прийняти" is not permission to bypass the
+                # same A/B and editorial gate used by YouTube publishing.
+                generation = str(draft["generation"] or "")
+                metadata_only = (
+                    generation.startswith("safe-metadata")
+                    and str(draft["quality_state"] or "") == "safe_metadata"
+                )
+                approval_quality = "safe_metadata" if metadata_only else "editor_approved"
+                allowed, reasons = ready_for_youtube(
+                    status="ready",
+                    generation=generation,
+                    quality_state=approval_quality,
+                    variants=str(draft["title_variants_json"] or "[]"),
+                    scheduled=bool(draft["video_scheduled_publish_at"]),
+                )
+                if not allowed:
+                    QMessageBox.warning(
+                        self,
+                        "Пакет ще не готовий",
+                        "\n".join(reasons)
+                        + "\n\nЧернетку збережено. Виправте пакет перед схваленням.",
+                    )
+                    skipped += 1
+                    continue
                 set_optimization_draft_status(self.conn, video_id, "ready")
                 annotate_optimization_draft(
                     self.conn,
                     video_id,
-                    quality_state="safe",
-                    quality_reason="Перевірено користувачем",
+                    quality_state=approval_quality,
+                    quality_reason="Перевірено редактором",
                 )
                 log_action(
                     self.conn,
@@ -4080,9 +4093,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Перевірка пакетів завершена",
+            f"Перевірено до 10 з {total} пакетів.\n"
             f"Прийнято: {accepted}.\n"
             f"Відхилено: {rejected}.\n"
-            f"Пропущено: {skipped}.\n"
+            f"Пропущено або потребують виправлення: {skipped}.\n"
             "YouTube ще не змінено.\n\n"
             "Наступний крок програма визначила на екрані «Сьогодні».",
         )
