@@ -236,24 +236,73 @@ def save(path,data):
   os.replace(tmp,path)
  finally:
   if os.path.exists(tmp):os.unlink(tmp)
+def audit_alert_backups(original):
+ """Distinguish a legitimate prior owner-only local patch from source drift.
+ Never mutate old backups and never trust a mere 'ALREADY_GUARDED' marker.
+ """
+ import hashlib
+ code_path=OUT/"air_alerts_index.js.before"
+ cfg_path=OUT/"air_alerts_wrangler.toml.before"
+ stats={}
+ details={}
+ for name,current,path in (("index_js",original[0],code_path),
+                          ("wrangler_toml",original[1],cfg_path)):
+  if path.is_symlink():raise RuntimeError("BACKUP_SYMLINK_REFUSED")
+  if not path.is_file():
+   stats[name]="NO_NAMESPACED_BACKUP"
+   continue
+  backup=path.read_text("utf-8")
+  details[name]={"backup_sha16":hashlib.sha256(backup.encode()).hexdigest()[:16],
+                 "current_sha16":hashlib.sha256(current.encode()).hexdigest()[:16]}
+  stats[name]="EXACT" if current==backup else "DIFFERS"
+ if stats.get("index_js")=="DIFFERS" or stats.get("wrangler_toml")=="DIFFERS":
+  if not code_path.is_file() or not cfg_path.is_file():
+   return stats,details,False
+  saved_code=code_path.read_text("utf-8")
+  saved_cfg=cfg_path.read_text("utf-8")
+  try:
+   replay_code,replay_cfg,_=patch_source(saved_code,saved_cfg)
+   safe_code=original[0] in (saved_code,replay_code)
+   safe_cfg=original[1] in (saved_cfg,replay_cfg)
+   valid=safe_code and safe_cfg
+  except (RuntimeError,ValueError):
+   valid=False
+  if valid:
+   for k in ("index_js","wrangler_toml"):
+    if stats.get(k)=="DIFFERS":stats[k]="REPLAYED_GUARD_ONLY"
+   return stats,details,True
+  return stats,details,False
+ return stats,details,True
 def ensure_backup(original,deployer):
  if OUT.is_symlink():raise RuntimeError("BACKUP_SYMLINK")
  OUT.mkdir(mode=0o700,parents=True,exist_ok=True);os.chmod(OUT,0o700)
- # Scanner and alerts share OUT. The scanner already owns
- # OUT/wrangler.toml.before; never overwrite or compare it to alert config.
- # Prior failed attempts may have left OUT/index.js.before; preserve it too.
+ stats,details,safe=audit_alert_backups(original)
+ if not safe:
+  raise RuntimeError("ALERT_BACKUP_SOURCE_DRIFT_REFUSE_DEPLOY")
  names=("air_alerts_index.js.before","air_alerts_wrangler.toml.before",
         "RG_NAS_AUTO_DEPLOY.sh.before")
  vals=(original[0],original[1],deployer)
  for name,value in zip(names,vals):
   dest=OUT/name
-  if name=="RG_NAS_AUTO_DEPLOY.sh.before":
-   # Scanner stop phase created the original deployer backup first.
-   if not dest.exists():save(dest,value)
-   continue
-  if dest.exists() and dest.read_text("utf-8")!=value:
-   raise RuntimeError("EXISTING_BACKUP_DIFFERS")
-  if not dest.exists():save(dest,value)
+  if dest.is_symlink():raise RuntimeError("BACKUP_SYMLINK_REFUSED")
+  # Keep scanner's original anti-redeploy backup immutable too.
+  if dest.is_file():continue
+  save(dest,value)
+def inspect_backups():
+ files=sources()
+ original=tuple(x.read_text("utf-8") for x in files)
+ stats,hashes,safe=audit_alert_backups(original)
+ import hashlib
+ out("CF_SELECTIVE_ALERT_BACKUP_AUDIT",read_only=True,
+   backup_status=stats,hashes=hashes,
+   rollback_files_preserved=True,
+   source_owner_guarded=(source_profile(original[0])["existing_owner_condition"]),
+   local_config_owner=("nas" if 'RG_MODERATION_RUNTIME_OWNER = "nas"' in original[1]
+     else "cloudflare" if 'RG_MODERATION_RUNTIME_OWNER = "cloudflare"' in original[1]
+     else "undeclared"),
+   scanner_original_wrangler_backup_present=(OUT/"wrangler.toml.before").is_file(),
+   local_source_sha16=hashlib.sha256(original[0].encode()).hexdigest()[:16],
+   safe_to_resume=safe,cloudflare_writes=0,production_files_changed=False)
 def stop_auto_deploy(deployer):
  if MARKER in deployer:return
  old=DEPLOYER.read_text("utf-8")
@@ -365,6 +414,25 @@ def selftest():
  modified,_,_=patch_source(extra,config)
  assert modified.count("nas_moderation_owner")==1
  assert modified.count("processTelegramModerationUpdates(env)")==2
+ # A previously partially applied owner switch is replayable from immutable
+ # namespaced backups; an unrelated code change must remain fail-closed.
+ from unittest import mock
+ with tempfile.TemporaryDirectory() as td:
+  tempout=pathlib.Path(td)
+  (tempout/"air_alerts_index.js.before").write_text(old,"utf-8")
+  (tempout/"air_alerts_wrangler.toml.before").write_text(config,"utf-8")
+  (tempout/"wrangler.toml.before").write_text("SCANNER_ORIGINAL","utf-8")
+  with mock.patch.dict(globals(),{"OUT":tempout}):
+   patched,owner_cfg,_=patch_source(old,config)
+   states,_,safe=audit_alert_backups((patched,config))
+   assert safe and states["index_js"]=="REPLAYED_GUARD_ONLY"
+   ensure_backup((patched,config),"DEPLOYER")
+   assert (tempout/"air_alerts_index.js.before").read_text("utf-8")==old
+   assert (tempout/"wrangler.toml.before").read_text("utf-8")=="SCANNER_ORIGINAL"
+   states,_,safe=audit_alert_backups((patched,owner_cfg))
+   assert safe and states["wrangler_toml"]=="REPLAYED_GUARD_ONLY"
+   states,_,safe=audit_alert_backups((patched+"\nUNRELATED_CHANGE",config))
+   assert not safe
  # A second scheduled poller is unsafe, so reject it rather than guess.
  duplicated=old.replace('const moderationTask=processTelegramModerationUpdates(env);',
   'const moderationTask=processTelegramModerationUpdates(env);\n  processTelegramModerationUpdates(env);')
@@ -395,7 +463,7 @@ def selftest():
    try:
     ensure_backup(("CHANGED_ALERT_CODE","ORIGINAL_ALERT_CONFIG"),"MODIFIED_DEPLOYER")
    except RuntimeError as ex:
-    assert str(ex)=="EXISTING_BACKUP_DIFFERS"
+    assert str(ex)=="ALERT_BACKUP_SOURCE_DRIFT_REFUSE_DEPLOY"
    else:raise AssertionError("backup_overwrite_allowed")
  out("CF_SELECTIVE_HANDOFF_SELFTEST_PASS",read_only=True,telegram_sends=0,
    handles_old_worker=True,handles_existing_guard=True,
@@ -403,10 +471,11 @@ def selftest():
    preserves_alerts=True,preserves_calendar=True,preserves_scanner=True)
 if __name__=="__main__":
  try:
-  a=argparse.ArgumentParser();a.add_argument("mode",choices=("selftest","inspect","preflight","deploy","status"))
+  a=argparse.ArgumentParser();a.add_argument("mode",choices=("selftest","inspect","inspect-backups","preflight","deploy","status"))
   arg=a.parse_args().mode
   if arg=="selftest":selftest()
   elif arg=="inspect":inspect_source()
+  elif arg=="inspect-backups":inspect_backups()
   elif arg=="preflight":
    result=check()
    out("CF_SELECTIVE_HANDOFF_READY",owner=result[-1],worker_crons=result[-2],
