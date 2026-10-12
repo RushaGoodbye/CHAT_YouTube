@@ -102,18 +102,18 @@ def verify(token,source,preflight):
   raise RuntimeError("getMe:bot_identity_invalid")
  username=me.get("username","")
  safe_username=username if isinstance(username,str) and re.fullmatch(r"[A-Za-z0-9_]{5,64}",username) else "(unknown)"
- status("BOT_IDENTITY_VERIFIED",bot_username=safe_username,token_not_printed=True)
+ if source!="offline-selftest":status("BOT_IDENTITY_VERIFIED",bot_username=safe_username,token_not_printed=True)
  info=step_get(preflight,token,"getChat",{"chat_id":preflight.CHAT})
  if info.get("type")!="channel":
   raise RuntimeError("getChat:target_not_channel")
  if str(info.get("username","")).casefold()!=preflight.CHAT.lstrip("@").casefold():
   raise RuntimeError("getChat:target_channel_mismatch")
- status("TARGET_CHANNEL_VERIFIED",channel=preflight.CHAT,token_not_printed=True)
+ if source!="offline-selftest":status("TARGET_CHANNEL_VERIFIED",channel=preflight.CHAT,token_not_printed=True)
  member=step_get(preflight,token,"getChatMember",{"chat_id":preflight.CHAT,"user_id":bot_id})
  role=member.get("status")
  can_post=role=="creator" or (role=="administrator" and member.get("can_post_messages") is True)
  if not can_post:
-  status("BOT_MEMBERSHIP_READ",role=role if role in ("member","left","kicked","restricted","administrator","creator") else "unknown",
+  if source!="offline-selftest":status("BOT_MEMBERSHIP_READ",role=role if role in ("member","left","kicked","restricted","administrator","creator") else "unknown",
          bot_can_post=False)
   raise RuntimeError("getChatMember:bot_not_channel_posting_admin")
  return {"status":"TELEGRAM_TRANSPORT_READ_READY","channel_username":preflight.CHAT,
