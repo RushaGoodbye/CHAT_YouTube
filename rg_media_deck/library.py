@@ -11,7 +11,7 @@ from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
 from settings_safety import backup_settings_once_daily, recover_settings_from_backup
 from media_collections import clean_collections
-from streamdeck_hotkeys import ACTIONS, BROADCAST_BINDINGS, LEGACY_BINDINGS, validated_bindings
+from streamdeck_hotkeys import ACTIONS, BROADCAST_BINDINGS, DEFAULT_BINDINGS, LEGACY_BINDINGS, validated_bindings
 
 
 def migrate_hotkeys_for_screenshot(value, version: int = 1) -> dict[str, str]:
@@ -25,6 +25,12 @@ def migrate_hotkeys_for_screenshot(value, version: int = 1) -> dict[str, str]:
         for action, requested in BROADCAST_BINDINGS.items():
             if action not in result or result.get(action) == LEGACY_BINDINGS[action]:
                 result[action] = requested
+    # 0.4.7 used F18/F19; the user's physical keyboard sends PgDown/PgUp.
+    # Update ONLY these untouched old defaults and preserve custom chords.
+    if not isinstance(version, int) or version < 4:
+        for action, old in (("frame_back", "F18"), ("frame_forward", "F19")):
+            if action not in result or result[action] == old:
+                result[action] = DEFAULT_BINDINGS[action]
     return result
 
 
@@ -181,7 +187,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 3, 'deck_collections': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -218,7 +224,7 @@ def load_settings(path: Path | None = None) -> dict:
             'collections': clean_collections(data.get('collections', {})),
             'streamdeck_bindings': clean_saved_hotkeys(migrate_hotkeys_for_screenshot(
                 data.get('streamdeck_bindings', {}), data.get('hotkeys_layout_version', 1))),
-            'hotkeys_layout_version': 3,
+            'hotkeys_layout_version': 4,
             'deck_collections': {key: value for key, value in data.get('deck_collections', {}).items()
                                  if key in ('collection_1', 'collection_2') and isinstance(value, str)}
                                 if isinstance(data.get('deck_collections'), dict) else {},
