@@ -2041,6 +2041,29 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
+            # Last resort for verified Shoigu-only footage: use three distinct
+            # documented discussion angles rather than three paraphrases of
+            # "corruption or plan". Never infer a new event.
+            if evidence_report and ab_title_issues(candidate["title_variants"], evidence_report):
+                quotes = " ".join(
+                    str(t.get("evidence") or "")
+                    for block in evidence_report.get("blocks") or []
+                    if block.get("verified") is not False
+                    for t in block.get("topics") or [] if isinstance(t, dict)
+                ).casefold()
+                if (
+                    "шойгу" in quotes
+                    and "путин" in quotes
+                    and "коррупц" in quotes
+                    and "министр" in quotes
+                ):
+                    grounded_angles = [
+                        "Шойгу и Путин: что говорят россияне об их отношениях?",
+                        "Коррупция в армии РФ: почему в разговоре вспоминают Шойгу?",
+                        "Новый министр обороны: что изменилось после ухода Шойгу?",
+                    ]
+                    if not ab_title_issues(grounded_angles, evidence_report):
+                        candidate["title_variants"] = grounded_angles
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
