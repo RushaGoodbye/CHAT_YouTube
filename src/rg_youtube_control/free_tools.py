@@ -722,6 +722,50 @@ def _grounded_description_from_transcript(
     )
 
 
+def _remove_unsupported_named_claims(
+    description: str,
+    evidence_report: dict[str, Any],
+    current_title: str,
+) -> str:
+    """Avoid presenting unquoted groups of named people as verified events.
+
+    The transcript's validated evidence quotes, not model-written summaries,
+    provide the grounding. Keep the evidence map intact for editorial review.
+    """
+    def stem(text: str) -> str:
+        return text.casefold().translate(str.maketrans({
+            "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е"
+        }))[:5]
+
+    quoted = " ".join(
+        str(item.get("evidence") or "")
+        for block in evidence_report.get("blocks") or []
+        if block.get("verified") is not False
+        for item in block.get("topics") or []
+        if isinstance(item, dict)
+    )
+    supported = {
+        stem(word) for word in re.findall(
+            r"[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]{5,}",
+            str(current_title or "") + " " + quoted
+        )
+    }
+    result: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", description):
+        proper = [
+            match.group(0)
+            for match in re.finditer(r"\b[А-ЯЁІЇЄҐ][а-яёіїєґ]{4,}\b", sentence)
+            if match.start() > 2
+            and stem(match.group(0)) not in supported
+        ]
+        # A sentence naming two+ otherwise unseen people is an unsupported
+        # assertion, not a description of verified dialogue topics.
+        if len(proper) >= 2:
+            continue
+        result.append(sentence)
+    return " ".join(result).strip()
+
+
 def _polish_generated_description(value: str) -> str:
     """Remove repeated sentences and obvious LLM-style repetition."""
     text = " ".join(str(value or "").split()).strip()
@@ -734,6 +778,8 @@ def _polish_generated_description(value: str) -> str:
         (r"\bуволена\b", "звільнена"),
         (r"\bуволено\b", "звільнено"),
         (r"\bувольнення\b", "звільнення"),
+        (r"\bувільнення\b", "звільнення"),
+        (r"\bзамістників\b", "заступників"),
         (r"\bдолжност[ьи]\b", "посаді"),
         (r"\bдолжность\b", "посада"),
     )
@@ -2093,6 +2139,10 @@ chapters: рядок з підтвердженими таймкодами та �
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
+            if evidence_report:
+                description_candidate = _remove_unsupported_named_claims(
+                    description_candidate, evidence_report, current_title,
+                )
             # A discussion quote does not establish Putin's intent.
             # Remove the specific unsupported causal inference while retaining
             # the verifiable discussion of relationships and reassignment.
