@@ -226,7 +226,7 @@ def test_today_screen_is_decision_focused() -> None:
         'self.center_scheduled.setVisible(False)',
         'self.center_results.setVisible(False)',
         'self.center_vidiq.setVisible(False)',
-        'grid.addWidget(self.center_quota, 1, 0, 1, 4)',
+        'grid.addWidget(self.center_quota, 1, 0, 1, 6)',
         'pipeline.setVisible(False)',
         'archive_card.setVisible(False)',
         'activity_card.setVisible(False)',
@@ -393,3 +393,30 @@ def test_v060_metric_cards_are_navigable() -> None:
         'def _open_optimization_status',
     ):
         assert marker in source
+
+
+def test_today_seo_review_entry_is_visible_even_when_stream_is_priority() -> None:
+    source = _ui_source()
+    start = source.index("    def _build_task_center_tab")
+    end = source.index("\n    def _today_scheduled_row", start)
+    today = source[start:end]
+    assert 'self.center_review = MetricCard("Перевірити SEO-пакети")' in today
+    assert 'grid.addWidget(self.center_review, 0, 0, 1, 2)' in today
+    assert 'self.center_review.clicked.connect(' in today
+    assert 'self._open_optimization_status("draft")' in today
+    assert today.index('grid.addWidget(self.center_review') > today.index('self.next_action_button')
+    # The card is present regardless of today's priority selection.
+    before = today.split('def _refresh_next_action_card', 1)[0]
+    assert 'self.center_review.setVisible(False)' not in before
+
+
+def test_today_ready_count_does_not_trust_old_stored_ready_flags() -> None:
+    source = _ui_source()
+    start = source.index("    def update_task_center")
+    end = source.index("\n    def ", start + 5)
+    center = source[start:end]
+    assert "review_rows = self._pending_seo_review_rows()" in center
+    assert 'row["status"] or "") == "ready"' in center
+    assert "ready = max(0, raw_ready - rejected_ready)" in center
+    assert "str(len(review_rows))" in center
+    assert "self.center_prepared.set_value(" in center
