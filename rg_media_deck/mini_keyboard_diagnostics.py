@@ -36,7 +36,11 @@ class MiniKeyboardDiagnostics(QDialog):
             chosen = hotkeys.bindings.get(action)
             registered = (reg in hotkeys.registered_chords and
                           hotkeys.registered_chords[reg] == chord)
-            state = "ЗАРЕЄСТРОВАНО" if registered else "НЕ ЗАРЕЄСТРОВАНО"
+            if chord == "F17" and hotkeys._f17_route:
+                state = ("ЗАРЕЄСТРОВАНО + резервне зчитування F17"
+                         if registered else "РЕЗЕРВНЕ ЗЧИТУВАННЯ F17 АКТИВНЕ")
+            else:
+                state = "ЗАРЕЄСТРОВАНО" if registered else "НЕ ЗАРЕЄСТРОВАНО"
             lines.append(f"{ACTIONS[action]}: {chord} — {state}"
                          + (f" (активна: {chosen})" if chord != chosen else ""))
         self.registrations = QLabel("\n".join(lines))
