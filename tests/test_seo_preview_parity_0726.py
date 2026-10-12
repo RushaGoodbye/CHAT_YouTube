@@ -59,3 +59,25 @@ def test_fresh_real_transcript_hallucinated_ab_titles_are_not_pass():
     issues = ab_title_issues(variants)
     assert any("помилку розпізнавання" in issue for issue in issues)
     assert any("загальною реплікою" in issue for issue in issues)
+
+def test_grounded_description_does_not_invent_named_people():
+    from rg_youtube_control.free_tools import (
+        _remove_unsupported_named_claims, _polish_generated_description,
+    )
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "корупція", "evidence": "коррупция шагу предъявлены обвинения"},
+        {"topic": "стратегія", "evidence": "МЧС это МЧС а война это война"},
+    ]}]}
+    description = (
+        "У випуску обговорюють увільнення Шойгу та корупцію. "
+        "У розмові з'являються теми Білоусова, Тимура Іванова та кадрової політики. "
+        "Також згадують МЧС та військову стратегію."
+    )
+    result = _remove_unsupported_named_claims(
+        _polish_generated_description(description), report,
+        "Увольнение Шойгу",
+    )
+    assert "звільнення Шойгу" in result
+    assert "Білоусова" not in result
+    assert "Іванова" not in result
+    assert "МЧС" in result
