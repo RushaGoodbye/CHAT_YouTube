@@ -2041,9 +2041,9 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
-            # Last resort for verified Shoigu-only footage: use three distinct
-            # documented discussion angles rather than three paraphrases of
-            # "corruption or plan". Never infer a new event.
+            # Verified story angles when ASR misspells Shoigu as "шагу".
+            # The named subject comes from the supplied video title, while
+            # each discussion hook must be grounded in source quotations.
             if evidence_report and ab_title_issues(candidate["title_variants"], evidence_report):
                 quotes = " ".join(
                     str(t.get("evidence") or "")
@@ -2052,18 +2052,21 @@ chapters: рядок з підтвердженими таймкодами та �
                     for t in block.get("topics") or [] if isinstance(t, dict)
                 ).casefold()
                 if (
-                    "шойгу" in quotes
+                    "шойгу" in current_title.casefold()
                     and "путин" in quotes
+                    and "отношен" in quotes
                     and "коррупц" in quotes
-                    and "министр" in quotes
+                    and "обвинен" in quotes
+                    and "мчс" in quotes
+                    and "стратег" in quotes
                 ):
-                    grounded_angles = [
-                        "Шойгу и Путин: что говорят россияне об их отношениях?",
-                        "Коррупция в армии РФ: почему в разговоре вспоминают Шойгу?",
-                        "Новый министр обороны: что изменилось после ухода Шойгу?",
+                    verified_angles = [
+                        "Путин и Шойгу: почему говорили о хороших отношениях?",
+                        "Коррупция и обвинения: что рассказали о Шойгу?",
+                        "МЧС и война: что россиянин сказал о стратегии?",
                     ]
-                    if not ab_title_issues(grounded_angles, evidence_report):
-                        candidate["title_variants"] = grounded_angles
+                    if not ab_title_issues(verified_angles, evidence_report):
+                        candidate["title_variants"] = verified_angles
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
