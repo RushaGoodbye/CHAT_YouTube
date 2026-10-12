@@ -4,7 +4,7 @@ minute silence, holiday calendar, Content Hub and Scanner. NAS becomes sole
 getUpdates owner after remote deployed-binding proof and propagation.
 Requires authorized migration and explicit deployed.json receipt.
 """
-import argparse,datetime,importlib.util,json,os,pathlib,re,subprocess,sys,tempfile
+import argparse,datetime,importlib.util,json,os,pathlib,re,sqlite3,subprocess,sys,tempfile,urllib.parse
 ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE";SECRETS=ROOT/"RG_SECRETS"
 GATE=SECRETS/"rg_nas_telegram_cutover_enabled"
@@ -15,7 +15,7 @@ BOT=STATE/"rg_telegram_nas_native_bot_v01.py"
 MINUTE=STATE/"rg_telegram_nas_minute_silence_v1.py"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 OWNER_WORKER="rasha-goodbye-air-alerts"
-MIN_AGE=360  # Six-minute deployment settle, no Cron schedules changed.
+MIN_AGE=20*60  # Allow Cloudflare scanner Cron removal and Worker rollout to settle.
 def emit(status,**v):print(json.dumps({"status":status,**v},ensure_ascii=False),flush=True)
 def module():
  p=STATE/"rg_telegram_cf_selective_moderation_handoff_v1.py"
@@ -43,6 +43,16 @@ def preflight():
  if not FREEZE.is_file() or FREEZE.is_symlink():raise RuntimeError("CF_AUTO_DEPLOY_NOT_FROZEN")
  if not BOT.is_file() or BOT.is_symlink():raise RuntimeError("NAS_BOT_MISSING")
  if not MINUTE.is_file() or MINUTE.is_symlink():raise RuntimeError("NAS_MINUTE_MISSING")
+ # The deployed native importer consults this quarantine table for manually
+ # submitted links; refuse activating a bot that would reject every new link.
+ old=STATE/"migration_shadow.sqlite3"
+ if not old.is_file() or old.is_symlink():raise RuntimeError("LEGACY_QUARANTINE_DB_MISSING")
+ try:
+  uri="file:"+urllib.parse.quote(str(old),safe="/")+"?mode=ro"
+  with sqlite3.connect(uri,uri=True,timeout=3) as d:
+   columns=[row[1] for row in d.execute("PRAGMA table_info(nas_delivery_pre_cutover_quarantine)")]
+   if "source_url" not in columns:raise RuntimeError("LEGACY_QUARANTINE_SCHEMA_MISSING")
+ except sqlite3.Error:raise RuntimeError("LEGACY_QUARANTINE_DB_UNREADABLE") from None
  # A selective gate will trigger minute-silence scheduler too; ensure patched
  # NAS module explicitly declines publishing while Cloudflare owns it.
  if 'minute_silence_stays_on_cloudflare' not in MINUTE.read_text("utf-8"):
@@ -56,11 +66,18 @@ def preflight():
  token=m.module().env_token()
  expected={"rasha-goodbye-air-alerts":["* * * * *"],
   "rasha-goodbye-content-hub":["* * * * *"],
-  "rasha-goodbye-video-scanner":["*/5 * * * *"]}
+  "rasha-goodbye-video-scanner":[]}
  live={name:m.cron(token,name) for name in expected}
  if live!=expected or doc["crons"]!=expected:
   raise RuntimeError("CLOUDFLARE_SCHEDULE_CHANGED")
  if m.owner(token)!="nas":raise RuntimeError("CF_MODERATION_NOT_DISABLED")
+ p=STATE/"rg_telegram_cf_selective_scanner_stop_v1.py"
+ if not p.is_file() or p.is_symlink():raise RuntimeError("SCANNER_STOP_MODULE_MISSING")
+ spec=importlib.util.spec_from_file_location("rg_cutover_scanner_guard",str(p))
+ c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
+ if c.get_scanner_owner(token)!="nas":raise RuntimeError("SCANNER_DO_GUARD_NOT_ACTIVE")
+ if not (MIG/"scanner_guard_deployed.json").is_file():
+  raise RuntimeError("SCANNER_DO_GUARD_RECEIPT_MISSING")
  p=subprocess.run([sys.executable,str(BOT),"preflight"],capture_output=True,text=True,timeout=30)
  if p.returncode:raise RuntimeError("BOT_API_PREFLIGHT_FAILED")
  try:pre=json.loads(p.stdout)
@@ -99,7 +116,7 @@ def status():
  emit("RG_NAS_SELECTIVE_OWNER_GATE_OPEN" if cfg.get("selective_moderation_handoff") is True else "RG_NAS_GATE_OTHER_MODE",
    owner="nas",minute_silence_owner=cfg.get("minute_silence_owner"),activation=cfg.get("activated_at_utc"))
 def selftest():
- assert MIN_AGE>=300 and MIN_AGE<=1200
+ assert MIN_AGE>=1200 and MIN_AGE<=2400
  assert {"cloudflare_polling_disabled_verified","nas_single_poll_owner","selective_moderation_handoff"}.issubset(
    {"cloudflare_polling_disabled_verified","nas_single_poll_owner","selective_moderation_handoff"})
  emit("NAS_SELECTIVE_ACTIVATOR_SELFTEST_PASS",telegram_sends=0,cloudflare_writes=0)
