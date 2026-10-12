@@ -282,7 +282,7 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
             if not evidence or not topic:
                 continue
             words = {
-                token[:6] for token in re.findall(r"\w{5,}", evidence.casefold())
+                token[:6] for token in re.findall(r"\w+", evidence.casefold()) if len(token) >= 5 or token.isdigit()
             }
             if not words:
                 continue
