@@ -668,9 +668,14 @@ class MetricCard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(92)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(3)
+        # All navigation is visibly actionable, with a real keyboard-focusable
+        # button rather than a hidden click target on an informational card.
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(10)
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(3)
+        layout.addLayout(text_layout, 1)
 
         self.title_label = QLabel(title)
         self.title_label.setObjectName("MetricTitle")
@@ -679,9 +684,27 @@ class MetricCard(QFrame):
         self.note_label = QLabel("")
         self.note_label.setProperty("muted", True)
 
-        layout.addWidget(self.title_label)
-        layout.addWidget(self.value_label)
-        layout.addWidget(self.note_label)
+        text_layout.addWidget(self.title_label)
+        text_layout.addWidget(self.value_label)
+        text_layout.addWidget(self.note_label)
+        self.action_button = QPushButton()
+        self.action_button.setProperty("role", "primary")
+        self.action_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.action_button.setVisible(False)
+        self.action_button.clicked.connect(lambda _checked=False: self.clicked.emit())
+        layout.addWidget(
+            self.action_button, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+
+    def set_action(self, label: str, accessibility: str = "") -> None:
+        self.action_button.setText(label)
+        self.action_button.setAccessibleName(accessibility or label)
+        self.action_button.setToolTip(accessibility or label)
+        self.action_button.setVisible(True)
+        self.setProperty("interactive", True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def set_value(self, value: str, note: str = "") -> None:
         self.value_label.setText(value)
@@ -691,7 +714,6 @@ class MetricCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
-
 
 class FrozenColumnsTable(QTableWidget):
     """QTableWidget with a small frozen mirror for key identity columns."""
@@ -1419,6 +1441,15 @@ class MainWindow(QMainWindow):
         )
         self.center_prepared.clicked.connect(self._open_ready_work_queue)
         self.center_comments.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
+        self.center_review.set_action(
+            "Відкрити чергу →", "Відкрити SEO-пакети на перевірці"
+        )
+        self.center_prepared.set_action(
+            "Переглянути →", "Переглянути готові до YouTube пакети"
+        )
+        self.center_comments.set_action(
+            "Відкрити →", "Відкрити необроблені коментарі"
+        )
         self.center_quota.clicked.connect(self.show_quota_planner)
         for clickable_card in (
             self.center_review,

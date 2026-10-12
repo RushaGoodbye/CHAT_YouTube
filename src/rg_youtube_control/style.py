@@ -46,8 +46,21 @@ QLabel#ChannelState {
 }
 QFrame#MetricCard {
     background: #151515;
-    border: 0;
+    border: 1px solid #303030;
     border-radius: 10px;
+}
+QFrame#MetricCard[interactive="true"]:hover {
+    background: #1f1f1f;
+    border: 1px solid #b32c47;
+}
+QFrame#MetricCard QPushButton[role="primary"] {
+    font-weight: 700;
+    min-width: 115px;
+    padding: 8px 10px;
+}
+QFrame#MetricCard QPushButton[role="primary"]:hover {
+    background: #d8002b;
+    border-color: #ff5a76;
 }
 QLabel#MetricValue {
     color: #ffffff;
