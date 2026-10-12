@@ -482,11 +482,11 @@ def ab_title_issues(
     # Generic editorial labels are not a useful or factual third A/B hook.
     # They used to pass the offline gate and reach the real GUI preview.
     generic_hook = re.compile(
-        r"(?i)(?:дискусси[яи]\\s+о\\s+причин|"
-        r"дискусі[яї]\\s+про\\s+причин|"
-        r"обсужден[иия]+\\s+причин|"
-        r"внутренн(?:ие|их)\\s+причин|"
-        r"версии\\s+и\\s+факты)"
+        r"(?i)(?:дискусси[яи]\s+о\s+причин|"
+        r"дискусі[яї]\s+про\s+причин|"
+        r"обсужден[иия]+\s+причин|"
+        r"внутренн(?:ие|их)\s+причин|"
+        r"версии\s+и\s+факты)"
     )
     for index, value in enumerate(values, 1):
         if generic_hook.search(value):
