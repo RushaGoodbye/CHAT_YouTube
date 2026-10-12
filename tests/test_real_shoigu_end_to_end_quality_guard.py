@@ -219,3 +219,26 @@ def test_source_grounded_chapter_labels_are_not_duplicate_shoigu_story():
     labels = [line.split(" ",1)[1] for line in result.splitlines()]
     assert labels.count("Звільнення Шойгу") + labels.count("Причина звільнення Шойгу") <= 1
     assert "Корупція в російській армії" in result
+
+
+
+def test_ab_new_war_phase_claim_is_blocked_when_source_does_not_say_it():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+    report = {"blocks":[{"topics":[
+        {"topic":"звільнення Шойгу та Путін",
+         "summary_uk":"Думки про кадрову перестановку",
+         "evidence":"Шойгу с Путиным хорошие отношения"},
+        {"topic":"стратегія і МЧС",
+         "summary_uk":"Розмова про армію",
+         "evidence":"МЧС это МЧС А война это война и должен быть тот человек который стратегию"},
+        {"topic":"корупція і план",
+         "summary_uk":"Обговорення причин",
+         "evidence":"Коррупция или Всё идёт по плану просто"},
+    ]}]}
+    variants=[
+        "Шойгу и Путин: почему увольнение не испортило отношения",
+        "Стратегия без Шойгу: как война переходит в новую фазу",
+        "Коррупция или стратегия: что стоит за увольнением",
+    ]
+    issues=ab_title_issues(variants,report)
+    assert any("варіант 2" in item and "непідтверджені" in item for item in issues)
