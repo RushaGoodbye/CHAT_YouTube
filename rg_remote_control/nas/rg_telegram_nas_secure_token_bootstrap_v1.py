@@ -79,11 +79,45 @@ def candidates():
  for token,where in found:
   if token not in tokens:unique.append((token,where));tokens.add(token)
  return unique
+SAFE_ERRORS={"telegram_bad_json","telegram_api_not_ok","telegram_result_not_object",
+ "telegram_http_non200","telegram_reply_too_large","telegram_connectivity_error",
+ "bot_identity_invalid","target_not_channel","target_channel_mismatch",
+ "read_only_method_violation","bot_not_channel_posting_admin",
+ "token_format_invalid","interactive_terminal_required","preflight_module_missing",
+ "target_symlink_refused","secret_directory_symlink_refused","sudo_required"}
+def safe_reason(exc):
+ value=str(exc)
+ if value in SAFE_ERRORS or re.fullmatch(r"telegram_http_[1-5][0-9][0-9]",value):return value
+ return type(exc).__name__
+def step_get(preflight,token,method,params):
+ try:return preflight.get_json(token,method,params)
+ except Exception as exc:
+  raise RuntimeError(method+":"+safe_reason(exc)) from None
 def verify(token,source,preflight):
- result=preflight.probe(token,source)
- if result.get("status")!="TELEGRAM_TRANSPORT_READ_READY":
-  raise RuntimeError("bot_not_channel_posting_admin")
- return result
+ # Make each read-only request separately so an API/network/rights failure
+ # is never collapsed into an opaque "RuntimeError".
+ me=step_get(preflight,token,"getMe",{})
+ bot_id=me.get("id")
+ if not isinstance(bot_id,int) or bot_id<=0 or me.get("is_bot") is not True:
+  raise RuntimeError("getMe:bot_identity_invalid")
+ username=me.get("username","")
+ safe_username=username if isinstance(username,str) and re.fullmatch(r"[A-Za-z0-9_]{5,64}",username) else "(unknown)"
+ status("BOT_IDENTITY_VERIFIED",bot_username=safe_username,token_not_printed=True)
+ info=step_get(preflight,token,"getChat",{"chat_id":preflight.CHAT})
+ if info.get("type")!="channel":
+  raise RuntimeError("getChat:target_not_channel")
+ if str(info.get("username","")).casefold()!=preflight.CHAT.lstrip("@").casefold():
+  raise RuntimeError("getChat:target_channel_mismatch")
+ status("TARGET_CHANNEL_VERIFIED",channel=preflight.CHAT,token_not_printed=True)
+ member=step_get(preflight,token,"getChatMember",{"chat_id":preflight.CHAT,"user_id":bot_id})
+ role=member.get("status")
+ can_post=role=="creator" or (role=="administrator" and member.get("can_post_messages") is True)
+ if not can_post:
+  status("BOT_MEMBERSHIP_READ",role=role if role in ("member","left","kicked","restricted","administrator","creator") else "unknown",
+         bot_can_post=False)
+  raise RuntimeError("getChatMember:bot_not_channel_posting_admin")
+ return {"status":"TELEGRAM_TRANSPORT_READ_READY","channel_username":preflight.CHAT,
+         "bot_username":safe_username,"bot_can_post":True}
 def write_secret(token,dest=TARGET):
  if not TOKEN_PATTERN.fullmatch(token):raise ValueError("bad_token_shape")
  if dest.is_symlink():raise RuntimeError("target_symlink_refused")
@@ -108,6 +142,28 @@ def selftest():
   write_secret(fake,dest)
   assert dest.read_text().strip()==fake
   assert not TOKEN_PATTERN.fullmatch("NOT_A_TOKEN")
+  assert safe_reason(RuntimeError("telegram_http_401"))=="telegram_http_401"
+  assert safe_reason(RuntimeError("bot 12345678:SECRET"))=="RuntimeError"
+  class Faked:
+   CHAT="@RussiaGoodbyeUA"
+   def get_json(self,token,method,params):
+    if method=="getMe":return {"id":12345678,"is_bot":True,"username":"RG_NewsBot"}
+    if method=="getChat":return {"type":"channel","username":"RussiaGoodbyeUA"}
+    return {"status":"administrator","can_post_messages":True}
+  assert verify(fake,"offline-selftest",Faked())["status"]=="TELEGRAM_TRANSPORT_READ_READY"
+  class Unauthorised(Faked):
+   def get_json(self,token,method,params):
+    raise RuntimeError("telegram_http_401")
+  try:verify(fake,"offline-selftest",Unauthorised())
+  except RuntimeError as e:assert str(e)=="getMe:telegram_http_401"
+  else:raise AssertionError("unauthorised accepted")
+  class MissingAdmin(Faked):
+   def get_json(self,token,method,params):
+    if method=="getChatMember":return {"status":"member"}
+    return super().get_json(token,method,params)
+  try:verify(fake,"offline-selftest",MissingAdmin())
+  except RuntimeError as e:assert str(e)=="getChatMember:bot_not_channel_posting_admin"
+  else:raise AssertionError("non-admin accepted")
   # No Docker access or Telegram network is permitted during selftest.
   try:write_secret("NOT_A_TOKEN",dest)
   except ValueError:pass
@@ -159,9 +215,11 @@ if __name__=="__main__":
  except Exception as ex:
   message=str(ex)
   # Block secret leakage through exception strings.
-  allowed={"preflight_module_missing","bot_not_channel_posting_admin",
-           "target_symlink_refused","secret_directory_symlink_refused",
-           "interactive_terminal_required","token_format_invalid","sudo_required"}
-  reason=message if message in allowed else type(ex).__name__
-  status("BLOCKED",reason=reason,production_post_enabled=False)
+  code=message.split(":",1)
+  if len(code)==2 and code[0] in ("getMe","getChat","getChatMember"):
+   reason=code[0]+":"+code[1] if code[1] in SAFE_ERRORS or re.fullmatch(r"telegram_http_[1-5][0-9][0-9]",code[1]) else code[0]+":RuntimeError"
+  else:
+   reason=safe_reason(ex)
+  status("BLOCKED",reason=reason,production_post_enabled=False,
+         token_persisted=False if code[0] in ("getMe","getChat","getChatMember") else None)
   sys.exit(1)
