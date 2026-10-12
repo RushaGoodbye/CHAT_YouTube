@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/seo-evidence-no-invented-third-20261012
+      - fix/seo-preview-parity-20261012
     paths:
       - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
   workflow_dispatch:
@@ -15,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify Shoigu description without inferred Putin motives.
+    # Fail on REVIEW; verify SEO QA after installed-preview regression fixes.
     steps:
       - uses: actions/checkout@v4
         with:
