@@ -119,39 +119,59 @@ def settings(token,name):
  except Exception as ex:
   return {"reason":type(ex).__name__,"owner":"UNREADABLE"}
 def analytics(token):
- # GraphQL is read-only even though transport uses POST. Missing permissions
- # or unavailable adaptive dataset are reported, not treated as no invocations.
+ # IMPORTANT: Query EACH Worker by scriptName. A combined result set
+ # capped at 1000 can omit a 5-minute Cron between busy minute-by-minute
+ # Workers, creating a false "0 invocations" diagnosis.
  now=datetime.datetime.now(datetime.timezone.utc)
- lower=now-datetime.timedelta(minutes=75)
+ lower=now-datetime.timedelta(minutes=90)
  stamp=lambda d:d.strftime("%Y-%m-%dT%H:%M:%SZ")
- query='''query { viewer { accounts(filter: { accountTag: "'''+ACCOUNT+'''" }) { workersInvocationsAdaptive(filter: { datetime_geq: "'''+stamp(lower)+'''", datetime_leq: "'''+stamp(now)+'''" }, limit: 1000) { dimensions { scriptName datetime status } sum { requests errors } } } } }'''
- payload=json.dumps({"query":query}).encode("utf-8")
  url="https://api.cloudflare.com/client/v4/graphql"
- req=urllib.request.Request(url,data=payload,
-  headers={"Authorization":"Bearer "+token,"Content-Type":"application/json",
-           "User-Agent":"RG-CF-Telegram-Live-ReadOnly"},method="POST")
- try:
-  with urllib.request.urlopen(req,timeout=23) as response:
-   data=json.loads(response.read(350000))
- except urllib.error.HTTPError as e:return {"status":"UNAVAILABLE","http":e.code}
- except Exception as ex:return {"status":"UNAVAILABLE","reason":type(ex).__name__}
- if data.get("errors"):return {"status":"UNAVAILABLE","reason":"GRAPHQL_QUERY_REJECTED","error_count":len(data["errors"])}
- try:
-  accounts=data["data"]["viewer"]["accounts"]
-  rows=[r for a in accounts for r in (a.get("workersInvocationsAdaptive") or [])]
- except (KeyError,TypeError,AttributeError):return {"status":"UNAVAILABLE","reason":"GRAPHQL_SHAPE"}
- counts={key:{"requests":0,"errors":0,"latest":None} for key in (SCANNER,ALERTS,CONTENT)}
- for row in rows:
-  dim=row.get("dimensions") or {}
-  name=dim.get("scriptName")
-  if name not in counts:continue
-  count=counts[name];summary=row.get("sum") or {}
-  count["requests"]+=int(summary.get("requests") or 0)
-  count["errors"]+=int(summary.get("errors") or 0)
-  timekey=dim.get("datetime")
-  if isinstance(timekey,str) and (count["latest"] is None or timekey>count["latest"]):
-   count["latest"]=timekey
- return {"status":"AVAILABLE","window_minutes":75,"workers":counts}
+ result={}
+ for name in (SCANNER,ALERTS,CONTENT):
+  query='''query { viewer { accounts(filter: { accountTag: "'''+ACCOUNT+'''" }) {
+   workersInvocationsAdaptive(filter: { scriptName: "'''+name+'''",
+    datetime_geq: "'''+stamp(lower)+'''",
+    datetime_leq: "'''+stamp(now)+'''" }, limit: 500) {
+    dimensions { scriptName datetime status } sum { requests errors } }
+   } } }'''
+  payload=json.dumps({"query":query}).encode("utf-8")
+  req=urllib.request.Request(url,data=payload,
+   headers={"Authorization":"Bearer "+token,"Content-Type":"application/json",
+            "User-Agent":"RG-CF-Telegram-Live-ReadOnly"},method="POST")
+  try:
+   with urllib.request.urlopen(req,timeout=23) as response:
+    data=json.loads(response.read(350000))
+  except urllib.error.HTTPError as e:
+   result[name]={"status":"UNAVAILABLE","http":e.code};continue
+  except Exception as ex:
+   result[name]={"status":"UNAVAILABLE","reason":type(ex).__name__};continue
+  if data.get("errors"):
+   result[name]={"status":"UNAVAILABLE","reason":"GRAPHQL_QUERY_REJECTED",
+    "error_count":len(data["errors"])};continue
+  try:
+   accounts=data["data"]["viewer"]["accounts"]
+   rows=[r for account in accounts
+      for r in (account.get("workersInvocationsAdaptive") or [])]
+  except (KeyError,TypeError,AttributeError):
+   result[name]={"status":"UNAVAILABLE","reason":"GRAPHQL_SHAPE"};continue
+  count={"status":"AVAILABLE","requests":0,"errors":0,"latest":None,
+         "sample_rows":len(rows),"truncated_possible":len(rows)>=500,
+         "outcomes":{}}
+  for row in rows:
+   dim=row.get("dimensions") or {}
+   if dim.get("scriptName")!=name:continue
+   summary=row.get("sum") or {}
+   count["requests"]+=int(summary.get("requests") or 0)
+   count["errors"]+=int(summary.get("errors") or 0)
+   outcome=dim.get("status")
+   if isinstance(outcome,str) and re.fullmatch(r"[a-zA-Z_]{2,25}",outcome):
+    count["outcomes"][outcome]=count["outcomes"].get(outcome,0)+int(summary.get("requests") or 0)
+   timekey=dim.get("datetime")
+   if isinstance(timekey,str) and (count["latest"] is None or timekey>count["latest"]):
+    count["latest"]=timekey
+  result[name]=count
+ return {"status":"PER_SCRIPT_FILTERED","window_minutes":90,"workers":result,
+  "important":"scriptName-filtered GraphQL query; zero requests still needs Cron Events confirmation"}
 def main():
  if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
  cf=mod("rg_telegram_cf_cron_pause_v1.py")
@@ -187,6 +207,9 @@ def selftest():
  assert "secret" not in json.dumps(p)
  assert health_projection("moderation",None,403)["available"] is False
  assert number(True) is None
+ import inspect
+ assert 'scriptName: "' in inspect.getsource(analytics)
+ assert "for name in (SCANNER,ALERTS,CONTENT)" in inspect.getsource(analytics)
  emit("CF_TELEGRAM_LIVE_DIAG_SELFTEST_PASS",network_calls=0)
 if __name__=="__main__":
  try:
