@@ -3,7 +3,7 @@ import json, os, sqlite3, sys, time, traceback
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"src"))
-from rg_youtube_control.dialogue_seo import ab_title_issues, evidence_outline_text
+from rg_youtube_control.dialogue_seo import ab_title_issues, evidence_outline_text, _topic_display_uk
 from rg_youtube_control.free_tools import (
     DEFAULT_OLLAMA_MODEL, _chapters_quality_error, fetch_transcript,
     generate_seo_package_local, transcript_sample_text,
@@ -74,11 +74,15 @@ try:
     issues=ab_title_issues(titles,evidence)
     omitted=list(package.get("timeline_omitted_topics") or [])
     topics=[str(t.get("topic") or "") for b in evidence.get("blocks") or [] for t in b.get("topics") or []]
-    absent=[t for t in topics if t and t.casefold() not in description.casefold()]
+    absent=[_topic_display_uk(t,title) for t in topics
+            if t and _topic_display_uk(t,title).casefold() not in description.casefold()]
     checks={
        "full_caption_timeline":len(rows)>=100,
        "all_grounded_topic_labels_in_output":not absent,
        "no_omitted_topics":not omitted,
+       "no_unedited_asr_name_in_description":"Шагу" not in description,
+       "ukrainian_topic_labels":"увольнения" not in description.casefold(),
+       "at_least_three_real_source_chapters":len(chapters.splitlines())>=3,
        "exactly_three_ab":len(titles)==3,
        "ab_quality_no_issues":not issues,
        "tags_eight_or_more":len(package.get("tags") or [])>=8,
