@@ -98,5 +98,6 @@ except Exception as exc:
 finally:
     result["elapsed_seconds"] = round(time.monotonic() - started, 1)
     print(json.dumps(result, ensure_ascii=True, separators=(",", ":")), flush=True)
-if result["status"] == "BLOCKED":
-    raise SystemExit(2)
+if result["status"] != "PASS":
+    # A successful Python process is not a successful content-quality gate.
+    raise SystemExit(2 if result["status"] == "BLOCKED" else 1)
