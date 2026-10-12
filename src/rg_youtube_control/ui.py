@@ -13328,6 +13328,33 @@ class MainWindow(QMainWindow):
             or ""
         )
         before_tags = list(context.get("tags") or [])
+        # The new model is not allowed to silently discard a saved editor's
+        # chapters/tags when it fails to regenerate those fields. Preserved
+        # fields remain REVIEW-only until the operator confirms accuracy.
+        previous = get_optimization_draft(self.conn, video_id)
+        preserved_chapters = False
+        if previous:
+            if not before_tags:
+                try:
+                    before_tags = [
+                        str(x).strip()
+                        for x in json.loads(previous["tags_json"] or "[]")
+                        if str(x).strip()
+                    ]
+                except (TypeError, ValueError):
+                    before_tags = []
+            old_chapters = str(previous["chapters"] or "").strip()
+            old_chapters_ok, _ = validate_chapters(old_chapters) if old_chapters else (False, ())
+            if not chapters and old_chapters_ok:
+                chapters = old_chapters
+                preserved_chapters = True
+            seen_tags = {tag.casefold() for tag in tags}
+            for old_tag in before_tags:
+                if len(tags) >= 15:
+                    break
+                if old_tag.casefold() not in seen_tags:
+                    tags.append(old_tag)
+                    seen_tags.add(old_tag.casefold())
         evidence_report = result.get("evidence_report")
         if not self._preview_deep_content_package(
             video_id=video_id,
@@ -13362,12 +13389,18 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        requires_review = (
+            bool(package.get("needs_review"))
+            or len(variants) < 3
+            or preserved_chapters
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
             if requires_review else "Переглянуто користувачем"
         )
+        if preserved_chapters:
+            draft_reason += "; старі розділи збережено, потрібна перевірка таймкодів"
         save_optimization_draft(
             self.conn,
             video_id,
