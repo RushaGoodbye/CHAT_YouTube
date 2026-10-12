@@ -239,7 +239,11 @@ def save(path,data):
 def ensure_backup(original,deployer):
  if OUT.is_symlink():raise RuntimeError("BACKUP_SYMLINK")
  OUT.mkdir(mode=0o700,parents=True,exist_ok=True);os.chmod(OUT,0o700)
- names=("index.js.before","wrangler.toml.before","RG_NAS_AUTO_DEPLOY.sh.before")
+ # Scanner and alerts share OUT. The scanner already owns
+ # OUT/wrangler.toml.before; never overwrite or compare it to alert config.
+ # Prior failed attempts may have left OUT/index.js.before; preserve it too.
+ names=("air_alerts_index.js.before","air_alerts_wrangler.toml.before",
+        "RG_NAS_AUTO_DEPLOY.sh.before")
  vals=(original[0],original[1],deployer)
  for name,value in zip(names,vals):
   dest=OUT/name
@@ -371,6 +375,28 @@ def selftest():
  new,mode=deployer_patch(d)
  assert mode=="PATCHED" and deployer_patch(new)[1]=="ALREADY_GUARDED"
  syntax_shell(new)
+ # Regression: real migration stores scanner's wrangler.toml.before in the
+ # same OUT directory. Alert backups must be namespaced, repeatable and
+ # immutable; collision must never erase scanner rollback data.
+ from unittest import mock
+ with tempfile.TemporaryDirectory() as td:
+  root=pathlib.Path(td)
+  (root/"wrangler.toml.before").write_text("SCANNER_WRANGLER_ORIGINAL",encoding="utf-8")
+  (root/"index.js.before").write_text("PREVIOUS_FAILED_ALERT_ATTEMPT",encoding="utf-8")
+  (root/"RG_NAS_AUTO_DEPLOY.sh.before").write_text("ORIGINAL_DEPLOYER",encoding="utf-8")
+  with mock.patch.dict(globals(),{"OUT":root}):
+   ensure_backup(("ORIGINAL_ALERT_CODE","ORIGINAL_ALERT_CONFIG"),"MODIFIED_DEPLOYER")
+   ensure_backup(("ORIGINAL_ALERT_CODE","ORIGINAL_ALERT_CONFIG"),"MODIFIED_DEPLOYER")
+   assert (root/"wrangler.toml.before").read_text()=="SCANNER_WRANGLER_ORIGINAL"
+   assert (root/"index.js.before").read_text()=="PREVIOUS_FAILED_ALERT_ATTEMPT"
+   assert (root/"RG_NAS_AUTO_DEPLOY.sh.before").read_text()=="ORIGINAL_DEPLOYER"
+   assert (root/"air_alerts_index.js.before").read_text()=="ORIGINAL_ALERT_CODE"
+   assert (root/"air_alerts_wrangler.toml.before").read_text()=="ORIGINAL_ALERT_CONFIG"
+   try:
+    ensure_backup(("CHANGED_ALERT_CODE","ORIGINAL_ALERT_CONFIG"),"MODIFIED_DEPLOYER")
+   except RuntimeError as ex:
+    assert str(ex)=="EXISTING_BACKUP_DIFFERS"
+   else:raise AssertionError("backup_overwrite_allowed")
  out("CF_SELECTIVE_HANDOFF_SELFTEST_PASS",read_only=True,telegram_sends=0,
    handles_old_worker=True,handles_existing_guard=True,
    limits_patch_to_scheduled=True,refuses_double_poller=True,
