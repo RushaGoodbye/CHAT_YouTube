@@ -1119,30 +1119,21 @@ def _recover_missing_description(
 
 
 def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
-    """Three different source-grounded story hints from across the timeline."""
-    entries: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-    for block in report.get("blocks") or []:
-        stamp = str(block.get("start_stamp") or "")
-        for item in block.get("topics") or []:
-            if not isinstance(item, dict):
-                continue
-            topic = " ".join(str(item.get("topic") or "").split())
-            quote = " ".join(str(item.get("evidence") or "").split())
-            if not topic or not quote or topic.casefold() in seen:
-                continue
-            seen.add(topic.casefold())
-            entries.append((stamp, topic, quote[:220]))
-    if len(entries) < 3:
+    """Up to three distinct grounded anchors; never invent a third story."""
+    from .dialogue_seo import distinct_evidence_topics
+
+    entries = distinct_evidence_topics(report)
+    if not entries:
         return ""
     n = len(entries)
     selections: list[int] = []
-    for target in (0, (n - 1) // 2, n - 1):
+    targets = [0] if n == 1 else ([0, n - 1] if n == 2 else [0, (n - 1) // 2, n - 1])
+    for target in targets:
         remaining = [i for i in range(n) if i not in selections]
         selections.append(min(remaining, key=lambda i: abs(i - target)))
     return "\n".join(
-        f"{label}: [{entries[i][0]}] ТЕМА: {entries[i][1]}; "
-        f"ЦИТАТА: {entries[i][2]}"
+        f"{label}: [{entries[i]['start_stamp']}] ТЕМА: {entries[i]['topic']}; "
+        f"ЦИТАТА: {entries[i]['evidence'][:220]}"
         for label, i in zip(("A", "B", "C"), selections)
     )
 
@@ -1158,16 +1149,20 @@ def _source_quote_ab_titles(
     A shortened quote ends in an ellipsis, and no titles are auto-published.
     """
     from itertools import combinations
+    from .dialogue_seo import distinct_evidence_topics
 
     candidates: list[tuple[int, str]] = []
+    verified_quotes = {entry["evidence"].casefold() for entry in distinct_evidence_topics(report)}
     for index, block in enumerate(report.get("blocks") or []):
-        if not isinstance(block, dict):
+        if not isinstance(block, dict) or block.get("verified") is False:
             continue
         for topic in block.get("topics") or []:
             if not isinstance(topic, dict):
                 continue
             quote = " ".join(str(topic.get("evidence") or "").split())
             quote = quote.strip(' "«»„“”')
+            if quote.casefold() not in verified_quotes:
+                continue
             if len(quote) < 30 or len(quote.split()) < 5:
                 continue
             excerpt = quote
