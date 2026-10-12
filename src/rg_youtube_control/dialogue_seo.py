@@ -263,22 +263,60 @@ def analyze_all_timeline_blocks(
     }
 
 
+def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Conservatively group repeated claims without inventing new stories.
+
+    Only verbatim evidence is eligible. Identical or highly overlapping
+    claims collapse into one; different quotations remain independent.
+    """
+    distinct: list[dict[str, str]] = []
+    signatures: list[set[str]] = []
+    for block in report.get("blocks") or []:
+        if block.get("verified") is False:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            evidence = _compact(item.get("evidence"))
+            topic = _compact(item.get("topic"))
+            if not evidence or not topic:
+                continue
+            words = {
+                token[:6] for token in re.findall(r"\w{5,}", evidence.casefold())
+            }
+            if not words:
+                continue
+            repeated = any(
+                words == seen or (
+                    len(words & seen) >= 4
+                    and len(words & seen) / min(len(words), len(seen)) >= 0.85
+                )
+                for seen in signatures
+            )
+            if repeated:
+                continue
+            signatures.append(words)
+            distinct.append({
+                "topic": topic,
+                "evidence": evidence,
+                "summary_uk": _compact(item.get("summary_uk")),
+                "start_stamp": str(block.get("start_stamp") or ""),
+            })
+    return distinct
+
+
 def evidence_outline_text(report: dict[str, Any]) -> str:
     """Compact all verified block notes for final model, without omission."""
     lines: list[str] = []
+    for topic in distinct_evidence_topics(report):
+        lines.append(
+            f"[{topic['start_stamp']}] ТЕМА: {topic['topic']} | "
+            f"ТЕЗА: {topic['summary_uk']} | ЦИТАТА: {topic['evidence']}"
+        )
     for block in report.get("blocks") or []:
         stamp = str(block.get("start_stamp") or "")
         topics = block.get("topics") or []
-        if topics:
-            for item in topics:
-                if not isinstance(item, dict):
-                    continue
-                lines.append(
-                    f"[{stamp}] ТЕМА: {item.get('topic', '')} | "
-                    f"ТЕЗА: {item.get('summary_uk', '')} | "
-                    f"ЦИТАТА: {item.get('evidence', '')}"
-                )
-        else:
+        if not topics or block.get("verified") is False:
             lines.append(
                 f"[{stamp}] НЕПЕРЕВІРЕНИЙ ФРАГМЕНТ: "
                 f"{str(block.get('excerpt') or '')[:150]}"
