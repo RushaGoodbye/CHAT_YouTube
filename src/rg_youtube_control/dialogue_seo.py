@@ -543,6 +543,11 @@ def ab_title_issues(
             issues.append(
                 f"A/B варіант {number} - загальна фраза замість конкретного сюжету."
             )
+    for number, value in enumerate(values, 1):
+        if re.search(r"\bvs\.?\b", value, flags=re.IGNORECASE):
+            issues.append(
+                f"A/B варіант {number} містить англомовне 'vs' замість природного російського заголовка."
+            )
     normal = [
         re.sub(
             r"^(?:чат\s*рулетка|раша\s*гудбай)[\s:.|!-]*",
