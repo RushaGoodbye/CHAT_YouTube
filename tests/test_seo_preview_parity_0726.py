@@ -49,3 +49,13 @@ def test_gui_six_grounded_topics_not_silently_dropped():
     assert omitted == []
     assert "Шагу" not in result
     assert "корупц" in result.casefold()
+
+def test_fresh_real_transcript_hallucinated_ab_titles_are_not_pass():
+    variants = [
+        "Коррупция и увольнение: шаги на пути правды",
+        "Увольнение Шогу: по плану или нарушение?",
+        "Ответ на вопрос: почему не ответили? | Дискуссия",
+    ]
+    issues = ab_title_issues(variants)
+    assert any("помилку розпізнавання" in issue for issue in issues)
+    assert any("загальною реплікою" in issue for issue in issues)
