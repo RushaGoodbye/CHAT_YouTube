@@ -44,8 +44,8 @@ def test_generator_prompt_and_final_guard_agree_on_brevity():
     assert "400-2400" not in function
     # Concise synopsis remains 400-900 chars, but separately preserved
     # verified subjects must not be silently limited to two bullets.
-    assert 'max_topic_bullets=24' in function
-    assert 'max_body_bytes=3500' in function
+    assert 'max_topic_bullets=50' in function
+    assert 'max_body_bytes=3800' in function
     assert '{"max_chars": 950}' in function
     assert 'len(description) > (3900 if evidence_report else 5000)' in function
 
