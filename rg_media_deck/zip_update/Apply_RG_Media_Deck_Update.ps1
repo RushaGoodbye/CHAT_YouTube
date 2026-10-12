@@ -1,6 +1,7 @@
 param(
     [string]$InstallDir = "",
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [int]$WaitPid = 0
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -32,6 +33,12 @@ try {
     }
     if (-not (Test-Path -LiteralPath $CurrentExe -PathType Leaf)) {
         Fail "Встановлений RG Media Deck не знайдено: $InstallDir"
+    }
+    if ($WaitPid -gt 0) {
+        for ($attempt = 0; $attempt -lt 120; $attempt++) {
+            if (-not (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Milliseconds 500
+        }
     }
     $active = @(Get-Process -Name RG_Media_Deck -ErrorAction SilentlyContinue)
     if ($active.Count -gt 0) {
