@@ -20,7 +20,6 @@ from rg_youtube_control.free_tools import (
     fetch_transcript, load_srt_transcript, generate_seo_package_local,
     ollama_chat, DEFAULT_OLLAMA_MODEL,
 )
-from rg_youtube_control.optimization import safe_description_fix
 
 VIDEO_ID = "MEitKm687xo"
 started = time.monotonic()
