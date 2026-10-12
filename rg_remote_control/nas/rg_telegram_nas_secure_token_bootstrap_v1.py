@@ -108,7 +108,7 @@ def selftest():
   write_secret(fake,dest)
   assert dest.read_text().strip()==fake
   assert not TOKEN_PATTERN.fullmatch("NOT_A_TOKEN")
-  assert docker_candidates() == [] or isinstance(docker_candidates(),list)
+  # No Docker access or Telegram network is permitted during selftest.
   try:write_secret("NOT_A_TOKEN",dest)
   except ValueError:pass
   else:raise AssertionError("bad token accepted")
