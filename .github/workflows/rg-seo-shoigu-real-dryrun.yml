@@ -16,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; test verified corruption, strategy, and MChS real-source angles.
+    # Fail on REVIEW; test fresh Shoigu ASR variants with source-grounded alternative topics.
     steps:
       - uses: actions/checkout@v4
         with:
