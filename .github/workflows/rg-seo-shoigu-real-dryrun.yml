@@ -16,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify final post-recovery source-only description in v0.7.24.
+    # Fail on REVIEW; test deterministic quoted-angle recovery and final SEO sanitation.
     steps:
       - uses: actions/checkout@v4
         with:
