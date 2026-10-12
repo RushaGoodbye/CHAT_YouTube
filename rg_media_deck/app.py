@@ -836,7 +836,7 @@ class MainWindow(QMainWindow):
         self._library_timer.setSingleShot(True)
         self._library_timer.setInterval(1700)
         self._library_timer.timeout.connect(self._apply_external_file_changes)
-        self.deck_bindings = validated_bindings(self.settings['streamdeck_bindings'])
+        self.deck_bindings = {key: self.settings['streamdeck_bindings'].get(key, '') for key in ACTIONS}
         self.deck_collections = dict(self.settings['deck_collections'])
         self._streamdeck = GlobalMediaHotkeys(self._streamdeck_action, self.deck_bindings)
         self._broadcast_guard = BroadcastGuard()
