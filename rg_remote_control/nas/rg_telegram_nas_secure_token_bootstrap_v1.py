@@ -139,8 +139,10 @@ def selftest():
   write_secret(fake,dest)
   assert dest.read_text().strip()==fake
   assert stat.S_IMODE(dest.stat().st_mode)==0o600
-  write_secret(fake,dest)
-  assert dest.read_text().strip()==fake
+  other="87654321:"+("B"*38)
+  write_secret(other,dest)
+  assert dest.read_text().strip()==other
+  assert stat.S_IMODE(dest.stat().st_mode)==0o600
   assert not TOKEN_PATTERN.fullmatch("NOT_A_TOKEN")
   assert safe_reason(RuntimeError("telegram_http_401"))=="telegram_http_401"
   assert safe_reason(RuntimeError("bot 12345678:SECRET"))=="RuntimeError"
@@ -171,12 +173,14 @@ def selftest():
  status("TOKEN_BOOTSTRAP_SELFTEST_PASS",secret_file_permission="0600",no_network=True,token_never_logged=True)
 def main():
  parser=argparse.ArgumentParser()
- parser.add_argument("mode",choices=("selftest","discover","install","install-interactive"))
+ parser.add_argument("mode",choices=("selftest","discover","install","install-interactive","replace-interactive"))
  args=parser.parse_args()
  if args.mode=="selftest":selftest();return
  if os.geteuid()!=0:raise RuntimeError("sudo_required")
  pre=reader()
- options=candidates()
+ # An explicit token replacement must NEVER silently reuse the previously
+ # stored token or Docker candidates; always prompt for the newly supplied one.
+ options=[] if args.mode=="replace-interactive" else candidates()
  if args.mode=="discover":
   status("LOCAL_CREDENTIAL_CANDIDATES" if options else "NO_LOCAL_CREDENTIAL_FOUND",
          matching_sources=[p for _,p in options],candidate_count=len(options),
@@ -194,7 +198,7 @@ def main():
    return
   except (RuntimeError,ValueError) as ex:
    last_error="local_token_probe_failed"
- if args.mode!="install-interactive":
+ if args.mode not in ("install-interactive","replace-interactive"):
   status("EXISTING_BOT_TOKEN_REQUIRED",reason=last_error,
          token_must_not_be_pasted_in_chat=True,
          next_step="Run install-interactive with existing token on NAS terminal",
@@ -204,10 +208,14 @@ def main():
  print("Existing Telegram bot token (input hidden). Do not paste token into ChatGPT.",flush=True)
  token=getpass.getpass("Existing TELEGRAM_BOT_TOKEN: ").strip()
  if not TOKEN_PATTERN.fullmatch(token):raise RuntimeError("token_format_invalid")
+ # Verify the freshly entered token before touching the existing one.
  result=verify(token,"operator_hidden_input",pre)
+ existed=TARGET.is_file() and not TARGET.is_symlink()
  write_secret(token)
- status("EXISTING_BOT_TOKEN_READY",source="operator_hidden_input",channel=result["channel_username"],
+ status("EXISTING_BOT_TOKEN_REPLACED" if args.mode=="replace-interactive" else "EXISTING_BOT_TOKEN_READY",
+        source="operator_hidden_input",channel=result["channel_username"],
         bot_username=result["bot_username"],bot_can_post=True,
+        old_token_file_existed=existed,
         secret_file="RG_SECRETS/rg_telegram_bot_token",permissions="0600",
         no_message_sent=True,legacy_cloudflare_unchanged=True)
 if __name__=="__main__":
