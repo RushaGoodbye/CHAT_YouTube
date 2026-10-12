@@ -123,3 +123,46 @@ def test_shoigu_shortened_primary_title_does_not_weaken_existing_hook():
     existing = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
     weaker = "Увольнение Шойгу: коррупция или план?"
     assert _preserve_current_title_when_candidate_is_not_stronger(existing, weaker) == existing
+
+
+
+def test_chapters_align_to_actual_evidence_quotes_not_hardcoded_times():
+    from rg_youtube_control.dialogue_seo import grounded_chapters_from_evidence
+    caption_lines = [
+        (0, "Мы обсуждаем назначение в министерство обороны"),
+        (15, "Говорим о новых решениях руководства"),
+        (31, "На этой неделе обсуждали заявления"),
+        (61, "Коррупция в министерстве обороны и ответственность"),
+        (72, "Несколько собеседников спорят об обвинениях"),
+        (93, "Почему решение о переводе министров вызывает споры"),
+        (135, "Сейчас обсуждают стратегию российской армии и МЧС"),
+        (147, "Участники называют разные причины"),
+        (190, "Всё идёт по плану говорит следующий собеседник"),
+        (220, "Он считает это кадровой перестановкой"),
+        (250, "Финансовые вопросы и новый министр"),
+        (290, "В конце возвращаются к теме ответственности"),
+    ]
+    original = "\n".join(
+        f"[{n // 60:02d}:{n % 60:02d}] {line}"
+        for n, line in caption_lines
+    )
+    report = {"blocks": [
+        {"start_stamp":"00:00:00","end_stamp":"00:02:00",
+         "topics":[{"topic":"корупція в міністерстві оборони",
+                    "evidence":"Коррупция в министерстве обороны и ответственность"}]},
+        {"start_stamp":"00:02:01","end_stamp":"00:05:00",
+         "topics":[
+            {"topic":"стратегія російської армії",
+             "evidence":"Сейчас обсуждают стратегию российской армии и МЧС"},
+            {"topic":"кадрова перестановка за планом",
+             "evidence":"Он считает это кадровой перестановкой"},
+         ]},
+    ]}
+    chapters = grounded_chapters_from_evidence(
+        report, original, current_title="ШОЙГУ: корупція чи план?"
+    )
+    assert len(chapters.splitlines()) >= 3
+    assert chapters.startswith("00:00 ")
+    assert "08:11" not in chapters
+    assert _chapters_quality_error(chapters, original) == ""
+    assert "корупція" in chapters or "стратегія" in chapters
