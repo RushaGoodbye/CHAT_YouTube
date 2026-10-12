@@ -376,9 +376,9 @@ def preserve_outline_topics(
         # Shoigu dismissal and corruption are already covered by the synopsis.
         if topic.casefold() in source.casefold():
             continue
-        if keys and len(keys & synopsis_words) >= min(2, len(keys)):
+        if grounded and keys and len(keys & synopsis_words) >= min(2, len(keys)):
             continue
-        if keys and any(len(keys & previous) >= min(2, len(keys), len(previous))
+        if grounded and keys and any(len(keys & previous) >= min(2, len(keys), len(previous))
                         for previous in selected_keys):
             continue
         missing.append(topic)
