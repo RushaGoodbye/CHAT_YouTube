@@ -58,5 +58,5 @@ try:
 except Exception as exc:
     report["error"]=str(exc)[:500]
     report["traceback"]=traceback.format_exc()[-1100:]
-print(json.dumps(report,ensure_ascii=False,separators=(",",":")),flush=True)
+print(json.dumps(report,ensure_ascii=True,separators=(",",":")),flush=True)
 if "error" in report: raise SystemExit(2)
