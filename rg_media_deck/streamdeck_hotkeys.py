@@ -203,6 +203,9 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
     def __init__(self, callback, bindings=None):
         super().__init__()
         self.callback = callback
+        self.diagnostic_callback = None
+        self.received_hotkeys = 0
+        self.registered_chords: dict[str, str] = {}
         self.bindings = validated_bindings(bindings)
         self.registered: dict[int, str] = {}
         self.errors: list[str] = []
@@ -214,6 +217,7 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
 
     def register(self) -> None:
         self.close()
+        self.registered_chords = {}
         self.errors = []
         if os.name != "nt":
             self.errors.append("Глобальні клавіші доступні лише у Windows")
@@ -234,20 +238,34 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             key_id = BASE_ID + offset
             if user32.RegisterHotKey(None, key_id, modifiers, vk):
                 self.registered[key_id] = resolved[action]
+                self.registered_chords[action] = shortcut
             else:
                 self.errors.append(
                     f"{ACTIONS[action]} ({shortcut}): зайнято Windows або OBS")
 
+    @staticmethod
+    def _native_type(event_type) -> str:
+        """PySide6 delivers a QByteArray; str(QByteArray) may contain b'...'."""
+        try:
+            return bytes(event_type).decode("ascii", errors="ignore")
+        except (TypeError, ValueError, AttributeError):
+            return str(event_type).removeprefix("b'").removesuffix("'")
+
     def nativeEventFilter(self, event_type, message):
-        if os.name != "nt" or str(event_type) not in (
+        if os.name != "nt" or self._native_type(event_type) not in (
                 "windows_generic_MSG", "windows_dispatcher_MSG"):
             return False, 0
         try:
             msg = wintypes.MSG.from_address(int(message))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OSError):
             return False, 0
         if msg.message == WM_HOTKEY and int(msg.wParam) in self.registered:
-            self.callback(self.registered[int(msg.wParam)])
+            self.received_hotkeys += 1
+            action = self.registered[int(msg.wParam)]
+            if self.diagnostic_callback is not None:
+                self.diagnostic_callback(action)
+            else:
+                self.callback(action)
             return True, 0
         return False, 0
 
