@@ -23,7 +23,25 @@ def combined_roots(main_roots: list[str], news_folder: str) -> list[str]:
     for value in roots:
         if value and isinstance(value, str):
             unique.setdefault(normalize_path(value), value)
-    return list(unique.values())
+    # One recursive observer is enough for a parent folder. Duplicating the
+    # observer for NEWS nested inside FACTAGE produced duplicate change events,
+    # repeated scans, and pressure on Windows/NAS while switching video.
+    roots = list(unique.items())
+    result = []
+    for key, original in roots:
+        covered = False
+        for other, _ in roots:
+            if key == other:
+                continue
+            try:
+                if os.path.commonpath((key, other)) == other:
+                    covered = True
+                    break
+            except (OSError, ValueError):
+                continue
+        if not covered:
+            result.append(original)
+    return result
 
 
 def belongs_to_news(path: str, news_folder: str) -> bool:
