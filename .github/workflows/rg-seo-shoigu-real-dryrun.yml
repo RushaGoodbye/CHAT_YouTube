@@ -16,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; expose fresh citation excerpts to diagnose model hallucinations.
+    # Fail on REVIEW; test verified corruption, strategy, and MChS real-source angles.
     steps:
       - uses: actions/checkout@v4
         with:
