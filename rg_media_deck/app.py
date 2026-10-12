@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QImageReader, QKeySequence, QPixmap, QShortcut, QPainter, QPen
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
+from PySide6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
@@ -31,6 +31,7 @@ from recycle_utils import normalize_recycle_path
 from video_fit import Crop, detect_letterbox, stable_crop, fitted_frame_rect, fill_frame_crop
 from content_region import detect_content_region
 from playback_health import DynamicCropState, PlaybackHealth
+from frame_seek import FrameSeekPlanner
 from crop_selection import CropSelectionDialog
 from media_collections import add_files, remove_file_references, migrate_path
 from live_library import RecursiveMediaWatcher, changed_files, keep_offline_entries, unavailable_roots, relocated_path, FileIdentityIndex
@@ -41,7 +42,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.6'
+VERSION = '0.4.7'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -460,6 +461,7 @@ class PlayerSurface(QWidget):
         self._staged_audio = None
         self._staged_sink = None
         self._staged_image = None
+        self.frame_seek = FrameSeekPlanner()
         self.setStyleSheet('background:black;')
         self.stack = QStackedWidget()
         self.stack.setStyleSheet('background:black;')
@@ -479,6 +481,8 @@ class PlayerSurface(QWidget):
     def _present_video_frame(self, frame):
         if not frame.isValid():
             return
+        if self.current is not None and self.current.kind == 'video':
+            self.frame_seek.observe(frame.startTime(), frame.endTime())
         self.video_view.observe_frame(frame)
         if self.current is not None and self.current.kind == 'video':
             if self.stack.currentWidget() is not self.video_view:
@@ -609,8 +613,25 @@ class PlayerSurface(QWidget):
             self.player.setPlaybackRate(self._playback_rate)
 
     def set_position(self, value: int):
+        self.frame_seek.sync_external_seek()
         if self.player is not None:
             self.player.setPosition(value)
+
+    def frame_step_target(self, direction: int) -> tuple[int, float] | None:
+        if self.current is None or self.current.kind != 'video' or self.player is None:
+            return None
+        player = self.player
+        try:
+            metadata = player.metaData()
+            self.frame_seek.set_fps(metadata.value(QMediaMetaData.Key.VideoFrameRate))
+            for track in player.videoTracks():
+                self.frame_seek.set_fps(track.value(QMediaMetaData.Key.VideoFrameRate))
+                if self.frame_seek.fps:
+                    break
+        except (AttributeError, TypeError, RuntimeError, ValueError):
+            pass
+        target = self.frame_seek.step(direction, player.position(), player.duration())
+        return target, self.frame_seek.frame_ms
 
     def play_item(self, item: MediaItem):
         if not os.path.isfile(item.path):
@@ -621,6 +642,7 @@ class PlayerSurface(QWidget):
         if not ready:
             self._cancel_staged()
         self._release_player()  # old sound muted before any new sound
+        self.frame_seek.reset()
         self.current = None
         self.video_view.forced_portrait = False
         self.video_view.reset_crop()
@@ -668,6 +690,7 @@ class PlayerSurface(QWidget):
         return True
 
     def black_out(self):
+        self.frame_seek.reset()
         self.current = None
         self._cancel_staged()
         self.stack.setCurrentWidget(self.black)
@@ -676,6 +699,7 @@ class PlayerSurface(QWidget):
         self._restart_player()
 
     def shutdown(self):
+        self.frame_seek.reset()
         self.current = None
         self._cancel_staged()
         self.stack.setCurrentWidget(self.black)
@@ -1118,6 +1142,10 @@ class MainWindow(QMainWindow):
             self.step_speed(1)
         elif action == 'speed_down':
             self.step_speed(-1)
+        elif action == 'frame_back':
+            self.step_frame(-1)
+        elif action == 'frame_forward':
+            self.step_frame(1)
         elif action == 'volume_down':
             self.step_volume(-5)
         elif action == 'volume_up':
@@ -1559,10 +1587,39 @@ class MainWindow(QMainWindow):
         event.accept()
         return True
 
+    def step_frame(self, direction: int):
+        """Pause and show next/previous decoded frame time; keep current OBS pane.
+
+        This uses Qt frame presentation timestamps or the video's FPS,
+        with a 25fps fallback for unknown metadata. No other audio decoder,
+        separate window, re-encoding or input video modification.
+        """
+        player = self.preview.player
+        media = self.preview.current
+        if not media or media.kind != 'video' or not player:
+            self.status.setText('Покадрово: спочатку запустіть відео')
+            return
+        result = self.preview.frame_step_target(direction)
+        if result is None:
+            return
+        target, step_ms = result
+        if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            player.pause()
+        def seek_when_paused(source=player, path=media.path, position=target):
+            if (self.preview.player is source and
+                    self.preview.current is not None and
+                    self.preview.current.path == path):
+                source.setPosition(position)
+        QTimer.singleShot(0, seek_when_paused)
+        self._update_play_button()
+        self.status.setText(
+            f"Кадр {'вперед' if direction > 0 else 'назад'} · "
+            f"{timestamp(target)} · крок ≈{step_ms:.1f} мс")
+
     def seek_relative(self, milliseconds: int):
         if self.preview.current and self.preview.current.kind == 'video' and self.preview.player:
             player = self.preview.player
-            player.setPosition(max(0,min(player.duration(),player.position() + milliseconds)))
+            self.preview.set_position(max(0,min(player.duration(),player.position() + milliseconds)))
 
     def _save(self):
         try:
