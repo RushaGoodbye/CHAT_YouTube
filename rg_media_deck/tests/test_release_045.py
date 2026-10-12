@@ -52,8 +52,9 @@ class NativeHotkeyEventTests(unittest.TestCase):
             msg = ctypes.wintypes.MSG()
             msg.message = WM_HOTKEY
             msg.wParam = key_id
-            dispatched, result = hotkeys.nativeEventFilter(
-                QByteArray(b"windows_generic_MSG"), ctypes.addressof(msg))
+            with patch("streamdeck_hotkeys.time.monotonic", return_value=199.95):
+                dispatched, result = hotkeys.nativeEventFilter(
+                    QByteArray(b"windows_generic_MSG"), ctypes.addressof(msg))
             self.assertTrue(dispatched)
             self.assertEqual(result, 0)
             diagnostic.assert_called_once_with("play_pause")
