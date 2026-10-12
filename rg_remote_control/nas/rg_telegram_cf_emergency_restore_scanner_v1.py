@@ -194,7 +194,7 @@ def selftest():
   first=root/"quota-entry-v2.js.before"
   second=root/"wrangler.toml.before"
   first.write_text("export class ScannerCoordinator { constructor() {} }"+" "*128,encoding="utf-8")
-  second.write_text(sample+"\n",encoding="utf-8")
+  second.write_text(sample+"\n# preserved original settings"+" "*32+"\n",encoding="utf-8")
   with mock.patch.dict(globals(),{"OUT":root,"BACKUPS":(first,second)}):
    content,config=backup_sources()
    assert "ScannerCoordinator" in content and "*/5" in config
