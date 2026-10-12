@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 import updater
+import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
 from media_intelligence import add_bookmark, clean_tags
@@ -695,9 +696,6 @@ class UpdateThread(QThread):
         try:
             if self.action == 'check':
                 self.checked.emit(updater.fetch_latest(VERSION))
-            elif self.action == 'safety':
-                self.downloaded.emit(('safety', update_rollback.stage_verified_previous(
-                    VERSION, self.progress.emit, self.isInterruptionRequested)))
             else:
                 self.downloaded.emit(updater.download_update(
                     self.release, self.progress.emit, self.isInterruptionRequested))
@@ -708,7 +706,7 @@ class UpdateThread(QThread):
 class UpdatesDialog(QDialog):
     def __init__(self, parent, install_callback):
         super().__init__(parent)
-        self.setWindowTitle('Налаштування - Оновлення RG Media Deck')
+        self.setWindowTitle('Налаштування - ZIP-оновлення RG Media Deck')
         self.setMinimumWidth(520)
         self.release = None
         self.staged = None
@@ -720,15 +718,15 @@ class UpdatesDialog(QDialog):
         self.version_info = QLabel(f'Поточна версія: {VERSION}')
         self.version_info.setStyleSheet('font-size:16px; font-weight:700;')
         layout.addWidget(self.version_info)
-        self.info = QLabel('Оновлення програми. Бібліотека та налаштування не видаляються.')
+        self.info = QLabel('Оновлення ZIP без інсталятора. Медіатека, налаштування й OBS не змінюються.')
         self.info.setWordWrap(True)
         layout.addWidget(self.info)
         self.check_btn = make_button('↻ Перевірити оновлення', self.check_updates)
         layout.addWidget(self.check_btn)
-        self.download_btn = make_button('⬇ Завантажити оновлення', self.download)
+        self.download_btn = make_button('⬇ Завантажити ZIP оновлення', self.download)
         self.download_btn.setEnabled(False)
         layout.addWidget(self.download_btn)
-        self.install_btn = make_button('✓ Встановити та перезапустити', self.install)
+        self.install_btn = make_button('✓ Застосувати ZIP та перезапустити', self.install)
         self.install_btn.setEnabled(False)
         layout.addWidget(self.install_btn)
         self.state = QLabel('Не оновлюйте програму під час стріму: показ в OBS тимчасово зупиниться.')
@@ -770,24 +768,12 @@ class UpdatesDialog(QDialog):
         self._work('download')
 
     def on_downloaded(self, outcome):
-        if isinstance(outcome, tuple) and len(outcome) == 2 and outcome[0] == 'safety':
-            self._checking_safety = False
-            old_installer, old_hash = outcome[1]
-            self.state.setText('Резервну версію перевірено. Готую безпечне оновлення...')
-            try:
-                self.install_callback(self.staged[0], self.staged[1],
-                                      self.release['version'], old_installer, old_hash)
-            except Exception as exc:
-                QMessageBox.critical(self, 'Оновлення заблоковано', str(exc))
-            else:
-                self.accept()
-            return
-        self.staged = outcome  # (path, SHA256)
-        self.state.setText('Інсталятор перевірено (SHA256). Можна оновлювати.')
+        self.staged = outcome  # verified downloaded ZIP, SHA256
+        self.state.setText('ZIP перевірено (SHA256). Готово до застосування.')
 
     def on_error(self, message):
         self._checking_safety = False
-        self.state.setText('Оновлення НЕ розпочато: ' + message)
+        self.state.setText('Оновлення не розпочато: ' + message)
 
     def on_finished(self):
         self.worker = None
@@ -802,12 +788,12 @@ class UpdatesDialog(QDialog):
                 'Програма закриється, оновиться та запуститься знову. Показ в OBS перерветься.\n'
                 'Запускати оновлення?') != QMessageBox.StandardButton.Yes:
             return
-        # Preserve a SHA256-verified previous release before changing the EXE.
-        # The network operation runs off the Qt UI thread. If it fails, do not
-        # modify the installed working version.
-        self._checking_safety = True
-        self.state.setText('Завантажую перевірену резервну версію для автоматичного відкату...')
-        self._work('safety')
+        try:
+            self.install_callback(self.staged[0], self.staged[1], self.release['version'])
+        except Exception as exc:
+            QMessageBox.critical(self, 'ZIP-оновлення заблоковано', str(exc))
+        else:
+            self.accept()
 
     def reject(self):
         if self.worker is not None and self.worker.isRunning():
@@ -1288,18 +1274,16 @@ class MainWindow(QMainWindow):
         elif choice == updates:
             self.open_settings()
 
-    def _install_update(self, staged: Path, sha256: str, version: str,
-                        old_installer: Path, old_sha256: str):
+    def _install_update(self, staged: Path, sha256: str, version: str):
         if self.scanner and self.scanner.isRunning():
-            raise RuntimeError('Зачекайте завершення сканування перед встановленням')
+            raise RuntimeError('Зачекайте завершення сканування')
         if self.preview.current is not None:
-            raise RuntimeError('Зупиніть трансляцію матеріалу перед оновленням програми')
-        command = update_rollback.prepare_supervised_update(
-            Path(staged), sha256, version, Path(old_installer), old_sha256, VERSION)
-        # The watchdog runs from LOCALAPPDATA, outside the installed EXE folder.
-        # It waits for this app to exit, checks the new EXE, and restores the
-        # previous verified installer if health validation fails.
-        subprocess.Popen(command, cwd=str(update_rollback.storage()),
+            raise RuntimeError('Зупиніть показ відео в OBS перед ZIP-оновленням')
+        # Validates SHA256, ZIP entry paths, package version and decompression
+        # limits before exiting the app. On-disk directory swap + rollback
+        # happens only after current process exits.
+        command = zip_updates.prepare_zip_command(Path(staged), sha256, version)
+        subprocess.Popen(command, cwd=str(updater.update_folder()),
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                          close_fds=True)
         QTimer.singleShot(0, self.close)
