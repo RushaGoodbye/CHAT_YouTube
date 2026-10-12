@@ -9,9 +9,11 @@ from __future__ import annotations
 import ctypes
 import os
 import re
+import time
 from ctypes import wintypes
 
-from PySide6.QtCore import QAbstractNativeEventFilter
+from PySide6.QtCore import QAbstractNativeEventFilter, QTimer
+from f17_press import F17PressGate
 
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN = 1, 2, 4, 8
 MOD_NOREPEAT = 0x4000
@@ -206,6 +208,12 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
         self.diagnostic_callback = None
         self.received_hotkeys = 0
         self.registered_chords: dict[str, str] = {}
+        self._f17_gate = F17PressGate()
+        self._f17_timer = QTimer()
+        self._f17_timer.setInterval(12)
+        self._f17_timer.timeout.connect(self._poll_f17)
+        self._f17_route: str | None = None
+        self.f17_poll_count = 0
         self.bindings = validated_bindings(bindings)
         self.registered: dict[int, str] = {}
         self.errors: list[str] = []
@@ -224,6 +232,12 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             return
         user32 = ctypes.windll.user32
         resolved = normalized_duplicates(self.bindings)
+        self._f17_gate = F17PressGate()
+        self._f17_route = next(
+            (resolved[action] for action in ACTIONS
+             if self.bindings.get(action) == "F17" and action in resolved), None)
+        if self._f17_route:
+            self._f17_timer.start()
         for offset, action in enumerate(ACTIONS):
             shortcut = self.bindings.get(action)
             if not shortcut or action not in resolved:
@@ -243,6 +257,35 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
                 self.errors.append(
                     f"{ACTIONS[action]} ({shortcut}): зайнято Windows або OBS")
 
+    def _deliver_hotkey(self, action: str):
+        self.received_hotkeys += 1
+        if self.diagnostic_callback is not None:
+            self.diagnostic_callback(action)
+        else:
+            self.callback(action)
+
+    def _poll_f17(self):
+        """Read ONLY VK_F17 (0x80), even when OBS has keyboard focus.
+
+        Some HID macro keyboards emit F17 pulses too short for a global
+        registered hotkey. This fallback does not suppress the Windows key,
+        nor log or inspect any other keyboard input.
+        """
+        if os.name != "nt" or not self._f17_route:
+            return
+        try:
+            state = ctypes.windll.user32.GetAsyncKeyState(0x80)
+        except (AttributeError, OSError):
+            self._f17_timer.stop()
+            self.errors.append("F17: Windows GetAsyncKeyState недоступний")
+            return
+        self.f17_poll_count += 1
+        now_ms = int(time.monotonic() * 1000)
+        if self._f17_gate.observe(down=bool(state & 0x8000),
+                                  pressed_since_poll=bool(state & 0x0001),
+                                  now_ms=now_ms):
+            self._deliver_hotkey(self._f17_route)
+
     @staticmethod
     def _native_type(event_type) -> str:
         """PySide6 delivers a QByteArray; str(QByteArray) may contain b'...'."""
@@ -260,16 +303,18 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
         except (ValueError, TypeError, OSError):
             return False, 0
         if msg.message == WM_HOTKEY and int(msg.wParam) in self.registered:
-            self.received_hotkeys += 1
             action = self.registered[int(msg.wParam)]
-            if self.diagnostic_callback is not None:
-                self.diagnostic_callback(action)
+            if action == self._f17_route and self._f17_route:
+                if self._f17_gate.native_hotkey(int(time.monotonic() * 1000)):
+                    self._deliver_hotkey(action)
             else:
-                self.callback(action)
+                self._deliver_hotkey(action)
             return True, 0
         return False, 0
 
     def close(self):
+        self._f17_timer.stop()
+        self._f17_route = None
         if os.name == "nt":
             for key_id in self.registered:
                 ctypes.windll.user32.UnregisterHotKey(None, key_id)
