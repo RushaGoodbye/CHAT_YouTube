@@ -734,6 +734,7 @@ def _polish_generated_description(value: str) -> str:
         (r"\bуволена\b", "звільнена"),
         (r"\bуволено\b", "звільнено"),
         (r"\bувольнення\b", "звільнення"),
+        (r"\bувільнення\b", "звільнення"),
         (r"\bдолжност[ьи]\b", "посаді"),
         (r"\bдолжность\b", "посада"),
     )
@@ -1151,15 +1152,18 @@ def _source_quote_ab_titles(
     report: dict[str, Any],
     current_title: str = "",
 ) -> list[str]:
-    """Fail-safe REVIEW titles made from verbatim quotes in different blocks.
+    """Review-only A/B from literal evidence, including short two-block videos.
 
-    This never infers facts from a model-generated topic. Every visible
-    quoted phrase is a contiguous excerpt of an actual transcript quote.
-    A shortened quote ends in an ellipsis, and no titles are auto-published.
+    A 9-minute video can have two time blocks but six separate grounded
+    topics. Requiring three blocks made a safe fallback impossible exactly
+    when the generator produced weak or speculative names. Keep multiple
+    genuinely different quotations per block while preferring broad temporal
+    coverage, never inventing a claim or marking these as publishable.
     """
     from itertools import combinations
 
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, str, str]] = []
+    seen_quotes: set[str] = set()
     for index, block in enumerate(report.get("blocks") or []):
         if not isinstance(block, dict):
             continue
@@ -1168,7 +1172,8 @@ def _source_quote_ab_titles(
                 continue
             quote = " ".join(str(topic.get("evidence") or "").split())
             quote = quote.strip(' "«»„“”')
-            if len(quote) < 30 or len(quote.split()) < 5:
+            topic_label = " ".join(str(topic.get("topic") or "").split())
+            if len(quote) < 30 or len(quote.split()) < 5 or not topic_label:
                 continue
             excerpt = quote
             if len(excerpt) > 75:
@@ -1177,29 +1182,39 @@ def _source_quote_ab_titles(
                     continue
                 excerpt += "…"
             title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
+            key = title.casefold()
             if not 30 <= len(title) <= 100:
                 continue
-            if title.casefold() == current_title.strip().casefold():
+            if key == current_title.strip().casefold() or key in seen_quotes:
                 continue
-            candidates.append((index, title))
-            break  # only one quoted story per timeline block
+            seen_quotes.add(key)
+            candidates.append((index, topic_label.casefold(), title))
     if len(candidates) < 3:
         return []
-    # Pick the widest temporal coverage first; do not take three adjacent
-    # quotes from one conversation when later material exists.
+
+    # Deterministic bounded search: a thirteen-hour archive can have many
+    # source topics, and combinations over the entire list would explode.
+    if len(candidates) > 24:
+        n = len(candidates)
+        indices = sorted({round(i * (n - 1) / 23) for i in range(24)})
+        candidates = [candidates[i] for i in indices]
+
+    # Prefer more different blocks first, then wider coverage, then avoid
+    # taking synonymous topic labels in the same block.
     triplets = sorted(
         combinations(candidates, 3),
         key=lambda triplet: (
-            -(triplet[-1][0] - triplet[0][0]),
-            abs(triplet[1][0] - (triplet[0][0] + triplet[-1][0]) / 2),
+            -len({item[0] for item in triplet}),
+            -(max(item[0] for item in triplet) -
+              min(item[0] for item in triplet)),
+            -len({item[1] for item in triplet}),
         ),
     )
     for triple in triplets:
-        titles = [title for _, title in triple]
+        titles = [title for _, _, title in triple]
         if not ab_title_issues(titles, report):
             return titles
     return []
-
 
 def _recover_independent_ab_titles(
     *,
@@ -1548,8 +1563,22 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     current_words = set(current_core.split())
     candidate_words = set(candidate_core.split())
 
-    # If the candidate contributes no new meaningful words, keep the proven title.
-    if candidate_words and candidate_words.issubset(current_words):
+    # If a candidate only shortens a stronger existing hook (e.g.
+    # "всё идёт по плану?" -> "план?"), preserve the original. Compare
+    # inflected roots so "план" and "плану" are not treated as new facts.
+    def roots(words: set[str]) -> set[str]:
+        return {
+            word.replace("ё", "е").replace("ь", "")[:4]
+            for word in words if len(word) >= 4
+        }
+
+    if candidate_words and (
+        candidate_words.issubset(current_words)
+        or (
+            len(candidate_core) < len(current_core)
+            and roots(candidate_words).issubset(roots(current_words))
+        )
+    ):
         return current
 
     return candidate
@@ -1648,7 +1677,6 @@ def _grounded_chapters_from_transcript(
     transcript: str,
 ) -> str:
     """Deterministic safe chapter fallback using only verified transcript stamps."""
-    title_text = str(current_title or "").casefold()
     transcript_text = str(transcript or "")
     available = {
         match.group(1)
@@ -1660,25 +1688,10 @@ def _grounded_chapters_from_transcript(
     if not available:
         return ""
 
-    if "шойгу" in title_text:
-        preferred = (
-            ("00:00", "Вступ і головне запитання"),
-            ("00:43", "Версії причин зміни Шойгу"),
-            ("02:21", "Корупція та команда Шойгу"),
-            ("03:17", "Військова стратегія і нове керівництво"),
-            ("04:00", "Перехід Шойгу на іншу посаду"),
-            ("06:03", "Корупція чи кадровий план"),
-            ("08:11", "Тимур Іванов і команда Шойгу"),
-        )
-        lines = [
-            f"{stamp} {label}"
-            for stamp, label in preferred
-            if stamp in available or stamp == "00:00"
-        ]
-        value = "\n".join(lines)
-        if not _chapters_quality_error(value, transcript_text):
-            return value
-
+    # Never hard-code chapters for a named subject. In the old generator,
+    # every Shoigu video could inherit seven unrelated timestamps including
+    # an Ivanov chapter even if no corresponding dialogue existed.
+    # Source-grounded captions and human review are required.
     stamps = sorted(
         (
             (_chapter_timestamp_seconds(stamp), stamp)
@@ -1820,6 +1833,7 @@ def generate_seo_package_local(
     fast_mode: bool = False,
     timeout: float = 300.0,
     evidence_report: dict[str, Any] | None = None,
+    chapter_transcript: str = "",
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
@@ -2036,6 +2050,55 @@ chapters: рядок з підтвердженими таймкодами та �
                     )
                     if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
                         candidate["title_variants"] = independent
+                # A source quote is a safe REVIEW fallback, not an editorial
+                # title. Before using raw/garbled ASR quotations, give the
+                # model a strict, evidence-anchored repair opportunity.
+                # Every retry is checked against the entire evidence map.
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    anchors = _ab_distinct_evidence_brief(evidence_report)
+                    if anchors:
+                        prior_issues = "; ".join(
+                            ab_title_issues(candidate["title_variants"], evidence_report)
+                        )
+                        strict_prompt = (
+                            "ТВЕРДІ ПРАВИЛА ДЛЯ РЕДАКТОРА A/B:\n"
+                            "Заголовки російською. A, B і C - ТРИ РІЗНІ "
+                            "предметні історії з наведених окремих цитат. "
+                            "Використай ключові слова лише з цитати та теми, "
+                            "без домислів про наслідки. "
+                            "Не стверджуй: 'война переходит в новую фазу', "
+                            "'Путин решил', 'разоблачили коррупцию' без "
+                            "прямої цитати-підтвердження. "
+                            "Не використовуй слова 'версии и мнения', "
+                            "'видео с обсуждением'. "
+                            "Сильне коротке запитання краще за вигаданий факт. "
+                            "Жодного англійського тексту.\n"
+                            "ПОПЕРЕДНІ ВІДХИЛЕНІ ПРИЧИНИ: "
+                            + prior_issues + "\n"
+                            "ТРИ НЕЗАЛЕЖНІ ТЕМИ З ДОКАЗАМИ:\n"
+                            + anchors + "\n"
+                            "ПОВНА КАРТА ТЕМ І ЦИТАТ:\n"
+                            + evidence_outline_text(evidence_report)
+                        )
+                        for _repair_attempt in range(2):
+                            try:
+                                repaired_titles = _recover_title_variants(
+                                    current_title=current_title,
+                                    transcript=strict_prompt,
+                                    model=model,
+                                )
+                            except (ValueError, RuntimeError, TimeoutError):
+                                break
+                            if not ab_title_issues(repaired_titles, evidence_report):
+                                candidate["title_variants"] = repaired_titles[:3]
+                                break
+                            strict_prompt += (
+                                "\nВІДХИЛЕНО ЗНОВУ: "
+                                + "; ".join(ab_title_issues(repaired_titles, evidence_report))
+                                + "\nПиши без нових причин, осіб та наслідків. "
+                                  "Спирайся тільки на різні цитати вище."
+                            )
+
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
                 if ab_title_issues(candidate["title_variants"], evidence_report):
@@ -2181,10 +2244,16 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     omitted_topics: list[str] = []
     if evidence_report:
+        # A 9:53 real video had six grounded topics, but the old cap of
+        # two bullets silently dropped four. Keep the entire grounded topic
+        # inventory where the YouTube description budget permits; if it
+        # cannot fit, retain a visible review blocker instead of claiming
+        # full coverage.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=2,
-            max_body_bytes=2300,
+            max_topic_bullets=12,
+            max_body_bytes=3600,
+            current_title=current_title,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
@@ -2210,19 +2279,38 @@ chapters: рядок з підтвердженими таймкодами та �
         chapters = ""
 
     if not is_short and transcript.strip():
-        chapter_error = _chapters_quality_error(chapters, transcript)
-        if chapter_error and not fast_mode:
-            chapters = _recover_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-                model=model,
-            )
-        if not chapters or _chapters_quality_error(chapters, transcript):
-            chapters = _grounded_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-            )
-        if chapters and _chapters_quality_error(chapters, transcript):
+        # The evidence outline contains only 5-minute block starts, not
+        # the original 165 subtitle timestamps. All chapter validation
+        # must use the true caption timeline, never that 2-line outline.
+        chapter_source = (
+            str(chapter_transcript or "") if evidence_report else transcript
+        )
+        if chapter_source.strip():
+            chapter_error = _chapters_quality_error(chapters, chapter_source)
+            if chapter_error and not fast_mode:
+                chapters = _recover_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=chapter_source,
+                    model=model,
+                )
+            if evidence_report and (
+                not chapters or _chapters_quality_error(chapters, chapter_source)
+            ):
+                # Caption-aligned quotation anchors provide meaningful chapter
+                # topics without predefined timestamps or guessed intervals.
+                from .dialogue_seo import grounded_chapters_from_evidence
+                chapters = grounded_chapters_from_evidence(
+                    evidence_report, chapter_source,
+                    current_title=current_title,
+                )
+            if not chapters or _chapters_quality_error(chapters, chapter_source):
+                chapters = _grounded_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=chapter_source,
+                )
+            if chapters and _chapters_quality_error(chapters, chapter_source):
+                chapters = ""
+        else:
             chapters = ""
         # Generic timestamps are not real dialogue chapters, regardless of mode.
         if chapters and _chapters_are_generic(chapters):
@@ -2234,7 +2322,7 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель створила назву довшу за 100 символів.")
     if not description:
         raise ValueError("Локальна модель не створила опис.")
-    if len(description) > (1150 if evidence_report else 5000):
+    if len(description) > (2200 if evidence_report else 5000):
         raise ValueError("SEO-опис надто довгий: скоротіть текст; всі теми збережені в карті доказів.")
     if is_short:
         chapters = ""

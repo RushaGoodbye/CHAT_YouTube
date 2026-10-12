@@ -286,12 +286,170 @@ def evidence_outline_text(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _topic_display_uk(topic: str, current_title: str = "") -> str:
+    """Clean source-topic labels; never copy garbled ASR proper names verbatim."""
+    from difflib import SequenceMatcher
+
+    value = _compact(topic)
+    value = re.sub(r"^дискусія\s+про\s+", "", value, flags=re.I)
+    value = re.sub(
+        r"\b(?:увольнение|увольнения|увільнення)\b",
+        "звільнення", value, flags=re.I,
+    )
+    value = re.sub(r"^корупцію\b", "корупція", value, flags=re.I)
+    # A capitalized ASR name may be a close misspelling of an actual ALL-CAPS
+    # person name in the video title (real example: Шагу vs ШОЙГУ).
+    canonical = [
+        word for word in re.findall(r"\b[А-ЯЁІЇЄҐ]{4,}\b", current_title)
+        if word.casefold() not in {"раша", "гудбай", "чат", "рулетка"}
+    ]
+    for word in set(re.findall(r"\b[А-ЯЁІЇЄҐ][а-яёіїєґ]{3,}\b", value)):
+        candidates = [
+            name for name in canonical
+            if SequenceMatcher(None, word.casefold(), name.casefold()).ratio() >= 0.65
+        ]
+        if len(candidates) == 1:
+            normalized = candidates[0].capitalize()
+            value = re.sub(r"\b" + re.escape(word) + r"\b", normalized, value)
+    return value
+
+
+def grounded_chapters_from_evidence(
+    report: dict[str, Any],
+    timed_transcript: str,
+    *,
+    current_title: str = "",
+    min_confidence: float = 82.0,
+) -> str:
+    """Find genuine caption timestamps for independently quoted story points.
+
+    Never use a fixed script, equal time slices, invented persons or chapter
+    names inferred from the video title alone. If reliable alignment fails,
+    return no chapters and require human review.
+    """
+    try:
+        from rapidfuzz.fuzz import partial_ratio
+    except ImportError:
+        return ""
+
+    def seconds(stamp: str) -> int:
+        parts = str(stamp).split(":")
+        if len(parts) not in (2, 3):
+            return -1
+        try:
+            values = [int(part) for part in parts]
+        except ValueError:
+            return -1
+        return (
+            values[0] * 60 + values[1]
+            if len(values) == 2 else
+            values[0] * 3600 + values[1] * 60 + values[2]
+        )
+
+    def compact(value: str) -> str:
+        return " ".join(re.findall(r"[a-zа-яёіїєґ0-9]+", value.casefold()))
+
+    captions: list[tuple[int, str, str]] = []
+    for line in str(timed_transcript or "").splitlines():
+        match = re.match(r"^\[(\d{2}:\d{2}(?::\d{2})?)\]\s+(.+)", line)
+        if not match:
+            continue
+        at = seconds(match.group(1))
+        text = compact(match.group(2))
+        if at >= 0 and text:
+            captions.append((at, match.group(1), text))
+    if len(captions) < 10:
+        return ""
+
+    verified: list[tuple[int, str, str, float]] = []
+    for block in report.get("blocks") or []:
+        lo = seconds(str(block.get("start_stamp") or ""))
+        hi = seconds(str(block.get("end_stamp") or ""))
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            quote = compact(str(item.get("evidence") or ""))
+            label = _topic_display_uk(str(item.get("topic") or ""), current_title)
+            if len(quote) < 25 or len(label) < 8:
+                continue
+            # Caption windows can span multiple short ASR chunks.
+            best_score, best_index = 0.0, -1
+            for i, (at, _stamp, _text) in enumerate(captions):
+                if lo >= 0 and at < lo - 12:
+                    continue
+                if hi >= 0 and at > hi + 12:
+                    continue
+                window = " ".join(part[2] for part in captions[i:i + 10])
+                # A long caption window can contain the quote even when
+                # its first timestamp precedes the speech by a minute.
+                # Prefer rows where the *beginning* of the quote aligns.
+                start_window = " ".join(part[2] for part in captions[i:i + 2])
+                opening = " ".join(quote.split()[:6])
+                score = (
+                    0.76 * float(partial_ratio(quote, window))
+                    + 0.24 * float(partial_ratio(opening, start_window))
+                )
+                if score > best_score:
+                    best_score, best_index = score, i
+            if best_index >= 0 and best_score >= min_confidence:
+                at, stamp, _ = captions[best_index]
+                verified.append((at, stamp, label, best_score))
+    if len(verified) < 2:
+        return ""
+
+    # Prefer the highest-confidence quote within a 20-second cluster.
+    selected: list[tuple[int, str, str, float]] = []
+    for item in sorted(verified, key=lambda x: (-x[3], x[0])):
+        if any(abs(item[0] - existing[0]) < 20 for existing in selected):
+            continue
+        selected.append(item)
+    selected.sort(key=lambda x: x[0])
+    if len(selected) < 2:
+        return ""
+
+    def concept(value: str) -> str:
+        # "Причина звільнення Шойгу", "Звільнення Шойгу" and another
+        # instance of the first label must not become three chapters.
+        clean = re.sub(
+            r"\b(?:причина|причини|дискусія|про|щодо)\b", " ",
+            value.casefold(),
+        )
+        return " ".join(clean.split())
+
+    first_label = selected[0][2]
+    first_label = first_label[:1].upper() + first_label[1:]
+    rows = [f"00:00 {first_label}"]
+    seen = [concept(first_label)]
+    for at, stamp, label, _confidence in selected:
+        if at < 20:
+            continue
+        normalized = concept(label)
+        if any(
+            normalized == previous
+            or (
+                len(normalized) >= 12 and len(previous) >= 12
+                and (normalized in previous or previous in normalized)
+            )
+            for previous in seen
+        ):
+            continue
+        if len(rows) >= 10:
+            break
+        label = label[:1].upper() + label[1:]
+        rows.append(f"{stamp} {label}")
+        seen.append(normalized)
+    # Require 3 different source-aligned chapters; duplicate story
+    # labels are not independent chapters even if their times differ.
+    return "\n".join(rows) if len(rows) >= 3 else ""
+
+
 def preserve_outline_topics(
     description: str,
     report: dict[str, Any],
     *,
     max_body_bytes: int = 3900,
     max_topic_bullets: int = 6,
+    current_title: str = "",
 ) -> tuple[str, list[str]]:
     """Add missing grounded topics without silently discarding the outline.
 
@@ -303,7 +461,7 @@ def preserve_outline_topics(
     seen: set[str] = set()
     for block in report.get("blocks") or []:
         for item in block.get("topics") or []:
-            topic = _compact(item.get("topic"))
+            topic = _topic_display_uk(item.get("topic"), current_title)
             if topic and topic.casefold() not in seen:
                 seen.add(topic.casefold())
                 unique.append(topic)
@@ -372,6 +530,24 @@ def ab_title_issues(
         return issues
     if any(len(value) > 100 or len(value) < 20 for value in values):
         issues.append("Назви A/B мають бути змістовними (20-100 символів).")
+    # These surfaced during a real Shoigu 9:53 run. A title must contain a
+    # concrete angle, not say merely that the video has opinions/discussion.
+    weak_phrases = (
+        r"\bвидео\s+с\s+обсуждени\w*",
+        r"\bверсии\s+и\s+мнения\b",
+        r"\bразные\s+точки\s+зрения\b",
+        r"\bобсуждение\s+событи\w*\b",
+    )
+    for number, value in enumerate(values, 1):
+        if any(re.search(pattern, value.casefold()) for pattern in weak_phrases):
+            issues.append(
+                f"A/B варіант {number} - загальна фраза замість конкретного сюжету."
+            )
+    for number, value in enumerate(values, 1):
+        if re.search(r"\bvs\.?\b", value, flags=re.IGNORECASE):
+            issues.append(
+                f"A/B варіант {number} містить англомовне 'vs' замість природного російського заголовка."
+            )
     normal = [
         re.sub(
             r"^(?:чат\s*рулетка|раша\s*гудбай)[\s:.|!-]*",
@@ -454,6 +630,50 @@ def ab_title_issues(
             for fragment in evidence_fragments
             for pattern in unsupported_subjects
         )
+        # A single common name such as "Шойгу" is not evidence for a
+        # novel claim like "война переходит в новую фазу". Reject titles
+        # with multiple substantive words absent from the COMPLETE grounded
+        # topic and quote map; route them to editorial review.
+        source_roots = {
+            word[:4] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
+        }
+        neutral = {
+            "почему", "зачем", "стало", "стали", "станет", "частью",
+            "своего", "который", "которые", "сейчас", "после", "перед",
+            "какой", "какие", "такое", "самого", "теперь", "будет",
+            "вместо", "россияне", "россия", "россии", "российские",
+            "видео", "шоу", "раша", "гудбай", "рулетка",
+            "участники", "участников", "говорят", "говорили",
+            "неожиданный", "неожиданные", "ответы", "россиянами",
+        }
+        # Lexical overlap on "война" or a person's name cannot establish
+        # an invented OUTCOME such as "war enters a new phase". A causal or
+        # temporal consequence must be grounded as a phrase in transcript.
+        unsupported_new_phase = re.compile(r"\bнов\w*\s+фаз\w*\b")
+        source_has_new_phase = bool(unsupported_new_phase.search(source))
+        for number, value in enumerate(values, 1):
+            normalized_title = value.casefold().translate(
+                str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
+            )
+            words = [
+                word for word in re.findall(r"[a-zа-яё0-9]{5,}", normalized_title)
+                if word not in neutral
+            ]
+            unsupported = [
+                word for word in words if word[:4] not in source_roots
+            ]
+            if (
+                unsupported_new_phase.search(normalized_title)
+                and not source_has_new_phase
+            ):
+                issues.append(
+                    f"A/B варіант {number} вигадує непідтверджений новий етап подій."
+                )
+            if len(unsupported) >= 2 and len(unsupported) / max(1, len(words)) >= 0.36:
+                issues.append(
+                    f"A/B варіант {number} містить непідтверджені змістові твердження."
+                )
+
         for index, value in enumerate(values, 1):
             title_lower = value.casefold()
             if not supported_family_topic and any(

@@ -42,10 +42,10 @@ def test_generator_prompt_and_final_guard_agree_on_brevity():
     )[0]
     assert "400-900" in function
     assert "400-2400" not in function
-    assert 'max_topic_bullets=2' in function
-    assert 'max_body_bytes=2300' in function
+    assert 'max_topic_bullets=12' in function
+    assert 'max_body_bytes=3600' in function
     assert '{"max_chars": 950}' in function
-    assert 'len(description) > (1150 if evidence_report else 5000)' in function
+    assert 'len(description) > (2200 if evidence_report else 5000)' in function
 
 
 def test_qa_preview_includes_all_three_ab_titles_and_review_warning():
