@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QByteArray
 from PySide6.QtWidgets import QApplication
+from mini_keyboard_diagnostics import MiniKeyboardDiagnostics
+from PySide6.QtWidgets import QApplication
 
 from library import load_settings, save_settings
 from streamdeck_hotkeys import (
@@ -61,6 +63,31 @@ class NativeHotkeyEventTests(unittest.TestCase):
                                      ctypes.addressof(msg))
             hotkey_action.assert_called_once_with("play_pause")
             hotkeys.close()
+
+
+class MiniKeyboardDiagnosticsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_diagnostic_receives_signal_without_triggering_playback(self):
+        playback = Mock()
+        hotkeys = GlobalMediaHotkeys(playback, DEFAULT_BINDINGS)
+        hotkeys.registered_chords = {
+            "start": "F17",
+            "mute": "F9",
+        }
+        dialog = MiniKeyboardDiagnostics(hotkeys)
+        try:
+            self.assertIn("ЗАРЕЄСТРОВАНО", dialog.registrations.text())
+            self.assertIn("НЕ ЗАРЕЄСТРОВАНО", dialog.registrations.text())
+            self.assertIsNotNone(hotkeys.diagnostic_callback)
+            hotkeys.diagnostic_callback("play_pause")
+            self.assertIn("Play / Pause", dialog.history.toPlainText())
+            playback.assert_not_called()
+        finally:
+            dialog.reject()
+        self.assertIsNone(hotkeys.diagnostic_callback)
 
 
 class SettingsMigrationVersionTests(unittest.TestCase):
