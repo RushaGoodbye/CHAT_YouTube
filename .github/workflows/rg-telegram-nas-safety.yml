@@ -44,6 +44,7 @@ jobs:
           python -m py_compile rg_remote_control/nas/install_rg_telegram_native_bot_v01.py
           python -m py_compile rg_remote_control/nas/rg_telegram_cf_cron_pause_v1.py
           python -m py_compile rg_remote_control/nas/rg_telegram_cf_scanner_guard_deploy_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_nas_one_writer_activate_v1.py
       - name: Event intake and review decision fixtures
         run: |
           python rg_remote_control/nas/rg_telegram_nas_event_intake_v1.py selftest
@@ -66,3 +67,4 @@ jobs:
           python rg_remote_control/nas/install_rg_telegram_native_bot_v01.py selftest
           python rg_remote_control/nas/rg_telegram_cf_cron_pause_v1.py selftest
           python rg_remote_control/nas/rg_telegram_cf_scanner_guard_deploy_v1.py selftest
+          python rg_remote_control/nas/rg_telegram_nas_one_writer_activate_v1.py selftest
