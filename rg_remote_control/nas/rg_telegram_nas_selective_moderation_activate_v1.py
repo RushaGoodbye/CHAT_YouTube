@@ -36,7 +36,44 @@ def get_receipt():
  if age<MIN_AGE:raise RuntimeError("CLOUDFLARE_PROPAGATION_WAIT")
  if age>48*3600:raise RuntimeError("STALE_HANDOFF_RECEIPT")
  return doc,int(age)
+def standby():
+ """Check NAS receiving side BEFORE taking away Cloudflare's getUpdates.
+ No migration gate/receipt required and no remote write is performed.
+ """
+ if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
+ if GATE.exists() or GATE.is_symlink():raise RuntimeError("NAS_ALREADY_ENABLED")
+ if PAUSE.exists():raise RuntimeError("FULL_CLOUDFLARE_PAUSE_ACTIVE")
+ if not FREEZE.is_file() or FREEZE.is_symlink():raise RuntimeError("SCANNER_FREEZE_MISSING")
+ if not BOT.is_file() or BOT.is_symlink():raise RuntimeError("NAS_BOT_MISSING")
+ if not MINUTE.is_file() or MINUTE.is_symlink():raise RuntimeError("NAS_MINUTE_MISSING")
+ if "minute_silence_stays_on_cloudflare" not in MINUTE.read_text("utf-8"):
+  raise RuntimeError("DUPLICATE_MINUTE_SILENCE_RISK")
+ if not SCHED.is_file() or SCHED.is_symlink():raise RuntimeError("NAS_SCHEDULER_MISSING")
+ scheduler=SCHED.read_text("utf-8")
+ for tag in ("# RG_NAS_NATIVE_TELEGRAM_BOT_V01",
+             "# RG_NAS_MINUTE_SILENCE_V1",
+             "# RG_NAS_SELECTIVE_MODERATION_AUTOCUTOVER_V1"):
+  if scheduler.count(tag)!=1:raise RuntimeError("SCHEDULER_SELECTIVE_HOOK_MISSING")
+ old=STATE/"migration_shadow.sqlite3"
+ if not old.is_file() or old.is_symlink():raise RuntimeError("LEGACY_QUARANTINE_DB_MISSING")
+ try:
+  uri="file:"+urllib.parse.quote(str(old),safe="/")+"?mode=ro"
+  with sqlite3.connect(uri,uri=True,timeout=3) as db:
+   columns=[row[1] for row in db.execute("PRAGMA table_info(nas_delivery_pre_cutover_quarantine)")]
+   if "source_url" not in columns:raise RuntimeError("LEGACY_QUARANTINE_SCHEMA_MISSING")
+ except sqlite3.Error:raise RuntimeError("LEGACY_QUARANTINE_DB_UNREADABLE") from None
+ p=subprocess.run([sys.executable,str(BOT),"preflight"],capture_output=True,text=True,timeout=35)
+ if p.returncode:raise RuntimeError("BOT_API_PREFLIGHT_FAILED")
+ try:pre=json.loads(p.stdout)
+ except ValueError:raise RuntimeError("BOT_PREFLIGHT_INVALID") from None
+ if pre.get("status")!="NATIVE_BOT_PREFLIGHT_PASS":raise RuntimeError("BOT_PREFLIGHT_FAILED")
+ if pre.get("bot_username")!="RushaGoodbyeNews_bot" or pre.get("target")!="RussiaGoodbyeUA":
+  raise RuntimeError("WRONG_BOT_OR_CHANNEL")
+ if pre.get("webhook_present") is not False:raise RuntimeError("TELEGRAM_WEBHOOK_CONFLICT")
+ return pre
+
 def preflight():
+ standby()
  if os.geteuid()!=0:raise RuntimeError("SUDO_REQUIRED")
  if GATE.exists() or GATE.is_symlink():raise RuntimeError("NAS_ALREADY_ENABLED")
  if PAUSE.exists():raise RuntimeError("FULL_CLOUDFLARE_PAUSE_ACTIVE")
@@ -122,10 +159,15 @@ def selftest():
  emit("NAS_SELECTIVE_ACTIVATOR_SELFTEST_PASS",telegram_sends=0,cloudflare_writes=0)
 if __name__=="__main__":
  try:
-  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","preflight","activate","status"))
+  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","standby","preflight","activate","status"))
   a=p.parse_args().mode
   if a=="selftest":selftest()
   elif a=="status":status()
+  elif a=="standby":
+   pre=standby()
+   emit("RG_NAS_SELECTIVE_STANDBY_PASS",telegram_bot=pre["bot_username"],
+     channel=pre["target"],cloudflare_polling_still_active=True,
+     nas_gate_opened=False,telegram_sends=0)
   elif a=="preflight":
    x,age=preflight();emit("RG_NAS_SELECTIVE_ACTIVATION_READY",settled_seconds=age,
      bot=x["bot_username"],channel=x["target"])
