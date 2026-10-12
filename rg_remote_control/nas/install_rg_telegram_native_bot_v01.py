@@ -34,7 +34,8 @@ def selftest():
  patched,status=patch(sample)
  assert status=="PATCHED" and patch(patched)==(patched,"ALREADY_INSTALLED")
  assert "rg_nas_telegram_cutover_enabled" in patched
- assert cmd(["/bin/sh","-n"])==""
+ syntax=subprocess.run(["/bin/sh","-n"],input=patched,text=True,capture_output=True,timeout=5,stdin=None)
+ assert syntax.returncode==0, syntax.stderr[-200:]
  out("NATIVE_BOT_INSTALLER_SELFTEST_PASS",scheduler_gate="CLOSED_BY_DEFAULT",network_calls=0)
 def main():
  if len(sys.argv)>1 and sys.argv[1]=="selftest":selftest();return
@@ -51,7 +52,6 @@ def main():
  if not data.startswith(b"#!/usr/bin/env python3") or not 15000<len(data)<60000:raise RuntimeError("source_size_invalid")
  if b"getUpdates" not in data or b"cloudflare_cutover_not_authorized" not in data:raise RuntimeError("unexpected_source")
  before=SCHED.read_text("utf-8");after,mode=patch(before)
- cmd(["/bin/sh","-n"]) # next call checks actual content via subprocess input
  chk=subprocess.run(["/bin/sh","-n"],text=True,input=after,capture_output=True,timeout=8)
  if chk.returncode:raise RuntimeError("scheduler_syntax_invalid")
  with tempfile.TemporaryDirectory(prefix="rg-native-bot-preflight-") as tmp:
