@@ -199,9 +199,10 @@ def old_backlog_known(source):
  try:
   dburi="file:"+urllib.parse.quote(str(p),safe="/")+"?mode=ro"
   with sqlite3.connect(dburi,uri=True,timeout=3) as old:
+   # Only the explicit pre-cutover quarantine fences historical content.
+   # An RSS-scanned but never published/approved story may still be
+   # intentionally submitted by the moderator as a fresh manual link.
    present=old.execute("SELECT 1 FROM nas_delivery_pre_cutover_quarantine WHERE source_url=? LIMIT 1",(source,)).fetchone()
-   if present:return True
-   present=old.execute("SELECT 1 FROM moderation_projection WHERE source_url=? LIMIT 1",(source,)).fetchone()
    return present is not None
  except sqlite3.Error:return True
 def insert_post(db,source,kind,title,body,photo,moderator_chat,now):
@@ -250,7 +251,13 @@ def intake(db,token,message,now):
   note="⚠️ Не вдалося одержати повний текст і фото з посилання. Перешли сам пост боту з фото та текстом."
   api(token,"sendMessage",{"chat_id":chat,"text":note})
   return "needs_forward:"+str(e)
- key,created,_=insert_post(db,url,"link",title,body,img,chat,now)
+ try:
+  key,created,_=insert_post(db,url,"link",title,body,img,chat,now)
+ except Fail as ex:
+  if str(ex)=="already_in_pre_cutover_history":
+   api(token,"sendMessage",{"chat_id":chat,"text":"ℹ️ Цю стару новину вже враховано в історичній черзі. Для повторної публікації потрібна окрема перевірка, автоматичного дублювання немає."})
+   return "quarantined_old_link"
+  raise
  return "created" if created else "duplicate"
 def moderation_cards(db,token):
  rows=db.execute("SELECT id,title,body,photo,moderator_chat_id FROM bot_posts WHERE status='moderation_pending' ORDER BY created_at LIMIT 5").fetchall()
