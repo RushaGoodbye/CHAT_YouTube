@@ -102,6 +102,7 @@ try:
        "at_least_three_real_source_chapters":len(chapters.splitlines())>=3,
        "exactly_three_ab":len(titles)==3,
        "ab_quality_no_issues":not issues,
+       "editorial_ab_not_raw_quote_fallback":not bool(package.get("ab_source_quote_fallback_used")),
        "tags_eight_or_more":len(package.get("tags") or [])>=8,
        "chapter_timestamps_supported_by_actual_captions":not chapters or not _chapters_quality_error(chapters,original_chapter_timeline),
        "canonical_links":all(v in final_description for v in ("links.rginfoua.pp.ua","donate.rginfoua.pp.ua")),
