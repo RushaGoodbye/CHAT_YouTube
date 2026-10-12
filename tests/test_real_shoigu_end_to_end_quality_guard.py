@@ -166,3 +166,56 @@ def test_chapters_align_to_actual_evidence_quotes_not_hardcoded_times():
     assert "08:11" not in chapters
     assert _chapters_quality_error(chapters, original) == ""
     assert "корупція" in chapters or "стратегія" in chapters
+
+
+
+def test_review_generated_ukrainian_description_fixes_spoken_asr_errors():
+    from rg_youtube_control.free_tools import _polish_generated_description
+    original = (
+        "Співрозмовники кажуть, що увільнення Шойгу могло бути плановим. "
+        "Далі обговорюють корупцію та кадрові рішення в Міноборони."
+    )
+    fixed = _polish_generated_description(original)
+    assert "увільнення" not in fixed
+    assert "звільнення Шойгу" in fixed
+
+
+def test_source_grounded_chapter_labels_are_not_duplicate_shoigu_story():
+    from rg_youtube_control.dialogue_seo import grounded_chapters_from_evidence
+    report = {
+        "blocks": [
+            {"start_stamp":"00:00:00","end_stamp":"00:02:30","topics":[
+                {"topic":"причина звільнення Шойгу",
+                 "evidence":"Говорили о причинах увольнения Шойгу и решениях Путина"},
+                {"topic":"звільнення Шойгу",
+                 "evidence":"Шойгу переназначили на другую должность"},
+                {"topic":"корупція в російській армії",
+                 "evidence":"Обсудили коррупцию в российской армии и расходы"},
+            ]},
+            {"start_stamp":"00:02:31","end_stamp":"00:05:30","topics":[
+                {"topic":"стратегія російської армії",
+                 "evidence":"Они спорили о стратегии российских войск"},
+            ]},
+        ]
+    }
+    rows = [
+        (0,"Говорили о причинах увольнения Шойгу и решениях Путина"),
+        (22,"Обсудили первые впечатления россиян"),
+        (51,"Шойгу переназначили на другую должность"),
+        (75,"Рассуждали о других кадровых перестановках"),
+        (104,"Обсудили коррупцию в российской армии и расходы"),
+        (130,"Перешли на другие вопросы"),
+        (166,"Они спорили о стратегии российских войск"),
+        (189,"Вопросы руководства остаются"),
+        (210,"Обсуждение проблем обороны"),
+        (250,"Мнения несколько различались"),
+        (300,"Подвели предварительные итоги"),
+    ]
+    timed = "\n".join(f"[{s//60:02d}:{s%60:02d}] {t}" for s,t in rows)
+    result = grounded_chapters_from_evidence(
+        report,timed,current_title="Увольнение ШОЙГУ: коррупция или план?"
+    )
+    assert len(result.splitlines()) >= 3
+    labels = [line.split(" ",1)[1] for line in result.splitlines()]
+    assert labels.count("Звільнення Шойгу") + labels.count("Причина звільнення Шойгу") <= 1
+    assert "Корупція в російській армії" in result
