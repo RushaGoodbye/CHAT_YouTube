@@ -54,10 +54,18 @@ $afterAgent=@(Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" |
 if($afterAgent.Count -ne 1){throw ('Agent did not restart successfully: '+$afterAgent.Count)}
 $afterGui=@(Get-CimInstance Win32_Process -Filter "Name='RG YouTube Control.exe'" |
  ForEach-Object {[int]$_.ProcessId})
-$statusAfter=Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
-$policy=[string]$statusAfter.services.youtube_gui.launch_policy
+$statusAfter=$null
+$policy=''
+for($check=0;$check -lt 20;$check++){
+  if(Test-Path -LiteralPath $statusPath){
+    $statusAfter=Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+    $policy=[string]$statusAfter.services.youtube_gui.launch_policy
+    if($policy -eq 'manual'){break}
+  }
+  Start-Sleep -Seconds 2
+}
 if($policy -ne 'manual'){throw ('Agent did not activate manual policy: '+$policy)}
-if(@(Compare-Object -ReferenceObject $beforeGui -DifferenceObject $afterGui).Count -gt 0){
+if((@($beforeGui | Sort-Object) -join ',') -ne (@($afterGui | Sort-Object) -join ',')){
  throw 'GUI PID changed unexpectedly; inspect before further edits'
 }
 [pscustomobject]@{
