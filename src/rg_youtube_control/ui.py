@@ -13451,7 +13451,7 @@ class MainWindow(QMainWindow):
             self._set_process_idle("SEO-кандидата збережено окремо")
             return
 
-        quality_state, quality_reasons = self._package_quality_gate(        quality_state, quality_reasons = self._package_quality_gate(
+        quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
             chapters=chapters,
