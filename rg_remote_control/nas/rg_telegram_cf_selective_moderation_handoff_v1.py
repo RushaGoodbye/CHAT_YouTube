@@ -147,6 +147,23 @@ def patch_source(code,config):
  if patched_cfg.count('RG_MODERATION_RUNTIME_OWNER = "nas"')!=1:
   raise RuntimeError("MODERATION_OWNER_CONFIG_INVALID")
  return patched_code,patched_cfg,mode
+def inspect_source():
+ files=sources()
+ code=files[0].read_text("utf-8")
+ cfg=files[1].read_text("utf-8")
+ staged=STATE/"cf_moderation_handoff_stage_v1/index.js"
+ meta={"status":"CF_LOCAL_MODERATION_SOURCE_PROFILE",
+   "source_profile":source_profile(code),
+   "config_owner_local":"nas" if 'RG_MODERATION_RUNTIME_OWNER = "nas"' in cfg
+     else "cloudflare" if 'RG_MODERATION_RUNTIME_OWNER = "cloudflare"' in cfg
+     else "undeclared",
+   "stage_guard_available":staged.is_file() and not staged.is_symlink(),
+   "source_sha256_16":__import__("hashlib").sha256(code.encode("utf-8")).hexdigest()[:16]}
+ if meta["stage_guard_available"]:
+  meta["stage_profile"]=source_profile(staged.read_text("utf-8"))
+ out(**meta,native_poll_started=False,channel_sends=0,
+   cloudflare_writes=0,production_files_changed=False)
+
 def deployer_patch(code):
  if code.count(MARKER)==1:return code,"ALREADY_GUARDED"
  if code.count(MARKER)>1:raise RuntimeError("DEPLOYER_GUARD_DUPLICATED")
@@ -348,9 +365,10 @@ def selftest():
    preserves_alerts=True,preserves_calendar=True,preserves_scanner=True)
 if __name__=="__main__":
  try:
-  a=argparse.ArgumentParser();a.add_argument("mode",choices=("selftest","preflight","deploy","status"))
+  a=argparse.ArgumentParser();a.add_argument("mode",choices=("selftest","inspect","preflight","deploy","status"))
   arg=a.parse_args().mode
   if arg=="selftest":selftest()
+  elif arg=="inspect":inspect_source()
   elif arg=="preflight":
    result=check()
    out("CF_SELECTIVE_HANDOFF_READY",owner=result[-1],worker_crons=result[-2],
