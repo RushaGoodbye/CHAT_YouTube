@@ -229,16 +229,27 @@ def pause():
   live=report_live(token)
   if any(live.values()):raise RuntimeError("SCHEDULES_STILL_ACTIVE")
  except Exception:
-  # Roll back all that may have received an update, not only confirmed ones.
+  # Compare live state BEFORE a rollback. A denied first PUT must never
+  # trigger three unnecessary write attempts to already-correct workers.
   original=state_from_disk()["schedules"]
+  try:live_after=report_live(token)
+  except Exception:
+   raise RuntimeError("CRON_PAUSE_FAILED_READBACK_UNAVAILABLE") from None
+  changed=[name for name in NAMES if sorted(live_after[name])!=sorted(original[name])]
+  if not changed:
+   if MARKER.is_file() and not MARKER.is_symlink():MARKER.unlink()
+   raise RuntimeError("CRON_PAUSE_FAILED_NO_REMOTE_CHANGE") from None
   errors=[]
-  for name in NAMES:
+  for name in changed:
    try:
     result=cf_call(token,"PUT",name,[{"cron":c} for c in original[name]])
     if sorted(result)!=sorted(original[name]):errors.append(name)
    except Exception:errors.append(name)
+  try:live_verified=report_live(token)
+  except Exception:live_verified=None
+  if live_verified!=original:errors.append("READBACK")
   if not errors:
-   MARKER.unlink(missing_ok=True) if hasattr(pathlib.Path,"unlink") else None
+   if MARKER.is_file() and not MARKER.is_symlink():MARKER.unlink()
   raise RuntimeError("CRON_PAUSE_FAILED_ROLLBACK_"+("SUCCESS" if not errors else "INCOMPLETE")) from None
  write_secure(SESSION/"paused.json",json.dumps({"paused_utc":datetime.datetime.now(datetime.timezone.utc).isoformat(),
   "workers":NAMES,"note":"DO independent alarm may still run; no NAS gate enabled"})+"\n")
