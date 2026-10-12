@@ -14,7 +14,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVi
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSlider, QMenu, QInputDialog,
-    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QTabBar, QTableView, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QSizePolicy, QStyle, QStyleOptionSlider,
 )
 
@@ -24,6 +24,7 @@ import update_rollback
 from broadcast_guard import BroadcastGuard
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
+from news_library import combined_roots, in_tab, scoped_count
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
 from file_operations import trash_file, rename_file, move_file
@@ -42,7 +43,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.8'
+VERSION = '0.4.9'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -74,6 +75,10 @@ QLabel#SectionTitle { color:#f2f2f4; font-size:14px; font-weight:700; }
 QLabel#SelectedFilename { color:#adb2bc; font-size:12px; }
 QCheckBox { spacing:7px; }
 QSplitter::handle { background:#090a0c; }
+QTabBar { background:transparent; }
+QTabBar::tab { background:#191b20; border:1px solid #30333b; color:#c7cbd3; padding:9px 21px; margin-right:5px; border-radius:6px; font-weight:700; }
+QTabBar::tab:selected { background:#70303d; border-color:#b84b5d; color:white; }
+QTabBar::tab:hover:!selected { background:#282a31; }
 """
 
 
@@ -833,6 +838,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = load_settings()
         self.roots = list(dict.fromkeys(self.settings['roots']))
+        self.news_folder = self.settings['news_folder']
+        self._current_library_tab = 1 if self.settings['news_tab_active'] else 0
+        self._library_queries = ['', '']
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
         self.all_media: list[MediaItem] = []
         self.search_index = IndexedMediaLibrary()
@@ -849,7 +857,7 @@ class MainWindow(QMainWindow):
         self._directory_changed = False
         self._pending_moves = []
         self._file_identities = FileIdentityIndex()
-        self._known_root_status = tuple(os.path.isdir(r) for r in self.roots)
+        self._known_root_status = tuple(os.path.isdir(r) for r in self._scan_roots())
         self._root_timer = QTimer(self)
         self._root_timer.setInterval(30000)
         self._root_timer.timeout.connect(self._check_root_availability)
@@ -893,10 +901,12 @@ class MainWindow(QMainWindow):
         if '--selftest' not in sys.argv:
             QApplication.instance().installNativeEventFilter(self._streamdeck)
             self._streamdeck.register()
-        if self.roots:
+        if self._scan_roots():
             QTimer.singleShot(250, self.scan)
         else:
-            QTimer.singleShot(250, self.add_folder)
+            # No folder yet: let the user configure either tab explicitly.
+            QTimer.singleShot(250, lambda: self.status.setText(
+                'Оберіть папку для ФАКТАЖУ або окрему папку НОВИН.'))
 
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
@@ -963,10 +973,10 @@ class MainWindow(QMainWindow):
 
     def _setup_library_watcher(self):
         self._library_watcher.stop()
-        if not self.auto_library_updates or not self.roots:
+        if not self.auto_library_updates or not self._scan_roots():
             return
         try:
-            errors = self._library_watcher.start(self.roots)
+            errors = self._library_watcher.start(self._scan_roots())
         except (OSError, RuntimeError) as exc:
             errors = [str(exc)]
         if errors:
@@ -1007,7 +1017,7 @@ class MainWindow(QMainWindow):
             prev = self._file_identities.match_new_file(path)
             if prev:
                 self._migrate_metadata(prev, path)
-        updated = changed_files(self.all_media, paths, self.roots)
+        updated = changed_files(self.all_media, paths, self._scan_roots())
         if updated != self.all_media:
             self.all_media = updated
             self._file_identities.seed(self.all_media)
@@ -1042,7 +1052,7 @@ class MainWindow(QMainWindow):
         self._save()
 
     def _check_root_availability(self):
-        now = tuple(os.path.isdir(root) for root in self.roots)
+        now = tuple(os.path.isdir(root) for root in self._scan_roots())
         if now != self._known_root_status:
             self._known_root_status = now
             self.status.setText("Змінився доступ до дисків. Оновлюю медіатеку, метадані збережені.")
@@ -1344,6 +1354,27 @@ class MainWindow(QMainWindow):
         heading = QLabel('ФАКТАЖ ПРОЄКТУ РАША ГУДБАЙ')
         heading.setObjectName('SectionTitle')
         lv.addWidget(heading)
+        self.library_tabs = QTabBar()
+        self.library_tabs.addTab('ФАКТАЖ')
+        self.library_tabs.addTab('📰 НОВИНИ')
+        self.library_tabs.setExpanding(True)
+        self.library_tabs.setCurrentIndex(self._current_library_tab)
+        lv.addWidget(self.library_tabs)
+        self.news_folder_bar = QWidget()
+        news_row = QHBoxLayout(self.news_folder_bar)
+        news_row.setContentsMargins(0, 0, 0, 0)
+        news_row.setSpacing(6)
+        self.news_folder_btn = make_button('📁 Обрати папку', self.choose_news_folder)
+        self.news_folder_btn.setToolTip('Вкажіть окрему папку з фото та відеоновинами')
+        news_row.addWidget(self.news_folder_btn)
+        self.news_folder_label = ElidedLabel()
+        news_row.addWidget(self.news_folder_label, 1)
+        self.news_folder_clear = make_button('✕', self.clear_news_folder)
+        self.news_folder_clear.setToolTip('Від’єднати папку новин без видалення файлів')
+        news_row.addWidget(self.news_folder_clear)
+        lv.addWidget(self.news_folder_bar)
+        self._refresh_news_folder_ui()
+        self.news_folder_bar.setVisible(self._current_library_tab == 1)
         self.search = QLineEdit()
         self.search.setPlaceholderText('🔎 Назва, тег або інша розкладка клавіатури...')
         self.search.setClearButtonEnabled(True)
@@ -1493,9 +1524,11 @@ class MainWindow(QMainWindow):
         self.filter_timer.setInterval(120)
         self.filter_timer.timeout.connect(self.apply_filter)
         self.search.textChanged.connect(self.filter_timer.start)
+        self.library_tabs.currentChanged.connect(self.switch_library_tab)
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
         self.collection_filter.currentIndexChanged.connect(self.apply_filter)
+        self.collection_filter.setVisible(self._current_library_tab == 0)
         self.table.selectionModel().currentRowChanged.connect(self.selection_changed)
         self.table.doubleClicked.connect(lambda _: self.play_selected())
         self.table.customContextMenuRequested.connect(self.show_file_context_menu)
@@ -1625,6 +1658,8 @@ class MainWindow(QMainWindow):
         try:
             save_settings({
                 'roots': self.roots,
+                'news_folder': self.news_folder,
+                'news_tab_active': self._current_library_tab == 1,
                 'favorites': sorted(self.favorites),
                 'volume': self.volume.value(),
                 'muted': self.mute_button.isChecked(),
@@ -1682,7 +1717,7 @@ class MainWindow(QMainWindow):
             return
         self._pending_rescan = False
         self.status.setText('Сканування папок...')
-        self.scanner = ScanThread(self.roots)
+        self.scanner = ScanThread(self._scan_roots())
         self.scanner.counted.connect(lambda n: self.status.setText(f'Знайдено {n} файлів...'))
         self.scanner.scanned.connect(self.scan_complete)
         self.scanner.finished.connect(self.scan_finished)
@@ -1696,7 +1731,7 @@ class MainWindow(QMainWindow):
             self.status.setText('Сканування зупинене')
 
     def scan_complete(self, items: list[MediaItem]):
-        self.all_media = keep_offline_entries(items, self.all_media, self.roots)
+        self.all_media = keep_offline_entries(items, self.all_media, self._scan_roots())
         for media in self.all_media:
             prev = self._file_identities.match_new_file(media.path)
             if prev:
@@ -1705,7 +1740,7 @@ class MainWindow(QMainWindow):
         self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
         self._setup_library_watcher()
-        offline = unavailable_roots(self.roots)
+        offline = unavailable_roots(self._scan_roots())
         self.status.setText(f'Бібліотека: {len(self.all_media)} файлів. ' +
             (f'Недоступних папок: {len(offline)}. Метадані збережені.' if offline
              else 'Папки доступні, файли не змінено.'))
