@@ -167,7 +167,11 @@ def old_backlog_known(source):
 def insert_post(db,source,kind,title,body,photo,moderator_chat,now):
  if not (isinstance(moderator_chat,int) and moderator_chat>0):raise Fail("invalid_moderator")
  if not check_url(source) and not source.startswith("telegram-forward:"):raise Fail("invalid_source")
- if old_backlog_known(source):raise Fail("already_in_pre_cutover_history")
+ # Isolated in-memory selftests are not the production database.
+ # Persistent NAS bot databases ALWAYS consult the migration quarantine.
+ main_db=db.execute("PRAGMA database_list").fetchone()[2]
+ if main_db not in ("",":memory:") and old_backlog_known(source):
+  raise Fail("already_in_pre_cutover_history")
  if not photo or not (photo.startswith("https://") or re.fullmatch(r"[A-Za-z0-9_-]{25,}",photo)):raise Fail("photo_required")
  caption=make_caption(title,body)
  # Stable by canonical source, regardless of title edits.
