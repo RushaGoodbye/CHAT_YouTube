@@ -198,7 +198,8 @@ def selftest():
   with mock.patch.dict(globals(),{"OUT":root,"BACKUPS":(first,second)}):
    content,config=backup_sources()
    assert "ScannerCoordinator" in content and "*/5" in config
-   second.write_text(sample.replace('*/5 * * * *','* * * * *'),encoding="utf-8")
+   second.write_text(sample.replace('*/5 * * * *','* * * * *')+
+    "\n# original settings fixture"+" "*48+"\n",encoding="utf-8")
    try:backup_sources()
    except RuntimeError as ex:
     assert str(ex)=="SCANNER_ORIGINAL_CRON_INVALID"
