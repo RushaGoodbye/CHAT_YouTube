@@ -14,8 +14,8 @@ PAUSE=SECRETS/"rg_cloudflare_migration_pause"
 FREEZE=SECRETS/"rg_cf_moderation_handoff_freeze"
 SOURCES={
  "rg_telegram_nas_minute_silence_v1.py":"3234bf880d516b613b3bd62db38ab8cfcaad51b0",
- "rg_telegram_cf_selective_scanner_stop_v1.py":"830a0278c0c4ba66466b3965c0fe19964d3426cb",
- "rg_telegram_cf_selective_moderation_handoff_v1.py":"d19060cc2cc2dba545b91cd4feb23b880201a65a",
+ "rg_telegram_cf_selective_scanner_stop_v1.py":"736841ddbc124d5141f25c8fac992931b1e27657",
+ "rg_telegram_cf_selective_moderation_handoff_v1.py":"a3bea1767f25d90d8d20ca707f73336c24d63b89",
  "rg_telegram_nas_selective_moderation_activate_v1.py":"60f887f02e80bb190bcea391ee7b38285a29ecd0"
 }
 ANCHOR="# RG_NAS_NATIVE_TELEGRAM_BOT_V01"
