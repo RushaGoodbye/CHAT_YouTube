@@ -691,7 +691,7 @@ class MetricCard(QFrame):
         self.action_button.setProperty("role", "primary")
         self.action_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.action_button.setVisible(False)
-        self.action_button.clicked.connect(self.clicked.emit)
+        self.action_button.clicked.connect(lambda _checked=False: self.clicked.emit())
         layout.addWidget(
             self.action_button, 0, Qt.AlignmentFlag.AlignVCenter
         )
