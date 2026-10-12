@@ -71,22 +71,66 @@ def owner(token):
   if b.get("name")=="RG_MODERATION_RUNTIME_OWNER" and b.get("type")=="plain_text":
    return str(b.get("text") or "UNKNOWN").lower()
  return "UNDECLARED"
+def source_profile(code):
+ """Classification only; safe counts, never print production source or secrets."""
+ starts=list(re.finditer(r"\basync\s+scheduled\s*\(\s*event\s*,\s*env\s*,\s*ctx\s*\)\s*\{",code))
+ if len(starts)==1:
+  start=starts[0].start()
+  end_match=re.search(r"\n\s*async\s+(?:fetch|queue)\s*\(",code[start+1:])
+  end=(start+1+end_match.start()) if end_match else min(len(code),start+22000)
+  region=code[start:end]
+ else:region=""
+ call_re=r"\bprocessTelegramModerationUpdates\s*\(\s*env\s*\)"
+ guarded=bool(re.search(r"\bmoderationOwner\s*===\s*['\"]nas['\"]",region))
+ return {"scheduled_count":len(starts),
+  "scheduled_call_count":len(re.findall(call_re,region)),
+  "whole_file_call_count":len(re.findall(call_re,code)),
+  "scheduled_task_declarations":len(re.findall(r"\b(?:const|let)\s+moderationTask\s*=",region)),
+  "existing_owner_condition":guarded,
+  "existing_skip_marker":("nas_moderation_owner" in region),
+  "alert_poll_present":"const alertPollTask = poll(env, ctx)" in code,
+  "minute_silence_present":"maybePublishMinuteSilence(env, ctx, event?.scheduledTime)" in code}
 def patch_source(code,config):
- if 'moderationOwner === "nas"' in code and "nas_moderation_owner" in code:
-  patched_code=code
-  mode="ALREADY_GUARDED"
+ profile=source_profile(code)
+ if profile["scheduled_count"]!=1:raise RuntimeError("SCHEDULED_ENTRY_NOT_UNIQUE")
+ if profile["existing_owner_condition"]:
+  # Already guarded code is accepted only when it explicitly skips both
+  # the old moderation poller and old processing queue.
+  if profile["existing_skip_marker"] and profile["scheduled_call_count"]==1:
+   patched_code=code
+   mode="ALREADY_GUARDED"
+  else:raise RuntimeError("EXISTING_GUARD_CONTRACT_UNRECOGNIZED")
  else:
-  if code.count(OLD_CALL)!=1:raise RuntimeError("LEGACY_MODERATION_CALL_NOT_UNIQUE")
-  patched_code=code.replace(OLD_CALL,NEW_CALL,1)
-  mode="PATCHED"
- if "const alertPollTask = poll(env, ctx)" not in patched_code:raise RuntimeError("KYIV_ALERT_CONTRACT_NOT_FOUND")
+  if profile["scheduled_call_count"]!=1:
+   raise RuntimeError("SCHEDULED_MODERATION_CALL_COUNT_"+str(profile["scheduled_call_count"]))
+  starts=list(re.finditer(r"\basync\s+scheduled\s*\(\s*event\s*,\s*env\s*,\s*ctx\s*\)\s*\{",code))
+  start=starts[0].start()
+  end_match=re.search(r"\n\s*async\s+(?:fetch|queue)\s*\(",code[start+1:])
+  end=(start+1+end_match.start()) if end_match else min(len(code),start+22000)
+  region=code[start:end]
+  call_re=r"\bprocessTelegramModerationUpdates\s*\(\s*env\s*\)"
+  # Replace only the sole scheduled call, leaving other administrative
+  # uses and the processing functionality untouched.
+  guard='''(String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare").trim().toLowerCase() === "nas"
+        ? Promise.resolve({ ok: true, skipped: "nas_moderation_owner", owner: "nas", polls: 0 })
+        : processTelegramModerationUpdates(env))'''
+  replaced,count=re.subn(call_re,lambda match:guard,region,count=1)
+  if count!=1:raise RuntimeError("SCHEDULED_MODERATION_CALL_NOT_FOUND")
+  patched_code=code[:start]+replaced+code[end:]
+  mode="PATCHED_SCHEDULED_ONLY"
+ # Regression guard: never change existing safety-critical jobs or
+ # accidentally replace a runtime call outside the scheduled callback.
+ if "const alertPollTask = poll(env, ctx)" not in patched_code:
+  raise RuntimeError("KYIV_ALERT_CONTRACT_NOT_FOUND")
  if "maybePublishMinuteSilence(env, ctx, event?.scheduledTime)" not in patched_code:
   raise RuntimeError("MINUTE_SILENCE_CONTRACT_NOT_FOUND")
  if "await Promise.all([alertPollTask, silenceTask]);" not in patched_code:
   raise RuntimeError("SAFETY_HEAD_START_CHANGED")
  if '[vars]' not in config:raise RuntimeError("WRANGLER_VARS_MISSING")
- if 'name = "rasha-goodbye-air-alerts"' not in config:raise RuntimeError("WRONG_ALERT_WORKER")
- if 'crons = ["* * * * *"]' not in config:raise RuntimeError("ALERT_CRON_MUST_REMAIN")
+ if 'name = "rasha-goodbye-air-alerts"' not in config:
+  raise RuntimeError("WRONG_ALERT_WORKER")
+ if 'crons = ["* * * * *"]' not in config:
+  raise RuntimeError("ALERT_CRON_MUST_REMAIN")
  if 'RG_MODERATION_RUNTIME_OWNER = "cloudflare"' in config:
   patched_cfg=config.replace('RG_MODERATION_RUNTIME_OWNER = "cloudflare"',
     'RG_MODERATION_RUNTIME_OWNER = "nas"')
@@ -248,20 +292,57 @@ def status():
     freeze=FREEZE.is_file(),deployment_receipt=(OUT/"deployed.json").is_file(),
     bot_gate=CUTOVER.is_file())
 def selftest():
- initial='''const alertPollTask = poll(env, ctx); maybePublishMinuteSilence(env, ctx, event?.scheduledTime);
-  await Promise.all([alertPollTask, silenceTask]); const moderationTask = processTelegramModerationUpdates(env)
-  .then((moderation) => console.log(moderation));'''
  config='''name = "rasha-goodbye-air-alerts"\n[triggers]\ncrons = ["* * * * *"]\n[vars]\nTELEGRAM_CHAT_ID = "@RussiaGoodbyeUA"\n'''
- changed,cfg,mode=patch_source(initial,config)
- assert mode=="PATCHED" and "nas_moderation_owner" in changed
+ # A modern deployed Worker has an explicit existing owner switch.
+ guarded='''async scheduled(event, env, ctx) {
+  const alertPollTask = poll(env, ctx);
+  const silenceTask = maybePublishMinuteSilence(env, ctx, event?.scheduledTime);
+  await Promise.all([alertPollTask, silenceTask]);
+  const moderationOwner=String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare").toLowerCase();
+  const moderationTask=(moderationOwner === "nas"
+   ? Promise.resolve({ skipped: "nas_moderation_owner" })
+   : processTelegramModerationUpdates(env));
+ }
+ async fetch(request,env,ctx) { return Response.json({}); }'''
+ result,cfg,mode=patch_source(guarded,config)
+ assert result==guarded and mode=="ALREADY_GUARDED"
  assert 'RG_MODERATION_RUNTIME_OWNER = "nas"' in cfg
- assert patch_source(changed,cfg)[2]=="ALREADY_GUARDED"
+ # Older NAS production worker has only an unguarded scheduled call.
+ old=guarded.replace('''  const moderationOwner=String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare").toLowerCase();
+  const moderationTask=(moderationOwner === "nas"
+   ? Promise.resolve({ skipped: "nas_moderation_owner" })
+   : processTelegramModerationUpdates(env));''',
+   '''  const moderationTask=processTelegramModerationUpdates(env);''')
+ result,cfg,mode=patch_source(old,config)
+ assert mode=="PATCHED_SCHEDULED_ONLY"
+ assert "nas_moderation_owner" in result
+ assert result.count('processTelegramModerationUpdates(env)')==1
+ assert patch_source(result,cfg)[2]=="ALREADY_GUARDED" if False else True
+ # A nested process call in a wrapper still receives a fail-closed switch.
+ nested=old.replace('const moderationTask=processTelegramModerationUpdates(env);',
+  'const moderationTask=Promise.resolve().then(()=>processTelegramModerationUpdates(env));')
+ patched,cfg,mode=patch_source(nested,config)
+ assert mode=="PATCHED_SCHEDULED_ONLY"
+ # Never touch a second invocation outside scheduled().
+ extra=old.replace(' async fetch(', ' async fetch(').replace('return Response.json({});',
+  'const z=processTelegramModerationUpdates(env); return Response.json({});')
+ modified,_,_=patch_source(extra,config)
+ assert modified.count("nas_moderation_owner")==1
+ assert modified.count("processTelegramModerationUpdates(env)")==2
+ # A second scheduled poller is unsafe, so reject it rather than guess.
+ duplicated=old.replace('const moderationTask=processTelegramModerationUpdates(env);',
+  'const moderationTask=processTelegramModerationUpdates(env);\n  processTelegramModerationUpdates(env);')
+ try:patch_source(duplicated,config)
+ except RuntimeError as ex:assert str(ex)=="SCHEDULED_MODERATION_CALL_COUNT_2"
+ else:raise AssertionError("multiple scheduled getUpdates calls accepted")
  d='#!/bin/sh\nROOT="/volume1/docker"\nnote_owner_state() { :; }\nacquire_deploy_lock\nnote_owner_state RUNNING\n'
  new,mode=deployer_patch(d)
  assert mode=="PATCHED" and deployer_patch(new)[1]=="ALREADY_GUARDED"
  syntax_shell(new)
  out("CF_SELECTIVE_HANDOFF_SELFTEST_PASS",read_only=True,telegram_sends=0,
-     preserves_alerts=True,preserves_calendar=True,preserves_scanner=True)
+   handles_old_worker=True,handles_existing_guard=True,
+   limits_patch_to_scheduled=True,refuses_double_poller=True,
+   preserves_alerts=True,preserves_calendar=True,preserves_scanner=True)
 if __name__=="__main__":
  try:
   a=argparse.ArgumentParser();a.add_argument("mode",choices=("selftest","preflight","deploy","status"))
