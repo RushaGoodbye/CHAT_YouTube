@@ -1,0 +1,46 @@
+"""Evidence grouping regression tests: no repeated or invented stories."""
+from rg_youtube_control.dialogue_seo import (
+    distinct_evidence_topics, evidence_outline_text,
+)
+
+
+def test_duplicate_quotes_count_as_one_story():
+    quote = "Он с Путиным в хороших отношениях, а коррупция в армии была всегда."
+    report = {"blocks": [
+        {"start_stamp": "00:00:00", "verified": True,
+         "topics": [{"topic": "Шойгу", "evidence": quote,
+                     "summary_uk": "Обговорення зв'язків Шойгу"}]},
+        {"start_stamp": "00:05:00", "verified": True,
+         "topics": [{"topic": "Корупція і зв'язки", "evidence": quote,
+                     "summary_uk": "Та сама цитата іншими словами"}]},
+    ]}
+    assert len(distinct_evidence_topics(report)) == 1
+    assert evidence_outline_text(report).count("ЦИТАТА:") == 1
+
+
+def test_distinct_quotes_retained_and_unverified_visible():
+    report = {"blocks": [
+        {"start_stamp": "00:00:00", "verified": True,
+         "topics": [{"topic": "Корупція", "evidence":
+                     "Коррупция в армии была всегда и это проблема.",
+                     "summary_uk": "Думка про корупцію"}]},
+        {"start_stamp": "00:05:00", "verified": True,
+         "topics": [{"topic": "Кадрові зміни", "evidence":
+                     "Теперь новый министр занимается вопросами финансов.",
+                     "summary_uk": "Обговорюють зміну міністра"}]},
+        {"start_stamp": "00:10:00", "verified": False,
+         "topics": [], "excerpt": "нерозбірливий фрагмент"},
+    ]}
+    assert len(distinct_evidence_topics(report)) == 2
+    outline = evidence_outline_text(report)
+    assert outline.count("ЦИТАТА:") == 2
+    assert "НЕПЕРЕВІРЕНИЙ ФРАГМЕНТ" in outline
+
+
+def test_unverified_model_claims_never_become_source():
+    report = {"blocks": [{"verified": False, "start_stamp": "00:00:00",
+       "topics": [{"topic": "Вигадана подія",
+                   "evidence": "Ніде не підтверджений вислів"}],
+       "excerpt": "частковий текст"}]}
+    assert distinct_evidence_topics(report) == []
+    assert "Вигадана подія" not in evidence_outline_text(report)
