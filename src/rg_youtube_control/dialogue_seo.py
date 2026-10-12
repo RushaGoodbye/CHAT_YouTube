@@ -365,7 +365,7 @@ def preserve_outline_topics(
         stop = {"про", "щодо", "причини", "причина", "дискусія", "обговорення",
                 "питання", "зміни", "посади", "відповідальність", "розмова",
                 "російській", "росії", "армії", "та", "або", "щодо"}
-        return {word[:5] for word in re.findall(r"\\w{5,}", value.casefold())
+        return {word[:5] for word in re.findall(r"\w{5,}", value.casefold())
                 if word not in stop}
 
     synopsis_words = subject_words(source.split("Інші підтверджені теми розмов:", 1)[0])
