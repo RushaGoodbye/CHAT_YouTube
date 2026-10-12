@@ -12685,6 +12685,13 @@ class MainWindow(QMainWindow):
             cached_context = cached_public_metadata(
                 state_conn, video_id, self.current_profile,
             )
+            old_draft_row = state_conn.execute(
+                "SELECT description FROM optimization_drafts WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            previous_draft_description = (
+                str(old_draft_row[0] or "") if old_draft_row else ""
+            )
             nas_row = state_conn.execute(
                 "SELECT value FROM settings WHERE key=?",
                 ("nas_transcripts_path",),
@@ -12747,6 +12754,13 @@ class MainWindow(QMainWindow):
 
         current_title = str(context.get("title") or "")
         raw_description = str(context.get("description") or "")
+        context["previous_draft_description"] = previous_draft_description
+        # Metadata snapshots can have an empty public description even when
+        # a high-information saved SEO draft exists. Reuse the user's earlier
+        # wording as an editorial comparison baseline, NEVER as factual proof.
+        if len(raw_description.strip()) < 180 and len(previous_draft_description.strip()) >= 260:
+            raw_description = previous_draft_description
+            context["description_source"] = "saved-seo-draft"
         cleaned_description = safe_description_fix(
             raw_description,
             current_title,
@@ -12902,6 +12916,7 @@ class MainWindow(QMainWindow):
         context_for_model = dict(context)
         context_for_model.pop("_caption_tracks", None)
         context_for_model.pop("metadata_fetch_warning", None)
+        context_for_model.pop("previous_draft_description", None)
         context_for_model["description"] = cleaned_description
         if on_progress is not None:
             on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
@@ -13307,7 +13322,11 @@ class MainWindow(QMainWindow):
         ).after
 
         before_title = str(context.get("title") or "")
-        before_description = str(context.get("description") or "")
+        before_description = str(
+            context.get("description")
+            or context.get("previous_draft_description")
+            or ""
+        )
         before_tags = list(context.get("tags") or [])
         evidence_report = result.get("evidence_report")
         if not self._preview_deep_content_package(
