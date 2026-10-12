@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_local_runtime_status",
+  "action": "youtube_gui_autorelaunch_probe",
   "args": {
-    "nonce": "readonly-autorelaunch-probe-20261012"
+    "nonce": "check-exact-gui-relauncher-readonly-20261012"
   }
 }
