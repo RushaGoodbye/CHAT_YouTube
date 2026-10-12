@@ -34,11 +34,12 @@ from crop_selection import CropSelectionDialog
 from media_collections import add_files, remove_file_references, migrate_path
 from live_library import RecursiveMediaWatcher, changed_files, keep_offline_entries, unavailable_roots, relocated_path, FileIdentityIndex
 from streamdeck_hotkeys import GlobalMediaHotkeys, hotkey_guide, ACTIONS, DEFAULT_BINDINGS, validated_bindings, parse_hotkey
+from hotkey_dialog import HotkeyEditor
 from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.2'
+VERSION = '0.4.3'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -1056,47 +1057,38 @@ class MainWindow(QMainWindow):
                 pass
 
     def configure_streamdeck(self):
-        choices = [f"{label} ({action})" for action, label in ACTIONS.items()]
-        selected, ok = QInputDialog.getItem(self, "Stream Deck: керування",
-            "Яку дію налаштувати?", choices, 0, False)
-        if not ok:
+        """Edit every shortcut in one place. Changes take effect immediately."""
+        dialog = HotkeyEditor(self.deck_bindings, self)
+        dialog.setStyleSheet(STYLE)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.bindings is None:
             return
-        action = list(ACTIONS)[choices.index(selected)]
-        original = self.deck_bindings.get(action, DEFAULT_BINDINGS[action])
-        value, ok = QInputDialog.getText(
-            self, "Глобальна комбінація Stream Deck",
-            "Комбінація (Ctrl+Alt+Shift+F6…F12):", text=original)
-        if not ok:
-            return
-        try:
-            canonical, _, _ = parse_hotkey(value)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Некоректна клавіша", str(exc))
-            return
-        if canonical in [v for k, v in self.deck_bindings.items() if k != action]:
-            QMessageBox.warning(self, "Конфлікт", f"{canonical} вже призначено іншій дії")
-            return
-        self.deck_bindings[action] = canonical
-        if action.startswith("collection_"):
-            options = sorted(self.collections, key=str.casefold)
-            if options:
-                current = self.deck_collections.get(action)
-                idx = options.index(current) if current in options else 0
-                chosen, ok = QInputDialog.getItem(
-                    self, "Добірка для Stream Deck", "Оберіть тематичну добірку:",
-                    options, idx, False)
-                if ok:
-                    self.deck_collections[action] = chosen
-            else:
-                QMessageBox.information(self, "Stream Deck",
-                    "Створіть тематичну добірку, потім призначте її цій кнопці")
+        # Explicit blank entries preserve disabled shortcuts across restarts.
+        self.deck_bindings = {key: dialog.bindings.get(key, "") for key in ACTIONS}
         self._streamdeck.configure(self.deck_bindings)
         self._save()
         if self._streamdeck.errors:
-            QMessageBox.warning(self, "Конфлікти OBS або Windows",
+            QMessageBox.warning(self, "Гарячі клавіші: конфлікти з Windows або OBS",
                                 "\n".join(self._streamdeck.errors))
         else:
-            self.status.setText("Клавіші Stream Deck оновлено: " + canonical)
+            self.status.setText("Гарячі клавіші збережені. Кнопки Stream Deck активні.")
+
+    def configure_deck_collections(self):
+        for action in ("collection_1", "collection_2"):
+            names = sorted(self.collections, key=str.casefold)
+            if not names:
+                QMessageBox.information(self, "Stream Deck",
+                    "Створіть хоча б одну тематичну добірку.")
+                return
+            selected = self.deck_collections.get(action, names[0])
+            index = names.index(selected) if selected in names else 0
+            chosen, ok = QInputDialog.getItem(
+                self, "Stream Deck — тематична добірка",
+                ACTIONS[action], names, index, False)
+            if not ok:
+                return
+            self.deck_collections[action] = chosen
+        self._save()
+        self.status.setText("Обидві тематичні кнопки Stream Deck налаштовано.")
 
     def restore_previous_app(self):
         candidate = update_rollback.verified_saved_rollback()
@@ -1131,7 +1123,19 @@ class MainWindow(QMainWindow):
 
     def _streamdeck_action(self, action: str):
         """Invoked only from a registered Windows global hotkey."""
-        if action == 'play_pause':
+        if action == 'start':
+            self.start_playback()
+        elif action == 'pause':
+            self.pause_playback()
+        elif action == 'speed_up':
+            self.step_speed(1)
+        elif action == 'speed_down':
+            self.step_speed(-1)
+        elif action == 'volume_down':
+            self.step_volume(-5)
+        elif action == 'volume_up':
+            self.step_volume(5)
+        elif action == 'play_pause':
             self.toggle_preview()
         elif action == 'stop':
             self.stop_playback()
@@ -1201,7 +1205,8 @@ class MainWindow(QMainWindow):
         clear_cache = maintenance_menu.addAction('Очистити старі мініатюри')
         restore_settings = maintenance_menu.addAction('Відновити останню копію налаштувань')
         deck_action = menu.addAction('⌨ Stream Deck: глобальні клавіші')
-        deck_setup = menu.addAction('⌨ Налаштувати кнопки Stream Deck...')
+        deck_setup = menu.addAction('⌨ Гарячі клавіші — додати / змінити...')
+        deck_collections = menu.addAction('⌨ Stream Deck — призначити добірки...')
         rollback_action = maintenance_menu.addAction('Повернути попередню версію програми...')
         rollback_status_action = maintenance_menu.addAction('Стан останнього оновлення')
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
@@ -1267,6 +1272,8 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, 'Резервні копії', 'Збережених копій не знайдено.')
         elif choice == deck_setup:
             self.configure_streamdeck()
+        elif choice == deck_collections:
+            self.configure_deck_collections()
         elif choice == rollback_status_action:
             QMessageBox.information(self, 'Перевірка оновлення', update_rollback.rollback_status())
         elif choice == rollback_action:
@@ -2086,6 +2093,16 @@ class MainWindow(QMainWindow):
         self.preview_play.setText('Ⅱ' if playing else '▶')
         self.preview_play.setToolTip('Пауза (Пробіл)' if playing else 'Відтворення (Пробіл)')
 
+    def start_playback(self):
+        """Start selected file or resume current one; never pause a playing clip."""
+        player = self.preview.player
+        if self.preview.current is None:
+            self.play_selected()
+        elif (player is not None and self.preview.current.kind == 'video'
+              and player.playbackState() != QMediaPlayer.PlaybackState.PlayingState):
+            player.play()
+            self._update_play_button()
+
     def toggle_preview(self):
         # Play/Pause never changes to a newly selected file during the show.
         player = self.preview.player
@@ -2190,6 +2207,10 @@ class MainWindow(QMainWindow):
         self.preview.set_muted(not self.preview._muted)
         self._refresh_mute_button()
         self._save()
+
+    def step_volume(self, delta: int):
+        """Use the existing volume slider, preserving mute state and 0..100 bounds."""
+        self.volume.setValue(max(0, min(100, self.volume.value() + delta)))
 
     def volume_changed(self, value: int):
         self.preview.set_volume(value / 100)
