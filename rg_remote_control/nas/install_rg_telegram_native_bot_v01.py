@@ -7,7 +7,7 @@ import datetime,hashlib,json,os,pathlib,shutil,sqlite3,subprocess,sys,tempfile,u
 ROOT=pathlib.Path("/volume1/docker");STATE=ROOT/"RG_TELEGRAM_STATE"
 SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 SOURCE=STATE/"rg_telegram_nas_native_bot_v01.py"
-REVISION="820310ced136d03bb6f7779475257b3af0f361d4"
+REVISION="3ee6851cdd938c3ea7018643d62d168a895061fc"
 URL="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"+REVISION+"/rg_remote_control/nas/"+SOURCE.name
 MARK="# RG_NAS_NATIVE_TELEGRAM_BOT_V01"
 ANCHOR="# RG_NAS_SHADOW_RUNTIME_V1_END"
