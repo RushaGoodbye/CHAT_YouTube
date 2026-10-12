@@ -27,8 +27,9 @@ class HotkeyEditor(QDialog):
         header = QLabel(
             "Натисніть потрібну комбінацію в полі. "
             "Клавіші працюють також у Stream Deck, коли OBS активний.\n"
-            "Для безпеки потрібні щонайменше два модифікатори: "
-            "Ctrl, Alt або Shift. Дозволено F1–F12, A–Z, 0–9.")
+            "F17 працює і для Старту, і для Паузи як одна клавіша Play/Pause. "
+            "F9 також можна без модифікаторів. Підтримуються +/= і - з Shift, "
+            "функціональні F1–F24 та інші клавіші з модифікаторами.")
         header.setWordWrap(True)
         layout.addWidget(header)
         scroll = QScrollArea(self)
@@ -57,7 +58,8 @@ class HotkeyEditor(QDialog):
         scroll.setWidget(container)
         layout.addWidget(scroll, 1)
         footer = QHBoxLayout()
-        reset = QPushButton("Типові клавіші")
+        reset = QPushButton("Клавіші як на фото")
+        reset.setToolTip("F17 = старт/пауза; F9 = звук; швидкість і гучність +/-")
         reset.clicked.connect(self._reset_defaults)
         footer.addWidget(reset)
         footer.addStretch()
