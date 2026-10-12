@@ -27,7 +27,7 @@ jobs:
           if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Fresh SEO QA must run on ALEXPC" }
           $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
           $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
-          $env:PYTHONPATH = "$deps;$pwd\\src;$env:PYTHONPATH"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {\n            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"\n          }\n          $env:PYTHONPATH = "$deps;$pwd\\src;$env:PYTHONPATH"
           & $py -B rg_remote_control/youtube_shoigu_fresh_timeline_qa.py
           if ($LASTEXITCODE -ne 0) { throw "Fresh full-timeline Shoigu QA failed" }
       - name: Verify ALEXPC and run no-write local SEO
