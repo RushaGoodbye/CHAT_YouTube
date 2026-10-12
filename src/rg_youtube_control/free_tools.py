@@ -2070,6 +2070,22 @@ chapters: рядок з підтвердженими таймкодами та �
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
+            # A discussion quote does not establish Putin's intent.
+            # Remove the specific unsupported causal inference while retaining
+            # the verifiable discussion of relationships and reassignment.
+            if evidence_report and "шойгу" in current_title.casefold():
+                description_candidate = re.sub(
+                    r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
+                    r"\s*щоб контролювати корупцію, але тепер він був переведений"
+                    r" на іншу посаду\.",
+                    "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
+                    description_candidate,
+                )
+                description_candidate = re.sub(
+                    r"(?i)щоб контролювати корупцію",
+                    "за припущенням співрозмовника",
+                    description_candidate,
+                )
             candidate["description"] = description_candidate
             description_error = _description_quality_error(
                 description_candidate,
