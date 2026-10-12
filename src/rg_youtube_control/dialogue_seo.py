@@ -638,7 +638,14 @@ def ab_title_issues(
             "какой", "какие", "такое", "самого", "теперь", "будет",
             "вместо", "россияне", "россия", "россии", "российские",
             "видео", "шоу", "раша", "гудбай", "рулетка",
+            "участники", "участников", "говорят", "говорили",
+            "неожиданный", "неожиданные", "ответы", "россиянами",
         }
+        # Lexical overlap on "война" or a person's name cannot establish
+        # an invented OUTCOME such as "war enters a new phase". A causal or
+        # temporal consequence must be grounded as a phrase in transcript.
+        unsupported_new_phase = re.compile(r"\\bнов\\w*\\s+фаз\\w*\\b")
+        source_has_new_phase = bool(unsupported_new_phase.search(source))
         for number, value in enumerate(values, 1):
             normalized_title = value.casefold().translate(
                 str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
@@ -650,6 +657,13 @@ def ab_title_issues(
             unsupported = [
                 word for word in words if word[:4] not in source_roots
             ]
+            if (
+                unsupported_new_phase.search(normalized_title)
+                and not source_has_new_phase
+            ):
+                issues.append(
+                    f"A/B варіант {number} вигадує непідтверджений новий етап подій."
+                )
             if len(unsupported) >= 2 and len(unsupported) / max(1, len(words)) >= 0.36:
                 issues.append(
                     f"A/B варіант {number} містить непідтверджені змістові твердження."
