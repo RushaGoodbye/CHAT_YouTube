@@ -1548,8 +1548,22 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     current_words = set(current_core.split())
     candidate_words = set(candidate_core.split())
 
-    # If the candidate contributes no new meaningful words, keep the proven title.
-    if candidate_words and candidate_words.issubset(current_words):
+    # If a candidate only shortens a stronger existing hook (e.g.
+    # "всё идёт по плану?" -> "план?"), preserve the original. Compare
+    # inflected roots so "план" and "плану" are not treated as new facts.
+    def roots(words: set[str]) -> set[str]:
+        return {
+            word.replace("ё", "е").replace("ь", "")[:4]
+            for word in words if len(word) >= 4
+        }
+
+    if candidate_words and (
+        candidate_words.issubset(current_words)
+        or (
+            len(candidate_core) < len(current_core)
+            and roots(candidate_words).issubset(roots(current_words))
+        )
+    ):
         return current
 
     return candidate
