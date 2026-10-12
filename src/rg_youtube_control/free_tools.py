@@ -2181,10 +2181,14 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     omitted_topics: list[str] = []
     if evidence_report:
+        # Never discard grounded subjects merely to keep a short synopsis.
+        # Keep the concise lead, then append every distinct supported subject
+        # while respecting the platform description budget. The evidence map
+        # remains available separately if even this budget is insufficient.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=2,
-            max_body_bytes=2300,
+            max_topic_bullets=24,
+            max_body_bytes=3500,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
@@ -2234,8 +2238,8 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель створила назву довшу за 100 символів.")
     if not description:
         raise ValueError("Локальна модель не створила опис.")
-    if len(description) > (1150 if evidence_report else 5000):
-        raise ValueError("SEO-опис надто довгий: скоротіть текст; всі теми збережені в карті доказів.")
+    if len(description) > (3900 if evidence_report else 5000):
+        raise ValueError("SEO-опис перевищує безпечний ліміт; збережено карту доказів без втрати тем.")
     if is_short:
         chapters = ""
 

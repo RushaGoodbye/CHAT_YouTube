@@ -409,6 +409,23 @@ def ab_title_issues(
         }
         for value in normal
     ]
+    # Three different headlines can evade pairwise Jaccard by shuffling
+    # peripheral wording while all reuse one dominant event word. This is
+    # exactly what happened in the operator's real Shoigu A/B preview:
+    # all three repeated "стратегия" and two pairs reused another event.
+    # Report this as a review problem and trigger independent-hook recovery.
+    common_core = set.intersection(*content_stems) if content_stems else set()
+    common_core -= {"росс", "росі", "укра", "война", "війна"}
+    if common_core:
+        repeated_pairs = sum(
+            bool((content_stems[left] & content_stems[right]) - common_core)
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        )
+        if repeated_pairs >= 2:
+            issues.append(
+                "Усі три A/B назви повторюють одну основну сюжетну опору."
+            )
+
     for left in range(3):
         for right in range(left + 1, 3):
             a, b = content_stems[left], content_stems[right]
@@ -426,12 +443,19 @@ def ab_title_issues(
     if report:
         # Conservative case-folded stem overlap. Lack of overlap is a review
         # warning, not proof that the proposed phrase is false.
-        source = evidence_outline_text(report).casefold().translate(
+        # Only literal source excerpts can support title claims. Model-written
+        # topic labels and summaries are *not* independent evidence.
+        evidence_fragments = [
+            _compact(item.get("evidence")).casefold()
+            for block in report.get("blocks") or []
+            for item in block.get("topics") or []
+            if isinstance(item, dict)
+        ]
+        source = " ".join(evidence_fragments).translate(
             str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
         )
         stems = {
             word[:5] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
-            if word not in {"цитата", "тема", "теза", "співрозмовник"}
         }
         # A shared supported keyword must not conceal an invented unrelated
         # two-word subject (regression: "family psychology" in political SEO).
@@ -443,12 +467,6 @@ def ab_title_issues(
         )
         # A phrase must occur inside ONE source quotation, never across
         # separate dialogue fragments or in model-written topic summaries.
-        evidence_fragments = [
-            _compact(item.get("evidence")).casefold()
-            for block in report.get("blocks") or []
-            for item in block.get("topics") or []
-            if isinstance(item, dict)
-        ]
         supported_family_topic = any(
             re.search(pattern, fragment, flags=re.UNICODE)
             for fragment in evidence_fragments
@@ -481,5 +499,23 @@ def ab_title_issues(
             ):
                 issues.append(
                     f"A/B варіант {index} не має підтверджених тематичних слів."
+                )
+            # A single shared word ("война") must not launder a novel
+            # assertion ("война переходит в новую фазу"). This is a
+            # conservative editorial warning: lexical differences may be
+            # legitimate paraphrases and are never called proven false.
+            source_only = [
+                word for word in meaningful
+                if word[:5] not in stems
+                and word not in {
+                    "почему", "который", "которые", "говорят",
+                    "рассказ", "вопросы", "ответы", "выпуск",
+                    "сегодня", "видео", "история", "будущее",
+                }
+            ]
+            if len(source_only) >= 3 and len(source_only) * 2 >= len(meaningful):
+                issues.append(
+                    f"A/B варіант {index} містить кілька формулювань "
+                    "без опори на дослівні цитати; перевірити заявлені події."
                 )
     return issues
