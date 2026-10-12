@@ -488,6 +488,23 @@ def ab_title_issues(
         r"внутренн(?:ие|их)\s+причин|"
         r"версии\s+и\s+факты)"
     )
+    asr_misspelling = re.compile(
+        r"(?i)\\bшогу\\b|\\bшагу\\b|\\bшаг[аи]\\s+на\\s+пути\\b"
+    )
+    irrelevant_hook = re.compile(
+        r"(?i)\\bответ\\s+на\\s+вопрос\\b|"
+        r"\\bпочему\\s+не\\s+ответил[иа]?\\b"
+    )
+    for index, value in enumerate(values, 1):
+        if asr_misspelling.search(value):
+            issues.append(
+                f"A/B варіант {index} містить помилку розпізнавання або штучний сюжетний гачок."
+            )
+        if irrelevant_hook.search(value):
+            issues.append(
+                f"A/B варіант {index} є загальною реплікою замість змістовної теми."
+            )
+
     for index, value in enumerate(values, 1):
         if generic_hook.search(value):
             issues.append(
