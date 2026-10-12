@@ -2189,6 +2189,7 @@ chapters: рядок з підтвердженими таймкодами та �
             description, evidence_report,
             max_topic_bullets=12,
             max_body_bytes=3600,
+            current_title=current_title,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
