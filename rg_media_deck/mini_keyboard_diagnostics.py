@@ -42,8 +42,10 @@ class MiniKeyboardDiagnostics(QDialog):
             if chord == "F17" and hotkeys._f17_route:
                 state = ("ЗАРЕЄСТРОВАНО + резервне зчитування F17"
                          if registered else "РЕЗЕРВНЕ ЗЧИТУВАННЯ F17 АКТИВНЕ")
-            elif chord in ("F18", "F19") and (
-                    (0x81 if chord == "F18" else 0x82) in hotkeys._frame_routes):
+            elif chord in ("F18", "F19", "Alt+Shift+PgDown", "Alt+Shift+PgUp") and (
+                    {"F18": 0x81, "F19": 0x82,
+                     "Alt+Shift+PgDown": 0x22,
+                     "Alt+Shift+PgUp": 0x21}[chord] in hotkeys._frame_routes):
                 state = ("ЗАРЕЄСТРОВАНО + резервне зчитування"
                          if registered else "РЕЗЕРВНЕ ЗЧИТУВАННЯ АКТИВНЕ")
             else:
@@ -81,6 +83,8 @@ class MiniKeyboardDiagnostics(QDialog):
             Qt.Key.Key_F19: "F19", Qt.Key.Key_F9: "F9",
             Qt.Key.Key_Plus: "+", Qt.Key.Key_Equal: "=",
             Qt.Key.Key_Minus: "-",
+            Qt.Key.Key_PageDown: "PgDown",
+            Qt.Key.Key_PageUp: "PgUp",
         }
         key_name = mapping.get(Qt.Key(event.key()))
         if key_name:
