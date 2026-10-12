@@ -78,6 +78,7 @@ try:
         "source_blocks": int(report["blocks_total"]),
         "source_topic_count": len(source_topics),
         "source_topics": source_topics,
+        "source_evidence_quotes": [str(t.get("evidence") or "")[:240] for b in report.get("blocks") or [] for t in b.get("topics") or [] if isinstance(t, dict)],
         "title": str(package.get("title") or ""),
         "titles_ab": ab,
         "ab_quality_issues": issues,
