@@ -390,12 +390,27 @@ class MarkedSlider(QSlider):
 class ScanThread(QThread):
     scanned = Signal(object)
     counted = Signal(int)
-    def __init__(self, roots: list[str]):
+    def __init__(self, roots: list[str], known_file_ids=None):
         super().__init__()
         self.roots = roots[:]
+        self.known_file_ids = dict(known_file_ids or {})
+        self.new_file_ids = {}
+        self.moved_files = []
 
     def run(self):
         items = scan_media(self.roots, self.isInterruptionRequested, self.counted.emit)
+        if self.isInterruptionRequested():
+            return
+        # NAS stat() can stall: identify and correlate files on the worker.
+        for item in items:
+            if self.isInterruptionRequested():
+                return
+            ident = FileIdentityIndex.identity(item.path)
+            if ident is not None:
+                self.new_file_ids[ident] = item.path
+                old = self.known_file_ids.get(ident)
+                if old and normalize_path(old) != normalize_path(item.path) and not os.path.exists(old):
+                    self.moved_files.append((old, item.path))
         if not self.isInterruptionRequested():
             self.scanned.emit(items)
 
@@ -1071,7 +1086,11 @@ class MainWindow(QMainWindow):
         updated = changed_files(self.all_media, paths, self._scan_roots())
         if updated != self.all_media:
             self.all_media = updated
-            self._file_identities.seed(self.all_media)
+            # Incremental file change must not trigger thousands of UI-thread
+            # file stats on the NAS.
+            for path in paths:
+                if os.path.isfile(path):
+                    self._file_identities.update_moved(path, path)
             self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
             self.apply_filter()
             self.status.setText(f'Файли оновлено автоматично: {len(paths)} змін')
@@ -1771,7 +1790,7 @@ class MainWindow(QMainWindow):
             return
         self._pending_rescan = False
         self.status.setText('Сканування папок...')
-        self.scanner = ScanThread(self._scan_roots())
+        self.scanner = ScanThread(self._scan_roots(), self._file_identities.by_id)
         self.scanner.counted.connect(lambda n: self.status.setText(f'Знайдено {n} файлів...'))
         self.scanner.scanned.connect(self.scan_complete)
         self.scanner.finished.connect(self.scan_finished)
@@ -1786,11 +1805,18 @@ class MainWindow(QMainWindow):
 
     def scan_complete(self, items: list[MediaItem]):
         self.all_media = keep_offline_entries(items, self.all_media, self._scan_roots())
-        for media in self.all_media:
-            prev = self._file_identities.match_new_file(media.path)
-            if prev:
-                self._migrate_metadata(prev, media.path)
-        self._file_identities.seed(self.all_media)
+        worker = self.scanner
+        for old, new in (worker.moved_files if worker is not None else []):
+            self._migrate_metadata(old, new)
+        # Swap in the identity index built on the worker, retaining offline
+        # identities for folders temporarily unavailable on the NAS.
+        previous = self._file_identities.by_id
+        catalog = {normalize_path(item.path) for item in self.all_media}
+        new = dict(worker.new_file_ids) if worker is not None else {}
+        for ident, path in previous.items():
+            if ident not in new and normalize_path(path) in catalog:
+                new[ident] = path
+        self._file_identities.by_id = new
         self.search_index = IndexedMediaLibrary(self.all_media, self.file_tags)
         self.apply_filter()
         self._setup_library_watcher()
