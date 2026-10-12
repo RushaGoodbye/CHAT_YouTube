@@ -9,7 +9,7 @@ SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 FILES={
  "rg_telegram_cf_cron_pause_v1.py":"66d4b2ad416ca7640fe4b75e85e86fbf5ba83e14",
  "rg_telegram_cf_scanner_guard_deploy_v1.py":"05e2dc05e3f2dd3bad67d804fab27bf85006061d",
- "rg_telegram_nas_one_writer_activate_v1.py":"38f6d7a750667fe77e7b7ab7aaa28ef298f14e16"
+ "rg_telegram_nas_one_writer_activate_v1.py":"5a7ecac1eb246f0201f0a99d7e984d5bbb65579c"
 }
 SCHED_MARK="# RG_NAS_AUTOCUTOVER_V1"
 AN="# RG_NAS_NATIVE_TELEGRAM_BOT_V01"
