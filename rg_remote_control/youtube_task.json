@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_shoigu_failure_audit_readonly",
+  "action": "youtube_shoigu_seo_0724_dryrun",
   "args": {
-    "nonce": "real-evidence-shoigu-after-poor-seo-preview-20261012"
+    "nonce": "real-model-seo-shoigu-zero-writes-after-tests-364-pass"
   }
 }
