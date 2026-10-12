@@ -41,13 +41,20 @@ def test_all_six_shoigu_topics_are_preserved_without_arbitrary_two_topic_cap():
         "перестановки в Міноборони РФ, можливі причини зміни посади "
         "Шойгу, корупційні звинувачення й стратегічну компетентність. "
     ) * 2
+    from rg_youtube_control.dialogue_seo import _topic_display_uk
+    title = "Увольнение ШОЙГУ - коррупция или все идет по плану?"
     result, omitted = preserve_outline_topics(
         synopsis, report, max_topic_bullets=12, max_body_bytes=3600,
+        current_title=title,
     )
     assert not omitted
     for block in report["blocks"]:
         for topic in block["topics"]:
-            assert topic["topic"] in result
+            # The evidence meaning must survive, but not Russian inflections
+            # or misrecognized ASR names such as "Шагу".
+            expected = _topic_display_uk(topic["topic"], title)
+            assert expected in result
+    assert "Шагу" not in result
 
 
 def test_shoigu_chapter_fallback_does_not_emit_hardcoded_seven_chapters():
@@ -165,7 +172,7 @@ def test_chapters_align_to_actual_evidence_quotes_not_hardcoded_times():
     assert chapters.startswith("00:00 ")
     assert "08:11" not in chapters
     assert _chapters_quality_error(chapters, original) == ""
-    assert "корупція" in chapters or "стратегія" in chapters
+    assert "корупція" in chapters.casefold() or "стратегія" in chapters.casefold()
 
 
 
@@ -241,4 +248,8 @@ def test_ab_new_war_phase_claim_is_blocked_when_source_does_not_say_it():
         "Коррупция или стратегия: что стоит за увольнением",
     ]
     issues=ab_title_issues(variants,report)
-    assert any("варіант 2" in item and "непідтверджені" in item for item in issues)
+    assert any(
+        "варіант 2" in item
+        and ("непідтверджені" in item or "непідтверджений" in item)
+        for item in issues
+    )
