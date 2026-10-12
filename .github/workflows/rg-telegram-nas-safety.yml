@@ -1,0 +1,44 @@
+name: RG Telegram NAS Safety Tests
+
+on:
+  push:
+    paths:
+      - 'rg_remote_control/nas/rg_telegram_*.py'
+      - 'rg_remote_control/nas/install_rg_telegram_shadow_outbox_v1.py'
+      - '.github/workflows/rg-telegram-nas-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nas-safety:
+    name: Python ${{ matrix.python-version }} offline safety
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Validate Python source files
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_telegram_nas_event_intake_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_moderation_projection_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_local_review_decision_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_nas_delivery_shadow_outbox_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_nas_dispatch_rehearsal_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_nas_transport_preflight_v1.py
+      - name: Event intake and review decision fixtures
+        run: |
+          python rg_remote_control/nas/rg_telegram_nas_event_intake_v1.py selftest
+          python rg_remote_control/nas/rg_telegram_moderation_projection_v1.py selftest
+          python rg_remote_control/nas/rg_telegram_local_review_decision_v1.py selftest
+      - name: Publication outbox and transport OFFLINE
+        run: |
+          python rg_remote_control/nas/rg_telegram_nas_delivery_shadow_outbox_v1.py selftest
+          python rg_remote_control/nas/rg_telegram_nas_dispatch_rehearsal_v1.py selftest --outbox-module rg_remote_control/nas/rg_telegram_nas_delivery_shadow_outbox_v1.py
+          python rg_remote_control/nas/rg_telegram_nas_transport_preflight_v1.py selftest
