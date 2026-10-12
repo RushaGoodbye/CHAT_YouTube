@@ -51,10 +51,18 @@ def selftest():
  "wrangler.toml":b'name = "rasha-goodbye-air-alerts"\nRG_MODERATION_RUNTIME_OWNER = "cloudflare"\ncrons = ["* * * * *"]',
  "test-nas-moderation-owner.mjs":b'NAS_MODERATION_OWNER_SELECTIVE_HANDOFF_PASS'
  }
- try:validate(fake)
- except RuntimeError:pass
+ # Positive fixture first: validate all switch contracts.
+ checks=validate(fake)
+ assert len(checks)==8 and all(checks.values())
+ # Negative fixture must actually remove the expected fallback branch.
+ broken=dict(fake)
+ broken["index.js"]=fake["index.js"].replace(b": processTelegramModerationUpdates(env)",b": Promise.resolve({})")
+ try:validate(broken)
+ except RuntimeError as ex:
+  assert str(ex)=="owner_handoff_contract_failed"
  else:raise AssertionError("missing fallback accepted")
- out("CF_OWNER_PREDEPLOY_SELFTEST_PASS",fail_closed="PASS",network_calls=0)
+ out("CF_OWNER_PREDEPLOY_SELFTEST_PASS",positive_contract="PASS",negative_contract="PASS",
+     fail_closed="PASS",network_calls=0)
 def stage():
  if os.geteuid()!=0:raise RuntimeError("sudo_required")
  if not GH_TOKEN.is_file() or GH_TOKEN.is_symlink():raise RuntimeError("github_access_token_missing")
