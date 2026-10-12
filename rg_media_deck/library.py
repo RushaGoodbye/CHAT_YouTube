@@ -187,7 +187,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -221,6 +221,8 @@ def load_settings(path: Path | None = None) -> dict:
             'bookmarks': clean_bookmarks(data.get('bookmarks', {})),
             'hover_thumbnails': data.get('hover_thumbnails', True) is not False,
             'auto_library_updates': data.get('auto_library_updates', True) is not False,
+            'news_folder': data.get('news_folder', '') if isinstance(data.get('news_folder', ''), str) else '',
+            'news_tab_active': data.get('news_tab_active', False) is True,
             'collections': clean_collections(data.get('collections', {})),
             'streamdeck_bindings': clean_saved_hotkeys(migrate_hotkeys_for_screenshot(
                 data.get('streamdeck_bindings', {}), data.get('hotkeys_layout_version', 1))),
