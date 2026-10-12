@@ -253,3 +253,15 @@ def test_ab_new_war_phase_claim_is_blocked_when_source_does_not_say_it():
         and ("непідтверджені" in item or "непідтверджений" in item)
         for item in issues
     )
+
+
+def test_shoigu_english_vs_is_not_a_publishable_russian_ab_hook():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+    evidence = _six_real_topics()
+    titles = [
+        "Почему Шойгу уволили? Коррупция или стратегия",
+        "Путин и Шойгу: что обсуждают о смене поста",
+        "Увольнение Шойгу: МЧС vs война | Кто прав?",
+    ]
+    issues = ab_title_issues(titles, evidence)
+    assert any("варіант 3" in issue and "'vs'" in issue for issue in issues)
