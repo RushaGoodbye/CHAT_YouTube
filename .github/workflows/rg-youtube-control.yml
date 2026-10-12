@@ -63,7 +63,14 @@ jobs:
             & "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe" -B "rg_remote_control/youtube_archive_transcript_alignment_0717.py" | Tee-Object -FilePath $resultPath
             if ($LASTEXITCODE -ne 0) { throw "Archive transcript/source alignment check failed" }
           } elseif ($task.action -eq "youtube_shoigu_seo_0724_dryrun") {
-            & "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe" -B "rg_remote_control/youtube_shoigu_seo_0724_dryrun.py" | Tee-Object -FilePath $resultPath
+            $py = "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+            $deps = Join-Path $env:RUNNER_TEMP "rg_youtube_0724_qa_dependencies"
+            if (-not (Test-Path (Join-Path $deps "rapidfuzz\__init__.py"))) {
+              & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+              if ($LASTEXITCODE -ne 0) { throw "Unable to prepare isolated SEO QA dependency" }
+            }
+            $env:PYTHONPATH = "$deps;$env:PYTHONPATH"
+            & $py -B "rg_remote_control/youtube_shoigu_seo_0724_dryrun.py" | Tee-Object -FilePath $resultPath
             if ($LASTEXITCODE -ne 0) { throw "Shoigu source-grounded no-write QA failed" }
           } elseif ($task.action -eq "youtube_shoigu_failure_audit_readonly") {
             & "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe" -B "rg_remote_control/youtube_shoigu_failure_audit_readonly.py" | Tee-Object -FilePath $resultPath
