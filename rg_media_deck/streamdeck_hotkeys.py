@@ -256,7 +256,11 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             self._f17_timer.start()
         self._frame_routes = {}
         self._frame_gates = {}
-        for vk, chord in ((0x81, "F18"), (0x82, "F19")):
+        # Keep legacy F18/F19 mappings supported, but recognize the actual
+        # USB mini keyboard's Alt+Shift+PgDown/PgUp shortcuts as well.
+        for vk, chord in ((0x81, "F18"), (0x82, "F19"),
+                          (0x22, "Alt+Shift+PgDown"),
+                          (0x21, "Alt+Shift+PgUp")):
             for action in ACTIONS:
                 if self.bindings.get(action) == chord and action in resolved:
                     self._frame_routes[vk] = resolved[action]
@@ -313,7 +317,7 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             self._deliver_hotkey(self._f17_route)
 
     def _poll_frame_keys(self):
-        """Read only configured F18/F19 to support short USB macro key pulses."""
+        """Read only configured F18/F19 or Alt+Shift+PageDown/PageUp pulses."""
         if os.name != "nt" or not self._frame_routes:
             return
         now = int(time.monotonic() * 1000)
@@ -322,11 +326,19 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
                 state = ctypes.windll.user32.GetAsyncKeyState(vk)
             except (AttributeError, OSError):
                 self._frame_timer.stop()
-                self.errors.append("F18/F19: GetAsyncKeyState недоступний")
+                self.errors.append("Покадрово: GetAsyncKeyState недоступний")
                 return
             gate = self._frame_gates[vk]
-            if gate.observe(down=bool(state & 0x8000),
-                            pressed_since_poll=bool(state & 0x0001),
+            # A bare PageUp/PageDown must NEVER scrub an OBS video.
+            if vk in (0x21, 0x22):
+                user32 = ctypes.windll.user32
+                modifiers_held = (
+                    bool(user32.GetAsyncKeyState(0x12) & 0x8000) and
+                    bool(user32.GetAsyncKeyState(0x10) & 0x8000))
+            else:
+                modifiers_held = True
+            if gate.observe(down=bool(state & 0x8000) and modifiers_held,
+                            pressed_since_poll=bool(state & 0x0001) and modifiers_held,
                             now_ms=now):
                 self._deliver_hotkey(action)
 
