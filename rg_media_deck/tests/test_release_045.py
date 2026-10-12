@@ -109,7 +109,7 @@ class SettingsMigrationVersionTests(unittest.TestCase):
                 "streamdeck_bindings": dict(LEGACY_BINDINGS),
             }, path)
             result = load_settings(path)
-            self.assertEqual(result["hotkeys_layout_version"], 3)
+            self.assertEqual(result["hotkeys_layout_version"], 4)
             self.assertEqual(result["favorites"], ["D:/news/clip.mp4"])
             for action, chord in BROADCAST_BINDINGS.items():
                 self.assertEqual(result["streamdeck_bindings"][action], chord)
