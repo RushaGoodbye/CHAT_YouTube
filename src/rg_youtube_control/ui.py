@@ -1251,8 +1251,8 @@ class MainWindow(QMainWindow):
         title = QLabel("Сьогодні")
         title.setObjectName("AppTitle")
         subtitle = QLabel(
-            "Програма сама визначає наступний безпечний крок. "
-            "Вам достатньо виконувати одну рекомендовану дію."
+            "Оберіть задачу: сьогоднішній стрім, SEO-пакети або коментарі. "
+            "Пріоритет стріму не приховує інші дії."
         )
         subtitle.setWordWrap(True)
         subtitle.setProperty("muted", True)
@@ -1407,16 +1407,21 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
         self.center_scheduled = MetricCard("Заплановані")
+        self.center_review = MetricCard("Перевірити SEO-пакети")
         self.center_prepared = MetricCard("Готово до YouTube")
         self.center_comments = MetricCard("Коментарі")
         self.center_results = MetricCard("Контроль 7/28/90")
         self.center_quota = ProgressMetricCard("Квота YouTube на сьогодні")
         self.center_vidiq = ProgressMetricCard("vidIQ · AIR Boost")
 
+        self.center_review.clicked.connect(
+            lambda: self._open_optimization_status("draft")
+        )
         self.center_prepared.clicked.connect(self._open_ready_work_queue)
         self.center_comments.clicked.connect(lambda: self.tabs.setCurrentIndex(3))
         self.center_quota.clicked.connect(self.show_quota_planner)
         for clickable_card in (
+            self.center_review,
             self.center_prepared,
             self.center_comments,
             self.center_quota,
@@ -1427,9 +1432,10 @@ class MainWindow(QMainWindow):
         self.center_results.setVisible(False)
         self.center_vidiq.setVisible(False)
 
-        grid.addWidget(self.center_prepared, 0, 0, 1, 2)
-        grid.addWidget(self.center_comments, 0, 2, 1, 2)
-        grid.addWidget(self.center_quota, 1, 0, 1, 4)
+        grid.addWidget(self.center_review, 0, 0, 1, 2)
+        grid.addWidget(self.center_prepared, 0, 2, 1, 2)
+        grid.addWidget(self.center_comments, 0, 4, 1, 2)
+        grid.addWidget(self.center_quota, 1, 0, 1, 6)
         layout.addLayout(grid)
 
         pipeline = QFrame()
@@ -1929,12 +1935,20 @@ class MainWindow(QMainWindow):
                WHERE v.profile=? AND c.status='new'""",
             (profile,),
         ).fetchone()[0])
-        ready = int(self.conn.execute(
+        # Saved Ready is not editorial approval: older packages may fail
+        # today's A/B diversity gate. These counts drive clickable dashboard
+        # cards even when a scheduled stream owns the primary action.
+        review_rows = self._pending_seo_review_rows()
+        raw_ready = int(self.conn.execute(
             """SELECT COUNT(*) FROM optimization_drafts d
                JOIN videos v ON v.video_id=d.video_id
                WHERE v.profile=? AND d.status='ready'""",
             (profile,),
         ).fetchone()[0])
+        rejected_ready = sum(
+            1 for row in review_rows if str(row["status"] or "") == "ready"
+        )
+        ready = max(0, raw_ready - rejected_ready)
 
         events = optimization_events(self.conn, profile, limit=100)
         today = datetime.now(timezone.utc).date()
@@ -1982,7 +1996,12 @@ class MainWindow(QMainWindow):
         self._refresh_today_stream_card()
         self._refresh_next_action_card(safe_capacity)
         self.center_scheduled.set_value(str(scheduled), "майбутні публікації")
-        self.center_prepared.set_value(str(ready), "перевірені та готові")
+        self.center_review.set_value(
+            str(len(review_rows)), "Натисніть, щоб відкрити SEO-чергу"
+        )
+        self.center_prepared.set_value(
+            str(ready), "лише пакети, що пройшли актуальну перевірку"
+        )
         self.center_comments.set_value(str(queued), "нові / не оброблені")
         self.center_results.set_value(str(waiting), "очікують контрольних точок")
         self._refresh_tab_badges()
