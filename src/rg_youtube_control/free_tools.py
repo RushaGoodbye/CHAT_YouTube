@@ -2159,6 +2159,29 @@ chapters: рядок з підтвердженими таймкодами та �
                     "за припущенням співрозмовника",
                     description_candidate,
                 )
+            if evidence_report and "шойгу" in current_title.casefold():
+                verified_quotes = " ".join(
+                    str(t.get("evidence") or "")
+                    for b in evidence_report.get("blocks") or []
+                    if b.get("verified") is not False
+                    for t in b.get("topics") or [] if isinstance(t, dict)
+                ).casefold()
+                # Statements about charges against unnamed people must not
+                # become an assertion that Shoigu himself was charged.
+                if "предъявлены обвинения" in verified_quotes and not re.search(
+                    r"обвинени[яй].{0,25}шойгу", verified_quotes
+                ):
+                    description_candidate = re.sub(
+                        r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
+                        "обвинувачення щодо окремих осіб",
+                        description_candidate,
+                    )
+                if "расход" not in verified_quotes and "витрат" not in verified_quotes:
+                    description_candidate = description_candidate.replace(
+                        "військові витрати",
+                        "фінансові питання" if "финанс" in verified_quotes
+                        else "кадрові рішення",
+                    )
             candidate["description"] = description_candidate
             description_error = _description_quality_error(
                 description_candidate,
