@@ -16,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify fresh source hooks and suppress unsupported person-name claims.
+    # Fail on REVIEW; verify v0.7.24 fresh source titles, person claims and description.
     steps:
       - uses: actions/checkout@v4
         with:
