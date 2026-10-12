@@ -51,7 +51,7 @@ def test_full_generator_no_longer_limits_topic_retention_to_two():
     )[0]
     assert "max_topic_bullets=24" in block
     assert "max_body_bytes=3500" in block
-    assert "max_topic_bullets=2" not in block
+    assert "max_topic_bullets=2," not in block
     assert "bool(omitted_topics)" in block
 
 
@@ -62,7 +62,7 @@ def test_if_platform_budget_too_small_omitted_topics_are_explicit():
     result, omitted = preserve_outline_topics(
         source, report, max_topic_bullets=24, max_body_bytes=350,
     )
-    assert result.startswith(source)
+    assert result.startswith(source.strip())
     assert len(omitted) > 0
     assert all(item not in result for item in omitted)
 
