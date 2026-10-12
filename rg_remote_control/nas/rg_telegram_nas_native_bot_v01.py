@@ -4,7 +4,7 @@ Default operations selftest/status/preflight DO NOT poll or publish.
 Live polling explicitly requires secure local cutover marker, created separately.
 No Cloudflare dependency, no external Python packages, no WEB UI.
 """
-import argparse,datetime,hashlib,html,json,os,pathlib,re,socket,sqlite3,sys,time,urllib.error,urllib.parse,urllib.request,ipaddress
+import argparse,datetime,fcntl,hashlib,html,json,os,pathlib,re,socket,sqlite3,sys,time,urllib.error,urllib.parse,urllib.request,ipaddress
 from html.parser import HTMLParser
 ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE"
@@ -331,7 +331,7 @@ def selftest():
   assert not check_url("https://127.0.0.1/a")
   assert not check_url("https://user:pass@evil.com/a")
   assert not complete("Незавершений текст…")
-  assert not GATE.exists() or isinstance(GATE,pathlib.Path)
+  assert isinstance(GATE,pathlib.Path)
  print(json.dumps({"selftest":"PASS","bot_callback_to_queue":"PASS","at_most_once":"PASS",
   "no_old_backfill":"PASS","file_photo_support":"PASS","private_link_requires_forward":"PASS",
   "live_gate":"CLOSED_BY_DEFAULT","telegram_sends":0,"network_calls":0}))
@@ -355,8 +355,15 @@ def main():
      "posts":counts,"poll_offset_recorded":bool(state(db,"offset")),"poller_not_started":not GATE.exists(),
      "telegram_sends":0,"cloudflare_calls":0},ensure_ascii=False))
    return
-  result=one(db,token_read())
-  print(json.dumps(result,ensure_ascii=False))
+  lockpath=path.parent/".nas_native_bot_poll.lock"
+  if lockpath.is_symlink():raise Fail("poll_lock_symlink")
+  with lockpath.open("a+") as lock:
+   try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+   except BlockingIOError:
+    print(json.dumps({"status":"POLL_ALREADY_RUNNING","telegram_sends":0}))
+    return
+   result=one(db,token_read())
+   print(json.dumps(result,ensure_ascii=False))
 if __name__=="__main__":
  try:main()
  except Exception as ex:
