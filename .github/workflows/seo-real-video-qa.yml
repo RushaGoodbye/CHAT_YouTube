@@ -31,7 +31,7 @@ jobs:
         run: |
           $py="C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
           $deps=Join-Path $env:RUNNER_TEMP "rg_qa_temp_deps"
-          & $py -m pip install --disable-pip-version-check -q --target $deps youtube-transcript-api==1.2.4
+          & $py -m pip install --disable-pip-version-check -q --target $deps youtube-transcript-api==1.2.4 "rapidfuzz>=3.12,<4"
           if($LASTEXITCODE -ne 0){throw "Cannot load public caption helper"}
           "PYTHONPATH=$deps;$((Get-Location).Path)\src" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Run real Shoigu full-video read-only SEO preview
