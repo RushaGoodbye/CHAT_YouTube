@@ -15,7 +15,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on content REVIEW; confirm Shoigu thematic A/B and ASR cleanup.
+    # Fail on REVIEW; validate three evidence-specific A/B angles for Shoigu.
     steps:
       - uses: actions/checkout@v4
         with:
