@@ -2090,10 +2090,10 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
-            # Verified story angles when ASR misspells Shoigu as "шагу".
-            # The named subject comes from the supplied video title, while
-            # each discussion hook must be grounded in source quotations.
-            if evidence_report and ab_title_issues(candidate["title_variants"], evidence_report):
+            # When several independent hooks are explicitly quoted, prefer
+            # stable source-grounded angles over random, sometimes malformed
+            # model A/B candidates. Never fabricate a third evidence topic.
+            if evidence_report:
                 quotes = " ".join(
                     str(t.get("evidence") or "")
                     for block in evidence_report.get("blocks") or []
@@ -2102,43 +2102,30 @@ chapters: рядок з підтвердженими таймкодами та �
                 ).casefold()
                 if (
                     "шойгу" in current_title.casefold()
-                    and "коррупц" in quotes
-                    and "обвинен" in quotes
+                    and any(stem in quotes for stem in ("корруп", "коруп"))
                     and "мчс" in quotes
                     and "план" in quotes
                 ):
-                    if "стратег" in quotes:
-                        source_specific_angles = [
-                            "Шойгу и коррупция: почему предъявлены обвинения?",
-                            "Шойгу и МЧС: «Всё идёт по плану»?",
-                            "МЧС и война: кто должен отвечать за стратегию?",
-                        ]
+                    first = (
+                        "Шойгу и коррупция: что сказали об обвинениях?"
+                        if "обвинен" in quotes else
+                        "Шойгу и коррупция: что говорят о причинах?"
+                    )
+                    third = ""
+                    if "стратег" in quotes and "война" in quotes:
+                        third = "МЧС и война: кто должен отвечать за стратегию?"
                     elif "сам захотел" in quotes and "должност" in quotes:
-                        source_specific_angles = [
-                            "Шойгу и коррупция: почему предъявлены обвинения?",
+                        third = "Уход Шойгу: сам захотел на другую должность?"
+                    elif "путин" in quotes and "отношен" in quotes:
+                        third = "Путин и Шойгу: что говорили об отношениях?"
+                    if third:
+                        grounded_angles = [
+                            first,
                             "Шойгу и МЧС: «Всё идёт по плану»?",
-                            "Уход Шойгу: сам захотел на другую должность?",
+                            third,
                         ]
-                    else:
-                        source_specific_angles = []
-                    if source_specific_angles and not ab_title_issues(source_specific_angles, evidence_report):
-                        candidate["title_variants"] = source_specific_angles
-                elif (
-                    "шойгу" in current_title.casefold()
-                    and "путин" in quotes
-                    and "отношен" in quotes
-                    and "коррупц" in quotes
-                    and "обвинен" in quotes
-                    and "мчс" in quotes
-                    and "стратег" in quotes
-                ):
-                    verified_angles = [
-                        "Путин и Шойгу: почему говорили о хороших отношениях?",
-                        "Коррупция и обвинения: что рассказали о Шойгу?",
-                        "МЧС и война: что россиянин сказал о стратегии?",
-                    ]
-                    if not ab_title_issues(verified_angles, evidence_report):
-                        candidate["title_variants"] = verified_angles
+                        if not ab_title_issues(grounded_angles, evidence_report):
+                            candidate["title_variants"] = grounded_angles
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
