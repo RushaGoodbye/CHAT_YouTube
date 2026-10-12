@@ -10,7 +10,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout
 
-from streamdeck_hotkeys import ACTIONS, BROADCAST_BINDINGS, parse_hotkey
+from streamdeck_hotkeys import ACTIONS, BROADCAST_BINDINGS, DEFAULT_BINDINGS, parse_hotkey
 
 
 class MiniKeyboardDiagnostics(QDialog):
@@ -29,7 +29,10 @@ class MiniKeyboardDiagnostics(QDialog):
         info.setWordWrap(True)
         lay.addWidget(info)
         lines = []
-        for action, chord in BROADCAST_BINDINGS.items():
+        for action, chord in (
+                {**BROADCAST_BINDINGS,
+                 "frame_back": DEFAULT_BINDINGS["frame_back"],
+                 "frame_forward": DEFAULT_BINDINGS["frame_forward"]}).items():
             # Start+pause physically occupies ONE Windows registration.
             reg = ("start" if action == "pause"
                    and hotkeys.bindings.get("start") == chord else action)
@@ -39,6 +42,10 @@ class MiniKeyboardDiagnostics(QDialog):
             if chord == "F17" and hotkeys._f17_route:
                 state = ("ЗАРЕЄСТРОВАНО + резервне зчитування F17"
                          if registered else "РЕЗЕРВНЕ ЗЧИТУВАННЯ F17 АКТИВНЕ")
+            elif chord in ("F18", "F19") and (
+                    (0x81 if chord == "F18" else 0x82) in hotkeys._frame_routes):
+                state = ("ЗАРЕЄСТРОВАНО + резервне зчитування"
+                         if registered else "РЕЗЕРВНЕ ЗЧИТУВАННЯ АКТИВНЕ")
             else:
                 state = "ЗАРЕЄСТРОВАНО" if registered else "НЕ ЗАРЕЄСТРОВАНО"
             lines.append(f"{ACTIONS[action]}: {chord} — {state}"
@@ -70,7 +77,8 @@ class MiniKeyboardDiagnostics(QDialog):
         # Optional local fallback when the hotkey could not be registered:
         # only display the exact supported keys, not a generic keylogger.
         mapping = {
-            Qt.Key.Key_F17: "F17", Qt.Key.Key_F9: "F9",
+            Qt.Key.Key_F17: "F17", Qt.Key.Key_F18: "F18",
+            Qt.Key.Key_F19: "F19", Qt.Key.Key_F9: "F9",
             Qt.Key.Key_Plus: "+", Qt.Key.Key_Equal: "=",
             Qt.Key.Key_Minus: "-",
         }
