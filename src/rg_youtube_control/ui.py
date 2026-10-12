@@ -12915,6 +12915,12 @@ class MainWindow(QMainWindow):
             fast_mode=fast_mode,
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
+            chapter_transcript=(
+                transcript_sample_text(
+                    transcript_rows, max_chars=18000, segments=10,
+                )
+                if evidence_report else ""
+            ),
         )
         return {
             "video_id": video_id,
