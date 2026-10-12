@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_0718_runtime_audit_readonly",
+  "action": "youtube_stage_verified_0721",
   "args": {
-    "nonce": "readonly-both-channel-seo-draft-health-20261012"
+    "nonce": "deliver-pinned-sha-verified-0721-installer-no-execution-20261012"
   }
 }
