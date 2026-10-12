@@ -159,16 +159,23 @@ def get_scanner_owner(token):
   if isinstance(b,dict) and b.get("name")=="RG_MIGRATION_SCANNER_OWNER" and b.get("type")=="plain_text":
    return str(b.get("text") or "UNKNOWN").lower()
  return "UNDECLARED"
-def deploy_guard():
+def deploy_guard_precheck():
  allowed()
  t=mod().env_token();current=snapshot(t)
  if current!={VIDEO:[],ALERTS:["* * * * *"],CONTENT:["* * * * *"]}:
   raise RuntimeError("SCANNER_CRON_NOT_SELECTIVELY_PAUSED")
- if not FREEZE.is_file() or not (OUT/"scanner_original_cron.json").is_file():
+ if not FREEZE.is_file() or FREEZE.is_symlink() or not (OUT/"scanner_original_cron.json").is_file():
   raise RuntimeError("SCANNER_BACKUP_OR_FREEZE_MISSING")
  source,cfg=guard_source()
  targets=(WORKER/"src/quota-entry-v2.js",WORKER/"wrangler.toml")
  if any(p.is_symlink() or not p.is_file() for p in targets):raise RuntimeError("SCANNER_WORKER_SOURCE_MISSING")
+ if not shutil.which("docker"):raise RuntimeError("DOCKER_MISSING")
+ # Current Cloudflare JS built and shipped as a Worker; locally preserve
+ # any existing package/node_modules, but require the pinned files present.
+ if not (WORKER/"package.json").is_file():raise RuntimeError("SCANNER_PACKAGE_MISSING")
+ return source,cfg,targets,current
+def deploy_guard():
+ source,cfg,targets,baseline=deploy_guard_precheck()
  for f in targets:
   b=OUT/(f.name+".before")
   if not b.exists():save(b,f.read_text("utf-8"))
@@ -176,7 +183,6 @@ def deploy_guard():
   import stat
   mode=stat.S_IMODE(f.stat().st_mode)
   save(f,value);os.chmod(f,mode)
- if not shutil.which("docker"):raise RuntimeError("DOCKER_MISSING")
  cmd=["docker","run","--rm","--env-file",str(ENV),"-v",str(WORKER)+":/app",
   "-w","/app","node:22-bookworm-slim","sh","-lc",
   "npm install --no-audit --no-fund && node --check src/quota-entry-v2.js && npx wrangler deploy --config wrangler.toml"]
@@ -187,8 +193,15 @@ def deploy_guard():
   emit("CF_SCANNER_DO_STOP_DEPLOY_UNCERTAIN",reason="DOCKER_OR_TIMEOUT",check_remote_before_retry=True);return
  if p.returncode:
   logs=(p.stdout or "")+"\n"+(p.stderr or "")
-  reason="CF_QUOTA" if any(v in logs.lower() for v in ("quota","rate limit","10011")) else "WRANGLER_FAILED"
-  emit("CF_SCANNER_DO_STOP_DEPLOY_UNCERTAIN",reason=reason,exit_code=p.returncode,check_remote_before_retry=True);return
+  low=logs.lower()
+  if any(v in low for v in ("quota","rate limit","10011")):reason="CF_QUOTA"
+  elif "cannot connect to the docker daemon" in low:reason="DOCKER_DAEMON_UNAVAILABLE"
+  elif "error parsing" in low and "env" in low:reason="DEPLOY_ENV_INVALID"
+  elif "module not found" in low or "cannot find" in low:reason="NODE_DEPENDENCY_MISSING"
+  elif "unauthorized" in low or "authentication" in low:reason="CF_AUTH_DENIED"
+  else:reason="WRANGLER_FAILED"
+  emit("CF_SCANNER_DO_STOP_DEPLOY_UNCERTAIN",reason=reason,exit_code=p.returncode,
+   remote_scanner_owner_verified=False,check_remote_before_retry=True);return
  current=snapshot(t)
  remote_owner=get_scanner_owner(t)
  if current!={VIDEO:[],ALERTS:["* * * * *"],CONTENT:["* * * * *"]} or remote_owner!="nas":
@@ -214,13 +227,19 @@ def selftest():
 if __name__=="__main__":
  try:
   p=argparse.ArgumentParser()
-  p.add_argument("mode",choices=("selftest","preflight","stop","deploy-guard","resume-cron","status"))
+  p.add_argument("mode",choices=("selftest","preflight","stop","guard-precheck","deploy-guard","resume-cron","status"))
   a=p.parse_args().mode
   if a=="selftest":selftest()
   elif a=="preflight":
    result=preflight();emit("CF_SELECTIVE_SCANNER_READY",crons=result,
     source_guard_checked=True)
   elif a=="stop":stop_scanner()
+  elif a=="guard-precheck":
+   src,config,files,live=deploy_guard_precheck()
+   emit("CF_SELECTIVE_SCANNER_GUARD_PRECHECK_PASS",crons=live,
+    deploy_image="node:22-bookworm-slim",source_size=len(src),
+    original_cron_backup_present=True,deploy_freeze=True,
+    no_remote_changes=True,independent_do_alarm_still_active_possible=True)
   elif a=="deploy-guard":deploy_guard()
   elif a=="resume-cron":resume_scanner_cron()
   else:status()
