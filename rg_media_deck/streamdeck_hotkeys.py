@@ -28,6 +28,8 @@ ACTIONS = {
     "volume_down": "Звук тихіше",
     "volume_up": "Звук гучніше",
     "mute": "Вимкнути / увімкнути звук",
+    "frame_back": "Кадр назад",
+    "frame_forward": "Кадр вперед",
     "play_pause": "Play / Pause (разом)",
     "stop": "Стоп",
     "play_selected": "Показати вибране",
@@ -49,6 +51,8 @@ BROADCAST_BINDINGS = {
 }
 DEFAULT_BINDINGS = {
     **BROADCAST_BINDINGS,
+    "frame_back": "F18",
+    "frame_forward": "F19",
     "play_pause": "Ctrl+Alt+Shift+F6",
     "stop": "Ctrl+Alt+Shift+F7",
     "play_selected": "Ctrl+Alt+Shift+F9",
@@ -213,6 +217,11 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
         self._f17_timer.setInterval(12)
         self._f17_timer.timeout.connect(self._poll_f17)
         self._f17_route: str | None = None
+        self._frame_timer = QTimer()
+        self._frame_timer.setInterval(12)
+        self._frame_timer.timeout.connect(self._poll_frame_keys)
+        self._frame_routes: dict[int, str] = {}
+        self._frame_gates: dict[int, F17PressGate] = {}
         self.f17_poll_count = 0
         self.bindings = validated_bindings(bindings)
         self.registered: dict[int, str] = {}
@@ -238,6 +247,16 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
              if self.bindings.get(action) == "F17" and action in resolved), None)
         if self._f17_route:
             self._f17_timer.start()
+        self._frame_routes = {}
+        self._frame_gates = {}
+        for vk, chord in ((0x81, "F18"), (0x82, "F19")):
+            for action in ACTIONS:
+                if self.bindings.get(action) == chord and action in resolved:
+                    self._frame_routes[vk] = resolved[action]
+                    self._frame_gates[vk] = F17PressGate()
+                    break
+        if self._frame_routes:
+            self._frame_timer.start()
         for offset, action in enumerate(ACTIONS):
             shortcut = self.bindings.get(action)
             if not shortcut or action not in resolved:
@@ -286,6 +305,24 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
                                   now_ms=now_ms):
             self._deliver_hotkey(self._f17_route)
 
+    def _poll_frame_keys(self):
+        """Read only configured F18/F19 to support short USB macro key pulses."""
+        if os.name != "nt" or not self._frame_routes:
+            return
+        now = int(time.monotonic() * 1000)
+        for vk, action in self._frame_routes.items():
+            try:
+                state = ctypes.windll.user32.GetAsyncKeyState(vk)
+            except (AttributeError, OSError):
+                self._frame_timer.stop()
+                self.errors.append("F18/F19: GetAsyncKeyState недоступний")
+                return
+            gate = self._frame_gates[vk]
+            if gate.observe(down=bool(state & 0x8000),
+                            pressed_since_poll=bool(state & 0x0001),
+                            now_ms=now):
+                self._deliver_hotkey(action)
+
     @staticmethod
     def _native_type(event_type) -> str:
         """PySide6 delivers a QByteArray; str(QByteArray) may contain b'...'."""
@@ -307,6 +344,12 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             if action == self._f17_route and self._f17_route:
                 if self._f17_gate.native_hotkey(int(time.monotonic() * 1000)):
                     self._deliver_hotkey(action)
+            elif action in self._frame_routes.values():
+                vk = next((key for key, route in self._frame_routes.items()
+                           if route == action), None)
+                gate = self._frame_gates.get(vk)
+                if gate and gate.native_hotkey(int(time.monotonic() * 1000)):
+                    self._deliver_hotkey(action)
             else:
                 self._deliver_hotkey(action)
             return True, 0
@@ -314,6 +357,9 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
 
     def close(self):
         self._f17_timer.stop()
+        self._frame_timer.stop()
+        self._frame_routes.clear()
+        self._frame_gates.clear()
         self._f17_route = None
         if os.name == "nt":
             for key_id in self.registered:
