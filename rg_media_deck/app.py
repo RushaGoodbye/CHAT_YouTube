@@ -42,7 +42,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.7'
+VERSION = '0.4.8'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -1639,7 +1639,7 @@ class MainWindow(QMainWindow):
                 'collections': self.collections,
                 'auto_library_updates': self.auto_library_updates,
                 'streamdeck_bindings': self.deck_bindings,
-                'hotkeys_layout_version': 3,
+                'hotkeys_layout_version': 4,
                 'deck_collections': self.deck_collections,
             })
         except OSError as exc:
