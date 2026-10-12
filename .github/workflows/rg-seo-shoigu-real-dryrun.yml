@@ -15,7 +15,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify real SEO after duplicate synopsis cleanup.
+    # Fail on REVIEW; verify Shoigu description without inferred Putin motives.
     steps:
       - uses: actions/checkout@v4
         with:
