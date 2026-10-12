@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_update_install_audit",
+  "action": "youtube_stage_verified_0723",
   "args": {
-    "nonce": "readonly-version-check-0722-20261012"
+    "nonce": "deliver-QT-button-affordance-verified-0723-no-launch-20261012"
   }
 }
