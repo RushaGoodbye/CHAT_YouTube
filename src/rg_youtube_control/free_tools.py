@@ -757,10 +757,13 @@ def _remove_unsupported_named_claims(
             for match in re.finditer(r"\b[А-ЯЁІЇЄҐ][а-яёіїєґ]{4,}\b", sentence)
             if match.start() > 2
             and stem(match.group(0)) not in supported
+            and stem(match.group(0)) not in {
+                "минис", "росии", "росия", "украи", "украй"
+            }
         ]
         # A sentence naming two+ otherwise unseen people is an unsupported
         # assertion, not a description of verified dialogue topics.
-        if len(proper) >= 2:
+        if proper:
             continue
         result.append(sentence)
     return " ".join(result).strip()
@@ -2236,6 +2239,30 @@ chapters: рядок з підтвердженими таймкодами та �
                 raise ValueError(
                     "description quality failed: " + description_error
                 )
+
+            # Repeat source-checked cleanup AFTER any model recovery.
+            if evidence_report:
+                public_description = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
+                )
+                public_description = re.sub(
+                    r"(?i)(?:,?\s*(?:але|а)\s+)?Путін\s+"
+                    r"(?:уволив|звільнив|усунув|прибрав)\s+"
+                    r"(?:його|Шойгу)\s+(?:через|щоб|за)\s+[^.?!]*",
+                    "",
+                    public_description,
+                )
+                public_description = _remove_unsupported_named_claims(
+                    public_description, evidence_report, current_title,
+                )
+                candidate["description"] = public_description
+                final_desc_error = _description_quality_error(
+                    public_description, transcript, max_chars=950,
+                )
+                if final_desc_error:
+                    raise ValueError(
+                        "grounded description failed final check: " + final_desc_error
+                    )
 
             model_tags = [
                 str(item).strip().lstrip("#")
