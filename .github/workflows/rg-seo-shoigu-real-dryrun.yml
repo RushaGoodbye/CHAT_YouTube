@@ -15,7 +15,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify ASR-safe grounded angles in real Shoigu video.
+    # Fail on REVIEW; verify real SEO after duplicate synopsis cleanup.
     steps:
       - uses: actions/checkout@v4
         with:
