@@ -149,12 +149,30 @@ def make_caption(title,body):
  out="<b>"+html.escape(title,quote=False)+"</b>\n\n"+html.escape(body,quote=False)
  if len(out)>MAX_POST:raise Fail("caption_too_long")
  return out
+def old_backlog_known(source):
+ """Read-only cross-reference against all old NAS candidate IDs/URLs.
+ Reject old content even if a moderator sends its URL to the new bot again.
+ """
+ p=STATE/"migration_shadow.sqlite3"
+ if not p.is_file() or p.is_symlink():return True  # Fail closed
+ if source.startswith("telegram-forward:"):return False
+ try:
+  dburi="file:"+urllib.parse.quote(str(p),safe="/")+"?mode=ro"
+  with sqlite3.connect(dburi,uri=True,timeout=3) as old:
+   present=old.execute("SELECT 1 FROM nas_delivery_pre_cutover_quarantine WHERE source_url=? LIMIT 1",(source,)).fetchone()
+   if present:return True
+   present=old.execute("SELECT 1 FROM moderation_projection WHERE source_url=? LIMIT 1",(source,)).fetchone()
+   return present is not None
+ except sqlite3.Error:return True
 def insert_post(db,source,kind,title,body,photo,moderator_chat,now):
  if not (isinstance(moderator_chat,int) and moderator_chat>0):raise Fail("invalid_moderator")
  if not check_url(source) and not source.startswith("telegram-forward:"):raise Fail("invalid_source")
+ if old_backlog_known(source):raise Fail("already_in_pre_cutover_history")
  if not photo or not (photo.startswith("https://") or re.fullmatch(r"[A-Za-z0-9_-]{25,}",photo)):raise Fail("photo_required")
  caption=make_caption(title,body)
- key=hashlib.sha256((kind+"\0"+source+"\0"+title).encode()).hexdigest()[:16]
+ # Stable by canonical source, regardless of title edits.
+ # Forwarded Telegram messages carry their own immutable source identity.
+ key=hashlib.sha256((kind+"\0"+source).encode()).hexdigest()[:16]
  db.execute("BEGIN IMMEDIATE")
  try:
   added=db.execute("""INSERT OR IGNORE INTO bot_posts
@@ -307,7 +325,7 @@ def selftest():
   cid,created,_=insert_post(db,"https://www.ukrinform.ua/example","link","Новина про важливі події в Україні",
     "За повідомленням організації, у місті відбулися важливі події. Представники відповідальних установ перевіряють повідомлення та повідомляють деталі.", "https://www.ukrinform.ua/photo.jpg",1234,now)
   assert created and len(cid)==16
-  assert insert_post(db,"https://www.ukrinform.ua/example","link","Новина про важливі події в Україні",
+  assert insert_post(db,"https://www.ukrinform.ua/example","link","Оновлений заголовок про важливі події в Україні",
     "За повідомленням організації, у місті відбулися важливі події. Представники відповідальних установ перевіряють повідомлення та повідомляють деталі.","https://www.ukrinform.ua/photo.jpg",1234,now)[1] is False
   assert decide(db,cid,"ok",1234,999,now)=="not_current"
   db.execute("UPDATE bot_posts SET status='moderation_card_sent',moderator_message_id=55 WHERE id=?",(cid,))
@@ -328,6 +346,8 @@ def selftest():
   finally:globals()["api"]=real
   db.execute("UPDATE bot_posts SET status='delivery_uncertain' WHERE id=?",(cid,))
   assert deliver(db,"FAKE_TOKEN")["status"]=="NO_APPROVED_POST"
+  # Source identity must be independent of mutable title text.
+  assert hashlib.sha256(("link"+"\0"+"https://www.ukrinform.ua/example").encode()).hexdigest()[:16]==cid
   assert not check_url("https://127.0.0.1/a")
   assert not check_url("https://user:pass@evil.com/a")
   assert not complete("Незавершений текст…")
