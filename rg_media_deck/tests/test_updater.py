@@ -39,7 +39,7 @@ class InstallerUpdateTests(unittest.TestCase):
         self.assertFalse(updater.trusted_download_url('http://github.com/RushaGoodbye/CHAT_YouTube/releases/download/x'))
 
     def test_checksum_download(self):
-        data=b'MZ'+b'\0'*8192
+        data=b'PK'+b'\0'*8192
         sha=hashlib.sha256(data).hexdigest()
         release=updater.select_release([self.fake_release()], '0.1.4')
         with tempfile.TemporaryDirectory() as folder:
@@ -55,20 +55,20 @@ class InstallerUpdateTests(unittest.TestCase):
         release=updater.select_release([self.fake_release()], '0.1.4')
         with tempfile.TemporaryDirectory() as folder:
             def fake_request(url,timeout=20):
-                data=b'0'*64 if url==release['sha_url'] else b'MZ'+b'0'*8192
+                data=b'0'*64 if url==release['sha_url'] else b'PK'+b'0'*8192
                 return UrlResp(data,'https://release-assets.githubusercontent.com/artifact')
             with patch.object(updater,'_request',side_effect=fake_request),patch.object(updater,'update_folder',return_value=Path(folder)):
                 with self.assertRaises(ValueError):
                     updater.download_update(release)
                 self.assertFalse(list(Path(folder).glob('*.part')))
-                self.assertFalse(list(Path(folder).glob('*.exe')))
+                self.assertFalse(list(Path(folder).glob('*.zip')))
 
     def test_cancel_removes_partial(self):
         release=updater.select_release([self.fake_release()], '0.1.4')
         with tempfile.TemporaryDirectory() as folder:
-            sha=hashlib.sha256(b'MZ'+b'0'*8192).hexdigest()
+            sha=hashlib.sha256(b'PK'+b'0'*8192).hexdigest()
             def fake_request(url,timeout=20):
-                return UrlResp((sha+'\n').encode() if url==release['sha_url'] else b'MZ'+b'0'*8192,'https://release-assets.githubusercontent.com/artifact')
+                return UrlResp((sha+'\n').encode() if url==release['sha_url'] else b'PK'+b'0'*8192,'https://release-assets.githubusercontent.com/artifact')
             with patch.object(updater,'_request',side_effect=fake_request),patch.object(updater,'update_folder',return_value=Path(folder)):
                 with self.assertRaises(InterruptedError):
                     updater.download_update(release,cancelled=lambda: True)
