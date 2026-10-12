@@ -107,15 +107,6 @@ def selftest():
   db.execute("INSERT INTO nas_news_editorial_content VALUES(?,?,?,?,?,?)",("abcd","event","https://example.org/story","https://example.org/photo",body,1))
   assert editorial_content(db,"abcd")[4]==1
  # Full offline production-shaped fixture. The headline-only candidate must be blocked.
- import hashlib,importlib.util,tempfile,time
- with tempfile.TemporaryDirectory() as folder:
-  module_path=pathlib.Path(folder)/"outbox_fixture.py"
-  module_path.write_text("from importlib.util import spec_from_file_location,module_from_spec\n"
-   "p=spec_from_file_location('real_outbox',"+repr(str(OUTBOX))+")\n"
-   "m=module_from_spec(p);p.loader.exec_module(m)\n"
-   "gather=m.gather\n",encoding="utf-8")
-  # The real installed module must already be present before production audit,
-  # while CI passes an override module only through fixtures.
  with sqlite3.connect(":memory:") as db:
   db.executescript("""CREATE TABLE nas_shadow_delivery_outbox(
    candidate_id TEXT PRIMARY KEY,approval_event_id TEXT,content_sha256 TEXT,
