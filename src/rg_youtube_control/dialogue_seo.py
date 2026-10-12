@@ -296,6 +296,7 @@ def _topic_display_uk(topic: str, current_title: str = "") -> str:
         r"\b(?:увольнение|увольнения|увільнення)\b",
         "звільнення", value, flags=re.I,
     )
+    value = re.sub(r"^корупцію\b", "корупція", value, flags=re.I)
     # A capitalized ASR name may be a close misspelling of an actual ALL-CAPS
     # person name in the video title (real example: Шагу vs ШОЙГУ).
     canonical = [
@@ -406,16 +407,39 @@ def grounded_chapters_from_evidence(
     if len(selected) < 2:
         return ""
 
+    def concept(value: str) -> str:
+        # "Причина звільнення Шойгу", "Звільнення Шойгу" and another
+        # instance of the first label must not become three chapters.
+        clean = re.sub(
+            r"\b(?:причина|причини|дискусія|про|щодо)\b", " ",
+            value.casefold(),
+        )
+        return " ".join(clean.split())
+
     first_label = selected[0][2]
+    first_label = first_label[:1].upper() + first_label[1:]
     rows = [f"00:00 {first_label}"]
+    seen = [concept(first_label)]
     for at, stamp, label, _confidence in selected:
         if at < 20:
             continue
+        normalized = concept(label)
+        if any(
+            normalized == previous
+            or (
+                len(normalized) >= 12 and len(previous) >= 12
+                and (normalized in previous or previous in normalized)
+            )
+            for previous in seen
+        ):
+            continue
         if len(rows) >= 10:
             break
+        label = label[:1].upper() + label[1:]
         rows.append(f"{stamp} {label}")
-    # Require 3 real chapters: a title plus at least two source-aligned
-    # changes. A blank result is safer than plausible but fabricated chapters.
+        seen.append(normalized)
+    # Require 3 different source-aligned chapters; duplicate story
+    # labels are not independent chapters even if their times differ.
     return "\n".join(rows) if len(rows) >= 3 else ""
 
 
