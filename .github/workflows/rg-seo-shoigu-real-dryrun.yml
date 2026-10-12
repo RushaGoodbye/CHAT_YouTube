@@ -15,6 +15,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
+    # Content REVIEW must fail this gate, even when the model returns valid JSON.
     steps:
       - uses: actions/checkout@v4
         with:
