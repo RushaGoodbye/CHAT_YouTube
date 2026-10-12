@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_verified_0721",
+  "action": "youtube_local_runtime_status",
   "args": {
-    "nonce": "deliver-pinned-sha-verified-0721-installer-no-execution-20261012"
+    "nonce": "readonly-autorelaunch-probe-20261012"
   }
 }
