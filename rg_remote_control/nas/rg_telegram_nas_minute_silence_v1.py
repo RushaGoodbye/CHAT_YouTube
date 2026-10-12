@@ -36,6 +36,10 @@ def permitted():
  except (OSError,ValueError):raise Fail("nas_cutover_gate_bad_json") from None
  if data.get("cloudflare_polling_disabled_verified") is not True or data.get("nas_single_poll_owner") is not True:
   raise Fail("nas_cutover_not_verified")
+ # Selective moderation handoff leaves Cloudflare's minute-silence owner active.
+ # Never allow both Cloudflare and NAS to send the same 09:00 memorial image.
+ if data.get("selective_moderation_handoff") is True:
+  raise Fail("minute_silence_stays_on_cloudflare")
  return True
 def kyiv_now(now=None):
  """Correct Europe/Kyiv wall-clock on Python 3.8+ including EU DST switch.
@@ -149,6 +153,17 @@ def selftest():
   assert reserve(db,"2026-10-13",1)
   assert not reserve(db,"2026-10-13",2)
   assert db.execute("SELECT count(*) FROM scheduled_publications").fetchone()[0]==1
+ # A moderation-only migration must never authorize duplicate minute silence.
+ import tempfile
+ with tempfile.TemporaryDirectory() as td:
+  fake=pathlib.Path(td)/"cutover.json"
+  fake.write_text(json.dumps({"cloudflare_polling_disabled_verified":True,
+   "nas_single_poll_owner":True,"selective_moderation_handoff":True}))
+  os.chmod(fake,0o600)
+  with patch.dict(globals(),{"GATE":fake}):
+   try:permitted()
+   except Fail as ex:assert str(ex)=="minute_silence_stays_on_cloudflare"
+   else:raise AssertionError("duplicate_minute_silence_possible")
  with patch.dict(globals(),{"GATE":pathlib.Path("/this/path/must/not/exist") }):
   try:permitted()
   except Fail:pass
