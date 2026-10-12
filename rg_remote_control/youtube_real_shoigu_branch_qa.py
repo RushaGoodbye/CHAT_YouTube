@@ -72,6 +72,21 @@ try:
     chapters=str(package.get("chapters") or "")
     titles=[str(x) for x in package.get("title_variants") or []]
     issues=ab_title_issues(titles,evidence)
+    labels=[
+        line.split(" ",1)[1].casefold()
+        for line in chapters.splitlines() if " " in line
+    ]
+    def core(label):
+        return " ".join(
+            word for word in label.split()
+            if word not in ("причина","причини","дискусія","про","щодо")
+        )
+    topic_keys=[core(label) for label in labels]
+    chapter_repeats=any(
+        a==b or (len(a)>=12 and len(b)>=12 and (a in b or b in a))
+        for i,a in enumerate(topic_keys)
+        for b in topic_keys[i+1:]
+    )
     omitted=list(package.get("timeline_omitted_topics") or [])
     topics=[str(t.get("topic") or "") for b in evidence.get("blocks") or [] for t in b.get("topics") or []]
     absent=[_topic_display_uk(t,title) for t in topics
@@ -81,7 +96,9 @@ try:
        "all_grounded_topic_labels_in_output":not absent,
        "no_omitted_topics":not omitted,
        "no_unedited_asr_name_in_description":"Шагу" not in description,
-       "ukrainian_topic_labels":"увольнения" not in description.casefold(),
+       "ukrainian_topic_labels":"увольнения" not in description.casefold()
+         and "увільнення" not in description.casefold(),
+       "chapters_no_duplicate_story_labels":not chapter_repeats,
        "at_least_three_real_source_chapters":len(chapters.splitlines())>=3,
        "exactly_three_ab":len(titles)==3,
        "ab_quality_no_issues":not issues,
