@@ -12,6 +12,17 @@ REPO="RushaGoodbye/rasha-goodbye-news-bot"
 FILES={"index.js":"cloudflare-alerts/src/index.js",
        "wrangler.toml":"cloudflare-alerts/wrangler.toml",
        "test-nas-moderation-owner.mjs":"cloudflare-alerts/scripts/test-nas-moderation-owner.mjs"}
+INVENTORY_FILES={
+ "content_config.js":"cloudflare-content-hub/src/config.js",
+ "content_index.js":"cloudflare-content-hub/src/index.js",
+ "content_card.js":"cloudflare-content-hub/src/card.js",
+ "editorial_calendar.json":"editorial_calendar.json",
+ "editorial_calendar.js":"cloudflare-alerts/src/editorial-calendar.js",
+ "editorial_image.js":"cloudflare-alerts/src/editorial-image.js",
+ "air_alert_index.js":"cloudflare-alerts/src/index.js",
+ "air_alert_card.js":"cloudflare-alerts/src/alert-card.js",
+ "minute_silence_asset.py":"cloudflare-alerts/scripts/prepare-minute-silence-asset.py",
+}
 STAGE=STATE/"cf_moderation_handoff_stage_v1"
 PROD=ROOT/"RG_ALERTS_DEPLOY/cloudflare-alerts"
 def out(status,**k):
@@ -74,14 +85,28 @@ def stage():
  pending=ROOT/"RG_SECRETS/rg_nas_telegram_cutover_enabled"
  if pending.exists():raise RuntimeError("nas_cutover_already_enabled")
  files={name:contents(token,path) for name,path in FILES.items()}
+ inventory={name:contents(token,path) for name,path in INVENTORY_FILES.items()}
  del token
  checks=validate(files)
+ calendar=json.loads(inventory["editorial_calendar.json"])
+ if not isinstance(calendar,dict) or not isinstance(calendar.get("events"),list):
+  raise RuntimeError("calendar_manifest_invalid")
+ slot_conf=inventory["content_config.js"].decode("utf-8")
+ slots={}
+ for name in ("morning","poll","explain","evening"):
+  match=re.search(r"\\b"+name+r":\s*\{\s*hour:\s*(\d+),\s*minute:\s*(\d+),\s*windowMinutes:\s*(\d+)",slot_conf)
+  if not match:raise RuntimeError("content_slots_missing")
+  slots[name]={"hour":int(match.group(1)),"minute":int(match.group(2)),
+    "window_minutes":int(match.group(3))}
+ assert all(0<=v["hour"]<=23 and 0<=v["minute"]<=59 for v in slots.values())
+ # Keep all canonical source data for conversion/reconciliation, no running worker changes.
+
  existing=(PROD/"src/index.js").read_text("utf-8")
  if 'const alertPollTask = poll(env, ctx)' not in existing or 'processTelegramModerationUpdates(env)' not in existing:
   raise RuntimeError("local_worker_source_not_expected")
  STAGE.mkdir(mode=0o700,parents=True,exist_ok=True)
  if STAGE.stat().st_mode&0o077:os.chmod(STAGE,0o700)
- for name,value in files.items():
+ for name,value in {**files,**inventory}.items():
   tmp=STAGE/("."+name+".tmp")
   if tmp.is_symlink():raise RuntimeError("tmp_symlink")
   tmp.write_bytes(value);os.chmod(tmp,0o600);os.replace(tmp,STAGE/name)
@@ -91,6 +116,11 @@ def stage():
   "new_index_sha256_16":hashlib.sha256(files["index.js"]).hexdigest()[:16],
   "new_config_default_owner":"cloudflare","live_worker_owner_not_changed":True,
   "production_crons_not_changed":True,
+  "inventory":{"files":len(inventory),"calendar_events":len(calendar["events"]),
+   "scheduled_slots":slots,
+   "emergency_services":["kyiv_air_alerts","minute_silence_09_00"],
+   "holiday_image_renderer_source_saved":True,
+   "original_publication_queue_preserved":True},
   "cutover_allowed":False,"telegram_sends":0,"telegram_polls":0,"cloudflare_writes":0}
  path=STAGE/"preflight_report.json"
  path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n","utf-8")
