@@ -181,7 +181,7 @@ def test_guided_next_action_contract() -> None:
         'def _run_guided_next_action',
         'self._refresh_next_action_card(safe_capacity)',
         '"Підготувати сьогоднішній стрім"',
-        '"Перевірити підготовлені пакети: {draft_count}"',
+        '"Перевірити SEO-пакети: {draft_count}"',
         '"Готово до YouTube: {len(ready_queue)} відео"',
     ):
         assert marker in source
