@@ -218,7 +218,8 @@ def check():
  # Confirm the scanner's independent DO alarm code now belongs to NAS.
  checker=STATE/"rg_telegram_cf_selective_scanner_stop_v1.py"
  if not checker.is_file() or checker.is_symlink():raise RuntimeError("SELECTIVE_SCANNER_MODULE_MISSING")
- import importlib.util
+ # importlib imported at module scope; importing here shadows the earlier
+ # importlib lookup and causes UnboundLocalError during standby preflight.
  spec=importlib.util.spec_from_file_location("rg_cf_scanner_guard_check",str(checker))
  c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
  if c.get_scanner_owner(t)!="nas":raise RuntimeError("SELECTIVE_SCANNER_OWNER_NOT_NAS")
@@ -319,6 +320,9 @@ def status():
     freeze=FREEZE.is_file(),deployment_receipt=(OUT/"deployed.json").is_file(),
     bot_gate=CUTOVER.is_file())
 def selftest():
+ # Prevent regression: an in-function 'import importlib.util' makes
+ # importlib a local in check(), breaking the earlier standby loader.
+ assert "importlib" not in check.__code__.co_varnames, "check_importlib_shadowing"
  config='''name = "rasha-goodbye-air-alerts"\n[triggers]\ncrons = ["* * * * *"]\n[vars]\nTELEGRAM_CHAT_ID = "@RussiaGoodbyeUA"\n'''
  # A modern deployed Worker has an explicit existing owner switch.
  guarded='''async scheduled(event, env, ctx) {
