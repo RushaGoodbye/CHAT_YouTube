@@ -286,12 +286,40 @@ def evidence_outline_text(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _topic_display_uk(topic: str, current_title: str = "") -> str:
+    """Clean source-topic labels; never copy garbled ASR proper names verbatim."""
+    from difflib import SequenceMatcher
+
+    value = _compact(topic)
+    value = re.sub(r"^дискусія\s+про\s+", "", value, flags=re.I)
+    value = re.sub(
+        r"\b(?:увольнение|увольнения|увільнення)\b",
+        "звільнення", value, flags=re.I,
+    )
+    # A capitalized ASR name may be a close misspelling of an actual ALL-CAPS
+    # person name in the video title (real example: Шагу vs ШОЙГУ).
+    canonical = [
+        word for word in re.findall(r"\b[А-ЯЁІЇЄҐ]{4,}\b", current_title)
+        if word.casefold() not in {"раша", "гудбай", "чат", "рулетка"}
+    ]
+    for word in set(re.findall(r"\b[А-ЯЁІЇЄҐ][а-яёіїєґ]{3,}\b", value)):
+        candidates = [
+            name for name in canonical
+            if SequenceMatcher(None, word.casefold(), name.casefold()).ratio() >= 0.65
+        ]
+        if len(candidates) == 1:
+            normalized = candidates[0].capitalize()
+            value = re.sub(r"\b" + re.escape(word) + r"\b", normalized, value)
+    return value
+
+
 def preserve_outline_topics(
     description: str,
     report: dict[str, Any],
     *,
     max_body_bytes: int = 3900,
     max_topic_bullets: int = 6,
+    current_title: str = "",
 ) -> tuple[str, list[str]]:
     """Add missing grounded topics without silently discarding the outline.
 
@@ -303,7 +331,7 @@ def preserve_outline_topics(
     seen: set[str] = set()
     for block in report.get("blocks") or []:
         for item in block.get("topics") or []:
-            topic = _compact(item.get("topic"))
+            topic = _topic_display_uk(item.get("topic"), current_title)
             if topic and topic.casefold() not in seen:
                 seen.add(topic.casefold())
                 unique.append(topic)
