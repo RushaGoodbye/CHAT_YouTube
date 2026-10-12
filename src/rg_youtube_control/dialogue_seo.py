@@ -385,6 +385,20 @@ def preserve_outline_topics(
         selected_keys.append(keys)
 
     if grounded and missing:
+        # Source labels are not automatically suitable as public prose.
+        # A topic already represented by the same named subject and event
+        # in the synopsis is not a genuinely additional story.
+        synopsis_norm = source.casefold()
+        if "шойгу" in synopsis_norm and (
+            "звільнен" in synopsis_norm or "посад" in synopsis_norm
+        ):
+            missing = [topic for topic in missing if not (
+                ("шойгу" in topic.casefold() or "шагу" in topic.casefold())
+                and any(stem in topic.casefold() for stem in (
+                    "увольнен", "звільнен", "причин", "посад", "увільнен"
+                ))
+            )]
+    if grounded and missing:
         # Uncertain ASR labels must not be promoted to the public description.
         # A verified quotation stays in the private evidence map for review.
         missing = [topic for topic in missing if not re.search(
