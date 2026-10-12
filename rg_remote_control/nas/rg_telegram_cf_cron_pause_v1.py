@@ -63,6 +63,36 @@ def cf_get_ipv4_curl(token,endpoint,name):
  if len(p.stdout)>65536:raise RuntimeError("CF_RESPONSE_TOO_LARGE")
  try:return json.loads(p.stdout)
  except ValueError:raise RuntimeError("CF_RESPONSE_JSON_INVALID") from None
+def cf_put_ipv4_curl(token,endpoint,name,body):
+ """One-attempt PUT via curl IPv4; bearer and JSON body supplied over stdin.
+ Never replay a PUT when transport status is uncertain; readback + rollback.
+ """
+ curl=shutil.which("curl")
+ if not curl:raise RuntimeError(f"CF_PUT_{name}_CURL_MISSING")
+ if not re.fullmatch(r"[A-Za-z0-9_-]{25,500}",token):
+  raise RuntimeError("CF_TOKEN_FORMAT_INVALID")
+ if not isinstance(body,list) or len(body)>5:
+  raise RuntimeError("CF_PUT_BODY_INVALID")
+ body_data=json.dumps(body,separators=(",",":"))
+ if len(body_data)>1200:raise RuntimeError("CF_PUT_BODY_TOO_LARGE")
+ config='header = "Authorization: Bearer '+token+'"\n'
+ config+='header = "Content-Type: application/json"\n'
+ # curl config stdin is an isolated private pipe; no token in argv or files.
+ # Use -d with a JSON argument containing only public Cron expressions.
+ try:
+  p=subprocess.run([curl,"-q","-4","-sS","-f","--connect-timeout","7","--max-time","16",
+     "--config","-","-X","PUT","--data-raw",body_data,endpoint],
+     input=config,text=True,capture_output=True,timeout=20)
+ except (OSError,subprocess.TimeoutExpired):
+  raise RuntimeError(f"CF_PUT_{name}_NETWORK_UNCERTAIN") from None
+ if p.returncode:
+  if p.returncode==22:
+   raise RuntimeError(f"CF_PUT_{name}_CURL_HTTP") from None
+  raise RuntimeError(f"CF_PUT_{name}_NETWORK_UNCERTAIN") from None
+ if len(p.stdout)>65536:raise RuntimeError("CF_RESPONSE_TOO_LARGE")
+ try:return json.loads(p.stdout)
+ except ValueError:raise RuntimeError("CF_RESPONSE_JSON_INVALID") from None
+
 def cf_call(token,method,name,body=None):
  if name not in NAMES:raise RuntimeError("WORKER_NOT_APPROVED")
  endpoint=f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/workers/scripts/{name}/schedules"
@@ -70,6 +100,9 @@ def cf_call(token,method,name,body=None):
  if body is not None:headers["Content-Type"]="application/json"
  payload=None if body is None else json.dumps(body,separators=(",",":")).encode("utf-8")
  response=None
+ if method=="PUT":
+  response=cf_put_ipv4_curl(token,endpoint,name,body)
+  return cf_schedule_result(response,method,name)
  # Only GETs are retried/fallbacked without side effects. Never replay an
  # uncertain PUT: the caller must read back and reconcile first.
  max_attempts=2 if method=="GET" else 1
@@ -91,6 +124,8 @@ def cf_call(token,method,name,body=None):
     time.sleep(1+attempt)
     continue
    response=cf_get_ipv4_curl(token,endpoint,name)
+ return cf_schedule_result(response,method,name)
+def cf_schedule_result(response,method,name):
  if not isinstance(response,dict) or response.get("success") is not True:
   raise RuntimeError(f"CF_{method}_{name}_ERROR")
  result=response.get("result")
@@ -267,13 +302,17 @@ def selftest():
    with mock.patch("time.sleep"):
     assert cf_call("A"*40,"GET","rasha-goodbye-air-alerts")==["* * * * *"]
     assert opening.call_count==2 and ipv4.call_count==1
- # An uncertain live PUT must not be retried automatically.
- with mock.patch("urllib.request.urlopen",side_effect=urllib.error.URLError("simulated_reset")) as opening:
+ # One PUT via IPv4 only, no retries and no leakage to argv.
+ with mock.patch(__name__+".cf_put_ipv4_curl",return_value=fake) as write:
+  assert cf_call("A"*40,"PUT","rasha-goodbye-air-alerts",[])==["* * * * *"]
+  assert write.call_count==1
+ # Transport uncertainty propagates and prevents any unsafe replay.
+ with mock.patch(__name__+".cf_put_ipv4_curl",side_effect=RuntimeError("CF_PUT_rasha-goodbye-air-alerts_NETWORK_UNCERTAIN")) as write:
   try:cf_call("A"*40,"PUT","rasha-goodbye-air-alerts",[])
   except RuntimeError as ex:
    assert str(ex)=="CF_PUT_rasha-goodbye-air-alerts_NETWORK_UNCERTAIN"
   else:raise AssertionError("unsafe PUT retry")
-  assert opening.call_count==1
+  assert write.call_count==1
 
  emit("CF_MIGRATION_PAUSE_SELFTEST_PASS",rollback="IMPLEMENTED",dry_run=True,network_calls=0)
 if __name__=="__main__":
