@@ -1,4 +1,4 @@
-"""Installer-based updates for RG Media Deck, with release-scoped SHA256 checks."""
+"""Verified ZIP updates for RG Media Deck; no Windows setup installer needed."""
 from __future__ import annotations
 
 import hashlib
@@ -18,10 +18,10 @@ RELEASES_API = f'https://api.github.com/repos/{REPO}/releases?per_page=50'
 TAG_PATTERN = re.compile(r'^rg-media-deck-v(\d+\.\d+\.\d+)$')
 VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
 SHA_PATTERN = re.compile(r'^[a-fA-F0-9]{64}$')
-INSTALLER_NAME = 'RG_Media_Deck_Setup.exe'
+INSTALLER_NAME = 'RG_Media_Deck_Update.zip'
 CHECKSUM_NAME = INSTALLER_NAME + '.sha256'
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
-AGENT = 'RG-Media-Deck-Updater/0.1.6'
+AGENT = 'RG-Media-Deck-Updater/0.4.3'
 
 
 def version_tuple(version: str) -> tuple[int, int, int]:
@@ -133,8 +133,8 @@ def download_update(release: dict, progress=None, cancelled=None) -> tuple[Path,
         raise ValueError('Недовірене посилання на інсталятор')
     expected = fetch_checksum(release['sha_url'])
     folder = update_folder()
-    staged = folder / f'RG_Media_Deck_Setup_{release["version"]}.exe'
-    partial = folder / f'RG_Media_Deck_Setup_{release["version"]}.part'
+    staged = folder / f'RG_Media_Deck_Update_{release["version"]}.zip'
+    partial = folder / f'RG_Media_Deck_Update_{release["version"]}.part'
     digest = hashlib.sha256()
     size = 0
     try:
@@ -142,7 +142,7 @@ def download_update(release: dict, progress=None, cancelled=None) -> tuple[Path,
             _validate_final_url(response)
             expected_size = int(response.headers.get('Content-Length') or 0)
             if expected_size > MAX_INSTALLER_BYTES:
-                raise ValueError('Інсталятор перевищує максимальний розмір')
+                raise ValueError('ZIP перевищує максимальний розмір')
             with partial.open('wb') as handle:
                 while True:
                     if cancelled is not None and cancelled():
@@ -152,7 +152,7 @@ def download_update(release: dict, progress=None, cancelled=None) -> tuple[Path,
                         break
                     size += len(block)
                     if size > MAX_INSTALLER_BYTES:
-                        raise ValueError('Інсталятор перевищує максимальний розмір')
+                        raise ValueError('ZIP перевищує максимальний розмір')
                     handle.write(block)
                     digest.update(block)
                     if progress is not None and expected_size:
@@ -161,8 +161,8 @@ def download_update(release: dict, progress=None, cancelled=None) -> tuple[Path,
             raise ValueError('Пошкоджене завантаження: SHA256 не збігається')
         with partial.open('rb') as handle:
             signature = handle.read(2)
-        if signature != b'MZ':
-            raise ValueError('Файл не є Windows EXE')
+        if signature != b'PK':
+            raise ValueError('Файл не є ZIP-оновленням')
         os.replace(partial, staged)
         return staged, expected
     finally:
