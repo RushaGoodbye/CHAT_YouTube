@@ -16,7 +16,7 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; test fresh Shoigu ASR variants with source-grounded alternative topics.
+    # Fail on REVIEW; reject fresh Shoгу bad ASR hooks and verify direct source angles.
     steps:
       - uses: actions/checkout@v4
         with:
