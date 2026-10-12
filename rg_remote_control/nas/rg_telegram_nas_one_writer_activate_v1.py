@@ -60,6 +60,19 @@ def gates():
  if scheduler.count("# RG_NAS_MINUTE_SILENCE_V1")!=1:
   raise RuntimeError("MINUTE_SCHEDULER_HOOK_MISSING")
  if GATE.exists() or GATE.is_symlink():raise RuntimeError("NAS_BOT_ALREADY_ACTIVE")
+ # Without local replacements, enabling the gate with ALL Cloudflare cron
+ # schedules stopped would permanently silence Kyiv alerts and daily posts.
+ # Manual bot readiness alone does not satisfy safe full cutover readiness.
+ coverage=STATE/"rg_nas_full_migration_coverage_v1.json"
+ if coverage.is_symlink() or not coverage.is_file():
+  raise RuntimeError("NAS_ALERTS_CONTENT_NOT_MIGRATED")
+ try:services=json.loads(coverage.read_text("utf-8"))
+ except (OSError,ValueError):raise RuntimeError("NAS_MIGRATION_COVERAGE_INVALID") from None
+ checks=services.get("verified_services") if isinstance(services,dict) else None
+ if not isinstance(checks,dict) or not all(checks.get(x) is True for x in
+   ("kyiv_air_alerts","daily_morning","daily_poll","daily_explain","daily_evening",
+    "holiday_images")):
+  raise RuntimeError("NAS_ALERTS_CONTENT_NOT_MIGRATED")
  auth=token()
  for name in NAMES:
   result=api("https://api.cloudflare.com/client/v4/accounts/"+ACCOUNT+"/workers/scripts/"+name+"/schedules",auth)
