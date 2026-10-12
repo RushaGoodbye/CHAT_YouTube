@@ -372,6 +372,19 @@ def ab_title_issues(
         return issues
     if any(len(value) > 100 or len(value) < 20 for value in values):
         issues.append("Назви A/B мають бути змістовними (20-100 символів).")
+    # These surfaced during a real Shoigu 9:53 run. A title must contain a
+    # concrete angle, not say merely that the video has opinions/discussion.
+    weak_phrases = (
+        r"\bвидео\s+с\s+обсуждени\w*",
+        r"\bверсии\s+и\s+мнения\b",
+        r"\bразные\s+точки\s+зрения\b",
+        r"\bобсуждение\s+событи\w*\b",
+    )
+    for number, value in enumerate(values, 1):
+        if any(re.search(pattern, value.casefold()) for pattern in weak_phrases):
+            issues.append(
+                f"A/B варіант {number} - загальна фраза замість конкретного сюжету."
+            )
     normal = [
         re.sub(
             r"^(?:чат\s*рулетка|раша\s*гудбай)[\s:.|!-]*",
