@@ -266,3 +266,43 @@ def test_replacement_of_original_tags_remains_allowed():
         tags=["ціни на бензин"],
     )
     assert not any("усі теги" in issue for issue in issues)
+
+
+def test_overlong_description_never_passes_quality_gate():
+    report = _complete_report()
+    original = (
+        "Цензура музики. Забороняють слухати пісні. "
+        "Ціни на бензин: Бензин знову подорожчав."
+    )
+    description = original + " " * (5001 - len(original))
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description=description,
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+    )
+    assert any("5000 символів" in issue for issue in issues)
+
+
+def test_description_at_youtube_limit_does_not_raise_length_warning():
+    report = _complete_report()
+    original = (
+        "Цензура музики. Забороняють слухати пісні. "
+        "Ціни на бензин: Бензин знову подорожчав."
+    )
+    description = original + " " * (5000 - len(original))
+    issues = review_seo_package(
+        title="Цензура музики та ціни на бензин у Росії",
+        description=description,
+        variants=[
+            "Заборона пісень у Росії: розмова про цензуру музики",
+            "Подорожчання бензину: що відповів російський співрозмовник",
+            "Росіянин розповів про цензуру музики й ціни на бензин",
+        ],
+        evidence_report=report,
+    )
+    assert not any("5000 символів" in issue for issue in issues)

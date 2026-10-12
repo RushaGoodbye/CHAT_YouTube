@@ -24,6 +24,10 @@ def review_seo_package(
     main_title = str(title or "").strip()
     if not main_title or not (20 <= len(main_title) <= 100):
         issues.append("Основна назва має містити 20-100 символів.")
+    # YouTube descriptions are limited to 5,000 Unicode characters. A full
+    # semantic pass must not label an unpublishable draft as ready.
+    if len(description or "") > 5000:
+        issues.append("Опис перевищує ліміт YouTube: 5000 символів.")
     issues.extend(ab_title_issues(variants, evidence_report))
     if any(str(v).strip().casefold() == main_title.casefold() for v in variants):
         issues.append("A/B-альтернативи повторюють основну назву.")
