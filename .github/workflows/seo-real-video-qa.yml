@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: rg-seo-real-video-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   real_shoigu:
     if: github.head_ref == 'fix/seo-quality-end-to-end-evidence-protection'
