@@ -384,6 +384,12 @@ def preserve_outline_topics(
         missing.append(topic)
         selected_keys.append(keys)
 
+    if grounded and missing:
+        # Uncertain ASR labels must not be promoted to the public description.
+        # A verified quotation stays in the private evidence map for review.
+        missing = [topic for topic in missing if not re.search(
+            r"(?i)шагу|увільнен|стратегічн.{0,16}неадекват", topic
+        )]
     if not missing:
         return source, []
     # Keep a concise representative spread across the WHOLE timeline.
