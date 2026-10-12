@@ -10,7 +10,7 @@ DB=STATE/"migration_shadow.sqlite3"
 KEY=ROOT/"RG_SECRETS/rg_local_review_ui_password"
 PORT=8767
 APP="RG_NAS_LOCAL_REVIEW_V1"
-UI_VERSION="2.2"
+UI_VERSION="2.3"
 VALID_VIEWS=("pending","stale","ready_shadow","rejected","deferred","all")
 LABELS={"pending":"Нові","stale":"Потрібна перевірка","ready_shadow":"Схвалені","rejected":"Відхилені","deferred":"Відкладені","all":"Усі"}
 STATES={"awaiting_review":"Очікує модерації","ready_shadow":"Схвалено локально","rejected":"Відхилено","deferred":"Відкладено","invalid":"Помилка"}
@@ -62,14 +62,16 @@ def review_rows(db_path,now=None):
     "SELECT candidate_id,headline,image_url,source_url,status,decision FROM moderation_projection ORDER BY rowid DESC LIMIT 150"):
    published=dates.get(cid,0)
    fresh=published>0 and now-36*3600<=published<=now+300
-   body="";snippet="";editor_verified=False
+   body="";snippet="";editor_verified=False;is_autodraft=False
    if db.execute("SELECT 1 FROM sqlite_master WHERE name='nas_news_editorial_content' AND type='table'").fetchone():
     saved=db.execute("SELECT body,verified FROM nas_news_editorial_content WHERE candidate_id=?",(cid,)).fetchone()
     if saved:body=saved[0] or "";editor_verified=bool(saved[1])
+   if db.execute("SELECT 1 FROM sqlite_master WHERE name='nas_editorial_autodraft_metadata' AND type='table'").fetchone():
+    is_autodraft=bool(db.execute("SELECT 1 FROM nas_editorial_autodraft_metadata WHERE candidate_id=?",(cid,)).fetchone())
    if db.execute("SELECT 1 FROM sqlite_master WHERE name='nas_editorial_source_suggestions' AND type='table'").fetchone():
     source_note=db.execute("SELECT snippet FROM nas_editorial_source_suggestions WHERE candidate_id=?",(cid,)).fetchone()
     if source_note:snippet=source_note[0] or ""
-   results.append({"id":cid,"title":title or "","image":img or "","url":src or "","state":state,"decision":decision,"published":published,"fresh":fresh,"body":body,"snippet":snippet,"editor_verified":editor_verified})
+   results.append({"id":cid,"title":title or "","image":img or "","url":src or "","state":state,"decision":decision,"published":published,"fresh":fresh,"body":body,"snippet":snippet,"editor_verified":editor_verified,"is_autodraft":is_autodraft})
   return results
 def filtered_rows(rows,view):
  if view=="pending":return [r for r in rows if r["state"]=="awaiting_review" and r["fresh"]]
@@ -84,7 +86,7 @@ def render(rows,key,message="",view="pending",page_no=1):
  pages=max(1,(len(chosen)+per_page-1)//per_page)
  page_no=max(1,min(page_no,pages))
  visible=chosen[(page_no-1)*per_page:page_no*per_page]
- css="""*{box-sizing:border-box}body{background:#0f141b;color:#f1f5f9;font:15px system-ui,sans-serif;margin:0}header{padding:20px 24px 10px;max-width:1240px;margin:auto}header h1{font-size:23px;margin:0 0 6px}header p{color:#a8b9cd;margin:8px 0}main{max-width:1240px;margin:0 auto;padding:10px 24px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px}.card{border:1px solid #334154;border-radius:14px;background:#1b2633;overflow:hidden}.card img{display:block;object-fit:contain;width:100%;height:260px;background:#0e1620}.in{padding:15px}.headline{font-size:18px;line-height:1.38;margin:10px 0}.meta{color:#a8b8ca;font-size:12px}.state{font-size:12px;font-weight:700;padding:5px 9px;border-radius:8px;background:#344357;display:inline-block}.fresh{color:#a7e8c4}.old{color:#ffbb92}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.actions button{border:0;color:white;background:#28598d;border-radius:8px;padding:9px 12px;cursor:pointer;font:inherit}.actions button.reject{background:#913e4a}.actions button.defer{background:#74592f}input[type=checkbox]{width:18px;height:18px;vertical-align:middle}textarea.editor{width:100%;min-height:128px;resize:vertical;display:block;border-radius:8px;border:1px solid #53708b;background:#111a25;color:#f1f5f9;font:14px/1.45 system-ui,sans-serif;padding:9px;margin:8px 0 12px}.sourcehint{font-size:13px;color:#cbd6e5;margin:6px 0 10px;white-space:normal}.editorlabel{display:block;margin-top:12px;font-weight:600}.readytext{font-size:12px;color:#a7e8c4}.btnDraft{background:#3c4e63!important}label{font-size:13px;color:#cbd6e5}a{color:#8bc6ff}.notice{padding:12px 14px;background:#273b53;border-radius:10px}.nav{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.nav a{display:inline-flex;gap:7px;padding:10px 12px;text-decoration:none;border:1px solid #344357;border-radius:9px;color:#cad7e9;background:#192635}.nav a.sel{background:#315880;border-color:#73a8d5;color:white}.nav strong{font-variant-numeric:tabular-nums}.warning{border-left:3px solid #e5a657;padding:10px 13px;background:#2f2a26;color:#f4dfc2;border-radius:5px;margin-top:14px}.pages{margin:0 auto 30px;max-width:1240px;padding:0 24px;display:flex;gap:10px;align-items:center}.pages a{padding:9px 12px;border:1px solid #3b5b7c;border-radius:8px;text-decoration:none}.muted{font-size:13px;color:#99a9bf}.details{margin:12px 0}.details summary{cursor:pointer;color:#9abbd6}.empty{padding:35px 10px;color:#c1d3e7;text-align:center;grid-column:1/-1}@media(max-width:600px){header{padding:18px 12px 8px}main{padding:8px 12px;grid-template-columns:1fr}.card img{height:220px}.nav a{padding:8px 10px}.actions button{flex:1}}"""
+ css="""*{box-sizing:border-box}body{background:#0f141b;color:#f1f5f9;font:15px system-ui,sans-serif;margin:0}header{padding:20px 24px 10px;max-width:1240px;margin:auto}header h1{font-size:23px;margin:0 0 6px}header p{color:#a8b9cd;margin:8px 0}main{max-width:1240px;margin:0 auto;padding:10px 24px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px}.card{border:1px solid #334154;border-radius:14px;background:#1b2633;overflow:hidden}.card img{display:block;object-fit:contain;width:100%;height:260px;background:#0e1620}.in{padding:15px}.headline{font-size:18px;line-height:1.38;margin:10px 0}.meta{color:#a8b8ca;font-size:12px}.state{font-size:12px;font-weight:700;padding:5px 9px;border-radius:8px;background:#344357;display:inline-block}.fresh{color:#a7e8c4}.old{color:#ffbb92}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.actions button{border:0;color:white;background:#28598d;border-radius:8px;padding:9px 12px;cursor:pointer;font:inherit}.actions button.reject{background:#913e4a}.actions button.defer{background:#74592f}input[type=checkbox]{width:18px;height:18px;vertical-align:middle}textarea.editor{width:100%;min-height:128px;resize:vertical;display:block;border-radius:8px;border:1px solid #53708b;background:#111a25;color:#f1f5f9;font:14px/1.45 system-ui,sans-serif;padding:9px;margin:8px 0 12px}.sourcehint{font-size:13px;color:#cbd6e5;margin:6px 0 10px;white-space:normal}.editorlabel{display:block;margin-top:12px;font-weight:600}.readytext{font-size:12px;color:#a7e8c4}.btnDraft{background:#3c4e63!important}.autoNotice{padding:8px 10px;border:1px solid #a37c3f;border-radius:7px;background:#29251b;color:#f4dcb0;font-size:13px;margin:9px 0}label{font-size:13px;color:#cbd6e5}a{color:#8bc6ff}.notice{padding:12px 14px;background:#273b53;border-radius:10px}.nav{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.nav a{display:inline-flex;gap:7px;padding:10px 12px;text-decoration:none;border:1px solid #344357;border-radius:9px;color:#cad7e9;background:#192635}.nav a.sel{background:#315880;border-color:#73a8d5;color:white}.nav strong{font-variant-numeric:tabular-nums}.warning{border-left:3px solid #e5a657;padding:10px 13px;background:#2f2a26;color:#f4dfc2;border-radius:5px;margin-top:14px}.pages{margin:0 auto 30px;max-width:1240px;padding:0 24px;display:flex;gap:10px;align-items:center}.pages a{padding:9px 12px;border:1px solid #3b5b7c;border-radius:8px;text-decoration:none}.muted{font-size:13px;color:#99a9bf}.details{margin:12px 0}.details summary{cursor:pointer;color:#9abbd6}.empty{padding:35px 10px;color:#c1d3e7;text-align:center;grid-column:1/-1}@media(max-width:600px){header{padding:18px 12px 8px}main{padding:8px 12px;grid-template-columns:1fr}.card img{height:220px}.nav a{padding:8px 10px}.actions button{flex:1}}"""
  chunks=['<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
  '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src https:; form-action \'self\'; base-uri \'none\'; frame-ancestors \'none\'">',
  '<meta name="referrer" content="no-referrer"><title>RG Telegram | NAS модерація</title><style>',css,'</style></head><body><header>',
@@ -112,6 +114,8 @@ def render(rows,key,message="",view="pending",page_no=1):
    '<input type="hidden" name="return_view" value="',view,'">',
    '<label class="editorlabel" for="post-',safe_id,'">Текст майбутнього поста (85–700 символів). Спочатку збережіть чернетку, потім схваліть.</label>',
    '<textarea class="editor" id="post-',safe_id,'" name="body" maxlength="700" rows="5" placeholder="Напишіть перевірений текст новини українською мовою. Лише заголовка недостатньо.">',esc(row.get("body","")),'</textarea>']
+   if row.get("is_autodraft"):
+    chunks+=['<p class="autoNotice">Автоматична чернетка з RSS. Це НЕ готовий пост: звірте факти з першоджерелом, перефразуйте та збережіть перед схваленням.</p>']
    if row.get("snippet"):
     chunks+=['<details><summary>Фрагмент RSS для довідки (потрібно перефразувати)</summary><p class="sourcehint">',esc(row["snippet"]),'</p></details>']
    if row.get("editor_verified"):
@@ -266,6 +270,8 @@ def selftest():
  assert "водяні знаки/логотипи" in page2
  assert 'href="/?view=stale"' in page2
  assert "Зберегти чернетку" in page2 and 'name="body"' in page2
+ assert "Автоматична чернетка з RSS" in render([{**fresh,"is_autodraft":True}],key,view="pending")
+ assert "Автоматична чернетка з RSS" not in render([{**fresh,"is_autodraft":False}],key,view="pending")
  assert "Лише заголовка недостатньо" in page2
  assert "Фрагмент RSS" in render([{**fresh,"snippet":"Вміст важливої новини <img src=x>"}],key,view="pending")
  assert "<img src=x>" not in render([{**fresh,"snippet":"Вміст важливої новини <img src=x>"}],key,view="pending")
@@ -277,7 +283,7 @@ def selftest():
  assert len(filtered_rows([row]*50,"stale"))==50
  assert 'Наступна →' in render([fresh]*19,key,view="pending")
  assert '← Попередня' in render([fresh]*19,key,view="pending",page_no=2)
- print(json.dumps({"selftest":"PASS","ui_version":UI_VERSION,"editorial_form":"PASS","escaped_markup":"PASS","tabs":"PASS","pagination":"PASS","stale_approval_blocked":"PASS","watermark_review":"ALLOWED_AFTER_OPERATOR_APPROVAL","csrf":"PASS","loopback_only":True,"telegram_sends":0}))
+ print(json.dumps({"selftest":"PASS","ui_version":UI_VERSION,"editorial_form":"PASS","rss_auto_draft_warning":"PASS","escaped_markup":"PASS","tabs":"PASS","pagination":"PASS","stale_approval_blocked":"PASS","watermark_review":"ALLOWED_AFTER_OPERATOR_APPROVAL","csrf":"PASS","loopback_only":True,"telegram_sends":0}))
 if __name__=="__main__":
  p=argparse.ArgumentParser();p.add_argument("mode",choices=["selftest","serve","ensure","status"]);a=p.parse_args()
  if a.mode=="selftest":selftest()
