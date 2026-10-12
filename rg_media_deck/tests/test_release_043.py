@@ -13,6 +13,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication, QDialog
 
 from app import MainWindow
+from library import load_settings, save_settings
 from hotkey_dialog import HotkeyEditor
 from streamdeck_hotkeys import (ACTIONS, DEFAULT_BINDINGS, check_bindings,
                                 parse_hotkey, validated_bindings)
@@ -53,6 +54,21 @@ class MediaHotkeyTests(unittest.TestCase):
         validated = validated_bindings(values)
         self.assertNotIn("pause", validated)
         self.assertEqual(validated["mute"], "Ctrl+Shift+M")
+
+    def test_disabled_keys_survive_disk_roundtrip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "settings.json"
+            assigned = dict(DEFAULT_BINDINGS)
+            assigned["pause"] = ""
+            assigned["start"] = "Ctrl+Shift+Y"
+            save_settings({"roots": [], "favorites": [],
+                           "streamdeck_bindings": assigned}, config)
+            from_disk = load_settings(config)["streamdeck_bindings"]
+            self.assertEqual(from_disk["pause"], "")
+            self.assertEqual(from_disk["start"], "Ctrl+Shift+Y")
+            registry = validated_bindings({key: from_disk.get(key, "") for key in ACTIONS})
+            self.assertNotIn("pause", registry)
+            self.assertEqual(registry["start"], "Ctrl+Shift+Y")
 
     def test_hotkey_callbacks_are_separate_and_use_transport_controls(self):
         calls = []
