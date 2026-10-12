@@ -4,7 +4,10 @@ Schedule: 09:00..09:05 Europe/Kyiv only. Every send attempts once by daily key.
 No bot polling, no Cloudflare API, no sending unless cutover gate verified.
 """
 import argparse,datetime,json,os,pathlib,re,sqlite3,struct,sys,time,urllib.error,urllib.request,uuid
-from zoneinfo import ZoneInfo
+try:
+ from zoneinfo import ZoneInfo
+except ImportError:
+ ZoneInfo=None  # Synology system Python 3.8 fallback
 ROOT=pathlib.Path("/volume1/docker")
 SECRETS=ROOT/"RG_SECRETS"
 STATE=ROOT/"RG_TELEGRAM_STATE"
@@ -34,8 +37,30 @@ def permitted():
  if data.get("cloudflare_polling_disabled_verified") is not True or data.get("nas_single_poll_owner") is not True:
   raise Fail("nas_cutover_not_verified")
  return True
+def kyiv_now(now=None):
+ """Correct Europe/Kyiv wall-clock on Python 3.8+ including EU DST switch.
+
+ Prefer IANA tzdb on Python >=3.9; fallback uses the European rule
+ effective in modern Ukraine: DST from 01:00 UTC last Sunday in March
+ to 01:00 UTC last Sunday in October. No server-TZ assumptions.
+ """
+ d=now or datetime.datetime.now(datetime.timezone.utc)
+ if d.tzinfo is None:raise Fail("clock_timezone_required")
+ d=d.astimezone(datetime.timezone.utc)
+ if ZoneInfo is not None:
+  try:return d.astimezone(ZoneInfo("Europe/Kyiv"))
+  except (KeyError,OSError):
+   pass
+ def last_sunday(year,month):
+  last=datetime.date(year,month,31)
+  return last.day-((last.weekday()+1)%7)
+ y=d.year
+ start=datetime.datetime(y,3,last_sunday(y,3),1,0,tzinfo=datetime.timezone.utc)
+ stop=datetime.datetime(y,10,last_sunday(y,10),1,0,tzinfo=datetime.timezone.utc)
+ delta=datetime.timedelta(hours=3 if start<=d<stop else 2)
+ return (d+delta).replace(tzinfo=datetime.timezone(delta))
 def due(now=None):
- d=(now or datetime.datetime.now(datetime.timezone.utc)).astimezone(ZoneInfo("Europe/Kyiv"))
+ d=kyiv_now(now)
  return d.strftime("%Y-%m-%d"),(d.hour==9 and 0<=d.minute<=5)
 def init(db):
  db.execute("PRAGMA busy_timeout=5000")
@@ -109,6 +134,16 @@ def selftest():
  assert due(example)==("2026-10-13",True)
  assert due(example+datetime.timedelta(minutes=4))[1] is False
  assert due(example-datetime.timedelta(minutes=3))[1] is False
+ # Always exercise the Python 3.8 path even on newer build hosts.
+ from unittest.mock import patch as mock_patch
+ with mock_patch.dict(globals(),{"ZoneInfo":None}):
+  assert due(example)==("2026-10-13",True)
+  # European DST begins last Sunday in March and ends last Sunday in October.
+  assert kyiv_now(datetime.datetime(2026,3,29,0,59,tzinfo=datetime.timezone.utc)).hour==2
+  assert kyiv_now(datetime.datetime(2026,3,29,1,0,tzinfo=datetime.timezone.utc)).hour==4
+  assert kyiv_now(datetime.datetime(2026,10,25,0,59,tzinfo=datetime.timezone.utc)).hour==3
+  assert kyiv_now(datetime.datetime(2026,10,25,1,0,tzinfo=datetime.timezone.utc)).hour==3
+
  with sqlite3.connect(":memory:",isolation_level=None) as db:
   init(db)
   assert reserve(db,"2026-10-13",1)
