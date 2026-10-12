@@ -891,6 +891,12 @@ class MainWindow(QMainWindow):
         self._watchdog_timer.start()
         self.scanner: ScanThread | None = None
         self._pending_rescan = False
+        self._last_switch_accepted_ms = -1_000_000
+        self._pending_switch_item = None
+        self._switch_timer = QTimer(self)
+        self._switch_timer.setSingleShot(True)
+        self._switch_timer.setInterval(160)
+        self._switch_timer.timeout.connect(self._flush_pending_switch)
         self.setWindowTitle(f'RG MEDIA DECK {VERSION} | Пульт ефіру')
         self.resize(1460, 850)
         self.setMinimumSize(1050, 620)
@@ -955,6 +961,8 @@ class MainWindow(QMainWindow):
     def switch_library_tab(self, index: int):
         if index not in (0, 1) or index == self._current_library_tab:
             return
+        self._switch_timer.stop()
+        self._pending_switch_item = None
         self._library_queries[self._current_library_tab] = self.search.text()
         self._current_library_tab = index
         self._thumb_hover_timer.stop()
@@ -2306,6 +2314,33 @@ class MainWindow(QMainWindow):
         self.preview_progress(position)
 
     def play_selected(self):
+        """Coalesce bursts of video changes instead of opening each file.
+
+        A mini keyboard or fast mouse may request 5 videos within 200ms.
+        Keep the most recent target; no intermediate decoders are opened.
+        """
+        timer = getattr(self, '_switch_timer', None)
+        if timer is not None:
+            now = time.monotonic() * 1000
+            previous = getattr(self, '_last_switch_accepted_ms', -1_000_000)
+            current = self.preview.current
+            if (self.selected is not None and current is not None and
+                    self.selected.path != current.path and now - previous < 250):
+                self._pending_switch_item = self.selected
+                timer.start()
+                return
+            timer.stop()
+            self._pending_switch_item = None
+        self._play_selected_now()
+
+    def _flush_pending_switch(self):
+        selected = self._pending_switch_item
+        self._pending_switch_item = None
+        if selected is not None:
+            self.selected = selected
+            self._play_selected_now()
+
+    def _play_selected_now(self):
         if not self.selected:
             self.status.setText('Спочатку оберіть файл у медіатеці.')
             return
@@ -2335,6 +2370,9 @@ class MainWindow(QMainWindow):
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
         self._broadcast_guard.switch_count += 1
+        self._last_switch_accepted_ms = time.monotonic() * 1000
+        logging.warning('SWITCH_OK count=%d file=%s decoder_count=1',
+                        self._broadcast_guard.switch_count, self.selected.path)
         self._playback_health.reset(int(time.monotonic() * 1000))
         if self.selected.kind == 'video' and self.preview.player is not None:
             # This is essential for a preloaded QMediaPlayer: its
@@ -2350,6 +2388,9 @@ class MainWindow(QMainWindow):
         self._update_play_button()
 
     def stop_playback(self):
+        if hasattr(self, '_switch_timer'):
+            self._switch_timer.stop()
+            self._pending_switch_item = None
         self._playback_health = PlaybackHealth()
         self.preview.black_out()
         self.preview.black.setText('')
@@ -2450,6 +2491,8 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
+        self._switch_timer.stop()
+        self._pending_switch_item = None
         self._library_timer.stop()
         self._root_timer.stop()
         self._resource_timer.stop()
