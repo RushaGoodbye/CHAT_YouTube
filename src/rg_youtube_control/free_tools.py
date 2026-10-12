@@ -2050,6 +2050,55 @@ chapters: рядок з підтвердженими таймкодами та �
                     )
                     if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
                         candidate["title_variants"] = independent
+                # A source quote is a safe REVIEW fallback, not an editorial
+                # title. Before using raw/garbled ASR quotations, give the
+                # model a strict, evidence-anchored repair opportunity.
+                # Every retry is checked against the entire evidence map.
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    anchors = _ab_distinct_evidence_brief(evidence_report)
+                    if anchors:
+                        prior_issues = "; ".join(
+                            ab_title_issues(candidate["title_variants"], evidence_report)
+                        )
+                        strict_prompt = (
+                            "ТВЕРДІ ПРАВИЛА ДЛЯ РЕДАКТОРА A/B:\n"
+                            "Заголовки російською. A, B і C - ТРИ РІЗНІ "
+                            "предметні історії з наведених окремих цитат. "
+                            "Використай ключові слова лише з цитати та теми, "
+                            "без домислів про наслідки. "
+                            "Не стверджуй: 'война переходит в новую фазу', "
+                            "'Путин решил', 'разоблачили коррупцию' без "
+                            "прямої цитати-підтвердження. "
+                            "Не використовуй слова 'версии и мнения', "
+                            "'видео с обсуждением'. "
+                            "Сильне коротке запитання краще за вигаданий факт. "
+                            "Жодного англійського тексту.\n"
+                            "ПОПЕРЕДНІ ВІДХИЛЕНІ ПРИЧИНИ: "
+                            + prior_issues + "\n"
+                            "ТРИ НЕЗАЛЕЖНІ ТЕМИ З ДОКАЗАМИ:\n"
+                            + anchors + "\n"
+                            "ПОВНА КАРТА ТЕМ І ЦИТАТ:\n"
+                            + evidence_outline_text(evidence_report)
+                        )
+                        for _repair_attempt in range(2):
+                            try:
+                                repaired_titles = _recover_title_variants(
+                                    current_title=current_title,
+                                    transcript=strict_prompt,
+                                    model=model,
+                                )
+                            except (ValueError, RuntimeError, TimeoutError):
+                                break
+                            if not ab_title_issues(repaired_titles, evidence_report):
+                                candidate["title_variants"] = repaired_titles[:3]
+                                break
+                            strict_prompt += (
+                                "\nВІДХИЛЕНО ЗНОВУ: "
+                                + "; ".join(ab_title_issues(repaired_titles, evidence_report))
+                                + "\nПиши без нових причин, осіб та наслідків. "
+                                  "Спирайся тільки на різні цитати вище."
+                            )
+
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
                 if ab_title_issues(candidate["title_variants"], evidence_report):
