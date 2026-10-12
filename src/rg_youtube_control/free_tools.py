@@ -2181,10 +2181,15 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     omitted_topics: list[str] = []
     if evidence_report:
+        # A 9:53 real video had six grounded topics, but the old cap of
+        # two bullets silently dropped four. Keep the entire grounded topic
+        # inventory where the YouTube description budget permits; if it
+        # cannot fit, retain a visible review blocker instead of claiming
+        # full coverage.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=2,
-            max_body_bytes=2300,
+            max_topic_bullets=12,
+            max_body_bytes=3600,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
@@ -2234,7 +2239,7 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель створила назву довшу за 100 символів.")
     if not description:
         raise ValueError("Локальна модель не створила опис.")
-    if len(description) > (1150 if evidence_report else 5000):
+    if len(description) > (2200 if evidence_report else 5000):
         raise ValueError("SEO-опис надто довгий: скоротіть текст; всі теми збережені в карті доказів.")
     if is_short:
         chapters = ""
