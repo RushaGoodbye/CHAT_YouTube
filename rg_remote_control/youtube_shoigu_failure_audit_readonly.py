@@ -9,8 +9,10 @@ try:
     with sqlite3.connect(DB.resolve().as_uri()+"?mode=ro",uri=True,timeout=20) as conn:
         conn.row_factory=sqlite3.Row
         conn.execute("PRAGMA query_only=ON")
-        vids=conn.execute("SELECT video_id,profile,title,duration,description,scheduled_publish_at FROM videos WHERE video_id=? OR title LIKE ? LIMIT 6",(ID,"%ШОЙГУ%")).fetchall()
-        report["videos"]=[{"video_id":v["video_id"],"profile":v["profile"],"title":v["title"],"duration":v["duration"],"published_description_chars":len(v["description"] or ""), "scheduled":bool(v["scheduled_publish_at"])} for v in vids]
+        available={row["name"] for row in conn.execute("PRAGMA table_info(videos)")}
+        fields=[name for name in ("video_id","profile","title","duration","description","scheduled_publish_at") if name in available]
+        vids=conn.execute("SELECT "+",".join(fields)+" FROM videos WHERE video_id=? LIMIT 1",(ID,)).fetchall()
+        report["videos"]=[{"video_id":v["video_id"],"profile":v["profile"],"title":v["title"],"duration":v["duration"],"published_description_chars":len(v["description"] or "") if "description" in fields else None, "scheduled":bool(v["scheduled_publish_at"])} for v in vids]
         vid=next((v["video_id"] for v in vids if v["video_id"]==ID),ID)
         report["actual_video_id"]=vid
         d=conn.execute("SELECT * FROM optimization_drafts WHERE video_id=?",(vid,)).fetchone()
