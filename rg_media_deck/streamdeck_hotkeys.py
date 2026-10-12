@@ -253,7 +253,7 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             for action in ACTIONS:
                 if self.bindings.get(action) == chord and action in resolved:
                     self._frame_routes[vk] = resolved[action]
-                    self._frame_gates[vk] = F17PressGate()
+                    self._frame_gates[vk] = F17PressGate(debounce_ms=75)
                     break
         if self._frame_routes:
             self._frame_timer.start()
