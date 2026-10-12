@@ -94,7 +94,7 @@ def stage():
  slot_conf=inventory["content_config.js"].decode("utf-8")
  slots={}
  for name in ("morning","poll","explain","evening"):
-  match=re.search(r"\\b"+name+r":\s*\{\s*hour:\s*(\d+),\s*minute:\s*(\d+),\s*windowMinutes:\s*(\d+)",slot_conf)
+  match=re.search(r"\b"+name+r":\s*\{\s*hour:\s*(\d+),\s*minute:\s*(\d+),\s*windowMinutes:\s*(\d+)",slot_conf)
   if not match:raise RuntimeError("content_slots_missing")
   slots[name]={"hour":int(match.group(1)),"minute":int(match.group(2)),
     "window_minutes":int(match.group(3))}
