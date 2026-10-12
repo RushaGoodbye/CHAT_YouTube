@@ -4,7 +4,7 @@ Requires a separately downloaded pinned rg_telegram_nas_transport_preflight_v1.p
 to perform only getMe/getChat/getChatMember reads.
 Never prints a token, sends messages, calls Cloudflare or rotates BotFather token.
 """
-import argparse,getpass,importlib.util,json,os,pathlib,re,stat,sys,tempfile
+import argparse,getpass,importlib.util,json,os,pathlib,re,stat,subprocess,sys,tempfile
 ROOT=pathlib.Path("/volume1/docker")
 SECRETS=ROOT/"RG_SECRETS"
 TARGET=SECRETS/"rg_telegram_bot_token"
@@ -24,6 +24,28 @@ def maybe_file(path):
  if path.is_symlink() or not path.is_file():return False
  st=path.stat()
  return st.st_size>0 and st.st_size<=131072 and stat.S_ISREG(st.st_mode)
+def docker_candidates():
+ """Optional read-only search of RG-owned container environment metadata."""
+ binary="/usr/local/bin/docker"
+ if not pathlib.Path(binary).is_file():return []
+ try:
+  ps=subprocess.run([binary,"ps","--format","{{.Names}}"],capture_output=True,text=True,timeout=8)
+  if ps.returncode:return []
+  containers=[n.strip() for n in ps.stdout.splitlines() if n.strip().startswith(("rg-","rg_"))][:25]
+  results=[]
+  for name in containers:
+   task=subprocess.run([binary,"inspect","--format","{{json .Config.Env}}",name],capture_output=True,text=True,timeout=5)
+   if task.returncode or len(task.stdout)>262144:continue
+   try:records=json.loads(task.stdout)
+   except (ValueError,TypeError):continue
+   if not isinstance(records,list):continue
+   for item in records:
+    if not isinstance(item,str) or "=" not in item:continue
+    key,value=item.split("=",1)
+    if key in ENV_KEYS and TOKEN_PATTERN.fullmatch(value):
+     results.append((value,"docker:"+name+":"+key))
+  return results
+ except (OSError,subprocess.TimeoutExpired):return []
 def candidates():
  paths=[]
  for name in KNOWN_FILES:paths.append(SECRETS/name)
@@ -52,6 +74,7 @@ def candidates():
     entry=data.get(key,"")
     if TOKEN_PATTERN.fullmatch(entry):found.append((entry,str(path.relative_to(ROOT))+":"+key));break
   except (UnicodeError,OSError,ValueError):continue
+ found.extend(docker_candidates())
  unique=[];tokens=set()
  for token,where in found:
   if token not in tokens:unique.append((token,where));tokens.add(token)
@@ -85,6 +108,7 @@ def selftest():
   write_secret(fake,dest)
   assert dest.read_text().strip()==fake
   assert not TOKEN_PATTERN.fullmatch("NOT_A_TOKEN")
+  assert docker_candidates() == [] or isinstance(docker_candidates(),list)
   try:write_secret("NOT_A_TOKEN",dest)
   except ValueError:pass
   else:raise AssertionError("bad token accepted")
