@@ -65,3 +65,26 @@ def test_if_platform_budget_too_small_omitted_topics_are_explicit():
     assert result.startswith(source)
     assert len(omitted) > 0
     assert all(item not in result for item in omitted)
+
+
+def test_real_preview_repeated_strategy_ab_titles_trigger_review():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+
+    actual = [
+        "Шойгу и Путин: почему увольнение стало частью стратегии",
+        "Стратегия без Шойгу: как война переходит в новую фазу",
+        "Коррупция или стратегия: что стоит за увольнением",
+    ]
+    reasons = ab_title_issues(actual)
+    assert any("Усі три A/B назви повторюють" in x for x in reasons), reasons
+
+
+def test_distinct_verified_subjects_do_not_trigger_common_story_gate():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+
+    independent = [
+        "Шойгу покинул Минобороны: что решили власти России?",
+        "Коррупция в армии: что говорят россияне о чиновниках?",
+        "Реакция на Путина: почему собеседник изменил мнение?",
+    ]
+    assert not any("Усі три A/B назви повторюють" in x for x in ab_title_issues(independent))
