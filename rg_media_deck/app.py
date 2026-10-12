@@ -908,6 +908,73 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(250, lambda: self.status.setText(
                 'Оберіть папку для ФАКТАЖУ або окрему папку НОВИН.'))
 
+    def _scan_roots(self) -> list[str]:
+        """Keep one recursive scan and one watcher for both distinct libraries."""
+        return combined_roots(self.roots, self.news_folder)
+
+    def _refresh_news_folder_ui(self):
+        if not hasattr(self, 'news_folder_label'):
+            return
+        text = self.news_folder if self.news_folder else 'Папку новин не обрано'
+        self.news_folder_label.setText(text)
+        self.news_folder_label.setToolTip(self.news_folder or
+            'Оберіть свою папку з новинами; фото й відео з’являться тут')
+        self.news_folder_clear.setEnabled(bool(self.news_folder))
+
+    def choose_news_folder(self):
+        """Choose a local or NAS news folder without changing main roots."""
+        chosen = QFileDialog.getExistingDirectory(
+            self, 'Оберіть окрему папку новин (фото й відео)',
+            self.news_folder or str(Path.home()))
+        if not chosen:
+            return
+        if self.news_folder and normalize_path(chosen) == normalize_path(self.news_folder):
+            return
+        self.news_folder = chosen
+        self._refresh_news_folder_ui()
+        self._known_root_status = tuple(os.path.isdir(root) for root in self._scan_roots())
+        self._save()
+        self._setup_library_watcher()
+        self.scan()
+
+    def clear_news_folder(self):
+        if not self.news_folder:
+            return
+        if QMessageBox.question(self, 'Від’єднати новини',
+            'Від’єднати папку новин від RG Media Deck?\n'
+            'Жодне фото чи відео на диску не буде видалено.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self.news_folder = ''
+        self._refresh_news_folder_ui()
+        self._known_root_status = tuple(os.path.isdir(root) for root in self._scan_roots())
+        self._save()
+        self._setup_library_watcher()
+        self.scan()
+
+    def switch_library_tab(self, index: int):
+        if index not in (0, 1) or index == self._current_library_tab:
+            return
+        self._library_queries[self._current_library_tab] = self.search.text()
+        self._current_library_tab = index
+        self._thumb_hover_timer.stop()
+        self._hover_item = None
+        self._hover_popup.hide()
+        self.selected = None
+        # Changing a tab must NEVER stop or replace on-air content.
+        self.preview._cancel_staged()
+        from PySide6.QtCore import QSignalBlocker
+        with QSignalBlocker(self.search):
+            self.search.setText(self._library_queries[index])
+        self.news_folder_bar.setVisible(index == 1)
+        self.collection_filter.setVisible(index == 0)
+        self.search.setPlaceholderText(
+            '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
+            else '🔎 Назва, тег або інша розкладка клавіатури...')
+        self.apply_filter()
+        self._save()
+
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
         current = self.collection_filter.currentData() if self.collection_filter.count() else ''
@@ -1194,6 +1261,7 @@ class MainWindow(QMainWindow):
     def open_actions_menu(self):
         """All previously top-row controls are now near the favorite button."""
         menu = QMenu(self)
+        news_add = menu.addAction('📰 Вказати папку НОВИН...')
         add = menu.addAction('＋ Додати папку...')
         folders = menu.addAction('▣ Папки медіатеки...')
         refresh = menu.addAction('↻ Оновити медіатеку (F5)')
@@ -1238,7 +1306,9 @@ class MainWindow(QMainWindow):
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
-        if choice == add:
+        if choice == news_add:
+            self.choose_news_folder()
+        elif choice == add:
             self.add_folder()
         elif choice == folders:
             self.manage_folders()
@@ -1749,7 +1819,9 @@ class MainWindow(QMainWindow):
         old_path = self.selected.path if self.selected else None
         filtered = self.search_index.filter(self.search.text(), self.kind.currentData(),
                                            self.favorites, self.only_favorites.isChecked())
-        collection = self.collection_filter.currentData()
+        tab = 'news' if self._current_library_tab == 1 else 'main'
+        filtered = [item for item in filtered if in_tab(item, self.news_folder, tab)]
+        collection = self.collection_filter.currentData() if tab == 'main' else ''
         if collection:
             members = set(self.collections.get(collection, []))
             filtered = [item for item in filtered if normalize_path(item.path) in members]
@@ -1758,7 +1830,8 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QSignalBlocker
         with QSignalBlocker(self.table.selectionModel()):
             self.model.replace(filtered)
-            self.count.setText(f'Показано: {len(filtered)}   •   Усього: {len(self.all_media)}')
+            total = scoped_count(self.all_media, self.news_folder, tab)
+            self.count.setText(f'Показано: {len(filtered)}   •   Усього: {total}')
             if old_path:
                 for idx, item in enumerate(filtered):
                     if item.path == old_path:
