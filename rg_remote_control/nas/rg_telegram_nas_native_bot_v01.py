@@ -99,6 +99,7 @@ class TelegramPublicPost(HTMLParser):
    if values.get("data-post")==self.expected and "tgme_widget_message" in classes:
     self.active=True;self.depth=1
    return
+  if tag in ("br","hr","img","input","meta","link","source"):return
   self.depth+=1
   if "tgme_widget_message_text" in classes:self.message_depth=self.depth
   if "tgme_widget_message_photo_wrap" in classes:
