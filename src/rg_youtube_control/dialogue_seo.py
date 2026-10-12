@@ -313,6 +313,104 @@ def _topic_display_uk(topic: str, current_title: str = "") -> str:
     return value
 
 
+def grounded_chapters_from_evidence(
+    report: dict[str, Any],
+    timed_transcript: str,
+    *,
+    current_title: str = "",
+    min_confidence: float = 82.0,
+) -> str:
+    """Find genuine caption timestamps for independently quoted story points.
+
+    Never use a fixed script, equal time slices, invented persons or chapter
+    names inferred from the video title alone. If reliable alignment fails,
+    return no chapters and require human review.
+    """
+    try:
+        from rapidfuzz.fuzz import partial_ratio
+    except ImportError:
+        return ""
+
+    def seconds(stamp: str) -> int:
+        parts = str(stamp).split(":")
+        if len(parts) not in (2, 3):
+            return -1
+        try:
+            values = [int(part) for part in parts]
+        except ValueError:
+            return -1
+        return (
+            values[0] * 60 + values[1]
+            if len(values) == 2 else
+            values[0] * 3600 + values[1] * 60 + values[2]
+        )
+
+    def compact(value: str) -> str:
+        return " ".join(re.findall(r"[a-zа-яёіїєґ0-9]+", value.casefold()))
+
+    captions: list[tuple[int, str, str]] = []
+    for line in str(timed_transcript or "").splitlines():
+        match = re.match(r"^\[(\d{2}:\d{2}(?::\d{2})?)\]\s+(.+)", line)
+        if not match:
+            continue
+        at = seconds(match.group(1))
+        text = compact(match.group(2))
+        if at >= 0 and text:
+            captions.append((at, match.group(1), text))
+    if len(captions) < 10:
+        return ""
+
+    verified: list[tuple[int, str, str, float]] = []
+    for block in report.get("blocks") or []:
+        lo = seconds(str(block.get("start_stamp") or ""))
+        hi = seconds(str(block.get("end_stamp") or ""))
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            quote = compact(str(item.get("evidence") or ""))
+            label = _topic_display_uk(str(item.get("topic") or ""), current_title)
+            if len(quote) < 25 or len(label) < 8:
+                continue
+            # Caption windows can span multiple short ASR chunks.
+            best_score, best_index = 0.0, -1
+            for i, (at, _stamp, _text) in enumerate(captions):
+                if lo >= 0 and at < lo - 12:
+                    continue
+                if hi >= 0 and at > hi + 12:
+                    continue
+                window = " ".join(part[2] for part in captions[i:i + 10])
+                score = float(partial_ratio(quote, window))
+                if score > best_score:
+                    best_score, best_index = score, i
+            if best_index >= 0 and best_score >= min_confidence:
+                at, stamp, _ = captions[best_index]
+                verified.append((at, stamp, label, best_score))
+    if len(verified) < 2:
+        return ""
+
+    # Prefer the highest-confidence quote within a 20-second cluster.
+    selected: list[tuple[int, str, str, float]] = []
+    for item in sorted(verified, key=lambda x: (-x[3], x[0])):
+        if any(abs(item[0] - existing[0]) < 20 for existing in selected):
+            continue
+        selected.append(item)
+    selected.sort(key=lambda x: x[0])
+    if len(selected) < 2:
+        return ""
+
+    first_label = selected[0][2]
+    rows = [f"00:00 {first_label}"]
+    for at, stamp, label, _confidence in selected:
+        if at < 20:
+            continue
+        if len(rows) >= 10:
+            break
+        rows.append(f"{stamp} {label}")
+    # Require 3 real chapters: a title plus at least two source-aligned
+    # changes. A blank result is safer than plausible but fabricated chapters.
+    return "\n".join(rows) if len(rows) >= 3 else ""
+
+
 def preserve_outline_topics(
     description: str,
     report: dict[str, Any],
