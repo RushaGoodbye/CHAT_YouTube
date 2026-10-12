@@ -12,7 +12,7 @@ NAME="rg_telegram_nas_editorial_store_v1.py"
 SCANNER="rg_telegram_local_rss_scanner_v1.py"
 UPDATER="update_rg_telegram_review_ui_v22.py"
 PINS=[
- (NAME,"877116660f78e2b2308255e9c8fa22b408c29beb"),
+ (NAME,"b2e9041a8eca4e0c3429ddc3a5636aa0dcd73a8c"),
  (SCANNER,"39f428d6ccedf154eb37257a379689f5974469ec"),
  (UPDATER,"c1d758a8cd15b7e731c64a8648a7dee6aaf7744f")
 ]
