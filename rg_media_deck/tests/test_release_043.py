@@ -34,7 +34,7 @@ class MediaHotkeyTests(unittest.TestCase):
         self.assertEqual(parse_hotkey("ctrl+shift+p"), ("Ctrl+Shift+P", 0x4006, ord("P")))
         self.assertEqual(parse_hotkey("Ctrl+Alt+9")[2], ord("9"))
         self.assertEqual(parse_hotkey("Ctrl+Alt+Shift+F12")[2], 0x7B)
-        for bad in ("F1", "Alt+F1", "Win+Ctrl+F1", "Ctrl+Alt+F13",
+        for bad in ("F1", "Alt+F1", "Win+Ctrl+F1", "Ctrl+Alt+F25",
                     "Ctrl+Shift+А", "Ctrl+Ctrl+F1", "Ctrl+Alt+Home"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 parse_hotkey(bad)
