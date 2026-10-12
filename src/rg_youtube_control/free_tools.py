@@ -1152,15 +1152,18 @@ def _source_quote_ab_titles(
     report: dict[str, Any],
     current_title: str = "",
 ) -> list[str]:
-    """Fail-safe REVIEW titles made from verbatim quotes in different blocks.
+    """Review-only A/B from literal evidence, including short two-block videos.
 
-    This never infers facts from a model-generated topic. Every visible
-    quoted phrase is a contiguous excerpt of an actual transcript quote.
-    A shortened quote ends in an ellipsis, and no titles are auto-published.
+    A 9-minute video can have two time blocks but six separate grounded
+    topics. Requiring three blocks made a safe fallback impossible exactly
+    when the generator produced weak or speculative names. Keep multiple
+    genuinely different quotations per block while preferring broad temporal
+    coverage, never inventing a claim or marking these as publishable.
     """
     from itertools import combinations
 
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, str, str]] = []
+    seen_quotes: set[str] = set()
     for index, block in enumerate(report.get("blocks") or []):
         if not isinstance(block, dict):
             continue
@@ -1169,7 +1172,8 @@ def _source_quote_ab_titles(
                 continue
             quote = " ".join(str(topic.get("evidence") or "").split())
             quote = quote.strip(' "«»„“”')
-            if len(quote) < 30 or len(quote.split()) < 5:
+            topic_label = " ".join(str(topic.get("topic") or "").split())
+            if len(quote) < 30 or len(quote.split()) < 5 or not topic_label:
                 continue
             excerpt = quote
             if len(excerpt) > 75:
@@ -1178,29 +1182,39 @@ def _source_quote_ab_titles(
                     continue
                 excerpt += "…"
             title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
+            key = title.casefold()
             if not 30 <= len(title) <= 100:
                 continue
-            if title.casefold() == current_title.strip().casefold():
+            if key == current_title.strip().casefold() or key in seen_quotes:
                 continue
-            candidates.append((index, title))
-            break  # only one quoted story per timeline block
+            seen_quotes.add(key)
+            candidates.append((index, topic_label.casefold(), title))
     if len(candidates) < 3:
         return []
-    # Pick the widest temporal coverage first; do not take three adjacent
-    # quotes from one conversation when later material exists.
+
+    # Deterministic bounded search: a thirteen-hour archive can have many
+    # source topics, and combinations over the entire list would explode.
+    if len(candidates) > 24:
+        n = len(candidates)
+        indices = sorted({round(i * (n - 1) / 23) for i in range(24)})
+        candidates = [candidates[i] for i in indices]
+
+    # Prefer more different blocks first, then wider coverage, then avoid
+    # taking synonymous topic labels in the same block.
     triplets = sorted(
         combinations(candidates, 3),
         key=lambda triplet: (
-            -(triplet[-1][0] - triplet[0][0]),
-            abs(triplet[1][0] - (triplet[0][0] + triplet[-1][0]) / 2),
+            -len({item[0] for item in triplet}),
+            -(max(item[0] for item in triplet) -
+              min(item[0] for item in triplet)),
+            -len({item[1] for item in triplet}),
         ),
     )
     for triple in triplets:
-        titles = [title for _, title in triple]
+        titles = [title for _, _, title in triple]
         if not ab_title_issues(titles, report):
             return titles
     return []
-
 
 def _recover_independent_ab_titles(
     *,
