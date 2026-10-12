@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_verified_0722",
+  "action": "youtube_update_install_audit",
   "args": {
-    "nonce": "stage-verified-0-7-22-installer-no-launch-20261012"
+    "nonce": "readonly-version-check-0722-20261012"
   }
 }
