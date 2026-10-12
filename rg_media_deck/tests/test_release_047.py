@@ -35,7 +35,9 @@ class FrameTimestampSeekTests(unittest.TestCase):
     def test_2997_fps_and_60fps(self):
         seek = FrameSeekPlanner()
         seek.set_fps(29.97)
-        self.assertEqual(seek.step(1, 1000, 5000), 1034)
+        self.assertEqual(seek.step(1, 1000, 5000), 1033)
+        self.assertEqual(seek.step(1, 1000, 5000), 1067)
+        self.assertEqual(seek.step(1, 1000, 5000), 1100)
         seek.reset()
         seek.set_fps(60)
         self.assertEqual(seek.step(1, 2000, 5000), 2017)
