@@ -84,7 +84,7 @@ def test_every_timeline_block_is_grounded_and_cached(tmp_path):
     assert result["rows_covered"] == len(rows)
     assert len(calls) == result["blocks_total"]
     assert messages[-1].startswith("Аналіз фрагментів:")
-    assert evidence_outline_text(result).count("ТЕМА:") >= result["blocks_total"]
+    # The complete report covers every block, while the model outline must\n    # not repeat a story solely to produce one heading per timeline window.\n    assert len(result["blocks"]) == result["blocks_total"]\n    assert all(block["topics"] for block in result["blocks"])\n    assert 1 <= evidence_outline_text(result).count("ТЕМА:") <= result["blocks_total"]
     again = analyze_all_timeline_blocks(rows, **kwargs)
     assert again["cache_hits"] == result["blocks_total"]
     assert len(calls) == result["blocks_total"]
