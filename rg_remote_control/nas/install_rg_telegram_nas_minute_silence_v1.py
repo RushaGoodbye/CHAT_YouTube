@@ -7,7 +7,7 @@ import argparse,datetime,json,os,pathlib,shutil,subprocess,sys,tempfile,urllib.r
 ROOT=pathlib.Path("/volume1/docker")
 STATE=ROOT/"RG_TELEGRAM_STATE";SCHED=ROOT/"RG_NAS_SCHEDULER_TICK.sh"
 DST=STATE/"rg_telegram_nas_minute_silence_v1.py"
-PIN="03b817df31947e82b9003c052ac46e6de71abd80"
+PIN="230f95ba4abde6a73d307efd13df365fca70de34"
 URL="https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/"+PIN+"/rg_remote_control/nas/"+DST.name
 GATE=ROOT/"RG_SECRETS/rg_nas_telegram_cutover_enabled"
 MARK="# RG_NAS_MINUTE_SILENCE_V1"
@@ -50,11 +50,19 @@ def main():
   if not raw.startswith(b"#!/usr/bin/env python3") or not 4000<len(raw)<40000:
    raise RuntimeError("source_validation_failed")
   file.write_bytes(raw)
-  for args in ([sys.executable,"-m","py_compile",str(file)],
-                [sys.executable,str(file),"selftest"]):
+  for stage,args in (("PY_COMPILE",[sys.executable,"-m","py_compile",str(file)]),
+                     ("SELFTEST",[sys.executable,str(file),"selftest"])):
    p=subprocess.run(args,text=True,capture_output=True,timeout=16)
-   if p.returncode:raise RuntimeError("offline_module_validation_failed")
-   if args[-1]=="selftest":out("NAS_MINUTE_MODULE_TEST_PASS",selftest=p.stdout.strip())
+   if p.returncode:
+    # This diagnostic contains only module stderr, never credentials or API calls.
+    detail=(p.stderr or p.stdout or "").strip().splitlines()
+    tail=" | ".join(detail[-3:])[:220]
+    raise RuntimeError("offline_module_"+stage+"_failed:"+tail)
+   if stage=="SELFTEST":
+    result=json.loads(p.stdout.strip())
+    if result.get("selftest")!="MINUTE_SILENCE_OFFLINE_PASS":
+     raise RuntimeError("offline_module_selftest_unexpected_result")
+    out("NAS_MINUTE_MODULE_TEST_PASS",selftest=result)
   stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
   if DST.is_symlink():raise RuntimeError("dest_symlink")
   if DST.exists():shutil.copy2(DST,STATE/(DST.name+"."+stamp+".bak"))
