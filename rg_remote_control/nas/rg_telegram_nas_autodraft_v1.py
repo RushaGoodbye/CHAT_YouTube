@@ -59,7 +59,7 @@ def process(db,now=None,limit=MAX_BATCH):
  required={"events","moderation_projection","nas_editorial_source_suggestions","nas_news_editorial_content","nas_delivery_pre_cutover_quarantine"}
  if not required<=names:raise RuntimeError("editorial_prerequisites_missing")
  init(db)
- stats={"schema":"RG_NAS_RSS_AUTODRAFT_V1","status":"AUTODRAFT_DRY_APPROVAL_ONLY","scanned":0,
+ stats={"schema":"RG_NAS_RSS_AUTODRAFT_V1","status":"AUTODRAFT_UNVERIFIED_READY","scanned":0,
   "created":0,"needs_more_source":0,"skipped_existing":0,"skipped_quarantine":0,
   "skipped_non_pending":0,"skipped_stale":0,"unverified_drafts":0,
   "operator_approval_required":True,"live_delivery_enabled":False,"telegram_sends":0,"cloudflare_calls":0}
