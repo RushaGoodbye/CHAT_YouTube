@@ -22,9 +22,14 @@ fi
 def out(status,**props):
  print(json.dumps({"status":status,"telegram_sends":0,"cloudflare_calls":0,**props},ensure_ascii=False),flush=True)
 def patch(text):
- if MARK in text:return text,"ALREADY_INSTALLED"
- if text.count(ANCHOR)!=1:raise RuntimeError("scheduler_anchor_missing")
- return text.replace(ANCHOR,HOOK+ANCHOR,1),"PATCHED"
+ # Production NAS may be on an older scheduler revision than the GitHub repo.
+ # Never guess a location for a newly gated poller or append after "exit 0".
+ # Install the dormant bot anyway; a later verified cutover can enable its tick.
+ if MARK in text:
+  if text.count(MARK)!=1:return text,"DEFERRED_DUPLICATE_MARKER"
+  return text,"ALREADY_INSTALLED"
+ if text.count(ANCHOR)==1:return text.replace(ANCHOR,HOOK+ANCHOR,1),"PATCHED"
+ return text,"DEFERRED_SCHEDULER_LAYOUT"
 def cmd(args,seconds=22):
  p=subprocess.run(args,text=True,capture_output=True,timeout=seconds)
  if p.returncode:raise RuntimeError("preflight_failed:"+((p.stderr or p.stdout)[-420:]))
@@ -34,9 +39,15 @@ def selftest():
  patched,status=patch(sample)
  assert status=="PATCHED" and patch(patched)==(patched,"ALREADY_INSTALLED")
  assert "rg_nas_telegram_cutover_enabled" in patched
- syntax=subprocess.run(["/bin/sh","-n"],input=patched,text=True,capture_output=True,timeout=5,stdin=None)
+ unknown='#!/bin/sh\nROOT="/volume1/docker"\nexit 0\n'
+ assert patch(unknown)==(unknown,"DEFERRED_SCHEDULER_LAYOUT")
+ dupe=MARK+"\n"+MARK
+ assert patch(dupe)==(dupe,"DEFERRED_DUPLICATE_MARKER")
+ syntax=subprocess.run(["/bin/sh","-n"],input=patched,text=True,capture_output=True,timeout=5)
  assert syntax.returncode==0, syntax.stderr[-200:]
- out("NATIVE_BOT_INSTALLER_SELFTEST_PASS",scheduler_gate="CLOSED_BY_DEFAULT",network_calls=0)
+ out("NATIVE_BOT_INSTALLER_SELFTEST_PASS",scheduler_gate="CLOSED_BY_DEFAULT",
+     old_scheduler_compatibility="PASS",deferred_hook_does_not_modify_scheduler="PASS",
+     network_calls=0)
 def main():
  if len(sys.argv)>1 and sys.argv[1]=="selftest":selftest();return
  if os.geteuid()!=0:raise RuntimeError("sudo_required")
@@ -52,6 +63,9 @@ def main():
  if not data.startswith(b"#!/usr/bin/env python3") or not 15000<len(data)<60000:raise RuntimeError("source_size_invalid")
  if b"getUpdates" not in data or b"cloudflare_cutover_not_authorized" not in data:raise RuntimeError("unexpected_source")
  before=SCHED.read_text("utf-8");after,mode=patch(before)
+ if mode.startswith("DEFERRED_"):
+  out("NATIVE_BOT_SCHEDULER_HOOK_DEFERRED",reason=mode,
+      safety="existing_scheduler_unchanged",cutover_allowed=False)
  chk=subprocess.run(["/bin/sh","-n"],text=True,input=after,capture_output=True,timeout=8)
  if chk.returncode:raise RuntimeError("scheduler_syntax_invalid")
  with tempfile.TemporaryDirectory(prefix="rg-native-bot-preflight-") as tmp:
@@ -88,8 +102,9 @@ def main():
     if os.path.exists(tmpfile):os.unlink(tmpfile)
   current=cmd([sys.executable,str(SOURCE),"status"])
   out("RG_NAS_NATIVE_TELEGRAM_BOT_INSTALLED",bot_status=json.loads(current),
-      scheduler=mode,telegram_polls=0,live_delivery_enabled=False,
-      next_step="disable_old_Cloudflare_moderation_polling_then_controlled_cutover")
+      scheduler=mode,scheduler_hook_confirmed=mode in ("ALREADY_INSTALLED","PATCHED"),
+      telegram_polls=0,live_delivery_enabled=False,
+      next_step="verify_old_cloudflare_poller_disable_then_controlled_cutover_and_scheduler_hook")
 if __name__=="__main__":
  try:main()
  except Exception as e:
