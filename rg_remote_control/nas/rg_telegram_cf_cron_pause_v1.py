@@ -53,8 +53,8 @@ def cf_get_ipv4_curl(token,endpoint,name):
   raise RuntimeError("CF_TOKEN_FORMAT_INVALID")
  cfg='header = "Authorization: Bearer '+token+'"\n'
  try:
-  p=subprocess.run([curl,"-q","-4","-sS","-f","--connect-timeout","8","--max-time","22",
-    "--config","-",endpoint],input=cfg,text=True,capture_output=True,timeout=26)
+  p=subprocess.run([curl,"-q","-4","-sS","-f","--connect-timeout","7","--max-time","16",
+    "--config","-",endpoint],input=cfg,text=True,capture_output=True,timeout=20)
  except (OSError,subprocess.TimeoutExpired):
   raise RuntimeError(f"CF_GET_{name}_CURL_TIMEOUT") from None
  if p.returncode:
@@ -72,11 +72,11 @@ def cf_call(token,method,name,body=None):
  response=None
  # Only GETs are retried/fallbacked without side effects. Never replay an
  # uncertain PUT: the caller must read back and reconcile first.
- max_attempts=3 if method=="GET" else 1
+ max_attempts=2 if method=="GET" else 1
  for attempt in range(max_attempts):
   req=urllib.request.Request(endpoint,data=payload,headers=headers,method=method)
   try:
-   with urllib.request.urlopen(req,timeout=15) as r:raw=r.read(65537)
+   with urllib.request.urlopen(req,timeout=10) as r:raw=r.read(65537)
    if len(raw)>65536:raise RuntimeError("CF_RESPONSE_TOO_LARGE")
    response=json.loads(raw)
    break
@@ -259,6 +259,22 @@ def selftest():
  # Explicit contract tests for the human-readable errors formerly masked by RuntimeError.
  assert re.fullmatch(r"CF_(GET|PUT)_rasha-goodbye-(video-scanner|air-alerts|content-hub)_(HTTP_[0-9]{3}|NETWORK_UNCERTAIN|CURL_[A-Z_]+|ERROR)","CF_GET_rasha-goodbye-air-alerts_CURL_DNS")
  assert json.loads('{"success":true,"result":{"schedules":[{"cron":"* * * * *"}]}}')["result"]["schedules"][0]["cron"]=="* * * * *"
+ # Offline: force Python HTTPS transport failure, prove IPv4 fallback is used.
+ from unittest import mock
+ fake={"success":True,"result":{"schedules":[{"cron":"* * * * *"}]}}
+ with mock.patch("urllib.request.urlopen",side_effect=urllib.error.URLError("simulated_dns")) as opening:
+  with mock.patch(__name__+".cf_get_ipv4_curl",return_value=fake) as ipv4:
+   with mock.patch("time.sleep"):
+    assert cf_call("A"*40,"GET","rasha-goodbye-air-alerts")==["* * * * *"]
+    assert opening.call_count==2 and ipv4.call_count==1
+ # An uncertain live PUT must not be retried automatically.
+ with mock.patch("urllib.request.urlopen",side_effect=urllib.error.URLError("simulated_reset")) as opening:
+  try:cf_call("A"*40,"PUT","rasha-goodbye-air-alerts",[])
+  except RuntimeError as ex:
+   assert str(ex)=="CF_PUT_rasha-goodbye-air-alerts_NETWORK_UNCERTAIN"
+  else:raise AssertionError("unsafe PUT retry")
+  assert opening.call_count==1
+
  emit("CF_MIGRATION_PAUSE_SELFTEST_PASS",rollback="IMPLEMENTED",dry_run=True,network_calls=0)
 if __name__=="__main__":
  try:
