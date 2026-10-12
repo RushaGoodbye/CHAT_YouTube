@@ -625,6 +625,36 @@ def ab_title_issues(
             for fragment in evidence_fragments
             for pattern in unsupported_subjects
         )
+        # A single common name such as "Шойгу" is not evidence for a
+        # novel claim like "война переходит в новую фазу". Reject titles
+        # with multiple substantive words absent from the COMPLETE grounded
+        # topic and quote map; route them to editorial review.
+        source_roots = {
+            word[:4] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
+        }
+        neutral = {
+            "почему", "зачем", "стало", "стали", "станет", "частью",
+            "своего", "который", "которые", "сейчас", "после", "перед",
+            "какой", "какие", "такое", "самого", "теперь", "будет",
+            "вместо", "россияне", "россия", "россии", "российские",
+            "видео", "шоу", "раша", "гудбай", "рулетка",
+        }
+        for number, value in enumerate(values, 1):
+            normalized_title = value.casefold().translate(
+                str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
+            )
+            words = [
+                word for word in re.findall(r"[a-zа-яё0-9]{5,}", normalized_title)
+                if word not in neutral
+            ]
+            unsupported = [
+                word for word in words if word[:4] not in source_roots
+            ]
+            if len(unsupported) >= 2 and len(unsupported) / max(1, len(words)) >= 0.36:
+                issues.append(
+                    f"A/B варіант {number} містить непідтверджені змістові твердження."
+                )
+
         for index, value in enumerate(values, 1):
             title_lower = value.casefold()
             if not supported_family_topic and any(
