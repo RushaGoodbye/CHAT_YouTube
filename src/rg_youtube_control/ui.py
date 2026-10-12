@@ -9889,6 +9889,8 @@ class MainWindow(QMainWindow):
         evidence_report: dict | None = None,
         title_variants: list[str] | None = None,
         review_reason: str = "",
+        comparison_source: str = "youtube",
+        comparison_warnings: list[str] | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -9944,6 +9946,14 @@ class MainWindow(QMainWindow):
             ab_box.setPlainText("\n".join(ab_lines))
             layout.addWidget(QLabel("ТРИ A/B НАЗВИ · окремо від основної назви"))
             layout.addWidget(ab_box)
+        if comparison_warnings:
+            protection_label = QLabel(
+                "ЗАХИСТ СТАРОГО SEO-ПАКЕТА: "
+                + "; ".join(comparison_warnings)
+            )
+            protection_label.setWordWrap(True)
+            protection_label.setObjectName("StatusWarn")
+            layout.addWidget(protection_label)
         if review_reason:
             quality_note = QLabel("ПОТРІБНА РЕДАКТОРСЬКА ПЕРЕВІРКА: " + review_reason)
             quality_note.setWordWrap(True)
@@ -9980,8 +9990,11 @@ class MainWindow(QMainWindow):
         columns = QHBoxLayout()
         before_box = QVBoxLayout()
         after_box = QVBoxLayout()
-        before_box.addWidget(QLabel("ДО"))
-        after_box.addWidget(QLabel("ПІСЛЯ"))
+        before_box.addWidget(QLabel(
+            "ДО · ЗБЕРЕЖЕНИЙ SEO-ПАКЕТ"
+            if comparison_source == "saved_draft" else "ДО · YOUTUBE"
+        ))
+        after_box.addWidget(QLabel("ПІСЛЯ · НОВИЙ КАНДИДАТ"))
 
         before_title = QLabel(f"НАЗВА\n{current_title}")
         before_title.setWordWrap(True)
@@ -13296,6 +13309,43 @@ class MainWindow(QMainWindow):
             self._save_local_seo_result,
         )
 
+    @staticmethod
+    def _seo_candidate_regressions(
+        *,
+        existing_description: str,
+        existing_chapters: str,
+        new_description: str,
+        new_chapters: str,
+        omitted_topics: list,
+        ab_quality_issues: list,
+    ) -> list[str]:
+        """Fail closed before overwriting a richer existing SEO draft."""
+        warnings: list[str] = []
+        old_sections = len([x for x in existing_chapters.splitlines() if x.strip()])
+        new_sections = len([x for x in new_chapters.splitlines() if x.strip()])
+        if old_sections >= 3 and new_sections < old_sections:
+            warnings.append(
+                f"Розділи збереженого пакета: {old_sections}; у кандидата: "
+                f"{new_sections}. Часові мітки потрібно перевірити за субтитрами."
+            )
+        if omitted_topics:
+            warnings.append(
+                f"Не охоплено підтверджених тем: {len(omitted_topics)}."
+            )
+        if ab_quality_issues:
+            warnings.append(
+                "A/B варіанти мають проблеми: "
+                + "; ".join(str(item) for item in ab_quality_issues[:4])
+            )
+        # A markedly shorter generated description is not necessarily bad,
+        # but cannot silently replace a richer manually prepared package.
+        if (
+            len(existing_description.strip()) >= 300
+            and len(new_description.strip()) < len(existing_description.strip()) * 0.65
+        ):
+            warnings.append("Новий опис втратив понад третину змісту старого пакета.")
+        return warnings
+
     def _save_local_seo_result(self, result: dict) -> None:
         package = dict(result["package"])
         context = dict(result["context"])
@@ -13312,10 +13362,35 @@ class MainWindow(QMainWindow):
             title,
         ).after
 
-        before_title = str(context.get("title") or "")
-        before_description = str(context.get("description") or "")
-        before_tags = list(context.get("tags") or [])
+        existing = get_optimization_draft(self.conn, video_id)
+        # Compare against the saved SEO package when one exists. The live
+        # YouTube description can be blank although the old draft already
+        # contains a complete 743-character synopsis and seven chapters.
+        before_title = str(
+            (existing["new_title"] if existing else "")
+            or context.get("title") or ""
+        )
+        before_description = str(
+            (existing["description"] if existing else "")
+            or context.get("description") or ""
+        )
+        try:
+            before_tags = (
+                json.loads(existing["tags_json"] or "[]")
+                if existing else list(context.get("tags") or [])
+            )
+        except (ValueError, TypeError):
+            before_tags = list(context.get("tags") or [])
+        old_chapters = str(existing["chapters"] or "") if existing else ""
         evidence_report = result.get("evidence_report")
+        regressions = self._seo_candidate_regressions(
+            existing_description=before_description,
+            existing_chapters=old_chapters,
+            new_description=description,
+            new_chapters=chapters,
+            omitted_topics=list(package.get("timeline_omitted_topics") or []),
+            ab_quality_issues=list(package.get("ab_quality_issues") or []),
+        ) if existing else []
         if not self._preview_deep_content_package(
             video_id=video_id,
             current_title=before_title,
@@ -13329,11 +13404,54 @@ class MainWindow(QMainWindow):
             evidence_report=evidence_report,
             title_variants=variants,
             review_reason=str(package.get("review_reason") or ""),
+            comparison_source="saved_draft" if existing else "youtube",
+            comparison_warnings=regressions,
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
-        quality_state, quality_reasons = self._package_quality_gate(
+        if existing and regressions:
+            # Preserve the entire newly generated candidate separately, but
+            # never overwrite the existing row with a lower-quality package.
+            candidate_dir = self.data_dir / "seo_candidates"
+            candidate_dir.mkdir(parents=True, exist_ok=True)
+            candidate_file = candidate_dir / (
+                re.sub(r"[^A-Za-z0-9_-]", "_", video_id)
+                + "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+                + ".json"
+            )
+            tmp = candidate_file.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(
+                    {
+                        "video_id": video_id,
+                        "proposed_title": title,
+                        "proposed_description": description,
+                        "proposed_chapters": chapters,
+                        "proposed_tags": tags,
+                        "proposed_ab": variants,
+                        "regressions": regressions,
+                        "preserved_saved_draft": True,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            tmp.replace(candidate_file)
+            QMessageBox.warning(
+                self,
+                "Захист наявного SEO-пакета",
+                "Новий кандидат має ризик втрати інформації. "
+                "Старий SEO-пакет НЕ перезаписано, YouTube не змінено.\n\n"
+                + "\n".join("- " + item for item in regressions)
+                + "\n\nКандидата збережено окремо: "
+                + str(candidate_file),
+            )
+            self._set_process_idle("SEO-кандидата збережено окремо")
+            return
+
+        quality_state, quality_reasons = self._package_quality_gate(        quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
             chapters=chapters,
