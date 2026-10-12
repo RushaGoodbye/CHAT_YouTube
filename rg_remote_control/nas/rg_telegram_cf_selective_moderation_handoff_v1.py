@@ -130,6 +130,13 @@ def prerequisites(allow_frozen=False):
  return f,original,patched,new,mode
 def check():
  files,original,patched,deployercode,mode=prerequisites(allow_frozen=True)
+ # Verify the future NAS update consumer before taking the live poller away.
+ activation=STATE/"rg_telegram_nas_selective_moderation_activate_v1.py"
+ if not activation.is_file() or activation.is_symlink():
+  raise RuntimeError("NAS_SELECTIVE_ACTIVATOR_MISSING")
+ spec=importlib.util.spec_from_file_location("rg_nas_standby_validator",str(activation))
+ checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+ checker.standby()
  cf=module()
  t=cf.env_token()
  sc={n:cron(t,n) for n in (WORKER,)+OTHER}
@@ -202,7 +209,7 @@ def do_deploy():
  # Absolute DSM binary path checked before patching Worker source.
  cmd=[docker_bin,"run","--rm","--env-file",str(ENV),"-v",str(TARGET)+":/app",
       "-w","/app","node:22-bookworm-slim","sh","-lc",
-      "npm install --no-audit --no-fund && node --check src/index.js && npx wrangler deploy --config wrangler.toml"]
+      "npm install --no-audit --no-fund && node --check src/index.js && node scripts/test-nas-moderation-owner.mjs && node scripts/test-safety-barrier.mjs && npx wrangler deploy --dry-run --outdir dist && npx wrangler deploy --config wrangler.toml"]
  out("CF_SELECTIVE_DEPLOY_STARTED",source_backed_up=True,auto_deploy_frozen=True,
    air_alerts_cron_preserved=True,content_cron_preserved=True,scanner_cron_preserved=True)
  try:
