@@ -780,6 +780,77 @@ def _polish_generated_description(value: str) -> str:
     return " ".join(result).strip()
 
 
+def _proofread_ukrainian_synopsis(
+    value: str,
+    *,
+    model: str,
+    current_title: str,
+    report: dict[str, Any],
+) -> str:
+    """Copy-edit existing facts only, not a second unrestricted SEO rewrite.
+
+    Fail closed to original prose if the model adds substantial content or
+    drops too much. Grounding comes from literal transcript excerpts only.
+    """
+    original = " ".join(str(value or "").split()).strip()
+    if len(original) < 260:
+        return original
+    quotes = [
+        str(topic.get("evidence") or "").strip()
+        for block in report.get("blocks") or []
+        for topic in block.get("topics") or []
+        if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+    ]
+    prompt = (
+        "Виправ ЛИШЕ граматику, узгодження слів і природність української "
+        "мови в НАВЕДЕНОМУ ОПИСІ. Не додавай жодного нового факту, людини, "
+        "посади, наслідку, оцінки або нової теми. Не замінюй позицію "
+        "співрозмовника твердженням про доведений факт. Збережи всі "
+        "наявні змістовні речення, змінюй їх мінімально. "
+        "Назви людей пиши за назвою відео, не відтворюй ASR-помилки. "
+        "Не додавай глави, хештеги, посилання або списки. "
+        'Поверни тільки JSON {"description":"..."}.\n\n'
+        f"НАЗВА: {current_title}\n"
+        f"ПІДТВЕРДЖЕНІ ДОСЛІВНІ РЕПЛІКИ: "
+        f"{json.dumps(quotes, ensure_ascii=False)[:5000]}\n"
+        f"ОПИС ДЛЯ ГРАМАТИЧНОЇ РЕДАКТУРИ:\n{original}"
+    )
+    try:
+        raw = ollama_chat(
+            [{"role": "system", "content": "Коректор української мови. Тільки JSON."},
+             {"role": "user", "content": prompt}],
+            model=model, timeout=90.0, temperature=0.0, json_mode=True,
+        )
+        candidate = str(
+            _normalize_seo_candidate(_extract_json_object(raw)).get("description") or ""
+        ).strip()
+        candidate = _polish_generated_description(candidate)
+    except (ValueError, RuntimeError, TimeoutError, OSError, TypeError):
+        return original
+    if not candidate or not (0.75 <= len(candidate) / len(original) <= 1.25):
+        return original
+
+    # Conservative lexical stability prevents factual rewrite dressed as
+    # proofreading. Only common stems count, so inflection edits are allowed.
+    def stems(text: str) -> set[str]:
+        return {
+            word.casefold()[:4]
+            for word in re.findall(r"[a-zа-яёіїєґ]{5,}", text.casefold())
+            if word.casefold() not in {
+                "цьому", "також", "після", "тому", "через",
+                "інших", "який", "якщо", "щодо", "співрозмовники",
+            }
+        }
+    before = stems(original)
+    after = stems(candidate)
+    coverage = len(before & after) / len(before) if before else 1.0
+    if coverage < 0.72:
+        return original
+    if _description_quality_error(candidate, max_chars=950):
+        return original
+    return candidate
+
+
 def _description_quality_error(
     description: str, transcript: str = "", *, max_chars: int = 1000
 ) -> str:
@@ -2004,6 +2075,7 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report and not fast_mode:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
+                    primary_title=str(candidate.get("title") or current_title),
                 )
                 if issues:
                     # One focused recovery using the full grounded outline.
@@ -2023,31 +2095,38 @@ chapters: рядок з підтвердженими таймкодами та �
                             transcript=targeted + transcript,
                             model=model,
                         )
-                        if len(ab_title_issues(recovered, evidence_report)) < len(issues):
+                        if len(ab_title_issues(recovered, evidence_report, primary_title=str(candidate.get("title") or current_title))) < len(issues):
                             candidate["title_variants"] = recovered[:3]
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
-                remaining = ab_title_issues(candidate["title_variants"], evidence_report)
+                remaining = ab_title_issues(candidate["title_variants"], evidence_report, primary_title=str(candidate.get("title") or current_title))
                 if remaining:
                     independent = _recover_independent_ab_titles(
                         report=evidence_report,
                         current_title=current_title,
                         model=model,
                     )
-                    if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
+                    if independent and len(ab_title_issues(independent, evidence_report, primary_title=str(candidate.get("title") or current_title))) < len(remaining):
                         candidate["title_variants"] = independent
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
-                if ab_title_issues(candidate["title_variants"], evidence_report):
+                if ab_title_issues(candidate["title_variants"], evidence_report, primary_title=str(candidate.get("title") or current_title)):
                     safe_quotes = _source_quote_ab_titles(
                         evidence_report, current_title,
                     )
-                    if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
+                    if safe_quotes and not ab_title_issues(safe_quotes, evidence_report, primary_title=str(candidate.get("title") or current_title)):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
+            if evidence_report and not fast_mode:
+                description_candidate = _proofread_ukrainian_synopsis(
+                    description_candidate,
+                    model=model,
+                    current_title=current_title,
+                    report=evidence_report,
+                )
             candidate["description"] = description_candidate
             description_error = _description_quality_error(
                 description_candidate,
@@ -2190,7 +2269,7 @@ chapters: рядок з підтвердженими таймкодами та �
             max_topic_bullets=24,
             max_body_bytes=3500,
         )
-    title_issues = ab_title_issues(variants, evidence_report)
+    title_issues = ab_title_issues(variants, evidence_report, primary_title=title)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
         str(item).strip().lstrip("#")

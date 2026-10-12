@@ -361,6 +361,8 @@ def preserve_outline_topics(
 def ab_title_issues(
     variants: Iterable[str],
     report: dict[str, Any] | None = None,
+    *,
+    primary_title: str = "",
 ) -> list[str]:
     """Detect missing, duplicate, overly generic or unsupported A/B hooks."""
     from difflib import SequenceMatcher
@@ -425,6 +427,30 @@ def ab_title_issues(
             issues.append(
                 "Усі три A/B назви повторюють одну основну сюжетну опору."
             )
+
+    # A/B experiment is pointless if one variant simply repeats the
+    # primary headline with the same three core terms in a new order.
+    # Regression: "Увольнение Шойгу: коррупция или план?" versus
+    # "Коррупция или план: что движет увольнением".
+    if primary_title.strip():
+        main_stems = {
+            word.replace("ь", "").replace("ъ", "").replace("ё", "е")[:4]
+            for word in re.findall(
+                r"[a-zа-яёіїєґ]{4,}", primary_title.casefold()
+            )
+            if word not in common_words
+        }
+        for index, candidate_stems in enumerate(content_stems, 1):
+            shared = main_stems & candidate_stems
+            overlap = (
+                len(shared) / min(len(main_stems), len(candidate_stems))
+                if main_stems and candidate_stems else 0.0
+            )
+            if len(shared) >= 3 and overlap >= 0.60:
+                issues.append(
+                    f"A/B варіант {index} повторює основну назву, "
+                    "а не перевіряє інший сюжет."
+                )
 
     for left in range(3):
         for right in range(left + 1, 3):
