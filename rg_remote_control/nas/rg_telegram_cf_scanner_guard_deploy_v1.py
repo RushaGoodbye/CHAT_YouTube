@@ -130,6 +130,11 @@ def deploy():
   emit("CF_SCANNER_GUARD_DEPLOY_UNVERIFIED",reason="owner_binding_missing",
        live_nas_gate_closed=True)
   return
+ try:cf_verified(token())
+ except RuntimeError:
+  emit("CF_SCANNER_GUARD_DEPLOY_UNVERIFIED",reason="cron_reactivated_after_deploy",
+       live_nas_gate_closed=True)
+  return
  emit("CF_SCANNER_GUARD_DEPLOYED",owner="nas",do_alarm_next_wake_should_delete=True,
       requires_alarm_confirmation=True,live_nas_gate_closed=True)
 def status():
