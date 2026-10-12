@@ -1,9 +1,8 @@
 """Configurable Windows global function-key shortcuts for Stream Deck Hotkey actions.
 
 Works while OBS owns keyboard focus. No server, token, external plugin or OS
-keyboard hook: user32 RegisterHotKey + Qt native event dispatch. F1-F12 with at
-least two modifiers; conflicts are reported, never silently overwrite an
-existing mapping or steal an occupied Windows/OBS shortcut.
+keyboard hook: user32 RegisterHotKey + Qt native event dispatch. F9/F17
+may be bare; Ctrl/Alt/Shift with OEM +/- keyboard keys supported.
 """
 from __future__ import annotations
 
@@ -34,14 +33,20 @@ ACTIONS = {
     "collection_1": "Добірка 1",
     "collection_2": "Добірка 2",
 }
+# Preset approved for live Stream Deck workflow.
+# F17 is intentionally used for BOTH start/pause; it is registered ONCE
+# and toggles the existing player. All other duplicate chords are rejected.
+BROADCAST_BINDINGS = {
+    "start": "F17",
+    "pause": "F17",
+    "speed_up": "Ctrl+Alt+Shift+=",
+    "speed_down": "Ctrl+Alt+Shift+-",
+    "volume_down": "Alt+Shift+-",
+    "volume_up": "Alt+Shift+=",
+    "mute": "F9",
+}
 DEFAULT_BINDINGS = {
-    "start": "Ctrl+Alt+F1",
-    "pause": "Ctrl+Alt+F2",
-    "speed_up": "Ctrl+Alt+F3",
-    "speed_down": "Ctrl+Alt+F4",
-    "volume_down": "Ctrl+Alt+F5",
-    "volume_up": "Ctrl+Alt+F6",
-    "mute": "Ctrl+Alt+Shift+F8",
+    **BROADCAST_BINDINGS,
     "play_pause": "Ctrl+Alt+Shift+F6",
     "stop": "Ctrl+Alt+Shift+F7",
     "play_selected": "Ctrl+Alt+Shift+F9",
@@ -49,88 +54,142 @@ DEFAULT_BINDINGS = {
     "collection_1": "Ctrl+Alt+Shift+F11",
     "collection_2": "Ctrl+Alt+Shift+F12",
 }
+LEGACY_BINDINGS = {
+    "start": "Ctrl+Alt+F1",
+    "pause": "Ctrl+Alt+F2",
+    "speed_up": "Ctrl+Alt+F3",
+    "speed_down": "Ctrl+Alt+F4",
+    "volume_down": "Ctrl+Alt+F5",
+    "volume_up": "Ctrl+Alt+F6",
+    "mute": "Ctrl+Alt+Shift+F8",
+}
 MODIFIERS = {"ctrl": ("Ctrl", MOD_CONTROL), "alt": ("Alt", MOD_ALT),
              "shift": ("Shift", MOD_SHIFT), "win": ("Win", MOD_WIN)}
-_PATTERN = re.compile(r"(?:F(?:[1-9]|1[0-2])|[A-Z]|[0-9])$", flags=re.I)
+_FUNCTION_KEY = re.compile(r"F([1-9]|1[0-9]|2[0-4])$", re.I)
+_LETTER_DIGIT = re.compile(r"[A-Z0-9]$", re.I)
+_SHARED_PAIR = frozenset(("start", "pause"))
+_PUNCT_VK = {"=": 0xBB, "+": 0xBB, "-": 0xBD}
 
 
 def parse_hotkey(value: str) -> tuple[str, int, int]:
-    """Canonical chord, Win32 modifier bits and virtual key for Windows.
+    """Windows physical virtual-key chords, including F17 and OEM +/- keys.
 
-    Two modifiers minimum, no OS Win chords, no bare keys or media keys;
-    safely supports F1..F12 plus Latin A..Z and digits 0..9.
+    Ctrl+Alt+Shift+= resolves to VK_OEM_PLUS (the =/+ keyboard key).
+    Bare keys are limited to F9 and F13..F24 to avoid stealing everyday
+    keyboard controls. A chord using the Windows key is never allowed.
     """
     if not isinstance(value, str):
         raise ValueError("Комбінація має бути текстом")
-    segments = [part.strip() for part in value.split("+")]
-    if len(segments) < 3 or not _PATTERN.fullmatch(segments[-1]):
-        raise ValueError("Приклад: Ctrl+Alt+F1 або Ctrl+Shift+P")
-    seen = set()
-    mods = 0
-    for segment in segments[:-1]:
-        key = segment.casefold()
-        if key not in MODIFIERS or key in seen:
-            raise ValueError("Неприпустимі або повторні модифікатори")
-        seen.add(key)
-        mods |= MODIFIERS[key][1]
-    if len(seen) < 2:
-        raise ValueError("Потрібно щонайменше два модифікатори")
-    if "win" in seen:
-        raise ValueError("Клавіша Win зарезервована Windows")
-    ordered = [MODIFIERS[key][0] for key in ("ctrl", "alt", "shift") if key in seen]
+    raw = value.strip()
+    if not raw:
+        raise ValueError("Не вибрано клавішу")
+    segments = [chunk.strip() for chunk in raw.split("+")]
+    # Qt may display a shifted plus key with a trailing literal '+'.
+    if segments[-1] == "" and len(segments) > 1:
+        segments = segments[:-2] + ["+"]
     key = segments[-1].upper()
-    vk = 0x6F + int(key[1:]) if key.startswith("F") and len(key)>1 else ord(key)
-    return "+".join([*ordered, key]), mods | MOD_NOREPEAT, vk
+    match = _FUNCTION_KEY.fullmatch(key)
+    if match:
+        number = int(match.group(1))
+        vk = 0x6F + number
+        if len(segments) == 1 and number != 9 and number < 13:
+            raise ValueError("Без модифікаторів дозволено F9 та F13–F24")
+    elif key in _PUNCT_VK:
+        vk = _PUNCT_VK[key]
+        if key == "+":
+            key = "="  # canonical =/+ physical key
+    elif _LETTER_DIGIT.fullmatch(key):
+        vk = ord(key)
+    else:
+        raise ValueError("Доступні F1–F24, A–Z, 0–9, = та -")
+    mods = 0
+    used = set()
+    for raw_modifier in segments[:-1]:
+        token = raw_modifier.casefold()
+        if token not in MODIFIERS or token in used:
+            raise ValueError("Неприпустимі або повторні модифікатори")
+        used.add(token)
+        mods |= MODIFIERS[token][1]
+    if "win" in used:
+        raise ValueError("Комбінації з Win недоступні")
+    if not used and (key not in ("F9",) and
+                     not (_FUNCTION_KEY.fullmatch(key) and int(key[1:]) >= 13)):
+        raise ValueError("Для цієї клавіші потрібні модифікатори")
+    if used and len(used) < 2:
+        raise ValueError("Потрібно Ctrl+Alt, Ctrl+Shift або Alt+Shift")
+    if key in ("=", "-") and "shift" not in used:
+        raise ValueError("Для = та - використайте Shift з іншим модифікатором")
+    ordered = [MODIFIERS[k][0] for k in ("ctrl", "alt", "shift") if k in used]
+    return "+".join((*ordered, key)), mods | MOD_NOREPEAT, vk
 
 
-def validated_bindings(settings) -> dict[str, str]:
-    """Keep legacy user overrides before applying any new default shortcuts.
+def is_shared_toggle(action_a: str, action_b: str) -> bool:
+    return frozenset((action_a, action_b)) == _SHARED_PAIR
 
-    Priority is explicit user assignment > defaults. On collisions, the less
-    important default is disabled rather than silently overriding older keys.
-    Empty string explicitly disables an action across relaunches.
+
+def normalized_duplicates(bindings: dict[str, str]) -> dict[str, str]:
+    """Return a single action per chord for OS hotkey registration.
+
+    The start+pause pair becomes a play/pause toggle without registering an
+    impossible second Windows hotkey. All other duplicates are an error.
     """
-    values = DEFAULT_BINDINGS.copy()
-    explicitly_set = set()
-    if isinstance(settings, dict):
-        for action, raw in settings.items():
-            if action not in ACTIONS:
+    result = {}
+    prior = {}
+    for action in ACTIONS:
+        chord = bindings.get(action)
+        if not chord:
+            continue
+        if chord in prior:
+            existing = prior[chord]
+            if is_shared_toggle(existing, action):
+                result[existing] = "play_pause"
                 continue
-            if raw == "":
-                values.pop(action, None)
-                explicitly_set.add(action)
-                continue
-            try:
-                canonical, _, _ = parse_hotkey(raw)
-            except ValueError:
-                continue
-            explicitly_set.add(action)
-            values[action] = canonical
-    priority = ([name for name in ACTIONS if name in explicitly_set]
-                + [name for name in ACTIONS if name not in explicitly_set])
-    used, output = set(), {}
-    for action in priority:
-        combo = values.get(action)
-        if combo and combo not in used:
-            output[action] = combo
-            used.add(combo)
-    return output
+            raise ValueError(
+                f"{ACTIONS[action]}: {chord} вже використовується для {ACTIONS[existing]}")
+        prior[chord] = action
+        result[action] = action
+    return result
 
 
 def check_bindings(bindings: dict[str, str]) -> dict[str, str]:
-    """Validate the complete editor form before saving; reject all duplicates."""
     if not isinstance(bindings, dict):
         raise ValueError("Некоректний список призначень")
     result = {}
     for action in ACTIONS:
         raw = bindings.get(action, "")
-        if not raw:
+        if raw:
+            canonical, _, _ = parse_hotkey(raw)
+            result[action] = canonical
+    normalized_duplicates(result)
+    return result
+
+
+def validated_bindings(settings) -> dict[str, str]:
+    """Keep user changes and disabled bindings; allow only start+pause F17."""
+    values = DEFAULT_BINDINGS.copy()
+    priority = []
+    if isinstance(settings, dict):
+        for action, raw in settings.items():
+            if action not in ACTIONS:
+                continue
+            priority.append(action)
+            if raw == "":
+                values.pop(action, None)
+                continue
+            try:
+                values[action] = parse_hotkey(raw)[0]
+            except ValueError:
+                continue
+    order = list(dict.fromkeys(priority + list(ACTIONS)))
+    result = {}
+    for action in order:
+        value = values.get(action)
+        if not value:
             continue
-        canonical, _, _ = parse_hotkey(raw)
-        if canonical in result.values():
-            conflict = next(name for name, value in result.items() if value == canonical)
-            raise ValueError(f"{ACTIONS[action]}: комбінацію {canonical} уже призначено для {ACTIONS[conflict]}")
-        result[action] = canonical
+        conflicts = [old for old, chord in result.items() if chord == value]
+        if conflicts and not all(is_shared_toggle(old, action) for old in conflicts):
+            continue
+        result[action] = value
     return result
 
 
@@ -160,9 +219,12 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
             self.errors.append("Глобальні клавіші доступні лише у Windows")
             return
         user32 = ctypes.windll.user32
+        resolved = normalized_duplicates(self.bindings)
         for offset, action in enumerate(ACTIONS):
             shortcut = self.bindings.get(action)
-            if not shortcut:
+            if not shortcut or action not in resolved:
+                continue
+            if action == "pause" and self.bindings.get("start") == shortcut:
                 continue
             try:
                 _, modifiers, vk = parse_hotkey(shortcut)
@@ -171,7 +233,7 @@ class GlobalMediaHotkeys(QAbstractNativeEventFilter):
                 continue
             key_id = BASE_ID + offset
             if user32.RegisterHotKey(None, key_id, modifiers, vk):
-                self.registered[key_id] = action
+                self.registered[key_id] = resolved[action]
             else:
                 self.errors.append(
                     f"{ACTIONS[action]} ({shortcut}): зайнято Windows або OBS")
