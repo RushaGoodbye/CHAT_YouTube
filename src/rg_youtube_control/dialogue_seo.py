@@ -359,7 +359,31 @@ def preserve_outline_topics(
 
     if not unique:
         return source, []
-    missing = [topic for topic in unique if topic.casefold() not in source.casefold()]
+    # Avoid restating the synopsis as six near-identical bullet points.
+    # Never discard topics from the archived evidence report itself.
+    def subject_words(value: str) -> set[str]:
+        stop = {"про", "щодо", "причини", "причина", "дискусія", "обговорення",
+                "питання", "зміни", "посади", "відповідальність", "розмова",
+                "російській", "росії", "армії", "та", "або", "щодо"}
+        return {word[:5] for word in re.findall(r"\\w{5,}", value.casefold())
+                if word not in stop}
+
+    synopsis_words = subject_words(source.split("Інші підтверджені теми розмов:", 1)[0])
+    missing: list[str] = []
+    selected_keys: list[set[str]] = []
+    for topic in unique:
+        keys = subject_words(topic)
+        # Shoigu dismissal and corruption are already covered by the synopsis.
+        if topic.casefold() in source.casefold():
+            continue
+        if keys and len(keys & synopsis_words) >= min(2, len(keys)):
+            continue
+        if keys and any(len(keys & previous) >= min(2, len(keys), len(previous))
+                        for previous in selected_keys):
+            continue
+        missing.append(topic)
+        selected_keys.append(keys)
+
     if not missing:
         return source, []
     # Keep a concise representative spread across the WHOLE timeline.
