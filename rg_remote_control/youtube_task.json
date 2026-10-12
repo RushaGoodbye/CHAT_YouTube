@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_stage_verified_0718",
+  "action": "youtube_update_install_audit",
   "args": {
-    "nonce": "deliver-340-pass-editorial-gate-0718-on-alexpc-20261011"
+    "nonce": "readonly-check-installed-0720-20261012-no-youtube-writes"
   }
 }
