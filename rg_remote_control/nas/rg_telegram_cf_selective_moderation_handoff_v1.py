@@ -183,6 +183,13 @@ def stop_auto_deploy(deployer):
  os.chmod(DEPLOYER,modebits)
 def do_deploy():
  files,original,patched,dep,guard,sc,owner_before=check()
+ # Reuse the verified DSM Docker binary resolver. sudo PATH differs.
+ scanner=STATE/"rg_telegram_cf_selective_scanner_stop_v1.py"
+ if not scanner.is_file() or scanner.is_symlink():raise RuntimeError("SCANNER_DOCKER_HELPER_MISSING")
+ spec=importlib.util.spec_from_file_location("rg_scanner_docker_cli",str(scanner))
+ helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+ docker_bin=helper.docker_cli()
+ helper.docker_daemon(docker_bin)
  if owner_before=="nas":raise RuntimeError("CLOUDFLARE_ALREADY_OWNED_BY_NAS")
  if not FREEZE.is_file() or FREEZE.is_symlink():
   raise RuntimeError("SCANNER_FREEZE_NOT_READY")
@@ -192,8 +199,8 @@ def do_deploy():
   import stat
   modebits=stat.S_IMODE(file.stat().st_mode)
   save(file,text);os.chmod(file,modebits)
- if not shutil.which("docker"):raise RuntimeError("DOCKER_MISSING_FROZEN")
- cmd=["docker","run","--rm","--env-file",str(ENV),"-v",str(TARGET)+":/app",
+ # Absolute DSM binary path checked before patching Worker source.
+ cmd=[docker_bin,"run","--rm","--env-file",str(ENV),"-v",str(TARGET)+":/app",
       "-w","/app","node:22-bookworm-slim","sh","-lc",
       "npm install --no-audit --no-fund && node --check src/index.js && npx wrangler deploy --config wrangler.toml"]
  out("CF_SELECTIVE_DEPLOY_STARTED",source_backed_up=True,auto_deploy_frozen=True,
