@@ -13,7 +13,7 @@ AUTODRAFT="rg_telegram_nas_autodraft_v1.py"
 UPDATER="update_rg_telegram_review_ui_v23.py"
 PINS=[
  (NAME,"dd402eaede703ddc30e4e4a5ba7f242b221e0471"),
- (AUTODRAFT,"f2e9e58e117c54eb2ec6060b77bd714a390692d2"),
+ (AUTODRAFT,"fc5e958f309c3e3a19462d92ad90dced9d3910e6"),
  (UPDATER,"bbe918a00664167d65b6ace389658498ab0f2736")
 ]
 HOOK_MARK="# RG_NAS_RSS_AUTODRAFT_V1"
@@ -80,7 +80,7 @@ def main():
   sample=run([sys.executable,str(temp/NAME),"initialize","--db",str(snapshot)])
   preview=run([sys.executable,str(temp/AUTODRAFT),"once","--db",str(snapshot)])
   result=json.loads(preview)
-  if result.get("status")!="AUTODRAFT_DRY_APPROVAL_ONLY" or result.get("operator_approval_required") is not True or result.get("telegram_sends")!=0:
+  if result.get("status")!="AUTODRAFT_UNVERIFIED_READY" or result.get("operator_approval_required") is not True or result.get("telegram_sends")!=0:
    raise RuntimeError("autodraft_snapshot_safety_failed")
   output("AUTODRAFT_LIVE_SCHEMA_SNAPSHOT_PASS",db_check=sample,dryrun=result,real_database_writes=0)
   stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -104,7 +104,7 @@ def main():
     if os.path.exists(p):os.unlink(p)
   module_state=run([sys.executable,str(STATE/NAME),"initialize"])
   result=json.loads(run([sys.executable,str(STATE/AUTODRAFT),"once"]))
-  if result.get("status")!="AUTODRAFT_DRY_APPROVAL_ONLY" or result.get("telegram_sends")!=0:
+  if result.get("status")!="AUTODRAFT_UNVERIFIED_READY" or result.get("telegram_sends")!=0:
    raise RuntimeError("autodraft_live_state_blocked")
   output("AUTODRAFT_STORE_INSTALLED",initialize=module_state,autodrafts=result,scheduler=mode)
   # Existing updater backs up the server and atomically rolls it back if needed.
