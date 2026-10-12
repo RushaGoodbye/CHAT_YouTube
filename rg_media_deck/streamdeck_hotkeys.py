@@ -20,18 +20,30 @@ WM_HOTKEY = 0x0312
 BASE_ID = 0x6A30
 
 ACTIONS = {
-    "play_pause": "Play / Pause",
+    "start": "Старт / продовжити",
+    "pause": "Пауза",
+    "speed_up": "Швидкість +",
+    "speed_down": "Швидкість −",
+    "volume_down": "Звук тихіше",
+    "volume_up": "Звук гучніше",
+    "mute": "Вимкнути / увімкнути звук",
+    "play_pause": "Play / Pause (разом)",
     "stop": "Стоп",
-    "mute": "Звук",
     "play_selected": "Показати вибране",
     "next_media": "Наступний файл",
     "collection_1": "Добірка 1",
     "collection_2": "Добірка 2",
 }
 DEFAULT_BINDINGS = {
+    "start": "Ctrl+Alt+F1",
+    "pause": "Ctrl+Alt+F2",
+    "speed_up": "Ctrl+Alt+F3",
+    "speed_down": "Ctrl+Alt+F4",
+    "volume_down": "Ctrl+Alt+F5",
+    "volume_up": "Ctrl+Alt+F6",
+    "mute": "Ctrl+Alt+Shift+F8",
     "play_pause": "Ctrl+Alt+Shift+F6",
     "stop": "Ctrl+Alt+Shift+F7",
-    "mute": "Ctrl+Alt+Shift+F8",
     "play_selected": "Ctrl+Alt+Shift+F9",
     "next_media": "Ctrl+Alt+Shift+F10",
     "collection_1": "Ctrl+Alt+Shift+F11",
@@ -39,16 +51,20 @@ DEFAULT_BINDINGS = {
 }
 MODIFIERS = {"ctrl": ("Ctrl", MOD_CONTROL), "alt": ("Alt", MOD_ALT),
              "shift": ("Shift", MOD_SHIFT), "win": ("Win", MOD_WIN)}
-_PATTERN = re.compile(r"F(?:[1-9]|1[0-2])$", flags=re.I)
+_PATTERN = re.compile(r"(?:F(?:[1-9]|1[0-2])|[A-Z]|[0-9])$", flags=re.I)
 
 
 def parse_hotkey(value: str) -> tuple[str, int, int]:
-    """Canonical chord and Win32 registration mask/vk. Fail closed."""
+    """Canonical chord, Win32 modifier bits and virtual key for Windows.
+
+    Two modifiers minimum, no OS Win chords, no bare keys or media keys;
+    safely supports F1..F12 plus Latin A..Z and digits 0..9.
+    """
     if not isinstance(value, str):
-        raise ValueError("Клавіша має бути текстом")
+        raise ValueError("Комбінація має бути текстом")
     segments = [part.strip() for part in value.split("+")]
     if len(segments) < 3 or not _PATTERN.fullmatch(segments[-1]):
-        raise ValueError("Формат: Ctrl+Alt+Shift+F6 (F1–F12)")
+        raise ValueError("Приклад: Ctrl+Alt+F1 або Ctrl+Shift+P")
     seen = set()
     mods = 0
     for segment in segments[:-1]:
@@ -58,28 +74,31 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
         seen.add(key)
         mods |= MODIFIERS[key][1]
     if len(seen) < 2:
-        raise ValueError("Для ефіру потрібно щонайменше два модифікатори")
-    # Avoid Win+... combinations which may be owned by Windows.
+        raise ValueError("Потрібно щонайменше два модифікатори")
     if "win" in seen:
-        raise ValueError("Клавіша Win зарезервована системою")
+        raise ValueError("Клавіша Win зарезервована Windows")
     ordered = [MODIFIERS[key][0] for key in ("ctrl", "alt", "shift") if key in seen]
     key = segments[-1].upper()
-    return "+".join([*ordered, key]), mods | MOD_NOREPEAT, 0x6F + int(key[1:])
+    vk = 0x6F + int(key[1:]) if key.startswith("F") and len(key)>1 else ord(key)
+    return "+".join([*ordered, key]), mods | MOD_NOREPEAT, vk
 
 
 def validated_bindings(settings) -> dict[str, str]:
+    """Backwards compatible validation; empty string disables a binding."""
     output = DEFAULT_BINDINGS.copy()
-    if not isinstance(settings, dict):
-        return output
-    for action, raw in settings.items():
-        if action not in ACTIONS:
-            continue
-        try:
-            canonical, _, _ = parse_hotkey(raw)
-        except ValueError:
-            continue
-        output[action] = canonical
-    # Drop collisions deterministically instead of losing an arbitrary action.
+    if isinstance(settings, dict):
+        for action, raw in settings.items():
+            if action not in ACTIONS:
+                continue
+            if raw == "":
+                output.pop(action, None)
+                continue
+            try:
+                canonical, _, _ = parse_hotkey(raw)
+            except ValueError:
+                continue
+            output[action] = canonical
+    # On a saved conflict, keep the first action and disable the duplicate.
     used = set()
     for action in list(ACTIONS):
         combo = output.get(action)
@@ -90,9 +109,26 @@ def validated_bindings(settings) -> dict[str, str]:
     return output
 
 
+def check_bindings(bindings: dict[str, str]) -> dict[str, str]:
+    """Validate the complete editor form before saving; reject all duplicates."""
+    if not isinstance(bindings, dict):
+        raise ValueError("Некоректний список призначень")
+    result = {}
+    for action in ACTIONS:
+        raw = bindings.get(action, "")
+        if not raw:
+            continue
+        canonical, _, _ = parse_hotkey(raw)
+        if canonical in result.values():
+            conflict = next(name for name, value in result.items() if value == canonical)
+            raise ValueError(f"{ACTIONS[action]}: комбінацію {canonical} уже призначено для {ACTIONS[conflict]}")
+        result[action] = canonical
+    return result
+
+
 def hotkey_guide(bindings: dict[str, str] | None = None) -> str:
     pairs = bindings if bindings is not None else DEFAULT_BINDINGS
-    return "\n".join(f"{pairs.get(action, 'Не призначено')}: {label}"
+    return "\n".join(f"{pairs.get(action, 'Вимкнено')}: {label}"
                      for action, label in ACTIONS.items())
 
 
