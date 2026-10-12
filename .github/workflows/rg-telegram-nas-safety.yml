@@ -43,6 +43,7 @@ jobs:
           python -m py_compile rg_remote_control/nas/rg_telegram_nas_native_bot_v01.py
           python -m py_compile rg_remote_control/nas/install_rg_telegram_native_bot_v01.py
           python -m py_compile rg_remote_control/nas/rg_telegram_cf_cron_pause_v1.py
+          python -m py_compile rg_remote_control/nas/rg_telegram_cf_emergency_restore_scanner_v1.py
           python -m py_compile rg_remote_control/nas/rg_telegram_cf_selective_moderation_handoff_v1.py
           python -m py_compile rg_remote_control/nas/rg_telegram_cf_selective_scanner_stop_v1.py
           python -m py_compile rg_remote_control/nas/install_rg_telegram_selective_handoff_v1.py
@@ -71,6 +72,7 @@ jobs:
           python rg_remote_control/nas/rg_telegram_nas_native_bot_v01.py selftest
           python rg_remote_control/nas/install_rg_telegram_native_bot_v01.py selftest
           python rg_remote_control/nas/rg_telegram_cf_cron_pause_v1.py selftest
+          python rg_remote_control/nas/rg_telegram_cf_emergency_restore_scanner_v1.py selftest
           python rg_remote_control/nas/rg_telegram_cf_selective_moderation_handoff_v1.py selftest
           python rg_remote_control/nas/rg_telegram_cf_selective_scanner_stop_v1.py selftest
           python rg_remote_control/nas/install_rg_telegram_selective_handoff_v1.py selftest
