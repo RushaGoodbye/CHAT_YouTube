@@ -51,8 +51,8 @@ BROADCAST_BINDINGS = {
 }
 DEFAULT_BINDINGS = {
     **BROADCAST_BINDINGS,
-    "frame_back": "F18",
-    "frame_forward": "F19",
+    "frame_back": "Alt+Shift+PgDown",
+    "frame_forward": "Alt+Shift+PgUp",
     "play_pause": "Ctrl+Alt+Shift+F6",
     "stop": "Ctrl+Alt+Shift+F7",
     "play_selected": "Ctrl+Alt+Shift+F9",
@@ -75,6 +75,11 @@ _FUNCTION_KEY = re.compile(r"F([1-9]|1[0-9]|2[0-4])$", re.I)
 _LETTER_DIGIT = re.compile(r"[A-Z0-9]$", re.I)
 _SHARED_PAIR = frozenset(("start", "pause"))
 _PUNCT_VK = {"=": 0xBB, "+": 0xBB, "-": 0xBD}
+# Windows VK_NEXT / VK_PRIOR; Qt QKeySequenceEdit displays PgDown/PgUp.
+_PAGE_KEYS = {"PGDOWN": ("PgDown", 0x22),
+              "PAGEDOWN": ("PgDown", 0x22),
+              "PGUP": ("PgUp", 0x21),
+              "PAGEUP": ("PgUp", 0x21)}
 
 
 def parse_hotkey(value: str) -> tuple[str, int, int]:
@@ -100,6 +105,8 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
         vk = 0x6F + number
         if len(segments) == 1 and number != 9 and number < 13:
             raise ValueError("Без модифікаторів дозволено F9 та F13–F24")
+    elif key in _PAGE_KEYS:
+        key, vk = _PAGE_KEYS[key]
     elif key in _PUNCT_VK:
         vk = _PUNCT_VK[key]
         if key == "+":
@@ -107,7 +114,7 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
     elif _LETTER_DIGIT.fullmatch(key):
         vk = ord(key)
     else:
-        raise ValueError("Доступні F1–F24, A–Z, 0–9, = та -")
+        raise ValueError("Доступні F1–F24, A–Z, 0–9, =, -, PgUp та PgDown")
     mods = 0
     used = set()
     for raw_modifier in segments[:-1]:
