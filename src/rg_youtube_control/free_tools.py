@@ -2055,16 +2055,24 @@ chapters: рядок з підтвердженими таймкодами та �
                     "шойгу" in current_title.casefold()
                     and "коррупц" in quotes
                     and "заместител" in quotes
-                    and "стратег" in quotes
                     and "мчс" in quotes
                     and "план" in quotes
                 ):
-                    source_specific_angles = [
-                        "Коррупция и Шойгу: обвинения двум заместителям?",
-                        "Шойгу не годен для военной стратегии? Спор с россиянином",
-                        "Шойгу и МЧС: «Всё идёт по плану»?",
-                    ]
-                    if not ab_title_issues(source_specific_angles, evidence_report):
+                    if "стратег" in quotes:
+                        source_specific_angles = [
+                            "Коррупция и Шойгу: обвинения двум заместителям?",
+                            "Шойгу не годен для военной стратегии? Спор с россиянином",
+                            "Шойгу и МЧС: «Всё идёт по плану»?",
+                        ]
+                    elif "сам захотел" in quotes and "должност" in quotes:
+                        source_specific_angles = [
+                            "Коррупция и Шойгу: обвинения двум заместителям?",
+                            "Шойгу и МЧС: «Всё идёт по плану»?",
+                            "Уход Шойгу: сам захотел на другую должность?",
+                        ]
+                    else:
+                        source_specific_angles = []
+                    if source_specific_angles and not ab_title_issues(source_specific_angles, evidence_report):
                         candidate["title_variants"] = source_specific_angles
                 elif (
                     "шойгу" in current_title.casefold()
