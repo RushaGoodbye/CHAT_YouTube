@@ -22,6 +22,7 @@ import updater
 import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
+from ui_hang_watch import UIHangWatch
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from news_library import combined_roots, in_tab, scoped_count
@@ -885,6 +886,12 @@ class MainWindow(QMainWindow):
         self._thumbnail_failures = set()
         self._hover_popup = MediaHoverPopup(self)
         self._playback_health = PlaybackHealth()
+        self._ui_hang_watch = None if '--selftest' in sys.argv else UIHangWatch(settings_path().parent)
+        self._ui_heartbeat = QTimer(self)
+        self._ui_heartbeat.setInterval(1000)
+        if self._ui_hang_watch is not None:
+            self._ui_heartbeat.timeout.connect(self._ui_hang_watch.tick)
+            self._ui_heartbeat.start()
         self._watchdog_timer = QTimer(self)
         self._watchdog_timer.setInterval(2000)
         self._watchdog_timer.timeout.connect(self._check_playback_health)
@@ -2491,6 +2498,9 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
+        self._ui_heartbeat.stop()
+        if self._ui_hang_watch is not None:
+            self._ui_hang_watch.stop()
         self._switch_timer.stop()
         self._pending_switch_item = None
         self._library_timer.stop()
