@@ -72,7 +72,7 @@ class ExistingSettingsMigrationTests(unittest.TestCase):
             saved = load_settings(config)
             for action, expected in BROADCAST_BINDINGS.items():
                 self.assertEqual(saved["streamdeck_bindings"][action], expected)
-            self.assertEqual(saved["hotkeys_layout_version"], 2)
+            self.assertEqual(saved["hotkeys_layout_version"], 3)
 
     def test_custom_and_disabled_assignments_never_overwritten(self):
         custom = dict(LEGACY_BINDINGS)
@@ -87,14 +87,14 @@ class ExistingSettingsMigrationTests(unittest.TestCase):
             self.assertEqual(saved["mute"], "")
             self.assertEqual(saved["start"], "F17")
 
-    def test_schema_two_does_not_modify_user_chords(self):
+    def test_schema_two_keeps_custom_nondefault_user_chords(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "settings.json"
             save_settings({"roots": [], "favorites": [],
                            "hotkeys_layout_version": 2,
-                           "streamdeck_bindings": {"start": "Ctrl+Alt+F1"}}, config)
+                           "streamdeck_bindings": {"start": "Ctrl+Shift+P"}}, config)
             saved = load_settings(config)["streamdeck_bindings"]
-            self.assertEqual(saved["start"], "Ctrl+Alt+F1")
+            self.assertEqual(saved["start"], "Ctrl+Shift+P")
 
 
 class WindowsHotkeyRegistrationTests(unittest.TestCase):
