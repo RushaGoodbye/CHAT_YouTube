@@ -314,6 +314,15 @@ def deliver(db,token):
   return {"status":"DELIVERY_UNCERTAIN","id":key,"telegram_sends_automatic_retry":0}
 def handle_callback(db,token,cb,now):
  data=str(cb.get("data") or "")
+ if re.fullmatch(r"vm:(approve|approve_no_rg|reject|reject_duplicate|reject_weak|reject_old|reject_quality|reject_watermark|publish_retry|publish_cancel):[0-9a-f]{12}",data):
+  # A legacy card has no verified delivery receipt in the new NAS journal.
+  # NEVER interpret an old approval as authority for a new publication.
+  callback_id=cb.get("id")
+  if callback_id:
+   api(token,"answerCallbackQuery",{"callback_query_id":callback_id,
+     "text":"⚠️ Стара картка Cloudflare: рішення збережено в старій системі. Перешліть новину для нової перевірки.",
+     "show_alert":True})
+  return "legacy_callback_requires_reconciliation"
  m=re.fullmatch(r"rg:(ok|no):([a-f0-9]{16})",data)
  if not m:return "foreign_callback_ignored"
  msg=cb.get("message") or {};c=msg.get("chat") or {};author=cb.get("from") or {}
@@ -407,6 +416,15 @@ def selftest():
   assert body.endswith(".") and photo=="https://example.org/photo.jpg"
   other=TelegramPublicPost("OtherUA/1234");other.feed(sample)
   assert other.extract()==("","")
+  # Old Cloudflare callbacks must NEVER be converted into an unverified publish.
+  mock_calls=[]
+  oldapi=globals()["api"]
+  globals()["api"]=lambda tok,method,payload: mock_calls.append(method) or True
+  try:
+   result=handle_callback(db,"FAKE",{"id":"abc","data":"vm:approve:abcdef123456","message":{"chat":{"id":1234}}},now)
+   assert result=="legacy_callback_requires_reconciliation"
+   assert mock_calls==["answerCallbackQuery"]
+  finally:globals()["api"]=oldapi
   assert not complete("Незавершений текст…")
   assert isinstance(GATE,pathlib.Path)
  print(json.dumps({"selftest":"PASS","bot_callback_to_queue":"PASS","at_most_once":"PASS",
