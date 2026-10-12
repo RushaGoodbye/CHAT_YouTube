@@ -30,11 +30,18 @@ def token():
     if len(value)>=25 and "$" not in value:return value
  raise RuntimeError("CF_API_TOKEN_UNAVAILABLE")
 def api(url,auth):
- req=urllib.request.Request(url,headers={"Authorization":"Bearer "+auth,"User-Agent":"RG-NAS-Cutover/1"})
+ from importlib.util import spec_from_file_location,module_from_spec
+ path=STATE/"rg_telegram_cf_cron_pause_v1.py"
+ if not path.is_file() or path.is_symlink():raise RuntimeError("CF_PAUSE_HELPER_MISSING")
+ spec=spec_from_file_location("rg_cf_pause_activate_helper",str(path))
+ mod=module_from_spec(spec);spec.loader.exec_module(mod)
+ req=urllib.request.Request(url,headers={"Authorization":"Bearer "+auth,"User-Agent":"RG-NAS-Cutover/2"})
  try:
-  with urllib.request.urlopen(req,timeout=12) as r:j=json.loads(r.read(131072))
+  with urllib.request.urlopen(req,timeout=9) as r:j=json.loads(r.read(131072))
  except urllib.error.HTTPError as e:raise RuntimeError("CF_HTTP_"+str(e.code)) from None
- except (urllib.error.URLError,OSError,ValueError):raise RuntimeError("CF_READ_ERROR") from None
+ except (urllib.error.URLError,OSError,TimeoutError):
+  j=mod.cf_get_ipv4_curl(auth,url,"rasha-goodbye-video-scanner")
+ except ValueError:raise RuntimeError("CF_READ_ERROR") from None
  if not isinstance(j,dict) or j.get("success") is not True:raise RuntimeError("CF_API_REJECTED")
  return j.get("result")
 def gates():
