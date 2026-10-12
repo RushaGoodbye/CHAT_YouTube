@@ -3,6 +3,6 @@
   "contour": "youtube",
   "action": "youtube_shoigu_failure_audit_readonly",
   "args": {
-    "nonce": "inspect-source-evidence-and-saved-draft-20261012"
+    "nonce": "real-evidence-draft-prod-schema-recheck-20261012"
   }
 }
