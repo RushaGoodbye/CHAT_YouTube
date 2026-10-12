@@ -43,7 +43,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.9'
+VERSION = '0.4.10'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -467,6 +467,9 @@ class PlayerSurface(QWidget):
         self._staged_sink = None
         self._staged_image = None
         self.frame_seek = FrameSeekPlanner()
+        self._last_present_ms = -1_000_000
+        self._last_switch_ms = 0
+        self._switch_count = 0
         self.setStyleSheet('background:black;')
         self.stack = QStackedWidget()
         self.stack.setStyleSheet('background:black;')
@@ -484,14 +487,21 @@ class PlayerSurface(QWidget):
         self._create_player()
 
     def _present_video_frame(self, frame):
-        if not frame.isValid():
+        if not frame.isValid() or self.current is None or self.current.kind != 'video':
             return
-        if self.current is not None and self.current.kind == 'video':
-            self.frame_seek.observe(frame.startTime(), frame.endTime())
+        # Qt emits at native 60/120fps. Converting a 4K GPU frame to QImage,
+        # scanning its matte and repainting the OBS viewport in the GUI
+        # thread on every callback can starve input while switching files.
+        # Always keep frame timestamps, but paint at most ~30fps (4K: ~20fps).
+        self.frame_seek.observe(frame.startTime(), frame.endTime())
+        now = time.monotonic() * 1000
+        interval = 50 if frame.width() >= 3200 else 33
+        if now - self._last_present_ms < interval:
+            return
+        self._last_present_ms = now
         self.video_view.observe_frame(frame)
-        if self.current is not None and self.current.kind == 'video':
-            if self.stack.currentWidget() is not self.video_view:
-                self.stack.setCurrentWidget(self.video_view)
+        if self.stack.currentWidget() is not self.video_view:
+            self.stack.setCurrentWidget(self.video_view)
 
     def _wire_player(self, player):
         player.mediaStatusChanged.connect(
@@ -558,37 +568,16 @@ class PlayerSurface(QWidget):
             sink.deleteLater()
 
     def prepare_item(self, item: MediaItem | None):
-        """Quiet pre-roll: decode first frame while current clip keeps playing."""
-        if (item is None or item.kind != 'video' or
-            not os.path.isfile(item.path) or
-            self.current is not None and self.current.path == item.path):
+        """Broadcast-safe selection: do NOT start a second video decoder.
+
+        The old eager preload opened another QMediaPlayer and QAudioOutput on
+        every highlighted row. With rapid switches, multiple FFmpeg decoder
+        threads kept running while Qt deferred destruction, freezing the UI.
+        Keep one playback decoder; selecting files must be cheap and silent.
+        """
+        if self._staged_player is not None:
             self._cancel_staged()
-            return
-        if self._staged_item is not None and self._staged_item.path == item.path:
-            return
-        self._cancel_staged()
-        self._staged_item = item
-        player = QMediaPlayer(self)
-        audio = QAudioOutput(self)
-        sink = QVideoSink(self)
-        audio.setMuted(True)
-        audio.setVolume(0)
-        player.setAudioOutput(audio)
-        player.setVideoSink(sink)
-        self._staged_player, self._staged_audio, self._staged_sink = player, audio, sink
-
-        def on_frame(frame, source=player):
-            if source is not self._staged_player or not frame.isValid() or self._staged_image is not None:
-                return
-            image = frame.toImage()
-            if not image.isNull():
-                self._staged_image = image
-                source.pause()  # silent ready state at the first visible frame
-                source.setPosition(0)
-
-        sink.videoFrameChanged.connect(on_frame)
-        player.setSource(QUrl.fromLocalFile(item.path))
-        player.play()
+        return
 
     def is_prepared(self, item: MediaItem) -> bool:
         return (self._staged_item is not None and
@@ -639,69 +628,64 @@ class PlayerSurface(QWidget):
         return target, self.frame_seek.frame_ms
 
     def play_item(self, item: MediaItem):
+        """Reuse ONE player/audio/sink instead of retiring and spawning decoders.
+
+        This is intentionally conservative for uninterrupted OBS broadcasting:
+        rapid changes do not accumulate QMediaPlayer/FFmpeg worker threads,
+        and selecting a file does not trigger decoding.
+        """
         if not os.path.isfile(item.path):
             return False
-        # Never show black while transitioning from one video to another.
+        self._cancel_staged()
         prior_image = self.video_view._image
-        ready = self.is_prepared(item)
-        if not ready:
-            self._cancel_staged()
-        self._release_player()  # old sound muted before any new sound
         self.frame_seek.reset()
-        self.current = None
+        self._last_present_ms = -1_000_000
         self.video_view.forced_portrait = False
         self.video_view.reset_crop()
-        if item.kind == 'photo':
-            if self.photo.set_file(item.path):
-                self.current = item
-                self.stack.setCurrentWidget(self.photo)
-                self._create_player()
-                return True
+        if self.player is None:
             self._create_player()
-            return False
-
-        # Photo remains visible until first frame; old video freezes until new.
+        if self.audio is not None:
+            self.audio.setMuted(True)  # no residual sound from previous file
+        player = self.player
+        if player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
+            player.stop()
+        if item.kind == 'photo':
+            if not self.photo.set_file(item.path):
+                if self.audio:
+                    self.audio.setMuted(self._muted)
+                return False
+            self.current = item
+            self.stack.setCurrentWidget(self.photo)
+            return True
+        # Preserve the old image while the one active decoder loads the next
+        # file; the viewport/OBS output remains the same widget and size.
         if prior_image is not None and not prior_image.isNull():
             self.video_view._image = prior_image
             self.video_view.update()
         self.current = item
-        if ready:
-            player, audio = self._staged_player, self._staged_audio
-            self._staged_item = self._staged_player = self._staged_audio = None
-            sink = self._staged_sink
-            image = self._staged_image
-            self._staged_sink = self._staged_image = None
-            player.setVideoSink(self.video_sink)
-            if sink is not None:
-                sink.deleteLater()
-            self.player, self.audio = player, audio
-            self._wire_player(player)
-            # The staged player loaded duration before becoming active.
-            # Re-send it now; Qt may not emit durationChanged on promotion.
-            self._sync_player_metadata(player)
-            QTimer.singleShot(0, lambda source=player: self._sync_player_metadata(source))
-            if image is not None:
-                self.video_view._image = image
-                self.video_view.update()
-                self.stack.setCurrentWidget(self.video_view)
-            player.setPosition(0)
-        else:
-            self._create_player()
-            self.player.setSource(QUrl.fromLocalFile(item.path))
-        self.player.setPlaybackRate(self._playback_rate)
-        self.audio.setVolume(self._volume)
-        self.audio.setMuted(self._muted)
-        self.player.play()
+        self._switch_count += 1
+        self._last_switch_ms = time.monotonic() * 1000
+        player.setSource(QUrl.fromLocalFile(item.path))
+        player.setPlaybackRate(self._playback_rate)
+        if self.audio is not None:
+            self.audio.setVolume(self._volume)
+            self.audio.setMuted(self._muted)
+        player.play()
         return True
 
     def black_out(self):
         self.frame_seek.reset()
         self.current = None
         self._cancel_staged()
+        if self.audio is not None:
+            self.audio.setMuted(True)
+        if self.player is not None:
+            self.player.stop()
         self.stack.setCurrentWidget(self.black)
         self.photo.clear_image()
         self.video_view.reset_crop()
-        self._restart_player()
+        if self.audio is not None:
+            self.audio.setMuted(self._muted)
 
     def shutdown(self):
         self.frame_seek.reset()
