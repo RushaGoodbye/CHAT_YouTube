@@ -1,8 +1,8 @@
 {
   "target": "alexpc",
   "contour": "youtube",
-  "action": "youtube_update_install_audit",
+  "action": "youtube_0718_runtime_audit_readonly",
   "args": {
-    "nonce": "readonly-check-installed-0720-20261012-no-youtube-writes"
+    "nonce": "readonly-both-channel-seo-draft-health-20261012"
   }
 }
