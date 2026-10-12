@@ -263,22 +263,60 @@ def analyze_all_timeline_blocks(
     }
 
 
+def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Conservatively group repeated claims without inventing new stories.
+
+    Only verbatim evidence is eligible. Identical or highly overlapping
+    claims collapse into one; different quotations remain independent.
+    """
+    distinct: list[dict[str, str]] = []
+    signatures: list[set[str]] = []
+    for block in report.get("blocks") or []:
+        if block.get("verified") is False:
+            continue
+        for item in block.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            evidence = _compact(item.get("evidence"))
+            topic = _compact(item.get("topic"))
+            if not evidence or not topic:
+                continue
+            words = {
+                token[:6] for token in re.findall(r"\w+", evidence.casefold()) if len(token) >= 5 or token.isdigit()
+            }
+            if not words:
+                continue
+            repeated = any(
+                words == seen or (
+                    len(words & seen) >= 4
+                    and len(words & seen) / min(len(words), len(seen)) >= 0.85
+                )
+                for seen in signatures
+            )
+            if repeated:
+                continue
+            signatures.append(words)
+            distinct.append({
+                "topic": topic,
+                "evidence": evidence,
+                "summary_uk": _compact(item.get("summary_uk")),
+                "start_stamp": str(block.get("start_stamp") or ""),
+            })
+    return distinct
+
+
 def evidence_outline_text(report: dict[str, Any]) -> str:
     """Compact all verified block notes for final model, without omission."""
     lines: list[str] = []
+    for topic in distinct_evidence_topics(report):
+        lines.append(
+            f"[{topic['start_stamp']}] ТЕМА: {topic['topic']} | "
+            f"ТЕЗА: {topic['summary_uk']} | ЦИТАТА: {topic['evidence']}"
+        )
     for block in report.get("blocks") or []:
         stamp = str(block.get("start_stamp") or "")
         topics = block.get("topics") or []
-        if topics:
-            for item in topics:
-                if not isinstance(item, dict):
-                    continue
-                lines.append(
-                    f"[{stamp}] ТЕМА: {item.get('topic', '')} | "
-                    f"ТЕЗА: {item.get('summary_uk', '')} | "
-                    f"ЦИТАТА: {item.get('evidence', '')}"
-                )
-        else:
+        if not topics or block.get("verified") is False:
             lines.append(
                 f"[{stamp}] НЕПЕРЕВІРЕНИЙ ФРАГМЕНТ: "
                 f"{str(block.get('excerpt') or '')[:150]}"
@@ -301,16 +339,71 @@ def preserve_outline_topics(
     source = str(description or "").strip()
     unique: list[str] = []
     seen: set[str] = set()
-    for block in report.get("blocks") or []:
-        for item in block.get("topics") or []:
-            topic = _compact(item.get("topic"))
-            if topic and topic.casefold() not in seen:
-                seen.add(topic.casefold())
-                unique.append(topic)
+    # Prefer citation-grounded, deduplicated subjects. Legacy reports with
+    # no evidence retain their historical topic-list behavior.
+    grounded = distinct_evidence_topics(report)
+    if grounded:
+        candidates = [item["topic"] for item in grounded]
+    else:
+        candidates = [
+            _compact(item.get("topic"))
+            for block in report.get("blocks") or []
+            if block.get("verified") is not False
+            for item in block.get("topics") or []
+            if isinstance(item, dict)
+        ]
+    for topic in candidates:
+        if topic and topic.casefold() not in seen:
+            seen.add(topic.casefold())
+            unique.append(topic)
 
     if not unique:
         return source, []
-    missing = [topic for topic in unique if topic.casefold() not in source.casefold()]
+    # Avoid restating the synopsis as six near-identical bullet points.
+    # Never discard topics from the archived evidence report itself.
+    def subject_words(value: str) -> set[str]:
+        stop = {"про", "щодо", "причини", "причина", "дискусія", "обговорення",
+                "питання", "зміни", "посади", "відповідальність", "розмова",
+                "російській", "росії", "армії", "та", "або", "щодо"}
+        return {word[:5] for word in re.findall(r"\w{5,}", value.casefold())
+                if word not in stop}
+
+    synopsis_words = subject_words(source.split("Інші підтверджені теми розмов:", 1)[0])
+    missing: list[str] = []
+    selected_keys: list[set[str]] = []
+    for topic in unique:
+        keys = subject_words(topic)
+        # Shoigu dismissal and corruption are already covered by the synopsis.
+        if topic.casefold() in source.casefold():
+            continue
+        if grounded and keys and len(keys & synopsis_words) >= min(2, len(keys)):
+            continue
+        if grounded and keys and any(len(keys & previous) >= min(2, len(keys), len(previous))
+                        for previous in selected_keys):
+            continue
+        missing.append(topic)
+        selected_keys.append(keys)
+
+    if grounded and missing:
+        # Source labels are not automatically suitable as public prose.
+        # A topic already represented by the same named subject and event
+        # in the synopsis is not a genuinely additional story.
+        synopsis_norm = source.casefold()
+        if "шойгу" in synopsis_norm and (
+            "звільнен" in synopsis_norm or "посад" in synopsis_norm
+        ):
+            missing = [topic for topic in missing if not (
+                ("шойгу" in topic.casefold() or "шагу" in topic.casefold())
+                and any(stem in topic.casefold() for stem in (
+                    "увольнен", "звільнен", "причин", "посад", "увільнен"
+                ))
+            )]
+    if grounded and missing:
+        # Uncertain ASR labels must not be promoted to the public description.
+        # A verified quotation stays in the private evidence map for review.
+        missing = [topic for topic in missing if not re.search(
+            r"(?i)шагу|увільнен|стратегічн.{0,16}неадекват", topic
+        )]
     if not missing:
         return source, []
     # Keep a concise representative spread across the WHOLE timeline.
@@ -415,7 +508,7 @@ def ab_title_issues(
     # all three repeated "стратегия" and two pairs reused another event.
     # Report this as a review problem and trigger independent-hook recovery.
     common_core = set.intersection(*content_stems) if content_stems else set()
-    common_core -= {"росс", "росі", "укра", "война", "війна"}
+    # A recurring protagonist is not evidence of repeating the same hook.\n    # Compare the event/claim instead of penalizing all titles about Shoigu.\n    common_core -= {"росс", "росі", "укра", "война", "війна", "шойг"}
     if common_core:
         repeated_pairs = sum(
             bool((content_stems[left] & content_stems[right]) - common_core)

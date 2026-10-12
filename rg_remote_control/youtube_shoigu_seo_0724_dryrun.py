@@ -78,6 +78,7 @@ try:
         "source_blocks": int(report["blocks_total"]),
         "source_topic_count": len(source_topics),
         "source_topics": source_topics,
+        "source_evidence_quotes": [str(t.get("evidence") or "")[:240] for b in report.get("blocks") or [] for t in b.get("topics") or [] if isinstance(t, dict)],
         "title": str(package.get("title") or ""),
         "titles_ab": ab,
         "ab_quality_issues": issues,
@@ -98,5 +99,6 @@ except Exception as exc:
 finally:
     result["elapsed_seconds"] = round(time.monotonic() - started, 1)
     print(json.dumps(result, ensure_ascii=True, separators=(",", ":")), flush=True)
-if result["status"] == "BLOCKED":
-    raise SystemExit(2)
+if result["status"] != "PASS":
+    # A successful Python process is not a successful content-quality gate.
+    raise SystemExit(2 if result["status"] == "BLOCKED" else 1)

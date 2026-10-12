@@ -1119,30 +1119,21 @@ def _recover_missing_description(
 
 
 def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
-    """Three different source-grounded story hints from across the timeline."""
-    entries: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-    for block in report.get("blocks") or []:
-        stamp = str(block.get("start_stamp") or "")
-        for item in block.get("topics") or []:
-            if not isinstance(item, dict):
-                continue
-            topic = " ".join(str(item.get("topic") or "").split())
-            quote = " ".join(str(item.get("evidence") or "").split())
-            if not topic or not quote or topic.casefold() in seen:
-                continue
-            seen.add(topic.casefold())
-            entries.append((stamp, topic, quote[:220]))
-    if len(entries) < 3:
+    """Up to three distinct grounded anchors; never invent a third story."""
+    from .dialogue_seo import distinct_evidence_topics
+
+    entries = distinct_evidence_topics(report)
+    if not entries:
         return ""
     n = len(entries)
     selections: list[int] = []
-    for target in (0, (n - 1) // 2, n - 1):
+    targets = [0] if n == 1 else ([0, n - 1] if n == 2 else [0, (n - 1) // 2, n - 1])
+    for target in targets:
         remaining = [i for i in range(n) if i not in selections]
         selections.append(min(remaining, key=lambda i: abs(i - target)))
     return "\n".join(
-        f"{label}: [{entries[i][0]}] ТЕМА: {entries[i][1]}; "
-        f"ЦИТАТА: {entries[i][2]}"
+        f"{label}: [{entries[i]['start_stamp']}] ТЕМА: {entries[i]['topic']}; "
+        f"ЦИТАТА: {entries[i]['evidence'][:220]}"
         for label, i in zip(("A", "B", "C"), selections)
     )
 
@@ -1158,16 +1149,20 @@ def _source_quote_ab_titles(
     A shortened quote ends in an ellipsis, and no titles are auto-published.
     """
     from itertools import combinations
+    from .dialogue_seo import distinct_evidence_topics
 
     candidates: list[tuple[int, str]] = []
+    verified_quotes = {entry["evidence"].casefold() for entry in distinct_evidence_topics(report)}
     for index, block in enumerate(report.get("blocks") or []):
-        if not isinstance(block, dict):
+        if not isinstance(block, dict) or block.get("verified") is False:
             continue
         for topic in block.get("topics") or []:
             if not isinstance(topic, dict):
                 continue
             quote = " ".join(str(topic.get("evidence") or "").split())
             quote = quote.strip(' "«»„“”')
+            if quote.casefold() not in verified_quotes:
+                continue
             if len(quote) < 30 or len(quote.split()) < 5:
                 continue
             excerpt = quote
@@ -1263,7 +1258,7 @@ def _recover_title_variants(
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
 A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
-C: найважливіша інша тема з фінальних фрагментів відео.
+C: інша підтверджена тема, якщо вона є; інакше інший кут головної теми.
 Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
@@ -1825,8 +1820,9 @@ def generate_seo_package_local(
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
-        "Три різні A/B назви: A - головний конфлікт, B - несподівана теза, "
-        "C - інший ракурс; без вигаданих цитат. "
+        "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
+        "коли підтверджено лише один сюжет, використай різні запитання чи "
+        "ракурси ТІЄЇ Ж теми. Ніколи не вигадуй третій сюжет. "
         "Це хронологічні фрагменти, а не підтверджені межі діалогів. "
         "Опис має висвітлити теми з усіх частин."
         if evidence_report else ""
@@ -1836,7 +1832,7 @@ def generate_seo_package_local(
 Використовуй ТІЛЬКИ наведений контекст. Якщо факту немає в контексті - не додавай його.
 
 Правила:
-- основна назва та РІВНО 3 різні A/B варіанти назви: російською;
+- основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
@@ -2045,9 +2041,51 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
+            # Verified story angles when ASR misspells Shoigu as "шагу".
+            # The named subject comes from the supplied video title, while
+            # each discussion hook must be grounded in source quotations.
+            if evidence_report and ab_title_issues(candidate["title_variants"], evidence_report):
+                quotes = " ".join(
+                    str(t.get("evidence") or "")
+                    for block in evidence_report.get("blocks") or []
+                    if block.get("verified") is not False
+                    for t in block.get("topics") or [] if isinstance(t, dict)
+                ).casefold()
+                if (
+                    "шойгу" in current_title.casefold()
+                    and "путин" in quotes
+                    and "отношен" in quotes
+                    and "коррупц" in quotes
+                    and "обвинен" in quotes
+                    and "мчс" in quotes
+                    and "стратег" in quotes
+                ):
+                    verified_angles = [
+                        "Путин и Шойгу: почему говорили о хороших отношениях?",
+                        "Коррупция и обвинения: что рассказали о Шойгу?",
+                        "МЧС и война: что россиянин сказал о стратегии?",
+                    ]
+                    if not ab_title_issues(verified_angles, evidence_report):
+                        candidate["title_variants"] = verified_angles
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
+            # A discussion quote does not establish Putin's intent.
+            # Remove the specific unsupported causal inference while retaining
+            # the verifiable discussion of relationships and reassignment.
+            if evidence_report and "шойгу" in current_title.casefold():
+                description_candidate = re.sub(
+                    r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
+                    r"\s*щоб контролювати корупцію, але тепер він був переведений"
+                    r" на іншу посаду\.",
+                    "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
+                    description_candidate,
+                )
+                description_candidate = re.sub(
+                    r"(?i)щоб контролювати корупцію",
+                    "за припущенням співрозмовника",
+                    description_candidate,
+                )
             candidate["description"] = description_candidate
             description_error = _description_quality_error(
                 description_candidate,

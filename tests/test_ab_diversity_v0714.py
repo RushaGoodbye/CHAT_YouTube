@@ -57,4 +57,6 @@ def test_never_fabricate_three_topics_from_one_evidence_block():
             "topic": "Одна підтверджена тема", "evidence": "Одна цитата"
         }]}
     ]}
-    assert _ab_distinct_evidence_brief(report) == ""
+    hint = _ab_distinct_evidence_brief(report)
+    assert hint.count("ЦИТАТА:") == 1
+    assert "B:" not in hint and "C:" not in hint

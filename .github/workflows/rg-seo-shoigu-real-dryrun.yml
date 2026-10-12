@@ -1,0 +1,36 @@
+name: Shoigu SEO real read-only QA
+
+on:
+  push:
+    branches:
+      - fix/seo-evidence-no-invented-third-20261012
+    paths:
+      - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-shoigu-qa:
+    runs-on: [self-hosted]
+    timeout-minutes: 25
+    # Fail on REVIEW; verify Shoigu description without inferred Putin motives.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify ALEXPC and run no-write local SEO
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Real SEO QA must run on ALEXPC" }
+          $py = "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+          if (-not (Test-Path $py)) { throw "Pinned Python missing on ALEXPC" }
+          $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\__init__.py"))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+            if ($LASTEXITCODE -ne 0) { throw "QA dependency failed" }
+          }
+          $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
+          & $py -B rg_remote_control/youtube_shoigu_seo_0724_dryrun.py
+          if ($LASTEXITCODE -ne 0) { throw "Real Shoigu SEO read-only QA failed" }
