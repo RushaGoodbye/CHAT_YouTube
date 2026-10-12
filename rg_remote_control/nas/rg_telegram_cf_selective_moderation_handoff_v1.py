@@ -81,7 +81,10 @@ def source_profile(code):
   region=code[start:end]
  else:region=""
  call_re=r"\bprocessTelegramModerationUpdates\s*\(\s*env\s*\)"
- guarded=bool(re.search(r"\bmoderationOwner\s*===\s*['\"]nas['\"]",region))
+ guarded=(bool(re.search(r"\bmoderationOwner\s*===\s*['\"]nas['\"]",region)) or
+  (("RG_MODERATION_RUNTIME_OWNER" in region) and
+   ("nas_moderation_owner" in region) and
+   ("processTelegramModerationUpdates(env)" in region)))
  return {"scheduled_count":len(starts),
   "scheduled_call_count":len(re.findall(call_re,region)),
   "whole_file_call_count":len(re.findall(call_re,code)),
@@ -317,7 +320,7 @@ def selftest():
  assert mode=="PATCHED_SCHEDULED_ONLY"
  assert "nas_moderation_owner" in result
  assert result.count('processTelegramModerationUpdates(env)')==1
- assert patch_source(result,cfg)[2]=="ALREADY_GUARDED" if False else True
+ assert patch_source(result,cfg)[2]=="ALREADY_GUARDED"
  # A nested process call in a wrapper still receives a fail-closed switch.
  nested=old.replace('const moderationTask=processTelegramModerationUpdates(env);',
   'const moderationTask=Promise.resolve().then(()=>processTelegramModerationUpdates(env));')
