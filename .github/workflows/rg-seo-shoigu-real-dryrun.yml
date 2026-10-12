@@ -21,6 +21,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Rebuild full Shoigu timeline without evidence cache
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Fresh SEO QA must run on ALEXPC" }
+          $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
+          $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
+          $env:PYTHONPATH = "$deps;$pwd\\src;$env:PYTHONPATH"
+          & $py -B rg_remote_control/youtube_shoigu_fresh_timeline_qa.py
+          if ($LASTEXITCODE -ne 0) { throw "Fresh full-timeline Shoigu QA failed" }
       - name: Verify ALEXPC and run no-write local SEO
         shell: powershell
         run: |
