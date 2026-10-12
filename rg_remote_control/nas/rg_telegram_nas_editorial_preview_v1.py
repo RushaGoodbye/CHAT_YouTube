@@ -106,8 +106,47 @@ def selftest():
   db.execute("CREATE TABLE nas_news_editorial_content(candidate_id TEXT PRIMARY KEY,review_event_id TEXT,source_url TEXT,image_url TEXT,body TEXT,verified INTEGER)")
   db.execute("INSERT INTO nas_news_editorial_content VALUES(?,?,?,?,?,?)",("abcd","event","https://example.org/story","https://example.org/photo",body,1))
   assert editorial_content(db,"abcd")[4]==1
+ # Full offline production-shaped fixture. The headline-only candidate must be blocked.
+ import hashlib,importlib.util,tempfile,time
+ with tempfile.TemporaryDirectory() as folder:
+  module_path=pathlib.Path(folder)/"outbox_fixture.py"
+  module_path.write_text("from importlib.util import spec_from_file_location,module_from_spec\n"
+   "p=spec_from_file_location('real_outbox',"+repr(str(OUTBOX))+")\n"
+   "m=module_from_spec(p);p.loader.exec_module(m)\n"
+   "gather=m.gather\n",encoding="utf-8")
+  # The real installed module must already be present before production audit,
+  # while CI passes an override module only through fixtures.
+ with sqlite3.connect(":memory:") as db:
+  db.executescript("""CREATE TABLE nas_shadow_delivery_outbox(
+   candidate_id TEXT PRIMARY KEY,approval_event_id TEXT,content_sha256 TEXT,
+   source_url TEXT,status TEXT,reason TEXT,staged_at INTEGER,updated_at INTEGER);
+  CREATE TABLE moderation_projection(candidate_id TEXT PRIMARY KEY,headline TEXT,image_url TEXT,source_url TEXT,status TEXT);""")
+  cid="d11223344556";eid="nasreview:"+cid+":100:approved";url="https://example.org/article";img="https://example.org/photo.jpg"
+  db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?)",(cid,"Важлива новина про події в Україні",img,url,"ready_shadow"))
+  db.execute("INSERT INTO nas_shadow_delivery_outbox VALUES(?,?,?,?,?,?,?,?)",(cid,eid,"f"*64,url,"shadow_staged","awaiting_cross_system_reconciliation",100,100))
+  class FakeOutbox:
+   @staticmethod
+   def gather(db,now):
+    return [{"candidate_id":cid,"event_id":eid,"hash":"f"*64,"status":"shadow_staged","source_url":url}]
+  def simulate(db):
+   eligible={x["candidate_id"]:x for x in FakeOutbox.gather(db,100)}
+   old=db.execute("SELECT candidate_id,approval_event_id,content_sha256,source_url,status FROM nas_shadow_delivery_outbox").fetchone()
+   assert old[0] in eligible and old[1]==eligible[cid]["event_id"] and old[2]==eligible[cid]["hash"]
+   story=db.execute("SELECT headline,image_url,source_url,status FROM moderation_projection WHERE candidate_id=?",(cid,)).fetchone()
+   item=editorial_content(db,cid)
+   if item is None:return "editorial_body_missing"
+   if item[0]!=eid or item[4]!=1:return "editorial_not_reviewed_for_approval"
+   return caption(story[0],item[3])
+  assert simulate(db)=="editorial_body_missing"
+  db.execute("CREATE TABLE nas_news_editorial_content(candidate_id TEXT PRIMARY KEY,review_event_id TEXT,source_url TEXT,image_url TEXT,body TEXT,verified INTEGER)")
+  db.execute("INSERT INTO nas_news_editorial_content VALUES(?,?,?,?,?,?)",(cid,eid,url,img,body,0))
+  assert simulate(db)=="editorial_not_reviewed_for_approval"
+  db.execute("UPDATE nas_news_editorial_content SET verified=1 WHERE candidate_id=?",(cid,))
+  assert simulate(db).startswith("<b>")
+  db.execute("UPDATE nas_news_editorial_content SET review_event_id='wrong' WHERE candidate_id=?",(cid,))
+  assert simulate(db)=="editorial_not_reviewed_for_approval"
  print(json.dumps({"status":"EDITORIAL_SELFTEST_PASS","image_required":True,"complete_body_required":True,
-  "watermarks_after_manual_review":"ALLOWED","html_escaped":True,"no_truncated_text":"PASS",
+  "watermarks_after_manual_review":"ALLOWED","html_escaped":True,"no_truncated_text":"PASS","headline_only_blocked":"PASS","editorial_approval_binding":"PASS",
   "send_enabled":False,"telegram_sends":0,"network_calls":0}))
 def main():
  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","audit"))
