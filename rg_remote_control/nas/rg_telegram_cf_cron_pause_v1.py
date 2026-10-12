@@ -191,6 +191,29 @@ def restore():
  if live!=expected:raise RuntimeError("ROLLBACK_CF_READBACK_MISMATCH")
  if MARKER.is_file() and not MARKER.is_symlink():MARKER.unlink()
  emit("CF_ALL_CRONS_RESTORED",restored=live,autodeploy_pause_marker_removed=True)
+def watchdog():
+ # Protect Kyiv alerts and scheduled posts from an indefinite migration outage.
+ # If NAS was not activated within 45 minutes, restore original CF crons.
+ gate=SECRETS/"rg_nas_telegram_cutover_enabled"
+ if gate.exists():
+  emit("CF_PAUSE_WATCHDOG_NAS_ACTIVE",recovery="NOT_NEEDED")
+  return
+ marker=SESSION/"paused.json"
+ if not marker.is_file():
+  emit("CF_PAUSE_WATCHDOG_IDLE",recovery="NOT_NEEDED")
+  return
+ try:
+  row=json.loads(marker.read_text("utf-8"))
+  stamp=datetime.datetime.fromisoformat(row["paused_utc"])
+  age=(datetime.datetime.now(datetime.timezone.utc)-stamp).total_seconds()
+ except (OSError,ValueError,KeyError):
+  raise RuntimeError("WATCHDOG_PAUSE_STATE_INVALID")
+ if age<45*60:
+  emit("CF_PAUSE_WATCHDOG_WAITING",elapsed_seconds=int(age),recovery_after_seconds=2700)
+  return
+ if not MARKER.exists():raise RuntimeError("MIGRATION_MARKER_MISSING")
+ restore()
+ emit("CF_PAUSE_WATCHDOG_ROLLBACK_COMPLETE",recovery="CLOUDFLARE_CRONS_RESTORED")
 def selftest():
  sample="#!/bin/sh\nROOT=\"/volume1/docker\"\nnote_owner_state() { :; }\nacquire_deploy_lock\nnote_owner_state RUNNING\n"
  res,mode=patch(sample)
@@ -204,9 +227,9 @@ def selftest():
  emit("CF_MIGRATION_PAUSE_SELFTEST_PASS",rollback="IMPLEMENTED",dry_run=True,network_calls=0)
 if __name__=="__main__":
  try:
-  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","status","prepare","pause","restore"))
+  p=argparse.ArgumentParser();p.add_argument("mode",choices=("selftest","status","prepare","pause","restore","watchdog"))
   a=p.parse_args()
-  {"selftest":selftest,"status":status,"prepare":prepare,"pause":pause,"restore":restore}[a.mode]()
+  {"selftest":selftest,"status":status,"prepare":prepare,"pause":pause,"restore":restore,"watchdog":watchdog}[a.mode]()
  except Exception as e:
   msg=str(e)
   safe=msg if re.fullmatch(r"[A-Z0-9_]{3,110}",msg) else type(e).__name__
