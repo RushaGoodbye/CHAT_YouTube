@@ -3,7 +3,7 @@
 No Cloudflare, Telegram sends or AI inference. Only SQLite.
 Saving a draft always invalidates its previous approval binding.
 """
-import argparse,html,json,pathlib,re,sqlite3,sys,tempfile,time
+import argparse,hashlib,html,json,pathlib,re,sqlite3,sys,tempfile,time
 DB=pathlib.Path("/volume1/docker/RG_TELEGRAM_STATE/migration_shadow.sqlite3")
 def normalized(text):
  if not isinstance(text,str):raise ValueError("text_not_string")
@@ -79,7 +79,9 @@ def seed(db,rows,now=None):
  for row in rows:
   cid=row.get("candidate_id");src=row.get("source_url");summary=row.get("summary")
   if not isinstance(cid,str) or not re.fullmatch(r"[0-9a-f]{12}",cid):continue
-  if not isinstance(src,str) or not src.startswith("https://"):continue
+  if not isinstance(src,str) or not src.startswith("https://") or hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]!=cid:continue
+  match=db.execute("SELECT source_url FROM moderation_projection WHERE candidate_id=?",(cid,)).fetchone()
+  if not match or match[0]!=src:continue
   snippet=source_snippet(summary)
   if len(snippet)<30:continue
   db.execute("""INSERT INTO nas_editorial_source_suggestions VALUES(?,?,?,?)
@@ -92,12 +94,13 @@ def selftest():
   db.execute("""CREATE TABLE moderation_projection(candidate_id TEXT PRIMARY KEY,headline TEXT,image_url TEXT,
      source_url TEXT,status TEXT,review_event_id TEXT)""")
   init(db)
-  cid="abcdef123456";title="Достовірна новина зі значущими подробицями"
-  url="https://example.org/news";img="https://example.org/photograph.jpg"
+  url="https://example.org/news";cid=hashlib.sha256(url.encode("utf-8")).hexdigest()[:12];title="Достовірна новина зі значущими подробицями"
+  img="https://example.org/photograph.jpg"
   db.execute("INSERT INTO moderation_projection VALUES(?,?,?,?,?,?)",(cid,title,img,url,"awaiting_review",None))
   assert visible(db,cid)==("","",False)
   seed(db,[{"candidate_id":cid,"source_url":url,"summary":"<p>У місті оприлюднено нові подробиці підтвердженої події, інформація надійшла від офіційного джерела.</p>"}],100)
   assert "нові подробиці" in visible(db,cid)[1] and visible(db,cid)[0]==""
+  assert seed(db,[{"candidate_id":"abcdefabcdef","source_url":url,"summary":"Цей фрагмент не повинен потрапити до іншої новини за чужим ідентифікатором."}],101)==0
   body="За офіційними відомостями, у місті стало відомо про важливу подію. Відповідальні служби перевіряють обставини та повідомлять додаткові деталі."
   assert save(db,cid,body,now=100)["verified"] is False
   try:bind(db,cid)
