@@ -339,12 +339,23 @@ def preserve_outline_topics(
     source = str(description or "").strip()
     unique: list[str] = []
     seen: set[str] = set()
-    for block in report.get("blocks") or []:
-        for item in block.get("topics") or []:
-            topic = _compact(item.get("topic"))
-            if topic and topic.casefold() not in seen:
-                seen.add(topic.casefold())
-                unique.append(topic)
+    # Prefer citation-grounded, deduplicated subjects. Legacy reports with
+    # no evidence retain their historical topic-list behavior.
+    grounded = distinct_evidence_topics(report)
+    if grounded:
+        candidates = [item["topic"] for item in grounded]
+    else:
+        candidates = [
+            _compact(item.get("topic"))
+            for block in report.get("blocks") or []
+            if block.get("verified") is not False
+            for item in block.get("topics") or []
+            if isinstance(item, dict)
+        ]
+    for topic in candidates:
+        if topic and topic.casefold() not in seen:
+            seen.add(topic.casefold())
+            unique.append(topic)
 
     if not unique:
         return source, []
