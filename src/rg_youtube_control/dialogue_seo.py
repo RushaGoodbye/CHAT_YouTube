@@ -379,7 +379,15 @@ def grounded_chapters_from_evidence(
                 if hi >= 0 and at > hi + 12:
                     continue
                 window = " ".join(part[2] for part in captions[i:i + 10])
-                score = float(partial_ratio(quote, window))
+                # A long caption window can contain the quote even when
+                # its first timestamp precedes the speech by a minute.
+                # Prefer rows where the *beginning* of the quote aligns.
+                start_window = " ".join(part[2] for part in captions[i:i + 2])
+                opening = " ".join(quote.split()[:6])
+                score = (
+                    0.76 * float(partial_ratio(quote, window))
+                    + 0.24 * float(partial_ratio(opening, start_window))
+                )
                 if score > best_score:
                     best_score, best_index = score, i
             if best_index >= 0 and best_score >= min_confidence:
