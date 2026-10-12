@@ -59,8 +59,16 @@ class NativeHotkeyEventTests(unittest.TestCase):
             diagnostic.assert_called_once_with("play_pause")
             hotkey_action.assert_not_called()
             hotkeys.diagnostic_callback = None
-            hotkeys.nativeEventFilter(QByteArray(b"windows_generic_MSG"),
-                                     ctypes.addressof(msg))
+            # Second notification from the same physical press must NOT pause
+            # immediately after it started playback.
+            with patch("streamdeck_hotkeys.time.monotonic", return_value=200.0):
+                hotkeys.nativeEventFilter(QByteArray(b"windows_generic_MSG"),
+                                         ctypes.addressof(msg))
+            hotkey_action.assert_not_called()
+            # A later independent keypress should work.
+            with patch("streamdeck_hotkeys.time.monotonic", return_value=200.250):
+                hotkeys.nativeEventFilter(QByteArray(b"windows_generic_MSG"),
+                                         ctypes.addressof(msg))
             hotkey_action.assert_called_once_with("play_pause")
             hotkeys.close()
 
