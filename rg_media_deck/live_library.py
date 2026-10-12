@@ -7,6 +7,7 @@ Missing/offline roots are kept in the library without unlinking metadata.
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -165,4 +166,9 @@ class RecursiveMediaWatcher:
         self.observer = None
         if observer:
             observer.stop()
-            observer.join(timeout=2)
+            # Network-backed folders may leave watchdog threads waiting in
+            # ReadDirectoryChangesW. Never block Qt's UI event loop on join().
+            if observer.is_alive():
+                threading.Thread(target=observer.join, args=(2,),
+                                 name="RGMediaWatcherCleanup",
+                                 daemon=True).start()
