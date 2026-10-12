@@ -18,3 +18,34 @@ def test_distinct_specific_angles_do_not_trigger_generic_label():
         "МЧС и война: что россиянин сказал о стратегии?",
     ]
     assert not any("надто загальний" in issue for issue in ab_title_issues(variants))
+
+def test_gui_six_grounded_topics_not_silently_dropped():
+    from rg_youtube_control.dialogue_seo import preserve_outline_topics
+    source_topics = [
+        ("причина увольнения Шойгу", "обсуждают причину увольнения Шойгу и кадровое решение"),
+        ("корупція в російській армії", "коррупция и обвинения в министерстве обороны"),
+        ("стратегічна неадекватність Шойгу", "война это война и нужен человек который стратегию"),
+        ("дискусія про увільнення Шагу", "обсуждаем отставку шагу"),
+        ("дискусія про причини зміни посади", "поменялся министр обороны после кадрового решения"),
+        ("дискусія про корупцію та відповідальність", "коррупция и обвинения конкретным лицам"),
+    ]
+    report = {"blocks": [
+        {"verified": True, "start_stamp": "00:00:00", "topics": [
+            {"topic": topic, "evidence": quote}
+            for topic, quote in source_topics[:3]
+        ]},
+        {"verified": True, "start_stamp": "00:05:03", "topics": [
+            {"topic": topic, "evidence": quote}
+            for topic, quote in source_topics[3:]
+        ]},
+    ]}
+    description = (
+        "У випуску співрозмовники обговорюють кадрові рішення в Міністерстві "
+        "оборони РФ, корупційні припущення та військову компетентність Шойгу."
+    )
+    result, omitted = preserve_outline_topics(
+        description, report, max_topic_bullets=50, max_body_bytes=3800
+    )
+    assert omitted == []
+    assert "Шагу" not in result
+    assert "корупц" in result.casefold()
