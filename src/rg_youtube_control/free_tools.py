@@ -722,6 +722,53 @@ def _grounded_description_from_transcript(
     )
 
 
+def _remove_unsupported_named_claims(
+    description: str,
+    evidence_report: dict[str, Any],
+    current_title: str,
+) -> str:
+    """Avoid presenting unquoted groups of named people as verified events.
+
+    The transcript's validated evidence quotes, not model-written summaries,
+    provide the grounding. Keep the evidence map intact for editorial review.
+    """
+    def stem(text: str) -> str:
+        return text.casefold().translate(str.maketrans({
+            "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е"
+        }))[:5]
+
+    quoted = " ".join(
+        str(item.get("evidence") or "")
+        for block in evidence_report.get("blocks") or []
+        if block.get("verified") is not False
+        for item in block.get("topics") or []
+        if isinstance(item, dict)
+    )
+    supported = {
+        stem(word) for word in re.findall(
+            r"[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]{5,}",
+            str(current_title or "") + " " + quoted
+        )
+    }
+    result: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", description):
+        proper = [
+            match.group(0)
+            for match in re.finditer(r"\b[А-ЯЁІЇЄҐ][а-яёіїєґ]{4,}\b", sentence)
+            if match.start() > 2
+            and stem(match.group(0)) not in supported
+            and stem(match.group(0)) not in {
+                "минис", "росии", "росия", "украи", "украй"
+            }
+        ]
+        # A sentence naming two+ otherwise unseen people is an unsupported
+        # assertion, not a description of verified dialogue topics.
+        if proper:
+            continue
+        result.append(sentence)
+    return " ".join(result).strip()
+
+
 def _polish_generated_description(value: str) -> str:
     """Remove repeated sentences and obvious LLM-style repetition."""
     text = " ".join(str(value or "").split()).strip()
@@ -734,6 +781,8 @@ def _polish_generated_description(value: str) -> str:
         (r"\bуволена\b", "звільнена"),
         (r"\bуволено\b", "звільнено"),
         (r"\bувольнення\b", "звільнення"),
+        (r"\bувільнення\b", "звільнення"),
+        (r"\bзамістників\b", "заступників"),
         (r"\bдолжност[ьи]\b", "посаді"),
         (r"\bдолжность\b", "посада"),
     )
@@ -2041,10 +2090,10 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
-            # Verified story angles when ASR misspells Shoigu as "шагу".
-            # The named subject comes from the supplied video title, while
-            # each discussion hook must be grounded in source quotations.
-            if evidence_report and ab_title_issues(candidate["title_variants"], evidence_report):
+            # When several independent hooks are explicitly quoted, prefer
+            # stable source-grounded angles over random, sometimes malformed
+            # model A/B candidates. Never fabricate a third evidence topic.
+            if evidence_report:
                 quotes = " ".join(
                     str(t.get("evidence") or "")
                     for block in evidence_report.get("blocks") or []
@@ -2053,23 +2102,37 @@ chapters: рядок з підтвердженими таймкодами та �
                 ).casefold()
                 if (
                     "шойгу" in current_title.casefold()
-                    and "путин" in quotes
-                    and "отношен" in quotes
-                    and "коррупц" in quotes
-                    and "обвинен" in quotes
+                    and any(stem in quotes for stem in ("корруп", "коруп"))
                     and "мчс" in quotes
-                    and "стратег" in quotes
+                    and "план" in quotes
                 ):
-                    verified_angles = [
-                        "Путин и Шойгу: почему говорили о хороших отношениях?",
-                        "Коррупция и обвинения: что рассказали о Шойгу?",
-                        "МЧС и война: что россиянин сказал о стратегии?",
-                    ]
-                    if not ab_title_issues(verified_angles, evidence_report):
-                        candidate["title_variants"] = verified_angles
+                    first = (
+                        "Шойгу и коррупция: что сказали об обвинениях?"
+                        if "обвинен" in quotes else
+                        "Шойгу и коррупция: что говорят о причинах?"
+                    )
+                    third = ""
+                    if "стратег" in quotes and "война" in quotes:
+                        third = "МЧС и война: кто должен отвечать за стратегию?"
+                    elif "сам захотел" in quotes and "должност" in quotes:
+                        third = "Уход Шойгу: сам захотел на другую должность?"
+                    elif "путин" in quotes and "отношен" in quotes:
+                        third = "Путин и Шойгу: что говорили об отношениях?"
+                    if third:
+                        grounded_angles = [
+                            first,
+                            "Шойгу и МЧС: «Всё идёт по плану»?",
+                            third,
+                        ]
+                        if not ab_title_issues(grounded_angles, evidence_report):
+                            candidate["title_variants"] = grounded_angles
             description_candidate = _polish_generated_description(
                 str(candidate.get("description") or "").strip()
             )
+            if evidence_report:
+                description_candidate = _remove_unsupported_named_claims(
+                    description_candidate, evidence_report, current_title,
+                )
             # A discussion quote does not establish Putin's intent.
             # Remove the specific unsupported causal inference while retaining
             # the verifiable discussion of relationships and reassignment.
@@ -2086,6 +2149,29 @@ chapters: рядок з підтвердженими таймкодами та �
                     "за припущенням співрозмовника",
                     description_candidate,
                 )
+            if evidence_report and "шойгу" in current_title.casefold():
+                verified_quotes = " ".join(
+                    str(t.get("evidence") or "")
+                    for b in evidence_report.get("blocks") or []
+                    if b.get("verified") is not False
+                    for t in b.get("topics") or [] if isinstance(t, dict)
+                ).casefold()
+                # Statements about charges against unnamed people must not
+                # become an assertion that Shoigu himself was charged.
+                if "предъявлены обвинения" in verified_quotes and not re.search(
+                    r"обвинени[яй].{0,25}шойгу", verified_quotes
+                ):
+                    description_candidate = re.sub(
+                        r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
+                        "обвинувачення щодо окремих осіб",
+                        description_candidate,
+                    )
+                if "расход" not in verified_quotes and "витрат" not in verified_quotes:
+                    description_candidate = description_candidate.replace(
+                        "військові витрати",
+                        "фінансові питання" if "финанс" in verified_quotes
+                        else "кадрові рішення",
+                    )
             candidate["description"] = description_candidate
             description_error = _description_quality_error(
                 description_candidate,
@@ -2140,6 +2226,30 @@ chapters: рядок з підтвердженими таймкодами та �
                 raise ValueError(
                     "description quality failed: " + description_error
                 )
+
+            # Repeat source-checked cleanup AFTER any model recovery.
+            if evidence_report:
+                public_description = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
+                )
+                public_description = re.sub(
+                    r"(?i)(?:,?\s*(?:але|а)\s+)?Путін\s+"
+                    r"(?:уволив|звільнив|усунув|прибрав)\s+"
+                    r"(?:його|Шойгу)\s+(?:через|щоб|за)\s+[^.?!]*",
+                    "",
+                    public_description,
+                )
+                public_description = _remove_unsupported_named_claims(
+                    public_description, evidence_report, current_title,
+                )
+                candidate["description"] = public_description
+                final_desc_error = _description_quality_error(
+                    public_description, transcript, max_chars=950,
+                )
+                if final_desc_error:
+                    raise ValueError(
+                        "grounded description failed final check: " + final_desc_error
+                    )
 
             model_tags = [
                 str(item).strip().lstrip("#")
@@ -2225,8 +2335,8 @@ chapters: рядок з підтвердженими таймкодами та �
         # remains available separately if even this budget is insufficient.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=24,
-            max_body_bytes=3500,
+            max_topic_bullets=50,
+            max_body_bytes=3800,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))

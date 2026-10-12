@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/seo-evidence-no-invented-third-20261012
+      - fix/seo-preview-parity-20261012
     paths:
       - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
   workflow_dispatch:
@@ -15,11 +16,23 @@ jobs:
   real-shoigu-qa:
     runs-on: [self-hosted]
     timeout-minutes: 25
-    # Fail on REVIEW; verify Shoigu description without inferred Putin motives.
+    # Fail on REVIEW; test deterministic quoted-angle recovery and final SEO sanitation.
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Rebuild full Shoigu timeline without evidence cache
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Fresh SEO QA must run on ALEXPC" }
+          $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
+          $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+          }
+          $env:PYTHONPATH = "$deps;$pwd\\src;$env:PYTHONPATH"
+          & $py -B rg_remote_control/youtube_shoigu_fresh_timeline_qa.py
+          if ($LASTEXITCODE -ne 0) { throw "Fresh full-timeline Shoigu QA failed" }
       - name: Verify ALEXPC and run no-write local SEO
         shell: powershell
         run: |

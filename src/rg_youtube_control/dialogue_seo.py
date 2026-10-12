@@ -479,6 +479,38 @@ def ab_title_issues(
                     f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
                 )
 
+    # Generic editorial labels are not a useful or factual third A/B hook.
+    # They used to pass the offline gate and reach the real GUI preview.
+    generic_hook = re.compile(
+        r"(?i)(?:дискусси[яи]\s+о\s+причин|"
+        r"дискусі[яї]\s+про\s+причин|"
+        r"обсужден[иия]+\s+причин|"
+        r"внутренн(?:ие|их)\s+причин|"
+        r"версии\s+и\s+факты)"
+    )
+    asr_misspelling = re.compile(
+        r"(?i)\bшогу\b|\bшагу\b|\bшаг[аи]\s+на\s+пути\b"
+    )
+    irrelevant_hook = re.compile(
+        r"(?i)\bответ\s+на\s+вопрос\b|"
+        r"\bпочему\s+не\s+ответил[иа]?\b"
+    )
+    for index, value in enumerate(values, 1):
+        if asr_misspelling.search(value):
+            issues.append(
+                f"A/B варіант {index} містить помилку розпізнавання або штучний сюжетний гачок."
+            )
+        if irrelevant_hook.search(value):
+            issues.append(
+                f"A/B варіант {index} є загальною реплікою замість змістовної теми."
+            )
+
+    for index, value in enumerate(values, 1):
+        if generic_hook.search(value):
+            issues.append(
+                f"A/B варіант {index} надто загальний і не містить конкретного сюжетного гачка."
+            )
+
     # Compare meaningful topic words as well as surface string similarity.
     # A/B must represent different stories, not three paraphrases with the
     # same hook (observed on a real 50-minute RG video).
