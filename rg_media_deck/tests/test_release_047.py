@@ -70,16 +70,16 @@ class FrameTimestampSeekTests(unittest.TestCase):
 
 
 class FrameShortcutTests(unittest.TestCase):
-    def test_f18_f19_available_and_f17_f9_unchanged(self):
-        self.assertEqual(DEFAULT_BINDINGS["frame_back"], "F18")
-        self.assertEqual(DEFAULT_BINDINGS["frame_forward"], "F19")
+    def test_pictured_pgdown_pgup_defaults_and_f17_f9_unchanged(self):
+        self.assertEqual(DEFAULT_BINDINGS["frame_back"], "Alt+Shift+PgDown")
+        self.assertEqual(DEFAULT_BINDINGS["frame_forward"], "Alt+Shift+PgUp")
         self.assertEqual(DEFAULT_BINDINGS["start"], "F17")
         self.assertEqual(DEFAULT_BINDINGS["pause"], "F17")
         self.assertEqual(DEFAULT_BINDINGS["mute"], "F9")
         self.assertEqual(parse_hotkey("F18"), ("F18", 0x4000, 0x81))
         self.assertEqual(parse_hotkey("F19"), ("F19", 0x4000, 0x82))
         self.assertEqual(len(ACTIONS), 15)
-        self.assertEqual(check_bindings(DEFAULT_BINDINGS)["frame_back"], "F18")
+        self.assertEqual(check_bindings(DEFAULT_BINDINGS)["frame_back"], "Alt+Shift+PgDown")
 
     def test_action_routing_not_confused_with_ordinary_seek(self):
         calls = []
@@ -114,7 +114,10 @@ class FrameShortcutTests(unittest.TestCase):
     def test_f18_and_f19_short_hid_pulses(self):
         app = QApplication.instance() or QApplication([])
         called = []
-        manager = GlobalMediaHotkeys(called.append, dict(DEFAULT_BINDINGS))
+        # Custom legacy F18/F19 mappings must remain functional.
+        legacy = dict(DEFAULT_BINDINGS)
+        legacy.update(frame_back="F18", frame_forward="F19")
+        manager = GlobalMediaHotkeys(called.append, legacy)
         user32 = SimpleNamespace(
             RegisterHotKey=Mock(return_value=False),
             UnregisterHotKey=Mock(return_value=True),
