@@ -49,7 +49,7 @@ def test_full_generator_no_longer_limits_topic_retention_to_two():
     block = source.split("def generate_seo_package_local(", 1)[1].split(
         "\ndef _comment_reply_safe_novelty_ok(", 1
     )[0]
-    assert "max_topic_bullets=24" in block
+    assert "max_topic_bullets=50" in block
     assert "max_body_bytes=3500" in block
     assert "max_topic_bullets=2," not in block
     assert "bool(omitted_topics)" in block
