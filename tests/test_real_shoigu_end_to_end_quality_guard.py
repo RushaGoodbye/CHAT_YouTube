@@ -95,3 +95,31 @@ def test_good_new_candidate_has_no_false_regressions():
         ab_quality_issues=[],
     )
     assert reasons == []
+
+
+
+def test_real_generic_ab_titles_from_live_qa_fail_editorial_quality():
+    from rg_youtube_control.dialogue_seo import ab_title_issues
+
+    weak = [
+        "Почему уволили Шойгу? Коррупция или план?",
+        "Шойгу уволили по плану? Видео с обсуждением",
+        "Увольнение Шойгу: версии и мнения",
+    ]
+    reasons = ab_title_issues(weak)
+    assert any("загальна фраза" in item and "2" in item for item in reasons)
+    assert any("загальна фраза" in item and "3" in item for item in reasons)
+
+
+def test_real_asr_name_and_russian_topic_normalize_without_new_names():
+    from rg_youtube_control.dialogue_seo import _topic_display_uk
+    title = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
+    assert _topic_display_uk("дискусія про увільнення Шагу", title) == "звільнення Шойгу"
+    assert _topic_display_uk("причина увольнения Шойгу", title) == "причина звільнення Шойгу"
+
+
+def test_shoigu_shortened_primary_title_does_not_weaken_existing_hook():
+    from rg_youtube_control.free_tools import _preserve_current_title_when_candidate_is_not_stronger
+    existing = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
+    weaker = "Увольнение Шойгу: коррупция или план?"
+    assert _preserve_current_title_when_candidate_is_not_stronger(existing, weaker) == existing
