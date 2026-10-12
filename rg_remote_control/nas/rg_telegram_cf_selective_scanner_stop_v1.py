@@ -176,6 +176,17 @@ def deploy_guard_precheck():
  return source,cfg,targets,current
 def deploy_guard():
  source,cfg,targets,baseline=deploy_guard_precheck()
+ t=mod().env_token()
+ # If a previous attempt already deployed the guard, reconcile first:
+ # do not rebuild/redeploy unnecessarily and preserve Cron changes.
+ if get_scanner_owner(t)=="nas":
+  actual=snapshot(t)
+  if actual!=baseline:raise RuntimeError("CF_GUARD_CRONS_CHANGED")
+  save(OUT/"scanner_guard_deployed.json",json.dumps({"verified_at":datetime.datetime.now(datetime.timezone.utc).isoformat(),
+   "crons":actual,"owner":"nas","readback_only":True})+"\n")
+  emit("CF_SCANNER_DO_GUARD_ALREADY_LIVE",owner="nas",crons=actual,
+   do_alarm_guard_deployed=True,do_alarm_deletion_log_not_verified=True)
+  return
  for f in targets:
   b=OUT/(f.name+".before")
   if not b.exists():save(b,f.read_text("utf-8"))
