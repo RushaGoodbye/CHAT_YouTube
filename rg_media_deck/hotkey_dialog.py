@@ -73,8 +73,11 @@ class HotkeyEditor(QDialog):
         layout.addLayout(footer)
 
     def _reset_defaults(self):
+        # Screenshot preset: STOP deliberately had no assigned shortcut.
+        # Do not erase an existing user mapping until Save is pressed.
         for action, editor in self.fields.items():
-            editor.setKeySequence(QKeySequence(DEFAULT_BINDINGS.get(action, "")))
+            key = "" if action == "stop" else DEFAULT_BINDINGS.get(action, "")
+            editor.setKeySequence(QKeySequence(key))
 
     def _save(self):
         values = {}
