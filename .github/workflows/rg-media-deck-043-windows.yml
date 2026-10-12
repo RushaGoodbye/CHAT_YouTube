@@ -64,18 +64,14 @@ jobs:
       - name: Package complete ZIP update (NO installer)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist_zip,dist_release | Out-Null
-          Copy-Item -Path dist/RG_Media_Deck -Destination dist_zip/RG_Media_Deck -Recurse -Force
-          Copy-Item zip_update/Apply_RG_Media_Deck_Update.ps1 -Destination dist_zip/
-          Copy-Item zip_update/*.cmd -Destination dist_zip/
-          Set-Content -Path dist_zip/version.txt -Value '0.4.3' -NoNewline -Encoding utf8
-          Compress-Archive -Path dist_zip/* -DestinationPath dist_release/RG_Media_Deck_Update.zip -CompressionLevel Optimal
+          python build_zip_update.py
           $zip = 'dist_release/RG_Media_Deck_Update.zip'
           if (!(Test-Path $zip)) { throw 'ZIP update missing' }
           (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + '  RG_Media_Deck_Update.zip' |
             Set-Content 'dist_release/RG_Media_Deck_Update.zip.sha256' -Encoding Ascii
           Expand-Archive $zip -DestinationPath 'dist_zip_verify' -Force
           if (!(Test-Path 'dist_zip_verify/RG_Media_Deck/RG_Media_Deck.exe')) { throw 'EXE not packaged' }
+          if (!(Test-Path 'dist_zip_verify/RG_Media_Deck/_internal/assets/RG_Media_Deck.ico')) { throw 'Qt/PyInstaller icon resource missing' }
           $check = Start-Process -FilePath 'dist_zip_verify/RG_Media_Deck/RG_Media_Deck.exe' -ArgumentList '--selftest' -PassThru -Wait -NoNewWindow
           if ($check.ExitCode -ne 0) { throw "Packed EXE failed GUI selftest: $($check.ExitCode)" }
       - name: Test ZIP patch application and previous version backup
