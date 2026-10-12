@@ -112,13 +112,20 @@ def patch_source(code,config):
   end=(start+1+end_match.start()) if end_match else min(len(code),start+22000)
   region=code[start:end]
   call_re=r"\bprocessTelegramModerationUpdates\s*\(\s*env\s*\)"
-  # Replace only the sole scheduled call, leaving other administrative
-  # uses and the processing functionality untouched.
-  guard='''(String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare").trim().toLowerCase() === "nas"
+  # The Worker has an unguarded scheduled poll but retains an established
+  # moderation task. Place its new owner variable in the scheduled method,
+  # where nested task functions can capture it safely.
+  if re.search(r"\b(?:const|let|var)\s+moderationOwner\b",region):
+   raise RuntimeError("OWNER_VARIABLE_ALREADY_PRESENT_UNRECOGNIZED")
+  guard='''(moderationOwner === "nas"
         ? Promise.resolve({ ok: true, skipped: "nas_moderation_owner", owner: "nas", polls: 0 })
         : processTelegramModerationUpdates(env))'''
   replaced,count=re.subn(call_re,lambda match:guard,region,count=1)
   if count!=1:raise RuntimeError("SCHEDULED_MODERATION_CALL_NOT_FOUND")
+  entry=re.search(r"\basync\s+scheduled\s*\(\s*event\s*,\s*env\s*,\s*ctx\s*\)\s*\{",replaced)
+  if entry is None:raise RuntimeError("SCHEDULED_ENTRY_NOT_UNIQUE")
+  declaration='\n    const moderationOwner = String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare").trim().toLowerCase();'
+  replaced=replaced[:entry.end()]+declaration+replaced[entry.end():]
   patched_code=code[:start]+replaced+code[end:]
   mode="PATCHED_SCHEDULED_ONLY"
  # Regression guard: never change existing safety-critical jobs or
@@ -273,7 +280,7 @@ def do_deploy():
  # Absolute DSM binary path checked before patching Worker source.
  cmd=[docker_bin,"run","--rm","--env-file",str(ENV),"-v",str(TARGET)+":/app",
       "-w","/app","node:22-bookworm-slim","sh","-lc",
-      "npm install --no-audit --no-fund && node --check src/index.js && node scripts/test-nas-moderation-owner.mjs && node scripts/test-safety-barrier.mjs && npx wrangler deploy --dry-run --outdir dist && npx wrangler deploy --config wrangler.toml"]
+      "npm install --no-audit --no-fund && node --check src/index.js && node scripts/test-safety-barrier.mjs && npx wrangler deploy --dry-run --outdir dist && npx wrangler deploy --config wrangler.toml"]
  out("CF_SELECTIVE_DEPLOY_STARTED",source_backed_up=True,auto_deploy_frozen=True,
    air_alerts_cron_preserved=True,content_cron_preserved=True,scanner_cron_preserved=True)
  try:
@@ -336,6 +343,7 @@ def selftest():
  result,cfg,mode=patch_source(old,config)
  assert mode=="PATCHED_SCHEDULED_ONLY"
  assert "nas_moderation_owner" in result
+ assert 'const moderationOwner = String(env.RG_MODERATION_RUNTIME_OWNER || "cloudflare")' in result
  assert result.count('processTelegramModerationUpdates(env)')==1
  assert patch_source(result,cfg)[2]=="ALREADY_GUARDED"
  # A nested process call in a wrapper still receives a fail-closed switch.
