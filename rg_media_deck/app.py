@@ -1048,8 +1048,13 @@ class MainWindow(QMainWindow):
             with QSignalBlocker(self.search):
                 self.search.setText(term)
             self.apply_filter()
-        # Never claim that live services have returned results unless user
-        # is logged in and searches inside their actual official web UI.
+        # User requested that one common search immediately open the result
+        # area and submit the prepared research question to ChatGPT.
+        # The browser will auto-attempt Send once loading/auth completes.
+        # Local FACTAGE/NEWS hit counts stay visible in the tabs.
+        if self._current_library_tab != 3:
+            self.library_tabs.setCurrentIndex(3)
+        # Never claim the remote AI has responded until the web page does.
         self.status.setText(
             f'Спільний пошук «{term}»: локальні файли знайдено за фільтром; '
             'Веб-результати відкриються праворуч. ChatGPT надсилає запит '
