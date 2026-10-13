@@ -1,0 +1,38 @@
+name: RG Real SEO Drafts Read Only QA
+on:
+  push:
+    branches:
+      - feat/seo-intelligence-offline-batch-20261013
+    paths:
+      - ".github/workflows/rg-real-seo-drafts-readonly.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-draft-audit:
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read actual drafts and timeline evidence without modifying them
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "ALEXPC only" }
+          $py = "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+          $root = Join-Path $env:LOCALAPPDATA "RGYouTubeControl"
+          $db = Join-Path $root "rg_youtube_control.db"
+          $evidence = Join-Path $root "seo_evidence"
+          if (-not (Test-Path $py)) { throw "Pinned Python missing" }
+          if (-not (Test-Path $db)) { throw "Real DB missing" }
+          $env:PYTHONPATH = "$pwd\src;$env:PYTHONPATH"
+          & $py -B -m rg_youtube_control.seo_real_draft_audit --database $db --evidence $evidence --max-videos 100 --output (Join-Path $env:RUNNER_TEMP "rg_real_draft_audit.json")
+          if ($LASTEXITCODE -ne 0) { throw "Read-only audit failed" }
+      - name: Collect report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG-Real-Draft-Audit
+          path: ${{ runner.temp }}/rg_real_draft_audit.json
+          if-no-files-found: warn
