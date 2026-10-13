@@ -13406,7 +13406,7 @@ class MainWindow(QMainWindow):
             str(row.get("text") or "") for row in source_rows
             if isinstance(row, dict)
         )
-        review_titles = [title, *variants[:2]]
+        review_titles = [title, *variants]
         evidence_decision = check_seo_evidence(
             video_id=video_id,
             titles=review_titles,
@@ -13414,6 +13414,7 @@ class MainWindow(QMainWindow):
             transcript=source_text,
             transcript_video_id=video_id if source_rows else None,
             verified_video_mapping=bool(source_rows),
+            expected_title_count=4,
         )
         requires_review = (
             bool(package.get("needs_review"))
