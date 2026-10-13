@@ -142,6 +142,21 @@ class SettingsAndLayoutTests(unittest.TestCase):
             gpt_start.assert_not_called()
             self.assertIn("підготовлені запити", w.status.text())
 
+    def test_city_folder_and_latin_filenames_are_searchable(self):
+        w = self._window()
+        items = [
+            MediaItem("D:/ФАКТАЖ/МУРМАНСК/001.mp4", "001.mp4", "video", 1),
+            MediaItem("D:/ФАКТАЖ/Murmansk_2026.mp4", "Murmansk_2026.mp4", "video", 1),
+            MediaItem("D:/ФАКТАЖ/Moscow.mp4", "Moscow.mp4", "video", 1),
+        ]
+        w.all_media = items
+        w.search_index = IndexedMediaLibrary(items, {})
+        with patch.object(w, "_save"):
+            w.global_search.setText("МУРМАНСК")
+            w.search_everywhere()
+        self.assertEqual(w.model.rowCount(), 2)
+        self.assertIn("2", w.library_tabs.tabText(0))
+
     def test_local_query_edits_remain_per_tab(self):
         w = self._window()
         with patch.object(w, "_save"), \
