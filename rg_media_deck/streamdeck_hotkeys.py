@@ -127,7 +127,7 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
         mods |= MODIFIERS[token][1]
     if "win" in used:
         raise ValueError("Комбінації з Win недоступні")
-    if not used and (key not in ("F9",) and
+    if not used and (key not in ("F9", "F10") and
                      not (_FUNCTION_KEY.fullmatch(key) and int(key[1:]) >= 13)):
         raise ValueError("Для цієї клавіші потрібні модифікатори")
     if used and len(used) < 2:
