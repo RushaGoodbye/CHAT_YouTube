@@ -29,8 +29,8 @@ from unified_research import normalize_query
 
 
 class ResearchWorker(QThread):
-    done = Signal(str, object)
-    failed = Signal(str, str)
+    done = Signal(str, str, object)
+    failed = Signal(str, str, str)
 
     def __init__(self, kind: str, profile: Path, *, query: str = "", action: str = "",
                  code: str = "", code_hash: str = "", password: str = "",
@@ -61,7 +61,7 @@ class ResearchWorker(QThread):
             else:
                 raise ValueError("Unknown connector operation")
             if not self.isInterruptionRequested():
-                self.done.emit(self.kind, result)
+                self.done.emit(self.kind, self.query, result)
         except Exception as exc:
             if not self.isInterruptionRequested():
                 # Hide API tokens and login confirmation codes from UI/logs.
@@ -69,8 +69,13 @@ class ResearchWorker(QThread):
                 reason = str(exc).replace(self.code, "[REDACTED]") if self.code else str(exc)
                 if self.password:
                     reason = reason.replace(self.password, "[REDACTED]")
+                for secret in (keys.get("openai_api_key", ""),
+                               keys.get("telegram_api_hash", ""),
+                               keys.get("telegram_phone", "")):
+                    if secret:
+                        reason = reason.replace(secret, "[REDACTED]")
                 reason = reason[:420]
-                self.failed.emit(self.kind, f"{label}: {reason}")
+                self.failed.emit(self.kind, self.query, f"{label}: {reason}")
 
 
 class ResearchHub(QWidget):
@@ -85,6 +90,7 @@ class ResearchHub(QWidget):
         self._pending_code_hash = ""
         self._workers = []
         self._active = set()
+        self._rerun_on_finish = set()
         self._build_ui()
 
     def _build_ui(self):
@@ -247,7 +253,13 @@ class ResearchHub(QWidget):
 
     def _start(self, worker: ResearchWorker):
         if worker.kind in self._active:
-            self.status.setText(f"Операція {worker.kind} уже виконується.")
+            if worker.kind in ("telegram", "ai"):
+                self._rerun_on_finish.add(worker.kind)
+                self.status.setText(
+                    "Новий запит поставлено після завершення поточного; "
+                    "застарілий результат не буде показано.")
+            else:
+                self.status.setText(f"Операція {worker.kind} уже виконується.")
             return
         self._active.add(worker.kind)
         self._workers.append(worker)
@@ -261,9 +273,17 @@ class ResearchHub(QWidget):
         if worker in self._workers:
             self._workers.remove(worker)
         worker.deleteLater()
+        if worker.kind in self._rerun_on_finish:
+            self._rerun_on_finish.discard(worker.kind)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(75,
+                self.search_telegram if worker.kind == "telegram" else self.search_ai)
 
-    def _worker_failed(self, kind: str, reason: str):
+    def _worker_failed(self, kind: str, query: str, reason: str):
         self._active.discard(kind)
+        if kind in ("telegram", "ai") and query != self.query:
+            self._rerun_on_finish.add(kind)
+            return
         if kind == "telegram":
             self.telegram_label.setText("Помилка Telegram: " + reason)
         elif kind == "ai":
@@ -271,8 +291,11 @@ class ResearchHub(QWidget):
         else:
             self.status.setText("Telegram авторизація: " + reason)
 
-    def _worker_done(self, kind: str, result):
+    def _worker_done(self, kind: str, query: str, result):
         self._active.discard(kind)
+        if kind in ("telegram", "ai") and query != self.query:
+            self._rerun_on_finish.add(kind)
+            return
         if kind == "telegram_auth":
             status = result.get("status")
             if status == "code_sent":
