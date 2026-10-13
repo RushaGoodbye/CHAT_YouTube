@@ -1014,6 +1014,28 @@ class MainWindow(QMainWindow):
         self._library_queries[1] = term
         self.telegram_tab.set_query(term)
         self.chatgpt_tab.set_query(term)
+        # Search every local library regardless of the tab currently open.
+        # Display counts on FACTAGE/NEWS while the user visits web tabs.
+        matching = self.search_index.filter(term, 'all', set(), False)
+        from news_library import in_tab
+        fact_count = sum(in_tab(item, self.news_folder, 'main') for item in matching)
+        news_count = sum(in_tab(item, self.news_folder, 'news') for item in matching)
+        self.library_tabs.setTabText(0, f'ФАКТАЖ ({fact_count})')
+        self.library_tabs.setTabText(1, f'📰 НОВИНИ ({news_count})')
+        # For a common search, show all categories, not the old favorites
+        # or photo-only selections from the previous manual filter.
+        from PySide6.QtCore import QSignalBlocker
+        with QSignalBlocker(self.kind):
+            self.kind.setCurrentIndex(self.kind.findData('all'))
+        with QSignalBlocker(self.only_favorites):
+            self.only_favorites.setChecked(False)
+        with QSignalBlocker(self.collection_filter):
+            self.collection_filter.setCurrentIndex(self.collection_filter.findData(''))
+        # If browsers are already open, prepare the updated query immediately,
+        # without opening another Chromium process during an OBS broadcast.
+        for browser in (self.telegram_tab, self.chatgpt_tab):
+            if browser.active and browser._loaded:
+                browser.search_active()
         if self._current_library_tab in (0, 1):
             from PySide6.QtCore import QSignalBlocker
             with QSignalBlocker(self.search):
