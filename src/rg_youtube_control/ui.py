@@ -13050,20 +13050,21 @@ class MainWindow(QMainWindow):
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        # Bulk processing must not waste costly model calls on items
-        # without an already available transcript. Single-video mode can
-        # still fetch it interactively.
-        candidate_ids = [
-            video_id for video_id in candidate_ids
-            if any((transcript_dir / (video_id + ext)).is_file()
-                   for ext in (".srt", ".vtt", ".txt"))
-        ]
+        # Prefer verified local SRTs, but never REQUIRE NAS availability:
+        # individual SEO can also fetch subtitles via YouTube Transcript API
+        # and caption-track discovery. Bulk must use the same source chain.
+        candidate_ids = sorted(
+            candidate_ids,
+            key=lambda video_id: (
+                0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
+            ),
+        )
 
         if not candidate_ids:
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "Немає архівних відео з готовим транскриптом без SEO-чернетки "
+                "Немає звичайних опублікованих відео без SEO-чернетки "
                 "для пакетної 0-quota підготовки.",
             )
             return
