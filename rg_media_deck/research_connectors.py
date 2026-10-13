@@ -145,6 +145,7 @@ def filter_sort_posts(posts: list[dict], days: int = 7,
     if sort not in ("newest", "oldest", "channel"):
         raise ValueError("Unknown sort mode")
     seen = set()
+    seen_content = set()
     result = []
     for post in posts:
         if days and post["age_hours"] > days * 24:
@@ -152,9 +153,17 @@ def filter_sort_posts(posts: list[dict], days: int = 7,
         if media_only and not post["kind"]:
             continue
         key = (post["chat"], post["id"])
-        if key in seen:
+        # Same syndicated report across several channels should be shown
+        # once. Never merge short, generic posts where matching wording is
+        # insufficient evidence of an actual duplicate.
+        canonical = re.sub(r"\s+", " ", re.sub(
+            r"https?://\S+", "", str(post.get("text", "")).casefold())).strip()
+        duplicate = canonical if len(canonical) >= 60 else None
+        if key in seen or (duplicate and duplicate in seen_content):
             continue
         seen.add(key)
+        if duplicate:
+            seen_content.add(duplicate)
         result.append(post)
     if sort == "channel":
         return sorted(result, key=lambda x: (x["chat"].casefold(), -datetime.fromisoformat(x["date"]).timestamp()))
