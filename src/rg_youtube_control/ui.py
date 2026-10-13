@@ -13076,6 +13076,9 @@ class MainWindow(QMainWindow):
             prepared: list[dict] = []
             skipped: list[dict] = []
             attempted = 0
+            failure_streak = 0
+            failure_reasons: dict[str, int] = {}
+            stopped_early = False
 
             def generate_with_timeout(video_id: str) -> dict:
                 result_queue: queue.Queue = queue.Queue(maxsize=1)
@@ -13126,18 +13129,31 @@ class MainWindow(QMainWindow):
                     )
                 try:
                     prepared.append(generate_with_timeout(video_id))
+                    failure_streak = 0
                 except Exception as exc:
-                    skipped.append(
-                        {
-                            "video_id": video_id,
-                            "error": str(exc),
-                        }
-                    )
+                    reason = " ".join(str(exc).split())[:700]
+                    skipped.append({"video_id": video_id, "error": reason})
+                    # Repeated failures must not silently consume 30 candidates.
+                    # Stop after five consecutive failures or three identical
+                    # reasons, but preserve all diagnostics for the operator.
+                    failure_streak += 1
+                    reason_key = reason[:180]
+                    failure_reasons[reason_key] = failure_reasons.get(reason_key, 0) + 1
+                    worker_ref = getattr(self, "_local_tool_worker", None)
+                    if worker_ref is not None:
+                        worker_ref.progress.emit(
+                            f"готово {len(prepared)}/{limit} · "
+                            f"помилка {attempted}/{max_attempts}: {reason[:100]}"
+                        )
+                    if failure_streak >= 5 or failure_reasons[reason_key] >= 3:
+                        stopped_early = True
+                        break
             return {
                 "prepared": prepared,
                 "skipped": skipped,
                 "requested": limit,
                 "attempted": attempted,
+                "stopped_early": stopped_early,
             }
 
         log_action(
@@ -13253,6 +13269,11 @@ class MainWindow(QMainWindow):
         )
 
         reason_text = ""
+        if result.get("stopped_early"):
+            reason_text = (
+                "\n\nЗупинено достроково через повторні помилки. "
+                "Перевірте причини нижче; повторний запуск без виправлення не рекомендовано."
+            )
         if failures:
             reason_lines = []
             for failure in failures[:5]:
@@ -13261,7 +13282,7 @@ class MainWindow(QMainWindow):
                     str(failure.get("error") or "невідома причина").split()
                 )
                 reason_lines.append(f"{video_id}: {error_text[:220]}")
-            reason_text = (
+            reason_text += (
                 "\n\nПричини перших пропусків:\n"
                 + "\n".join(reason_lines)
             )
