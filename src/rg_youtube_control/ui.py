@@ -13418,9 +13418,15 @@ class MainWindow(QMainWindow):
             verified_video_mapping=False,
             expected_title_count=4,
         )
-        # A preview is not an explicit editorial approval. This path only
-        # persists review drafts; promotion must occur in its own workflow.
-        requires_review = True
+        # A preview is not an explicit editorial approval. Local generation
+        # cannot authorize promotion; retain the existing review signals.
+        editorial_approval_verified = False
+        requires_review = (
+            bool(package.get("needs_review"))
+            or len(variants) < 3
+            or not evidence_decision.approved_for_review
+            or not editorial_approval_verified
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
