@@ -7,10 +7,13 @@ on:
     branches:
       - rg-media-deck-0-6-1
   workflow_dispatch:
+concurrency:
+  group: media-deck-062-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows-build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: rg_media_deck
@@ -19,13 +22,68 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Dependencies
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt pyinstaller==6.16.0
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency install failed' }
+      - name: Unit tests
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Build icon
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          python build_icon.py
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path assets/RG_Media_Deck.ico)) { throw 'Icon failed' }
+      - name: PyInstaller
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --add-data 'assets;assets' --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
+          if (!(Test-Path dist/RG_Media_Deck/RG_Media_Deck.exe)) { throw 'EXE missing' }
+      - name: Frozen EXE selftest
+        timeout-minutes: 3
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $exe = Join-Path (Get-Location) 'dist/RG_Media_Deck/RG_Media_Deck.exe'
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          try {
+            if (!$p.WaitForExit(120000)) {
+              taskkill.exe /PID $p.Id /T /F | Out-Host
+              throw 'EXE selftest timeout after 120 seconds'
+            }
+            $p.Refresh()
+            if ($p.ExitCode -ne 0) { throw "EXE selftest failed: $($p.ExitCode)" }
+          } finally {
+            if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Install Inno Setup
+        timeout-minutes: 5
         shell: pwsh
         run: choco install innosetup --yes --no-progress
-      - name: Build and verify application
+      - name: Package installer
+        timeout-minutes: 5
         shell: pwsh
-        run: ./BUILD_SETUP_WINDOWS.ps1
-      - name: Upload verified installer
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) { throw 'Inno Setup missing' }
+          & $iscc 'installer/RG_Media_Deck.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer packaging failed' }
+          $out = 'dist_installer/RG_Media_Deck_Setup.exe'
+          if (!(Test-Path $out)) { throw 'Installer missing' }
+          $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+          "$hash  RG_Media_Deck_Setup.exe" | Set-Content -Encoding ascii "$out.sha256"
+      - name: Publish installer
         uses: actions/upload-artifact@v4
         with:
           name: RG_Media_Deck_0.6.2_Setup
@@ -33,3 +91,13 @@ jobs:
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe
             rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe.sha256
           if-no-files-found: error
+      - name: Save diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG_Media_Deck_build_diagnostics
+          path: |
+            rg_media_deck/pyinstaller.stdout.log
+            rg_media_deck/pyinstaller.stderr.log
+            rg_media_deck/build/RG_Media_Deck/warn-RG_Media_Deck.txt
+          if-no-files-found: ignore
