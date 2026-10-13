@@ -13399,6 +13399,18 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Never persist chapters when their timestamps cannot be traced
+        # to a transcript explicitly bound to this exact YouTube video.
+        transcript_origin = str(context.get("transcript_source") or "")
+        source_bound = transcript_origin == "nas-srt"
+        chapter_warning = ""
+        if chapters and not source_bound:
+            chapters = ""
+            chapter_warning = (
+                "Розділи вилучено: таймкоди не підтверджено "
+                "локальним SRT для цього Video ID."
+            )
+
         # Require traceable source evidence before promoting locally generated SEO.
         # A reviewed preview alone does not prove the chosen headline quotes.
         source_rows = result.get("transcript_rows") or []
@@ -13429,7 +13441,7 @@ class MainWindow(QMainWindow):
         )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
-            or "Неповні A/B варіанти - потрібна перевірка."
+            or "Потрібна редакторська перевірка джерела та A/B/C."
             if requires_review else "Переглянуто користувачем"
         )
         save_optimization_draft(
@@ -13443,9 +13455,14 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=(
-                (draft_reason + " | Evidence: " + ", ".join(evidence_decision.issues))
-                if evidence_decision.issues else draft_reason
+            quality_reason=" | ".join(
+                part for part in (
+                    draft_reason,
+                    chapter_warning,
+                    "Джерело: " + (transcript_origin or "невідоме"),
+                    "Evidence: " + ", ".join(evidence_decision.issues)
+                    if evidence_decision.issues else "",
+                ) if part
             ),
             source_title=before_title,
             source_description=before_description,
