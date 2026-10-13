@@ -13402,13 +13402,12 @@ class MainWindow(QMainWindow):
         # Never persist chapters when their timestamps cannot be traced
         # to a transcript explicitly bound to this exact YouTube video.
         transcript_origin = str(context.get("transcript_source") or "")
-        source_bound = transcript_origin == "nas-srt"
         chapter_warning = ""
-        if chapters and not source_bound:
+        if chapters:
             chapters = ""
             chapter_warning = (
-                "Розділи вилучено: таймкоди не підтверджено "
-                "локальним SRT для цього Video ID."
+                "Розділи вилучено: відповідність кожного таймкоду "
+                "змісту відео ще не підтверджена."
             )
 
         # Require traceable source evidence before promoting locally generated SEO.
