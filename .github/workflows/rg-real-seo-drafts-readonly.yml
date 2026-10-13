@@ -5,6 +5,7 @@ on:
       - feat/seo-intelligence-offline-batch-20261013
     paths:
       - ".github/workflows/rg-real-seo-drafts-readonly.yml"
+      - "src/rg_youtube_control/seo_real_draft_audit.py"
   workflow_dispatch:
 permissions:
   contents: read
