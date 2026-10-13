@@ -98,8 +98,15 @@ try:
         row["last_run_error"]=str(rs.get("error_tail") or "")[-350:] if isinstance(rs,dict) else None
         postrun=read_json(APP/st/"RG_POSTRUN_QA.json")
         row["postrun_passed"]=postrun.get("passed") if isinstance(postrun,dict) else None
-        row["qa_checks_failed"]=bool(isinstance(postrun,dict) and isinstance(postrun.get("checks"),list)
-                                    and any(isinstance(c,dict) and c.get("ok") is not True for c in postrun["checks"]))
+        checks=postrun.get("checks") if isinstance(postrun,dict) else None
+        row["qa_checks_failed"]=bool(
+            isinstance(checks,list) and any(not isinstance(c,dict) or c.get("ok") is not True for c in checks)
+        )
+        row["qa_report_valid"]=bool(
+            isinstance(postrun,dict) and postrun.get("passed") is True
+            and isinstance(checks,list) and len(checks)>0
+            and not row["qa_checks_failed"]
+        )
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
@@ -111,13 +118,13 @@ try:
         row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
-        row["already_complete"]=bool(row["complete_manifest"] and row["postrun_passed"] is True and not row["qa_checks_failed"])
+        row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"])
         row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
         if isinstance(postrun,dict) and "checks" in postrun:
             row["qa_failures"]=[{"name":str(c.get("name","")),"detail":str(c.get("message") or c.get("reason") or c.get("detail") or "")[:230]}
-                                for c in (postrun.get("checks") or []) if isinstance(c,dict) and not c.get("ok")][:12]
+                                for c in (postrun.get("checks") or []) if isinstance(c,dict) and c.get("ok") is not True][:12]
         if st in ("886","901"):
             runlog=APP/"run_manifests"/st/"STUDIO_RUN.log"
             if runlog.is_file():
