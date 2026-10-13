@@ -37,6 +37,16 @@ class EvidenceGateTests(unittest.TestCase):
         self.data["expected_title_count"] = 4
         self.assertIn("INVALID_TITLE_COUNT", check_seo_evidence(**self.data).issues)
 
+    def test_quote_must_match_complete_words(self):
+        self.data["transcript"] = ("Розмова про шкільний процес. " * 40) + "космонавтика"
+        self.data["titles"][0] = "«навтика» та навчання"
+        self.assertIn("UNVERIFIED_DIRECT_QUOTE", check_seo_evidence(**self.data).issues)
+
+    def test_quote_with_punctuation_matches_source(self):
+        self.data["transcript"] += " В кінці він сказав: Все йде за планом!"
+        self.data["titles"][0] = "«Все йде за планом» — розмова"
+        self.assertNotIn("UNVERIFIED_DIRECT_QUOTE", check_seo_evidence(**self.data).issues)
+
     def test_no_transcript_fails_closed(self):
         self.data["transcript"] = ""
         self.assertIn("INSUFFICIENT_TRANSCRIPT", check_seo_evidence(**self.data).issues)
