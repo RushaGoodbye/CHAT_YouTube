@@ -56,6 +56,17 @@ def check_seo_evidence(
         problems.append("TITLE_TOO_LONG")
     if len(description.strip()) < 120:
         problems.append("DESCRIPTION_TOO_SHORT")
+    # Reject generic archive boilerplate even if it meets the length limit.
+    # This is an editorial signal, not a claim that other text is factual.
+    boilerplate = (
+        "обговорюємо аргументи учасників",
+        "учасники відповідають на запитання",
+        "обговорюються основні теми",
+        "дивіться повну розмову",
+    )
+    normalized_description = _norm(description)
+    if any(phrase in normalized_description for phrase in boilerplate):
+        problems.append("GENERIC_DESCRIPTION_BOILERPLATE")
     source = f" {_norm(transcript)} "
     for title in titles:
         for quote in _QUOTES.findall(title):
