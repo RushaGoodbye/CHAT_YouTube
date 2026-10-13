@@ -115,11 +115,21 @@ try:
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
         row["manifest_dialogue_count"]=mani.get("dialogue_count")
-        row["manifest_output_count"]=len(outputs)
-        paths=[Path(x.get("xml") or "") for x in outputs if isinstance(x,dict)]
+        row["manifest_output_count"]=len(outputs) if isinstance(outputs,list) else 0
+        try:
+            expected=int(row["manifest_dialogue_count"])
+            if expected<=0 or expected>1000:
+                raise ValueError("Invalid dialogue count")
+        except (TypeError,ValueError,OverflowError):
+            expected=0
+            row["manifest_error"]="INVALID_DIALOGUE_COUNT"
+        paths=[Path(x["xml"]) for x in outputs if isinstance(x,dict)
+               and isinstance(x.get("xml"),str) and x["xml"].strip()] if isinstance(outputs,list) else []
         row["xml_existing"]=sum(p.is_file() and p.stat().st_size>0 for p in paths)
         row["complete_state"]=str(row["last_run_status"] or "").upper()=="COMPLETE"
-        row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
+        row["complete_manifest"]=bool(expected>0 and isinstance(outputs,list)
+                                      and len(outputs)==expected and len(paths)==expected
+                                      and row["xml_existing"]==expected)
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
         row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"])
