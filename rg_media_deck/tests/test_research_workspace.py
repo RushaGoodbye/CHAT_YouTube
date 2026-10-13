@@ -18,13 +18,13 @@ class GlobalPromptTests(unittest.TestCase):
     def test_city_research_prompt_requires_recent_citations_and_no_fake_counts(self):
         prompt = research_prompt("  МУРМАНСК   ")
         for phrase in ("МУРМАНСК", "30 дней", "последние 10 лет",
-                       "погибших", "школы", "детские сады", "больницы",
+                       "погибших", "Школы", "детские сады", "больницы",
                        "ссылками", "Не выдумывай", "сайт"):
             if phrase == "сайт":
                 continue
             self.assertIn(phrase, prompt)
         self.assertIn("НЕ равно точному числу", prompt)
-        self.assertIn("недостоверного числа нет", prompt) if False else None
+        self.assertIn("достоверного числа нет", prompt)
 
     def test_search_input_is_normalized_and_injection_never_executed(self):
         self.assertEqual(normalize_query("  МУРМАНСК\t \nвидео  "), "МУРМАНСК видео")
