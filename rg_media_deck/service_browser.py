@@ -121,6 +121,7 @@ class ServiceBrowser(QWidget):
         self._auto_send_pending = False
         self._auto_send_attempted_query = ""
         self._auto_send_last_result = None
+        self._auto_send_inflight = False
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(5, 4, 5, 4)
@@ -256,6 +257,7 @@ class ServiceBrowser(QWidget):
         # Explicit new Search is allowed to repeat the same city later.
         # Navigation/reload alone never creates another submission.
         self._auto_send_attempted_query = ""
+        self._auto_send_inflight = False
         self._auto_send_pending = True
         if not self.ensure_loaded():
             return
@@ -265,6 +267,7 @@ class ServiceBrowser(QWidget):
 
     def _try_auto_send(self):
         if (not self._auto_send_pending or not self._loaded
+                or self._auto_send_inflight
                 or self._auto_send_attempted_query == self._pending_query
                 or self._view is None):
             return
@@ -273,6 +276,7 @@ class ServiceBrowser(QWidget):
             self.status.setText(
                 'Не можна надсилати запит: це не офіційна адреса ChatGPT.')
             return
+        self._auto_send_inflight = True
         prompt = research_prompt(self._pending_query)
         script = _CHATGPT_PREPARE_JS.replace(
             '__PROMPT__', json.dumps(prompt, ensure_ascii=False))
@@ -282,6 +286,7 @@ class ServiceBrowser(QWidget):
 
     def _after_auto_prepare(self, term: str, ready):
         if not ready or term != self._pending_query or not self._auto_send_pending:
+            self._auto_send_inflight = False
             self.status.setText(
                 'ChatGPT: редактор недоступний. Увійдіть у свій акаунт '
                 'або скористайтеся «Скопіювати запит».')
@@ -301,6 +306,7 @@ class ServiceBrowser(QWidget):
             return
         attempted = isinstance(outcome, dict) and outcome.get('attempted') is True
         self._auto_send_last_result = outcome
+        self._auto_send_inflight = False
         if attempted:
             # Never resend on navigation/reload: one request per user query.
             self._auto_send_attempted_query = query
