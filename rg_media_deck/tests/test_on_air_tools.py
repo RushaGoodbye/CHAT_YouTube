@@ -8,6 +8,11 @@ from on_air_tools import remember, suggest
 APP_SOURCE = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
 
 class OnAirToolsTests(unittest.TestCase):
+    def test_normal_speed_f10_default(self):
+        from streamdeck_hotkeys import DEFAULT_BINDINGS, parse_hotkey
+        self.assertEqual(DEFAULT_BINDINGS['speed_normal'], 'F10')
+        self.assertEqual(parse_hotkey('F10')[0], 'F10')
+
     def test_crossed_out_controls_are_not_created(self):
         for token in ("global_search = QLineEdit", "show_staged_preview",
                       "self.quick_buttons =", "self.history_btn =", "self.suggest_btn ="):
