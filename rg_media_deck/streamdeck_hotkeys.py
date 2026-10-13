@@ -46,13 +46,13 @@ BROADCAST_BINDINGS = {
     "pause": "F17",
     "speed_up": "Ctrl+Alt+Shift+=",
     "speed_down": "Ctrl+Alt+Shift+-",
-    "speed_normal": "Ctrl+Alt+Shift+0",
     "volume_down": "Alt+Shift+-",
     "volume_up": "Alt+Shift+=",
     "mute": "F9",
 }
 DEFAULT_BINDINGS = {
     **BROADCAST_BINDINGS,
+    "speed_normal": "Ctrl+Alt+Shift+0",
     "frame_back": "Alt+Shift+PgDown",
     "frame_forward": "Alt+Shift+PgUp",
     "play_pause": "Ctrl+Alt+Shift+F6",
