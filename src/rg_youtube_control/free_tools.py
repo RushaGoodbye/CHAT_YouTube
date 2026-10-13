@@ -725,43 +725,61 @@ def _grounded_description_from_transcript(
 def _deterministic_evidence_description(
     title: str, evidence_report: dict[str, Any]
 ) -> str:
-    """Describe verified *subjects of discussion*, never infer events or motives.
+    """Create public Ukrainian prose only from cited, verified discussion subjects.
 
-    The LLM may detect topics but does not author the published narrative.
+    Do not publish model-written assertions or raw multilingual ASR topic labels.
+    Each verified topic must map to a supported editorial subject.
     """
     blocks = [
         block for block in (evidence_report.get("blocks") or [])
         if isinstance(block, dict) and block.get("verified") is not False
     ]
-    evidence = " ".join(
-        str(topic.get("evidence") or "")
-        for block in blocks
-        for topic in (block.get("topics") or [])
-        if isinstance(topic, dict)
-    ).casefold()
-    if not evidence.strip():
+    if not blocks:
         raise ValueError("No verified transcript quotations for SEO description")
 
     labels: list[str] = []
-    for needles, label in _GROUNDED_TOPIC_RULES:
-        if any(needle in evidence for needle in needles) and label not in labels:
-            labels.append(label)
-    if not labels:
-        raise ValueError("No supported topics for deterministic SEO description")
-    labels = labels[:8]
+    for block in blocks:
+        topics = [item for item in (block.get("topics") or [])
+                  if isinstance(item, dict)]
+        if not topics:
+            raise ValueError("Verified block has no topics")
+        for topic in topics:
+            quote = str(topic.get("evidence") or "").strip()
+            if not quote:
+                raise ValueError("No verified transcript quotations for SEO description")
+            combined = (str(topic.get("topic") or "") + " " + quote).casefold()
+            recognized: list[str] = []
+            if "шойгу" in combined and any(
+                word in combined for word in (
+                    "увольнен", "звільнен", "посад", "коррупц", "корупц",
+                )
+            ):
+                recognized.append("версії причин зміни посади Шойгу")
+            if any(w in combined for w in ("стратег", "войн", "війн")):
+                recognized.append("війна та стратегічні рішення")
+            for needles, label in _GROUNDED_TOPIC_RULES:
+                if any(needle in combined for needle in needles):
+                    recognized.append(label)
+            if not recognized:
+                raise ValueError("Verified subject requires editorial review")
+            for label in recognized:
+                if label not in labels:
+                    labels.append(label)
+    labels = labels[:10]
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють такі теми: " + "; ".join(labels) + ". "
+        "обговорюють: " + "; ".join(labels) + ". "
     )
     body = (
-        "Це розмова у форматі чат-рулетки: її учасники висловлюють "
-        "власні оцінки, припущення та аргументи. Їхні слова не слід "
-        "сприймати як підтвердження подій чи мотивів посадовців. "
-        "Перегляньте діалог, щоб почути повний контекст обговорення."
+        "Учасники чат-рулетки висловлюють власні думки та припущення "
+        "щодо причин і наслідків обговорюваних подій. Це їхні оцінки, "
+        "а не підтверджені редакцією факти чи мотиви посадовців. "
+        "Дивіться повну розмову, щоб почути аргументи співрозмовників "
+        "і оцінити їх у контексті."
     )
     result = lead + body
-    if len(result) < 260:
-        result += " У випуску наведено різні думки учасників розмови."
+    if len(result) > 950:
+        raise ValueError("Evidence subjects exceed editorial description budget")
     return result
 
 
@@ -2194,6 +2212,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     current_title, evidence_report,
                 )
                 candidate["description"] = description_candidate
+                candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
                 )
@@ -2380,8 +2399,8 @@ chapters: рядок з підтвердженими таймкодами та �
         str(payload.get("description") or "").strip()
     )
     omitted_topics: list[str] = []
-    if evidence_report:
-        # Never discard grounded subjects merely to keep a short synopsis.
+    if evidence_report and not payload.get("_deterministic_editor"):
+        # Legacy evidence packages keep their topic appendix.
         # Keep the concise lead, then append every distinct supported subject
         # while respecting the platform description budget. The evidence map
         # remains available separately if even this budget is insufficient.
