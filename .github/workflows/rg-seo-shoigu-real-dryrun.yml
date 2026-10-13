@@ -1,4 +1,5 @@
 name: Shoigu SEO real read-only QA
+# Deterministic-editor no-raw-label verification 2026-10-13
 
 on:
   push:
