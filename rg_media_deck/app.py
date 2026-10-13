@@ -2712,7 +2712,14 @@ def main():
         dialog.close()
         if passed:
             main_window = MainWindow()
-            passed = (main_window.preview_play.height() <= 36
+            passed = (main_window.library_tabs.count() == 2
+                and main_window.library_tabs.tabText(0).startswith('ФАКТАЖ')
+                and 'НОВИНИ' in main_window.library_tabs.tabText(1)
+                and main_window.preview_stack.count() == 1
+                and not hasattr(main_window, 'telegram_tab')
+                and not hasattr(main_window, 'chatgpt_tab')
+                and not hasattr(main_window, 'research_hub')
+                and main_window.preview_play.height() <= 36
                 and main_window.preview_stop.height() <= 36
                 and not hasattr(main_window, 'preview_pause')
                 and main_window.preview_play.parentWidget() is main_window.control_row
