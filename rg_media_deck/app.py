@@ -2075,6 +2075,17 @@ class MainWindow(QMainWindow):
         image.setMinimumSize(480, 270)
         if item.kind == 'photo':
             image.set_file(item.path)
+        else:
+            # Use a previously generated still frame; do not open a second player.
+            try:
+                from thumbnails import thumbnail_path
+                cached = thumbnail_path(item.path)
+                if cached.is_file():
+                    image.set_file(str(cached))
+                else:
+                    image.setText('Наведіть курсор на файл для створення кадру, потім відкрийте перегляд')
+            except (OSError, ValueError):
+                image.setText('Кадр попереднього перегляду недоступний')
         layout.addWidget(image)
         layout.addWidget(QLabel(display_media_name(item.name)))
         dialog.exec()
