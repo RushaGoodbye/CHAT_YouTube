@@ -23,8 +23,6 @@ import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
 from ui_hang_watch import UIHangWatch
-from service_browser import ServiceBrowser
-from research_hub import ResearchHub
 from obs_safe_output import OBSSafeVideoWindow
 from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
@@ -48,7 +46,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.6.1'
+VERSION = '0.6.2'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -844,7 +842,7 @@ class MainWindow(QMainWindow):
         self.roots = list(dict.fromkeys(self.settings['roots']))
         self.news_folder = self.settings['news_folder']
         self.player_side = self.settings['player_side']
-        self._current_library_tab = self.settings['workspace_tab']
+        self._current_library_tab = self.settings['workspace_tab'] if self.settings['workspace_tab'] in (0, 1) else 0
         self._library_queries = ['', '']
         self._global_query = self.settings['global_query']
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
@@ -973,76 +971,43 @@ class MainWindow(QMainWindow):
         self.scan()
 
     def switch_library_tab(self, index: int):
-        if index not in (0, 1, 2, 3, 4) or index == self._current_library_tab:
+        """Only local FACTAGE and NEWS; playback remains independent."""
+        if index not in (0, 1) or index == self._current_library_tab:
             return
         self._switch_timer.stop()
         self._pending_switch_item = None
-        previous = self._current_library_tab
-        if previous in (0, 1):
-            self._library_queries[previous] = self.search.text()
+        self._library_queries[self._current_library_tab] = self.search.text()
         self._current_library_tab = index
         self._thumb_hover_timer.stop()
         self._hover_item = None
         self._hover_popup.hide()
         self.selected = None
-        # A browser tab must not pause, restart or replace the OBS video.
         self.preview._cancel_staged()
-        if index in (0, 1):
-            self.telegram_tab.set_active(False)
-            self.chatgpt_tab.set_active(False)
-            from PySide6.QtCore import QSignalBlocker
-            with QSignalBlocker(self.search):
-                self.search.setText(self._library_queries[index])
-            self.news_folder_bar.setVisible(index == 1)
-            self.collection_filter.setVisible(index == 0)
-            self.search.setPlaceholderText(
-                '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
-                else '🔎 Назва, тег або інша розкладка клавіатури...')
-            self.left_stack.setCurrentIndex(0)
-            self.apply_filter()
-        elif index == 4:
-            self.telegram_tab.set_active(False)
-            self.chatgpt_tab.set_active(False)
-            self.left_stack.setCurrentIndex(3)
-            self.preview_stack.setCurrentIndex(1)
-        elif index == 3:
-            self.telegram_tab.set_active(False)
-            self.left_stack.setCurrentIndex(2)
-            self.preview_stack.setCurrentIndex(2)
-            self.chatgpt_tab.ensure_loaded()
-            self.chatgpt_tab.set_active(True)
-        else:
-            self.chatgpt_tab.set_active(False)
-            self.left_stack.setCurrentIndex(1)
-            self.preview_stack.setCurrentIndex(1)
-            self.telegram_tab.ensure_loaded()
-            self.telegram_tab.set_active(True)
+        from PySide6.QtCore import QSignalBlocker
+        with QSignalBlocker(self.search):
+            self.search.setText(self._library_queries[index])
+        self.news_folder_bar.setVisible(index == 1)
+        self.collection_filter.setVisible(index == 0)
+        self.search.setPlaceholderText(
+            '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
+            else '🔎 Назва, тег або інша розкладка клавіатури...')
+        self.apply_filter()
         self._save()
 
     def search_everywhere(self):
-        """One input fans out to two local lists and both prepared web searches."""
+        """One query searches the two local libraries; no network requests."""
         term = normalize_query(self.global_search.text())
         if not term:
-            self.status.setText('Введіть місто або тему у спільний пошук.')
+            self.status.setText('Введіть тему для пошуку у локальному фактажі.')
             return
         self._global_query = term
         self._library_queries[0] = term
         self._library_queries[1] = term
-        self.telegram_tab.set_query(term)
-        self.chatgpt_tab.set_query(term)
-        # Search every local library regardless of the tab currently open.
-        # Display counts on FACTAGE/NEWS while the user visits web tabs.
         matching = self.search_index.filter(term, 'all', set(), False)
-        from news_library import in_tab
         fact_count = sum(in_tab(item, self.news_folder, 'main') for item in matching)
         news_count = sum(in_tab(item, self.news_folder, 'news') for item in matching)
-        self.research_hub.search_all(term, media_paths=[
-            item.path for item in matching[:300]],
-            news_folder=self.news_folder)
         self.library_tabs.setTabText(0, f'ФАКТАЖ ({fact_count})')
         self.library_tabs.setTabText(1, f'📰 НОВИНИ ({news_count})')
-        # For a common search, show all categories, not the old favorites
-        # or photo-only selections from the previous manual filter.
         from PySide6.QtCore import QSignalBlocker
         with QSignalBlocker(self.kind):
             self.kind.setCurrentIndex(self.kind.findData('all'))
@@ -1050,27 +1015,10 @@ class MainWindow(QMainWindow):
             self.only_favorites.setChecked(False)
         with QSignalBlocker(self.collection_filter):
             self.collection_filter.setCurrentIndex(self.collection_filter.findData(''))
-        # The user requested the actual answer in the PREVIEW area.
-        # Show sourced results first; ChatGPT Web sends the prompt once
-        # only when already authenticated. It remains visible in the right
-        # panel, never in the media-only OBS capture.
-        # Open ChatGPT itself IN THE PREVIEW so the actual streamed answer
-        # appears immediately after pressing global Search; real Telegram and
-        # AI API results continue on the adjacent results tab.
-        self.preview_stack.setCurrentIndex(2)
-        self.chatgpt_tab.set_query(term)
-        self.chatgpt_tab.request_auto_submit()
-        if self._current_library_tab in (0, 1):
-            from PySide6.QtCore import QSignalBlocker
-            with QSignalBlocker(self.search):
-                self.search.setText(term)
-            self.apply_filter()
-        # Never claim that live services have returned results unless user
-        # is logged in and searches inside their actual official web UI.
-        self.status.setText(
-            f'«{term}»: ФАКТАЖ {fact_count}, НОВИНИ {news_count}. '
-            'Результати в «ПОПЕРЕДНІЙ ПЕРЕГЛЯД» → «РЕЗУЛЬТАТИ / CHATGPT». '
-            'Для Telegram API/AI потрібна окрема авторизація.')
+        with QSignalBlocker(self.search):
+            self.search.setText(term)
+        self.apply_filter()
+        self.status.setText(f'«{term}»: ФАКТАЖ {fact_count}, НОВИНИ {news_count}.')
         self._save()
 
     def set_player_side(self, side: str):
@@ -1091,12 +1039,6 @@ class MainWindow(QMainWindow):
         self.status.setText('Плеєр ' + ('ліворуч' if side == 'left' else 'праворуч'))
         self._save()
 
-    def _on_news_media_downloaded(self, path: str):
-        """Index an explicitly downloaded Telegram photo/video in NEWS."""
-        self.status.setText(
-            'Новий матеріал Telegram збережено у НОВИНИ: ' + Path(path).name)
-        self.scan()
-
     def play_media_search_result(self, path: str):
         """A double-click on a local search hit is the only playout action."""
         found = next((item for item in self.all_media
@@ -1116,16 +1058,7 @@ class MainWindow(QMainWindow):
         self.obs_safe_window.raise_()
         self.status.setText(
             'OBS: Window Capture → RG MEDIA DECK - SAFE VIDEO. '
-            'Не захоплюйте головне вікно з Telegram/ChatGPT/результатами.')
-
-    def _on_preview_tab_changed(self, index: int):
-        # NEVER pause the underlying media when showing research. Window
-        # Capture must point at SAFE VIDEO, not this multi-content dashboard.
-        self.chatgpt_tab.set_active(index == 2)
-        if index == 2:
-            self.chatgpt_tab.ensure_loaded()
-            # Only the explicit unified Search button submits a prompt.
-            # Browsing this tab never triggers a duplicate paid/search action.
+            'Захоплюйте лише окреме вікно SAFE VIDEO.')
 
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
@@ -1591,10 +1524,10 @@ class MainWindow(QMainWindow):
         global_row.addWidget(global_label)
         self.global_search = QLineEdit(self._global_query)
         self.global_search.setPlaceholderText(
-            'Наприклад: МУРМАНСК — фактаж + новини + Telegram + ChatGPT')
+            'Наприклад: МУРМАНСК — пошук у фактажі та локальних новинах')
         self.global_search.setClearButtonEnabled(True)
         global_row.addWidget(self.global_search, 1)
-        self.global_search_button = make_button('ЗНАЙТИ СКРІЗЬ', self.search_everywhere)
+        self.global_search_button = make_button('ЗНАЙТИ', self.search_everywhere)
         global_row.addWidget(self.global_search_button)
         root.addLayout(global_row)
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -1613,9 +1546,6 @@ class MainWindow(QMainWindow):
         self.library_tabs = QTabBar()
         self.library_tabs.addTab('ФАКТАЖ')
         self.library_tabs.addTab('📰 НОВИНИ')
-        self.library_tabs.addTab('✈ TELEGRAM')
-        self.library_tabs.addTab('✦ CHATGPT')
-        self.library_tabs.addTab('🔎 ПОШУК')
         self.library_tabs.setExpanding(True)
         self.library_tabs.setCurrentIndex(self._current_library_tab)
         lv.addWidget(self.library_tabs)
@@ -1625,21 +1555,6 @@ class MainWindow(QMainWindow):
         local_v.setContentsMargins(0, 0, 0, 0)
         local_v.setSpacing(7)
         self.left_stack.addWidget(self.local_content)
-        self.telegram_tab = ServiceBrowser(
-            'telegram', settings_path().parent / 'browser_profiles', self)
-        self.chatgpt_tab = ServiceBrowser(
-            'chatgpt', settings_path().parent / 'browser_profiles', self)
-        self.left_stack.addWidget(self.telegram_tab)
-        self.left_chatgpt_info = QLabel(
-            'ChatGPT відкривається праворуч у вікні «ПОПЕРЕДНІЙ ПЕРЕГЛЯД». '
-            'Введіть запит у спільний пошук для автоматичного надсилання.')
-        self.left_chatgpt_info.setWordWrap(True)
-        self.left_stack.addWidget(self.left_chatgpt_info)
-        self.left_research_info = QLabel(
-            'Telegram-новини, AI-довідка та картка міста — праворуч. '
-            'Оберіть потрібну вкладку результатів у вікні перегляду.')
-        self.left_research_info.setWordWrap(True)
-        self.left_stack.addWidget(self.left_research_info)
         lv.addWidget(self.left_stack, 1)
         self.news_folder_bar = QWidget()
         news_row = QHBoxLayout(self.news_folder_bar)
@@ -1732,12 +1647,6 @@ class MainWindow(QMainWindow):
         self.preview_stack = QTabWidget()
         self.preview_stack.setObjectName('PreviewStack')
         self.preview_stack.addTab(self.preview, '▶ МЕДІА / OBS')
-        self.research_hub = ResearchHub(settings_path().parent / 'research', self)
-        self.research_hub.media_requested.connect(self.play_media_search_result)
-        self.research_hub.media_downloaded.connect(self._on_news_media_downloaded)
-        self.preview_stack.addTab(self.research_hub, '🔎 РЕЗУЛЬТАТИ')
-        self.preview_stack.addTab(self.chatgpt_tab, '✦ CHATGPT — ВІДПОВІДЬ')
-        self.preview_stack.currentChanged.connect(self._on_preview_tab_changed)
         rv.addWidget(self.preview_stack, 1)
         timeline = QHBoxLayout()
         timeline.setSpacing(8)
@@ -1810,11 +1719,6 @@ class MainWindow(QMainWindow):
             split.setSizes([920, 520])
         else:
             split.setSizes([520, 920])
-        self.left_stack.setCurrentIndex(
-            0 if self._current_library_tab in (0, 1)
-            else self._current_library_tab - 1)
-        self.telegram_tab.set_query(self._global_query)
-        self.chatgpt_tab.set_query(self._global_query)
         self.status = QLabel('Готово до відтворення.')
         self.status.setObjectName('Status')
         root.addWidget(self.status)
@@ -2714,16 +2618,9 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
-        if not self.research_hub.can_close():
-            self.status.setText(
-                'Зачекайте завершення Telegram/AI-запиту, щоб не пошкодити потік.')
-            event.ignore()
-            return
         if self.obs_safe_window is not None:
             self.obs_safe_window.shutdown()
         self._ui_heartbeat.stop()
-        self.telegram_tab.shutdown()
-        self.chatgpt_tab.shutdown()
         if self._ui_hang_watch is not None:
             self._ui_hang_watch.stop()
         self._switch_timer.stop()
