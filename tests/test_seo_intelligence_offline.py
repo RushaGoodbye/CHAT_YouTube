@@ -56,3 +56,18 @@ def test_exact_file_lookup_does_not_walk_unrelated_directories(tmp_path):
 def test_lexical_similarity_is_bounded():
     assert lexical_similarity("паливна криза", "паливна криза") == 1.0
     assert lexical_similarity("паливна криза", "інші теми") == 0.0
+
+
+def test_batch_audit_isolates_per_video_failures():
+    from rg_youtube_control.seo_intelligence import audit_batch
+    packages = [
+        {"video_id": "ABC123xyz09", "evidence_topics": ["паливна криза"],
+         "title_variants": ["A", "B", "C"], "description": "паливна криза"},
+        {"video_id": "DEF123xyz09", "evidence_topics": ["економіка"],
+         "title_variants": ["A", "A", "C"], "description": "нічого"},
+    ]
+    result = audit_batch(packages, min_coverage=0.5)
+    assert result["total"] == 2
+    assert result["ready"] == 1
+    assert result["review"] == 1
+    assert result["items"][1]["video_id"] == "DEF123xyz09"
