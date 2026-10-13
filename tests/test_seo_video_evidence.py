@@ -30,3 +30,12 @@ def test_video_mismatch_and_invalid_id_do_not_write(tmp_path):
 def test_no_unverified_evidence_map():
     with pytest.raises(ValueError):
         build_video_evidence("MEitKm687xo",ROWS,{"blocks_with_evidence":0},transcript_source="nas")
+
+
+def test_ui_deep_seo_persists_verified_video_fingerprint():
+    source = __import__("pathlib").Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    block = source.split("evidence_report = analyze_all_timeline_blocks(", 1)[1].split("context_for_model = dict(context)", 1)[0]
+    assert "build_video_evidence(" in block
+    assert "store_video_evidence(" in block
+    assert 'self.data_dir / "seo_evidence"' in block
+    assert "video_id, transcript_rows, evidence_report" in block
