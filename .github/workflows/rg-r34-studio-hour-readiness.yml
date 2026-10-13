@@ -103,3 +103,25 @@ jobs:
             }
           }
           Write-Host "R34_SESSION_AND_BUILD_INSPECTED_READ_ONLY"
+
+      - name: Resolve real Studio startup target and update state safely
+        run: |
+          $ErrorActionPreference="Stop"
+          $app="F:\RG_AUTO_EDIT\RG Auto Edit App"
+          $cmd=Get-Content -LiteralPath (Join-Path $app "RG_AUTO_EDIT_STUDIO.cmd") -Raw
+          $cmd=$cmd -replace '\r',''
+          Write-Host "R34_STARTUP_CMD_TEXT_BEGIN"
+          Write-Host $cmd
+          Write-Host "R34_STARTUP_CMD_TEXT_END"
+          $source=Get-Content (Join-Path $app "rg_studio_main.py") -Encoding UTF8
+          foreach($l in $source) {
+            if ($l -match '(?i)(ui|version|__main__|python|import|launcher|exec|run|studio)') {
+              Write-Host "R34_MAIN_ENTRY=$($l.Trim().Substring(0,[Math]::Min($l.Trim().Length,150)))"
+            }
+          }
+          $data="F:\RG_AUTO_EDIT\RG Auto Edit Data"
+          $look=@(Get-ChildItem -LiteralPath $data -Directory -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(updat|release|patch|stable|install|version)'})
+          foreach($dir in ($look | Select-Object -First 12)) {
+            Write-Host "R34_DATA_RELEVANT_DIR=$($dir.Name)"
+          }
+          Write-Host "R34_STARTUP_RESOLUTION_READ_ONLY_PASS"
