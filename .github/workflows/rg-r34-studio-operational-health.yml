@@ -1,0 +1,31 @@
+name: R34 Studio Real Operational Healthcheck
+on:
+  push:
+    branches: [rg-auto-edit/r34-studio-hour-readiness]
+    paths: [.github/workflows/rg-r34-studio-operational-health.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installed-app-health:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - name: Run installed Studio built-in health check without media edits
+        shell: powershell
+        run: |
+          $ErrorActionPreference="Stop"
+          $app=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit"
+          $runtime=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit Runtime\venv\Scripts\python.exe"
+          if(-not(Test-Path -LiteralPath $runtime) -or -not(Test-Path -LiteralPath (Join-Path $app 'rg_studio_healthcheck.py'))){throw "Studio/runtime missing"}
+          Push-Location $app
+          try {
+            & $runtime -X utf8 "rg_studio_healthcheck.py"
+            $code=$LASTEXITCODE
+            Write-Host "R34_REAL_STUDIO_HEALTHCHECK_EXIT=$code"
+          } finally { Pop-Location }
+          if($code -ne 0) {Write-Host "R34_HEALTHCHECK_REQUIRES_FIX_OR_REVIEW"}
+          $gui=@(Get-Process | Where-Object {$_.MainWindowTitle -like "RG Auto Edit Studio 0.20.20.14*"})
+          Write-Host "R34_STUDIO_STILL_VISIBLE=$($gui.Count -ge 1)"
+          if($gui.Count -lt 1) {throw "Studio GUI disappeared during healthcheck"}
+          Write-Host "R34_HEALTHCHECK_FINISHED_NO_MEDIA_PROCESS_STARTED"
