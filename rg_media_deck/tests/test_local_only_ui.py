@@ -14,7 +14,8 @@ class LocalOnlyUITests(unittest.TestCase):
 
     def test_no_browser_widgets_or_research_hub(self):
         forbidden = ("ServiceBrowser", "ResearchHub",
-                     "telegram_tab", "chatgpt_tab", "research_hub")
+                     "telegram_tab", "chatgpt_tab", "research_hub",
+                     "QWebEngineView", "webengine-selftest")
         for token in forbidden:
             with self.subTest(token=token):
                 self.assertNotIn(token, self.source)
