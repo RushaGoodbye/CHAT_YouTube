@@ -23,7 +23,6 @@ import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
 from ui_hang_watch import UIHangWatch
-from obs_safe_output import OBSSafeVideoWindow
 from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
@@ -893,7 +892,6 @@ class MainWindow(QMainWindow):
         self._thumbnail_failures = set()
         self._hover_popup = MediaHoverPopup(self)
         self._playback_health = PlaybackHealth()
-        self.obs_safe_window = None
         self._ui_hang_watch = None if '--selftest' in sys.argv else UIHangWatch(settings_path().parent)
         self._ui_heartbeat = QTimer(self)
         self._ui_heartbeat.setInterval(1000)
@@ -1052,16 +1050,6 @@ class MainWindow(QMainWindow):
         self.selected = found
         self.play_selected()
         self.preview_stack.setCurrentIndex(0)
-
-    def open_obs_safe_video(self):
-        """An explicitly separate Window Capture source with media pixels only."""
-        if self.obs_safe_window is None:
-            self.obs_safe_window = OBSSafeVideoWindow(self.preview)
-        self.obs_safe_window.show()
-        self.obs_safe_window.raise_()
-        self.status.setText(
-            'OBS: Window Capture → RG MEDIA DECK - SAFE VIDEO. '
-            'Захоплюйте лише окреме вікно SAFE VIDEO.')
 
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
@@ -2732,8 +2720,6 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
-        if self.obs_safe_window is not None:
-            self.obs_safe_window.shutdown()
         self._ui_heartbeat.stop()
         if self._ui_hang_watch is not None:
             self._ui_hang_watch.stop()
