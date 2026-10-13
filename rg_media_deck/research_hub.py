@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from research_connectors import (
     ai_research, credentials, filter_sort_posts, save_credentials,
     telegram_auth, telegram_search, telegram_settings_valid,
+    telegram_download_media,
 )
 from topic_cards import TopicCards, recency_label
 from news_library import belongs_to_news
@@ -36,7 +37,7 @@ class ResearchWorker(QThread):
 
     def __init__(self, kind: str, profile: Path, *, query: str = "", action: str = "",
                  code: str = "", code_hash: str = "", password: str = "",
-                 days: int = 7, parent=None):
+                 days: int = 7, post=None, target_folder="", parent=None):
         super().__init__(parent)
         self.kind = kind
         self.profile = Path(profile)
@@ -46,6 +47,8 @@ class ResearchWorker(QThread):
         self.code_hash = code_hash
         self.password = password
         self.days = days
+        self.post = post
+        self.target_folder = target_folder
 
     def run(self):
         keys = {}
@@ -56,6 +59,9 @@ class ResearchWorker(QThread):
                     self.query, keys, self.profile, days=self.days))
             elif self.kind == "ai":
                 result = ai_research(self.query, keys)
+            elif self.kind == "telegram_download":
+                result = asyncio.run(telegram_download_media(
+                    self.post, keys, self.profile, Path(self.target_folder)))
             elif self.kind == "telegram_auth":
                 result = asyncio.run(telegram_auth(
                     self.action, keys, self.profile,
@@ -83,6 +89,7 @@ class ResearchWorker(QThread):
 
 class ResearchHub(QWidget):
     media_requested = Signal(str)
+    media_downloaded = Signal(str)
 
     def __init__(self, root: Path, parent=None):
         super().__init__(parent)
@@ -90,6 +97,7 @@ class ResearchHub(QWidget):
         self.profile = self.root / "telegram_native"
         self.cards = TopicCards(self.root / "topic_cards.json")
         self.query = ""
+        self.news_folder = ""
         self.posts = []
         self.research = None
         self._pending_code_hash = ""
@@ -183,6 +191,9 @@ class ResearchHub(QWidget):
         self.open_source = QPushButton("↗ Відкрити джерело в Telegram")
         self.open_source.clicked.connect(self.open_telegram_selected)
         tg_box.addWidget(self.open_source)
+        self.save_media = QPushButton("⬇ Додати фото/відео в НОВИНИ")
+        self.save_media.clicked.connect(self.download_selected_telegram)
+        tg_box.addWidget(self.save_media)
         self.telegram_label = QLabel("Telegram API: не підключено")
         tg_box.addWidget(self.telegram_label)
         self.tabs.addTab(telegram_page, "✈ TELEGRAM")
@@ -250,6 +261,7 @@ class ResearchHub(QWidget):
     def search_all(self, query: str, media_paths: list[str] | None = None,
                    news_folder: str = ""):
         self.set_query(query)
+        self.news_folder = str(news_folder or "")
         if media_paths is not None:
             self.set_local_results(media_paths, news_folder)
             self.cards.put(self.query, media=media_paths)
@@ -329,6 +341,8 @@ class ResearchHub(QWidget):
             self.telegram_label.setText("Помилка Telegram: " + reason)
         elif kind == "ai":
             self.ai_label.setText("Помилка OpenAI: " + reason)
+        elif kind == "telegram_download":
+            self.status.setText("Не вдалося завантажити медіа: " + reason)
         else:
             self.status.setText("Telegram авторизація: " + reason)
 
@@ -369,6 +383,9 @@ class ResearchHub(QWidget):
             self.telegram_label.setText(
                 f"Telegram: отримано {len(self.posts)} публікацій з доступних чатів; "
                 "кожен запис має дату/канал, факти НЕ перевірені.")
+        elif kind == "telegram_download":
+            self.status.setText("Збережено в папку НОВИНИ: " + str(result))
+            self.media_downloaded.emit(str(result))
         elif kind == "ai":
             self.research = dict(result)
             self.show_ai(result)
@@ -491,6 +508,25 @@ class ResearchHub(QWidget):
             QDesktopServices.openUrl(QUrl(post["url"]))
         else:
             self.status.setText("Приватна публікація: публічного посилання немає.")
+
+    def download_selected_telegram(self):
+        post = self.selected_post()
+        if not post or post.get("kind") not in ("photo", "video"):
+            self.status.setText("Виділіть Telegram-публікацію з фото або відео.")
+            return
+        if not self.news_folder:
+            self.status.setText("Спочатку оберіть папку НОВИНИ у вкладці медіатеки.")
+            return
+        if QMessageBox.question(self, "Додати в НОВИНИ?",
+            "Перевірили достовірність та походження матеріалу?\n"
+            "Завантажити вибране фото/відео з Telegram у вашу папку НОВИНИ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self._start(ResearchWorker(
+            "telegram_download", self.profile, post=dict(post),
+            target_folder=self.news_folder, parent=self))
+        self.status.setText("Завантаження медіа Telegram в НОВИНИ…")
 
     def show_ai(self, response: dict):
         text = str(response.get("text", ""))
