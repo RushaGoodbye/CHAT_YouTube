@@ -7,9 +7,9 @@ def test_existing_drafts_are_audited_read_only(tmp_path):
     database = tmp_path / "test.sqlite"
     with sqlite3.connect(database) as db:
         db.executescript("""
-            CREATE TABLE videos(video_id TEXT PRIMARY KEY, profile TEXT);
+            CREATE TABLE videos(video_id TEXT PRIMARY KEY, profile TEXT, title TEXT);
             CREATE TABLE optimization_drafts(video_id TEXT, title TEXT, description TEXT, tags_json TEXT);
-            INSERT INTO videos VALUES('MEitKm687xo', 'main');
+            INSERT INTO videos VALUES('MEitKm687xo', 'main', 'Криза');
             INSERT INTO optimization_drafts VALUES('MEitKm687xo', 'Криза', 'паливна криза', '[]');
         """)
     evidence = tmp_path / "evidence"
@@ -30,9 +30,9 @@ def test_missing_evidence_skips_without_generating_claims(tmp_path):
     database = tmp_path / "test.sqlite"
     with sqlite3.connect(database) as db:
         db.executescript("""
-            CREATE TABLE videos(video_id TEXT PRIMARY KEY, profile TEXT);
+            CREATE TABLE videos(video_id TEXT PRIMARY KEY, profile TEXT, title TEXT);
             CREATE TABLE optimization_drafts(video_id TEXT, title TEXT, description TEXT, tags_json TEXT);
-            INSERT INTO videos VALUES('MEitKm687xo', 'live');
+            INSERT INTO videos VALUES('MEitKm687xo', 'live', 'Title');
             INSERT INTO optimization_drafts VALUES('MEitKm687xo', 'Title', 'Desc', '[]');
         """)
     evidence = tmp_path / "empty"
