@@ -1053,7 +1053,10 @@ class MainWindow(QMainWindow):
         # Show sourced results first; ChatGPT Web sends the prompt once
         # only when already authenticated. It remains visible in the right
         # panel, never in the media-only OBS capture.
-        self.preview_stack.setCurrentIndex(1)
+        # Open ChatGPT itself IN THE PREVIEW so the actual streamed answer
+        # appears immediately after pressing global Search; real Telegram and
+        # AI API results continue on the adjacent results tab.
+        self.preview_stack.setCurrentIndex(2)
         self.chatgpt_tab.set_query(term)
         self.chatgpt_tab.request_auto_submit()
         if self._current_library_tab in (0, 1):
