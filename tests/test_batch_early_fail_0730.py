@@ -19,3 +19,12 @@ def test_bulk_seo_failures_reported_in_final_dialog():
     )[0]
     assert 'if result.get("stopped_early"):' in save
     assert "reason_text +=" in save
+
+def test_batch_uses_proven_interactive_editor_not_fast_experimental_mode():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    batch = source.split("    def local_seo_batch(", 1)[1].split(
+        "    def _save_local_seo_batch(", 1
+    )[0]
+    assert "candidate_timeout_seconds = 180" in batch
+    assert "fast_mode=False" in batch
+    assert "fast_mode=True" not in batch
