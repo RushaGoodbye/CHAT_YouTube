@@ -27,6 +27,7 @@ from obs_safe_output import OBSSafeVideoWindow
 from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
+from on_air_tools import remember, suggest
 from news_library import combined_roots, in_tab, scoped_count
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
@@ -856,6 +857,8 @@ class MainWindow(QMainWindow):
         self.hover_thumbnails = self.settings['hover_thumbnails']
         self.bookmarks = dict(self.settings['bookmarks'])
         self.collections = dict(self.settings['collections'])
+        self.quick_slots = list(self.settings.get('quick_slots', []))[:8]
+        self.play_history = list(self.settings.get('play_history', []))[:30]
         self.auto_library_updates = self.settings['auto_library_updates']
         self._changed_paths = set()
         self._directory_changed = False
@@ -1607,6 +1610,23 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().resizeSection(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         local_v.addWidget(self.table, 1)
+        fast_row = QHBoxLayout()
+        self.quick_buttons = []
+        for n in range(8):
+            btn = make_button(str(n + 1), lambda _, slot=n: self.play_quick_slot(slot))
+            btn.setFixedHeight(30)
+            btn.setToolTip(f'Швидкий слот {n+1}: ПКМ для призначення')
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            btn.customContextMenuRequested.connect(lambda pos, slot=n: self.assign_quick_slot(slot))
+            self.quick_buttons.append(btn)
+            fast_row.addWidget(btn)
+        local_v.addLayout(fast_row)
+        self.history_btn = make_button('Історія показів', self.open_play_history)
+        local_v.addWidget(self.history_btn)
+        self.offair_btn = make_button('Перегляд без ефіру', self.show_staged_preview)
+        local_v.addWidget(self.offair_btn)
+        self.suggest_btn = make_button('Знайти схожі назви', self.suggest_search)
+        local_v.addWidget(self.suggest_btn)
         self.count = QLabel('Файлів: 0')
         self.count.setStyleSheet('color:#abb0b9; font-size:11px;')
         local_v.addWidget(self.count)
@@ -1882,6 +1902,8 @@ class MainWindow(QMainWindow):
                 'bookmarks': self.bookmarks,
                 'hover_thumbnails': self.hover_thumbnails,
                 'collections': self.collections,
+                'quick_slots': self.quick_slots,
+                'play_history': self.play_history,
                 'auto_library_updates': self.auto_library_updates,
                 'streamdeck_bindings': self.deck_bindings,
                 'hotkeys_layout_version': 4,
@@ -2001,6 +2023,61 @@ class MainWindow(QMainWindow):
                 self.preview.prepare_item(item)
             else:
                 self.preview._cancel_staged()
+
+    def assign_quick_slot(self, slot):
+        if not self.selected:
+            self.status.setText('Оберіть файл для швидкої кнопки')
+            return
+        while len(self.quick_slots) <= slot:
+            self.quick_slots.append('')
+        self.quick_slots[slot] = self.selected.path
+        self.quick_buttons[slot].setToolTip(display_media_name(self.selected.name))
+        self._save()
+
+    def play_quick_slot(self, slot):
+        if slot >= len(self.quick_slots) or not self.quick_slots[slot]:
+            self.status.setText(f'Слот {slot+1} порожній: оберіть файл і натисніть ПКМ')
+            return
+        self.play_media_search_result(self.quick_slots[slot])
+
+    def open_play_history(self):
+        found = {normalize_path(i.path): i for i in self.all_media}
+        paths = [p for p in self.play_history if normalize_path(p) in found]
+        if not paths:
+            self.status.setText('Історія показів порожня')
+            return
+        names = [display_media_name(found[normalize_path(p)].name) for p in paths]
+        selected, ok = QInputDialog.getItem(self, 'Історія показів', 'Показати файл:', names, 0, False)
+        if ok:
+            self.play_media_search_result(paths[names.index(selected)])
+
+    def suggest_search(self):
+        term = self.search.text().strip() or self.global_search.text().strip()
+        candidates = suggest(term, self.all_media)
+        if not candidates:
+            self.status.setText('Схожих назв не знайдено')
+            return
+        selected, ok = QInputDialog.getItem(self, 'Виправлення запиту', 'Можливо, ви шукали:', candidates, 0, False)
+        if ok:
+            self.search.setText(selected)
+            self.apply_filter()
+
+    def show_staged_preview(self):
+        # Static preview is isolated from live OBS sink and main video decoder.
+        item = self.selected
+        if not item or not os.path.isfile(item.path):
+            self.status.setText('Оберіть доступний файл')
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Попередній перегляд — не в ефірі')
+        layout = QVBoxLayout(dialog)
+        image = AspectImage('Для відео перегляд кадру доступний через мініатюру')
+        image.setMinimumSize(480, 270)
+        if item.kind == 'photo':
+            image.set_file(item.path)
+        layout.addWidget(image)
+        layout.addWidget(QLabel(display_media_name(item.name)))
+        dialog.exec()
 
     def toggle_favorite(self):
         if self.selected:
@@ -2498,6 +2575,8 @@ class MainWindow(QMainWindow):
             self._broadcast_guard.decoder_errors += 1
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        self.play_history = remember(self.play_history, self.selected.path)
+        self._save()
         self._broadcast_guard.switch_count += 1
         self._last_switch_accepted_ms = time.monotonic() * 1000
         logging.warning('SWITCH_OK count=%d file=%s decoder_count=1',
