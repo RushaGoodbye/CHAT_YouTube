@@ -140,8 +140,8 @@ class SettingsAndLayoutTests(unittest.TestCase):
             self.assertEqual(w.model.rowCount(), 1)
             self.assertIn("Murmansk", w.model.rows[0].name)
             self.assertIs(w.preview.player, old_player)
-            telegram_start.assert_not_called()  # no browser while live
-            gpt_start.assert_not_called()
+            telegram_start.assert_not_called()  # inactive service stays lazy
+            gpt_start.assert_called_once()  # common search opens live AI result pane
             self.assertIn("веб-результати", w.status.text().casefold())
 
     def test_city_folder_and_latin_filenames_are_searchable(self):
