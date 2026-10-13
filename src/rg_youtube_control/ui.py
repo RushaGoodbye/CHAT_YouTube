@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_video_evidence import build_video_evidence, store_video_evidence
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -12904,24 +12905,14 @@ class MainWindow(QMainWindow):
             transcript = evidence_outline_text(evidence_report)
             # Persist the complete topic/evidence map independently of the
             # published description, so no overlooked dialogue disappears.
-            report_dir = self.data_dir / "seo_evidence"
-            report_dir.mkdir(parents=True, exist_ok=True)
-            safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", video_id)
-            report_path = report_dir / f"{safe_id}.json"
-            report_tmp = report_path.with_suffix(".tmp")
-            report_tmp.write_text(
-                json.dumps(
-                    {
-                        "video_id": video_id,
-                        "transcript_source": transcript_source,
-                        **evidence_report,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
+            report_path = store_video_evidence(
+                self.data_dir / "seo_evidence",
+                video_id,
+                build_video_evidence(
+                    video_id, transcript_rows, evidence_report,
+                    transcript_source=transcript_source,
                 ),
-                encoding="utf-8",
             )
-            report_tmp.replace(report_path)
             context["evidence_report_path"] = str(report_path)
             if on_progress is not None:
                 on_progress(
