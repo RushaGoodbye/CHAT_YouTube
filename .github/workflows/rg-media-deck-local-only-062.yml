@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - rg-media-deck-local-only-0-6-2
+  pull_request:
+    branches:
+      - rg-media-deck-0-6-1
   workflow_dispatch:
 jobs:
   windows-build:
