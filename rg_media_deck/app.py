@@ -46,7 +46,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -985,6 +985,8 @@ class MainWindow(QMainWindow):
         # A browser tab must not pause, restart or replace the OBS video.
         self.preview._cancel_staged()
         if index in (0, 1):
+            self.telegram_tab.set_active(False)
+            self.chatgpt_tab.set_active(False)
             from PySide6.QtCore import QSignalBlocker
             with QSignalBlocker(self.search):
                 self.search.setText(self._library_queries[index])
@@ -998,9 +1000,12 @@ class MainWindow(QMainWindow):
         else:
             self.left_stack.setCurrentIndex(index - 1)
             browser = self.telegram_tab if index == 2 else self.chatgpt_tab
+            other = self.chatgpt_tab if index == 2 else self.telegram_tab
+            other.set_active(False)
             # Chromium is created ONLY on first opening of its tab to avoid
             # competing with the single video decoder during live playback.
             browser.ensure_loaded()
+            browser.set_active(True)
         self._save()
 
     def search_everywhere(self):
