@@ -906,20 +906,16 @@ class MainWindow(QMainWindow):
         )
         self.background_sync_timer.start(30 * 60 * 1000)
 
-        self.statusBar().showMessage("СИСТЕМА ГОТОВА")
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
-        self.reload_action_log()
-        if hasattr(self, "optimization_density"):
-            self._apply_table_density(
-                self.optimization_table,
-                self.optimization_density,
-            )
-        self._update_optimization_context_card()
+        # Show the main window BEFORE expensive SQLite-backed tables load.
+        # Previously all four refreshes ran inside __init__, making Windows
+        # report an Application Hang before the first paint.
+        self.statusBar().showMessage("Завантаження даних у фоні інтерфейсу…")
         self._apply_advanced_mode()
-        self.update_dashboard()
-        self._refresh_channel_header()
+        QTimer.singleShot(100, self._startup_load_videos)
+        QTimer.singleShot(300, self._startup_load_optimization)
+        QTimer.singleShot(500, self._startup_load_comments)
+        QTimer.singleShot(700, self._startup_load_actions)
+        QTimer.singleShot(900, self._startup_finish)
         QTimer.singleShot(1200, self.recover_archive_campaign_state)
         QTimer.singleShot(2000, self.cleanup_cached_updates)
         QTimer.singleShot(3000, self.check_for_updates_silent)
@@ -929,6 +925,33 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(10000, self.run_background_maintenance)
         QTimer.singleShot(9000, self._resume_saved_workflow)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
+
+    def _startup_load_videos(self) -> None:
+        self.statusBar().showMessage("Завантаження відео…")
+        self.reload_videos()
+
+    def _startup_load_optimization(self) -> None:
+        self.statusBar().showMessage("Завантаження SEO…")
+        self.reload_optimization_queue()
+
+    def _startup_load_comments(self) -> None:
+        self.statusBar().showMessage("Завантаження коментарів…")
+        self.reload_comments()
+
+    def _startup_load_actions(self) -> None:
+        self.statusBar().showMessage("Завантаження журналу…")
+        self.reload_action_log()
+
+    def _startup_finish(self) -> None:
+        if hasattr(self, "optimization_density"):
+            self._apply_table_density(
+                self.optimization_table,
+                self.optimization_density,
+            )
+        self._update_optimization_context_card()
+        self.update_dashboard()
+        self._refresh_channel_header()
+        self.statusBar().showMessage("СИСТЕМА ГОТОВА")
 
     def _set_tab_badge(self, index: int, base: str, count: int = 0) -> None:
         if not hasattr(self, "tabs") or index >= self.tabs.count():
@@ -3281,6 +3304,13 @@ class MainWindow(QMainWindow):
         ):
             hidden_button.setVisible(False)
 
+        seo_selected_guided_btn = QPushButton("Створити SEO вибраного")
+        seo_selected_guided_btn.setProperty("role", "primary")
+        seo_selected_guided_btn.setToolTip(
+            "Створити SEO-чернетку для виділеного відео без змін на YouTube"
+        )
+        seo_selected_guided_btn.clicked.connect(self.local_seo_selected)
+
         prepare_guided_btn = QPushButton("Підготувати без квоти")
         prepare_guided_btn.setProperty("role", "success")
         prepare_guided_btn.clicked.connect(self.prepare_zero_quota_batch)
@@ -3338,6 +3368,7 @@ class MainWindow(QMainWindow):
         advanced_btn.setMenu(advanced_menu)
 
         for button in (
+            seo_selected_guided_btn,
             prepare_guided_btn,
             ready_guided_btn,
             scheduled_guided_btn,

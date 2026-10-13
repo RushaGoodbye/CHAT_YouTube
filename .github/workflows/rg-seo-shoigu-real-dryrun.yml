@@ -1,10 +1,13 @@
 name: Shoigu SEO real read-only QA
+# Deterministic-editor verified Q&A filler filtering 2026-10-13
 
 on:
   push:
     branches:
       - fix/seo-evidence-no-invented-third-20261012
       - fix/seo-preview-parity-20261012
+      - fix/stabilization-batch-20261013
+      - feat/deterministic-seo-editor-20261013
     paths:
       - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
   workflow_dispatch:
