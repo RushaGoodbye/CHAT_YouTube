@@ -107,9 +107,9 @@ def test_local_seo_batch_has_candidate_timeout() -> None:
     start = source.index("    def local_seo_batch")
     end = source.index("\n    def _save_local_seo_batch", start)
     block = source[start:end]
-    assert "candidate_timeout_seconds = 75" in block
+    assert "candidate_timeout_seconds = 180" in block
     assert "daemon=True" in block
-    assert "fast_mode=True" in block
+    assert "fast_mode=False" in block
     assert "Кандидат пропущено автоматично." in block
 
 
@@ -139,7 +139,7 @@ def test_batch_seo_prioritizes_nas_transcripts() -> None:
     end = source.index("\n    def _save_local_seo_batch", start)
     block = source[start:end]
     assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
-    assert 'f"{video_id}.srt"' in block
+    assert 'for ext in (".srt", ".vtt", ".txt")' in block
 
 
 def test_local_seo_worker_never_uses_gui_nas_path() -> None:
