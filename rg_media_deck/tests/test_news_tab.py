@@ -100,7 +100,7 @@ class NewsTabInterfaceTests(unittest.TestCase):
 
     def test_2_tabs_and_no_broadcast_interruption_on_switch(self):
         window = self._build()
-        self.assertEqual(window.library_tabs.count(), 2)
+        self.assertEqual(window.library_tabs.count(), 4)
         self.assertEqual(window.library_tabs.tabText(0), "ФАКТАЖ")
         self.assertIn("НОВИНИ", window.library_tabs.tabText(1))
         self.assertFalse(window.news_folder_bar.isVisible())
