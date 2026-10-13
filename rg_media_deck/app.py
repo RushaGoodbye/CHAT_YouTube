@@ -1106,7 +1106,8 @@ class MainWindow(QMainWindow):
         self.chatgpt_tab.set_active(index == 2)
         if index == 2:
             self.chatgpt_tab.ensure_loaded()
-            self.chatgpt_tab.request_auto_submit()
+            # Only the explicit unified Search button submits a prompt.
+            # Browsing this tab never triggers a duplicate paid/search action.
 
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
