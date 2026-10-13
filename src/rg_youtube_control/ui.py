@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_evidence_gate import check_seo_evidence
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13398,7 +13399,27 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        # Require traceable source evidence before promoting locally generated SEO.
+        # A reviewed preview alone does not prove the chosen headline quotes.
+        source_rows = result.get("transcript_rows") or []
+        source_text = " ".join(
+            str(row.get("text") or "") for row in source_rows
+            if isinstance(row, dict)
+        )
+        review_titles = [title, *variants[:2]]
+        evidence_decision = check_seo_evidence(
+            video_id=video_id,
+            titles=review_titles,
+            description=description,
+            transcript=source_text,
+            transcript_video_id=video_id if source_rows else None,
+            verified_video_mapping=bool(source_rows),
+        )
+        requires_review = (
+            bool(package.get("needs_review"))
+            or len(variants) < 3
+            or not evidence_decision.approved_for_review
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
@@ -13415,7 +13436,10 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=draft_reason,
+            quality_reason=(
+                (draft_reason + " | Evidence: " + ", ".join(evidence_decision.issues))
+                if evidence_decision.issues else draft_reason
+            ),
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
