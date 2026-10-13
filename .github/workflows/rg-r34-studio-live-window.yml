@@ -1,0 +1,46 @@
+name: R34 Studio Post-Launch Live Window QA
+on:
+  push:
+    branches: [rg-auto-edit/r34-studio-hour-readiness]
+    paths: [.github/workflows/rg-r34-studio-live-window.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-ui-read-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 5
+    steps:
+      - name: Check independent post-job UI lifetime and Windows responsiveness
+        shell: powershell
+        run: |
+          $ErrorActionPreference="Stop"
+          $running=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -eq 'pythonw.exe' -and $_.CommandLine -like '*rg_studio_main.py*'})
+          $window=@(Get-Process|Where-Object {$_.MainWindowTitle -like 'RG Auto Edit Studio 0.20.20.14*'})
+          Write-Host "R34_POSTJOB_RUNNING_PROCESSES=$($running.Count)"
+          Write-Host "R34_POSTJOB_STUDIO_WINDOWS=$($window.Count)"
+          if($running.Count -lt 1 -or $window.Count -ne 1){throw 'Studio did not survive prior GitHub runner job'}
+          $w=$window[0]
+          Write-Host "R34_POSTJOB_WINDOW_TITLE=$($w.MainWindowTitle)"
+          Write-Host "R34_POSTJOB_WINDOW_PID=$($w.Id) SESSION=$($w.SessionId)"
+          $code=@'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class StudioWindowProbe {
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr SendMessageTimeout(IntPtr hWnd, UInt32 msg,
+             IntPtr wParam, IntPtr lParam, UInt32 flags, UInt32 timeout,
+             out IntPtr result);
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool IsWindowVisible(IntPtr hWnd);
+          }
+          '@
+          Add-Type -TypeDefinition $code
+          $result=[IntPtr]::Zero
+          $ok=[StudioWindowProbe]::SendMessageTimeout($w.MainWindowHandle,0,[IntPtr]::Zero,[IntPtr]::Zero,2,2000,[ref]$result)
+          $visible=[StudioWindowProbe]::IsWindowVisible($w.MainWindowHandle)
+          Write-Host "R34_POSTJOB_WINDOW_VISIBLE=$visible"
+          Write-Host "R34_POSTJOB_WINDOW_RESPONSIVE=$([bool]($ok -ne [IntPtr]::Zero))"
+          if(-not $visible -or $ok -eq [IntPtr]::Zero){throw "Studio window invisible or unresponsive"}
+          Write-Host "R34_STUDIO_0202014_POSTJOB_RESPONSIVE_PASS"
