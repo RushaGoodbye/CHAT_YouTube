@@ -13413,11 +13413,14 @@ class MainWindow(QMainWindow):
             description=description,
             transcript=source_text,
             transcript_video_id=video_id if source_rows else None,
-            verified_video_mapping=bool(source_rows),
+            # Transcript rows alone do not prove that a video-to-source
+            # mapping was independently verified.
+            verified_video_mapping=False,
             expected_title_count=4,
         )
         requires_review = (
-            bool(package.get("needs_review"))
+            True  # Promotion to ready requires a separate editorial approval path.
+            or bool(package.get("needs_review"))
             or len(variants) < 3
             or not evidence_decision.approved_for_review
         )
