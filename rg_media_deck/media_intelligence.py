@@ -20,10 +20,27 @@ def fold(value: str) -> str:
     value = unicodedata.normalize("NFKC", str(value)).casefold().replace("ё", "е")
     return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
 
+CYR_ROMAN = {
+    **dict(zip("абвгдежзийклмнопрстуфхыэ",
+               ("a", "b", "v", "g", "d", "e", "zh", "z", "i", "y",
+                "k", "l", "m", "n", "o", "p", "r", "s", "t", "u",
+                "f", "h", "y", "e"))),
+    "ё": "yo", "ъ": "", "ь": "", "ц": "ts", "ч": "ch",
+    "ш": "sh", "щ": "shch", "ю": "yu", "я": "ya",
+    "і": "i", "ї": "yi", "є": "ye", "ґ": "g",
+}
+
+
+def romanize_cyrillic(value: str) -> str:
+    """Search Russian/Ukrainian place names saved with Latin filenames."""
+    return "".join(CYR_ROMAN.get(char.casefold(), char.casefold()) for char in value)
+
+
 def variants(query: str) -> tuple[str, ...]:
     folded = fold(query)
     options = [folded, fold(query.translate(LATIN_TO_RU)),
-               fold(query.translate(RU_TO_LATIN))]
+               fold(query.translate(RU_TO_LATIN)),
+               fold(romanize_cyrillic(query))]
     if any("a" <= ch.lower() <= "z" for ch in query):
         options.append(fold(query.translate(UK_TRANSLATIONS)))
     return tuple(dict.fromkeys(x for x in options if x))
