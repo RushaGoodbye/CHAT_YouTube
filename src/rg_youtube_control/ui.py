@@ -13072,7 +13072,7 @@ class MainWindow(QMainWindow):
             import queue
             import threading
 
-            candidate_timeout_seconds = 75
+            candidate_timeout_seconds = 180
             prepared: list[dict] = []
             skipped: list[dict] = []
             attempted = 0
@@ -13090,7 +13090,7 @@ class MainWindow(QMainWindow):
                                 True,
                                 self._generate_local_seo_result(
                                     video_id,
-                                    fast_mode=True,
+                                    fast_mode=False,
                                 ),
                             )
                         )
