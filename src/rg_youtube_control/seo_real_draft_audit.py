@@ -52,7 +52,14 @@ def run(db_path: Path, evidence_dir: Path, *, max_videos: int = 30) -> dict:
             "tags": json.loads(row["tags_json"] or "[]"),
         })
     audit = audit_batch(packages)
-    return {"schema": "RG_REAL_DRAFT_AUDIT_V1", "read_only": True,
+    cache_dir = evidence_dir.parent / "seo_evidence_cache"
+    cache_present = cache_dir.is_dir()
+    cache_files_sample = sum(1 for _ in __import__("itertools").islice(cache_dir.glob("*.json"), 1001)) if cache_present else 0
+    return {"schema": "RG_REAL_DRAFT_AUDIT_V2", "read_only": True,
+            "evidence_lookup": "per_video_report",
+            "block_cache_present": cache_present,
+            "block_cache_files_sample": cache_files_sample,
+            "block_cache_hashed_not_video_indexed": True,
             "youtube_writes": 0, "database_writes": 0,
             "inspected": len(rows), "audited": len(packages), "skipped": skipped,
             "audit": audit}
