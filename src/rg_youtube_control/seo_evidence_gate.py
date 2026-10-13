@@ -32,6 +32,7 @@ def check_seo_evidence(
     transcript_video_id: str | None,
     verified_video_mapping: bool = False,
     max_title_length: int = 100,
+    expected_title_count: int = 3,
 ) -> EvidenceDecision:
     """Validate a draft for EDITOR REVIEW, never for publication.
 
@@ -46,8 +47,8 @@ def check_seo_evidence(
         problems.append("UNVERIFIED_VIDEO_MAPPING")
     if not transcript or len(_norm(transcript)) < 200:
         problems.append("INSUFFICIENT_TRANSCRIPT")
-    if len(titles) != 3:
-        problems.append("REQUIRE_THREE_TITLES")
+    if len(titles) != expected_title_count:
+        problems.append("INVALID_TITLE_COUNT")
     cleaned = [_norm(t) for t in titles]
     if len(set(cleaned)) != len(cleaned) or any(not t for t in cleaned):
         problems.append("DUPLICATE_OR_EMPTY_TITLE")
