@@ -757,11 +757,18 @@ def _deterministic_evidence_description(
                 recognized.append("версії причин зміни посади Шойгу")
             if any(w in combined for w in ("стратег", "войн", "війн")):
                 recognized.append("війна та стратегічні рішення")
+            if any(w in combined for w in (
+                "причин", "увольнен", "звільнен", "зміни посади", "смены должност",
+                "кадров", "назначен",
+            )):
+                recognized.append("версії причин кадрових змін")
+            if any(w in combined for w in ("відповідаль", "ответствен")):
+                recognized.append("відповідальність посадовців")
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
                     recognized.append(label)
             if not recognized:
-                raise ValueError("Verified subject requires editorial review")
+                raise ValueError("Verified subject requires editorial review: " + str(topic.get("topic") or "")[:100])
             for label in recognized:
                 if label not in labels:
                     labels.append(label)
