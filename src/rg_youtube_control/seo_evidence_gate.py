@@ -52,6 +52,16 @@ def check_seo_evidence(
     cleaned = [_norm(t) for t in titles]
     if len(set(cleaned)) != len(cleaned) or any(not t for t in cleaned):
         problems.append("DUPLICATE_OR_EMPTY_TITLE")
+    # Surface near-identical A/B angles rather than counting simple
+    # punctuation changes or word reshuffles as useful alternatives.
+    for index, left in enumerate(cleaned):
+        left_words = set(left.split())
+        for right in cleaned[index + 1:]:
+            right_words = set(right.split())
+            union = left_words | right_words
+            if union and len(left_words & right_words) / len(union) >= 0.85:
+                problems.append("NEAR_DUPLICATE_TITLE_ANGLES")
+                break
     if any(len(t) > max_title_length for t in titles):
         problems.append("TITLE_TOO_LONG")
     if len(description.strip()) < 120:
