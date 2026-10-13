@@ -105,11 +105,11 @@ class SettingsAndLayoutTests(unittest.TestCase):
              patch.object(w, "_save"), \
              patch.object(w, "stop_playback") as stop:
             w.library_tabs.setCurrentIndex(2)
-            self.assertEqual(w.left_stack.currentIndex(), 1)
+            self.assertEqual(w.preview_stack.currentIndex(), 1)
             w.library_tabs.setCurrentIndex(3)
-            self.assertEqual(w.left_stack.currentIndex(), 2)
+            self.assertEqual(w.preview_stack.currentIndex(), 2)
             w.library_tabs.setCurrentIndex(0)
-            self.assertEqual(w.left_stack.currentIndex(), 0)
+            self.assertEqual(w.preview_stack.currentIndex(), 0)
             stop.assert_not_called()
 
     def test_one_query_filters_both_factage_and_news_and_prepares_web_search(self):
