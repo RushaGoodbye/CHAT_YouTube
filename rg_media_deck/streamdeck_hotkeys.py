@@ -105,8 +105,8 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
     if match:
         number = int(match.group(1))
         vk = 0x6F + number
-        if len(segments) == 1 and number != 9 and number < 13:
-            raise ValueError("Без модифікаторів дозволено F9 та F13–F24")
+        if len(segments) == 1 and number not in (9, 10) and number < 13:
+            raise ValueError("Без модифікаторів дозволено F9, F10 та F13–F24")
     elif key in _PAGE_KEYS:
         key, vk = _PAGE_KEYS[key]
     elif key in _PUNCT_VK:
