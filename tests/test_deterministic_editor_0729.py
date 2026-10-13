@@ -11,6 +11,7 @@ def test_no_private_motives_from_screenshot():
     assert "контролювати цей процес" not in description
     assert "корупція" in description
     assert "Міністерство оборони" in description
+    assert "Шойгу" in description
     assert len(description) >= 260
 
 
