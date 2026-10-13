@@ -738,6 +738,7 @@ def _deterministic_evidence_description(
         raise ValueError("No verified transcript quotations for SEO description")
 
     labels: list[str] = []
+    unmapped: list[str] = []
     for block in blocks:
         topics = [item for item in (block.get("topics") or [])
                   if isinstance(item, dict)]
@@ -768,10 +769,23 @@ def _deterministic_evidence_description(
                 if any(needle in combined for needle in needles):
                     recognized.append(label)
             if not recognized:
-                raise ValueError("Verified subject requires editorial review: " + str(topic.get("topic") or "")[:100])
+                # Conversation mechanics are not meaningful SEO subjects.
+                if any(phrase in combined for phrase in (
+                    "відповідь на запитання", "ответ на вопрос",
+                    "реакція на запитання", "ответ собеседника на вопрос",
+                )):
+                    continue
+                unmapped.append(str(topic.get("topic") or "")[:100])
+                continue
             for label in recognized:
                 if label not in labels:
                     labels.append(label)
+    if unmapped:
+        raise ValueError(
+            "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
+        )
+    if not labels:
+        raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
