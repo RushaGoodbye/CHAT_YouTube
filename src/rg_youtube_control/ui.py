@@ -13050,18 +13050,20 @@ class MainWindow(QMainWindow):
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        candidate_ids = sorted(
-            candidate_ids,
-            key=lambda video_id: (
-                0 if (transcript_dir / f"{video_id}.srt").exists() else 1
-            ),
-        )
+        # Bulk processing must not waste costly model calls on items
+        # without an already available transcript. Single-video mode can
+        # still fetch it interactively.
+        candidate_ids = [
+            video_id for video_id in candidate_ids
+            if any((transcript_dir / (video_id + ext)).is_file()
+                   for ext in (".srt", ".vtt", ".txt"))
+        ]
 
         if not candidate_ids:
             QMessageBox.information(
                 self,
                 APP_NAME,
-                "Немає звичайних опублікованих відео без SEO-чернетки "
+                "Немає архівних відео з готовим транскриптом без SEO-чернетки "
                 "для пакетної 0-quota підготовки.",
             )
             return
@@ -13072,10 +13074,13 @@ class MainWindow(QMainWindow):
             import queue
             import threading
 
-            candidate_timeout_seconds = 75
+            candidate_timeout_seconds = 180
             prepared: list[dict] = []
             skipped: list[dict] = []
             attempted = 0
+            failure_streak = 0
+            failure_reasons: dict[str, int] = {}
+            stopped_early = False
 
             def generate_with_timeout(video_id: str) -> dict:
                 result_queue: queue.Queue = queue.Queue(maxsize=1)
@@ -13087,7 +13092,7 @@ class MainWindow(QMainWindow):
                                 True,
                                 self._generate_local_seo_result(
                                     video_id,
-                                    fast_mode=True,
+                                    fast_mode=False,
                                 ),
                             )
                         )
@@ -13126,18 +13131,31 @@ class MainWindow(QMainWindow):
                     )
                 try:
                     prepared.append(generate_with_timeout(video_id))
+                    failure_streak = 0
                 except Exception as exc:
-                    skipped.append(
-                        {
-                            "video_id": video_id,
-                            "error": str(exc),
-                        }
-                    )
+                    reason = " ".join(str(exc).split())[:700]
+                    skipped.append({"video_id": video_id, "error": reason})
+                    # Repeated failures must not silently consume 30 candidates.
+                    # Stop after five consecutive failures or three identical
+                    # reasons, but preserve all diagnostics for the operator.
+                    failure_streak += 1
+                    reason_key = reason[:180]
+                    failure_reasons[reason_key] = failure_reasons.get(reason_key, 0) + 1
+                    worker_ref = getattr(self, "_local_tool_worker", None)
+                    if worker_ref is not None:
+                        worker_ref.progress.emit(
+                            f"готово {len(prepared)}/{limit} · "
+                            f"помилка {attempted}/{max_attempts}: {reason[:100]}"
+                        )
+                    if failure_streak >= 5 or failure_reasons[reason_key] >= 3:
+                        stopped_early = True
+                        break
             return {
                 "prepared": prepared,
                 "skipped": skipped,
                 "requested": limit,
                 "attempted": attempted,
+                "stopped_early": stopped_early,
             }
 
         log_action(
@@ -13253,6 +13271,11 @@ class MainWindow(QMainWindow):
         )
 
         reason_text = ""
+        if result.get("stopped_early"):
+            reason_text = (
+                "\n\nЗупинено достроково через повторні помилки. "
+                "Перевірте причини нижче; повторний запуск без виправлення не рекомендовано."
+            )
         if failures:
             reason_lines = []
             for failure in failures[:5]:
@@ -13261,7 +13284,7 @@ class MainWindow(QMainWindow):
                     str(failure.get("error") or "невідома причина").split()
                 )
                 reason_lines.append(f"{video_id}: {error_text[:220]}")
-            reason_text = (
+            reason_text += (
                 "\n\nПричини перших пропусків:\n"
                 + "\n".join(reason_lines)
             )
