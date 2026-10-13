@@ -173,6 +173,7 @@ class ServiceBrowser(QWidget):
             view = QWebEngineView(self)
             page = QWebEnginePage(profile, view)
             view.setPage(page)
+            page.setAudioMuted(True)  # avoid Telegram/ChatGPT sound leaking into OBS
             view.urlChanged.connect(lambda url: self.address.setText(url.toString()))
             view.loadFinished.connect(self._on_loaded)
             self._profile = profile
@@ -257,6 +258,21 @@ class ServiceBrowser(QWidget):
         if self.ensure_loaded():
             self._loaded = False
             self._view.reload()
+
+    def set_active(self, active: bool):
+        """Freeze inactive embedded sites to protect Qt video/OBS resources."""
+        if self._view is None:
+            return
+        try:
+            from PySide6.QtWebEngineCore import QWebEnginePage
+            page = self._view.page()
+            page.setAudioMuted(True)
+            page.setLifecycleState(
+                QWebEnginePage.LifecycleState.Active
+                if active else QWebEnginePage.LifecycleState.Frozen)
+        except (RuntimeError, AttributeError, ValueError):
+            # Browser lifecycle is advisory; never break the live player.
+            pass
 
     def shutdown(self):
         if self._view:
