@@ -1,0 +1,73 @@
+name: R31 886_6 Existing Preview and Detector State
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - .github/workflows/rg-r31-real-preview-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preview-read-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 8
+    steps:
+      - name: Read video metadata, sample frames, and detector report metadata
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $code = @'
+          import cv2,json
+          from pathlib import Path
+          base=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          name="RG_EDITED_886_6_FINAL_QA_PREVIEW.mp4"
+          vid=base/name
+          result={"schema":"RG_R31_REAL_PREVIEW_READ_ONLY_V1","exists":vid.is_file(),
+                  "studio_modified":False,"audio_modified":False}
+          if vid.is_file():
+              result["size_bytes"]=vid.stat().st_size
+              cap=cv2.VideoCapture(str(vid))
+              result["opened"]=bool(cap.isOpened())
+              if cap.isOpened():
+                  total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                  rate=float(cap.get(cv2.CAP_PROP_FPS))
+                  result.update({"frames":total,"fps":rate,
+                                "width":int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                                "height":int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                                "duration_seconds":round(total/max(0.001,rate),3)})
+                  sample=[]
+                  for i in [0,max(0,total//2),max(0,total-1)]:
+                      cap.set(cv2.CAP_PROP_POS_FRAMES,i)
+                      ok,frame=cap.read()
+                      sample.append({"frame":i,"decode_success":bool(ok and frame is not None)})
+                  result["sample_frames"]=sample
+              cap.release()
+          for filename in [
+              "RG_EDITED_886_6_CIGARETTE_BLUR_DETECTIONS.json",
+              "RG_EDITED_886_6_CIGARETTE_REVIEW_MARKERS.json",
+              "RG_EDITED_886_6_CIGARETTE_BLUR_QA.json",
+              "RG_EDITED_886_6_FINAL_RELEASE_GATE.json",
+              "RG_EDITED_886_6_ACCEPTANCE_CALIBRATION.json",
+          ]:
+              p=base/filename
+              item={"exists":p.is_file()}
+              if p.is_file():
+                  try:
+                      obj=json.loads(p.read_text(encoding="utf-8-sig"))
+                      item["top_level_type"]=type(obj).__name__
+                      if isinstance(obj,dict):
+                          item["keys"]=sorted(obj)[:35]
+                          for key in ("status","passed","release_ready","raw_detection_count","confirmed_tracks"):
+                              if key in obj and isinstance(obj[key],(bool,int,float,str)):
+                                  item[key]=obj[key]
+                      elif isinstance(obj,list): item["rows"]=len(obj)
+                  except (OSError,ValueError) as exc:
+                      item["valid_json"]=False
+              result[filename]=item
+          print("RG_R31_PREVIEW="+json.dumps(result,sort_keys=True))
+          '@
+          $code | python -
+          if ($LASTEXITCODE -ne 0) { throw 'R31 preview inspection failed' }
+          Write-Host 'RG_R31_READ_ONLY_COMPLETE=TRUE'
