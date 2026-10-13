@@ -35,15 +35,12 @@ class LocalOnlyUITests(unittest.TestCase):
         for package in ("telethon", "openai", "keyring"):
             self.assertNotIn(package, deps)
 
-    def test_search_remains_local(self):
-        functions = [n for n in ast.walk(self.tree) if
-                     isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        search = next(n for n in functions if n.name == "search_everywhere")
-        code = ast.get_source_segment(self.source, search)
-        self.assertIn("self.search_index.filter(", code)
-        self.assertIn("self.apply_filter()", code)
-        self.assertNotIn("request_auto_submit", code)
-        self.assertNotIn("search_all(", code)
+    def test_only_in_panel_search_and_no_crossed_out_controls(self):
+        self.assertIn("self.search = QLineEdit()", self.source)
+        for symbol in ("global_search = QLineEdit", "fast_row = QHBoxLayout",
+                       "show_staged_preview", "open_play_history",
+                       "suggest_search", "assign_quick_slot"):
+            self.assertNotIn(symbol, self.source)
 
 
 if __name__ == "__main__":
