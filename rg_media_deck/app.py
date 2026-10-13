@@ -23,6 +23,8 @@ import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
 from ui_hang_watch import UIHangWatch
+from service_browser import ServiceBrowser
+from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from news_library import combined_roots, in_tab, scoped_count
@@ -44,7 +46,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.4.10'
+VERSION = '0.5.0'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -839,8 +841,10 @@ class MainWindow(QMainWindow):
         self.settings = load_settings()
         self.roots = list(dict.fromkeys(self.settings['roots']))
         self.news_folder = self.settings['news_folder']
-        self._current_library_tab = 1 if self.settings['news_tab_active'] else 0
+        self.player_side = self.settings['player_side']
+        self._current_library_tab = self.settings['workspace_tab']
         self._library_queries = ['', '']
+        self._global_query = self.settings['global_query']
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
         self.all_media: list[MediaItem] = []
         self.search_index = IndexedMediaLibrary()
@@ -966,27 +970,79 @@ class MainWindow(QMainWindow):
         self.scan()
 
     def switch_library_tab(self, index: int):
-        if index not in (0, 1) or index == self._current_library_tab:
+        if index not in (0, 1, 2, 3) or index == self._current_library_tab:
             return
         self._switch_timer.stop()
         self._pending_switch_item = None
-        self._library_queries[self._current_library_tab] = self.search.text()
+        previous = self._current_library_tab
+        if previous in (0, 1):
+            self._library_queries[previous] = self.search.text()
         self._current_library_tab = index
         self._thumb_hover_timer.stop()
         self._hover_item = None
         self._hover_popup.hide()
         self.selected = None
-        # Changing a tab must NEVER stop or replace on-air content.
+        # A browser tab must not pause, restart or replace the OBS video.
         self.preview._cancel_staged()
-        from PySide6.QtCore import QSignalBlocker
-        with QSignalBlocker(self.search):
-            self.search.setText(self._library_queries[index])
-        self.news_folder_bar.setVisible(index == 1)
-        self.collection_filter.setVisible(index == 0)
-        self.search.setPlaceholderText(
-            '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
-            else '🔎 Назва, тег або інша розкладка клавіатури...')
-        self.apply_filter()
+        if index in (0, 1):
+            from PySide6.QtCore import QSignalBlocker
+            with QSignalBlocker(self.search):
+                self.search.setText(self._library_queries[index])
+            self.news_folder_bar.setVisible(index == 1)
+            self.collection_filter.setVisible(index == 0)
+            self.search.setPlaceholderText(
+                '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
+                else '🔎 Назва, тег або інша розкладка клавіатури...')
+            self.left_stack.setCurrentIndex(0)
+            self.apply_filter()
+        else:
+            self.left_stack.setCurrentIndex(index - 1)
+            browser = self.telegram_tab if index == 2 else self.chatgpt_tab
+            # Chromium is created ONLY on first opening of its tab to avoid
+            # competing with the single video decoder during live playback.
+            browser.ensure_loaded()
+        self._save()
+
+    def search_everywhere(self):
+        """One input fans out to two local lists and both prepared web searches."""
+        term = normalize_query(self.global_search.text())
+        if not term:
+            self.status.setText('Введіть місто або тему у спільний пошук.')
+            return
+        self._global_query = term
+        self._library_queries[0] = term
+        self._library_queries[1] = term
+        self.telegram_tab.set_query(term)
+        self.chatgpt_tab.set_query(term)
+        if self._current_library_tab in (0, 1):
+            from PySide6.QtCore import QSignalBlocker
+            with QSignalBlocker(self.search):
+                self.search.setText(term)
+            self.apply_filter()
+        # Never claim that live services have returned results unless user
+        # is logged in and searches inside their actual official web UI.
+        self.status.setText(
+            f'Спільний пошук «{term}»: локальні файли знайдено за фільтром; '
+            'Telegram і ChatGPT отримали підготовлені запити. '
+            'Відкрийте вкладки, перевірте вхід і натисніть кнопку пошуку.')
+        self._save()
+
+    def set_player_side(self, side: str):
+        if side not in ('left', 'right'):
+            raise ValueError('Player position must be left or right')
+        if side == self.player_side:
+            return
+        splitter = self.main_splitter
+        # Reparenting PlayerSurface is forbidden: OBS window remains the same.
+        # QSplitter moves its existing child panel without rebuilding media.
+        if side == 'left':
+            splitter.insertWidget(0, self.player_panel)
+            splitter.setSizes([920, 520])
+        else:
+            splitter.insertWidget(0, self.library_panel)
+            splitter.setSizes([520, 920])
+        self.player_side = side
+        self.status.setText('Плеєр ' + ('ліворуч' if side == 'left' else 'праворуч'))
         self._save()
 
     def _refresh_collections(self):
@@ -1279,6 +1335,14 @@ class MainWindow(QMainWindow):
     def open_actions_menu(self):
         """All previously top-row controls are now near the favorite button."""
         menu = QMenu(self)
+        player_position = menu.addMenu('⇄ Розташування вікна плеєра')
+        place_left = player_position.addAction('Плеєр ліворуч')
+        place_left.setCheckable(True)
+        place_left.setChecked(self.player_side == 'left')
+        place_right = player_position.addAction('Плеєр праворуч')
+        place_right.setCheckable(True)
+        place_right.setChecked(self.player_side == 'right')
+        menu.addSeparator()
         news_add = menu.addAction('📰 Вказати папку НОВИН...')
         add = menu.addAction('＋ Додати папку...')
         folders = menu.addAction('▣ Папки медіатеки...')
@@ -1324,7 +1388,11 @@ class MainWindow(QMainWindow):
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
-        if choice == news_add:
+        if choice == place_left:
+            self.set_player_side('left')
+        elif choice == place_right:
+            self.set_player_side('right')
+        elif choice == news_add:
             self.choose_news_folder()
         elif choice == add:
             self.add_folder()
@@ -1431,11 +1499,26 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 10, 12, 8)
         root.setSpacing(8)
+        global_row = QHBoxLayout()
+        global_row.setSpacing(7)
+        global_label = QLabel('🌐 ЄДИНИЙ ПОШУК')
+        global_label.setObjectName('SectionTitle')
+        global_row.addWidget(global_label)
+        self.global_search = QLineEdit(self._global_query)
+        self.global_search.setPlaceholderText(
+            'Наприклад: МУРМАНСК — фактаж + новини + Telegram + ChatGPT')
+        self.global_search.setClearButtonEnabled(True)
+        global_row.addWidget(self.global_search, 1)
+        self.global_search_button = make_button('ЗНАЙТИ СКРІЗЬ', self.search_everywhere)
+        global_row.addWidget(self.global_search_button)
+        root.addLayout(global_row)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
+        self.main_splitter = split
         root.addWidget(split, 1)
 
         left = self._panel()
+        self.library_panel = left
         lv = QVBoxLayout(left)
         lv.setContentsMargins(11, 11, 11, 9)
         lv.setSpacing(8)
@@ -1445,9 +1528,24 @@ class MainWindow(QMainWindow):
         self.library_tabs = QTabBar()
         self.library_tabs.addTab('ФАКТАЖ')
         self.library_tabs.addTab('📰 НОВИНИ')
+        self.library_tabs.addTab('✈ TELEGRAM')
+        self.library_tabs.addTab('✦ CHATGPT')
         self.library_tabs.setExpanding(True)
         self.library_tabs.setCurrentIndex(self._current_library_tab)
         lv.addWidget(self.library_tabs)
+        self.left_stack = QStackedWidget()
+        self.local_content = QWidget()
+        local_v = QVBoxLayout(self.local_content)
+        local_v.setContentsMargins(0, 0, 0, 0)
+        local_v.setSpacing(7)
+        self.left_stack.addWidget(self.local_content)
+        self.telegram_tab = ServiceBrowser(
+            'telegram', settings_path().parent / 'browser_profiles', self)
+        self.chatgpt_tab = ServiceBrowser(
+            'chatgpt', settings_path().parent / 'browser_profiles', self)
+        self.left_stack.addWidget(self.telegram_tab)
+        self.left_stack.addWidget(self.chatgpt_tab)
+        lv.addWidget(self.left_stack, 1)
         self.news_folder_bar = QWidget()
         news_row = QHBoxLayout(self.news_folder_bar)
         news_row.setContentsMargins(0, 0, 0, 0)
@@ -1460,13 +1558,13 @@ class MainWindow(QMainWindow):
         self.news_folder_clear = make_button('✕', self.clear_news_folder)
         self.news_folder_clear.setToolTip('Від’єднати папку новин без видалення файлів')
         news_row.addWidget(self.news_folder_clear)
-        lv.addWidget(self.news_folder_bar)
+        local_v.addWidget(self.news_folder_bar)
         self._refresh_news_folder_ui()
         self.news_folder_bar.setVisible(self._current_library_tab == 1)
         self.search = QLineEdit()
         self.search.setPlaceholderText('🔎 Назва, тег або інша розкладка клавіатури...')
         self.search.setClearButtonEnabled(True)
-        lv.addWidget(self.search)
+        local_v.addWidget(self.search)
         controls = QHBoxLayout()
         self.kind = QComboBox()
         self.kind.addItem('Усі файли', 'all')
@@ -1481,7 +1579,7 @@ class MainWindow(QMainWindow):
         self._refresh_collections()
         controls.addWidget(self.collection_filter)
         controls.addStretch(1)
-        lv.addLayout(controls)
+        local_v.addLayout(controls)
         self.model = MediaModel()
         self.table = QTableView()
         self.table.setModel(self.model)
@@ -1500,13 +1598,14 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.horizontalHeader().resizeSection(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        lv.addWidget(self.table, 1)
+        local_v.addWidget(self.table, 1)
         self.count = QLabel('Файлів: 0')
         self.count.setStyleSheet('color:#abb0b9; font-size:11px;')
-        lv.addWidget(self.count)
+        local_v.addWidget(self.count)
         split.addWidget(left)
 
         right = self._panel()
+        self.player_panel = right
         rv = QVBoxLayout(right)
         rv.setContentsMargins(10, 10, 10, 10)
         rv.setSpacing(6)
@@ -1602,7 +1701,16 @@ class MainWindow(QMainWindow):
         self._refresh_mute_button()
         self._refresh_speed_buttons()
         split.addWidget(right)
-        split.setSizes([520, 920])
+        if self.player_side == 'left':
+            split.insertWidget(0, right)
+            split.setSizes([920, 520])
+        else:
+            split.setSizes([520, 920])
+        self.left_stack.setCurrentIndex(
+            0 if self._current_library_tab in (0, 1)
+            else self._current_library_tab - 1)
+        self.telegram_tab.set_query(self._global_query)
+        self.chatgpt_tab.set_query(self._global_query)
         self.status = QLabel('Готово до відтворення.')
         self.status.setObjectName('Status')
         root.addWidget(self.status)
@@ -1612,6 +1720,7 @@ class MainWindow(QMainWindow):
         self.filter_timer.setInterval(120)
         self.filter_timer.timeout.connect(self.apply_filter)
         self.search.textChanged.connect(self.filter_timer.start)
+        self.global_search.returnPressed.connect(self.search_everywhere)
         self.library_tabs.currentChanged.connect(self.switch_library_tab)
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
@@ -1748,6 +1857,9 @@ class MainWindow(QMainWindow):
                 'roots': self.roots,
                 'news_folder': self.news_folder,
                 'news_tab_active': self._current_library_tab == 1,
+                'workspace_tab': self._current_library_tab,
+                'player_side': self.player_side,
+                'global_query': self._global_query,
                 'favorites': sorted(self.favorites),
                 'volume': self.volume.value(),
                 'muted': self.mute_button.isChecked(),
@@ -2499,6 +2611,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._ui_heartbeat.stop()
+        self.telegram_tab.shutdown()
+        self.chatgpt_tab.shutdown()
         if self._ui_hang_watch is not None:
             self._ui_hang_watch.stop()
         self._switch_timer.stop()
