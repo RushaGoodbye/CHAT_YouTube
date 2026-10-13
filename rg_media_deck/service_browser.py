@@ -59,24 +59,31 @@ _TELEGRAM_SEARCH_JS = """
 _CHATGPT_PREPARE_JS = """
 (() => {
   const prompt = __PROMPT__;
+  if (document.querySelector('input[type=password]')) return 'LOGIN_REQUIRED';
   const editor = document.querySelector(
-    '[contenteditable=true][data-placeholder], #prompt-textarea[contenteditable], .ProseMirror[contenteditable]');
-  if (!editor || editor.closest('[type=password]')) return false;
+    '#prompt-textarea[contenteditable], [contenteditable=true][data-placeholder], .ProseMirror[contenteditable]');
+  if (!editor) return 'EDITOR_NOT_FOUND';
   editor.focus();
-  if (document.execCommand) {
-    document.execCommand('selectAll', false, null);
-    if (document.execCommand('insertText', false, prompt)) {
-      editor.dispatchEvent(new Event('input', {bubbles:true}));
-      return true;
+  if (editor.innerText.trim() !== prompt.trim()) {
+    if (document.execCommand) {
+      document.execCommand('selectAll', false, null);
+      document.execCommand('insertText', false, prompt);
+    }
+    if (editor.innerText.trim() !== prompt.trim()) {
+      editor.replaceChildren(document.createTextNode(prompt));
+      editor.dispatchEvent(new InputEvent('input',
+        {inputType:'insertText',data:prompt,bubbles:true}));
     }
   }
-  editor.textContent = prompt;
-  editor.dispatchEvent(new InputEvent('input',
-    {inputType:'insertText', data:prompt, bubbles:true}));
-  return true;
+  if (editor.innerText.trim() !== prompt.trim()) return 'FILL_FAILED';
+  editor.dispatchEvent(new Event('input', {bubbles:true}));
+  const send = document.querySelector(
+    '[data-testid="send-button"]:not([disabled]), button[aria-label="Send prompt"]:not([disabled]), button[aria-label="Отправить запрос"]:not([disabled]), button[aria-label="Надіслати запит"]:not([disabled])');
+  if (!send) return 'SEND_BUTTON_NOT_READY';
+  send.click();
+  return 'SUBMITTED_CLICK';
 })()
 """
-
 
 class ServiceBrowser(QWidget):
     """Web interface is created lazily to protect running OBS playback."""
@@ -122,7 +129,7 @@ class ServiceBrowser(QWidget):
         tools = QHBoxLayout()
         self.send_button = QPushButton(
             "🔎 Шукати у Telegram" if service == "telegram"
-            else "📋 Підготувати запит у ChatGPT")
+            else "🚀 Надіслати запит у ChatGPT")
         self.send_button.clicked.connect(self.search_active)
         tools.addWidget(self.send_button)
         self.copy_button = QPushButton("Скопіювати запит")
@@ -232,15 +239,19 @@ class ServiceBrowser(QWidget):
         self._view.page().runJavaScript(js, self._on_search_attempt)
 
     def _on_search_attempt(self, prepared):
-        self._search_result = bool(prepared)
+        self._search_result = (prepared == "SUBMITTED_CLICK" if self.service == "chatgpt" else bool(prepared))
         if prepared and self.service == "telegram":
             self.status.setText(
                 "Пошукове поле Telegram заповнено. Перевірте результати і, "
                 "якщо потрібно, натисніть Enter. Показуються лише доступні чати/канали.")
+        elif prepared == "SUBMITTED_CLICK":
+            self.status.setText(
+                "Натиснуто Надіслати в ChatGPT. Очікуйте відповідь справа; "
+                "перевіряйте джерела.")
         elif prepared:
             self.status.setText(
-                "Запит підготовлено у редакторі ChatGPT. Перевірте й натисніть "
-                "Надіслати — відповідь надає сам ChatGPT, не RG Media Deck.")
+                "Не підтверджено надсилання: " + str(prepared) +
+                ". Натисніть Надіслати вручну, якщо сайт змінився.")
         else:
             self.status.setText(
                 "Пошукове поле не знайдено (можливо, потрібен вхід або сайт "
