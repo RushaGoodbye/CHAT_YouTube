@@ -11,6 +11,14 @@ TARGETS=[str(s) for s in (json.loads(Path(sys.argv[1]).read_text(encoding="utf-8
 def read_json(p):
     try:return json.loads(p.read_text(encoding="utf-8-sig"))
     except Exception as e:return {"error":type(e).__name__,"exists":p.is_file()}
+def qa_report_is_valid(postrun):
+    """Fail closed when postrun results are absent, malformed or contradictory."""
+    if not isinstance(postrun,dict) or postrun.get("passed") is not True:
+        return False
+    checks=postrun.get("checks")
+    return isinstance(checks,list) and bool(checks) and all(
+        isinstance(check,dict) and check.get("ok") is True for check in checks
+    )
 def stat_file(p):
     try:
         st=p.stat();return {"exists":True,"bytes":st.st_size,"modified":round(st.st_mtime)}
@@ -102,11 +110,7 @@ try:
         row["qa_checks_failed"]=bool(
             isinstance(checks,list) and any(not isinstance(c,dict) or c.get("ok") is not True for c in checks)
         )
-        row["qa_report_valid"]=bool(
-            isinstance(postrun,dict) and postrun.get("passed") is True
-            and isinstance(checks,list) and len(checks)>0
-            and not row["qa_checks_failed"]
-        )
+        row["qa_report_valid"]=qa_report_is_valid(postrun)
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
