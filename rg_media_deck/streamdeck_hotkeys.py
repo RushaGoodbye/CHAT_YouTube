@@ -52,7 +52,7 @@ BROADCAST_BINDINGS = {
 }
 DEFAULT_BINDINGS = {
     **BROADCAST_BINDINGS,
-    "speed_normal": "Ctrl+Alt+Shift+0",
+    "speed_normal": "F10",
     "frame_back": "Alt+Shift+PgDown",
     "frame_forward": "Alt+Shift+PgUp",
     "play_pause": "Ctrl+Alt+Shift+F6",
