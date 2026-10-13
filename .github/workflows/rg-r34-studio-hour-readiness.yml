@@ -125,3 +125,32 @@ jobs:
             Write-Host "R34_DATA_RELEVANT_DIR=$($dir.Name)"
           }
           Write-Host "R34_STARTUP_RESOLUTION_READ_ONLY_PASS"
+
+      - name: Confirm ACTUAL installed Studio app and updater
+        run: |
+          $ErrorActionPreference="Stop"
+          $installed=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit"
+          $runtime=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit Runtime\venv\Scripts\pythonw.exe"
+          Write-Host "R34_REAL_INSTALLED_DIR_PRESENT=$([bool](Test-Path -LiteralPath $installed))"
+          Write-Host "R34_REAL_INSTALLED_PYTHONW_PRESENT=$([bool](Test-Path -LiteralPath $runtime))"
+          if(-not (Test-Path -LiteralPath $installed)) {throw "Real installed Studio absent"}
+          foreach($name in ("rg_studio_main.py","rg_studio_ui.py","rg_update_supervisor.py","rg_studio_healthcheck.py","RG_AUTO_EDIT_RELEASE_MANIFEST.json")){
+            $f=Join-Path $installed $name
+            Write-Host "R34_INSTALLED_$name=$([bool](Test-Path -LiteralPath $f))"
+            if(Test-Path -LiteralPath $f) {
+              $fi=Get-Item -LiteralPath $f
+              Write-Host "R34_REAL_FILE_INFO=$name BYTES=$($fi.Length) LASTWRITE_UTC=$($fi.LastWriteTimeUtc.ToString('s'))"
+              if($name -eq "rg_studio_ui.py"){
+                $lines=Get-Content -LiteralPath $f -Encoding UTF8
+                $ver=@($lines | Where-Object {$_ -match '(?m)^\s*STUDIO_VERSION\s*='})
+                foreach($v in ($ver | Select-Object -First 3)){ Write-Host "R34_REAL_UI_VERSION=$($v.Trim())" }
+                Write-Host "R34_REAL_HAS_UPDATE_PAGE=$([bool]($lines -match 'pick_update_zip'))"
+              }
+              if($name -eq "RG_AUTO_EDIT_RELEASE_MANIFEST.json"){
+                $m=Get-Content -LiteralPath $f -Raw|ConvertFrom-Json
+                if($m.PSObject.Properties.Name -contains "version"){Write-Host "R34_REAL_MANIFEST_VERSION=$($m.version)"}
+              }
+            }
+          }
+          foreach($d in @(Get-ChildItem -LiteralPath $installed -Directory -ErrorAction SilentlyContinue | Where-Object {$_.Name -match 'update|version|release' } | Select-Object -First 10)){Write-Host "R34_REAL_DIR=$($d.Name)"}
+          Write-Host "R34_REAL_INSTALLED_STUDIO_PROBE_PASS"
