@@ -17,5 +17,5 @@ jobs:
       - name: Test offline evidence gate without downloading AI models
         run: |
           python -m pip install pytest
-          PYTHONPATH=src python -m pytest -q tests/test_seo_intelligence_offline.py
+          PYTHONPATH=src python -m pytest -q tests/test_seo_intelligence_offline.py tests/test_seo_transcribe_local.py
           python -m compileall -q src/rg_youtube_control/seo_intelligence.py
