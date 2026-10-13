@@ -22,7 +22,7 @@ def test_existing_drafts_are_audited_read_only(tmp_path):
     assert report["inspected"] == 1
     assert report["audited"] == 1
     assert report["audit"]["ready"] == 0  # do not invent the other 2 titles
-    assert report["audit"]["items"][0]["issues"] == ["exactly_three_distinct_titles_required"]
+    assert report["audit"]["items"][0]["issues"] == ("exactly_three_distinct_titles_required",)
     assert database.read_bytes() == before
 
 
