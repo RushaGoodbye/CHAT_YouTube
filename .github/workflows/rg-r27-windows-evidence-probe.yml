@@ -1,0 +1,53 @@
+name: R27 Windows Local Evidence Probe (read only)
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - .github/workflows/rg-r27-windows-evidence-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-evidence:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 7
+    steps:
+      - name: Check accessible inputs without reading private data
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $a = 'F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $d = 'F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $src = '\\Desktop-v7gg0en\record\886.mp4'
+          $names = @('RG_EDITED_886_6.xml','RG_EDITED_886_6_R19.xml')
+          $xml = $false
+          foreach ($folder in @($a,$d)) {
+            foreach ($name in $names) {
+              if (Test-Path -LiteralPath (Join-Path $folder $name) -PathType Leaf) { $xml = $true }
+            }
+          }
+          $r19Name = 'RG 886_6 R19 V4 CLEAN - QA ONLY - NOT RELEASE.mp4'
+          $r19 = $false
+          foreach ($folder in @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Videos", $d)) {
+            if (Test-Path -LiteralPath (Join-Path $folder $r19Name) -PathType Leaf) { $r19 = $true }
+          }
+          $ffmpeg = 'C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffmpeg.EXE'
+          $pythonExe = [bool](Get-Command python -ErrorAction SilentlyContinue)
+          $result = [ordered]@{
+            schema = 'RG_R27_WINDOWS_READ_ONLY_PROBE_V1'
+            check_only = $true
+            target_is_windows = $env:OS -eq 'Windows_NT'
+            auto_edit_app_present = (Test-Path -LiteralPath $a -PathType Container)
+            auto_edit_data_present = (Test-Path -LiteralPath $d -PathType Container)
+            stream_886_source_accessible = (Test-Path -LiteralPath $src -PathType Leaf)
+            dialogue_xml_at_known_paths = $xml
+            r19_export_at_known_paths = $r19
+            ffmpeg_present = (Test-Path -LiteralPath $ffmpeg -PathType Leaf)
+            python_command_found = $pythonExe
+            source_files_modified = $false
+            studio_modified = $false
+          }
+          $result | ConvertTo-Json -Depth 5 | Write-Output
+          if (-not $result.target_is_windows) { throw 'Unexpected runner OS' }
