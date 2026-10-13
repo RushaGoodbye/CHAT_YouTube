@@ -130,7 +130,9 @@ def post_record(message, today: datetime) -> dict | None:
     username = getattr(chat, "username", None)
     uri = (f"https://t.me/{username}/{message.id}"
            if username and message.id else "")
-    return {"id": int(message.id), "chat": chat_name, "date": date.isoformat(),
+    return {"id": int(message.id),
+            "chat_id": getattr(message, "chat_id", None),
+            "chat": chat_name, "date": date.isoformat(),
             "text": str(message.message)[:5000], "kind": kind,
             "url": uri, "verified": False,
             "age_hours": round((today-date).total_seconds()/3600, 2)}
@@ -196,6 +198,55 @@ async def telegram_search(query: str, keys: dict, profile: Path,
             if post:
                 posts.append(post)
         return filter_sort_posts(posts, days=days)
+    finally:
+        await client.disconnect()
+
+
+async def telegram_download_media(post: dict, keys: dict,
+                                  profile: Path, target: Path) -> str:
+    """Download only an explicitly selected photo/video into NEWS folder.
+
+    Source message ID and chat ID come from the authenticated global search;
+    no user-entered URL or filename is trusted. Existing media not overwritten.
+    """
+    from telethon import TelegramClient
+    if not telegram_settings_valid(keys):
+        raise PermissionError("Telegram API не підключено")
+    if post.get("kind") not in ("photo", "video"):
+        raise ValueError("Цей пост не містить підтримуваного фото чи відео")
+    chat_id, msg_id = int(post["chat_id"]), int(post["id"])
+    folder = Path(target).expanduser().resolve()
+    if not folder.is_dir():
+        raise FileNotFoundError("Спочатку налаштуйте існуючу папку НОВИН")
+    prefix = f"RG_TG_{abs(chat_id)}_{msg_id}"
+    existing = list(folder.glob(prefix + ".*"))
+    if existing:
+        return str(existing[0])
+    client = TelegramClient(telegram_session(profile),
+                            int(keys["telegram_api_id"]),
+                            keys["telegram_api_hash"],
+                            request_retries=1, connection_retries=1, timeout=15)
+    await client.connect()
+    try:
+        if not await client.is_user_authorized():
+            raise PermissionError("Telegram API вимагає повторний вхід")
+        message = await client.get_messages(chat_id, ids=msg_id)
+        if message is None or not (message.photo or message.video):
+            raise FileNotFoundError("Telegram-повідомлення або медіа недоступні")
+        location = await client.download_media(
+            message, file=str(folder / prefix))
+        if not isinstance(location, str):
+            raise RuntimeError("Telegram не повернув шлях до файлу")
+        saved = Path(location).resolve()
+        if saved.parent != folder or saved.suffix.casefold() not in (
+                ".mp4", ".mov", ".mkv", ".webm", ".jpg", ".jpeg",
+                ".png", ".gif", ".webp"):
+            try:
+                saved.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError("Невірний тип або шлях медіа із Telegram")
+        return str(saved)
     finally:
         await client.disconnect()
 
