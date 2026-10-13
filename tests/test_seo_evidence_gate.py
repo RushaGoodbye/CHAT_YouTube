@@ -58,6 +58,17 @@ class EvidenceGateTests(unittest.TestCase):
         decision = check_seo_evidence(**self.data)
         self.assertNotIn("GENERIC_DESCRIPTION_BOILERPLATE", decision.issues)
 
+    def test_near_duplicate_angles_warn(self):
+        self.data["titles"] = [
+            "Шойгу и коррупция что обсуждали в разговоре",
+            "Коррупция и Шойгу что обсуждали в разговоре",
+            "Увольнение Шойгу причины и реакция",
+        ]
+        self.assertIn(
+            "NEAR_DUPLICATE_TITLE_ANGLES",
+            check_seo_evidence(**self.data).issues,
+        )
+
     def test_no_transcript_fails_closed(self):
         self.data["transcript"] = ""
         self.assertIn("INSUFFICIENT_TRANSCRIPT", check_seo_evidence(**self.data).issues)
