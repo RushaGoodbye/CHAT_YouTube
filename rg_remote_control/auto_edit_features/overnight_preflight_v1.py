@@ -147,6 +147,7 @@ try:
                 except Exception:row["video_probe_error"]=probe.get("stderr") or probe.get("error")
 
         row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
+                             "REVIEW_QA" if row["requires_qa_review"] else
                              "MISSING_INPUT" if not row["inputs_ready"] else
                              "RUN_EXPECTED")
 except Exception as exc:
