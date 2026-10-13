@@ -1,0 +1,46 @@
+name: R30 Existing 886_6 Detector Interface (read only)
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - .github/workflows/rg-r30-existing-detector-interface.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-detection-interface:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect local detector AST and known 886_6 artifacts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $code = @'
+          import ast,json
+          from pathlib import Path
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          files=["rg_cigarette_detector_worker.py","rg_cigarette_blur.py","rg_smoking_auto_export_v2.py"]
+          result={}
+          for name in files:
+              s=(root/name).read_text(encoding="utf-8-sig")
+              tree=ast.parse(s)
+              fn=[x.name for x in tree.body if isinstance(x,(ast.FunctionDef,ast.AsyncFunctionDef))]
+              calls=[]
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=="add_argument":
+                      for a in node.args:
+                          if isinstance(a,ast.Constant) and isinstance(a.value,str) and a.value.startswith("--"):
+                              calls.append(a.value)
+              result[name]={"functions":fn[:80],"cli_flags":sorted(set(calls))[:40],"lines":len(s.splitlines())}
+          print("RG_R30_DETECTOR_INTERFACES="+json.dumps(result,sort_keys=True))
+          for dirname in ("RG Auto Edit App","RG Auto Edit Data"):
+              folder=Path(r"F:\RG_AUTO_EDIT")/dirname
+              items=[p.name for p in folder.glob("*886_6*") if p.is_file()]
+              print("RG_R30_LOCAL_8866_FILES_"+dirname.replace(" ","_")+"="+json.dumps(sorted(items)[:35]))
+          '@
+          $code | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only AST inventory failed' }
+          Write-Host 'RG_R30_NO_SOURCE_STUDIO_OR_AUDIO_WRITES=TRUE'
