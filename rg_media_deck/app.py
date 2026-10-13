@@ -46,7 +46,7 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.5.1'
+VERSION = '0.5.2'
 
 STYLE = """
 QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
@@ -996,9 +996,11 @@ class MainWindow(QMainWindow):
                 '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
                 else '🔎 Назва, тег або інша розкладка клавіатури...')
             self.left_stack.setCurrentIndex(0)
+            self.preview_stack.setCurrentIndex(0)
             self.apply_filter()
         else:
-            self.left_stack.setCurrentIndex(index - 1)
+            self.left_stack.setCurrentIndex(1)
+            self.preview_stack.setCurrentIndex(index - 1)
             browser = self.telegram_tab if index == 2 else self.chatgpt_tab
             other = self.chatgpt_tab if index == 2 else self.telegram_tab
             other.set_active(False)
@@ -1050,8 +1052,8 @@ class MainWindow(QMainWindow):
         # is logged in and searches inside their actual official web UI.
         self.status.setText(
             f'Спільний пошук «{term}»: локальні файли знайдено за фільтром; '
-            'Telegram і ChatGPT отримали підготовлені запити. '
-            'Відкрийте вкладки, перевірте вхід і натисніть кнопку пошуку.')
+            'Веб-результати відкриються праворуч. ChatGPT надсилає запит '
+            'автоматично після авторизації; перевірте відповідь і джерела.')
         self._save()
 
     def set_player_side(self, side: str):
@@ -1570,8 +1572,12 @@ class MainWindow(QMainWindow):
             'telegram', settings_path().parent / 'browser_profiles', self)
         self.chatgpt_tab = ServiceBrowser(
             'chatgpt', settings_path().parent / 'browser_profiles', self)
-        self.left_stack.addWidget(self.telegram_tab)
-        self.left_stack.addWidget(self.chatgpt_tab)
+        self.source_summary = QLabel(
+            'Обраний Telegram / ChatGPT відкриється праворуч, у вікні перегляду. '
+            'Увага: OBS не має захоплювати всю програму.')
+        self.source_summary.setWordWrap(True)
+        self.source_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.left_stack.addWidget(self.source_summary)
         lv.addWidget(self.left_stack, 1)
         self.news_folder_bar = QWidget()
         news_row = QHBoxLayout(self.news_folder_bar)
@@ -1661,7 +1667,11 @@ class MainWindow(QMainWindow):
         self.preview.black.setText('Оберіть фото або відео з бібліотеки')
         self.preview.black.setStyleSheet('background:#000; color:#999aa0;')
         self.preview.setMinimumHeight(300)
-        rv.addWidget(self.preview, 1)
+        self.preview_stack = QStackedWidget()
+        self.preview_stack.addWidget(self.preview)
+        self.preview_stack.addWidget(self.telegram_tab)
+        self.preview_stack.addWidget(self.chatgpt_tab)
+        rv.addWidget(self.preview_stack, 1)
         timeline = QHBoxLayout()
         timeline.setSpacing(8)
         self.preview_seek = MarkedSlider(Qt.Orientation.Horizontal)
@@ -1734,6 +1744,8 @@ class MainWindow(QMainWindow):
         else:
             split.setSizes([520, 920])
         self.left_stack.setCurrentIndex(
+            0 if self._current_library_tab in (0, 1) else 1)
+        self.preview_stack.setCurrentIndex(
             0 if self._current_library_tab in (0, 1)
             else self._current_library_tab - 1)
         self.telegram_tab.set_query(self._global_query)
