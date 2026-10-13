@@ -1364,7 +1364,7 @@ class MainWindow(QMainWindow):
         place_right = player_position.addAction('Плеєр праворуч')
         place_right.setCheckable(True)
         place_right.setChecked(self.player_side == 'right')
-        safe_video = menu.addAction('🔒 Безпечне відеовікно для OBS (тільки медіа)')
+
         menu.addSeparator()
         news_add = menu.addAction('📰 Вказати папку НОВИН...')
         add = menu.addAction('＋ Додати папку...')
@@ -1411,9 +1411,7 @@ class MainWindow(QMainWindow):
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
-        if choice == safe_video:
-            self.open_obs_safe_video()
-        elif choice == place_left:
+        if choice == place_left:
             self.set_player_side('left')
         elif choice == place_right:
             self.set_player_side('right')
@@ -1668,7 +1666,7 @@ class MainWindow(QMainWindow):
         self.preview.setMinimumHeight(300)
         self.preview_stack = QTabWidget()
         self.preview_stack.setObjectName('PreviewStack')
-        self.preview_stack.addTab(self.preview, '▶ МЕДІА / OBS')
+        self.preview_stack.addTab(self.preview, '▶ МЕДІА')
         rv.addWidget(self.preview_stack, 1)
         timeline = QHBoxLayout()
         timeline.setSpacing(8)
