@@ -50,6 +50,20 @@ class TelegramIntegrationTests(unittest.TestCase):
         self.assertEqual(filter_sort_posts([row2,post], days=7,
                                           sort="channel")[0]["chat"], "Murmansk News")
 
+    def test_telegram_duplicate_articles_across_channels_are_collapsed(self):
+        now = datetime.now(timezone.utc).isoformat()
+        story = "В Мурманске закрыли учреждение, официальный список и документы опубликованы сегодня."
+        base = dict(date=now, kind="video", text=story,
+                    age_hours=1.0)
+        posts = [
+            dict(base, id=1, chat="Новости 1", url="https://t.me/news1/1"),
+            dict(base, id=2, chat="Новости 2", url="https://t.me/news2/2"),
+            dict(base, id=3, chat="Новости 2", text="Коротко"),
+        ]
+        result = filter_sort_posts(posts, days=1)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(len([p for p in result if p["text"] == story]), 1)
+
     def test_keyring_password_never_saved_in_user_settings(self):
         from research_connectors import save_credentials, credentials
         storage = {}
