@@ -26,9 +26,9 @@ class LocalOnlyUITests(unittest.TestCase):
         self.assertIn("self.library_tabs.addTab('📰 НОВИНИ')", self.source)
         self.assertEqual(self.source.count("self.library_tabs.addTab("), 2)
 
-    def test_one_media_preview_and_obs_safe(self):
+    def test_single_media_preview_without_separate_output(self):
         self.assertEqual(self.source.count("self.preview_stack.addTab("), 1)
-        self.assertIn("OBSSafeVideoWindow(self.preview)", self.source)
+        self.assertNotIn("OBSSafeVideoWindow(self.preview)", self.source)
 
     def test_no_service_dependencies(self):
         deps = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
