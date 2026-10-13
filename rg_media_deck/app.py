@@ -1208,6 +1208,8 @@ class MainWindow(QMainWindow):
             elif old in table:
                 table.pop(old, None)
         self.collections = migrate_path(self.collections, old, new)
+        self.quick_slots = [new_path if normalize_path(p) == old else p for p in self.quick_slots]
+        self.play_history = [new_path if normalize_path(p) == old else p for p in self.play_history]
         self._save()
 
     def _check_root_availability(self):
@@ -1618,6 +1620,8 @@ class MainWindow(QMainWindow):
             btn.setToolTip(f'Швидкий слот {n+1}: ПКМ для призначення')
             btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             btn.customContextMenuRequested.connect(lambda pos, slot=n: self.assign_quick_slot(slot))
+            if n < len(self.quick_slots) and self.quick_slots[n]:
+                btn.setToolTip(self.quick_slots[n])
             self.quick_buttons.append(btn)
             fast_row.addWidget(btn)
         local_v.addLayout(fast_row)
@@ -2046,7 +2050,7 @@ class MainWindow(QMainWindow):
         if not paths:
             self.status.setText('Історія показів порожня')
             return
-        names = [display_media_name(found[normalize_path(p)].name) for p in paths]
+        names = [f'{display_media_name(found[normalize_path(p)].name)}  —  {p}' for p in paths]
         selected, ok = QInputDialog.getItem(self, 'Історія показів', 'Показати файл:', names, 0, False)
         if ok:
             self.play_media_search_result(paths[names.index(selected)])
