@@ -1,0 +1,50 @@
+name: R34 Auto Edit Studio Real Windows Readiness
+on:
+  push:
+    branches: [rg-auto-edit/r34-studio-hour-readiness]
+    paths: ['.github/workflows/rg-r34-studio-hour-readiness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r34-read-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 7
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Inspect real Studio executable, runtime, updates and processes READ ONLY
+        run: |
+          $ErrorActionPreference="Stop"
+          $root="F:\RG_AUTO_EDIT"
+          $app=Join-Path $root "RG Auto Edit App"
+          $data=Join-Path $root "RG Auto Edit Data"
+          Write-Host "R34_ROOT_EXISTS=$([bool](Test-Path -LiteralPath $root))"
+          Write-Host "R34_APP_EXISTS=$([bool](Test-Path -LiteralPath $app))"
+          Write-Host "R34_DATA_EXISTS=$([bool](Test-Path -LiteralPath $data))"
+          if (-not (Test-Path -LiteralPath $app)) { throw "Studio app folder missing" }
+          $entries=Get-ChildItem -LiteralPath $app -Force -ErrorAction Stop
+          $names=@($entries | Where-Object {$_.Name -match '(?i)studio|updat|version|main|run|exe|manifest|launcher|current'})
+          foreach($file in ($names | Select-Object -First 35)){
+            $kind=if($file.PSIsContainer){"DIR"}else{"FILE"}
+            Write-Host "R34_APP_ENTRY=$($file.Name) TYPE=$kind SIZE=$($file.Length)"
+          }
+          $exes=@(Get-ChildItem -LiteralPath $app -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+          foreach($exe in ($exes | Select-Object -First 15)){
+            Write-Host "R34_EXE=$($exe.Name) PRODUCT_VERSION=$($exe.VersionInfo.ProductVersion) FILE_VERSION=$($exe.VersionInfo.FileVersion)"
+          }
+          $running=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {$_.Name -match "(?i)rg.*(edit|studio)|studio.*(rg|auto)|pythonw?" -and $_.ExecutablePath -like 'F:\RG_AUTO_EDIT*'})
+          foreach($p in $running | Select-Object -First 20){
+            Write-Host "R34_PROCESS_NAME=$($p.Name) PID=$($p.ProcessId)"
+          }
+          Write-Host "R34_PROCESSES_MATCHED=$($running.Count)"
+          $xml=Join-Path $app "RG_EDITED_886_6.xml"
+          if (Test-Path -LiteralPath $xml) {
+            $f=Get-Item -LiteralPath $xml
+            Write-Host "R34_8866_XML_EXISTS=TRUE BYTES=$($f.Length) LASTWRITE=$($f.LastWriteTimeUtc.ToString('s'))"
+          } else { Write-Host "R34_8866_XML_EXISTS=FALSE" }
+          if (Test-Path -LiteralPath (Join-Path $app 'RG_EDITED_886_6_CIGARETTE_BLUR_DETECTIONS.json')) {
+            Write-Host "R34_DETECTION_REPORT_EXISTS=TRUE"
+          }
+          Write-Host "R34_READ_ONLY_STUDIO_READINESS_COMPLETED"
