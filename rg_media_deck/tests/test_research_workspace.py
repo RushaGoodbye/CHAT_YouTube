@@ -132,6 +132,8 @@ class SettingsAndLayoutTests(unittest.TestCase):
             self.assertEqual(w._library_queries, ["Мурманск", "Мурманск"])
             self.assertEqual(w.telegram_tab._pending_query, "Мурманск")
             self.assertEqual(w.chatgpt_tab._pending_query, "Мурманск")
+            self.assertEqual(w.library_tabs.currentIndex(), 3)
+            w.library_tabs.setCurrentIndex(0)
             self.assertEqual(w.model.rowCount(), 1)
             self.assertIn("Murmansk", w.model.rows[0].name)
             w.library_tabs.setCurrentIndex(1)
@@ -140,7 +142,7 @@ class SettingsAndLayoutTests(unittest.TestCase):
             self.assertIs(w.preview.player, old_player)
             telegram_start.assert_not_called()  # no browser while live
             gpt_start.assert_not_called()
-            self.assertIn("підготовлені запити", w.status.text())
+            self.assertIn("веб-результати", w.status.text().casefold())
 
     def test_city_folder_and_latin_filenames_are_searchable(self):
         w = self._window()
@@ -154,6 +156,8 @@ class SettingsAndLayoutTests(unittest.TestCase):
         with patch.object(w, "_save"):
             w.global_search.setText("МУРМАНСК")
             w.search_everywhere()
+        self.assertEqual(w.library_tabs.currentIndex(), 3)
+        w.library_tabs.setCurrentIndex(0)
         self.assertEqual(w.model.rowCount(), 2)
         self.assertIn("2", w.library_tabs.tabText(0))
 
