@@ -3304,6 +3304,13 @@ class MainWindow(QMainWindow):
         ):
             hidden_button.setVisible(False)
 
+        seo_selected_guided_btn = QPushButton("Створити SEO вибраного")
+        seo_selected_guided_btn.setProperty("role", "primary")
+        seo_selected_guided_btn.setToolTip(
+            "Створити SEO-чернетку для виділеного відео без змін на YouTube"
+        )
+        seo_selected_guided_btn.clicked.connect(self.local_seo_selected)
+
         prepare_guided_btn = QPushButton("Підготувати без квоти")
         prepare_guided_btn.setProperty("role", "success")
         prepare_guided_btn.clicked.connect(self.prepare_zero_quota_batch)
@@ -3361,6 +3368,7 @@ class MainWindow(QMainWindow):
         advanced_btn.setMenu(advanced_menu)
 
         for button in (
+            seo_selected_guided_btn,
             prepare_guided_btn,
             ready_guided_btn,
             scheduled_guided_btn,
