@@ -78,7 +78,7 @@ class FrameShortcutTests(unittest.TestCase):
         self.assertEqual(DEFAULT_BINDINGS["mute"], "F9")
         self.assertEqual(parse_hotkey("F18"), ("F18", 0x4000, 0x81))
         self.assertEqual(parse_hotkey("F19"), ("F19", 0x4000, 0x82))
-        self.assertEqual(len(ACTIONS), 15)
+        self.assertEqual(len(ACTIONS), 16)
         self.assertEqual(check_bindings(DEFAULT_BINDINGS)["frame_back"], "Alt+Shift+PgDown")
 
     def test_action_routing_not_confused_with_ordinary_seek(self):
