@@ -15,9 +15,27 @@ py -3.12 build_icon.py
 Assert-ExitCode 'Generate application icons'
 if (!(Test-Path 'assets/RG_Media_Deck.ico')) { throw 'Generated icon missing' }
 
-Write-Host '=== PYINSTALLER START ==='
-py -3.12 -m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --add-data 'assets;assets' --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py
-Assert-ExitCode 'PyInstaller'
+Write-Host '=== PYINSTALLER START (max 12 minutes) ==='
+$py = (py -3.12 -c 'import sys; print(sys.executable)').Trim()
+if (!(Test-Path $py)) { throw 'Python 3.12 executable not found' }
+$buildLog = Join-Path $PSScriptRoot 'pyinstaller.stdout.log'
+$buildErr = Join-Path $PSScriptRoot 'pyinstaller.stderr.log'
+$buildArgs = '-m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --add-data "assets;assets" --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py'
+$build = Start-Process -FilePath $py -ArgumentList $buildArgs -PassThru -RedirectStandardOutput $buildLog -RedirectStandardError $buildErr
+try {
+    if (!$build.WaitForExit(720000)) {
+        & taskkill.exe /PID $build.Id /T /F | Out-Host
+        Get-Content $buildLog -Tail 50 -ErrorAction SilentlyContinue | Out-Host
+        Get-Content $buildErr -Tail 80 -ErrorAction SilentlyContinue | Out-Host
+        throw 'PyInstaller TIMEOUT: 12 minutes'
+    }
+    $build.Refresh()
+    Get-Content $buildLog -Tail 30 -ErrorAction SilentlyContinue | Out-Host
+    Get-Content $buildErr -Tail 40 -ErrorAction SilentlyContinue | Out-Host
+    if ($build.ExitCode -ne 0) { throw "PyInstaller failed: $($build.ExitCode)" }
+} finally {
+    if (!$build.HasExited) { Stop-Process -Id $build.Id -Force -ErrorAction SilentlyContinue }
+}
 Write-Host '=== PYINSTALLER PASS ==='
 $exe = Join-Path $PSScriptRoot 'dist\RG_Media_Deck\RG_Media_Deck.exe'
 if (!(Test-Path $exe)) { throw 'Missing Windows EXE' }
