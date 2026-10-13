@@ -1,0 +1,21 @@
+from pathlib import Path
+
+
+def test_bulk_seo_stops_repeated_failures_and_reports_errors():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    batch = source.split("    def local_seo_batch(", 1)[1].split(
+        "    def _save_local_seo_batch(", 1
+    )[0]
+    assert "failure_streak >= 5" in batch
+    assert "failure_reasons[reason_key] >= 3" in batch
+    assert '"stopped_early": stopped_early' in batch
+    assert "помилка {attempted}/{max_attempts}" in batch
+
+
+def test_bulk_seo_failures_reported_in_final_dialog():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    save = source.split("    def _save_local_seo_batch(", 1)[1].split(
+        "    def local_seo_selected(", 1
+    )[0]
+    assert 'if result.get("stopped_early"):' in save
+    assert "reason_text +=" in save
