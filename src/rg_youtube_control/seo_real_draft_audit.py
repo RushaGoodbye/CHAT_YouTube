@@ -21,7 +21,7 @@ def run(db_path: Path, evidence_dir: Path, *, max_videos: int = 30) -> dict:
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA query_only=ON")
         rows = db.execute(
-            """SELECT d.video_id, d.title, d.description, d.tags_json
+            """SELECT d.video_id, v.title AS title, d.description, d.tags_json
                FROM optimization_drafts d
                JOIN videos v ON v.video_id=d.video_id
                WHERE v.profile IN ('main','live')
