@@ -1091,6 +1091,12 @@ class MainWindow(QMainWindow):
         self.status.setText('Плеєр ' + ('ліворуч' if side == 'left' else 'праворуч'))
         self._save()
 
+    def _on_news_media_downloaded(self, path: str):
+        """Index an explicitly downloaded Telegram photo/video in NEWS."""
+        self.status.setText(
+            'Новий матеріал Telegram збережено у НОВИНИ: ' + Path(path).name)
+        self.scan()
+
     def play_media_search_result(self, path: str):
         """A double-click on a local search hit is the only playout action."""
         found = next((item for item in self.all_media
@@ -1728,6 +1734,7 @@ class MainWindow(QMainWindow):
         self.preview_stack.addTab(self.preview, '▶ МЕДІА / OBS')
         self.research_hub = ResearchHub(settings_path().parent / 'research', self)
         self.research_hub.media_requested.connect(self.play_media_search_result)
+        self.research_hub.media_downloaded.connect(self._on_news_media_downloaded)
         self.preview_stack.addTab(self.research_hub, '🔎 РЕЗУЛЬТАТИ')
         self.preview_stack.addTab(self.chatgpt_tab, '✦ CHATGPT — ВІДПОВІДЬ')
         self.preview_stack.currentChanged.connect(self._on_preview_tab_changed)
