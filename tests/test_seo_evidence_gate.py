@@ -47,6 +47,17 @@ class EvidenceGateTests(unittest.TestCase):
         self.data["titles"][0] = "«Все йде за планом» — розмова"
         self.assertNotIn("UNVERIFIED_DIRECT_QUOTE", check_seo_evidence(**self.data).issues)
 
+    def test_boilerplate_description_flagged(self):
+        self.data["description"] = (
+            "Обговорюємо аргументи учасників. " * 9
+        )
+        decision = check_seo_evidence(**self.data)
+        self.assertIn("GENERIC_DESCRIPTION_BOILERPLATE", decision.issues)
+
+    def test_specific_description_not_flagged(self):
+        decision = check_seo_evidence(**self.data)
+        self.assertNotIn("GENERIC_DESCRIPTION_BOILERPLATE", decision.issues)
+
     def test_no_transcript_fails_closed(self):
         self.data["transcript"] = ""
         self.assertIn("INSUFFICIENT_TRANSCRIPT", check_seo_evidence(**self.data).issues)
