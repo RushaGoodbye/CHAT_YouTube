@@ -990,7 +990,7 @@ class MainWindow(QMainWindow):
         self.collection_filter.setVisible(index == 0)
         self.search.setPlaceholderText(
             '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
-            else '🔎 Назва, тег або інша розкладка клавіатури...')
+            else '🔎 Пошук у ФАКТАЖІ...')
         self.apply_filter()
         self._save()
 
@@ -1308,6 +1308,8 @@ class MainWindow(QMainWindow):
             self.step_speed(1)
         elif action == 'speed_down':
             self.step_speed(-1)
+        elif action == 'speed_normal':
+            self.reset_speed()
         elif action == 'frame_back':
             self.step_frame(-1)
         elif action == 'frame_forward':
@@ -1519,12 +1521,8 @@ class MainWindow(QMainWindow):
         root.setSpacing(8)
         global_row = QHBoxLayout()
         global_row.setSpacing(7)
-        global_label = QLabel('🌐 ЄДИНИЙ ПОШУК')
-        global_label.setObjectName('SectionTitle')
-        global_row.addWidget(global_label)
         self.global_search = QLineEdit(self._global_query)
-        self.global_search.setPlaceholderText(
-            'Наприклад: МУРМАНСК — пошук у фактажі та локальних новинах')
+        self.global_search.setPlaceholderText('Пошук')
         self.global_search.setClearButtonEnabled(True)
         global_row.addWidget(self.global_search, 1)
         self.global_search_button = make_button('ЗНАЙТИ', self.search_everywhere)
@@ -1572,7 +1570,7 @@ class MainWindow(QMainWindow):
         self._refresh_news_folder_ui()
         self.news_folder_bar.setVisible(self._current_library_tab == 1)
         self.search = QLineEdit()
-        self.search.setPlaceholderText('🔎 Назва, тег або інша розкладка клавіатури...')
+        self.search.setPlaceholderText('🔎 Пошук у ФАКТАЖІ...')
         self.search.setClearButtonEnabled(True)
         local_v.addWidget(self.search)
         controls = QHBoxLayout()
@@ -1710,6 +1708,10 @@ class MainWindow(QMainWindow):
         self.speed_faster.setFixedSize(30, 34)
         self.speed_faster.setToolTip('Прискорити')
         transport.addWidget(self.speed_faster)
+        self.speed_normal = make_button('1×', self.reset_speed, 'SpeedStep')
+        self.speed_normal.setFixedSize(40, 34)
+        self.speed_normal.setToolTip('Нормальна швидкість 1× (програмована гаряча клавіша у налаштуваннях)')
+        transport.addWidget(self.speed_normal)
         rv.addWidget(self.control_row)
         self._refresh_mute_button()
         self._refresh_speed_buttons()
@@ -1811,7 +1813,7 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_Minus and not ctrl:
             self.step_speed(-1)
         elif key == Qt.Key.Key_0 and not ctrl:
-            self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(1.0))
+            self.reset_speed()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and (ctrl or not on_table):
             self.seek_relative((1 if key == Qt.Key.Key_Right else -1) * (30000 if shift else 5000))
         elif key in (Qt.Key.Key_Up, Qt.Key.Key_Down) and not on_table:
@@ -2551,6 +2553,9 @@ class MainWindow(QMainWindow):
         self.vol_value.setText(f'{value}%')
         self._save()
 
+    def reset_speed(self):
+        self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(1.0))
+
     def step_speed(self, direction: int):
         index = max(0, min(len(SPEED_PRESETS) - 1, self.speed_selector.currentIndex() + direction))
         self.speed_selector.setCurrentIndex(index)
@@ -2702,6 +2707,7 @@ def main():
                 and main_window.preview_stop.parentWidget() is main_window.control_row
                 and main_window.mute_button.parentWidget() is main_window.control_row
                 and main_window.speed_selector.parentWidget() is main_window.control_row
+                and main_window.speed_normal.parentWidget() is main_window.control_row
                 and not hasattr(main_window, 'file_path')
                 and main_window.mute_button.isCheckable()
                 and main_window.speed_selector.count() == len(SPEED_PRESETS)
@@ -2728,6 +2734,8 @@ def main():
             passed = passed and not main_window.preview._muted
             main_window.step_speed(1)
             passed = passed and main_window.speed_selector.currentData() == 1.25
+            main_window.reset_speed()
+            passed = passed and main_window.speed_selector.currentData() == 1.0
             passed = passed and display_media_name('Назва відео.mp4') == 'Назва відео'
             main_window.preview.shutdown()
             main_window.close()
