@@ -78,6 +78,31 @@ _CHATGPT_PREPARE_JS = """
 """
 
 
+_CHATGPT_SEND_JS = """
+(() => {
+  // No fake login. Only a real composer on chatgpt.com may be submitted.
+  if (!['chatgpt.com','chat.openai.com'].includes(location.hostname))
+    return {attempted:false, reason:'origin'};
+  const composer = document.querySelector(
+    '#prompt-textarea, .ProseMirror[contenteditable=true], [contenteditable=true][data-placeholder]');
+  if (!composer || composer.closest('form')?.querySelector(
+      'input[type=password],input[autocomplete=current-password]'))
+    return {attempted:false, reason:'login_or_missing_editor'};
+  const form = composer.closest('form');
+  const buttons = [...document.querySelectorAll('button')];
+  const send = buttons.find(el => {
+      const tag = [el.getAttribute('data-testid'), el.getAttribute('aria-label'),
+           el.getAttribute('title')].join(' ').toLowerCase();
+      return /send-button|send-prompt|send message|send prompt|отправить|надіслати/.test(tag)
+        && !el.disabled;
+  }) || (form && [...form.querySelectorAll('button[type=submit]')]
+                   .find(el => !el.disabled));
+  if (!send || send.disabled) return {attempted:false,reason:'button_unavailable'};
+  send.click();
+  return {attempted:true,reason:'clicked_send'};
+})()
+
+
 class ServiceBrowser(QWidget):
     """Web interface is created lazily to protect running OBS playback."""
 
@@ -93,6 +118,9 @@ class ServiceBrowser(QWidget):
         self._pending_query = ""
         self._loaded = False
         self._search_result = None
+        self._auto_send_pending = False
+        self._auto_send_attempted_query = ""
+        self._auto_send_last_result = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(5, 4, 5, 4)
@@ -197,17 +225,92 @@ class ServiceBrowser(QWidget):
             if ok else
             "Не вдалося завантажити сайт. Перевірте інтернет або відкрийте "
             "у стандартному браузері.")
-        # Never automatically submit login pages or prompts.
+        # Auto-send is an EXPLICIT user command from global Search, never
+        # triggered by ordinary browsing or reloading the login page.
         if ok and self._pending_query:
             self._display_query(self._pending_query)
-            # On opening a logged-in tab, attempt to fill the search/editor
-            # with the common query. Never auto-click Send in ChatGPT.
             from PySide6.QtCore import QTimer
-            QTimer.singleShot(700, self.search_active)
+            if self.service == 'chatgpt' and self._auto_send_pending:
+                QTimer.singleShot(600, self._try_auto_send)
+            elif self.service == 'telegram':
+                QTimer.singleShot(700, self.search_active)
 
     def set_query(self, text: str):
+        changed = normalize_query(text) != self._pending_query
         self._pending_query = normalize_query(text)
+        if changed:
+            self._auto_send_pending = False
+            self._auto_send_last_result = None
         self._display_query(self._pending_query)
+
+    def request_auto_submit(self):
+        """User pressed common SEARCH: send ChatGPT prompt once if logged in.
+
+        Login screen and unexpected domains are never submitted.
+        The genuine website shows the response in this very widget.
+        """
+        if self.service != 'chatgpt' or not self._pending_query:
+            return
+        if self._auto_send_attempted_query == self._pending_query:
+            return
+        self._auto_send_pending = True
+        if not self.ensure_loaded():
+            return
+        if self._loaded:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(350, self._try_auto_send)
+
+    def _try_auto_send(self):
+        if (not self._auto_send_pending or not self._loaded
+                or self._auto_send_attempted_query == self._pending_query
+                or self._view is None):
+            return
+        page = self._view.page()
+        if page.url().host().casefold() not in ('chatgpt.com', 'chat.openai.com'):
+            self.status.setText(
+                'Не можна надсилати запит: це не офіційна адреса ChatGPT.')
+            return
+        prompt = research_prompt(self._pending_query)
+        script = _CHATGPT_PREPARE_JS.replace(
+            '__PROMPT__', json.dumps(prompt, ensure_ascii=False))
+        query = self._pending_query
+        page.runJavaScript(script,
+            lambda ready, term=query: self._after_auto_prepare(term, ready))
+
+    def _after_auto_prepare(self, term: str, ready):
+        if not ready or term != self._pending_query or not self._auto_send_pending:
+            self.status.setText(
+                'ChatGPT: редактор недоступний. Увійдіть у свій акаунт '
+                'або скористайтеся «Скопіювати запит».')
+            return
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(550,
+            lambda query=term: self._click_chatgpt_send(query))
+
+    def _click_chatgpt_send(self, query: str):
+        if not self._view or query != self._pending_query or not self._auto_send_pending:
+            return
+        self._view.page().runJavaScript(_CHATGPT_SEND_JS,
+            lambda result, term=query: self._after_chatgpt_send(term, result))
+
+    def _after_chatgpt_send(self, query: str, outcome):
+        if query != self._pending_query:
+            return
+        attempted = isinstance(outcome, dict) and outcome.get('attempted') is True
+        self._auto_send_last_result = outcome
+        if attempted:
+            # Never resend on navigation/reload: one request per user query.
+            self._auto_send_attempted_query = query
+            self._auto_send_pending = False
+            self.status.setText(
+                'ChatGPT: натиснуто «Надіслати». Чекайте відповідь '
+                'прямо тут, у вікні попереднього перегляду.')
+        else:
+            reason = (outcome or {}).get('reason', 'unknown') if isinstance(outcome, dict) else 'unknown'
+            self.status.setText(
+                'ChatGPT не підтвердив надсилання (' + str(reason) +
+                '). Перевірте вхід; можна скопіювати запит і надіслати вручну.')
+
 
     def _display_query(self, term: str):
         if self.service == "telegram":
