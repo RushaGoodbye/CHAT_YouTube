@@ -32,7 +32,7 @@ class IndexedMediaLibrary:
                         if isinstance(tag, str)]
             entries.append(_Entry(
                 item=item, key=key,
-                searchable=" ".join([fold(item.name), *tag_text]),
+                searchable=" ".join([fold(item.name), fold(item.path), *tag_text]),
                 sort_name=item.name.casefold(),
                 sort_path=item.path.casefold()))
         self._entries = tuple(entries)
