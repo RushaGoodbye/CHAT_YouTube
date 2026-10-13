@@ -95,7 +95,9 @@ class SettingsAndLayoutTests(unittest.TestCase):
 
     def test_four_tabs_are_present_and_web_browsers_start_lazily(self):
         w = self._window()
-        self.assertEqual(w.library_tabs.count(), 4)
+        self.assertEqual(w.library_tabs.count(), 5)
+        self.assertIn('ПОШУК', w.library_tabs.tabText(4))
+        self.assertEqual(w.preview_stack.count(), 3)
         self.assertIn("TELEGRAM", w.library_tabs.tabText(2))
         self.assertIn("CHATGPT", w.library_tabs.tabText(3))
         self.assertFalse(w.telegram_tab.active)
@@ -108,6 +110,9 @@ class SettingsAndLayoutTests(unittest.TestCase):
             self.assertEqual(w.left_stack.currentIndex(), 1)
             w.library_tabs.setCurrentIndex(3)
             self.assertEqual(w.left_stack.currentIndex(), 2)
+            self.assertEqual(w.preview_stack.currentIndex(), 2)
+            w.library_tabs.setCurrentIndex(4)
+            self.assertEqual(w.preview_stack.currentIndex(), 1)
             w.library_tabs.setCurrentIndex(0)
             self.assertEqual(w.left_stack.currentIndex(), 0)
             stop.assert_not_called()
@@ -125,11 +130,16 @@ class SettingsAndLayoutTests(unittest.TestCase):
         w.search_index = IndexedMediaLibrary(items, {})
         old_player = w.preview.player
         with patch.object(w, "_save"), \
+             patch.object(w.research_hub, "search_all") as research, \
+             patch.object(w.chatgpt_tab, "request_auto_submit") as auto_send, \
              patch.object(w.telegram_tab, "ensure_loaded") as telegram_start, \
              patch.object(w.chatgpt_tab, "ensure_loaded") as gpt_start:
             w.global_search.setText("Мурманск")
             w.search_everywhere()
             self.assertEqual(w._library_queries, ["Мурманск", "Мурманск"])
+            self.assertEqual(w.preview_stack.currentIndex(), 2)
+            research.assert_called_once()
+            auto_send.assert_called_once()
             self.assertEqual(w.telegram_tab._pending_query, "Мурманск")
             self.assertEqual(w.chatgpt_tab._pending_query, "Мурманск")
             self.assertEqual(w.model.rowCount(), 1)
