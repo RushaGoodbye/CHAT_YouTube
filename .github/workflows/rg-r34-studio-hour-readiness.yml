@@ -181,3 +181,36 @@ jobs:
             if($LASTEXITCODE -ne 0){throw "Installed runtime import failed"}
           } else {Write-Host "R34_RUNTIME_PYTHON_MISSING"}
           Write-Host "R34_ACTUAL_SESSION_RUNTIME_CHECK_PASS"
+
+      - name: Launch installed Studio UI only when absent and verify it stays open
+        run: |
+          $ErrorActionPreference="Stop"
+          $app=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit"
+          $pythonw=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit Runtime\venv\Scripts\pythonw.exe"
+          $main=Join-Path $app "rg_studio_main.py"
+          if(-not (Test-Path -LiteralPath $pythonw) -or -not (Test-Path -LiteralPath $main)) {throw "Installed startup files missing"}
+          $existing=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -eq "pythonw.exe" -and $_.CommandLine -like "*rg_studio_main.py*"})
+          if($existing.Count -gt 0) {
+            Write-Host "R34_STUDIO_ALREADY_RUNNING=$($existing.Count)"
+            exit 0
+          }
+          # The GitHub runner kills child processes retaining its tracking ID.
+          $oldTracking=[Environment]::GetEnvironmentVariable("RUNNER_TRACKING_ID","Process")
+          $oldInstalled=[Environment]::GetEnvironmentVariable("RG_INSTALLED_MODE","Process")
+          try {
+            [Environment]::SetEnvironmentVariable("RUNNER_TRACKING_ID",$null,"Process")
+            [Environment]::SetEnvironmentVariable("RG_INSTALLED_MODE","1","Process")
+            $launch=Start-Process -FilePath $pythonw -ArgumentList @("-X","utf8",('"' + $main + '"')) -WorkingDirectory $app -PassThru
+            Write-Host "R34_GUI_LAUNCH_PID=$($launch.Id)"
+          } finally {
+            [Environment]::SetEnvironmentVariable("RUNNER_TRACKING_ID",$oldTracking,"Process")
+            [Environment]::SetEnvironmentVariable("RG_INSTALLED_MODE",$oldInstalled,"Process")
+          }
+          Start-Sleep -Seconds 7
+          $process=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -eq "pythonw.exe" -and $_.CommandLine -like "*rg_studio_main.py*"})
+          Write-Host "R34_GUI_RUNNING_AFTER_7S=$($process.Count)"
+          $windows=@(Get-Process -ErrorAction SilentlyContinue|Where-Object {$_.MainWindowTitle -like "*RG Auto Edit*"})
+          Write-Host "R34_GUI_VISIBLE_WINDOWS=$($windows.Count)"
+          foreach($w in ($windows|Select-Object -First 3)){Write-Host "R34_GUI_TITLE=$($w.MainWindowTitle)"}
+          if($process.Count -lt 1 -or $windows.Count -lt 1){throw "Studio GUI not visibly running after launch"}
+          Write-Host "R34_STUDIO_GUI_LIVE_LAUNCH_PASS"
