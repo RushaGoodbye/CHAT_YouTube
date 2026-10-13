@@ -2067,30 +2067,47 @@ class MainWindow(QMainWindow):
             self.apply_filter()
 
     def show_staged_preview(self):
-        # Static preview is isolated from live OBS sink and main video decoder.
+        """Independent muted preview. Never attach to the live OBS video sink."""
         item = self.selected
         if not item or not os.path.isfile(item.path):
             self.status.setText('Оберіть доступний файл')
             return
         dialog = QDialog(self)
-        dialog.setWindowTitle('Попередній перегляд — не в ефірі')
+        dialog.setWindowTitle('ПОПЕРЕДНІЙ ПЕРЕГЛЯД — НЕ В ЕФІРІ')
+        dialog.resize(700, 470)
         layout = QVBoxLayout(dialog)
-        image = AspectImage('Для відео перегляд кадру доступний через мініатюру')
-        image.setMinimumSize(480, 270)
         if item.kind == 'photo':
+            image = AspectImage()
+            image.setMinimumSize(560, 310)
             image.set_file(item.path)
+            layout.addWidget(image, 1)
         else:
-            # Use a previously generated still frame; do not open a second player.
-            try:
-                from thumbnails import thumbnail_path
-                cached = thumbnail_path(item.path)
-                if cached.is_file():
-                    image.set_file(str(cached))
-                else:
-                    image.setText('Наведіть курсор на файл для створення кадру, потім відкрийте перегляд')
-            except (OSError, ValueError):
-                image.setText('Кадр попереднього перегляду недоступний')
-        layout.addWidget(image)
+            # A separate player exists ONLY while this modal preview is open.
+            # Its audio remains muted and it has no connection to OBS output.
+            from PySide6.QtMultimediaWidgets import QVideoWidget
+            video = QVideoWidget(dialog)
+            video.setMinimumSize(560, 310)
+            layout.addWidget(video, 1)
+            player = QMediaPlayer(dialog)
+            audio = QAudioOutput(dialog)
+            audio.setMuted(True)
+            audio.setVolume(0.0)
+            player.setAudioOutput(audio)
+            player.setVideoOutput(video)
+            player.setSource(QUrl.fromLocalFile(item.path))
+            seek = QSlider(Qt.Orientation.Horizontal, dialog)
+            seek.setRange(0, 0)
+            player.durationChanged.connect(lambda duration: seek.setMaximum(max(0, duration)))
+            player.positionChanged.connect(lambda pos: seek.setValue(pos) if not seek.isSliderDown() else None)
+            seek.sliderMoved.connect(player.setPosition)
+            layout.addWidget(seek)
+            controls = QHBoxLayout()
+            start_btn = make_button('▶ / Ⅱ', lambda: player.pause() if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState else player.play())
+            controls.addWidget(start_btn)
+            controls.addWidget(QLabel('Без звуку · не в ефірі'))
+            layout.addLayout(controls)
+            dialog.finished.connect(player.stop)
+            dialog.finished.connect(lambda _: player.setVideoOutput(None))
         layout.addWidget(QLabel(display_media_name(item.name)))
         dialog.exec()
 
