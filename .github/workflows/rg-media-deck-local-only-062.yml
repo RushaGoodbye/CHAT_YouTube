@@ -1,0 +1,32 @@
+name: RG Media Deck 0.6.2 Windows verification
+on:
+  push:
+    branches:
+      - rg-media-deck-local-only-0-6-2
+  workflow_dispatch:
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: rg_media_deck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Build and verify application
+        shell: pwsh
+        run: ./BUILD_SETUP_WINDOWS.ps1
+      - name: Upload verified installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG_Media_Deck_0.6.2_Setup
+          path: |
+            rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe
+            rg_media_deck/dist_installer/RG_Media_Deck_Setup.exe.sha256
+          if-no-files-found: error
