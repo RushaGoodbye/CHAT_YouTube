@@ -152,7 +152,9 @@ class SettingsAndLayoutTests(unittest.TestCase):
             # The user explicitly requested immediate ChatGPT submission and
             # the returned page rendered IN the right Preview panel.
             gpt_start.assert_called_once()
-            self.assertIn("підготовлені запити", w.status.text())
+            self.assertIn("ПОПЕРЕДНІЙ ПЕРЕГЛЯД", w.status.text())
+            self.assertIn("ФАКТАЖ 1", w.status.text())
+            self.assertIn("НОВИНИ 1", w.status.text())
 
     def test_city_folder_and_latin_filenames_are_searchable(self):
         w = self._window()
