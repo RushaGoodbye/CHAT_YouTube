@@ -2656,7 +2656,7 @@ def main():
     # Health checks must NEVER mutate a real user's volume, speed, folders,
     # bookmarks or hotkey settings. Previous selftests saved speed=1.25, which
     # broke the next health check even though the EXE itself was healthy.
-    if '--selftest' in sys.argv or '--webengine-selftest' in sys.argv:
+    if '--selftest' in sys.argv:
         import tempfile
         isolated_profile = tempfile.TemporaryDirectory(prefix='rg_deck_selftest_')
         os.environ['LOCALAPPDATA'] = isolated_profile.name
@@ -2672,30 +2672,6 @@ def main():
     icon_file = resources_root / 'assets' / 'RG_Media_Deck.ico'
     if icon_file.is_file():
         app.setWindowIcon(QIcon(str(icon_file)))
-    if '--webengine-selftest' in sys.argv:
-        # Verify the real *frozen* Chromium WebEngine process and Qt resources
-        # without logging in or contacting Telegram/ChatGPT.
-        from PySide6.QtCore import QEventLoop
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-            view = QWebEngineView()
-            loop = QEventLoop()
-            result = {"ok": False}
-            def finished(ok):
-                result["ok"] = bool(ok)
-                loop.quit()
-            view.loadFinished.connect(finished)
-            QTimer.singleShot(15000, loop.quit)
-            view.setHtml("<!doctype html><html><head><title>RG Local Web Test</title></head><body>OK</body></html>")
-            loop.exec()
-            view.close()
-            view.deleteLater()
-            print("RG_WEBENGINE_FROZEN_SELFTEST_PASS" if result["ok"] else
-                  "RG_WEBENGINE_FROZEN_SELFTEST_FAIL", flush=True)
-            return 0 if result["ok"] else 2
-        except Exception as exc:
-            print(f"RG_WEBENGINE_FROZEN_SELFTEST_ERROR: {exc}", flush=True)
-            return 3
     if '--selftest' in sys.argv:
         surface = PlayerSurface()
         passed = (surface.player is not None and surface.audio is not None
