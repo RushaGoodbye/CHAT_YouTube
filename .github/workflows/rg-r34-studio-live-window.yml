@@ -44,3 +44,14 @@ jobs:
           Write-Host "R34_POSTJOB_WINDOW_RESPONSIVE=$([bool]($ok -ne [IntPtr]::Zero))"
           if(-not $visible -or $ok -eq [IntPtr]::Zero){throw "Studio window invisible or unresponsive"}
           Write-Host "R34_STUDIO_0202014_POSTJOB_RESPONSIVE_PASS"
+
+      - name: Inspect built-in healthcheck capabilities before running
+        shell: powershell
+        run: |
+          $app=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit"
+          $p=Join-Path $app "rg_studio_healthcheck.py"
+          if(-not (Test-Path $p)){throw "Healthcheck file missing"}
+          Write-Host "R34_HEALTHCHECK_SOURCE_BEGIN"
+          $lines=Get-Content -LiteralPath $p -Encoding UTF8
+          foreach($line in ($lines|Select-Object -First 110)){Write-Host $line}
+          Write-Host "R34_HEALTHCHECK_SOURCE_END"
