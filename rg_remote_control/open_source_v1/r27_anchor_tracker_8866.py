@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 
 SCHEMA = "RG_R27_TRACK_ANCHORS_V1"
@@ -179,15 +180,13 @@ def track(get_frame, manifest):
         raise ValueError("Invalid match / scene thresholds")
     candidates = []
     abstentions = []
-    cache = {}
-
+    # A hard memory cap is mandatory for long 1920x1080 dialogues.
+    @lru_cache(maxsize=8)
     def frame_at(i):
-        if i not in cache:
-            frame = get_frame(i)
-            if not isinstance(frame, np.ndarray) or frame.shape != (height, width, 3) or frame.dtype != np.uint8:
-                raise ValueError("Video frame missing or unexpected BGR format at " + str(i))
-            cache[i] = frame
-        return cache[i]
+        frame = get_frame(i)
+        if not isinstance(frame, np.ndarray) or frame.shape != (height, width, 3) or frame.dtype != np.uint8:
+            raise ValueError("Video frame missing or unexpected BGR format at " + str(i))
+        return frame
 
     for anchor_idx, a in enumerate(manifest["anchors"]):
         f0, side, obj, ident = (a["frame"], a["participant"], a["object"], a["track_id"])
@@ -203,7 +202,7 @@ def track(get_frame, manifest):
         clip_start, clip_end = _scene_limits(f0, cuts, count)
         out = {f0: (box, 1.0)}
         for direction in (-1, 1):
-            last_box, last_frame, last_index = box, origin, f0
+            last_box, last_frame = box, origin
             for step in range(1, span + 1):
                 i = f0 + step * direction
                 if i < clip_start or i >= clip_end:
@@ -228,7 +227,7 @@ def track(get_frame, manifest):
                 if not _inside(next_box, roi):
                     raise AssertionError("Escaped participant ROI")
                 out[i] = next_box, score
-                last_frame, last_box, last_index = curr, next_box, i
+                last_frame, last_box = curr, next_box
         for i, (position, score) in out.items():
             candidates.append({
                 "frame": i, "start": i, "end": i + 1,
