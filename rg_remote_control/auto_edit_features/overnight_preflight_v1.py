@@ -107,7 +107,10 @@ try:
         row["xml_existing"]=sum(p.is_file() and p.stat().st_size>0 for p in paths)
         row["complete_state"]=str(row["last_run_status"] or "").upper()=="COMPLETE"
         row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
-        row["already_complete"]=bool(row["complete_state"] or row["complete_manifest"])
+        # Do not skip a stream merely because XML files or COMPLETE state exist.
+        # Failed or absent postrun QA requires inspection, not silent skip.
+        row["already_complete"]=bool(row["complete_manifest"] and row["postrun_passed"] is True)
+        row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
         if isinstance(postrun,dict) and "checks" in postrun:
