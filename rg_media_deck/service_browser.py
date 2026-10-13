@@ -251,8 +251,11 @@ class ServiceBrowser(QWidget):
         """
         if self.service != 'chatgpt' or not self._pending_query:
             return
-        if self._auto_send_attempted_query == self._pending_query:
+        if self._auto_send_pending:
             return
+        # Explicit new Search is allowed to repeat the same city later.
+        # Navigation/reload alone never creates another submission.
+        self._auto_send_attempted_query = ""
         self._auto_send_pending = True
         if not self.ensure_loaded():
             return
