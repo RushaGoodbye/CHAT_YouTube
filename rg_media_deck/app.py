@@ -23,9 +23,6 @@ import zip_updates
 import update_rollback
 from broadcast_guard import BroadcastGuard
 from ui_hang_watch import UIHangWatch
-from service_browser import ServiceBrowser
-from research_hub import ResearchHub
-from obs_safe_output import OBSSafeVideoWindow
 from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
@@ -48,42 +45,57 @@ from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest
 
 from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
-VERSION = '0.6.1'
+VERSION = '0.6.2'
 
 STYLE = """
-QWidget { background:#090a0c; color:#f0f1f3; font-family:'Segoe UI'; font-size:13px; }
-QMainWindow { background:#090a0c; }
-QFrame#Panel { background:#111216; border:1px solid #262930; border-radius:9px; }
-QLineEdit { background:#17191e; border:1px solid #33363e; border-radius:6px; padding:7px 10px; font-size:14px; selection-background-color:#9b2739; }
-QLineEdit:focus { border:1px solid #b5384a; }
-QPushButton { border:1px solid #363941; border-radius:6px; background:#1c1e24; padding:5px 9px; color:#f2f3f5; font-size:12px; font-weight:600; }
-QPushButton:hover { background:#30333b; border-color:#5a5f69; }
-QPushButton:pressed { background:#3e414a; }
-QPushButton:disabled { background:#17191d; color:#777c85; border-color:#292d33; }
-QPushButton#PlayButton { background:#b72b43; border:1px solid #ca3b52; color:white; font-size:16px; font-weight:700; padding:0; }
-QPushButton#PlayButton:hover { background:#cd3a53; }
-QPushButton#PauseButton, QPushButton#StopButton { background:#24262c; border:1px solid #41444d; font-size:15px; font-weight:700; padding:0; }
-QPushButton#MuteButton { background:#24262c; border:1px solid #41444d; font-size:12px; font-weight:650; padding:0 5px; }
-QPushButton#MuteButton:checked { background:#45242b; color:#ffb8c2; border-color:#aa4253; }
-QPushButton#SettingsGear { background:#24262c; color:#e7e9ec; font-size:21px; padding:0; border-color:#33363e; }
-QPushButton#SettingsGear:hover { background:#363942; }
-QPushButton#SpeedStep { font-size:16px; font-weight:700; padding:0; }
-QTableView { border:0; background:#111216; alternate-background-color:#191b20; selection-background-color:#5a2732; selection-color:white; gridline-color:#282a30; font-size:13px; }
-QHeaderView::section { background:#1d1f25; border:0; border-bottom:1px solid #30333a; padding:7px; color:#cbd0d8; font-weight:650; }
-QComboBox { border:1px solid #41444d; background:#202228; padding:5px 8px; border-radius:6px; min-width:65px; font-size:12px; }
-QComboBox QAbstractItemView { background:#202228; color:#f3f3f5; selection-background-color:#723342; }
-QSlider::groove:horizontal { background:#393b43; height:5px; border-radius:2px; }
-QSlider::sub-page:horizontal { background:#c33950; border-radius:2px; }
-QSlider::handle:horizontal { background:#eff1f4; width:14px; margin:-5px 0; border-radius:7px; }
-QLabel#Status { color:#c0c4cb; font-size:11px; }
-QLabel#SectionTitle { color:#f2f2f4; font-size:14px; font-weight:700; }
-QLabel#SelectedFilename { color:#adb2bc; font-size:12px; }
+/* RG AUTO EDIT STUDIO inspired production workstation: graphite, YouTube red, restrained blue/yellow */
+QWidget { background:#111318; color:#e9edf4; font-family:'Segoe UI'; font-size:13px; }
+QMainWindow { background:#0e1014; }
+QFrame#Panel { background:#191c22; border:1px solid #303640; border-radius:7px; }
+QLineEdit { background:#11151b; border:1px solid #353d48; border-radius:5px; padding:9px 12px; font-size:14px; color:#f4f6fa; selection-background-color:#b71929; }
+QLineEdit:focus { background:#151b22; border:1px solid #e63843; }
+QPushButton { border:1px solid #3a414d; border-radius:5px; background:#252a32; padding:6px 11px; color:#edf1f7; font-size:12px; font-weight:600; }
+QPushButton:hover { background:#323944; border-color:#687586; }
+QPushButton:pressed { background:#414957; }
+QPushButton:disabled { background:#1b1e23; color:#77818d; border-color:#282e37; }
+QPushButton#PlayButton { background:#be1425; border:1px solid #e02c3e; color:#ffffff; font-size:16px; font-weight:700; padding:0; }
+QPushButton#PlayButton:hover { background:#dd2034; border-color:#f04b5c; }
+QPushButton#PauseButton, QPushButton#StopButton { background:#2b3039; border:1px solid #424c59; font-size:15px; font-weight:700; padding:0; }
+QPushButton#MuteButton { background:#29303a; border:1px solid #424c59; font-size:12px; font-weight:600; padding:0 5px; }
+QPushButton#MuteButton:checked { background:#741b25; color:#ffffff; border-color:#ee3748; }
+QPushButton#SettingsGear { background:#222833; color:#e9edf3; font-size:21px; padding:0; border-color:#36404e; }
+QPushButton#SettingsGear:hover { background:#303a48; }
+QPushButton#SpeedStep { font-size:15px; font-weight:700; padding:0; }
+QTableView { border:0; background:#191c22; alternate-background-color:#20242b; selection-background-color:#713039; selection-color:#ffffff; gridline-color:#2b333d; font-size:13px; outline:0; }
+QHeaderView::section { background:#252a33; border:0; border-bottom:2px solid #cc202f; padding:8px; color:#cbd4df; font-weight:700; }
+QComboBox { border:1px solid #3c4653; background:#242a33; padding:6px 9px; border-radius:5px; min-width:65px; font-size:12px; }
+QComboBox:hover { border-color:#657384; }
+QComboBox QAbstractItemView { background:#20262e; color:#f2f4f7; selection-background-color:#8b2331; }
+QSlider::groove:horizontal { background:#3c454f; height:5px; border-radius:2px; }
+QSlider::sub-page:horizontal { background:#e32636; border-radius:2px; }
+QSlider::handle:horizontal { background:#f3f6fa; border:1px solid #f3f6fa; width:13px; margin:-5px 0; border-radius:7px; }
+QLabel#Status { color:#a8b5c2; font-size:11px; }
+QLabel#SectionTitle { color:#f1f5f9; font-size:13px; font-weight:700; }
+QLabel#SelectedFilename { color:#b8c4d0; font-size:12px; }
 QCheckBox { spacing:7px; }
-QSplitter::handle { background:#090a0c; }
+QSplitter::handle { background:#0e1014; }
 QTabBar { background:transparent; }
-QTabBar::tab { background:#191b20; border:1px solid #30333b; color:#c7cbd3; padding:9px 21px; margin-right:5px; border-radius:6px; font-weight:700; }
-QTabBar::tab:selected { background:#70303d; border-color:#b84b5d; color:white; }
-QTabBar::tab:hover:!selected { background:#282a31; }
+QTabBar::tab { background:#222731; border:1px solid #38404a; color:#c2ccd7; padding:10px 20px; margin-right:5px; border-radius:5px; font-weight:700; }
+QTabBar::tab:selected { background:#b81729; border-color:#ee3948; color:#ffffff; }
+QTabBar::tab:hover:!selected { background:#303945; }
+QScrollBar:vertical { background:#16191f; width:9px; margin:1px; }
+QScrollBar::handle:vertical { background:#424c58; border-radius:4px; min-height:30px; }
+QScrollBar::handle:vertical:hover { background:#647181; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+QScrollBar:horizontal { background:#16191f; height:9px; }
+QScrollBar::handle:horizontal { background:#424c58; border-radius:4px; min-width:30px; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; }
+QToolTip { background:#29313a; color:#f3f5f7; border:1px solid #596778; padding:5px; }
+QMenu { background:#20252d; color:#edf0f5; border:1px solid #3d4653; padding:5px; }
+QMenu::item { padding:7px 24px; border-radius:4px; }
+QMenu::item:selected { background:#a21c2c; }
+QProgressBar { background:#252b34; color:#eef2f7; border:1px solid #38414b; border-radius:4px; text-align:center; }
+QProgressBar::chunk { background:#e02033; border-radius:3px; }
 """
 
 
@@ -844,7 +856,7 @@ class MainWindow(QMainWindow):
         self.roots = list(dict.fromkeys(self.settings['roots']))
         self.news_folder = self.settings['news_folder']
         self.player_side = self.settings['player_side']
-        self._current_library_tab = self.settings['workspace_tab']
+        self._current_library_tab = self.settings['workspace_tab'] if self.settings['workspace_tab'] in (0, 1) else 0
         self._library_queries = ['', '']
         self._global_query = self.settings['global_query']
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
@@ -892,7 +904,6 @@ class MainWindow(QMainWindow):
         self._thumbnail_failures = set()
         self._hover_popup = MediaHoverPopup(self)
         self._playback_health = PlaybackHealth()
-        self.obs_safe_window = None
         self._ui_hang_watch = None if '--selftest' in sys.argv else UIHangWatch(settings_path().parent)
         self._ui_heartbeat = QTimer(self)
         self._ui_heartbeat.setInterval(1000)
@@ -973,104 +984,27 @@ class MainWindow(QMainWindow):
         self.scan()
 
     def switch_library_tab(self, index: int):
-        if index not in (0, 1, 2, 3, 4) or index == self._current_library_tab:
+        """Only local FACTAGE and NEWS; playback remains independent."""
+        if index not in (0, 1) or index == self._current_library_tab:
             return
         self._switch_timer.stop()
         self._pending_switch_item = None
-        previous = self._current_library_tab
-        if previous in (0, 1):
-            self._library_queries[previous] = self.search.text()
+        self._library_queries[self._current_library_tab] = self.search.text()
         self._current_library_tab = index
         self._thumb_hover_timer.stop()
         self._hover_item = None
         self._hover_popup.hide()
         self.selected = None
-        # A browser tab must not pause, restart or replace the OBS video.
         self.preview._cancel_staged()
-        if index in (0, 1):
-            self.telegram_tab.set_active(False)
-            self.chatgpt_tab.set_active(False)
-            from PySide6.QtCore import QSignalBlocker
-            with QSignalBlocker(self.search):
-                self.search.setText(self._library_queries[index])
-            self.news_folder_bar.setVisible(index == 1)
-            self.collection_filter.setVisible(index == 0)
-            self.search.setPlaceholderText(
-                '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
-                else '🔎 Назва, тег або інша розкладка клавіатури...')
-            self.left_stack.setCurrentIndex(0)
-            self.apply_filter()
-        elif index == 4:
-            self.telegram_tab.set_active(False)
-            self.chatgpt_tab.set_active(False)
-            self.left_stack.setCurrentIndex(3)
-            self.preview_stack.setCurrentIndex(1)
-        elif index == 3:
-            self.telegram_tab.set_active(False)
-            self.left_stack.setCurrentIndex(2)
-            self.preview_stack.setCurrentIndex(2)
-            self.chatgpt_tab.ensure_loaded()
-            self.chatgpt_tab.set_active(True)
-        else:
-            self.chatgpt_tab.set_active(False)
-            self.left_stack.setCurrentIndex(1)
-            self.preview_stack.setCurrentIndex(1)
-            self.telegram_tab.ensure_loaded()
-            self.telegram_tab.set_active(True)
-        self._save()
-
-    def search_everywhere(self):
-        """One input fans out to two local lists and both prepared web searches."""
-        term = normalize_query(self.global_search.text())
-        if not term:
-            self.status.setText('Введіть місто або тему у спільний пошук.')
-            return
-        self._global_query = term
-        self._library_queries[0] = term
-        self._library_queries[1] = term
-        self.telegram_tab.set_query(term)
-        self.chatgpt_tab.set_query(term)
-        # Search every local library regardless of the tab currently open.
-        # Display counts on FACTAGE/NEWS while the user visits web tabs.
-        matching = self.search_index.filter(term, 'all', set(), False)
-        from news_library import in_tab
-        fact_count = sum(in_tab(item, self.news_folder, 'main') for item in matching)
-        news_count = sum(in_tab(item, self.news_folder, 'news') for item in matching)
-        self.research_hub.search_all(term, media_paths=[
-            item.path for item in matching[:300]],
-            news_folder=self.news_folder)
-        self.library_tabs.setTabText(0, f'ФАКТАЖ ({fact_count})')
-        self.library_tabs.setTabText(1, f'📰 НОВИНИ ({news_count})')
-        # For a common search, show all categories, not the old favorites
-        # or photo-only selections from the previous manual filter.
         from PySide6.QtCore import QSignalBlocker
-        with QSignalBlocker(self.kind):
-            self.kind.setCurrentIndex(self.kind.findData('all'))
-        with QSignalBlocker(self.only_favorites):
-            self.only_favorites.setChecked(False)
-        with QSignalBlocker(self.collection_filter):
-            self.collection_filter.setCurrentIndex(self.collection_filter.findData(''))
-        # The user requested the actual answer in the PREVIEW area.
-        # Show sourced results first; ChatGPT Web sends the prompt once
-        # only when already authenticated. It remains visible in the right
-        # panel, never in the media-only OBS capture.
-        # Open ChatGPT itself IN THE PREVIEW so the actual streamed answer
-        # appears immediately after pressing global Search; real Telegram and
-        # AI API results continue on the adjacent results tab.
-        self.preview_stack.setCurrentIndex(2)
-        self.chatgpt_tab.set_query(term)
-        self.chatgpt_tab.request_auto_submit()
-        if self._current_library_tab in (0, 1):
-            from PySide6.QtCore import QSignalBlocker
-            with QSignalBlocker(self.search):
-                self.search.setText(term)
-            self.apply_filter()
-        # Never claim that live services have returned results unless user
-        # is logged in and searches inside their actual official web UI.
-        self.status.setText(
-            f'«{term}»: ФАКТАЖ {fact_count}, НОВИНИ {news_count}. '
-            'Результати в «ПОПЕРЕДНІЙ ПЕРЕГЛЯД» → «РЕЗУЛЬТАТИ / CHATGPT». '
-            'Для Telegram API/AI потрібна окрема авторизація.')
+        with QSignalBlocker(self.search):
+            self.search.setText(self._library_queries[index])
+        self.news_folder_bar.setVisible(index == 1)
+        self.collection_filter.setVisible(index == 0)
+        self.search.setPlaceholderText(
+            '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
+            else '🔎 Пошук у ФАКТАЖІ...')
+        self.apply_filter()
         self._save()
 
     def set_player_side(self, side: str):
@@ -1091,12 +1025,6 @@ class MainWindow(QMainWindow):
         self.status.setText('Плеєр ' + ('ліворуч' if side == 'left' else 'праворуч'))
         self._save()
 
-    def _on_news_media_downloaded(self, path: str):
-        """Index an explicitly downloaded Telegram photo/video in NEWS."""
-        self.status.setText(
-            'Новий матеріал Telegram збережено у НОВИНИ: ' + Path(path).name)
-        self.scan()
-
     def play_media_search_result(self, path: str):
         """A double-click on a local search hit is the only playout action."""
         found = next((item for item in self.all_media
@@ -1107,25 +1035,6 @@ class MainWindow(QMainWindow):
         self.selected = found
         self.play_selected()
         self.preview_stack.setCurrentIndex(0)
-
-    def open_obs_safe_video(self):
-        """An explicitly separate Window Capture source with media pixels only."""
-        if self.obs_safe_window is None:
-            self.obs_safe_window = OBSSafeVideoWindow(self.preview)
-        self.obs_safe_window.show()
-        self.obs_safe_window.raise_()
-        self.status.setText(
-            'OBS: Window Capture → RG MEDIA DECK - SAFE VIDEO. '
-            'Не захоплюйте головне вікно з Telegram/ChatGPT/результатами.')
-
-    def _on_preview_tab_changed(self, index: int):
-        # NEVER pause the underlying media when showing research. Window
-        # Capture must point at SAFE VIDEO, not this multi-content dashboard.
-        self.chatgpt_tab.set_active(index == 2)
-        if index == 2:
-            self.chatgpt_tab.ensure_loaded()
-            # Only the explicit unified Search button submits a prompt.
-            # Browsing this tab never triggers a duplicate paid/search action.
 
     def _refresh_collections(self):
         """Update compact filter in place, preserving the active collection."""
@@ -1375,6 +1284,8 @@ class MainWindow(QMainWindow):
             self.step_speed(1)
         elif action == 'speed_down':
             self.step_speed(-1)
+        elif action == 'speed_normal':
+            self.reset_speed()
         elif action == 'frame_back':
             self.step_frame(-1)
         elif action == 'frame_forward':
@@ -1424,7 +1335,7 @@ class MainWindow(QMainWindow):
         place_right = player_position.addAction('Плеєр праворуч')
         place_right.setCheckable(True)
         place_right.setChecked(self.player_side == 'right')
-        safe_video = menu.addAction('🔒 Безпечне відеовікно для OBS (тільки медіа)')
+
         menu.addSeparator()
         news_add = menu.addAction('📰 Вказати папку НОВИН...')
         add = menu.addAction('＋ Додати папку...')
@@ -1471,9 +1382,7 @@ class MainWindow(QMainWindow):
         help_action = menu.addAction('⌨ Гарячі клавіші (F1)')
         updates = menu.addAction('⚙ Налаштування та оновлення програми...')
         choice = menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
-        if choice == safe_video:
-            self.open_obs_safe_video()
-        elif choice == place_left:
+        if choice == place_left:
             self.set_player_side('left')
         elif choice == place_right:
             self.set_player_side('right')
@@ -1584,19 +1493,6 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 10, 12, 8)
         root.setSpacing(8)
-        global_row = QHBoxLayout()
-        global_row.setSpacing(7)
-        global_label = QLabel('🌐 ЄДИНИЙ ПОШУК')
-        global_label.setObjectName('SectionTitle')
-        global_row.addWidget(global_label)
-        self.global_search = QLineEdit(self._global_query)
-        self.global_search.setPlaceholderText(
-            'Наприклад: МУРМАНСК — фактаж + новини + Telegram + ChatGPT')
-        self.global_search.setClearButtonEnabled(True)
-        global_row.addWidget(self.global_search, 1)
-        self.global_search_button = make_button('ЗНАЙТИ СКРІЗЬ', self.search_everywhere)
-        global_row.addWidget(self.global_search_button)
-        root.addLayout(global_row)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
         self.main_splitter = split
@@ -1613,9 +1509,6 @@ class MainWindow(QMainWindow):
         self.library_tabs = QTabBar()
         self.library_tabs.addTab('ФАКТАЖ')
         self.library_tabs.addTab('📰 НОВИНИ')
-        self.library_tabs.addTab('✈ TELEGRAM')
-        self.library_tabs.addTab('✦ CHATGPT')
-        self.library_tabs.addTab('🔎 ПОШУК')
         self.library_tabs.setExpanding(True)
         self.library_tabs.setCurrentIndex(self._current_library_tab)
         lv.addWidget(self.library_tabs)
@@ -1625,21 +1518,6 @@ class MainWindow(QMainWindow):
         local_v.setContentsMargins(0, 0, 0, 0)
         local_v.setSpacing(7)
         self.left_stack.addWidget(self.local_content)
-        self.telegram_tab = ServiceBrowser(
-            'telegram', settings_path().parent / 'browser_profiles', self)
-        self.chatgpt_tab = ServiceBrowser(
-            'chatgpt', settings_path().parent / 'browser_profiles', self)
-        self.left_stack.addWidget(self.telegram_tab)
-        self.left_chatgpt_info = QLabel(
-            'ChatGPT відкривається праворуч у вікні «ПОПЕРЕДНІЙ ПЕРЕГЛЯД». '
-            'Введіть запит у спільний пошук для автоматичного надсилання.')
-        self.left_chatgpt_info.setWordWrap(True)
-        self.left_stack.addWidget(self.left_chatgpt_info)
-        self.left_research_info = QLabel(
-            'Telegram-новини, AI-довідка та картка міста — праворуч. '
-            'Оберіть потрібну вкладку результатів у вікні перегляду.')
-        self.left_research_info.setWordWrap(True)
-        self.left_stack.addWidget(self.left_research_info)
         lv.addWidget(self.left_stack, 1)
         self.news_folder_bar = QWidget()
         news_row = QHBoxLayout(self.news_folder_bar)
@@ -1657,7 +1535,7 @@ class MainWindow(QMainWindow):
         self._refresh_news_folder_ui()
         self.news_folder_bar.setVisible(self._current_library_tab == 1)
         self.search = QLineEdit()
-        self.search.setPlaceholderText('🔎 Назва, тег або інша розкладка клавіатури...')
+        self.search.setPlaceholderText('🔎 Пошук у ФАКТАЖІ...')
         self.search.setClearButtonEnabled(True)
         local_v.addWidget(self.search)
         controls = QHBoxLayout()
@@ -1731,13 +1609,7 @@ class MainWindow(QMainWindow):
         self.preview.setMinimumHeight(300)
         self.preview_stack = QTabWidget()
         self.preview_stack.setObjectName('PreviewStack')
-        self.preview_stack.addTab(self.preview, '▶ МЕДІА / OBS')
-        self.research_hub = ResearchHub(settings_path().parent / 'research', self)
-        self.research_hub.media_requested.connect(self.play_media_search_result)
-        self.research_hub.media_downloaded.connect(self._on_news_media_downloaded)
-        self.preview_stack.addTab(self.research_hub, '🔎 РЕЗУЛЬТАТИ')
-        self.preview_stack.addTab(self.chatgpt_tab, '✦ CHATGPT — ВІДПОВІДЬ')
-        self.preview_stack.currentChanged.connect(self._on_preview_tab_changed)
+        self.preview_stack.addTab(self.preview, '▶ МЕДІА')
         rv.addWidget(self.preview_stack, 1)
         timeline = QHBoxLayout()
         timeline.setSpacing(8)
@@ -1801,6 +1673,10 @@ class MainWindow(QMainWindow):
         self.speed_faster.setFixedSize(30, 34)
         self.speed_faster.setToolTip('Прискорити')
         transport.addWidget(self.speed_faster)
+        self.speed_normal = make_button('1×', self.reset_speed, 'SpeedStep')
+        self.speed_normal.setFixedSize(40, 34)
+        self.speed_normal.setToolTip('Нормальна швидкість 1× (програмована гаряча клавіша у налаштуваннях)')
+        transport.addWidget(self.speed_normal)
         rv.addWidget(self.control_row)
         self._refresh_mute_button()
         self._refresh_speed_buttons()
@@ -1810,11 +1686,6 @@ class MainWindow(QMainWindow):
             split.setSizes([920, 520])
         else:
             split.setSizes([520, 920])
-        self.left_stack.setCurrentIndex(
-            0 if self._current_library_tab in (0, 1)
-            else self._current_library_tab - 1)
-        self.telegram_tab.set_query(self._global_query)
-        self.chatgpt_tab.set_query(self._global_query)
         self.status = QLabel('Готово до відтворення.')
         self.status.setObjectName('Status')
         root.addWidget(self.status)
@@ -1824,7 +1695,6 @@ class MainWindow(QMainWindow):
         self.filter_timer.setInterval(120)
         self.filter_timer.timeout.connect(self.apply_filter)
         self.search.textChanged.connect(self.filter_timer.start)
-        self.global_search.returnPressed.connect(self.search_everywhere)
         self.library_tabs.currentChanged.connect(self.switch_library_tab)
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
@@ -1907,7 +1777,7 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_Minus and not ctrl:
             self.step_speed(-1)
         elif key == Qt.Key.Key_0 and not ctrl:
-            self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(1.0))
+            self.reset_speed()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and (ctrl or not on_table):
             self.seek_relative((1 if key == Qt.Key.Key_Right else -1) * (30000 if shift else 5000))
         elif key in (Qt.Key.Key_Up, Qt.Key.Key_Down) and not on_table:
@@ -2647,6 +2517,9 @@ class MainWindow(QMainWindow):
         self.vol_value.setText(f'{value}%')
         self._save()
 
+    def reset_speed(self):
+        self.speed_selector.setCurrentIndex(SPEED_PRESETS.index(1.0))
+
     def step_speed(self, direction: int):
         index = max(0, min(len(SPEED_PRESETS) - 1, self.speed_selector.currentIndex() + direction))
         self.speed_selector.setCurrentIndex(index)
@@ -2714,16 +2587,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
-        if not self.research_hub.can_close():
-            self.status.setText(
-                'Зачекайте завершення Telegram/AI-запиту, щоб не пошкодити потік.')
-            event.ignore()
-            return
-        if self.obs_safe_window is not None:
-            self.obs_safe_window.shutdown()
         self._ui_heartbeat.stop()
-        self.telegram_tab.shutdown()
-        self.chatgpt_tab.shutdown()
         if self._ui_hang_watch is not None:
             self._ui_hang_watch.stop()
         self._switch_timer.stop()
@@ -2759,7 +2623,7 @@ def main():
     # Health checks must NEVER mutate a real user's volume, speed, folders,
     # bookmarks or hotkey settings. Previous selftests saved speed=1.25, which
     # broke the next health check even though the EXE itself was healthy.
-    if '--selftest' in sys.argv or '--webengine-selftest' in sys.argv:
+    if '--selftest' in sys.argv:
         import tempfile
         isolated_profile = tempfile.TemporaryDirectory(prefix='rg_deck_selftest_')
         os.environ['LOCALAPPDATA'] = isolated_profile.name
@@ -2775,30 +2639,6 @@ def main():
     icon_file = resources_root / 'assets' / 'RG_Media_Deck.ico'
     if icon_file.is_file():
         app.setWindowIcon(QIcon(str(icon_file)))
-    if '--webengine-selftest' in sys.argv:
-        # Verify the real *frozen* Chromium WebEngine process and Qt resources
-        # without logging in or contacting Telegram/ChatGPT.
-        from PySide6.QtCore import QEventLoop
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-            view = QWebEngineView()
-            loop = QEventLoop()
-            result = {"ok": False}
-            def finished(ok):
-                result["ok"] = bool(ok)
-                loop.quit()
-            view.loadFinished.connect(finished)
-            QTimer.singleShot(15000, loop.quit)
-            view.setHtml("<!doctype html><html><head><title>RG Local Web Test</title></head><body>OK</body></html>")
-            loop.exec()
-            view.close()
-            view.deleteLater()
-            print("RG_WEBENGINE_FROZEN_SELFTEST_PASS" if result["ok"] else
-                  "RG_WEBENGINE_FROZEN_SELFTEST_FAIL", flush=True)
-            return 0 if result["ok"] else 2
-        except Exception as exc:
-            print(f"RG_WEBENGINE_FROZEN_SELFTEST_ERROR: {exc}", flush=True)
-            return 3
     if '--selftest' in sys.argv:
         surface = PlayerSurface()
         passed = (surface.player is not None and surface.audio is not None
@@ -2815,13 +2655,21 @@ def main():
         dialog.close()
         if passed:
             main_window = MainWindow()
-            passed = (main_window.preview_play.height() <= 36
+            passed = (main_window.library_tabs.count() == 2
+                and main_window.library_tabs.tabText(0).startswith('ФАКТАЖ')
+                and 'НОВИНИ' in main_window.library_tabs.tabText(1)
+                and main_window.preview_stack.count() == 1
+                and not hasattr(main_window, 'telegram_tab')
+                and not hasattr(main_window, 'chatgpt_tab')
+                and not hasattr(main_window, 'research_hub')
+                and main_window.preview_play.height() <= 36
                 and main_window.preview_stop.height() <= 36
                 and not hasattr(main_window, 'preview_pause')
                 and main_window.preview_play.parentWidget() is main_window.control_row
                 and main_window.preview_stop.parentWidget() is main_window.control_row
                 and main_window.mute_button.parentWidget() is main_window.control_row
                 and main_window.speed_selector.parentWidget() is main_window.control_row
+                and main_window.speed_normal.parentWidget() is main_window.control_row
                 and not hasattr(main_window, 'file_path')
                 and main_window.mute_button.isCheckable()
                 and main_window.speed_selector.count() == len(SPEED_PRESETS)
@@ -2848,6 +2696,8 @@ def main():
             passed = passed and not main_window.preview._muted
             main_window.step_speed(1)
             passed = passed and main_window.speed_selector.currentData() == 1.25
+            main_window.reset_speed()
+            passed = passed and main_window.speed_selector.currentData() == 1.0
             passed = passed and display_media_name('Назва відео.mp4') == 'Назва відео'
             main_window.preview.shutdown()
             main_window.close()

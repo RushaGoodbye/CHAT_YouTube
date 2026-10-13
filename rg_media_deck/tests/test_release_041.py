@@ -56,7 +56,7 @@ class LibraryMoveTests(unittest.TestCase):
 
 class StreamDeckTests(unittest.TestCase):
     def test_seven_actions_include_two_collections(self):
-        self.assertEqual(len(ACTIONS), 15)
+        self.assertEqual(len(ACTIONS), 16)
         self.assertIn('collection_1', ACTIONS)
         self.assertIn('collection_2', ACTIONS)
         self.assertIn('F12', hotkey_guide())
