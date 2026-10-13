@@ -27,6 +27,16 @@ class EvidenceGateTests(unittest.TestCase):
         self.data["titles"][0] = "«Невідома вигадана цитата»"
         self.assertIn("UNVERIFIED_DIRECT_QUOTE", check_seo_evidence(**self.data).issues)
 
+    def test_fourth_title_quote_must_be_verified(self):
+        self.data["titles"].append("«Цитата якої немає у розшифровці»")
+        self.data["expected_title_count"] = 4
+        decision = check_seo_evidence(**self.data)
+        self.assertIn("UNVERIFIED_DIRECT_QUOTE", decision.issues)
+
+    def test_requires_all_four_titles_in_ui_mode(self):
+        self.data["expected_title_count"] = 4
+        self.assertIn("INVALID_TITLE_COUNT", check_seo_evidence(**self.data).issues)
+
     def test_no_transcript_fails_closed(self):
         self.data["transcript"] = ""
         self.assertIn("INSUFFICIENT_TRANSCRIPT", check_seo_evidence(**self.data).issues)
