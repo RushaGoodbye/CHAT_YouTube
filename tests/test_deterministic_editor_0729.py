@@ -43,3 +43,13 @@ def test_primary_seo_button_visible():
     assert 'QPushButton("Створити SEO вибраного")' in source
     assert "seo_selected_guided_btn.clicked.connect(self.local_seo_selected)" in source
     assert "            seo_selected_guided_btn,\n            prepare_guided_btn," in source
+
+def test_non_substantive_qa_label_does_not_block_real_topics():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "дискусія про відповідь на запитання",
+         "evidence": "Відповідь на запитання ведучого"},
+        {"topic": "корупція", "evidence": "коррупция"},
+    ]}]}
+    result = _deterministic_evidence_description("Діалог", report)
+    assert "корупція" in result
+    assert "відповідь на запитання" not in result
