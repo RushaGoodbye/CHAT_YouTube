@@ -28,3 +28,11 @@ def test_batch_uses_proven_interactive_editor_not_fast_experimental_mode():
     assert "candidate_timeout_seconds = 180" in batch
     assert "fast_mode=False" in batch
     assert "fast_mode=True" not in batch
+
+def test_bulk_only_selects_candidates_with_existing_transcripts():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    batch = source.split("    def local_seo_batch(", 1)[1].split(
+        "    def _save_local_seo_batch(", 1
+    )[0]
+    assert 'for ext in (".srt", ".vtt", ".txt")' in batch
+    assert '(transcript_dir / (video_id + ext)).is_file()' in batch
