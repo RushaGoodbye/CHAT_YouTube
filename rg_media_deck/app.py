@@ -26,7 +26,6 @@ from ui_hang_watch import UIHangWatch
 from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
-from on_air_tools import remember, suggest
 from news_library import combined_roots, in_tab, scoped_count
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
@@ -856,8 +855,6 @@ class MainWindow(QMainWindow):
         self.hover_thumbnails = self.settings['hover_thumbnails']
         self.bookmarks = dict(self.settings['bookmarks'])
         self.collections = dict(self.settings['collections'])
-        self.quick_slots = list(self.settings.get('quick_slots', []))[:8]
-        self.play_history = list(self.settings.get('play_history', []))[:30]
         self.auto_library_updates = self.settings['auto_library_updates']
         self._changed_paths = set()
         self._directory_changed = False
@@ -993,33 +990,6 @@ class MainWindow(QMainWindow):
             '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
             else '🔎 Пошук у ФАКТАЖІ...')
         self.apply_filter()
-        self._save()
-
-    def search_everywhere(self):
-        """One query searches the two local libraries; no network requests."""
-        term = normalize_query(self.global_search.text())
-        if not term:
-            self.status.setText('Введіть тему для пошуку у локальному фактажі.')
-            return
-        self._global_query = term
-        self._library_queries[0] = term
-        self._library_queries[1] = term
-        matching = self.search_index.filter(term, 'all', set(), False)
-        fact_count = sum(in_tab(item, self.news_folder, 'main') for item in matching)
-        news_count = sum(in_tab(item, self.news_folder, 'news') for item in matching)
-        self.library_tabs.setTabText(0, f'ФАКТАЖ ({fact_count})')
-        self.library_tabs.setTabText(1, f'📰 НОВИНИ ({news_count})')
-        from PySide6.QtCore import QSignalBlocker
-        with QSignalBlocker(self.kind):
-            self.kind.setCurrentIndex(self.kind.findData('all'))
-        with QSignalBlocker(self.only_favorites):
-            self.only_favorites.setChecked(False)
-        with QSignalBlocker(self.collection_filter):
-            self.collection_filter.setCurrentIndex(self.collection_filter.findData(''))
-        with QSignalBlocker(self.search):
-            self.search.setText(term)
-        self.apply_filter()
-        self.status.setText(f'«{term}»: ФАКТАЖ {fact_count}, НОВИНИ {news_count}.')
         self._save()
 
     def set_player_side(self, side: str):
@@ -1196,8 +1166,6 @@ class MainWindow(QMainWindow):
             elif old in table:
                 table.pop(old, None)
         self.collections = migrate_path(self.collections, old, new)
-        self.quick_slots = [new_path if normalize_path(p) == old else p for p in self.quick_slots]
-        self.play_history = [new_path if normalize_path(p) == old else p for p in self.play_history]
         self._save()
 
     def _check_root_availability(self):
@@ -1510,15 +1478,6 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 10, 12, 8)
         root.setSpacing(8)
-        global_row = QHBoxLayout()
-        global_row.setSpacing(7)
-        self.global_search = QLineEdit(self._global_query)
-        self.global_search.setPlaceholderText('Пошук')
-        self.global_search.setClearButtonEnabled(True)
-        global_row.addWidget(self.global_search, 1)
-        self.global_search_button = make_button('ЗНАЙТИ', self.search_everywhere)
-        global_row.addWidget(self.global_search_button)
-        root.addLayout(global_row)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
         self.main_splitter = split
@@ -1598,25 +1557,6 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().resizeSection(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         local_v.addWidget(self.table, 1)
-        fast_row = QHBoxLayout()
-        self.quick_buttons = []
-        for n in range(8):
-            btn = make_button(str(n + 1), lambda _, slot=n: self.play_quick_slot(slot))
-            btn.setFixedHeight(30)
-            btn.setToolTip(f'Швидкий слот {n+1}: ПКМ для призначення')
-            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            btn.customContextMenuRequested.connect(lambda pos, slot=n: self.assign_quick_slot(slot))
-            if n < len(self.quick_slots) and self.quick_slots[n]:
-                btn.setToolTip(self.quick_slots[n])
-            self.quick_buttons.append(btn)
-            fast_row.addWidget(btn)
-        local_v.addLayout(fast_row)
-        self.history_btn = make_button('Історія показів', self.open_play_history)
-        local_v.addWidget(self.history_btn)
-        self.offair_btn = make_button('Перегляд без ефіру', self.show_staged_preview)
-        local_v.addWidget(self.offair_btn)
-        self.suggest_btn = make_button('Знайти схожі назви', self.suggest_search)
-        local_v.addWidget(self.suggest_btn)
         self.count = QLabel('Файлів: 0')
         self.count.setStyleSheet('color:#abb0b9; font-size:11px;')
         local_v.addWidget(self.count)
@@ -1740,7 +1680,6 @@ class MainWindow(QMainWindow):
         self.filter_timer.setInterval(120)
         self.filter_timer.timeout.connect(self.apply_filter)
         self.search.textChanged.connect(self.filter_timer.start)
-        self.global_search.returnPressed.connect(self.search_everywhere)
         self.library_tabs.currentChanged.connect(self.switch_library_tab)
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
@@ -1892,8 +1831,6 @@ class MainWindow(QMainWindow):
                 'bookmarks': self.bookmarks,
                 'hover_thumbnails': self.hover_thumbnails,
                 'collections': self.collections,
-                'quick_slots': self.quick_slots,
-                'play_history': self.play_history,
                 'auto_library_updates': self.auto_library_updates,
                 'streamdeck_bindings': self.deck_bindings,
                 'hotkeys_layout_version': 4,
@@ -2013,89 +1950,6 @@ class MainWindow(QMainWindow):
                 self.preview.prepare_item(item)
             else:
                 self.preview._cancel_staged()
-
-    def assign_quick_slot(self, slot):
-        if not self.selected:
-            self.status.setText('Оберіть файл для швидкої кнопки')
-            return
-        while len(self.quick_slots) <= slot:
-            self.quick_slots.append('')
-        self.quick_slots[slot] = self.selected.path
-        self.quick_buttons[slot].setToolTip(display_media_name(self.selected.name))
-        self._save()
-
-    def play_quick_slot(self, slot):
-        if slot >= len(self.quick_slots) or not self.quick_slots[slot]:
-            self.status.setText(f'Слот {slot+1} порожній: оберіть файл і натисніть ПКМ')
-            return
-        self.play_media_search_result(self.quick_slots[slot])
-
-    def open_play_history(self):
-        found = {normalize_path(i.path): i for i in self.all_media}
-        paths = [p for p in self.play_history if normalize_path(p) in found]
-        if not paths:
-            self.status.setText('Історія показів порожня')
-            return
-        names = [f'{display_media_name(found[normalize_path(p)].name)}  —  {p}' for p in paths]
-        selected, ok = QInputDialog.getItem(self, 'Історія показів', 'Показати файл:', names, 0, False)
-        if ok:
-            self.play_media_search_result(paths[names.index(selected)])
-
-    def suggest_search(self):
-        term = self.search.text().strip() or self.global_search.text().strip()
-        candidates = suggest(term, self.all_media)
-        if not candidates:
-            self.status.setText('Схожих назв не знайдено')
-            return
-        selected, ok = QInputDialog.getItem(self, 'Виправлення запиту', 'Можливо, ви шукали:', candidates, 0, False)
-        if ok:
-            self.search.setText(selected)
-            self.apply_filter()
-
-    def show_staged_preview(self):
-        """Independent muted preview. Never attach to the live OBS video sink."""
-        item = self.selected
-        if not item or not os.path.isfile(item.path):
-            self.status.setText('Оберіть доступний файл')
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle('ПОПЕРЕДНІЙ ПЕРЕГЛЯД — НЕ В ЕФІРІ')
-        dialog.resize(700, 470)
-        layout = QVBoxLayout(dialog)
-        if item.kind == 'photo':
-            image = AspectImage()
-            image.setMinimumSize(560, 310)
-            image.set_file(item.path)
-            layout.addWidget(image, 1)
-        else:
-            # A separate player exists ONLY while this modal preview is open.
-            # Its audio remains muted and it has no connection to OBS output.
-            from PySide6.QtMultimediaWidgets import QVideoWidget
-            video = QVideoWidget(dialog)
-            video.setMinimumSize(560, 310)
-            layout.addWidget(video, 1)
-            player = QMediaPlayer(dialog)
-            audio = QAudioOutput(dialog)
-            audio.setMuted(True)
-            audio.setVolume(0.0)
-            player.setAudioOutput(audio)
-            player.setVideoOutput(video)
-            player.setSource(QUrl.fromLocalFile(item.path))
-            seek = QSlider(Qt.Orientation.Horizontal, dialog)
-            seek.setRange(0, 0)
-            player.durationChanged.connect(lambda duration: seek.setMaximum(max(0, duration)))
-            player.positionChanged.connect(lambda pos: seek.setValue(pos) if not seek.isSliderDown() else None)
-            seek.sliderMoved.connect(player.setPosition)
-            layout.addWidget(seek)
-            controls = QHBoxLayout()
-            start_btn = make_button('▶ / Ⅱ', lambda: player.pause() if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState else player.play())
-            controls.addWidget(start_btn)
-            controls.addWidget(QLabel('Без звуку · не в ефірі'))
-            layout.addLayout(controls)
-            dialog.finished.connect(player.stop)
-            dialog.finished.connect(lambda _: player.setVideoOutput(None))
-        layout.addWidget(QLabel(display_media_name(item.name)))
-        dialog.exec()
 
     def toggle_favorite(self):
         if self.selected:
@@ -2593,8 +2447,6 @@ class MainWindow(QMainWindow):
             self._broadcast_guard.decoder_errors += 1
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
-        self.play_history = remember(self.play_history, self.selected.path)
-        self._save()
         self._broadcast_guard.switch_count += 1
         self._last_switch_accepted_ms = time.monotonic() * 1000
         logging.warning('SWITCH_OK count=%d file=%s decoder_count=1',
