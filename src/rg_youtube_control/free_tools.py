@@ -2187,137 +2187,120 @@ chapters: рядок з підтвердженими таймкодами та �
                         ]
                         if not ab_title_issues(grounded_angles, evidence_report):
                             candidate["title_variants"] = grounded_angles
-            description_candidate = _polish_generated_description(
-                str(candidate.get("description") or "").strip()
-            )
             if evidence_report:
-                description_candidate = _remove_unsupported_named_claims(
-                    description_candidate, evidence_report, current_title,
-                )
-            # A discussion quote does not establish Putin's intent.
-            # Remove the specific unsupported causal inference while retaining
-            # the verifiable discussion of relationships and reassignment.
-            if evidence_report and "шойгу" in current_title.casefold():
-                description_candidate = re.sub(
-                    r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
-                    r"\s*щоб контролювати корупцію, але тепер він був переведений"
-                    r" на іншу посаду\.",
-                    "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
-                    description_candidate,
-                )
-                description_candidate = re.sub(
-                    r"(?i)щоб контролювати корупцію",
-                    "за припущенням співрозмовника",
-                    description_candidate,
-                )
-            if evidence_report and "шойгу" in current_title.casefold():
-                verified_quotes = " ".join(
-                    str(t.get("evidence") or "")
-                    for b in evidence_report.get("blocks") or []
-                    if b.get("verified") is not False
-                    for t in b.get("topics") or [] if isinstance(t, dict)
-                ).casefold()
-                # Statements about charges against unnamed people must not
-                # become an assertion that Shoigu himself was charged.
-                if "предъявлены обвинения" in verified_quotes and not re.search(
-                    r"обвинени[яй].{0,25}шойгу", verified_quotes
-                ):
-                    description_candidate = re.sub(
-                        r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
-                        "обвинувачення щодо окремих осіб",
-                        description_candidate,
-                    )
-                if "расход" not in verified_quotes and "витрат" not in verified_quotes:
-                    description_candidate = description_candidate.replace(
-                        "військові витрати",
-                        "фінансові питання" if "финанс" in verified_quotes
-                        else "кадрові рішення",
-                    )
-            candidate["description"] = description_candidate
-            description_error = _description_quality_error(
-                description_candidate,
-                transcript,
-                **({"max_chars": 950} if evidence_report else {}),
-            )
-            if transcript.strip():
-                if fast_mode:
-                    if description_error:
-                        fallback_description = _grounded_description_from_transcript(
-                            current_title,
-                            transcript,
-                        )
-                        candidate["description"] = fallback_description
-                        description_candidate = fallback_description
-                        description_error = _description_quality_error(
-                            description_candidate,
-                            transcript,
-                            **({"max_chars": 950} if evidence_report else {}),
-                        )
-                elif description_error:
-                    # Only pay for a repair pass when the candidate actually
-                    # fails quality checks. The old implementation made extra
-                    # Ollama requests even for an already valid description.
-                    recovered_description = _recover_missing_description(
-                        current_title=current_title,
-                        transcript=transcript,
-                        public_context=context,
-                        model=model,
-                    )
-                    if recovered_description:
-                        candidate["description"] = recovered_description
-                        description_candidate = recovered_description
-                        description_error = _description_quality_error(
-                            description_candidate,
-                            transcript,
-                            **({"max_chars": 950} if evidence_report else {}),
-                        )
-                    if description_error:
-                        fallback_description = _grounded_description_from_transcript(
-                            current_title,
-                            transcript,
-                        )
-                        candidate["description"] = fallback_description
-                        description_candidate = fallback_description
-                        description_error = _description_quality_error(
-                            description_candidate,
-                            transcript,
-                            **({"max_chars": 950} if evidence_report else {}),
-                        )
-            if transcript.strip() and description_error:
-                raise ValueError(
-                    "description quality failed: " + description_error
-                )
-
-            # Strict evidence-first editorial mode: the model never writes
-            # the final public description for verified transcripts.
-            if evidence_report:
-                candidate["description"] = _deterministic_evidence_description(
+                # One deterministic editorial pass, zero extra Ollama
+                # recovery requests and zero model-authored public claims.
+                description_candidate = _deterministic_evidence_description(
                     current_title, evidence_report,
                 )
-
-            # Repeat source-checked cleanup AFTER any model recovery.
-            if evidence_report:
-                public_description = _polish_generated_description(
+                candidate["description"] = description_candidate
+                description_error = _description_quality_error(
+                    description_candidate, transcript, max_chars=950,
+                )
+                if description_error:
+                    raise ValueError(
+                        "grounded description failed final check: " + description_error
+                    )
+            else:
+                description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
                 )
-                public_description = re.sub(
-                    r"(?i)(?:,?\s*(?:але|а)\s+)?Путін\s+"
-                    r"(?:уволив|звільнив|усунув|прибрав)\s+"
-                    r"(?:його|Шойгу)\s+(?:через|щоб|за)\s+[^.?!]*",
-                    "",
-                    public_description,
+                if evidence_report:
+                    description_candidate = _remove_unsupported_named_claims(
+                        description_candidate, evidence_report, current_title,
+                    )
+                # A discussion quote does not establish Putin's intent.
+                # Remove the specific unsupported causal inference while retaining
+                # the verifiable discussion of relationships and reassignment.
+                if evidence_report and "шойгу" in current_title.casefold():
+                    description_candidate = re.sub(
+                        r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
+                        r"\s*щоб контролювати корупцію, але тепер він був переведений"
+                        r" на іншу посаду\.",
+                        "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
+                        description_candidate,
+                    )
+                    description_candidate = re.sub(
+                        r"(?i)щоб контролювати корупцію",
+                        "за припущенням співрозмовника",
+                        description_candidate,
+                    )
+                if evidence_report and "шойгу" in current_title.casefold():
+                    verified_quotes = " ".join(
+                        str(t.get("evidence") or "")
+                        for b in evidence_report.get("blocks") or []
+                        if b.get("verified") is not False
+                        for t in b.get("topics") or [] if isinstance(t, dict)
+                    ).casefold()
+                    # Statements about charges against unnamed people must not
+                    # become an assertion that Shoigu himself was charged.
+                    if "предъявлены обвинения" in verified_quotes and not re.search(
+                        r"обвинени[яй].{0,25}шойгу", verified_quotes
+                    ):
+                        description_candidate = re.sub(
+                            r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
+                            "обвинувачення щодо окремих осіб",
+                            description_candidate,
+                        )
+                    if "расход" not in verified_quotes and "витрат" not in verified_quotes:
+                        description_candidate = description_candidate.replace(
+                            "військові витрати",
+                            "фінансові питання" if "финанс" in verified_quotes
+                            else "кадрові рішення",
+                        )
+                candidate["description"] = description_candidate
+                description_error = _description_quality_error(
+                    description_candidate,
+                    transcript,
+                    **({"max_chars": 950} if evidence_report else {}),
                 )
-                public_description = _remove_unsupported_named_claims(
-                    public_description, evidence_report, current_title,
-                )
-                public_description = _strip_unverified_putin_motive(public_description)
-                candidate["description"] = public_description
-                final_desc_error = _description_quality_error(
-                    public_description, transcript, max_chars=950,
-                )
-                if final_desc_error:
+                if transcript.strip():
+                    if fast_mode:
+                        if description_error:
+                            fallback_description = _grounded_description_from_transcript(
+                                current_title,
+                                transcript,
+                            )
+                            candidate["description"] = fallback_description
+                            description_candidate = fallback_description
+                            description_error = _description_quality_error(
+                                description_candidate,
+                                transcript,
+                                **({"max_chars": 950} if evidence_report else {}),
+                            )
+                    elif description_error:
+                        # Only pay for a repair pass when the candidate actually
+                        # fails quality checks. The old implementation made extra
+                        # Ollama requests even for an already valid description.
+                        recovered_description = _recover_missing_description(
+                            current_title=current_title,
+                            transcript=transcript,
+                            public_context=context,
+                            model=model,
+                        )
+                        if recovered_description:
+                            candidate["description"] = recovered_description
+                            description_candidate = recovered_description
+                            description_error = _description_quality_error(
+                                description_candidate,
+                                transcript,
+                                **({"max_chars": 950} if evidence_report else {}),
+                            )
+                        if description_error:
+                            fallback_description = _grounded_description_from_transcript(
+                                current_title,
+                                transcript,
+                            )
+                            candidate["description"] = fallback_description
+                            description_candidate = fallback_description
+                            description_error = _description_quality_error(
+                                description_candidate,
+                                transcript,
+                                **({"max_chars": 950} if evidence_report else {}),
+                            )
+                if transcript.strip() and description_error:
                     raise ValueError(
-                        "grounded description failed final check: " + final_desc_error
+                        "description quality failed: " + description_error
                     )
 
             model_tags = [
