@@ -48,6 +48,7 @@ class ResearchWorker(QThread):
         self.days = days
 
     def run(self):
+        keys = {}
         try:
             keys = credentials()
             if self.kind == "telegram":
@@ -292,6 +293,7 @@ class ResearchHub(QWidget):
 
     def _start(self, worker: ResearchWorker):
         if worker.kind in self._active:
+            worker.deleteLater()
             if worker.kind in ("telegram", "ai"):
                 self._rerun_on_finish.add(worker.kind)
                 self.status.setText(
