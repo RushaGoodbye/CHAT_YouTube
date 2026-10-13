@@ -154,3 +154,30 @@ jobs:
           }
           foreach($d in @(Get-ChildItem -LiteralPath $installed -Directory -ErrorAction SilentlyContinue | Where-Object {$_.Name -match 'update|version|release' } | Select-Object -First 10)){Write-Host "R34_REAL_DIR=$($d.Name)"}
           Write-Host "R34_REAL_INSTALLED_STUDIO_PROBE_PASS"
+
+      - name: Check actual Studio windows, processes and recent updater transactions
+        run: |
+          $ErrorActionPreference="Stop"
+          $processes=@(Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match 'pythonw?|RG.*\.exe' -and
+            ($_.ExecutablePath -like '*RG Auto Edit*' -or $_.CommandLine -like '*rg_studio_main.py*')
+          })
+          Write-Host "R34_REAL_STUDIO_PROCESSES=$($processes.Count)"
+          foreach($p in ($processes|Select-Object -First 15)){
+            Write-Host "R34_REAL_PROCESS=$($p.Name) PID=$($p.ProcessId) SESSION=$($p.SessionId)"
+          }
+          foreach($p in @(Get-Process | Where-Object {$_.MainWindowTitle -like '*RG Auto Edit*'} | Select-Object -First 10)){
+            Write-Host "R34_STUDIO_WINDOW_PID=$($p.Id) TITLE=$($p.MainWindowTitle)"
+          }
+          $folder="F:\RG_AUTO_EDIT\RG Auto Edit Data\update_transactions"
+          if(Test-Path -LiteralPath $folder){
+            foreach($f in @(Get-ChildItem -LiteralPath $folder -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 8)){
+              Write-Host "R34_UPDATE_TRANSACTION=$($f.Name) LASTWRITE=$($f.LastWriteTimeUtc.ToString('s'))"
+            }
+          }
+          $runtime=Join-Path $env:LOCALAPPDATA "Programs\RG Auto Edit Runtime\venv\Scripts\python.exe"
+          if (Test-Path -LiteralPath $runtime) {
+            & $runtime -c "import PySide6; import sys; print('R34_RUNTIME_QT_IMPORT=PASS');print('R34_RUNTIME_PYTHON='+sys.version.split()[0])"
+            if($LASTEXITCODE -ne 0){throw "Installed runtime import failed"}
+          } else {Write-Host "R34_RUNTIME_PYTHON_MISSING"}
+          Write-Host "R34_ACTUAL_SESSION_RUNTIME_CHECK_PASS"
