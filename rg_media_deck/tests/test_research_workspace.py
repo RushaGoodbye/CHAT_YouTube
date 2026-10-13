@@ -36,7 +36,7 @@ class LocalWorkspaceTests(unittest.TestCase):
         self.assertIs(w.preview.player, player)
         self.assertIs(w.preview.video_sink, sink)
 
-    def test_search_filters_both_local_libraries(self):
+    def test_search_filters_each_local_library_without_global_search(self):
         w = self.make_window()
         w.news_folder = "D:/NOVYNY"
         items = [
@@ -48,11 +48,14 @@ class LocalWorkspaceTests(unittest.TestCase):
         w.search_index = IndexedMediaLibrary(items, {})
         original = w.preview.player
         with patch.object(w, "_save"):
-            w.global_search.setText("МУРМАНСК")
-            w.search_everywhere()
+            w.search.setText("Murmansk")
+            w.apply_filter()
             self.assertEqual(w.model.rowCount(), 1)
             w.library_tabs.setCurrentIndex(1)
+            w.search.setText("Murmansk")
+            w.apply_filter()
             self.assertEqual(w.model.rowCount(), 1)
+            self.assertFalse(hasattr(w, "global_search"))
         self.assertIs(w.preview.player, original)
         self.assertEqual(w.preview_stack.currentIndex(), 0)
 
