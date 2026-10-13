@@ -15,16 +15,31 @@ py -3.12 build_icon.py
 Assert-ExitCode 'Generate application icons'
 if (!(Test-Path 'assets/RG_Media_Deck.ico')) { throw 'Generated icon missing' }
 
+Write-Host '=== PYINSTALLER START ==='
 py -3.12 -m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --add-data 'assets;assets' --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py
 Assert-ExitCode 'PyInstaller'
+Write-Host '=== PYINSTALLER PASS ==='
 $exe = Join-Path $PSScriptRoot 'dist\RG_Media_Deck\RG_Media_Deck.exe'
 if (!(Test-Path $exe)) { throw 'Missing Windows EXE' }
 
-$check = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
-if ($check.ExitCode -ne 0) { throw "Frozen EXE selftest failed: $($check.ExitCode)" }
+Write-Host '=== FROZEN EXE SELFTEST (120-second hard timeout) ==='
+$check = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+try {
+    $finished = $check.WaitForExit(120000)
+    if (!$finished) {
+        & taskkill.exe /PID $check.Id /T /F | Out-Host
+        throw 'Frozen EXE selftest TIMEOUT after 120 seconds'
+    }
+    $check.Refresh()
+    if ($check.ExitCode -ne 0) { throw "Frozen EXE selftest failed: $($check.ExitCode)" }
+    Write-Host '=== FROZEN EXE SELFTEST PASS ==='
+} finally {
+    if (!$check.HasExited) { Stop-Process -Id $check.Id -Force -ErrorAction SilentlyContinue }
+}
 
 $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
 if (!(Test-Path $iscc)) { throw 'Inno Setup 6 required: https://jrsoftware.org/isdl.php' }
+Write-Host '=== INNO SETUP START ==='
 & $iscc 'installer\RG_Media_Deck.iss'
 Assert-ExitCode 'Inno Setup'
 $installer = Join-Path $PSScriptRoot 'dist_installer\RG_Media_Deck_Setup.exe'
