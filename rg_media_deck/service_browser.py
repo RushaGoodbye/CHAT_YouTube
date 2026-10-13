@@ -101,6 +101,7 @@ _CHATGPT_SEND_JS = """
   send.click();
   return {attempted:true,reason:'clicked_send'};
 })()
+"""
 
 
 class ServiceBrowser(QWidget):
