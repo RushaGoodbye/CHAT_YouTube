@@ -1037,7 +1037,8 @@ class MainWindow(QMainWindow):
         fact_count = sum(in_tab(item, self.news_folder, 'main') for item in matching)
         news_count = sum(in_tab(item, self.news_folder, 'news') for item in matching)
         self.research_hub.search_all(term, media_paths=[
-            item.path for item in matching[:300]])
+            item.path for item in matching[:300]],
+            news_folder=self.news_folder)
         self.library_tabs.setTabText(0, f'ФАКТАЖ ({fact_count})')
         self.library_tabs.setTabText(1, f'📰 НОВИНИ ({news_count})')
         # For a common search, show all categories, not the old favorites
@@ -1089,6 +1090,17 @@ class MainWindow(QMainWindow):
         self.player_side = side
         self.status.setText('Плеєр ' + ('ліворуч' if side == 'left' else 'праворуч'))
         self._save()
+
+    def play_media_search_result(self, path: str):
+        """A double-click on a local search hit is the only playout action."""
+        found = next((item for item in self.all_media
+                      if normalize_path(item.path) == normalize_path(path)), None)
+        if found is None:
+            self.status.setText('Файл більше недоступний; оновіть медіатеку.')
+            return
+        self.selected = found
+        self.play_selected()
+        self.preview_stack.setCurrentIndex(0)
 
     def open_obs_safe_video(self):
         """An explicitly separate Window Capture source with media pixels only."""
@@ -1715,6 +1727,7 @@ class MainWindow(QMainWindow):
         self.preview_stack.setObjectName('PreviewStack')
         self.preview_stack.addTab(self.preview, '▶ МЕДІА / OBS')
         self.research_hub = ResearchHub(settings_path().parent / 'research', self)
+        self.research_hub.media_requested.connect(self.play_media_search_result)
         self.preview_stack.addTab(self.research_hub, '🔎 РЕЗУЛЬТАТИ')
         self.preview_stack.addTab(self.chatgpt_tab, '✦ CHATGPT — ВІДПОВІДЬ')
         self.preview_stack.currentChanged.connect(self._on_preview_tab_changed)
