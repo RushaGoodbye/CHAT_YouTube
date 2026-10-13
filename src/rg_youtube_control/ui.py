@@ -13383,6 +13383,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
+        # Never persist chapters when their timestamps cannot be traced
+        # to a transcript explicitly bound to this exact YouTube video.
+        transcript_origin = str(context.get("transcript_source") or "")
+        chapter_warning = ""
+        if chapters:
+            chapters = ""
+            chapter_warning = (
+                "Розділи вилучено: відповідність кожного таймкоду "
+                "змісту відео ще не підтверджена."
+            )
+
         quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
@@ -13398,17 +13409,6 @@ class MainWindow(QMainWindow):
                 + "\n".join(f"- {item}" for item in quality_reasons),
             )
             return
-
-        # Never persist chapters when their timestamps cannot be traced
-        # to a transcript explicitly bound to this exact YouTube video.
-        transcript_origin = str(context.get("transcript_source") or "")
-        chapter_warning = ""
-        if chapters:
-            chapters = ""
-            chapter_warning = (
-                "Розділи вилучено: відповідність кожного таймкоду "
-                "змісту відео ще не підтверджена."
-            )
 
         # Require traceable source evidence before promoting locally generated SEO.
         # A reviewed preview alone does not prove the chosen headline quotes.
