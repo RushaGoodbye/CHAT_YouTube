@@ -722,6 +722,24 @@ def _grounded_description_from_transcript(
     )
 
 
+def _strip_unverified_putin_motive(description: str) -> str:
+    """Remove unsupported assertions of Putin's private rationale for Shoigu decisions."""
+    sentences = re.split(r"(?<=[.!?])\s+", str(description or "").strip())
+    result = []
+    for sentence in sentences:
+        lower = sentence.casefold()
+        if (
+            "путін" in lower or "путин" in lower
+        ) and (
+            any(x in lower for x in ("утримував", "держав", "тримав", "залишав", "перевів", "уволив", "звільнив"))
+        ) and (
+            any(x in lower for x in ("щоб", "аби", "для того", "через", "контролюва", "мотив", "причин"))
+        ):
+            continue
+        result.append(sentence)
+    return " ".join(result).strip()
+
+
 def _remove_unsupported_named_claims(
     description: str,
     evidence_report: dict[str, Any],
@@ -2242,6 +2260,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 public_description = _remove_unsupported_named_claims(
                     public_description, evidence_report, current_title,
                 )
+                public_description = _strip_unverified_putin_motive(public_description)
                 candidate["description"] = public_description
                 final_desc_error = _description_quality_error(
                     public_description, transcript, max_chars=950,
