@@ -139,7 +139,8 @@ def test_batch_seo_prioritizes_nas_transcripts() -> None:
     end = source.index("\n    def _save_local_seo_batch", start)
     block = source[start:end]
     assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
-    assert 'for ext in (".srt", ".vtt", ".txt")' in block
+    assert 'f"{video_id}.srt"' in block
+    assert "candidate_ids = sorted(" in block
 
 
 def test_local_seo_worker_never_uses_gui_nas_path() -> None:
