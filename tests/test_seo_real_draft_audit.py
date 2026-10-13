@@ -15,6 +15,8 @@ def test_existing_drafts_are_audited_read_only(tmp_path):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     (evidence / "MEitKm687xo.json").write_text(json.dumps({
+        "schema": "RG_VIDEO_SEO_EVIDENCE_V1", "video_id": "MEitKm687xo",
+        "transcript_sha256": "a" * 64,
         "blocks": [{"topics": [{"topic": "паливна криза", "evidence": "паливна криза"}]}]
     }), encoding="utf-8")
     before = database.read_bytes()
