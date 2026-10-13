@@ -9,6 +9,7 @@ on:
       - fix/stabilization-batch-20261013
       - feat/deterministic-seo-editor-20261013
       - fix/seo-batch-fast-fail-20261013
+      - fix/batch-transcript-source-parity-20261013
   workflow_dispatch:
 
 permissions:
