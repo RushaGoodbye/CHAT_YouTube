@@ -98,6 +98,8 @@ try:
         row["last_run_error"]=str(rs.get("error_tail") or "")[-350:] if isinstance(rs,dict) else None
         postrun=read_json(APP/st/"RG_POSTRUN_QA.json")
         row["postrun_passed"]=postrun.get("passed") if isinstance(postrun,dict) else None
+        row["qa_checks_failed"]=bool(isinstance(postrun,dict) and isinstance(postrun.get("checks"),list)
+                                    and any(isinstance(c,dict) and c.get("ok") is not True for c in postrun["checks"]))
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
@@ -109,7 +111,7 @@ try:
         row["complete_manifest"]=bool(int(row["manifest_dialogue_count"] or 0)>0 and row["xml_existing"]>=int(row["manifest_dialogue_count"] or 0))
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
-        row["already_complete"]=bool(row["complete_manifest"] and row["postrun_passed"] is True)
+        row["already_complete"]=bool(row["complete_manifest"] and row["postrun_passed"] is True and not row["qa_checks_failed"])
         row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
