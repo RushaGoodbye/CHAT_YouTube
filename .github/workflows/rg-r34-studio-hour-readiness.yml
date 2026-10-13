@@ -48,3 +48,39 @@ jobs:
             Write-Host "R34_DETECTION_REPORT_EXISTS=TRUE"
           }
           Write-Host "R34_READ_ONLY_STUDIO_READINESS_COMPLETED"
+
+      - name: Inspect installed version and launch contract without execution
+        run: |
+          $ErrorActionPreference="Stop"
+          $app="F:\RG_AUTO_EDIT\RG Auto Edit App"
+          $manifest=Join-Path $app "RG_AUTO_EDIT_RELEASE_MANIFEST.json"
+          if (Test-Path -LiteralPath $manifest) {
+            $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            foreach($field in ("version","app_version","studio_version","build","build_id","status","channel")){
+              if ($m.PSObject.Properties.Name -contains $field) {
+                Write-Host "R34_RELEASE_$($field.ToUpper())=$($m.$field)"
+              }
+            }
+            Write-Host "R34_RELEASE_FIELDS=$((@($m.PSObject.Properties.Name) -join ','))"
+          }
+          $cmd=Join-Path $app "RG_AUTO_EDIT_STUDIO.cmd"
+          Write-Host "R34_LAUNCH_CMD_EXISTS=$([bool](Test-Path -LiteralPath $cmd))"
+          if (Test-Path $cmd) {
+            $raw=Get-Content -LiteralPath $cmd -Raw
+            Write-Host "R34_LAUNCH_USES_MAIN=$([bool]($raw -match 'rg_studio_main|rg_studio_ui'))"
+            Write-Host "R34_LAUNCH_USES_PYTHONW=$([bool]($raw -match 'pythonw'))"
+          }
+          $runtimeTxt=Join-Path $app "RG_RUNTIME_PYTHONW.txt"
+          if (Test-Path $runtimeTxt) {
+            $exe=(Get-Content -LiteralPath $runtimeTxt -Raw).Trim().Trim('"')
+            Write-Host "R34_PYTHONW_EXISTS=$([bool](Test-Path -LiteralPath $exe))"
+          }
+          $modules=@("rg_studio_main.py","rg_studio_ui.py","rg_studio_preflight.py","rg_studio_healthcheck.py")
+          foreach($name in $modules) {
+            $f=Join-Path $app $name
+            if(-not (Test-Path -LiteralPath $f)) {throw "Missing required Studio module $name"}
+            $text=[System.IO.File]::ReadAllText($f)
+            $major = if ($text -match '(?m)^APP_VERSION\s*=\s*["'']([^"'']+)'){$Matches[1]}else{"not-declared"}
+            Write-Host "R34_MODULE=$name BYTES=$((Get-Item -LiteralPath $f).Length) VERSION=$major"
+          }
+          Write-Host "R34_LAUNCH_CONTRACT_INSPECTED_READ_ONLY"
