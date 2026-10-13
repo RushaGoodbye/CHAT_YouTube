@@ -84,3 +84,22 @@ jobs:
             Write-Host "R34_MODULE=$name BYTES=$((Get-Item -LiteralPath $f).Length) VERSION=$major"
           }
           Write-Host "R34_LAUNCH_CONTRACT_INSPECTED_READ_ONLY"
+
+      - name: Discover GUI session and actual Studio build markers
+        run: |
+          $ErrorActionPreference="Stop"
+          $app="F:\RG_AUTO_EDIT\RG Auto Edit App"
+          $here=(Get-Process -Id $PID)
+          Write-Host "R34_RUNNER_SESSION=$($here.SessionId)"
+          $explorer=@(Get-Process -Name explorer -ErrorAction SilentlyContinue)
+          Write-Host "R34_INTERACTIVE_EXPLORER_SESSIONS=$(($explorer | Select-Object -ExpandProperty SessionId -Unique) -join ',')"
+          foreach($name in ("rg_studio_main.py","rg_studio_ui.py","rg_studio_healthcheck.py")){
+            $p=Join-Path $app $name
+            $lines=Get-Content -LiteralPath $p -Encoding UTF8
+            Write-Host "R34_FILE=$name LINES=$($lines.Count)"
+            $matches=@($lines | Where-Object {$_ -match '(?i)(0\.20\.20|0\.20\.|version\s*=|app_version\s*=|update.*zip|selftest|healthcheck)'})
+            foreach($line in ($matches | Select-Object -First 20)) {
+              Write-Host "R34_BUILD_MARKER=$($line.Trim().Substring(0,[Math]::Min($line.Trim().Length,160)))"
+            }
+          }
+          Write-Host "R34_SESSION_AND_BUILD_INSPECTED_READ_ONLY"
