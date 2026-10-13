@@ -124,5 +124,31 @@ class R26GateTests(unittest.TestCase):
         self.assertIs(result["video_pixel_qa_pass"], False)
 
 
+    def test_full_5842_frame_dialogue_shape(self):
+        """Batch-scale regression at the actual 886_6 sequence length."""
+        d = fixture()
+        d["frame_count"] = 5842
+        d["cut_frames"] = [4, 600, 1750, 3400, 5000]
+        d["evidence"] = []
+        for f in range(5842):
+            d["evidence"].append({
+                "frame": f, "participant": "guest", "object": "bottle",
+                "presence": "present" if f in (1, 2) else "absent",
+                "bbox": [60, 10, 80, 30] if f in (1, 2) else None,
+                "semantic_verified": True,
+            })
+            d["evidence"].append({
+                "frame": f, "participant": "host", "object": "cigarette",
+                "presence": "absent", "semantic_verified": True,
+            })
+        result = evaluate(d)
+        self.assertEqual(result["frame_count"], 5842)
+        self.assertEqual(result["required_object_frame_checks"], 11684)
+        self.assertEqual(result["unknown_object_frames"], 0)
+        self.assertEqual(result["issue_count"], 0)
+        self.assertTrue(result["structural_candidate_pass"])
+        self.assertFalse(result["release_ready"])
+
+
 if __name__ == "__main__":
     unittest.main()
