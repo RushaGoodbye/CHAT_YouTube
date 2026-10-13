@@ -104,6 +104,7 @@ try:
         rs=read_json(DATA/"run_state"/st/"RUN_STATE.json")
         row["last_run_status"]=rs.get("status") if isinstance(rs,dict) else None
         row["last_run_error"]=str(rs.get("error_tail") or "")[-350:] if isinstance(rs,dict) else None
+        row["prior_backend_error"]=str(row["last_run_status"] or "").upper() in {"BACKEND_ERROR","ERROR","FAILED","CRASHED"}
         postrun=read_json(APP/st/"RG_POSTRUN_QA.json")
         row["postrun_passed"]=postrun.get("passed") if isinstance(postrun,dict) else None
         checks=postrun.get("checks") if isinstance(postrun,dict) else None
@@ -169,8 +170,11 @@ try:
                 try:row["video_duration_sec"]=round(float(json.loads(probe.get("stdout") or "{}").get("format",{}).get("duration")),1)
                 except Exception:row["video_probe_error"]=probe.get("stderr") or probe.get("error")
 
+        row["audio_ambiguous"]=bool(row.get("audio",{}).get("candidates",0)>1)
         row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
                              "REVIEW_QA" if row["requires_qa_review"] else
+                             "REVIEW_BACKEND" if row["prior_backend_error"] else
+                             "REVIEW_AUDIO" if row["audio_ambiguous"] else
                              "MISSING_INPUT" if not row["inputs_ready"] else
                              "RUN_EXPECTED")
 except Exception as exc:
