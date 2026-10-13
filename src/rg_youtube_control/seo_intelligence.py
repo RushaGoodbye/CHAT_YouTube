@@ -107,3 +107,29 @@ def load_optional_embedding_model(name="sentence-transformers/paraphrase-multili
     """Explicit opt-in only: requires separately installed model and cache."""
     from sentence_transformers import SentenceTransformer
     return SentenceTransformer(name, local_files_only=True)
+
+
+def audit_batch(packages: list[dict], *, min_coverage: float = 0.65, embedding_model=None) -> dict:
+    """Evaluate a whole set of *already generated* SEO packages without side effects.
+
+    Input entries contain video_id, evidence_topics, title_variants, description.
+    Failing items remain visible and never count as reviewed-ready drafts.
+    """
+    results = []
+    for item in packages:
+        video_id = str(item.get("video_id") or "").strip()
+        try:
+            audit = audit_package(
+                evidence_topics=list(item.get("evidence_topics") or []),
+                title_variants=list(item.get("title_variants") or []),
+                description=str(item.get("description") or ""),
+                tags=list(item.get("tags") or []),
+                min_coverage=min_coverage,
+                embedding_model=embedding_model,
+            )
+            results.append({"video_id": video_id, **audit.to_dict()})
+        except Exception as exc:
+            results.append({"video_id": video_id, "ready": False,
+                            "issues": ["audit_error:" + type(exc).__name__]})
+    return {"total": len(results), "ready": sum(bool(x["ready"]) for x in results),
+            "review": sum(not x["ready"] for x in results), "items": results}
