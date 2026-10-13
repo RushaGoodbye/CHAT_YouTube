@@ -1,0 +1,39 @@
+name: Ten Real Videos SEO QA Read Only
+on:
+  push:
+    branches:
+      - qa/seo-ten-real-videos-readonly-20261013
+    paths:
+      - ".github/workflows/rg-seo-ten-real-readonly.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ten-video-seo:
+    runs-on: [self-hosted]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only ten-video SEO test
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "This QA must run on ALEXPC" }
+          $py = "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
+          if (-not (Test-Path $py)) { throw "Pinned Python unavailable" }
+          $deps = Join-Path $env:RUNNER_TEMP "rg_ten_seo_deps"
+          if (-not (Test-Path (Join-Path $deps "rapidfuzz\__init__.py"))) {
+            & $py -m pip install --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+            if ($LASTEXITCODE -ne 0) { throw "QA dependency unavailable" }
+          }
+          $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
+          & $py -B rg_remote_control/youtube_ten_seo_readonly_qa.py
+          if ($LASTEXITCODE -ne 0) { throw "Read-only SEO QA failed" }
+      - name: Upload full SEO reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG-Ten-SEO-ReadOnly-Report
+          path: ${{ runner.temp }}/rg_seo_ten_readonly.json
+          if-no-files-found: warn
