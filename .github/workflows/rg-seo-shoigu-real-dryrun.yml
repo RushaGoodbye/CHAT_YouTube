@@ -5,6 +5,7 @@ on:
     branches:
       - fix/seo-evidence-no-invented-third-20261012
       - fix/seo-preview-parity-20261012
+      - fix/stabilization-batch-20261013
     paths:
       - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
   workflow_dispatch:
