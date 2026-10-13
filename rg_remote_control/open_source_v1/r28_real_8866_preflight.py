@@ -84,7 +84,18 @@ def parse_timeline(xml_bytes):
         else:
             samples.append({"timeline_frame":t, "mapped":False,
                             "reason":"NO_UNAMBIGUOUS_V1_SOURCE_1X_MAP"})
+    v1=sorted((r for r in rows if r["track"]==1),key=lambda x:x["start"])
+    discrepancies=[{
+        "timeline_start":c["start"],"timeline_end":c["end"],
+        "timeline_frames":c["end"]-c["start"],
+        "source_frames":c["source_out"]-c["source_in"],
+        "duration_delta":(c["source_out"]-c["source_in"])-(c["end"]-c["start"])
+    } for c in v1 if c["source_886"] and not c["simple_1x_mapping"]]
+    v1_cut_frames=sorted(set(c["start"] for c in v1 if 0<c["start"]<seq_dur))
     return {
+        "v1_cut_frames":v1_cut_frames,
+        "v1_non_1x_count":len(discrepancies),
+        "v1_non_1x_discrepancies":discrepancies,
         "sequence_duration_frames":seq_dur,
         "timebase":tb,
         "video_track_count":len(tracks),
