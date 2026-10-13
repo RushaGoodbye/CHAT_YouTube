@@ -73,7 +73,6 @@ def evaluate(manifest):
     cuts = sorted(cuts)
     issues = []
     evidence = {}
-    allowed_objects = sorted(OBJECTS)
     required = manifest.get("required_pairs")
     if not isinstance(required, list) or not required:
         raise ValueError("Explicit non-empty required_pairs is mandatory")
@@ -160,6 +159,11 @@ def evaluate(manifest):
             else:
                 covered += 1
 
+    # Index masks by frame and side: linear in mask frames + protected rows.
+    # Never rescan the entire timeline for every microphone/cup observation.
+    protected_index = {}
+    for (frame, side, _), selections in masks_by_key.items():
+        protected_index.setdefault((frame, side), []).extend(selections)
     # Protected regions are checked regardless of tracked category.
     for p in manifest.get("protected_evidence", []):
         f, side, obj = p.get("frame"), p.get("participant"), p.get("object")
@@ -168,13 +172,11 @@ def evaluate(manifest):
         if side not in SIDES or obj not in PROTECTED or p.get("semantic_verified") is not True:
             raise ValueError("Unverified protected region")
         box = _box(p.get("bbox"), width, height, "protected")
-        for (frame, m_side, _), selections in masks_by_key.items():
-            if frame == f and m_side == side:
-                for mask, idx in selections:
-                    if _coverage(box, mask) > 0.20:
-                        protected_overlap += 1
-                        issues.append({"kind": "PROTECTED_MICROPHONE_OR_CUP_OVERLAP",
-                                       "frame": f, "mask_index": idx, "protected": obj})
+        for mask, idx in protected_index.get((f, side), []):
+            if _coverage(box, mask) > 0.20:
+                protected_overlap += 1
+                issues.append({"kind": "PROTECTED_MICROPHONE_OR_CUP_OVERLAP",
+                               "frame": f, "mask_index": idx, "protected": obj})
 
     summary = Counter(x["kind"] for x in issues)
     # Never confuse structural coverage with proven pixels or unchanged audio.
