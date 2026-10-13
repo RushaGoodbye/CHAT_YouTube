@@ -133,25 +133,19 @@ class LocalPreviewAndOBSTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_local_preview_only_and_obs_safe_output(self):
+    def test_local_window_capture_without_secondary_output(self):
         from library import load_settings
         config = load_settings(Path(tempfile.gettempdir()) / "__missing_local_preview.json")
         config["roots"] = []
-        config["workspace_tab"] = 0
         with patch("app.load_settings", return_value=config), patch("app.save_settings"), patch("app.sys.argv", ["test", "--selftest"]):
             w = MainWindow()
         try:
             self.assertEqual(w.library_tabs.count(), 2)
             self.assertEqual(w.preview_stack.count(), 1)
+            self.assertFalse(hasattr(w, "obs_safe_window"))
             self.assertIs(w.preview_stack.widget(0), w.preview)
-            original = w.preview.player
-            w.open_obs_safe_video()
-            self.assertEqual(w.obs_safe_window.WINDOW_TITLE, "RG MEDIA DECK - SAFE VIDEO")
-            self.assertIs(w.obs_safe_window.source, w.preview)
-            self.assertIs(w.preview.player, original)
         finally:
             w.close()
-
 
 if __name__ == "__main__":
     unittest.main()
