@@ -722,6 +722,49 @@ def _grounded_description_from_transcript(
     )
 
 
+def _deterministic_evidence_description(
+    title: str, evidence_report: dict[str, Any]
+) -> str:
+    """Describe verified *subjects of discussion*, never infer events or motives.
+
+    The LLM may detect topics but does not author the published narrative.
+    """
+    blocks = [
+        block for block in (evidence_report.get("blocks") or [])
+        if isinstance(block, dict) and block.get("verified") is not False
+    ]
+    evidence = " ".join(
+        str(topic.get("evidence") or "")
+        for block in blocks
+        for topic in (block.get("topics") or [])
+        if isinstance(topic, dict)
+    ).casefold()
+    if not evidence.strip():
+        raise ValueError("No verified transcript quotations for SEO description")
+
+    labels: list[str] = []
+    for needles, label in _GROUNDED_TOPIC_RULES:
+        if any(needle in evidence for needle in needles) and label not in labels:
+            labels.append(label)
+    if not labels:
+        raise ValueError("No supported topics for deterministic SEO description")
+    labels = labels[:8]
+    lead = (
+        "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
+        "обговорюють такі теми: " + "; ".join(labels) + ". "
+    )
+    body = (
+        "Це розмова у форматі чат-рулетки: її учасники висловлюють "
+        "власні оцінки, припущення та аргументи. Їхні слова не слід "
+        "сприймати як підтвердження подій чи мотивів посадовців. "
+        "Перегляньте діалог, щоб почути повний контекст обговорення."
+    )
+    result = lead + body
+    if len(result) < 260:
+        result += " У випуску наведено різні думки учасників розмови."
+    return result
+
+
 def _strip_unverified_putin_motive(description: str) -> str:
     """Remove unsupported assertions of Putin's private rationale for Shoigu decisions."""
     sentences = re.split(r"(?<=[.!?])\s+", str(description or "").strip())
@@ -2243,6 +2286,13 @@ chapters: рядок з підтвердженими таймкодами та �
             if transcript.strip() and description_error:
                 raise ValueError(
                     "description quality failed: " + description_error
+                )
+
+            # Strict evidence-first editorial mode: the model never writes
+            # the final public description for verified transcripts.
+            if evidence_report:
+                candidate["description"] = _deterministic_evidence_description(
+                    current_title, evidence_report,
                 )
 
             # Repeat source-checked cleanup AFTER any model recovery.
