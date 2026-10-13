@@ -47,7 +47,7 @@ def check_seo_evidence(
         problems.append("UNVERIFIED_VIDEO_MAPPING")
     if not transcript or len(_norm(transcript)) < 200:
         problems.append("INSUFFICIENT_TRANSCRIPT")
-    if len(titles) != expected_title_count:
+    if expected_title_count < 1 or len(titles) != expected_title_count:
         problems.append("INVALID_TITLE_COUNT")
     cleaned = [_norm(t) for t in titles]
     if len(set(cleaned)) != len(cleaned) or any(not t for t in cleaned):
@@ -56,10 +56,10 @@ def check_seo_evidence(
         problems.append("TITLE_TOO_LONG")
     if len(description.strip()) < 120:
         problems.append("DESCRIPTION_TOO_SHORT")
-    source = _norm(transcript)
+    source = f" {_norm(transcript)} "
     for title in titles:
         for quote in _QUOTES.findall(title):
-            if _norm(quote) not in source:
+            if f" {_norm(quote)} " not in source:
                 problems.append("UNVERIFIED_DIRECT_QUOTE")
                 break
     return EvidenceDecision(not problems, tuple(dict.fromkeys(problems)))
