@@ -1,6 +1,5 @@
 """Ensure release version and package generation remain in sync."""
 from pathlib import Path
-import re
 import tomllib
 
 
@@ -12,9 +11,9 @@ def test_release_version_is_bumped_from_existing_0728():
 def test_installer_manifest_and_zip_all_use_project_version():
     workflow = Path(".github/workflows/windows-build.yml").read_text(encoding="utf-8")
     installer = Path("packaging/installer.iss").read_text(encoding="utf-8")
-    assert 'Select-String -Path pyproject.toml' in workflow
+    assert "Select-String -Path pyproject.toml" in workflow
     assert '"/DMyAppVersion=$version"' in workflow
-    assert '"RG_YouTube_Control_Update_$version.zip"' in workflow
+    assert 'RG_YouTube_Control_Update_$version.zip' in workflow
     assert 'version = $version' in workflow
     assert 'if ($manifest.version -ne $version)' in workflow
     assert 'if ($hash -ne $expected)' in workflow
