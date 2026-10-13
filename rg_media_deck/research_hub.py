@@ -25,6 +25,8 @@ from research_connectors import (
     telegram_auth, telegram_search, telegram_settings_valid,
 )
 from topic_cards import TopicCards, recency_label
+from news_library import belongs_to_news
+from library import display_media_name
 from unified_research import normalize_query
 
 
@@ -79,6 +81,8 @@ class ResearchWorker(QThread):
 
 
 class ResearchHub(QWidget):
+    media_requested = Signal(str)
+
     def __init__(self, root: Path, parent=None):
         super().__init__(parent)
         self.root = Path(root)
@@ -122,6 +126,24 @@ class ResearchHub(QWidget):
 
         self.tabs = QTabWidget()
         outer.addWidget(self.tabs, 1)
+
+        local_page = QWidget()
+        local_layout = QVBoxLayout(local_page)
+        local_layout.addWidget(QLabel(
+            "Результати ФАКТАЖУ і НОВИН з диска/NAS. "
+            "Подвійний клік — показати у відеоплеєрі."))
+        self.local_table = QTableWidget(0, 3)
+        self.local_table.setHorizontalHeaderLabels(
+            ["Розділ", "Назва", "Шлях"])
+        self.local_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self.local_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows)
+        self.local_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers)
+        self.local_table.doubleClicked.connect(self.show_local_video)
+        local_layout.addWidget(self.local_table)
+        self.tabs.addTab(local_page, "📁 ФАКТАЖ + НОВИНИ")
 
         telegram_page = QWidget()
         tg_box = QVBoxLayout(telegram_page)
@@ -224,9 +246,11 @@ class ResearchHub(QWidget):
             self.update_post_display()
             self.load_current_card()
 
-    def search_all(self, query: str, media_paths: list[str] | None = None):
+    def search_all(self, query: str, media_paths: list[str] | None = None,
+                   news_folder: str = ""):
         self.set_query(query)
         if media_paths is not None:
+            self.set_local_results(media_paths, news_folder)
             self.cards.put(self.query, media=media_paths)
         keys = self._read_credentials()
         if telegram_settings_valid(keys):
@@ -243,6 +267,21 @@ class ResearchHub(QWidget):
         self.status.setText(
             f"Локальний пошук завершено: «{self.query}». "
             "Telegram/AI запускаються лише за наявності окремих підключень.")
+
+    def set_local_results(self, paths: list[str], news_folder: str = ""):
+        self._local_paths = list(paths[:300])
+        self.local_table.setRowCount(len(self._local_paths))
+        for row, path in enumerate(self._local_paths):
+            section = "НОВИНИ" if belongs_to_news(path, news_folder) else "ФАКТАЖ"
+            for column, label in enumerate((section,
+                    display_media_name(Path(path).name), path)):
+                self.local_table.setItem(row, column, QTableWidgetItem(label))
+        self.tabs.setTabText(0, f"📁 ФАКТАЖ + НОВИНИ ({len(paths)})")
+
+    def show_local_video(self, *_):
+        row = self.local_table.currentRow()
+        if hasattr(self, '_local_paths') and 0 <= row < len(self._local_paths):
+            self.media_requested.emit(self._local_paths[row])
 
     def _read_credentials(self):
         try:
