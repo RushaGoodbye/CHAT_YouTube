@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 
 
-def build(root: Path | None = None, version: str = '0.6.0') -> Path:
+def build(root: Path | None = None, version: str = '0.6.1') -> Path:
     root = Path(root) if root else Path(__file__).resolve().parent
     app_dir = root / 'dist' / 'RG_Media_Deck'
     if not (app_dir / 'RG_Media_Deck.exe').is_file():
