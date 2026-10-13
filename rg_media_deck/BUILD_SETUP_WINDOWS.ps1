@@ -11,6 +11,10 @@ Assert-ExitCode 'Dependency installation'
 py -3.12 -m unittest discover -s tests -v
 Assert-ExitCode 'Unit tests'
 
+py -3.12 build_icon.py
+Assert-ExitCode 'Generate application icons'
+if (!(Test-Path 'assets/RG_Media_Deck.ico')) { throw 'Generated icon missing' }
+
 py -3.12 -m PyInstaller --noconfirm --clean --windowed --onedir --name RG_Media_Deck --add-data 'assets;assets' --collect-all PySide6.QtMultimedia --collect-all PySide6.QtMultimediaWidgets app.py
 Assert-ExitCode 'PyInstaller'
 $exe = Join-Path $PSScriptRoot 'dist\RG_Media_Deck\RG_Media_Deck.exe'
