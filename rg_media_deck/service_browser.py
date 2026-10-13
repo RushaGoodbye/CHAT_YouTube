@@ -199,6 +199,10 @@ class ServiceBrowser(QWidget):
         # Never automatically submit login pages or prompts.
         if ok and self._pending_query:
             self._display_query(self._pending_query)
+            # On opening a logged-in tab, attempt to fill the search/editor
+            # with the common query. Never auto-click Send in ChatGPT.
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(700, self.search_active)
 
     def set_query(self, text: str):
         self._pending_query = normalize_query(text)
