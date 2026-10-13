@@ -187,7 +187,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}, 'quick_slots': [], 'play_history': []}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -234,6 +234,8 @@ def load_settings(path: Path | None = None) -> dict:
                 data.get('global_query', '')[:180]
                 if isinstance(data.get('global_query', ''), str) else ''),
             'collections': clean_collections(data.get('collections', {})),
+            'quick_slots': [x[:2048] for x in data.get('quick_slots', [])[:8] if isinstance(x, str)] if isinstance(data.get('quick_slots'), list) else [],
+            'play_history': [x[:2048] for x in data.get('play_history', [])[:30] if isinstance(x, str)] if isinstance(data.get('play_history'), list) else [],
             'streamdeck_bindings': clean_saved_hotkeys(migrate_hotkeys_for_screenshot(
                 data.get('streamdeck_bindings', {}), data.get('hotkeys_layout_version', 1))),
             'hotkeys_layout_version': 4,
