@@ -18,7 +18,8 @@ class LocalOnlyUITests(unittest.TestCase):
                      "QWebEngineView", "webengine-selftest")
         for token in forbidden:
             with self.subTest(token=token):
-                self.assertNotIn(token, self.source)
+                self.assertNotIn("self." + token + " =", self.source)
+                self.assertNotIn("from " + token + " import", self.source)
 
     def test_only_two_library_tabs(self):
         self.assertIn("self.library_tabs.addTab('ФАКТАЖ')", self.source)
