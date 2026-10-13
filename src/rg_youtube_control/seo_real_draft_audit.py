@@ -34,6 +34,11 @@ def run(db_path: Path, evidence_dir: Path, *, max_videos: int = 30) -> dict:
             skipped.append({"video_id": vid, "reason": "verified_evidence_missing"})
             continue
         evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+        if (evidence.get("schema") != "RG_VIDEO_SEO_EVIDENCE_V1"
+                or evidence.get("video_id") != vid
+                or not evidence.get("transcript_sha256")):
+            skipped.append({"video_id": vid, "reason": "legacy_or_unverified_evidence_format"})
+            continue
         topics = [
             str(topic.get("topic") or "").strip()
             for block in evidence.get("blocks") or []
