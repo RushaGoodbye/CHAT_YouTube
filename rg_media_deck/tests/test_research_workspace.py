@@ -161,7 +161,10 @@ class SettingsAndLayoutTests(unittest.TestCase):
         ]
         w.all_media = items
         w.search_index = IndexedMediaLibrary(items, {})
-        with patch.object(w, "_save"):
+        with patch.object(w, "_save"), \
+             patch.object(w.chatgpt_tab, "ensure_loaded",return_value=False), \
+             patch.object(w.chatgpt_tab, "request_auto_submit"), \
+             patch.object(w.research_hub, "search_all"):
             w.global_search.setText("МУРМАНСК")
             w.search_everywhere()
         self.assertEqual(w.model.rowCount(), 2)
