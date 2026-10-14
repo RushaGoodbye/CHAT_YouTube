@@ -144,6 +144,16 @@ jobs:
           assert "LOCAL_WRANGLER_ALIGNED" in s
           assert "os.replace(tmp,P)" in s
           PY
+      - name: Owner reconciliation syntax
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_owner_reconcile_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_owner_reconcile_v1.py").read_text()
+          assert '"sole_getupdates_poll_owner_verified":False' in s
+          assert '"activation_allowed":False' in s
+          assert '"telegram_polls":0' in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
