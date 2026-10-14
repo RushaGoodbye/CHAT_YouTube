@@ -70,6 +70,19 @@ jobs:
           assert "read_bytes()" in s
           assert '"cmdline":' not in s
           PY
+      - name: Unified eight-block NAS audit safety
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_unified_audit_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_unified_audit_v1.py").read_text()
+          assert 'mode=ro' in s
+          assert '"ready_for_cutover":False' in s
+          assert '"telegram_sends":0' in s
+          assert '"telegram_polls":0' in s
+          assert '/getUpdates' not in s
+          assert '/sendPhoto' not in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
