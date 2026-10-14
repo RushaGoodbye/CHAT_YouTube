@@ -13410,6 +13410,30 @@ class MainWindow(QMainWindow):
                                 video_id, proposed,
                             )
                             media_path = proposed
+            if media_path is None:
+                # One-time fallback for renamed originals. The operator chooses
+                # the actual file; no title similarity is treated as evidence.
+                chosen, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Оберіть оригінал саме цього відео",
+                    r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube",
+                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                )
+                if chosen:
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Перевірка відповідності",
+                        f"Підтвердьте, що цей файл дійсно відповідає\\n"
+                        f"Video ID {video_id}:\\n\\n{proposed.name}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        save_verified_media(
+                            self.data_dir / "verified_media.json",
+                            video_id, proposed,
+                        )
+                        media_path = proposed
             if media_path is None or not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
                     self,
