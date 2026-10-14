@@ -11,7 +11,9 @@ def test_selected_seo_checks_nas_transcript_before_work():
     assert "if not usable_local_transcript:" in section
     assert "usable_local_transcript = bool(local_rows)" in section
     assert section.index("if not usable_local_transcript:") < section.index("def task():")
-    assert "Мережевих запитів не виконано" in section
+    assert "SEO: відсутня модель Whisper" in section
+    assert "SEO: вихідний файл не обрано" in section
+    assert "fetch_transcript(" not in section
     assert "generate_srt_offline(" in section
     assert "find_exact_local_media(" in section
     assert "return" in section
