@@ -26,9 +26,9 @@ def test_photo_review_blocks_unvalidated_input(monkeypatch):
         with pytest.raises(ValueError):
             asyncio.run(server.telegram_news2_photo_review(bad_id, "accept", "VERIFIED_BY_HUMAN"))
     with pytest.raises(ValueError):
-        await server.telegram_news2_photo_review("a"*24, "accept", "WATERMARK")
+        asyncio.run(server.telegram_news2_photo_review("a"*24, "accept", "WATERMARK"))
     with pytest.raises(ValueError):
-        await server.telegram_news2_photo_review("a"*24, "publish", "VERIFIED_BY_HUMAN")
+        asyncio.run(server.telegram_news2_photo_review("a"*24, "publish", "VERIFIED_BY_HUMAN"))
     assert not calls
     asyncio.run(server.telegram_news2_photo_review("a"*24, "accept", "VERIFIED_BY_HUMAN"))
     assert calls[0]["argv"] == [
