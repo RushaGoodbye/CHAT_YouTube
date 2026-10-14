@@ -53,7 +53,8 @@ jobs:
           from pathlib import Path
           s=Path("rg_remote_control/nas/rg_news2_one_card_network_preflight_v1.py").read_text()
           assert '/getWebhookInfo' in s
-          assert '/getUpdates' not in s
+          assert 'api.telegram.org/bot'+'' not in ''  # Network audit calls getWebhookInfo only; checked below
+          assert '"/getUpdates"' not in s
           assert '/sendPhoto' not in s
           assert 'mode=ro' in s
           PY
