@@ -117,7 +117,8 @@ from .local_transcript_sources import find_local_transcript
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
 from .offline_source_config import local_seo_media_roots, local_whisper_model_dir
-from .verified_media_registry import get_verified_media
+from .verified_media_registry import get_verified_media, save_verified_media
+from .historical_media_candidates import historical_media_candidates
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13375,6 +13376,40 @@ class MainWindow(QMainWindow):
                     video_id,
                     local_seo_media_roots(self.data_dir, transcript_dir),
                 )
+            if media_path is None:
+                # Historical titles only shortlist candidates. A human must
+                # explicitly confirm the source; names alone never verify it.
+                import sqlite3
+                with sqlite3.connect(str(self.data_dir / "rg_youtube_control.db")) as match_conn:
+                    candidates = historical_media_candidates(
+                        match_conn, video_id,
+                        local_seo_media_roots(self.data_dir, transcript_dir),
+                    )
+                if candidates:
+                    labels = [
+                        f"{score:.0%} · {path.name} [історична назва: {title}]"
+                        for score, path, title in candidates
+                    ]
+                    selected, accepted = QInputDialog.getItem(
+                        self, "Підтвердження вихідного відео",
+                        "Оберіть файл тільки після перевірки, що це саме "
+                        "опублікований ролик:", labels, 0, False,
+                    )
+                    if accepted and selected in labels:
+                        proposed = candidates[labels.index(selected)][1]
+                        reply = QMessageBox.question(
+                            self, "Підтвердіть відповідність",
+                            f"Ви особисто підтверджуєте, що файл\\n"
+                            f"{proposed.name}\\nвідповідає Video ID {video_id}?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            save_verified_media(
+                                self.data_dir / "verified_media.json",
+                                video_id, proposed,
+                            )
+                            media_path = proposed
             if media_path is None or not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
                     self,
