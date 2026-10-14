@@ -7,6 +7,7 @@ Call only in a background worker, never the Qt event thread.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,13 @@ def generate_srt_offline(
         whisper_factory = WhisperModel
     # local_files_only prevents model downloads if a factory supports it;
     # a verified absolute model directory is mandatory in any case.
-    temp = destination / (video_id + ".srt.tmp")
+    # Unique temp file prevents stale crash leftovers and concurrent workers
+    # from corrupting each other's transcript data.
+    temp_fd, temp_name = tempfile.mkstemp(
+        prefix=f".{video_id}.", suffix=".srt.tmp", dir=str(destination),
+    )
+    os.close(temp_fd)
+    temp = Path(temp_name)
 
     def stamp(t: float) -> str:
         millis = max(0, round(float(t) * 1000))
@@ -57,7 +64,7 @@ def generate_srt_offline(
         model = whisper_factory(str(model_dir), device=device, compute_type=compute_type)
         segments, _ = model.transcribe(str(media), beam_size=5, vad_filter=True)
         count = 0
-        with temp.open("x", encoding="utf-8") as out:
+        with temp.open("w", encoding="utf-8") as out:
             for segment in segments:
                 words = " ".join(str(segment.text).split())
                 if not words or segment.end <= segment.start:
