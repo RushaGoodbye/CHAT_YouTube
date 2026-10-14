@@ -78,6 +78,8 @@ services:
       - /volume1/docker/RG_TELEGRAM:/workspace/rg_telegram:rw
       # RG Telegram News 2.0: scoped to the telegram worker only.
       - /volume1/docker/RG_TELEGRAM_NEWS_2:/workspace/telegram_news_2:rw
+      # Compatibility: legacy News 2 scripts use an absolute NAS base path.
+      - /volume1/docker/RG_TELEGRAM_NEWS_2:/volume1/docker/RG_TELEGRAM_NEWS_2:rw
     tmpfs:
       - /tmp
     expose:
