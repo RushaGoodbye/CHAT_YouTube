@@ -13416,7 +13416,7 @@ class MainWindow(QMainWindow):
                 chosen, _ = QFileDialog.getOpenFileName(
                     self,
                     "Оберіть оригінал саме цього відео",
-                    r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube",
+                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
                     "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
                 )
                 if chosen:
@@ -13434,16 +13434,23 @@ class MainWindow(QMainWindow):
                             video_id, proposed,
                         )
                         media_path = proposed
-            if media_path is None or not (model_dir / "model.bin").is_file():
+            if media_path is None:
                 QMessageBox.information(
                     self,
-                    "SEO: немає локального джерела",
-                    "Для цього Video ID відсутні придатні SRT/VTT.\\n\\n"
-                    f"Потрібний файл: {video_id}.srt / .vtt\\n"
-                    f"Папка: {transcript_dir}\\n\\n"
-                    "Автоматичне розпізнавання потребує локального медіафайлу "
-                    "з точним Video ID та попередньо встановленої моделі. "
-                    "Мережевих запитів не виконано.",
+                    "SEO: вихідний файл не обрано",
+                    "Для цього відео не знайдено SRT/VTT.\\n\\n"
+                    "Вихідний файл не обрано або його відповідність "
+                    "не підтверджена. Генерацію не запускали.",
+                )
+                return
+            if not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self,
+                    "SEO: відсутня модель Whisper",
+                    "Вихідний відеофайл підтверджено, але локальної моделі "
+                    "розпізнавання немає.\\n\\n"
+                    f"Очікувана папка моделі: {model_dir}\\n\\n"
+                    "Транскрипцію не запускали; файл і прив'язку збережено.",
                 )
                 return
 
