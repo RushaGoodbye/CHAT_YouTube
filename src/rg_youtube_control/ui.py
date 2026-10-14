@@ -114,6 +114,8 @@ from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
 from .local_transcript_sources import find_local_transcript
+from .local_media_sources import find_exact_local_media
+from .offline_transcription import generate_srt_offline
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13358,24 +13360,43 @@ class MainWindow(QMainWindow):
             transcript_dir, video_id,
         )
         usable_local_transcript = bool(local_rows)
+        media_path = None
+        model_dir = self.data_dir / "models" / "faster-whisper-large-v3"
         if not usable_local_transcript:
-            QMessageBox.information(
-                self,
-                "SEO: немає підтвердженого джерела",
-                "Для цього Video ID немає придатного SRT на NAS.\\n\\n"
-                f"Очікується {video_id}.srt або {video_id}.vtt у {transcript_dir}\\n\\n"
-                "Генерацію не запускали. YouTube не опитували, "
-                "наявні чернетки не змінено. "
-                "Оберіть відео з готовим SRT або додайте "
-                "підтверджений текст у NAS.",
+            # Only known local roots and exact video IDs; no recursive NAS
+            # crawl or automatic download from YouTube.
+            media_path = find_exact_local_media(
+                video_id,
+                [
+                    self.data_dir / "seo_media",
+                    transcript_dir / "media",
+                ],
             )
-            return
+            if media_path is None or not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self,
+                    "SEO: немає локального джерела",
+                    "Для цього Video ID відсутні придатні SRT/VTT.\\n\\n"
+                    f"Потрібний файл: {video_id}.srt / .vtt\\n"
+                    f"Папка: {transcript_dir}\\n\\n"
+                    "Автоматичне розпізнавання потребує локального медіафайлу "
+                    "з точним Video ID та попередньо встановленої моделі. "
+                    "Мережевих запитів не виконано.",
+                )
+                return
 
         def task():
             worker = getattr(self, "_local_tool_worker", None)
             def progress(message: str) -> None:
                 if worker is not None:
                     worker.progress.emit(message)
+            if media_path is not None:
+                generate_srt_offline(
+                    video_id=video_id,
+                    media=media_path,
+                    destination=transcript_dir,
+                    model_dir=model_dir,
+                )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress,
             )
