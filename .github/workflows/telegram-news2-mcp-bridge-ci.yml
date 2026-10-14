@@ -96,6 +96,17 @@ jobs:
           assert 'getUpdates(' not in p
           assert 'sendPhoto(' not in p
           PY
+      - name: Ownership handoff batch syntax
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_handoff_batch_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_handoff_batch_v1.py").read_text()
+          assert '("status","preflight")' in s
+          assert '"allowed_to_enable_news2":False' in s
+          assert '"telegram_polls":0' in s
+          assert '"telegram_sends":0' in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
