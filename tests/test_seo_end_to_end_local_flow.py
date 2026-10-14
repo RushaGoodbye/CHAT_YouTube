@@ -140,7 +140,7 @@ def test_confirmed_source_to_srt_to_seo_worker(environment, monkeypatch):
                 SimpleNamespace(start=2.0, end=4.0, text="Перевірений тестовий діалог")
             ]), {}
 
-    def run_fake_whisper(*, video_id, media, destination, model_dir):
+    def run_fake_whisper(*, video_id, media, destination, model_dir, on_progress=None):
         return generate_srt_offline(
             video_id=video_id, media=media, destination=destination,
             model_dir=model_dir, whisper_factory=lambda *args, **kw: FakeWhisper(),
@@ -172,7 +172,7 @@ def test_manual_whisper_model_selection_remembered(environment):
     (model_dir / "model.bin").write_bytes(b"local-model")
     FakePicker.chosen_model = str(model_dir)
 
-    def fake_transcribe(*, video_id, media, destination, model_dir):
+    def fake_transcribe(*, video_id, media, destination, model_dir, on_progress=None):
         assert model_dir == environment.data_dir / "separate-model"
         target = Path(destination) / f"{video_id}.srt"
         target.write_text(
