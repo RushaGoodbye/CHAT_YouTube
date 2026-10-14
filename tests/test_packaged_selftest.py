@@ -12,6 +12,7 @@ def test_selftest_writes_pass_report(tmp_path, monkeypatch):
     assert data["status"] == "PASS"
     assert "synthetic-whisper-to-srt-to-seo-input" in data["checks"]
     assert "qt-runtime" in data["checks"]
+    assert "silero-vad-onnx-real-inference" in data["checks"]
 
 
 def test_windows_workflow_verifies_installed_binary():
@@ -20,3 +21,6 @@ def test_windows_workflow_verifies_installed_binary():
     assert "--packaged-selftest" in workflow
     assert "Installed app selftest timed out" in workflow
     assert 'proof.status -ne "PASS"' in workflow
+    assert "--collect-data faster_whisper" in workflow
+    assert "VAD ONNX model missing from Windows application" in workflow
+    assert "Silero VAD inference proof missing" in workflow
