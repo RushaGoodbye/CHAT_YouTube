@@ -64,8 +64,8 @@ def generate_srt_offline(
                     continue
                 count += 1
                 out.write(
-                    f"{count}\\n{stamp(segment.start)} --> {stamp(segment.end)}\\n"
-                    f"{words}\\n\\n"
+                    f"{count}\n{stamp(segment.start)} --> {stamp(segment.end)}\n"
+                    f"{words}\n\n"
                 )
         return count
 
