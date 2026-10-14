@@ -176,7 +176,7 @@ def test_manual_whisper_model_selection_remembered(environment):
         assert model_dir == environment.data_dir / "separate-model"
         target = Path(destination) / f"{video_id}.srt"
         target.write_text(
-            "1\\n00:00:00,000 --> 00:00:01,000\\nТекст для SEO\\n",
+            "1\n00:00:00,000 --> 00:00:01,000\nТекст для SEO\n",
             encoding="utf-8",
         )
         return target
