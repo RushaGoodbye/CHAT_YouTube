@@ -13340,11 +13340,19 @@ class MainWindow(QMainWindow):
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
         transcript_file = transcript_dir / f"{video_id}.srt"
-        if not transcript_file.is_file():
+        # A filename alone is insufficient: reject missing, unreadable and
+        # empty/corrupt SRTs before entering the online fallback path.
+        usable_local_transcript = False
+        if transcript_file.is_file():
+            try:
+                usable_local_transcript = bool(load_srt_transcript(transcript_file))
+            except (OSError, ValueError, UnicodeError):
+                usable_local_transcript = False
+        if not usable_local_transcript:
             QMessageBox.information(
                 self,
                 "SEO: немає підтвердженого джерела",
-                "Для цього Video ID немає локального SRT на NAS.\\n\\n"
+                "Для цього Video ID немає придатного SRT на NAS.\\n\\n"
                 f"Очікуваний файл: {transcript_file}\\n\\n"
                 "Генерацію не запускали. YouTube не опитували, "
                 "наявні чернетки не змінено. "
