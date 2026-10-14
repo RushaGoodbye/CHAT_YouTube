@@ -20,6 +20,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[test]'
+      - name: Verify read-only News 2 smoke contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("rg_remote_mcp/rg_remote_mcp/news2_live_smoke.py").read_text()
+          assert 'telegram_news2_status' in text
+          assert 'telegram_news2_publish_dry_run' in text
+          assert 'telegram_news2_photo_review' not in text
+          assert 'publish-once' not in text
+          assert 'poll-once' not in text
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
