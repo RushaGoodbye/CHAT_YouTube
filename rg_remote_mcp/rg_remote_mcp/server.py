@@ -421,6 +421,58 @@ async def auto_edit_alexpc_status() -> dict:
     return await _alexpc_status("auto_edit")
 
 
+
+# RG Telegram News 2.0: fixed-purpose tools. No arbitrary argv or path supplied by callers.
+_NEWS2_BASE = "/workspace/telegram_news_2"
+
+
+async def _news2_run(script: str, args: list[str], timeout_seconds: int = 60) -> dict:
+    if script not in {"rg_v35.py", "rg_v36.py"}:
+        raise ValueError("news2 script not permitted")
+    result = await worker_post("telegram", "/command", {
+        "argv": ["python3", f"{_NEWS2_BASE}/{script}", *args],
+        "cwd_relative": "telegram_news_2",
+        "timeout_seconds": timeout_seconds,
+    })
+    return {
+        "exit_code": int(result.get("exit_code", 1)),
+        "stdout": str(result.get("stdout", ""))[-12000:],
+        "stderr": str(result.get("stderr", ""))[-3000:],
+    }
+
+
+@mcp.tool(name="telegram_news2_status")
+async def telegram_news2_status() -> dict:
+    """Read live NAS News 2.0 moderation/publishing readiness without sending messages."""
+    return {
+        "v35": await _news2_run("rg_v35.py", ["status"]),
+        "v36": await _news2_run("rg_v36.py", ["status"]),
+    }
+
+
+@mcp.tool(name="telegram_news2_publish_dry_run")
+async def telegram_news2_publish_dry_run() -> dict:
+    """List news eligible for publishing without triggering Telegram sends."""
+    return await _news2_run("rg_v36.py", ["publish-dry-run"])
+
+
+@mcp.tool(name="telegram_news2_photo_review")
+async def telegram_news2_photo_review(candidate_id: str, decision: str, note: str) -> dict:
+    """Record a specifically confirmed human photo review; does not publish."""
+    import re
+    if not re.fullmatch(r"[a-f0-9]{24}", candidate_id):
+        raise ValueError("invalid candidate id")
+    if decision not in {"accept", "reject"}:
+        raise ValueError("decision must be accept or reject")
+    if note not in {"VERIFIED_BY_HUMAN", "UNSUITABLE_IMAGE", "WATERMARK", "OLD_IMAGE"}:
+        raise ValueError("invalid review note")
+    if decision == "accept" and note != "VERIFIED_BY_HUMAN":
+        raise ValueError("accepted images need explicit human verification")
+    return await _news2_run("rg_v35.py", [
+        "review", "--id", candidate_id, "--decision", decision, "--note", note,
+    ])
+
+
 def main() -> None:
     import os
 
