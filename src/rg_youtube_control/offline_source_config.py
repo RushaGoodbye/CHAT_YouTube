@@ -11,6 +11,8 @@ from pathlib import Path
 
 def local_seo_media_roots(data_dir: Path, transcript_dir: Path) -> list[Path]:
     roots = [Path(data_dir) / "seo_media", Path(transcript_dir) / "media"]
+    if os.name == "nt":
+        roots.append(Path(r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube"))
     configured = os.environ.get("RG_SEO_MEDIA_DIR", "").strip()
     if configured:
         roots.insert(0, Path(configured).expanduser())
