@@ -83,6 +83,19 @@ jobs:
           assert '/getUpdates' not in s
           assert '/sendPhoto' not in s
           PY
+      - name: Photo-first patch syntax and guardrails
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_photo_first_patch_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("rg_remote_control/nas/rg_news2_photo_first_patch_v1.py").read_text()
+          assert '"check", "apply"' in p
+          assert "PATCH_ANCHOR_MISMATCH" in p
+          assert "shutil.copy2(SOURCE, backup)" in p
+          assert "photo_reviewed=CASE WHEN" in p
+          assert 'getUpdates(' not in p
+          assert 'sendPhoto(' not in p
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
