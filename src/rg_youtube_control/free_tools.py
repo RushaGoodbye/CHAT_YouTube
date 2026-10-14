@@ -723,12 +723,14 @@ def _grounded_description_from_transcript(
 
 
 def _deterministic_evidence_description(
-    title: str, evidence_report: dict[str, Any]
+    title: str, evidence_report: dict[str, Any],
+    *, review_topics: list[str] | None = None,
 ) -> str:
     """Create public Ukrainian prose only from cited, verified discussion subjects.
 
     Do not publish model-written assertions or raw multilingual ASR topic labels.
-    Each verified topic must map to a supported editorial subject.
+    Unmatched topics go to review_topics for DRAFT only. Direct callers
+    without that collector retain strict, fail-closed behavior.
     """
     blocks = [
         block for block in (evidence_report.get("blocks") or [])
@@ -768,6 +770,23 @@ def _deterministic_evidence_description(
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
                     recognized.append(label)
+            # Describe the discussion neutrally, not as an assertion about
+            # an entire nation, region or an individual.
+            if "дагестан" in combined:
+                recognized.append("обговорення поведінки людей у Дагестані")
+            if any(w in combined for w in (
+                "между народ", "між народ", "разных народ",
+                "різних народ", "отношения народ", "ставлення до народ",
+            )) or (
+                "народ" in combined and
+                any(w in combined for w in ("отношен", "ставленн", "взаимоотнош"))
+            ):
+                recognized.append("ставлення співрозмовників до різних народів")
+            if any(w in combined for w in (
+                "идентификац", "ідентифікац", "представлени",
+                "знакомств", "знайомств",
+            )):
+                recognized.append("знайомство та представлення співрозмовників")
             if not recognized:
                 # Conversation mechanics are not meaningful SEO subjects.
                 if any(phrase in combined for phrase in (
@@ -781,9 +800,13 @@ def _deterministic_evidence_description(
                 if label not in labels:
                     labels.append(label)
     if unmapped:
-        raise ValueError(
-            "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
-        )
+        if review_topics is None:
+            raise ValueError(
+                "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
+            )
+        # Never insert unsupported labels into public prose. They remain
+        # visible in review metadata and the full saved evidence timeline.
+        review_topics.extend(dict.fromkeys(unmapped))
     if not labels:
         raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
@@ -1968,6 +1991,16 @@ def generate_seo_package_local(
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    # Determine supported prose once BEFORE expensive Ollama generation.
+    # The old code retried the same deterministic mapping failure 3 times.
+    editorial_unmapped_subjects: list[str] = []
+    grounded_evidence_description = (
+        _deterministic_evidence_description(
+            current_title, evidence_report,
+            review_topics=editorial_unmapped_subjects,
+        )
+        if evidence_report and not fast_mode else ""
+    )
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
@@ -2230,10 +2263,11 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                )
+                description_candidate = grounded_evidence_description
                 candidate["description"] = description_candidate
+                candidate["_editorial_unmapped_subjects"] = list(
+                    editorial_unmapped_subjects
+                )
                 candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
@@ -2420,7 +2454,9 @@ chapters: рядок з підтвердженими таймкодами та �
     description = _polish_generated_description(
         str(payload.get("description") or "").strip()
     )
-    omitted_topics: list[str] = []
+    omitted_topics: list[str] = list(
+        payload.get("_editorial_unmapped_subjects") or []
+    )
     if evidence_report and not payload.get("_deterministic_editor"):
         # Legacy evidence packages keep their topic appendix.
         # Keep the concise lead, then append every distinct supported subject
@@ -2518,7 +2554,11 @@ chapters: рядок з підтвердженими таймкодами та �
                 (source_quote_fallback, "A/B створено з дослівних цитат: перевірити редакційний стиль"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
-                (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
+                (bool(editorial_unmapped_subjects),
+                 "Потрібна редакторська перевірка непізнаних тем: "
+                 + "; ".join(editorial_unmapped_subjects[:10])),
+                (bool(omitted_topics) and not editorial_unmapped_subjects,
+                 f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
             )
             if condition

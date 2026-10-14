@@ -112,6 +112,13 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_evidence_gate import check_seo_evidence
+from .local_transcript_sources import find_local_transcript
+from .local_media_sources import find_exact_local_media
+from .offline_transcription import generate_srt_offline
+from .offline_source_config import local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir
+from .verified_media_registry import get_verified_media, save_verified_media
+from .historical_media_candidates import historical_media_candidates
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -837,7 +844,7 @@ class ProgressMetricCard(QFrame):
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
-    progress = Signal(str)
+    progress = Signal(object)
 
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
@@ -12633,14 +12640,25 @@ class MainWindow(QMainWindow):
         def cleanup() -> None:
             self._local_tool_worker = None
 
-        worker.progress.connect(
-            lambda message: self._set_process(
-                label,
-                message,
-                percent=None,
-                eta="автоматичний retry",
-            )
-        )
+        def display_local_progress(message) -> None:
+            if isinstance(message, dict):
+                # Preserve true media progress; unknown duration stays indeterminate.
+                self._set_process(
+                    label,
+                    str(message.get("stage") or "Whisper"),
+                    percent=message.get("percent"),
+                    eta=str(message.get("eta") or "локально · 0 квоти"),
+                )
+            else:
+                self._set_process(
+                    label,
+                    str(message),
+                    percent=None,
+                    eta="автоматичний retry" if "Спроба " in str(message)
+                        else "локально · 0 квоти",
+                )
+
+        worker.progress.connect(display_local_progress)
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
         worker.finished.connect(cleanup)
@@ -12807,15 +12825,9 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
-        nas_transcript = transcript_dir / f"{video_id}.srt"
-
-        if nas_transcript.exists():
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except Exception:
-                transcript_rows = []
+        transcript_rows, transcript_source = find_local_transcript(
+            transcript_dir, video_id,
+        )
 
         if not transcript_rows:
             try:
@@ -13059,6 +13071,26 @@ class MainWindow(QMainWindow):
                 0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
             ),
         )
+
+        # Do not call subtitle endpoints for videos which have no local
+        # transcript. The available count is explicit rather than burning
+        # time on repeated 429/yt-dlp failures.
+        available_ids = [
+            video_id for video_id in candidate_ids
+            if find_local_transcript(transcript_dir, video_id)[0]
+        ]
+        missing_count = len(candidate_ids) - len(available_ids)
+        if candidate_ids and not available_ids:
+            QMessageBox.information(
+                self,
+                "Пакетне SEO: немає джерел",
+                f"Перевірено кандидатів: {len(candidate_ids)}.\\n"
+                f"Із локальними SRT/VTT: 0.\\n"
+                f"Без транскриптів: {missing_count}.\\n\\n"
+                "YouTube не опитували. Чернетки не змінено.",
+            )
+            return
+        candidate_ids = available_ids
 
         if not candidate_ids:
             QMessageBox.information(
@@ -13330,11 +13362,148 @@ class MainWindow(QMainWindow):
             return
         video_id = video_ids[0]
 
+        # Fast local preflight: do not issue YouTube subtitle requests if
+        # there is no NAS SRT bound to the selected published Video ID.
+        # The online fallback is intentionally disabled until an explicit
+        # user-controlled retry flow can handle 429 safely.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        local_rows, local_source = find_local_transcript(
+            transcript_dir, video_id,
+        )
+        usable_local_transcript = bool(local_rows)
+        media_path = None
+        model_dir = local_whisper_model_dir(self.data_dir)
+        if not usable_local_transcript:
+            # Only known local roots and exact video IDs; no recursive NAS
+            # crawl or automatic download from YouTube.
+            media_path = get_verified_media(
+                self.data_dir / "verified_media.json", video_id,
+            )
+            if media_path is None:
+                media_path = find_exact_local_media(
+                    video_id,
+                    local_seo_media_roots(self.data_dir, transcript_dir),
+                )
+            if media_path is None:
+                # Historical titles only shortlist candidates. A human must
+                # explicitly confirm the source; names alone never verify it.
+                import sqlite3
+                with sqlite3.connect(str(self.data_dir / "rg_youtube_control.db")) as match_conn:
+                    candidates = historical_media_candidates(
+                        match_conn, video_id,
+                        local_seo_media_roots(self.data_dir, transcript_dir),
+                    )
+                if candidates:
+                    labels = [
+                        f"{score:.0%} · {path.name} [історична назва: {title}]"
+                        for score, path, title in candidates
+                    ]
+                    selected, accepted = QInputDialog.getItem(
+                        self, "Підтвердження вихідного відео",
+                        "Оберіть файл тільки після перевірки, що це саме "
+                        "опублікований ролик:", labels, 0, False,
+                    )
+                    if accepted and selected in labels:
+                        proposed = candidates[labels.index(selected)][1]
+                        reply = QMessageBox.question(
+                            self, "Підтвердіть відповідність",
+                            f"Ви особисто підтверджуєте, що файл\n"
+                            f"{proposed.name}\nвідповідає Video ID {video_id}?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            save_verified_media(
+                                self.data_dir / "verified_media.json",
+                                video_id, proposed,
+                            )
+                            media_path = proposed
+            if media_path is None:
+                # One-time fallback for renamed originals. The operator chooses
+                # the actual file; no title similarity is treated as evidence.
+                chosen, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Оберіть оригінал саме цього відео",
+                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                )
+                if chosen:
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Перевірка відповідності",
+                        f"Підтвердьте, що цей файл дійсно відповідає\n"
+                        f"Video ID {video_id}:\n\n{proposed.name}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        save_verified_media(
+                            self.data_dir / "verified_media.json",
+                            video_id, proposed,
+                        )
+                        media_path = proposed
+            if media_path is None:
+                QMessageBox.information(
+                    self,
+                    "SEO: вихідний файл не обрано",
+                    "Для цього відео не знайдено SRT/VTT.\n\n"
+                    "Вихідний файл не обрано або його відповідність "
+                    "не підтверджена. Генерацію не запускали.",
+                )
+                return
+            if not (model_dir / "model.bin").is_file():
+                # Ask only when an actual source is confirmed. This is an
+                # explicit user selection, not a model download or scan.
+                chosen_model = QFileDialog.getExistingDirectory(
+                    self,
+                    "Оберіть папку faster-whisper з model.bin",
+                    str(model_dir.parent),
+                )
+                if chosen_model:
+                    try:
+                        model_dir = remember_whisper_model_dir(
+                            self.data_dir, Path(chosen_model),
+                        )
+                    except (OSError, ValueError):
+                        QMessageBox.warning(
+                            self,
+                            "Whisper: невірна папка",
+                            "У вибраній папці не знайдено model.bin. "
+                            "Потрібна модель у форматі faster-whisper.",
+                        )
+                        return
+            if not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self,
+                    "SEO: відсутня модель Whisper",
+                    "Вихідний відеофайл підтверджено, але локальної моделі "
+                    "розпізнавання немає.\n\n"
+                    f"Очікувана папка моделі: {model_dir}\n\n"
+                    "Транскрипцію не запускали; файл і прив'язку збережено.",
+                )
+                return
+
         def task():
             worker = getattr(self, "_local_tool_worker", None)
             def progress(message: str) -> None:
                 if worker is not None:
                     worker.progress.emit(message)
+            if media_path is not None:
+                def whisper_progress(update: dict) -> None:
+                    active_worker = getattr(self, "_local_tool_worker", None)
+                    if active_worker is not None:
+                        active_worker.progress.emit(update)
+
+                generate_srt_offline(
+                    video_id=video_id,
+                    media=media_path,
+                    destination=transcript_dir,
+                    model_dir=model_dir,
+                    on_progress=whisper_progress,
+                )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress,
             )
@@ -13382,6 +13551,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
+        # Never persist chapters when their timestamps cannot be traced
+        # to a transcript explicitly bound to this exact YouTube video.
+        transcript_origin = str(context.get("transcript_source") or "")
+        chapter_warning = ""
+        if chapters:
+            chapters = ""
+            chapter_warning = (
+                "Розділи вилучено: відповідність кожного таймкоду "
+                "змісту відео ще не підтверджена."
+            )
+
         quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
@@ -13398,10 +13578,37 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        # Require traceable source evidence before promoting locally generated SEO.
+        # A reviewed preview alone does not prove the chosen headline quotes.
+        source_rows = result.get("transcript_rows") or []
+        source_text = " ".join(
+            str(row.get("text") or "") for row in source_rows
+            if isinstance(row, dict)
+        )
+        review_titles = [title, *variants]
+        evidence_decision = check_seo_evidence(
+            video_id=video_id,
+            titles=review_titles,
+            description=description,
+            transcript=source_text,
+            transcript_video_id=video_id if source_rows else None,
+            # Transcript rows alone do not prove that a video-to-source
+            # mapping was independently verified.
+            verified_video_mapping=False,
+            expected_title_count=4,
+        )
+        # A preview is not an explicit editorial approval. Local generation
+        # cannot authorize promotion; retain the existing review signals.
+        editorial_approval_verified = False
+        requires_review = (
+            bool(package.get("needs_review"))
+            or len(variants) < 3
+            or not evidence_decision.approved_for_review
+            or not editorial_approval_verified
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
-            or "Неповні A/B варіанти - потрібна перевірка."
+            or "Потрібна редакторська перевірка джерела та A/B/C."
             if requires_review else "Переглянуто користувачем"
         )
         save_optimization_draft(
@@ -13415,7 +13622,15 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=draft_reason,
+            quality_reason=" | ".join(
+                part for part in (
+                    draft_reason,
+                    chapter_warning,
+                    "Джерело: " + (transcript_origin or "невідоме"),
+                    "Evidence: " + ", ".join(evidence_decision.issues)
+                    if evidence_decision.issues else "",
+                ) if part
+            ),
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
