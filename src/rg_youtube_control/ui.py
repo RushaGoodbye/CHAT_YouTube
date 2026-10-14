@@ -117,6 +117,7 @@ from .local_transcript_sources import find_local_transcript
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
 from .offline_source_config import local_seo_media_roots, local_whisper_model_dir
+from .verified_media_registry import get_verified_media
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13366,10 +13367,14 @@ class MainWindow(QMainWindow):
         if not usable_local_transcript:
             # Only known local roots and exact video IDs; no recursive NAS
             # crawl or automatic download from YouTube.
-            media_path = find_exact_local_media(
-                video_id,
-                local_seo_media_roots(self.data_dir, transcript_dir),
+            media_path = get_verified_media(
+                self.data_dir / "verified_media.json", video_id,
             )
+            if media_path is None:
+                media_path = find_exact_local_media(
+                    video_id,
+                    local_seo_media_roots(self.data_dir, transcript_dir),
+                )
             if media_path is None or not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
                     self,
