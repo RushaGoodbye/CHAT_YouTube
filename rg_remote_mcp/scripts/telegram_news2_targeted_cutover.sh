@@ -11,10 +11,18 @@ MODE=${1:-preflight}
 test -x "$DOCKER" || { echo "STOP: Docker binary missing"; exit 20; }
 "$DOCKER" compose version >/dev/null || { echo "STOP: Docker compose plugin missing"; exit 21; }
 test -d /volume1/docker/RG_TELEGRAM_NEWS_2 || { echo "STOP: News2 missing"; exit 22; }
-test -d "$BASE/rg_remote_mcp" || { echo "STOP: expected existing MCP source layout not verified"; exit 23; }
-ORIGINAL=$BASE/rg_remote_mcp
+# Discover the *actual* Compose working directory from existing container labels.
+ORIGINAL=$("$DOCKER" inspect rg-mcp-telegram --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
+PROJECT=$("$DOCKER" inspect rg-mcp-telegram --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)
+CONFIG_FILES=$("$DOCKER" inspect rg-mcp-telegram --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)
+printf 'MCP_DISCOVERY project=%s working_dir=%s config_files=%s\n' "$PROJECT" "$ORIGINAL" "$CONFIG_FILES"
+test -n "$PROJECT" && test "$PROJECT" != "<no value>" || { echo "STOP: Compose project label missing"; exit 23; }
+test -n "$ORIGINAL" && test "$ORIGINAL" != "<no value>" && test -d "$ORIGINAL" || { echo "STOP: actual Compose working directory not found"; exit 23; }
+test -n "$CONFIG_FILES" && test "$CONFIG_FILES" != "<no value>" || { echo "STOP: original Compose config label missing"; exit 23; }
+case "$CONFIG_FILES" in *,*) echo "STOP: multiple Compose files require explicit support"; exit 23;; esac
+test -f "$CONFIG_FILES" || { echo "STOP: original Compose file not found"; exit 23; }
 cd "$ORIGINAL"
-"$DOCKER" compose -p rg-nas-mcp config >/dev/null || { echo "STOP: original Compose invalid"; exit 24; }
+"$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" config >/dev/null || { echo "STOP: original Compose invalid"; exit 24; }
 case "$MODE" in
 preflight)
   echo "PREFLIGHT_OK: original Compose available; News2 directory exists"
@@ -31,20 +39,20 @@ apply)
   fi
   test -f "$WORK/docker-compose.yml" || { echo "STOP: staged compose missing"; exit 26; }
   cd "$WORK"
-  "$DOCKER" compose -p rg-nas-mcp config >/dev/null
+  "$DOCKER" compose -p "$PROJECT" config >/dev/null
   # Builds images without touching the production containers.
-  "$DOCKER" compose -p rg-nas-mcp build hub telegram-worker
+  "$DOCKER" compose -p "$PROJECT" build hub telegram-worker
   # Apply targeted services only; never recreate YouTube or Auto Edit worker.
-  if ! "$DOCKER" compose -p rg-nas-mcp up -d --no-deps hub telegram-worker; then
+  if ! "$DOCKER" compose -p "$PROJECT" up -d --no-deps hub telegram-worker; then
     cd "$ORIGINAL"
-    "$DOCKER" compose -p rg-nas-mcp up -d --no-deps hub telegram-worker
+    "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps hub telegram-worker
     echo "APPLY_FAILED: attempted rollback to original Compose"
     exit 27
   fi
   sleep 5
   if ! "$DOCKER" inspect -f '{{.State.Health.Status}}' rg-mcp-telegram | grep -qx healthy; then
     cd "$ORIGINAL"
-    "$DOCKER" compose -p rg-nas-mcp up -d --no-deps --build hub telegram-worker
+    "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps --build hub telegram-worker
     echo "HEALTH_FAILED: rolled back to original Compose"
     exit 28
   fi
@@ -52,7 +60,7 @@ apply)
   ;;
 rollback)
   cd "$ORIGINAL"
-  "$DOCKER" compose -p rg-nas-mcp up -d --no-deps --build hub telegram-worker
+  "$DOCKER" compose -p "$PROJECT" up -d --no-deps --build hub telegram-worker
   echo "ROLLBACK_REQUESTED: original hub and telegram worker restored"
   ;;
 *)
