@@ -130,3 +130,30 @@ def test_non_gpu_failure_does_not_retry_cpu(tmp_path):
         )
     assert calls == ["auto"]
     assert not list((tmp_path / "subs").glob("*.srt"))
+
+
+
+def test_stale_srt_temp_file_does_not_block_retry(tmp_path):
+    media = tmp_path / "AbCdEfGhI12.wav"
+    media.write_bytes(b"media")
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "model.bin").write_bytes(b"model")
+    destination = tmp_path / "captions"
+    destination.mkdir()
+    stale = destination / "AbCdEfGhI12.srt.tmp"
+    stale.write_text("left behind by crashed process", encoding="utf-8")
+
+    class FakeWhisper:
+        def transcribe(self, source, **kwargs):
+            return iter([
+                SimpleNamespace(start=0.0, end=1.0, text="Відновлений текст")
+            ]), {}
+
+    output = generate_srt_offline(
+        video_id="AbCdEfGhI12", media=media, destination=destination,
+        model_dir=model, whisper_factory=lambda *a, **kw: FakeWhisper(),
+    )
+    assert "Відновлений текст" in output.read_text(encoding="utf-8")
+    assert stale.read_text(encoding="utf-8") == "left behind by crashed process"
+    assert not list(destination.glob(".AbCdEfGhI12.*.srt.tmp"))
