@@ -32,7 +32,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           text = Path("docker-compose.yml").read_text()
-          assert text.count("/volume1/docker/RG_TELEGRAM_NEWS_2:") == 2
+          assert sum(line.lstrip().startswith("- /volume1/docker/RG_TELEGRAM_NEWS_2:") for line in text.splitlines()) == 2
           assert "/volume1/docker/RG_TELEGRAM_NEWS_2:/volume1/docker/RG_TELEGRAM_NEWS_2:rw" in text
           assert "/workspace/telegram_news_2:rw" in text
           print("TELEGRAM_NEWS2_COMPOSE_MOUNT_PRESENT")
