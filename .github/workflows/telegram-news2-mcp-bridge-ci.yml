@@ -133,6 +133,17 @@ jobs:
           assert 'CLOUDFLARE_MODERATION_NOT_NAS' in s
           assert 'BOT_GATE_ALREADY_OPEN' in s
           PY
+      - name: Hybrid wrangler alignment syntax
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_align_cloudflare_wrangler_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_align_cloudflare_wrangler_v1.py").read_text()
+          assert "UNRELATED_CONFIG_CHANGES" in s
+          assert "shutil.copy2(P,backup)" in s
+          assert "LOCAL_WRANGLER_ALIGNED" in s
+          assert "os.replace(tmp,P)" in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
