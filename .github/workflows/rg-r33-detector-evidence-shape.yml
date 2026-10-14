@@ -1,0 +1,52 @@
+name: R33 Existing 886_6 Detector Evidence Shape
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - .github/workflows/rg-r33-detector-evidence-shape.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-evidence-read-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect only detection schemas and candidate counts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=@'
+          from pathlib import Path
+          import json,ast,inspect
+          base=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for fn in ("RG_EDITED_886_6_CIGARETTE_BLUR_DETECTIONS.json",
+                     "RG_EDITED_886_6_CIGARETTE_REVIEW_MARKERS.json"):
+              obj=json.loads((base/fn).read_text(encoding="utf-8-sig"))
+              print("RG_R33_REPORT="+fn)
+              for key in ("tracks","rejected_tracks","intervals","markers","timed_events"):
+                  val=obj.get(key) if isinstance(obj,dict) else None
+                  if isinstance(val,list):
+                      print("RG_R33_ARRAY_"+key+"="+str(len(val)))
+                      if val:
+                          head=val[0]
+                          print("RG_R33_FIRST_"+key+"_TYPE="+type(head).__name__)
+                          if isinstance(head,dict):
+                              print("RG_R33_FIRST_"+key+"_KEYS="+json.dumps(sorted(head)))
+                              for k,v in head.items():
+                                  if isinstance(v,list) and len(v):
+                                      e=v[0]
+                                      print("RG_R33_NESTED_"+k+"_FIRST_TYPE="+type(e).__name__)
+                                      if isinstance(e,dict):
+                                          print("RG_R33_NESTED_"+k+"_KEYS="+json.dumps(sorted(e)))
+          p=base/"rg_cigarette_detector_worker.py"
+          tr=ast.parse(p.read_text(encoding="utf-8-sig"))
+          for f in tr.body:
+              if isinstance(f,ast.FunctionDef) and f.name in ("_predict","_scan","_windows_from_hits"):
+                  print("RG_R33_WORKER_FUNCTION_"+f.name+"_ARGS="+json.dumps([a.arg for a in f.args.args]))
+          print("RG_R33_EXISTING_DETECTOR_READ_ONLY=TRUE")
+          '@
+          $py | python -
+          if ($LASTEXITCODE -ne 0) { throw 'R33 evidence schema inspection failed' }

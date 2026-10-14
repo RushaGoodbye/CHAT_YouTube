@@ -1,0 +1,39 @@
+name: R28 886_6 Real Source and Frame Decode Preflight
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - rg_remote_control/open_source_v1/r28_real_8866_preflight.py
+      - .github/workflows/rg-r28-real-source-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-source-read-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run independent XML fixture test
+        shell: powershell
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/r28_real_8866_preflight.py
+          if ($LASTEXITCODE -ne 0) { throw 'R28 COMPILE FAIL' }
+          python rg_remote_control/open_source_v1/r28_real_8866_preflight.py --selftest
+          if ($LASTEXITCODE -ne 0) { throw 'R28 SELFTEST FAIL' }
+      - name: Inspect genuine dialogue XML and decode source-frame probes
+        shell: powershell
+        run: |
+          python rg_remote_control/open_source_v1/r28_real_8866_preflight.py --decode-three
+          if ($LASTEXITCODE -ne 0) { throw 'R28 REAL SOURCE PREFLIGHT FAIL CLOSED' }
+      - name: Confirm no production mutation
+        shell: powershell
+        run: |
+          $s = Get-Content 'rg_remote_control/open_source_v1/r28_real_8866_preflight.py' -Raw
+          if ($s -match 'write_bytes|unlink|os\.replace|shutil\.copy') { throw 'Production writes forbidden' }
+          Write-Host 'RG_R28_READ_ONLY_PRODUCTION_SAFETY_PASS'

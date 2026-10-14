@@ -1,0 +1,43 @@
+name: R32 886_6 Full Source V1 Video-Only QA Proxy
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py
+      - .github/workflows/rg-r32-v1-proxy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  v1-shadow-only:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and test safe Premiere source mapper
+        shell: powershell
+        run: |
+          python -m py_compile rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py
+          if ($LASTEXITCODE -ne 0) { throw 'R32 PYTHON COMPILE ERROR' }
+          python rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py --selftest
+          if ($LASTEXITCODE -ne 0) { throw 'R32 SYNTHETIC REGRESSION FAILED' }
+      - name: Validate full live 886_6 V1 coverage without rendering
+        shell: powershell
+        run: |
+          python rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py
+          if ($LASTEXITCODE -ne 0) { throw 'R32 LIVE V1 COVERAGE FAILED CLOSED' }
+      - name: Render isolated VIDEO ONLY proxy on F drive
+        shell: powershell
+        run: |
+          python -u rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py --render
+          if ($LASTEXITCODE -ne 0) { throw 'R32 SHADOW PROXY NOT VALIDATED' }
+      - name: Confirm source Studio XML and audio are not written
+        shell: powershell
+        run: |
+          $s = Get-Content 'rg_remote_control/open_source_v1/r32_v1_visual_proxy_8866.py' -Raw
+          if ($s -match 'inject_cigarette_blur|Studio.exe|audio_normalize') { throw 'Unsafe source mutation hook' }
+          Write-Host 'RG_R32_STUDIO_XML_AUDIO_UNMODIFIED_AND_SHADOW_OUTPUT_ONLY=PASS'

@@ -1,0 +1,38 @@
+name: R29 886_6 Existing Detector Capability Probe
+on:
+  push:
+    branches:
+      - rg-auto-edit/r26-object-presence-gate
+    paths:
+      - .github/workflows/rg-r29-existing-detector-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  local-model-inventory:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 6
+    steps:
+      - name: Read-only installed detector/runtime discovery
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $py = @'
+          import importlib.util,json
+          libs=("cv2","numpy","torch","ultralytics","onnxruntime","transformers","supervision","norfair")
+          print("RG_R29_PYTHON_MODULES="+json.dumps({k:importlib.util.find_spec(k) is not None for k in libs},sort_keys=True))
+          '@
+          $py | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Python environment could not be inspected' }
+          $names=@('rg_cigarette_detector_worker.py','rg_cigarette_blur.py','rg_smoking_auto_export_v2.py')
+          foreach ($name in $names) {
+            Write-Host ('RG_R29_APP_MODULE_'+$name+'='+[bool](Test-Path -LiteralPath (Join-Path $app $name) -PathType Leaf))
+          }
+          Write-Host ('RG_R29_SHADOW_DIR='+[bool](Test-Path -LiteralPath (Join-Path $data 'oss_shadow') -PathType Container))
+          foreach ($name in @('RG_EDITED_886_6_CIGARETTE_REVIEW_MARKERS.json','RG_EDITED_886_6.xml')) {
+            Write-Host ('RG_R29_EXISTING_8866_'+$name+'='+[bool](Test-Path -LiteralPath (Join-Path $app $name) -PathType Leaf))
+          }
+          Write-Host 'RG_R29_READ_ONLY_COMPLETE=TRUE'
