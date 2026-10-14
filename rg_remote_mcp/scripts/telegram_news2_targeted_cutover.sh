@@ -30,6 +30,7 @@ preflight)
   ;;
 apply)
   test "${RG_EXPLICIT_APPLY:-}" = "YES" || { echo "STOP: set RG_EXPLICIT_APPLY=YES"; exit 25; }
+  command -v git >/dev/null 2>&1 || { echo "STOP: git missing on NAS"; exit 29; }
   mkdir -p "$STAGE"
   if test ! -d "$STAGE/.git"; then
     git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE"
@@ -40,17 +41,25 @@ apply)
   test -f "$WORK/docker-compose.yml" || { echo "STOP: staged compose missing"; exit 26; }
   cd "$WORK"
   "$DOCKER" compose -p "$PROJECT" config >/dev/null
+  # Pin the reviewed branch state before any build; log the exact commit.
+  git -C "$STAGE" rev-parse HEAD
   # Builds images without touching the production containers.
   "$DOCKER" compose -p "$PROJECT" build hub telegram-worker
   # Apply targeted services only; never recreate YouTube or Auto Edit worker.
   if ! "$DOCKER" compose -p "$PROJECT" up -d --no-deps hub telegram-worker; then
     cd "$ORIGINAL"
-    "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps hub telegram-worker
+    "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps --build hub telegram-worker
     echo "APPLY_FAILED: attempted rollback to original Compose"
     exit 27
   fi
-  sleep 5
-  if ! "$DOCKER" inspect -f '{{.State.Health.Status}}' rg-mcp-telegram | grep -qx healthy; then
+  HEALTHY=NO
+  ATTEMPT=0
+  while test "$ATTEMPT" -lt 12; do
+    if "$DOCKER" inspect -f '{{.State.Health.Status}}' rg-mcp-telegram | grep -qx healthy; then HEALTHY=YES; break; fi
+    ATTEMPT=$((ATTEMPT + 1))
+    sleep 5
+  done
+  if test "$HEALTHY" != YES; then
     cd "$ORIGINAL"
     "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps --build hub telegram-worker
     echo "HEALTH_FAILED: rolled back to original Compose"
@@ -60,7 +69,7 @@ apply)
   ;;
 rollback)
   cd "$ORIGINAL"
-  "$DOCKER" compose -p "$PROJECT" up -d --no-deps --build hub telegram-worker
+  "$DOCKER" compose -f "$CONFIG_FILES" -p "$PROJECT" up -d --no-deps --build hub telegram-worker
   echo "ROLLBACK_REQUESTED: original hub and telegram worker restored"
   ;;
 *)
