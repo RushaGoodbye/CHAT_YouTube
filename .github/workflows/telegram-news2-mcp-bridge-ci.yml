@@ -121,6 +121,18 @@ jobs:
           assert '"GET"' in s and '"PUT"' in s
           assert '.unlink(' not in s
           PY
+      - name: Hybrid guard transition checks
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_hybrid_guard_transition_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_hybrid_guard_transition_v1.py").read_text()
+          assert 'PAUSE.rename(dest)' in s
+          assert 'dest.rename(PAUSE)' in s
+          assert 'rg_cf_moderation_handoff_freeze' in s
+          assert 'CLOUDFLARE_MODERATION_NOT_NAS' in s
+          assert 'BOT_GATE_ALREADY_OPEN' in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
