@@ -13399,8 +13399,8 @@ class MainWindow(QMainWindow):
                         proposed = candidates[labels.index(selected)][1]
                         reply = QMessageBox.question(
                             self, "Підтвердіть відповідність",
-                            f"Ви особисто підтверджуєте, що файл\\n"
-                            f"{proposed.name}\\nвідповідає Video ID {video_id}?",
+                            f"Ви особисто підтверджуєте, що файл\n"
+                            f"{proposed.name}\nвідповідає Video ID {video_id}?",
                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                             QMessageBox.StandardButton.No,
                         )
@@ -13423,8 +13423,8 @@ class MainWindow(QMainWindow):
                     proposed = Path(chosen)
                     reply = QMessageBox.question(
                         self, "Перевірка відповідності",
-                        f"Підтвердьте, що цей файл дійсно відповідає\\n"
-                        f"Video ID {video_id}:\\n\\n{proposed.name}",
+                        f"Підтвердьте, що цей файл дійсно відповідає\n"
+                        f"Video ID {video_id}:\n\n{proposed.name}",
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.No,
                     )
@@ -13438,7 +13438,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     "SEO: вихідний файл не обрано",
-                    "Для цього відео не знайдено SRT/VTT.\\n\\n"
+                    "Для цього відео не знайдено SRT/VTT.\n\n"
                     "Вихідний файл не обрано або його відповідність "
                     "не підтверджена. Генерацію не запускали.",
                 )
@@ -13448,8 +13448,8 @@ class MainWindow(QMainWindow):
                     self,
                     "SEO: відсутня модель Whisper",
                     "Вихідний відеофайл підтверджено, але локальної моделі "
-                    "розпізнавання немає.\\n\\n"
-                    f"Очікувана папка моделі: {model_dir}\\n\\n"
+                    "розпізнавання немає.\n\n"
+                    f"Очікувана папка моделі: {model_dir}\n\n"
                     "Транскрипцію не запускали; файл і прив'язку збережено.",
                 )
                 return
