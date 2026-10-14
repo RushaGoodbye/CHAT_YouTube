@@ -22,6 +22,24 @@ def run_packaged_selftest(report_file: Path) -> int:
         import faster_whisper
         report["checks"].append("packaged-faster-whisper-ctranslate2-import")
 
+        # Regression for RG 0.7.30 installed EXE: imports passed while the
+        # Silero VAD ONNX DATA asset was absent, breaking real vad_filter=True.
+        from faster_whisper.vad import get_speech_timestamps, get_vad_model
+        from faster_whisper.utils import get_assets_path
+        import numpy as np
+        vad_path = Path(get_assets_path()) / "silero_vad_v6.onnx"
+        if not vad_path.is_file() or vad_path.stat().st_size < 100_000:
+            raise FileNotFoundError(f"Missing packaged Silero VAD ONNX: {vad_path}")
+        vad = get_vad_model()  # Instantiates real ONNX Runtime session.
+        if vad is None:
+            raise RuntimeError("Silero VAD ONNX model could not be loaded")
+        timestamps = get_speech_timestamps(
+            np.zeros(16_000, dtype=np.float32),
+        )  # Real ONNX inference, not the synthetic Whisper factory.
+        if timestamps:
+            raise AssertionError("Silence incorrectly classified as speech")
+        report["checks"].append("silero-vad-onnx-real-inference")
+
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance() or QApplication(["rg-packaged-selftest"])
