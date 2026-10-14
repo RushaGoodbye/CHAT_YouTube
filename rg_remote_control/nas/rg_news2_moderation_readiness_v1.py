@@ -10,7 +10,6 @@ BASE = pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2")
 OUT = ("awaiting_moderation", "awaiting_photo_review", "legacy_hold", "approved_for_publication")
 
 def main():
-    import rg_news
     db_file = BASE / "news.sqlite3"
     report = {"schema":"RG_NEWS2_MODERATION_READINESS_V1","ready_to_send":False,
               "poll_owner_exclusive_verified":False,"channel_sends":0,"poll_calls":0,
