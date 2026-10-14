@@ -22,7 +22,9 @@ async def main():
     url = os.getenv("RG_REMOTE_MCP_URL", "http://127.0.0.1:8765/mcp")
     async with Client(url) as client:
         tools = await client.list_tools()
-        names = {x.name for x in tools}
+        # MCP Client.list_tools() yields (tools, pagination_cursor) in this SDK.
+        tool_items = tools[0] if isinstance(tools, tuple) else getattr(tools, 'tools', tools)
+        names = {x.name for x in tool_items}
         expected = {"telegram_news2_status", "telegram_news2_publish_dry_run"}
         if not expected.issubset(names):
             raise RuntimeError("Missing MCP tools: " + str(sorted(expected - names)))
