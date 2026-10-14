@@ -113,6 +113,7 @@ from .metadata_audit import (
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
+from .local_transcript_sources import find_local_transcript
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -12808,15 +12809,9 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
-        nas_transcript = transcript_dir / f"{video_id}.srt"
-
-        if nas_transcript.exists():
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except Exception:
-                transcript_rows = []
+        transcript_rows, transcript_source = find_local_transcript(
+            transcript_dir, video_id,
+        )
 
         if not transcript_rows:
             try:
@@ -13339,21 +13334,16 @@ class MainWindow(QMainWindow):
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        transcript_file = transcript_dir / f"{video_id}.srt"
-        # A filename alone is insufficient: reject missing, unreadable and
-        # empty/corrupt SRTs before entering the online fallback path.
-        usable_local_transcript = False
-        if transcript_file.is_file():
-            try:
-                usable_local_transcript = bool(load_srt_transcript(transcript_file))
-            except (OSError, ValueError, UnicodeError):
-                usable_local_transcript = False
+        local_rows, local_source = find_local_transcript(
+            transcript_dir, video_id,
+        )
+        usable_local_transcript = bool(local_rows)
         if not usable_local_transcript:
             QMessageBox.information(
                 self,
                 "SEO: немає підтвердженого джерела",
                 "Для цього Video ID немає придатного SRT на NAS.\\n\\n"
-                f"Очікуваний файл: {transcript_file}\\n\\n"
+                f"Очікується {video_id}.srt або {video_id}.vtt у {transcript_dir}\\n\\n"
                 "Генерацію не запускали. YouTube не опитували, "
                 "наявні чернетки не змінено. "
                 "Оберіть відео з готовим SRT або додайте "
