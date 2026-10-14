@@ -13331,6 +13331,28 @@ class MainWindow(QMainWindow):
             return
         video_id = video_ids[0]
 
+        # Fast local preflight: do not issue YouTube subtitle requests if
+        # there is no NAS SRT bound to the selected published Video ID.
+        # The online fallback is intentionally disabled until an explicit
+        # user-controlled retry flow can handle 429 safely.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        transcript_file = transcript_dir / f"{video_id}.srt"
+        if not transcript_file.is_file():
+            QMessageBox.information(
+                self,
+                "SEO: немає підтвердженого джерела",
+                "Для цього Video ID немає локального SRT на NAS.\\n\\n"
+                f"Очікуваний файл: {transcript_file}\\n\\n"
+                "Генерацію не запускали. YouTube не опитували, "
+                "наявні чернетки не змінено. "
+                "Оберіть відео з готовим SRT або додайте "
+                "підтверджений текст у NAS.",
+            )
+            return
+
         def task():
             worker = getattr(self, "_local_tool_worker", None)
             def progress(message: str) -> None:
