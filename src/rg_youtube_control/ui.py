@@ -116,6 +116,7 @@ from .seo_evidence_gate import check_seo_evidence
 from .local_transcript_sources import find_local_transcript
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
+from .offline_source_config import local_seo_media_roots, local_whisper_model_dir
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13361,16 +13362,13 @@ class MainWindow(QMainWindow):
         )
         usable_local_transcript = bool(local_rows)
         media_path = None
-        model_dir = self.data_dir / "models" / "faster-whisper-large-v3"
+        model_dir = local_whisper_model_dir(self.data_dir)
         if not usable_local_transcript:
             # Only known local roots and exact video IDs; no recursive NAS
             # crawl or automatic download from YouTube.
             media_path = find_exact_local_media(
                 video_id,
-                [
-                    self.data_dir / "seo_media",
-                    transcript_dir / "media",
-                ],
+                local_seo_media_roots(self.data_dir, transcript_dir),
             )
             if media_path is None or not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
