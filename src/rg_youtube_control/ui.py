@@ -13056,6 +13056,26 @@ class MainWindow(QMainWindow):
             ),
         )
 
+        # Do not call subtitle endpoints for videos which have no local
+        # transcript. The available count is explicit rather than burning
+        # time on repeated 429/yt-dlp failures.
+        available_ids = [
+            video_id for video_id in candidate_ids
+            if find_local_transcript(transcript_dir, video_id)[0]
+        ]
+        missing_count = len(candidate_ids) - len(available_ids)
+        if candidate_ids and not available_ids:
+            QMessageBox.information(
+                self,
+                "Пакетне SEO: немає джерел",
+                f"Перевірено кандидатів: {len(candidate_ids)}.\\n"
+                f"Із локальними SRT/VTT: 0.\\n"
+                f"Без расшифровок: {missing_count}.\\n\\n"
+                "YouTube не опитували. Чернетки не змінено.",
+            )
+            return
+        candidate_ids = available_ids
+
         if not candidate_ids:
             QMessageBox.information(
                 self,
