@@ -1,0 +1,38 @@
+name: Telegram News 2 MCP Bridge CI
+on:
+  push:
+    branches:
+      - telegram-nas-news2-bridge-20261014
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        working-directory: rg_remote_mcp
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test]'
+      - name: Static syntax validation
+        run: |
+          python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
+      - name: Run MCP isolation and bridge tests
+        working-directory: rg_remote_mcp
+        run: python -m pytest -q
+      - name: Validate Compose structure
+        working-directory: rg_remote_mcp
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("docker-compose.yml").read_text()
+          assert text.count("/volume1/docker/RG_TELEGRAM_NEWS_2:") == 1
+          assert "/workspace/telegram_news_2:rw" in text
+          print("TELEGRAM_NEWS2_COMPOSE_MOUNT_PRESENT")
+          PY
