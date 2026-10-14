@@ -26,6 +26,8 @@ jobs:
       - name: Run MCP isolation and bridge tests
         working-directory: rg_remote_mcp
         run: python -m pytest -q
+      - name: Check NAS deployment script syntax
+        run: sh -n rg_remote_mcp/scripts/telegram_news2_targeted_cutover.sh
       - name: Validate Compose structure
         working-directory: rg_remote_mcp
         run: |
