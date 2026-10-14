@@ -8,8 +8,9 @@ def test_selected_seo_checks_nas_transcript_before_work():
     end = source.index("    def _save_local_seo_result(", begin)
     section = source[begin:end]
     assert 'transcript_file = transcript_dir / f"{video_id}.srt"' in section
-    assert "if not transcript_file.is_file():" in section
-    assert section.index("if not transcript_file.is_file():") < section.index("def task():")
+    assert "if not usable_local_transcript:" in section
+    assert "load_srt_transcript(transcript_file)" in section
+    assert section.index("if not usable_local_transcript:") < section.index("def task():")
     assert "Генерацію не запускали" in section
     assert "return" in section
 
