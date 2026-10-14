@@ -65,15 +65,21 @@ class FakeMessages:
 
 class FakePicker:
     chosen = ""
+    chosen_model = ""
 
     @classmethod
     def getOpenFileName(cls, *args, **kwargs):
         return cls.chosen, ""
 
+    @classmethod
+    def getExistingDirectory(cls, *args, **kwargs):
+        return cls.chosen_model
+
 
 @pytest.fixture
 def environment(monkeypatch, tmp_path):
     FakePicker.chosen = ""
+    FakePicker.chosen_model = ""
     FakeMessages.notices = []
     FakeMessages.confirmed = True
     monkeypatch.setattr(ui, "QMessageBox", FakeMessages)
@@ -155,3 +161,33 @@ def test_existing_srt_requires_no_model_or_file_picker(environment):
     assert environment.saved[0]["transcript_rows"]
     assert FakePicker.chosen == ""
     assert not FakeMessages.notices
+
+
+def test_manual_whisper_model_selection_remembered(environment):
+    media = environment.data_dir / "video-after-vidiq-rename.mp4"
+    media.write_bytes(b"video")
+    FakePicker.chosen = str(media)
+    model_dir = environment.data_dir / "separate-model"
+    model_dir.mkdir()
+    (model_dir / "model.bin").write_bytes(b"local-model")
+    FakePicker.chosen_model = str(model_dir)
+
+    def fake_transcribe(*, video_id, media, destination, model_dir):
+        assert model_dir == environment.data_dir / "separate-model"
+        target = Path(destination) / f"{video_id}.srt"
+        target.write_text(
+            "1\\n00:00:00,000 --> 00:00:01,000\\nТекст для SEO\\n",
+            encoding="utf-8",
+        )
+        return target
+
+    import rg_youtube_control.ui as ui
+    from pytest import MonkeyPatch
+    with MonkeyPatch.context() as patch:
+        patch.setattr(ui, "generate_srt_offline", fake_transcribe)
+        ui.MainWindow.local_seo_selected(environment)
+    assert len(environment.saved) == 1
+    assert (
+        (environment.data_dir / "whisper_model_dir.txt").read_text(encoding="utf-8")
+        == str(model_dir)
+    )
