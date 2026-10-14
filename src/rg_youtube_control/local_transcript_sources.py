@@ -20,8 +20,15 @@ def find_local_transcript(directory: Path, video_id: str) -> tuple[list[dict[str
     if len(video_id) != 11 or not all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in video_id):
         return [], ""
     root = Path(directory)
-    for extension in (".srt", ".vtt"):
-        path = root / (video_id + extension)
+    # yt-dlp and caption exporters commonly append language codes.
+    # Only explicit, exact-ID filenames are eligible (never fuzzy matches).
+    suffixes = (
+        "", ".uk", ".ru", ".en", ".uk-orig", ".ru-orig", ".en-orig",
+    )
+    for extension, suffix in (
+        (ext, lang) for lang in suffixes for ext in (".srt", ".vtt")
+    ):
+        path = root / (video_id + suffix + extension)
         try:
             if not path.is_file():
                 continue
