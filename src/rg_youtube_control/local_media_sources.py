@@ -34,3 +34,31 @@ def find_exact_local_media(video_id: str, roots: list[Path]) -> Path | None:
             except (OSError, ValueError):
                 continue
     return None
+
+
+def discover_title_candidates(video_title: str, roots: list[Path], *, limit: int = 5):
+    """Read-only top-level candidates; never automatically binds a media file.
+
+    Returns candidates for human confirmation. Exact ID matching remains the
+    only unattended path.
+    """
+    from difflib import SequenceMatcher
+    import re
+    def normalize(value: str) -> str:
+        return " ".join(re.findall(r"\w+", value.casefold(), flags=re.UNICODE))
+    wanted = normalize(video_title)
+    if not wanted:
+        return []
+    results = []
+    for root in roots:
+        try:
+            entries = list(Path(root).iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            if path.suffix.lower() not in MEDIA_EXTENSIONS or not path.is_file():
+                continue
+            score = SequenceMatcher(None, wanted, normalize(path.stem)).ratio()
+            if score >= 0.45:
+                results.append((round(score, 3), path))
+    return sorted(results, key=lambda row: (-row[0], str(row[1])))[:limit]
