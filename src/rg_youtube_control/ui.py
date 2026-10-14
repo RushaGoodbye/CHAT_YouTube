@@ -844,7 +844,7 @@ class ProgressMetricCard(QFrame):
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
-    progress = Signal(str)
+    progress = Signal(object)
 
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
@@ -12640,14 +12640,25 @@ class MainWindow(QMainWindow):
         def cleanup() -> None:
             self._local_tool_worker = None
 
-        worker.progress.connect(
-            lambda message: self._set_process(
-                label,
-                message,
-                percent=None,
-                eta="автоматичний retry",
-            )
-        )
+        def display_local_progress(message) -> None:
+            if isinstance(message, dict):
+                # Preserve true media progress; unknown duration stays indeterminate.
+                self._set_process(
+                    label,
+                    str(message.get("stage") or "Whisper"),
+                    percent=message.get("percent"),
+                    eta=str(message.get("eta") or "локально · 0 квоти"),
+                )
+            else:
+                self._set_process(
+                    label,
+                    str(message),
+                    percent=None,
+                    eta="автоматичний retry" if "Спроба " in str(message)
+                        else "локально · 0 квоти",
+                )
+
+        worker.progress.connect(display_local_progress)
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
         worker.finished.connect(cleanup)
@@ -13481,11 +13492,17 @@ class MainWindow(QMainWindow):
                 if worker is not None:
                     worker.progress.emit(message)
             if media_path is not None:
+                def whisper_progress(update: dict) -> None:
+                    active_worker = getattr(self, "_local_tool_worker", None)
+                    if active_worker is not None:
+                        active_worker.progress.emit(update)
+
                 generate_srt_offline(
                     video_id=video_id,
                     media=media_path,
                     destination=transcript_dir,
                     model_dir=model_dir,
+                    on_progress=whisper_progress,
                 )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress,
