@@ -25,3 +25,9 @@ rg-youtube-control = "rg_youtube_control.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+# Explicit opt-in: never bundled into the Windows desktop installer.
+[project.optional-dependencies]
+seo-embeddings = ["sentence-transformers>=3,<6"]
+seo-transcription = ["faster-whisper>=1.1,<2"]
+seo-topics = ["bertopic>=0.16,<1"]
+seo-diarization = ["whisperx>=3,<5"]
