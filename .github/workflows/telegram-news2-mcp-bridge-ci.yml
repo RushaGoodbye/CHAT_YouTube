@@ -46,6 +46,17 @@ jobs:
           assert '"image_verified":False' in s
           assert "sqlite3.connect(uri,uri=True" in s
           PY
+      - name: Network preflight syntax and no-send guard
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_one_card_network_preflight_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_news2_one_card_network_preflight_v1.py").read_text()
+          assert '/getWebhookInfo' in s
+          assert '/getUpdates' not in s
+          assert '/sendPhoto' not in s
+          assert 'mode=ro' in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
