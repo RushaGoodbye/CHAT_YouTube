@@ -194,7 +194,8 @@ jobs:
           if ($process.ExitCode -ne 0 -or $proof.status -ne "PASS") {
             throw "Installed app selftest FAILED: exit=$($process.ExitCode)"
           }
-          if (@($proof.checks).Count -lt 5) { throw "Incomplete packaged smoke proof" }
+          if (@($proof.checks).Count -lt 6) { throw "Incomplete packaged smoke proof" }
+          if (@($proof.checks) -notcontains "silero-vad-onnx-real-inference") { throw "Silero VAD inference proof missing" }
 
       - name: Publish GitHub release (optional)
         continue-on-error: true
