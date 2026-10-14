@@ -154,6 +154,17 @@ jobs:
           assert '"activation_allowed":False' in s
           assert '"telegram_polls":0' in s
           PY
+      - name: Live worker attestation safety
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_news2_live_worker_attestation_v2.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('rg_remote_control/nas/rg_news2_live_worker_attestation_v2.py').read_text()
+          assert "'deployed_receipt_written':False" in s
+          assert "'nas_gate_opened':False" in s
+          assert "'independent_polling_exclusivity_proven':False" in s
+          assert 'urlopen' in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
