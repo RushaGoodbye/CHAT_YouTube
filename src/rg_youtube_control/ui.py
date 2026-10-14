@@ -116,7 +116,7 @@ from .seo_evidence_gate import check_seo_evidence
 from .local_transcript_sources import find_local_transcript
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
-from .offline_source_config import local_seo_media_roots, local_whisper_model_dir
+from .offline_source_config import local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir
 from .verified_media_registry import get_verified_media, save_verified_media
 from .historical_media_candidates import historical_media_candidates
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
@@ -13443,6 +13443,27 @@ class MainWindow(QMainWindow):
                     "не підтверджена. Генерацію не запускали.",
                 )
                 return
+            if not (model_dir / "model.bin").is_file():
+                # Ask only when an actual source is confirmed. This is an
+                # explicit user selection, not a model download or scan.
+                chosen_model = QFileDialog.getExistingDirectory(
+                    self,
+                    "Оберіть папку faster-whisper з model.bin",
+                    str(model_dir.parent),
+                )
+                if chosen_model:
+                    try:
+                        model_dir = remember_whisper_model_dir(
+                            self.data_dir, Path(chosen_model),
+                        )
+                    except (OSError, ValueError):
+                        QMessageBox.warning(
+                            self,
+                            "Whisper: невірна папка",
+                            "У вибраній папці не знайдено model.bin. "
+                            "Потрібна модель у форматі faster-whisper.",
+                        )
+                        return
             if not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
                     self,
