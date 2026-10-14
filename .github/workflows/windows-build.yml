@@ -69,6 +69,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --windowed --onedir `
             --name "RG YouTube Control" `
+            --collect-data faster_whisper `
             --paths src run_app.py
 
       - name: Verify packaged offline transcription
@@ -80,6 +81,17 @@ jobs:
           $ct2 = Get-ChildItem -Path $internal -Recurse -Filter "*ctranslate2*" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $ct2) { throw "ctranslate2 was not included in the Windows application" }
           Write-Host "Packaged transcription runtime detected: $($ct2.FullName)"
+          # Silero VAD ONNX is package DATA, not a Python/DLL import.
+          # Runtime transcription with vad_filter=True must have this asset.
+          $vad = Join-Path $internal "faster_whisper/assets/silero_vad_v6.onnx"
+          if (-not (Test-Path $vad -PathType Leaf)) {
+            throw "VAD ONNX model missing from Windows application: $vad"
+          }
+          if ((Get-Item $vad).Length -lt 100000) {
+            throw "VAD ONNX model incomplete: $vad"
+          }
+          Write-Host "Bundled Silero VAD asset verified: $vad"
+
 
       - name: Install Inno Setup
         shell: pwsh
