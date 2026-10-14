@@ -14,3 +14,13 @@ def test_local_seo_confirms_and_saves_historical_match():
     assert "save_verified_media(" in block
     assert block.index("save_verified_media(") < block.index("generate_srt_offline(")
     assert "youtube.update" not in block
+
+
+def test_manual_media_selection_for_renamed_originals():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    start = source.index("    def local_seo_selected(")
+    end = source.index("    def _save_local_seo_result(", start)
+    block = source[start:end]
+    assert "QFileDialog.getOpenFileName(" in block
+    assert "if reply == QMessageBox.StandardButton.Yes:" in block
+    assert "save_verified_media(" in block
