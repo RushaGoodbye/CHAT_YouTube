@@ -107,6 +107,20 @@ jobs:
           assert '"telegram_polls":0' in s
           assert '"telegram_sends":0' in s
           PY
+      - name: Hybrid selective Cron stage safety
+        run: |
+          python -m py_compile rg_remote_control/nas/rg_telegram_hybrid_stage1_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("rg_remote_control/nas/rg_telegram_hybrid_stage1_v1.py").read_text()
+          assert 'choices=("check","apply")' in s
+          assert 'if actual[SCANNER]!=[]' in s
+          assert 'if c.get_scanner_owner(token)!="nas"' in s
+          assert 'full_pause_marker_kept=True' in s
+          assert 'for name in NAMES' in s
+          assert '"GET"' in s and '"PUT"' in s
+          assert '.unlink(' not in s
+          PY
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
