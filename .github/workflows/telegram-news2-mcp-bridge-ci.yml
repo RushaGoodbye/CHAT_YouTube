@@ -33,6 +33,8 @@ jobs:
           PY
       - name: News2 read-only readiness syntax
         run: python -m py_compile rg_remote_control/nas/rg_news2_moderation_readiness_v1.py
+      - name: Fresh photo shortlist syntax
+        run: python -m py_compile rg_remote_control/nas/rg_news2_fresh_photo_candidates_ro_v1.py
       - name: Static syntax validation
         run: |
           python -m compileall -q rg_remote_mcp/rg_remote_mcp rg_remote_mcp/tests
