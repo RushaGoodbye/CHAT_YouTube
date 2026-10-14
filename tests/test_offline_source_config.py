@@ -8,7 +8,9 @@ def test_media_path_can_be_configured(monkeypatch, tmp_path):
     monkeypatch.setenv("RG_SEO_MEDIA_DIR", str(tmp_path / "my_media"))
     roots = local_seo_media_roots(tmp_path / "data", tmp_path / "transcripts")
     assert roots[0] == tmp_path / "my_media"
-    assert roots[1:] == [tmp_path / "data" / "seo_media", tmp_path / "transcripts" / "media"]
+    assert roots[1:3] == [tmp_path / "data" / "seo_media", tmp_path / "transcripts" / "media"]
+    if __import__("os").name == "nt":
+        assert any("RUSHA GOODBYE" in str(root) for root in roots[3:])
 
 
 def test_model_dir_override(monkeypatch, tmp_path):
