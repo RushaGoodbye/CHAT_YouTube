@@ -22,3 +22,14 @@ def test_existing_draft_is_not_modified_by_preflight():
     section = source[begin:end]
     assert "save_optimization_draft(" not in section
     assert "youtube.update" not in section
+
+
+def test_batch_only_attempts_available_local_transcripts():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    begin = source.index("    def local_seo_batch(")
+    end = source.index("    def _save_local_seo_batch(", begin)
+    block = source[begin:end]
+    assert "available_ids = [" in block
+    assert "if find_local_transcript(transcript_dir, video_id)[0]" in block
+    assert "candidate_ids = available_ids" in block
+    assert block.index("candidate_ids = available_ids") < block.index("def task():")
