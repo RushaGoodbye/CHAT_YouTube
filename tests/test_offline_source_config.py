@@ -21,3 +21,8 @@ def test_empty_config_preserves_defaults(monkeypatch, tmp_path):
     monkeypatch.delenv("RG_SEO_WHISPER_MODEL_DIR", raising=False)
     assert local_seo_media_roots(tmp_path, tmp_path)[0] == tmp_path / "seo_media"
     assert local_whisper_model_dir(tmp_path) == tmp_path / "models" / "faster-whisper-large-v3"
+
+
+def test_confirmed_windows_media_directory_is_configured():
+    source = Path("src/rg_youtube_control/offline_source_config.py").read_text(encoding="utf-8")
+    assert r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube" in source
