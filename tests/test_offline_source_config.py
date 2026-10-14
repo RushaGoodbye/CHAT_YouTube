@@ -26,5 +26,11 @@ def test_empty_config_preserves_defaults(monkeypatch, tmp_path):
 
 
 def test_confirmed_windows_media_directory_is_configured():
+    import os
     source = Path("src/rg_youtube_control/offline_source_config.py").read_text(encoding="utf-8")
-    assert r"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube" in source
+    assert "r\"D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube\"" in source
+    if os.name == "nt":
+        monkey = __import__("unittest.mock", fromlist=["patch"])
+        from rg_youtube_control.offline_source_config import local_seo_media_roots
+        roots = local_seo_media_roots(Path("C:/temp/app"), Path("C:/temp/srt"))
+        assert Path("D:\\YOUTUBE\\RUSHA GOODBYE\\Раша GOODBYE\\ГОТОВО\\YouTube") in roots
