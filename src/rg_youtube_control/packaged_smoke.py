@@ -33,9 +33,25 @@ def run_packaged_selftest(report_file: Path) -> int:
         vad = get_vad_model()  # Instantiates real ONNX Runtime session.
         if vad is None:
             raise RuntimeError("Silero VAD ONNX model could not be loaded")
+        # PyAV/FFmpeg decoding runs before Whisper and can fail if shared
+        # libraries are omitted from the installed Windows application.
+        import wave
+        from faster_whisper.audio import decode_audio
+        with tempfile.TemporaryDirectory(prefix="rg-wav-decode-") as decode_dir:
+            sample = Path(decode_dir) / "silence.wav"
+            with wave.open(str(sample), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(16_000)
+                writer.writeframes(np.zeros(16_000, dtype=np.int16).tobytes())
+            decoded = decode_audio(str(sample), sampling_rate=16_000)
+            if len(decoded) != 16_000 or not np.isfinite(decoded).all():
+                raise AssertionError("Packaged audio decoder produced invalid waveform")
+        report["checks"].append("packaged-pyav-audio-decoding")
+
         timestamps = get_speech_timestamps(
-            np.zeros(16_000, dtype=np.float32),
-        )  # Real ONNX inference, not the synthetic Whisper factory.
+            decoded,
+        )  # Real VAD inference on actual decoded audio.
         if timestamps:
             raise AssertionError("Silence incorrectly classified as speech")
         report["checks"].append("silero-vad-onnx-real-inference")
