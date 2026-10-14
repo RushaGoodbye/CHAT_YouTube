@@ -1,0 +1,139 @@
+name: RG YouTube Repair (proposal on AlexPC, test on hosted runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: "Test recovery of an artificial fingerprint bug; no production patch"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-youtube-safe-proposal
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.repository == 'RushaGoodbye/CHAT_YouTube'
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 20
+    outputs:
+      has_candidate: ${{ steps.proposal.outputs.has_candidate }}
+      source_sha: ${{ steps.proposal.outputs.source_sha }}
+      is_drill: ${{ steps.proposal.outputs.is_drill }}
+    steps:
+      - name: Checkout trusted SEO source without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare isolated interpreter and verify local Ollama
+        shell: pwsh
+        run: |
+          $probe = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5
+          if (-not (@($probe.models.name) | Where-Object { $_ -like 'qwen3:8b*' })) {
+            throw "qwen3:8b is not available on AlexPC"
+          }
+          python -m venv .venv
+          $py = ".\.venv\Scripts\python.exe"
+          & $py -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Installing isolated test dependencies failed" }
+      - name: Generate JSON candidate only (NEVER run model code on AlexPC)
+        id: proposal
+        shell: pwsh
+        run: |
+          $drill = '${{ inputs.drill }}' -eq 'true'
+          $py = ".\.venv\Scripts\python.exe"
+          if ($drill) {
+            & $py -u scripts/rg_youtube_proposal_only.py --drill
+          } else {
+            & $py -u scripts/rg_youtube_proposal_only.py
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Local proposal generation blocked or failed" }
+          $report = Get-Content rg_youtube_proposed_candidate.json -Raw | ConvertFrom-Json
+          if ($report.status -notin @('NO_CHANGE', 'PROPOSED_UNVERIFIED')) {
+            throw "Unexpected proposal status: $($report.status)"
+          }
+          $has = if ($report.status -eq 'PROPOSED_UNVERIFIED') { 'true' } else { 'false' }
+          "has_candidate=$has" >> $env:GITHUB_OUTPUT
+          # Check source bytes without Git CLI; checkout commit is pinned above.
+          $check = @'
+          import hashlib
+          import json
+          from pathlib import Path
+          result = json.loads(Path("rg_youtube_proposed_candidate.json").read_text(encoding="utf-8"))
+          for relative, expected in result["base_sha256"].items():
+              current = hashlib.sha256(Path(relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+              if current != expected:
+                  raise SystemExit("BLOCKED: proposal modified trusted checkout: " + relative)
+          print("SOURCE HASH INTEGRITY: PASS")
+          '@
+          $check | & $py -
+          if ($LASTEXITCODE -ne 0) { throw "Source integrity check failed" }
+          "source_sha=${{ github.sha }}" >> $env:GITHUB_OUTPUT
+          "is_drill=$($drill.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+      - name: Upload unexecuted AI proposal
+        if: steps.proposal.outputs.has_candidate == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-unverified-proposal
+          path: rg_youtube_proposed_candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: propose
+    if: needs.propose.outputs.has_candidate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source commit used for AI proposal
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.propose.outputs.source_sha }}
+          persist-credentials: false
+      - name: Install Qt/EGL libraries for headless tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon-x11-0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install project requirements
+        run: python -m pip install -r requirements.txt
+      - name: Download unexecuted proposal
+        uses: actions/download-artifact@v4
+        with:
+          name: rg-youtube-unverified-proposal
+          path: .
+      - name: Test AI code only on disposable GitHub-hosted runner
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/rg_youtube_validate_proposal.py
+      - name: Create candidate patch for human review
+        if: success() && needs.propose.outputs.is_drill != 'true'
+        run: |
+          git diff --binary -- src/rg_youtube_control/rejected_seo.py src/rg_youtube_control/seo_quality_gate.py > rg_youtube_proposed_repair.patch
+          test -s rg_youtube_proposed_repair.patch
+      - name: Upload candidate patch for human review
+        if: success() && needs.propose.outputs.is_drill != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-validated-patch-review-only
+          path: rg_youtube_proposed_repair.patch
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload hosted validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-youtube-hosted-validation-report
+          path: rg_youtube_hosted_validation.json
+          if-no-files-found: ignore
+          retention-days: 14
