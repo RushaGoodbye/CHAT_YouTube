@@ -13070,7 +13070,7 @@ class MainWindow(QMainWindow):
                 "Пакетне SEO: немає джерел",
                 f"Перевірено кандидатів: {len(candidate_ids)}.\\n"
                 f"Із локальними SRT/VTT: 0.\\n"
-                f"Без расшифровок: {missing_count}.\\n\\n"
+                f"Без транскриптів: {missing_count}.\\n\\n"
                 "YouTube не опитували. Чернетки не змінено.",
             )
             return
