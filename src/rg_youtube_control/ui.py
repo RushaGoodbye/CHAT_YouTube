@@ -114,7 +114,7 @@ from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
 from .local_transcript_sources import find_local_transcript
-from .local_media_sources import find_exact_local_media, discover_title_candidates
+from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
 from .offline_source_config import local_seo_media_roots, local_whisper_model_dir
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
@@ -13370,37 +13370,6 @@ class MainWindow(QMainWindow):
                 video_id,
                 local_seo_media_roots(self.data_dir, transcript_dir),
             )
-            if media_path is None:
-                # Title matches are suggestions only. Never associate or
-                # transcribe a guessed file without an explicit selection.
-                import sqlite3
-                with sqlite3.connect(
-                    str(self.data_dir / "rg_youtube_control.db")
-                ) as title_conn:
-                    title_row = title_conn.execute(
-                        "SELECT title FROM videos WHERE video_id=? AND profile=?",
-                        (video_id, self.current_profile),
-                    ).fetchone()
-                video_title = str(title_row[0] or "") if title_row else ""
-                candidates = discover_title_candidates(
-                    video_title,
-                    local_seo_media_roots(self.data_dir, transcript_dir),
-                )
-                if candidates:
-                    labels = [
-                        f"{score:.0%} · {file.name}" for score, file in candidates
-                    ]
-                    selection, accepted = QInputDialog.getItem(
-                        self,
-                        "Підтвердіть вихідне відео",
-                        "Знайдено схожі назви. Виберіть файл лише якщо "
-                        "це справді відповідний ролик:",
-                        labels,
-                        0,
-                        False,
-                    )
-                    if accepted and selection in labels:
-                        media_path = candidates[labels.index(selection)][1]
             if media_path is None or not (model_dir / "model.bin").is_file():
                 QMessageBox.information(
                     self,
