@@ -13,3 +13,5 @@ def test_whisper_in_windows_runtime_requirements():
 def test_whisper_import_checked_during_windows_build():
     workflow = Path(".github/workflows/windows-build.yml").read_text(encoding="utf-8")
     assert "import faster_whisper" in workflow
+    assert "Verify packaged offline transcription" in workflow
+    assert "ctranslate2 was not included" in workflow
