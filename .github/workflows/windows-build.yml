@@ -71,6 +71,16 @@ jobs:
             --name "RG YouTube Control" `
             --paths src run_app.py
 
+      - name: Verify packaged offline transcription
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $internal = "dist/RG YouTube Control/_internal"
+          if (-not (Test-Path $internal)) { throw "PyInstaller runtime missing" }
+          $ct2 = Get-ChildItem -Path $internal -Recurse -Filter "*ctranslate2*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ct2) { throw "ctranslate2 was not included in the Windows application" }
+          Write-Host "Packaged transcription runtime detected: $($ct2.FullName)"
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
