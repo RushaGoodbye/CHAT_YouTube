@@ -2,8 +2,8 @@
 # RG Telegram News2 MCP cutover: explicit preflight, opt-in apply, targeted rollback.
 set -eu
 DOCKER=/usr/local/bin/docker
-BRANCH=telegram-nas-news2-bridge-20261014
-REPO=https://github.com/RushaGoodbye/CHAT_YouTube.git
+SOURCE_SHA=cfce8f53685781c376b2267ea99832d50622496d
+ARCHIVE_URL=https://codeload.github.com/RushaGoodbye/CHAT_YouTube/tar.gz/$SOURCE_SHA
 STAGE=/volume1/docker/RG_NAS_MCP_NEWS2_STAGE
 BASE=/volume1/docker/RG_NAS_MCP
 WORK=$STAGE/rg_remote_mcp
@@ -30,19 +30,20 @@ preflight)
   ;;
 apply)
   test "${RG_EXPLICIT_APPLY:-}" = "YES" || { echo "STOP: set RG_EXPLICIT_APPLY=YES"; exit 25; }
-  command -v git >/dev/null 2>&1 || { echo "STOP: git missing on NAS"; exit 29; }
-  mkdir -p "$STAGE"
-  if test ! -d "$STAGE/.git"; then
-    git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE"
-  else
-    git -C "$STAGE" fetch --depth 1 origin "$BRANCH"
-    git -C "$STAGE" checkout -f FETCH_HEAD
+  command -v curl >/dev/null 2>&1 || { echo "STOP: curl missing"; exit 29; }
+  command -v tar >/dev/null 2>&1 || { echo "STOP: tar missing"; exit 29; }
+  # Keep staging directory after deployment: Docker Compose labels reference it.
+  test ! -e "$STAGE" || { echo "STOP: staging already exists; inspect before retry"; exit 30; }
+  mkdir -p "$STAGE/unpacked"
+  if ! curl -fLSs --retry 2 --max-time 120 "$ARCHIVE_URL" -o "$STAGE/source.tar.gz"; then
+    echo "STOP: source archive download failed"; exit 31
   fi
-  test -f "$WORK/docker-compose.yml" || { echo "STOP: staged compose missing"; exit 26; }
+  tar -xzf "$STAGE/source.tar.gz" -C "$STAGE/unpacked"
+  WORK="$STAGE/unpacked/CHAT_YouTube-$SOURCE_SHA/rg_remote_mcp"
+  test -f "$WORK/docker-compose.yml" || { echo "STOP: downloaded Compose missing"; exit 26; }
   cd "$WORK"
   "$DOCKER" compose -p "$PROJECT" config >/dev/null
-  # Pin the reviewed branch state before any build; log the exact commit.
-  git -C "$STAGE" rev-parse HEAD
+  echo "PINNED_SOURCE=$SOURCE_SHA"
   # Builds images without touching the production containers.
   "$DOCKER" compose -p "$PROJECT" build hub telegram-worker
   # Apply targeted services only; never recreate YouTube or Auto Edit worker.
