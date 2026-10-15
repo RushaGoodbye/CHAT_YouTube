@@ -8,9 +8,11 @@ def test_selected_seo_checks_nas_transcript_before_work():
     end = source.index("    def _save_local_seo_result(", begin)
     section = source[begin:end]
     assert "find_local_transcript(" in section
-    assert "if not usable_local_transcript:" in section
+    assert "if not usable_local_transcript and media_path is None:" in section
+    assert "repairing_wrong_source = True" in section
+    assert "confirmed_dir = self.data_dir / \"seo_verified_transcripts\"" in section
     assert "usable_local_transcript = bool(local_rows)" in section
-    assert section.index("if not usable_local_transcript:") < section.index("def task():")
+    assert section.index("if not usable_local_transcript and media_path is None:") < section.index("def task():")
     assert "SEO: відсутня модель Whisper" in section
     assert "SEO: вихідний файл не обрано" in section
     assert "fetch_transcript(" not in section
