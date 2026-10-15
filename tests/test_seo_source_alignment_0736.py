@@ -127,3 +127,92 @@ def test_internal_validation_runs_before_preview_and_save():
     assert fn.index("title_alignment = check_title_variants_against_primary_subject(") < fn.index(
         'return {\n            "video_id"'
     )
+
+
+def test_source_repair_uses_separate_local_srt_and_keeps_original_nas(tmp_path, monkeypatch):
+    """No destructive overwrite of an incorrectly named NAS SRT."""
+    import rg_youtube_control.ui as ui
+    from rg_youtube_control.free_tools import load_srt_transcript
+
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    old_srt = nas / f"{VIDEO_ID}.srt"
+    original_content = (
+        "1\n00:00:00,000 --> 00:00:05,000\n"
+        "Разговор о Чечне и Дагестане, без иных тем.\n"
+    )
+    old_srt.write_text(original_content, encoding="utf-8")
+
+    media = tmp_path / "renamed-vidiq-original.mp4"
+    media.write_bytes(b"video")
+    model = tmp_path / "whisper-model"
+    model.mkdir()
+    (model / "model.bin").write_bytes(b"model")
+    monkeypatch.setenv("RG_SEO_WHISPER_MODEL_DIR", str(model))
+
+    class Messages:
+        class StandardButton:
+            Yes = 1
+            No = 2
+        @classmethod
+        def question(cls, *args, **kwargs):
+            return cls.StandardButton.Yes
+        @classmethod
+        def information(cls, *args, **kwargs):
+            raise AssertionError("No information dialog expected")
+        @classmethod
+        def warning(cls, *args, **kwargs):
+            raise AssertionError("No warning expected")
+
+    class Picker:
+        @classmethod
+        def getOpenFileName(cls, *args, **kwargs):
+            return str(media), ""
+        @classmethod
+        def getExistingDirectory(cls, *args, **kwargs):
+            return str(model)
+
+    class Window:
+        data_dir = tmp_path
+        current_profile = "main"
+        saved = None
+        conn = SimpleNamespace(execute=lambda *args: SimpleNamespace(
+            fetchone=lambda: {"title": TITLE},
+        ))
+
+        def _selected_optimization_video_ids(self):
+            return [VIDEO_ID]
+
+        def _nas_path(self, *args):
+            return nas
+
+        def _generate_local_seo_result(self, video_id, *, on_progress=None):
+            repaired = self.data_dir / "seo_verified_transcripts" / f"{video_id}.srt"
+            rows = load_srt_transcript(repaired)
+            assert rows and "Шойгу" in rows[0]["text"]
+            return {"video_id": video_id}
+
+        def _save_local_seo_result(self, result):
+            self.saved = result
+
+        def _run_local_tool(self, label, task, callback):
+            callback(task())
+
+    def fake_whisper(*, video_id, media, destination, model_dir, on_progress=None):
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / f"{video_id}.srt"
+        path.write_text(
+            "1\n00:00:00,000 --> 00:00:05,000\n"
+            "Шойгу обсуждают после смены должности.\n",
+            encoding="utf-8",
+        )
+        return path
+
+    monkeypatch.setattr(ui, "QMessageBox", Messages)
+    monkeypatch.setattr(ui, "QFileDialog", Picker)
+    monkeypatch.setattr(ui, "generate_srt_offline", fake_whisper)
+    stub = Window()
+    ui.MainWindow.local_seo_selected(stub)
+    assert stub.saved == {"video_id": VIDEO_ID}
+    assert old_srt.read_text(encoding="utf-8") == original_content
+    assert (tmp_path / "seo_verified_transcripts" / f"{VIDEO_ID}.srt").exists()
