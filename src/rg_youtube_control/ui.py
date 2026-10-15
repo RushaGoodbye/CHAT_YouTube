@@ -13615,7 +13615,8 @@ class MainWindow(QMainWindow):
             self.data_dir / "verified_media.json", video_id, proposed,
         )
         self._seo_pending_media_repair = (video_id, proposed)
-        QTimer.singleShot(0, self.local_seo_selected)
+        # The background finder may still be finishing its QThread cleanup.
+        QTimer.singleShot(300, self.local_seo_selected)
 
     def local_seo_selected(self) -> None:
         video_ids = self._selected_optimization_video_ids()
