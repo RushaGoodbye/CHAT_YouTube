@@ -7,11 +7,12 @@ import os
 import re
 import sys
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -112,6 +113,20 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_evidence_gate import check_seo_evidence
+from .seo_source_alignment import (
+    check_title_against_transcript,
+    check_title_variants_against_primary_subject,
+)
+from .seo_original_quote_recovery import recover_omitted_named_quotes
+from .local_transcript_sources import find_local_transcript
+from .verified_text_import import load_verified_text, import_verified_text
+from .nas_srt_index import scan_nas_srt_ids
+from .local_media_sources import find_exact_local_media
+from .offline_transcription import generate_srt_offline
+from .offline_source_config import local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir
+from .verified_media_registry import get_verified_media, save_verified_media
+from .historical_media_candidates import historical_media_candidates
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -837,7 +852,7 @@ class ProgressMetricCard(QFrame):
 class LocalToolWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
-    progress = Signal(str)
+    progress = Signal(object)
 
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
@@ -851,6 +866,8 @@ class LocalToolWorker(QThread):
 
 
 class MainWindow(QMainWindow):
+    nas_srt_scanned = Signal(object)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -858,6 +875,11 @@ class MainWindow(QMainWindow):
         self.data_dir = app_data_dir()
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
         self.current_profile = get_setting(self.conn, "current_profile", "main")
+        # Network-drive transcript presence is never probed on the GUI thread.
+        self._nas_srt_path = ""
+        self._nas_srt_ids = None
+        self._nas_srt_scanning = False
+        self.nas_srt_scanned.connect(self._receive_nas_srt_index)
         self.advanced_mode = get_setting(
             self.conn,
             "ui_advanced_mode",
@@ -925,6 +947,59 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(10000, self.run_background_maintenance)
         QTimer.singleShot(9000, self._resume_saved_workflow)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
+
+    def _start_nas_srt_index(self) -> None:
+        """Enumerate NAS transcript names outside the Qt event loop."""
+        target = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        if self._nas_srt_scanning or target == self._nas_srt_path:
+            return
+        self._nas_srt_scanning = True
+
+        def scan() -> None:
+            # Daemon worker does not delay shutdown if a network drive is down.
+            # SQLite and widgets are accessed exclusively on the GUI thread.
+            ids = scan_nas_srt_ids(Path(target))
+            try:
+                self.nas_srt_scanned.emit((target, ids))
+            except RuntimeError:
+                pass  # Window closed during a stalled NAS lookup.
+
+        threading.Thread(
+            target=scan, daemon=True, name="rg-nas-srt-index",
+        ).start()
+
+    @Slot(object)
+    def _receive_nas_srt_index(self, payload: object) -> None:
+        """Update the transcript column only, on the GUI thread."""
+        self._nas_srt_scanning = False
+        scanned_path, ids = payload
+        current_path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        if scanned_path != current_path:
+            self._nas_srt_path = ""
+            self._nas_srt_ids = None
+            QTimer.singleShot(0, self._start_nas_srt_index)
+            return
+
+        self._nas_srt_path = scanned_path
+        self._nas_srt_ids = ids
+        table = self.optimization_table
+        for row_number in range(table.rowCount()):
+            video_item = table.item(row_number, 3)
+            status_item = table.item(row_number, 7)
+            if video_item is None or status_item is None:
+                continue
+            video_id = str(
+                video_item.data(Qt.ItemDataRole.UserRole) or video_item.text()
+            )
+            found = isinstance(ids, set) and video_id in ids
+            status_item.setText("NAS" if found else "")
+            if found:
+                status_item.setForeground(QColor(SUCCESS))
+                status_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _startup_load_videos(self) -> None:
         self.statusBar().showMessage("Завантаження відео…")
@@ -8904,18 +8979,21 @@ class MainWindow(QMainWindow):
                 )
             )
 
+        # Fast cached lookup: network drives are never probed per video.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        transcript_ids = (
+            self._nas_srt_ids
+            if self._nas_srt_path == str(transcript_dir) else None
+        )
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
-            transcript_dir = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
             transcript_status = (
-                "NAS"
-                if (transcript_dir / f"{row['video_id']}.srt").exists()
-                else ""
+                "NAS" if isinstance(transcript_ids, set)
+                and str(row["video_id"]) in transcript_ids else ""
             )
             draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
@@ -9085,6 +9163,8 @@ class MainWindow(QMainWindow):
         self._update_optimization_context_card()
         self.update_dashboard()
         self.refresh_archive_dashboard()
+        if self._nas_srt_path != str(transcript_dir) and not self._nas_srt_scanning:
+            QTimer.singleShot(0, self._start_nas_srt_index)
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
@@ -9936,14 +10016,31 @@ class MainWindow(QMainWindow):
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
-            evidence_label = QLabel(
-                f"Переглянуто ВСІ часові фрагменти: {total}; "
-                f"з доказовими цитатами: {verified}/{total}. "
-                "Межі діалогів не визначаються без розмітки. "
-                "Перевірте повноту тем до підтвердження."
-            )
+            if evidence_report.get("untimed"):
+                evidence_label = QLabel(
+                    f"Проаналізовано текстові блоки: {total}; "
+                    f"з доказовими цитатами: {verified}/{total}. "
+                    "Часових міток немає: блоки НЕ є таймкодами відео. "
+                    "Розділи YouTube не створюються. Лише чернетка."
+                )
+            else:
+                evidence_label = QLabel(
+                    f"Переглянуто ВСІ часові фрагменти: {total}; "
+                    f"з доказовими цитатами: {verified}/{total}. "
+                    "Межі діалогів не визначаються без розмітки. "
+                    "Перевірте повноту тем до підтвердження."
+                )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
+            if evidence_report.get("source_anchor_recovery"):
+                source_warning = QLabel(
+                    "УВАГА: модель пропустила основну тему, але її "
+                    "дослівну цитату знайдено в оригінальному "
+                    "транскрипті. Перевірте зміст цитати перед "
+                    "збереженням SEO-чернетки."
+                )
+                source_warning.setWordWrap(True)
+                layout.addWidget(source_warning)
             evidence_details = QPlainTextEdit()
             evidence_details.setReadOnly(True)
             evidence_details.setMaximumHeight(126)
@@ -12633,14 +12730,25 @@ class MainWindow(QMainWindow):
         def cleanup() -> None:
             self._local_tool_worker = None
 
-        worker.progress.connect(
-            lambda message: self._set_process(
-                label,
-                message,
-                percent=None,
-                eta="автоматичний retry",
-            )
-        )
+        def display_local_progress(message) -> None:
+            if isinstance(message, dict):
+                # Preserve true media progress; unknown duration stays indeterminate.
+                self._set_process(
+                    label,
+                    str(message.get("stage") or "Whisper"),
+                    percent=message.get("percent"),
+                    eta=str(message.get("eta") or "локально · 0 квоти"),
+                )
+            else:
+                self._set_process(
+                    label,
+                    str(message),
+                    percent=None,
+                    eta="автоматичний retry" if "Спроба " in str(message)
+                        else "локально · 0 квоти",
+                )
+
+        worker.progress.connect(display_local_progress)
         worker.succeeded.connect(success)
         worker.failed.connect(failed)
         worker.finished.connect(cleanup)
@@ -12807,15 +12915,22 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
-        nas_transcript = transcript_dir / f"{video_id}.srt"
-
-        if nas_transcript.exists():
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except Exception:
-                transcript_rows = []
+        # A user-confirmed replacement transcript takes priority over an
+        # old NAS SRT that may have been attached to the wrong video ID.
+        corrected_dir = self.data_dir / "seo_verified_transcripts"
+        transcript_rows, transcript_source = load_verified_text(
+            self.data_dir, video_id,
+        )
+        if not transcript_rows:
+            transcript_rows, transcript_source = find_local_transcript(
+                corrected_dir, video_id,
+            )
+            if transcript_rows:
+                transcript_source = "local-confirmed-" + transcript_source
+            else:
+                transcript_rows, transcript_source = find_local_transcript(
+                    transcript_dir, video_id,
+                )
 
         if not transcript_rows:
             try:
@@ -12860,6 +12975,8 @@ class MainWindow(QMainWindow):
         ) if transcript_rows else ""
 
         context["transcript_source"] = transcript_source
+        if transcript_source == "manual-confirmed-untimed-text":
+            context["untimed_transcript_review_only"] = True
         if public_metadata_error:
             # Technical warning for the preview/audit, NOT a model fact.
             context["metadata_fetch_warning"] = (
@@ -12883,6 +13000,28 @@ class MainWindow(QMainWindow):
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
 
+        # An exact-ID NAS filename does not establish correspondence to
+        # the published video. Detect obvious subject mismatches BEFORE the
+        # expensive per-block Ollama analysis. Never use a generated summary
+        # as evidence that the original SRT mentions the named subject.
+        full_source_text = " ".join(
+            str(row.get("text") or "") for row in transcript_rows
+            if isinstance(row, dict)
+        )
+        source_alignment = check_title_against_transcript(
+            current_title, full_source_text,
+        )
+        if source_alignment.missing:
+            raise RuntimeError(
+                "SEO зупинено: транскрипт не підтверджує головну тему назви "
+                f"({', '.join(source_alignment.missing)}). "
+                f"Джерело: {transcript_source or 'невідоме'}, "
+                f"Video ID: {video_id}. "
+                "Можливо, до ID прив'язано SRT іншого відео, або чинна "
+                "назва не відповідає змісту. Звірте саме відео і "
+                "транскрипт перед повтором. SRT та YouTube не змінено."
+            )
+
         # Complete timeline analysis runs only in manual single-video mode.
         # Batch remains lightweight and review-only until the full workflow
         # has been independently validated on archive videos.
@@ -12896,10 +13035,50 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
+            if transcript_source == "manual-confirmed-untimed-text":
+                evidence_report["untimed"] = True
             if evidence_report["blocks_with_evidence"] == 0:
                 raise RuntimeError(
                     "Модель не підтвердила жодної теми цитатами з транскрипту. "
                     "SEO-пакет не створено, оригінальні дані збережено."
+                )
+            verified_quotes = " ".join(
+                str(topic.get("evidence") or "")
+                for block in evidence_report.get("blocks") or []
+                if block.get("verified") is not False
+                for topic in block.get("topics") or []
+                if isinstance(topic, dict)
+            )
+            evidence_subjects = check_title_against_transcript(
+                current_title, verified_quotes,
+            )
+            if evidence_subjects.missing:
+                evidence_report, recovered = recover_omitted_named_quotes(
+                    evidence_report, transcript_rows, current_title,
+                )
+                if recovered and on_progress is not None:
+                    on_progress(
+                        "Дослівні цитати з оригінального транскрипту: "
+                        + ", ".join(recovered)
+                        + " · ручна перевірка обов'язкова"
+                    )
+                verified_quotes = " ".join(
+                    str(topic.get("evidence") or "")
+                    for block in evidence_report.get("blocks") or []
+                    if block.get("verified") is not False
+                    for topic in block.get("topics") or []
+                    if isinstance(topic, dict)
+                )
+                evidence_subjects = check_title_against_transcript(
+                    current_title, verified_quotes,
+                )
+            if evidence_subjects.missing:
+                raise RuntimeError(
+                    "SEO зупинено: підтверджені цитати з фрагментів не "
+                    "охоплюють головну тему назви "
+                    f"({', '.join(evidence_subjects.missing)}). "
+                    "Не можна створювати підписи та A/B/C лише з назви. "
+                    "Перевірте SRT і карту доказів, YouTube не змінено."
                 )
             transcript = evidence_outline_text(evidence_report)
             # Persist the complete topic/evidence map independently of the
@@ -12947,6 +13126,38 @@ class MainWindow(QMainWindow):
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
         )
+        if evidence_report and evidence_report.get("source_anchor_recovery"):
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Модель пропустила основну тему: цитату дослівно "
+                "відновлено з оригіналу, потрібна перевірка контексту"
+            )
+        if transcript_source == "manual-confirmed-untimed-text":
+            package["chapters"] = ""
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Текстова розшифровка підтверджена оператором, "
+                "але таймкоди відсутні; лише редакторська перевірка"
+            )
+        # Models sometimes generate three distinct but wholly irrelevant
+        # headlines. Such candidates must not reach the editable preview.
+        generated_titles = [
+            str(package.get("title") or ""),
+            *[str(value) for value in (package.get("title_variants") or [])],
+        ]
+        title_alignment = check_title_variants_against_primary_subject(
+            current_title, generated_titles,
+        )
+        if title_alignment.missing:
+            raise RuntimeError(
+                "SEO-відхилено: назви втратили ключову тему "
+                f"({', '.join(title_alignment.anchors)}). "
+                "Не підтверджені темою кандидати: "
+                + ", ".join(title_alignment.missing)
+                + ". YouTube та чернетки не змінено."
+            )
         return {
             "video_id": video_id,
             "context": context,
@@ -13059,6 +13270,26 @@ class MainWindow(QMainWindow):
                 0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
             ),
         )
+
+        # Do not call subtitle endpoints for videos which have no local
+        # transcript. The available count is explicit rather than burning
+        # time on repeated 429/yt-dlp failures.
+        available_ids = [
+            video_id for video_id in candidate_ids
+            if find_local_transcript(transcript_dir, video_id)[0]
+        ]
+        missing_count = len(candidate_ids) - len(available_ids)
+        if candidate_ids and not available_ids:
+            QMessageBox.information(
+                self,
+                "Пакетне SEO: немає джерел",
+                f"Перевірено кандидатів: {len(candidate_ids)}.\\n"
+                f"Із локальними SRT/VTT: 0.\\n"
+                f"Без транскриптів: {missing_count}.\\n\\n"
+                "YouTube не опитували. Чернетки не змінено.",
+            )
+            return
+        candidate_ids = available_ids
 
         if not candidate_ids:
             QMessageBox.information(
@@ -13330,11 +13561,269 @@ class MainWindow(QMainWindow):
             return
         video_id = video_ids[0]
 
+        # Fast local preflight: do not issue YouTube subtitle requests if
+        # there is no NAS SRT bound to the selected published Video ID.
+        # The online fallback is intentionally disabled until an explicit
+        # user-controlled retry flow can handle 429 safely.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        confirmed_dir = self.data_dir / "seo_verified_transcripts"
+        local_rows, local_source = load_verified_text(
+            self.data_dir, video_id,
+        )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                confirmed_dir, video_id,
+            )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                transcript_dir, video_id,
+            )
+        usable_local_transcript = bool(local_rows)
+        media_path = None
+        repairing_wrong_source = False
+        model_dir = local_whisper_model_dir(self.data_dir)
+
+        if usable_local_transcript:
+            source_title_row = (
+                self.conn.execute(
+                    "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                    (video_id, self.current_profile),
+                ).fetchone()
+                if hasattr(self, "conn") else None
+            )
+            source_title = str(source_title_row["title"] or "") if source_title_row else ""
+            source_text = " ".join(
+                str(row.get("text") or "") for row in local_rows
+                if isinstance(row, dict)
+            )
+            match = check_title_against_transcript(source_title, source_text)
+            if match.missing:
+                reply = QMessageBox.question(
+                    self,
+                    "SEO: можливо, транскрипт від іншого відео",
+                    f"Відео {video_id} має назву про "
+                    f"{', '.join(match.missing)}, але SRT не згадує цю тему.\n\n"
+                    "Транскрипт не буде використано для SEO.\n"
+                    "Бажаєте вручну вибрати оригінал саме цього відео "
+                    "та створити окремий виправлений SRT?\n\n"
+                    "Існуючий SRT на NAS буде збережено без змін.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                repair_options = [
+                    "Імпортувати підтверджений TXT без таймкодів",
+                    "Вибрати вихідний відеофайл для Whisper",
+                ]
+                repair_method, method_ok = QInputDialog.getItem(
+                    self,
+                    "SEO: спосіб виправлення джерела",
+                    "Оберіть, що у вас вже є для цього Video ID:",
+                    repair_options, 0, False,
+                )
+                if not method_ok:
+                    return
+                if repair_method == repair_options[0]:
+                    chosen_txt, _ = QFileDialog.getOpenFileName(
+                        self,
+                        f"Оберіть повну TXT-розшифровку для {video_id}",
+                        str(Path.home() / "Downloads"),
+                        "Текстова розшифровка (*.txt)",
+                    )
+                    if not chosen_txt:
+                        return
+                    confirmation = QMessageBox.question(
+                        self,
+                        "Підтвердження джерела TXT",
+                        f"Ви особисто перевірили, що {Path(chosen_txt).name} "
+                        f"є повною розшифровкою саме YouTube Video ID {video_id}?\n\n"
+                        "Без справжніх таймкодів розділи не генеруються. "
+                        "Результат збережеться лише як чернетка для перевірки. "
+                        "SRT на NAS не зміниться.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if confirmation != QMessageBox.StandardButton.Yes:
+                        return
+                    try:
+                        import_verified_text(
+                            self.data_dir, video_id, Path(chosen_txt),
+                            current_title=source_title,
+                        )
+                    except (OSError, ValueError) as exc:
+                        QMessageBox.warning(
+                            self, "TXT: імпорт відхилено", str(exc),
+                        )
+                        return
+                    usable_local_transcript = True
+                    repairing_wrong_source = False
+                else:
+                    repairing_wrong_source = True
+                    usable_local_transcript = False
+                    chosen, _ = QFileDialog.getOpenFileName(
+                        self,
+                        "Оберіть перевірений оригінал для заміни помилкового SRT",
+                        r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                        "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                    )
+                    if not chosen:
+                        return
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Підтвердження вихідного відео",
+                        f"Підтвердьте, що файл\n{proposed.name}\n"
+                        f"є оригіналом опублікованого Video ID {video_id}.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+                    save_verified_media(
+                        self.data_dir / "verified_media.json", video_id, proposed,
+                    )
+                    media_path = proposed
+                    if (confirmed_dir / f"{video_id}.srt").exists():
+                        QMessageBox.warning(
+                            self, "SEO: існує попереднє виправлення",
+                            "Вже існує підтверджений локальний SRT. "
+                            "Автоматичне перезаписування заблоковано. "
+                            "Перевірте джерело перед повторним імпортом.",
+                        )
+                        return
+
+        if not usable_local_transcript and media_path is None:
+            # Only known local roots and exact video IDs; no recursive NAS
+            # crawl or automatic download from YouTube.
+            media_path = get_verified_media(
+                self.data_dir / "verified_media.json", video_id,
+            )
+            if media_path is None:
+                media_path = find_exact_local_media(
+                    video_id,
+                    local_seo_media_roots(self.data_dir, transcript_dir),
+                )
+            if media_path is None:
+                # Historical titles only shortlist candidates. A human must
+                # explicitly confirm the source; names alone never verify it.
+                import sqlite3
+                with sqlite3.connect(str(self.data_dir / "rg_youtube_control.db")) as match_conn:
+                    candidates = historical_media_candidates(
+                        match_conn, video_id,
+                        local_seo_media_roots(self.data_dir, transcript_dir),
+                    )
+                if candidates:
+                    labels = [
+                        f"{score:.0%} · {path.name} [історична назва: {title}]"
+                        for score, path, title in candidates
+                    ]
+                    selected, accepted = QInputDialog.getItem(
+                        self, "Підтвердження вихідного відео",
+                        "Оберіть файл тільки після перевірки, що це саме "
+                        "опублікований ролик:", labels, 0, False,
+                    )
+                    if accepted and selected in labels:
+                        proposed = candidates[labels.index(selected)][1]
+                        reply = QMessageBox.question(
+                            self, "Підтвердіть відповідність",
+                            f"Ви особисто підтверджуєте, що файл\n"
+                            f"{proposed.name}\nвідповідає Video ID {video_id}?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            save_verified_media(
+                                self.data_dir / "verified_media.json",
+                                video_id, proposed,
+                            )
+                            media_path = proposed
+            if media_path is None:
+                # One-time fallback for renamed originals. The operator chooses
+                # the actual file; no title similarity is treated as evidence.
+                chosen, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Оберіть оригінал саме цього відео",
+                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                )
+                if chosen:
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Перевірка відповідності",
+                        f"Підтвердьте, що цей файл дійсно відповідає\n"
+                        f"Video ID {video_id}:\n\n{proposed.name}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        save_verified_media(
+                            self.data_dir / "verified_media.json",
+                            video_id, proposed,
+                        )
+                        media_path = proposed
+            if media_path is None:
+                QMessageBox.information(
+                    self,
+                    "SEO: вихідний файл не обрано",
+                    "Для цього відео не знайдено SRT/VTT.\n\n"
+                    "Вихідний файл не обрано або його відповідність "
+                    "не підтверджена. Генерацію не запускали.",
+                )
+                return
+            if not (model_dir / "model.bin").is_file():
+                # Ask only when an actual source is confirmed. This is an
+                # explicit user selection, not a model download or scan.
+                chosen_model = QFileDialog.getExistingDirectory(
+                    self,
+                    "Оберіть папку faster-whisper з model.bin",
+                    str(model_dir.parent),
+                )
+                if chosen_model:
+                    try:
+                        model_dir = remember_whisper_model_dir(
+                            self.data_dir, Path(chosen_model),
+                        )
+                    except (OSError, ValueError):
+                        QMessageBox.warning(
+                            self,
+                            "Whisper: невірна папка",
+                            "У вибраній папці не знайдено model.bin. "
+                            "Потрібна модель у форматі faster-whisper.",
+                        )
+                        return
+            if not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self,
+                    "SEO: відсутня модель Whisper",
+                    "Вихідний відеофайл підтверджено, але локальної моделі "
+                    "розпізнавання немає.\n\n"
+                    f"Очікувана папка моделі: {model_dir}\n\n"
+                    "Транскрипцію не запускали; файл і прив'язку збережено.",
+                )
+                return
+
         def task():
             worker = getattr(self, "_local_tool_worker", None)
             def progress(message: str) -> None:
                 if worker is not None:
                     worker.progress.emit(message)
+            if media_path is not None:
+                def whisper_progress(update: dict) -> None:
+                    active_worker = getattr(self, "_local_tool_worker", None)
+                    if active_worker is not None:
+                        active_worker.progress.emit(update)
+
+                generate_srt_offline(
+                    video_id=video_id,
+                    media=media_path,
+                    destination=confirmed_dir if repairing_wrong_source
+                        else transcript_dir,
+                    model_dir=model_dir,
+                    on_progress=whisper_progress,
+                )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress,
             )
@@ -13382,6 +13871,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
+        # Never persist chapters when their timestamps cannot be traced
+        # to a transcript explicitly bound to this exact YouTube video.
+        transcript_origin = str(context.get("transcript_source") or "")
+        chapter_warning = ""
+        if chapters:
+            chapters = ""
+            chapter_warning = (
+                "Розділи вилучено: відповідність кожного таймкоду "
+                "змісту відео ще не підтверджена."
+            )
+
         quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
@@ -13398,10 +13898,37 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        # Require traceable source evidence before promoting locally generated SEO.
+        # A reviewed preview alone does not prove the chosen headline quotes.
+        source_rows = result.get("transcript_rows") or []
+        source_text = " ".join(
+            str(row.get("text") or "") for row in source_rows
+            if isinstance(row, dict)
+        )
+        review_titles = [title, *variants]
+        evidence_decision = check_seo_evidence(
+            video_id=video_id,
+            titles=review_titles,
+            description=description,
+            transcript=source_text,
+            transcript_video_id=video_id if source_rows else None,
+            # Transcript rows alone do not prove that a video-to-source
+            # mapping was independently verified.
+            verified_video_mapping=False,
+            expected_title_count=4,
+        )
+        # A preview is not an explicit editorial approval. Local generation
+        # cannot authorize promotion; retain the existing review signals.
+        editorial_approval_verified = False
+        requires_review = (
+            bool(package.get("needs_review"))
+            or len(variants) < 3
+            or not evidence_decision.approved_for_review
+            or not editorial_approval_verified
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
-            or "Неповні A/B варіанти - потрібна перевірка."
+            or "Потрібна редакторська перевірка джерела та A/B/C."
             if requires_review else "Переглянуто користувачем"
         )
         save_optimization_draft(
@@ -13415,7 +13942,15 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=draft_reason,
+            quality_reason=" | ".join(
+                part for part in (
+                    draft_reason,
+                    chapter_warning,
+                    "Джерело: " + (transcript_origin or "невідоме"),
+                    "Evidence: " + ", ".join(evidence_decision.issues)
+                    if evidence_decision.issues else "",
+                ) if part
+            ),
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
