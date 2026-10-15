@@ -125,6 +125,8 @@ from .offline_transcription import generate_srt_offline
 from .offline_source_config import local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir
 from .verified_media_registry import get_verified_media, save_verified_media
 from .historical_media_candidates import historical_media_candidates
+from .media_content_matching import shortlist_local_media
+from .media_sampled_speech import annotate_sampled_speech
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13488,6 +13490,137 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def _start_media_content_search(
+        self, video_id: str, transcript_dir: Path,
+    ) -> None:
+        """Read-only duration/audio search in background, before media approval."""
+        import sqlite3
+        with sqlite3.connect(str(self.data_dir / "rg_youtube_control.db")) as conn:
+            row = conn.execute(
+                "SELECT title,duration FROM videos WHERE video_id=? AND profile=?",
+                (video_id, self.current_profile),
+            ).fetchone()
+            original_title = str(row[0] or "") if row else ""
+            expected_seconds = _duration_seconds(row[1] if row else 0)
+            old_titles = [
+                str(title) for (title,) in conn.execute(
+                    "SELECT DISTINCT title FROM metadata_history WHERE video_id=?",
+                    (video_id,),
+                ) if title
+            ]
+        if expected_seconds < 30:
+            QMessageBox.warning(
+                self, "Пошук оригіналу: недостатньо даних",
+                "У базі немає підтвердженої тривалості відео. "
+                "Автоматичний пошук без тривалості може вибрати чужий файл. "
+                "Синхронізуйте метадані або виберіть оригінал вручну.",
+            )
+            self._manual_media_repair(video_id)
+            return
+        roots = local_seo_media_roots(self.data_dir, transcript_dir)
+        model_dir = local_whisper_model_dir(self.data_dir)
+
+        def task():
+            worker = getattr(self, "_local_tool_worker", None)
+            def notify(message: str) -> None:
+                if worker is not None:
+                    worker.progress.emit(message)
+            candidates = shortlist_local_media(
+                roots=roots,
+                expected_seconds=expected_seconds,
+                title=original_title,
+                older_titles=old_titles,
+                cache_path=self.data_dir / "seo_local_media_index.json",
+                progress=notify,
+            )
+            return annotate_sampled_speech(
+                candidates,
+                model_dir=model_dir,
+                title=original_title,
+                progress=notify,
+            )
+
+        def review(candidates):
+            if not candidates:
+                QMessageBox.information(
+                    self, "Автопошук завершено",
+                    "Файлів з близькою тривалістю у налаштованих "
+                    "локальних папках не знайдено. "
+                    "Не будемо вгадувати за назвою.",
+                )
+                self._manual_media_repair(video_id)
+                return
+            labels = [c.label() for c in candidates]
+            selected, accepted = QInputDialog.getItem(
+                self, "Кандидати оригіналу за тривалістю і мовленням",
+                "Це підказки, а не підтвердження Video ID. "
+                "Виберіть файл для перегляду:", labels, 0, False,
+            )
+            if not accepted or selected not in labels:
+                return
+            candidate = candidates[labels.index(selected)]
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(candidate.path)))
+            speech = (
+                candidate.speech_excerpt or candidate.sidecar_excerpt
+                or "Розпізнаних реплік немає. Перевірте оригінал особисто."
+            )
+            reply = QMessageBox.question(
+                self, "Підтвердження оригіналу після перегляду",
+                "Відеофайл відкрито для перегляду.\n"
+                f"Video ID: {video_id}\n"
+                f"Файл: {candidate.path}\n"
+                f"Довжина: {candidate.duration:.0f} с "
+                f"(різниця {candidate.duration_delta:.0f} с)\n\n"
+                f"Фрагмент мовлення: {speech[:320]}\n\n"
+                "Лише після перегляду та порівняння з опублікованим "
+                "відео: ви підтверджуєте відповідність саме цього файлу? "
+                "Збіг тривалості чи згадка імені самі по собі НЕ є доказом.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            if not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self, "Whisper: потрібна локальна модель",
+                    "Оригінал знайдено, але модель Whisper недоступна. "
+                    "Оберіть папку з model.bin під час наступного запуску.",
+                )
+                return
+            save_verified_media(
+                self.data_dir / "verified_media.json", video_id, candidate.path,
+            )
+            self._seo_pending_media_repair = (video_id, candidate.path)
+            # Let the finished signal clean up the search worker before
+            # scheduling a second worker for transcription and SEO.
+            QTimer.singleShot(300, self.local_seo_selected)
+
+        self._run_local_tool(
+            "Пошук оригіналу · перевірка локального медіа",
+            task, review,
+        )
+
+    def _manual_media_repair(self, video_id: str) -> None:
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, "Оберіть перевірений оригінал для SRT",
+            r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+            "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+        )
+        if not chosen:
+            return
+        proposed = Path(chosen)
+        reply = QMessageBox.question(
+            self, "Підтвердження оригіналу",
+            f"Ви перевірили, що {proposed.name} відповідає "
+            f"опублікованому Video ID {video_id}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._seo_pending_media_repair = (video_id, proposed)
+        QTimer.singleShot(0, self.local_seo_selected)
+
     def local_seo_selected(self) -> None:
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
@@ -13519,6 +13652,34 @@ class MainWindow(QMainWindow):
         media_path = None
         repairing_wrong_source = False
         model_dir = local_whisper_model_dir(self.data_dir)
+        pending = getattr(self, "_seo_pending_media_repair", None)
+        if pending and pending[0] == video_id:
+            self._seo_pending_media_repair = None
+            media_path = Path(pending[1])
+            repairing_wrong_source = True
+            usable_local_transcript = False
+            if (confirmed_dir / f"{video_id}.srt").is_file():
+                QMessageBox.warning(
+                    self, "SRT вже виправлено",
+                    "Підтверджений локальний SRT вже існує. "
+                    "Автоматичний перезапис заборонено.",
+                )
+                return
+            if not (model_dir / "model.bin").is_file():
+                chosen_model = QFileDialog.getExistingDirectory(
+                    self, "Оберіть Whisper model.bin", str(model_dir.parent),
+                )
+                if not chosen_model:
+                    return
+                try:
+                    model_dir = remember_whisper_model_dir(
+                        self.data_dir, Path(chosen_model),
+                    )
+                except (ValueError, OSError):
+                    QMessageBox.warning(
+                        self, "Whisper", "Потрібна модель faster-whisper з model.bin",
+                    )
+                    return
 
         if usable_local_transcript:
             source_title_row = (
@@ -13549,38 +13710,10 @@ class MainWindow(QMainWindow):
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return
-                repairing_wrong_source = True
-                usable_local_transcript = False
-                chosen, _ = QFileDialog.getOpenFileName(
-                    self,
-                    "Оберіть перевірений оригінал для заміни помилкового SRT",
-                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
-                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
-                )
-                if not chosen:
-                    return
-                proposed = Path(chosen)
-                reply = QMessageBox.question(
-                    self, "Підтвердження вихідного відео",
-                    f"Підтвердьте, що файл\n{proposed.name}\n"
-                    f"є оригіналом опублікованого Video ID {video_id}.",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
-                save_verified_media(
-                    self.data_dir / "verified_media.json", video_id, proposed,
-                )
-                media_path = proposed
-                if (confirmed_dir / f"{video_id}.srt").exists():
-                    QMessageBox.warning(
-                        self, "SEO: існує попереднє виправлення",
-                        "Вже існує підтверджений локальний SRT. "
-                        "Автоматичне перезаписування заблоковано. "
-                        "Перевірте джерело перед повторним імпортом.",
-                    )
-                    return
+                # Search local originals by measured duration and spoken content,
+                # not the outdated names modified by vidIQ.
+                self._start_media_content_search(video_id, transcript_dir)
+                return
 
         if not usable_local_transcript and media_path is None:
             # Only known local roots and exact video IDs; no recursive NAS
