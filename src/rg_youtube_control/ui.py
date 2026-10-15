@@ -118,6 +118,7 @@ from .seo_source_alignment import (
     check_title_against_transcript,
     check_title_variants_against_primary_subject,
 )
+from .seo_original_quote_recovery import recover_omitted_named_quotes
 from .local_transcript_sources import find_local_transcript
 from .verified_text_import import load_verified_text, import_verified_text
 from .nas_srt_index import scan_nas_srt_ids
@@ -13043,6 +13044,26 @@ class MainWindow(QMainWindow):
                 current_title, verified_quotes,
             )
             if evidence_subjects.missing:
+                evidence_report, recovered = recover_omitted_named_quotes(
+                    evidence_report, transcript_rows, current_title,
+                )
+                if recovered and on_progress is not None:
+                    on_progress(
+                        "Дослівні цитати з оригінального транскрипту: "
+                        + ", ".join(recovered)
+                        + " · ручна перевірка обов'язкова"
+                    )
+                verified_quotes = " ".join(
+                    str(topic.get("evidence") or "")
+                    for block in evidence_report.get("blocks") or []
+                    if block.get("verified") is not False
+                    for topic in block.get("topics") or []
+                    if isinstance(topic, dict)
+                )
+                evidence_subjects = check_title_against_transcript(
+                    current_title, verified_quotes,
+                )
+            if evidence_subjects.missing:
                 raise RuntimeError(
                     "SEO зупинено: підтверджені цитати з фрагментів не "
                     "охоплюють головну тему назви "
@@ -13096,6 +13117,13 @@ class MainWindow(QMainWindow):
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
         )
+        if evidence_report and evidence_report.get("source_anchor_recovery"):
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Модель пропустила основну тему: цитату дослівно "
+                "відновлено з оригіналу, потрібна перевірка контексту"
+            )
         if transcript_source == "manual-confirmed-untimed-text":
             package["chapters"] = ""
             package["needs_review"] = True
