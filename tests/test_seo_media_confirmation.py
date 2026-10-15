@@ -33,5 +33,7 @@ def test_picker_cancellation_and_missing_model_have_distinct_explanations():
     block = source[start:end]
     assert "SEO: вихідний файл не обрано" in block
     assert "SEO: відсутня модель Whisper" in block
-    assert block.index('if media_path is None:') < block.index('if not (model_dir / "model.bin").is_file():')
+    # The recovery branch may check a previously confirmed model first.
+    # The ordinary picker must still precede the standard model guard.
+    assert block.index('if media_path is None:') < block.rindex('if not (model_dir / "model.bin").is_file():')
     assert r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube" in block
