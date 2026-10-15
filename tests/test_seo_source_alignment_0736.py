@@ -212,6 +212,9 @@ def test_source_repair_uses_separate_local_srt_and_keeps_original_nas(tmp_path, 
     monkeypatch.setattr(ui, "QFileDialog", Picker)
     monkeypatch.setattr(ui, "generate_srt_offline", fake_whisper)
     stub = Window()
+    # The search now runs asynchronously. Simulate a user-confirmed
+    # candidate passed back by the background worker.
+    stub._seo_pending_media_repair = (VIDEO_ID, media)
     ui.MainWindow.local_seo_selected(stub)
     assert stub.saved == {"video_id": VIDEO_ID}
     assert old_srt.read_text(encoding="utf-8") == original_content
