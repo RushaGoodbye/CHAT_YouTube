@@ -19,7 +19,9 @@ from .seo_source_alignment import (
 _WORD_RE = re.compile(r"[\wіїєґё]+", re.UNICODE)
 
 
-def _context_quote(text: str, aliases: tuple[str, ...]) -> str:
+def _context_quote(
+    text: str, aliases: tuple[str, ...], current_title: str,
+) -> str:
     """Extract a whole-word bounded 8–240 char literal around named subject."""
     for match in _WORD_RE.finditer(text):
         word = match.group().casefold()
@@ -39,7 +41,9 @@ def _context_quote(text: str, aliases: tuple[str, ...]) -> str:
             if previous_space > match.end():
                 end = previous_space
         quote = " ".join(text[start:end].split())
-        if 8 <= len(quote) <= 240:
+        if 8 <= len(quote) <= 240 and _supports_title_event_in_quote(
+            current_title, quote,
+        ):
             return quote
     return ""
 
@@ -106,10 +110,10 @@ def recover_omitted_named_quotes(
         if label not in missing:
             continue
         for source_block, output_block in zip(source_blocks, output_blocks):
-            quote = _context_quote(source_block["text"], aliases)
-            if not quote or not _supports_title_event_in_quote(
-                current_title, quote,
-            ):
+            quote = _context_quote(
+                source_block["text"], aliases, current_title,
+            )
+            if not quote:
                 continue
             summary = (
                 f"У фрагменті співрозмовники згадують {label}. "
