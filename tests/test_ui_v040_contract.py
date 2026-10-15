@@ -127,7 +127,7 @@ def test_batch_seo_uses_transcript_fallback_chain() -> None:
     start = source.index("    def _generate_local_seo_result")
     end = source.index("\n    def _normalize_local_seo_package", start)
     block = source[start:end]
-    assert "load_srt_transcript" in block
+    assert "find_local_transcript(" in block
     assert "fetch_transcript(video_id)" in block
     assert "fetch_transcript_from_public_metadata" in block
     assert 'context["transcript_source"] = transcript_source' in block
