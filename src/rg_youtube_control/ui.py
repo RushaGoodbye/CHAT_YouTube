@@ -119,6 +119,9 @@ from .seo_source_alignment import (
     check_title_variants_against_primary_subject,
 )
 from .seo_original_quote_recovery import recover_omitted_named_quotes
+from .seo_editorial_signal import (
+    source_grounded_shoigu_package, off_topic_title_warnings,
+)
 from .local_transcript_sources import find_local_transcript
 from .verified_text_import import load_verified_text, import_verified_text
 from .nas_srt_index import scan_nas_srt_ids
@@ -13126,6 +13129,37 @@ class MainWindow(QMainWindow):
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
         )
+        # The model may prioritize incidental remarks over the central
+        # episode even after recovering an exact quote. For supported archive
+        # event patterns use a deterministic FULL-TRANSCRIPT editorial pack.
+        # It is review-only and never takes facts from model topic summaries.
+        stronger_editorial = (
+            source_grounded_shoigu_package(
+                current_title, full_source_text,
+            )
+            if not fast_mode and evidence_report else None
+        )
+        if stronger_editorial is not None:
+            package.update(stronger_editorial)
+            if on_progress is not None:
+                on_progress(
+                    "SEO: головний сюжет перевірено за оригінальним "
+                    "транскриптом · побічні репліки вилучено з назв"
+                )
+        off_topic_issues = off_topic_title_warnings(
+            current_title,
+            [
+                str(package.get("title") or ""),
+                *[str(value) for value in
+                  (package.get("title_variants") or [])],
+            ],
+        )
+        if off_topic_issues:
+            raise RuntimeError(
+                "SEO: випадкова побічна репліка не може ставати "
+                "заголовком. " + "; ".join(off_topic_issues)
+                + ". YouTube не змінено."
+            )
         if evidence_report and evidence_report.get("source_anchor_recovery"):
             package["needs_review"] = True
             package["review_reason"] = (
