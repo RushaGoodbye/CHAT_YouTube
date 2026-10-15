@@ -119,6 +119,7 @@ from .seo_source_alignment import (
     check_title_variants_against_primary_subject,
 )
 from .local_transcript_sources import find_local_transcript
+from .verified_text_import import load_verified_text, import_verified_text
 from .nas_srt_index import scan_nas_srt_ids
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
@@ -12899,15 +12900,19 @@ class MainWindow(QMainWindow):
         # A user-confirmed replacement transcript takes priority over an
         # old NAS SRT that may have been attached to the wrong video ID.
         corrected_dir = self.data_dir / "seo_verified_transcripts"
-        transcript_rows, transcript_source = find_local_transcript(
-            corrected_dir, video_id,
+        transcript_rows, transcript_source = load_verified_text(
+            self.data_dir, video_id,
         )
-        if transcript_rows:
-            transcript_source = "local-confirmed-" + transcript_source
-        else:
+        if not transcript_rows:
             transcript_rows, transcript_source = find_local_transcript(
-                transcript_dir, video_id,
+                corrected_dir, video_id,
             )
+            if transcript_rows:
+                transcript_source = "local-confirmed-" + transcript_source
+            else:
+                transcript_rows, transcript_source = find_local_transcript(
+                    transcript_dir, video_id,
+                )
 
         if not transcript_rows:
             try:
@@ -12952,6 +12957,8 @@ class MainWindow(QMainWindow):
         ) if transcript_rows else ""
 
         context["transcript_source"] = transcript_source
+        if transcript_source == "manual-confirmed-untimed-text":
+            context["untimed_transcript_review_only"] = True
         if public_metadata_error:
             # Technical warning for the preview/audit, NOT a model fact.
             context["metadata_fetch_warning"] = (
@@ -13010,6 +13017,8 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
+            if transcript_source == "manual-confirmed-untimed-text":
+                evidence_report["untimed"] = True
             if evidence_report["blocks_with_evidence"] == 0:
                 raise RuntimeError(
                     "Модель не підтвердила жодної теми цитатами з транскрипту. "
@@ -13079,6 +13088,14 @@ class MainWindow(QMainWindow):
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
         )
+        if transcript_source == "manual-confirmed-untimed-text":
+            package["chapters"] = ""
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Текстова розшифровка підтверджена оператором, "
+                "але таймкоди відсутні; лише редакторська перевірка"
+            )
         # Models sometimes generate three distinct but wholly irrelevant
         # headlines. Such candidates must not reach the editable preview.
         generated_titles = [
@@ -13508,9 +13525,13 @@ class MainWindow(QMainWindow):
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
         confirmed_dir = self.data_dir / "seo_verified_transcripts"
-        local_rows, local_source = find_local_transcript(
-            confirmed_dir, video_id,
+        local_rows, local_source = load_verified_text(
+            self.data_dir, video_id,
         )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                confirmed_dir, video_id,
+            )
         if not local_rows:
             local_rows, local_source = find_local_transcript(
                 transcript_dir, video_id,
@@ -13549,14 +13570,61 @@ class MainWindow(QMainWindow):
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return
-                repairing_wrong_source = True
-                usable_local_transcript = False
-                chosen, _ = QFileDialog.getOpenFileName(
+                repair_options = [
+                    "Імпортувати підтверджений TXT без таймкодів",
+                    "Вибрати вихідний відеофайл для Whisper",
+                ]
+                repair_method, method_ok = QInputDialog.getItem(
                     self,
-                    "Оберіть перевірений оригінал для заміни помилкового SRT",
-                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
-                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                    "SEO: спосіб виправлення джерела",
+                    "Оберіть, що у вас вже є для цього Video ID:",
+                    repair_options, 0, False,
                 )
+                if not method_ok:
+                    return
+                if repair_method == repair_options[0]:
+                    chosen_txt, _ = QFileDialog.getOpenFileName(
+                        self,
+                        f"Оберіть повну TXT-розшифровку для {video_id}",
+                        str(Path.home() / "Downloads"),
+                        "Текстова розшифровка (*.txt)",
+                    )
+                    if not chosen_txt:
+                        return
+                    confirmation = QMessageBox.question(
+                        self,
+                        "Підтвердження джерела TXT",
+                        f"Ви особисто перевірили, що {Path(chosen_txt).name} "
+                        f"є повною розшифровкою саме YouTube Video ID {video_id}?\n\n"
+                        "Без справжніх таймкодів розділи не генеруються. "
+                        "Результат збережеться лише як чернетка для перевірки. "
+                        "SRT на NAS не зміниться.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if confirmation != QMessageBox.StandardButton.Yes:
+                        return
+                    try:
+                        import_verified_text(
+                            self.data_dir, video_id, Path(chosen_txt),
+                            current_title=source_title,
+                        )
+                    except (OSError, ValueError) as exc:
+                        QMessageBox.warning(
+                            self, "TXT: імпорт відхилено", str(exc),
+                        )
+                        return
+                    usable_local_transcript = True
+                    repairing_wrong_source = False
+                else:
+                    repairing_wrong_source = True
+                    usable_local_transcript = False
+                    chosen, _ = QFileDialog.getOpenFileName(
+                        self,
+                        "Оберіть перевірений оригінал для заміни помилкового SRT",
+                        r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                        "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                    )
                 if not chosen:
                     return
                 proposed = Path(chosen)
