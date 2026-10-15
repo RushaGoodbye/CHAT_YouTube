@@ -85,13 +85,14 @@ def test_status_update_uses_only_cached_result_on_main_thread():
         def item(self, row, col):
             return self.items.get((row, col))
 
+    folder = str(Path("C:/synthetic-nas"))
     stub = SimpleNamespace(
         _nas_srt_scanning=True, _nas_srt_path="",
         _nas_srt_ids=None, optimization_table=Table(),
-        _nas_path=lambda key, default: Path("C:/synthetic-nas"),
+        _nas_path=lambda key, default: Path(folder),
     )
     MainWindow._receive_nas_srt_index(
-        stub, ("C:/synthetic-nas", {"MEitKm687xo"}),
+        stub, (folder, {"MEitKm687xo"}),
     )
     assert stub._nas_srt_scanning is False
     assert stub._nas_srt_ids == {"MEitKm687xo"}
