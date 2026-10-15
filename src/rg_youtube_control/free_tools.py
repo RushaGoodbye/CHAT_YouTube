@@ -1428,6 +1428,18 @@ def _recover_title_variants(
     model: str,
 ) -> list[str]:
     """Focused recovery of exactly three distinct Russian title variants."""
+    from .seo_source_alignment import check_title_against_transcript
+    subject = check_title_against_transcript(current_title, transcript)
+    required_subjects = (
+        ", ".join(subject.anchors)
+        if subject.anchors and subject.passed else ""
+    )
+    subject_rule = (
+        "УСІ ТРИ назви мають прямо згадувати головну тему: "
+        + required_subjects
+        + ". Не переходь до інших сюжетів замість головної теми."
+        if required_subjects else ""
+    )
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
 A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
@@ -1435,6 +1447,7 @@ C: інша підтверджена тема, якщо вона є; інакш�
 Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
+{subject_rule}
 Поверни JSON:
 {{"title_variants":["...","...","..."]}}
 
@@ -1991,6 +2004,17 @@ def generate_seo_package_local(
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    from .seo_source_alignment import check_title_against_transcript
+    subject_match = check_title_against_transcript(
+        current_title, verified_evidence if evidence_report else transcript,
+    )
+    named_subject_requirement = (
+        "КРИТИЧНО: УСІ ЧОТИРИ назви (основна та A/B/C) повинні "
+        "зберігати головну названу тему: "
+        + ", ".join(subject_match.anchors)
+        + ". Не підмінюй її іншими розмовами з відео."
+        if subject_match.anchors and subject_match.passed else ""
+    )
     # Determine supported prose once BEFORE expensive Ollama generation.
     # The old code retried the same deterministic mapping failure 3 times.
     editorial_unmapped_subjects: list[str] = []
@@ -2016,6 +2040,7 @@ def generate_seo_package_local(
 
 Правила:
 - основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
+- {named_subject_requirement}
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
@@ -2090,6 +2115,7 @@ description: українською, 400-900 символів, головна т
 tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
 chapters: рядок з підтвердженими таймкодами та українськими назвами або порожній рядок.
 Не вигадуй фактів. Не роби тверджень про економіку, зарплати, соцгарантії чи інші результати, якщо цього немає в транскрипті.
+{named_subject_requirement}
 
 ПОТОЧНА НАЗВА:
 {current_title}
