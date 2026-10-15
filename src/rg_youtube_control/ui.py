@@ -114,6 +114,10 @@ from .metadata_audit import (
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
+from .seo_source_alignment import (
+    check_title_against_transcript,
+    check_title_variants_against_primary_subject,
+)
 from .local_transcript_sources import find_local_transcript
 from .nas_srt_index import scan_nas_srt_ids
 from .local_media_sources import find_exact_local_media
@@ -12962,6 +12966,28 @@ class MainWindow(QMainWindow):
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
 
+        # An exact-ID NAS filename does not establish correspondence to
+        # the published video. Detect obvious subject mismatches BEFORE the
+        # expensive per-block Ollama analysis. Never use a generated summary
+        # as evidence that the original SRT mentions the named subject.
+        full_source_text = " ".join(
+            str(row.get("text") or "") for row in transcript_rows
+            if isinstance(row, dict)
+        )
+        source_alignment = check_title_against_transcript(
+            current_title, full_source_text,
+        )
+        if source_alignment.missing:
+            raise RuntimeError(
+                "SEO зупинено: транскрипт не підтверджує головну тему назви "
+                f"({', '.join(source_alignment.missing)}). "
+                f"Джерело: {transcript_source or 'невідоме'}, "
+                f"Video ID: {video_id}. "
+                "Можливо, до ID прив'язано SRT іншого відео, або чинна "
+                "назва не відповідає змісту. Звірте саме відео і "
+                "транскрипт перед повтором. SRT та YouTube не змінено."
+            )
+
         # Complete timeline analysis runs only in manual single-video mode.
         # Batch remains lightweight and review-only until the full workflow
         # has been independently validated on archive videos.
@@ -13026,6 +13052,23 @@ class MainWindow(QMainWindow):
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
         )
+        # Models sometimes generate three distinct but wholly irrelevant
+        # headlines. Such candidates must not reach the editable preview.
+        generated_titles = [
+            str(package.get("title") or ""),
+            *[str(value) for value in (package.get("title_variants") or [])],
+        ]
+        title_alignment = check_title_variants_against_primary_subject(
+            current_title, generated_titles,
+        )
+        if title_alignment.missing:
+            raise RuntimeError(
+                "SEO-відхилено: назви втратили ключову тему "
+                f"({', '.join(title_alignment.anchors)}). "
+                "Не підтверджені темою кандидати: "
+                + ", ".join(title_alignment.missing)
+                + ". YouTube та чернетки не змінено."
+            )
         return {
             "video_id": video_id,
             "context": context,
