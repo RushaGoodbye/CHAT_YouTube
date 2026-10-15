@@ -13015,6 +13015,24 @@ class MainWindow(QMainWindow):
                     "Модель не підтвердила жодної теми цитатами з транскрипту. "
                     "SEO-пакет не створено, оригінальні дані збережено."
                 )
+            verified_quotes = " ".join(
+                str(topic.get("evidence") or "")
+                for block in evidence_report.get("blocks") or []
+                if block.get("verified") is not False
+                for topic in block.get("topics") or []
+                if isinstance(topic, dict)
+            )
+            evidence_subjects = check_title_against_transcript(
+                current_title, verified_quotes,
+            )
+            if evidence_subjects.missing:
+                raise RuntimeError(
+                    "SEO зупинено: підтверджені цитати з фрагментів не "
+                    "охоплюють головну тему назви "
+                    f"({', '.join(evidence_subjects.missing)}). "
+                    "Не можна створювати підписи та A/B/C лише з назви. "
+                    "Перевірте SRT і карту доказів, YouTube не змінено."
+                )
             transcript = evidence_outline_text(evidence_report)
             # Persist the complete topic/evidence map independently of the
             # published description, so no overlooked dialogue disappears.
