@@ -25,7 +25,11 @@ def source_grounded_shoigu_package(
     """
     title = str(original_title or "").casefold()
     source = str(original_transcript or "").casefold()
-    if "шойгу" not in title or "шойгу" not in source:
+    if (
+        "шойгу" not in title or
+        not _has(title, "уволь", "відстав", "отстав", "звільн", "сменил", "змінив") or
+        source.count("шойгу") < 2 or len(source) < 350
+    ):
         return None
     if not _has(source, "увольн", "уволил", "смени", "должност", "переставил"):
         return None
