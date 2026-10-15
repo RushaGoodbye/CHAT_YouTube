@@ -8973,7 +8973,7 @@ class MainWindow(QMainWindow):
                 )
             )
 
-        # Fast cached lookup: no per-video network Path.exists() calls.
+        # Fast cached lookup: network drives are never probed per video.
         transcript_dir = self._nas_path(
             "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
