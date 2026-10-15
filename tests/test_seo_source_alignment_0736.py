@@ -216,3 +216,55 @@ def test_source_repair_uses_separate_local_srt_and_keeps_original_nas(tmp_path, 
     assert stub.saved == {"video_id": VIDEO_ID}
     assert old_srt.read_text(encoding="utf-8") == original_content
     assert (tmp_path / "seo_verified_transcripts" / f"{VIDEO_ID}.srt").exists()
+
+
+def test_named_subject_must_appear_in_verified_quotes_not_only_original_title(
+    tmp_path, monkeypatch,
+):
+    """A single mention outside quoted topics cannot authorize off-topic A/B."""
+    db_path = tmp_path / "rg_youtube_control.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE videos "
+            "(video_id TEXT, profile TEXT, scheduled_publish_at TEXT, "
+            "privacy_status TEXT, title TEXT, duration INTEGER)"
+        )
+        conn.execute("CREATE TABLE settings (key TEXT, value TEXT)")
+        conn.execute(
+            "INSERT INTO videos VALUES (?, 'main', NULL, 'public', ?, 600)",
+            (VIDEO_ID, TITLE),
+        )
+    rows = [
+        {"start": 12.0, "duration": 120.0,
+         "text": "Шойгу. Обсуждаем политическую ситуацию."},
+        {"start": 312.0, "duration": 120.0,
+         "text": "Жизнь в Дагестане и отношения между народами."},
+    ]
+    monkeypatch.setattr(
+        ui, "cached_public_metadata",
+        lambda *args: {"title": TITLE, "description": "",
+                       "tags": [], "duration": 600},
+    )
+    monkeypatch.setattr(
+        ui, "find_local_transcript",
+        lambda *args: (rows, "nas-srt"),
+    )
+    monkeypatch.setattr(
+        ui, "analyze_all_timeline_blocks",
+        lambda *args, **kwargs: {
+            "blocks_with_evidence": 1, "blocks_total": 1,
+            "blocks": [{"verified": True, "topics": [
+                {"topic": "Дагестан",
+                 "evidence": "Жизнь в Дагестане и отношения между народами."}
+            ]}],
+        },
+    )
+    called = []
+    monkeypatch.setattr(
+        ui, "generate_seo_package_local",
+        lambda **kwargs: called.append(1),
+    )
+    stub = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    with pytest.raises(RuntimeError, match="підтверджені цитати"):
+        ui.MainWindow._generate_local_seo_result(stub, VIDEO_ID)
+    assert not called
