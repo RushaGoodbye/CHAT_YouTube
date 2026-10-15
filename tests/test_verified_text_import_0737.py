@@ -111,3 +111,81 @@ def test_gui_import_prioritized_over_wrong_nas_and_forces_review():
     assert "verified_media.json" in selected
     preview = src.split("    def _preview_deep_content_package(",1)[1].split("\n    def ",1)[0]
     assert "Часових міток немає" in preview
+
+
+def test_full_ui_import_wrong_nas_to_untimed_text_without_media_scan(
+    tmp_path, monkeypatch,
+):
+    import rg_youtube_control.ui as ui
+    source = tmp_path / "MEitKm687xo.txt"
+    source.write_text(REAL_CONTENT, encoding="utf-8")
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    wrong = nas / f"{VIDEO_ID}.srt"
+    wrong.write_text("INCORRECT NAS TEXT", encoding="utf-8")
+
+    class Message:
+        class StandardButton:
+            Yes = 1
+            No = 2
+        @classmethod
+        def question(cls, *args, **kwargs):
+            return cls.StandardButton.Yes
+        @classmethod
+        def warning(cls, *args, **kwargs):
+            raise AssertionError("Import should succeed")
+        @classmethod
+        def information(cls, *args, **kwargs):
+            raise AssertionError("Expected source is present")
+
+    class Selector:
+        @staticmethod
+        def getItem(*args, **kwargs):
+            return "Імпортувати підтверджений TXT без таймкодів", True
+
+    class FilePicker:
+        @staticmethod
+        def getOpenFileName(*args, **kwargs):
+            return str(source), ""
+
+    def load_source(folder, video_id):
+        if str(folder).endswith("seo_verified_transcripts"):
+            return [], ""
+        return ([{"start": 0, "duration": 1,
+                  "text": WRONG_CONTENT}], "nas-srt")
+
+    monkeypatch.setattr(ui, "QMessageBox", Message)
+    monkeypatch.setattr(ui, "QInputDialog", Selector)
+    monkeypatch.setattr(ui, "QFileDialog", FilePicker)
+    monkeypatch.setattr(ui, "find_local_transcript", load_source)
+
+    class FakeConn:
+        def execute(self, *args):
+            return self
+        def fetchone(self):
+            return {"title": TITLE}
+
+    class Stub:
+        data_dir = tmp_path
+        current_profile = "main"
+        conn = FakeConn()
+        generated = False
+        def _selected_optimization_video_ids(self):
+            return [VIDEO_ID]
+        def _nas_path(self, *args):
+            return nas
+        def _generate_local_seo_result(self, video_id, on_progress=None):
+            rows, origin = load_verified_text(self.data_dir, video_id)
+            assert origin == "manual-confirmed-untimed-text"
+            assert rows and "Шойгу" in rows[0]["text"]
+            self.generated = True
+            return {"video_id": video_id}
+        def _save_local_seo_result(self, result):
+            assert result["video_id"] == VIDEO_ID
+        def _run_local_tool(self, name, task, callback):
+            callback(task())
+
+    stub = Stub()
+    ui.MainWindow.local_seo_selected(stub)
+    assert stub.generated
+    assert wrong.read_text(encoding="utf-8") == "INCORRECT NAS TEXT"
