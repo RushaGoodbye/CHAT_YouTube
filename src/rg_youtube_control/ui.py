@@ -13118,33 +13118,33 @@ class MainWindow(QMainWindow):
         context_for_model["description"] = cleaned_description
         if on_progress is not None:
             on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
-        package = generate_seo_package_local(
-            current_title=current_title,
-            current_description=cleaned_description,
-            current_tags=list(context.get("tags") or []),
-            transcript=transcript,
-            public_context=context_for_model,
-            is_short=int(context.get("duration") or 0) <= 70,
-            fast_mode=fast_mode,
-            timeout=55.0 if fast_mode else 300.0,
-            evidence_report=evidence_report,
-        )
-        # The model may prioritize incidental remarks over the central
-        # episode even after recovering an exact quote. For supported archive
-        # event patterns use a deterministic FULL-TRANSCRIPT editorial pack.
-        # It is review-only and never takes facts from model topic summaries.
+        # Source-validated editorial summary avoids repeated Ollama calls
+        # when the high-confidence main story is already established.
         stronger_editorial = (
             source_grounded_shoigu_package(
                 current_title, full_source_text,
             )
             if not fast_mode and evidence_report else None
         )
-        if stronger_editorial is not None:
-            package.update(stronger_editorial)
+        if stronger_editorial is None:
+            package = generate_seo_package_local(
+                current_title=current_title,
+                current_description=cleaned_description,
+                current_tags=list(context.get("tags") or []),
+                transcript=transcript,
+                public_context=context_for_model,
+                is_short=int(context.get("duration") or 0) <= 70,
+                fast_mode=fast_mode,
+                timeout=55.0 if fast_mode else 300.0,
+                evidence_report=evidence_report,
+            )
+        else:
+            package = stronger_editorial
+            package["provider"] = "editorial:original-source-verified"
             if on_progress is not None:
                 on_progress(
                     "SEO: головний сюжет перевірено за оригінальним "
-                    "транскриптом · побічні репліки вилучено з назв"
+                    "транскриптом · відмова від зайвих запитів Ollama"
                 )
         off_topic_issues = off_topic_title_warnings(
             current_title,
