@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.37 verified transcript import."""
+"""RG YouTube Control package. 0.7.38 original quote recovery."""
 
-__version__ = "0.7.37"
+__version__ = "0.7.38"
