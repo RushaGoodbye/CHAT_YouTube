@@ -13625,30 +13625,30 @@ class MainWindow(QMainWindow):
                         r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
                         "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
                     )
-                if not chosen:
-                    return
-                proposed = Path(chosen)
-                reply = QMessageBox.question(
-                    self, "Підтвердження вихідного відео",
-                    f"Підтвердьте, що файл\n{proposed.name}\n"
-                    f"є оригіналом опублікованого Video ID {video_id}.",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
-                save_verified_media(
-                    self.data_dir / "verified_media.json", video_id, proposed,
-                )
-                media_path = proposed
-                if (confirmed_dir / f"{video_id}.srt").exists():
-                    QMessageBox.warning(
-                        self, "SEO: існує попереднє виправлення",
-                        "Вже існує підтверджений локальний SRT. "
-                        "Автоматичне перезаписування заблоковано. "
-                        "Перевірте джерело перед повторним імпортом.",
+                    if not chosen:
+                        return
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Підтвердження вихідного відео",
+                        f"Підтвердьте, що файл\n{proposed.name}\n"
+                        f"є оригіналом опублікованого Video ID {video_id}.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
-                    return
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+                    save_verified_media(
+                        self.data_dir / "verified_media.json", video_id, proposed,
+                    )
+                    media_path = proposed
+                    if (confirmed_dir / f"{video_id}.srt").exists():
+                        QMessageBox.warning(
+                            self, "SEO: існує попереднє виправлення",
+                            "Вже існує підтверджений локальний SRT. "
+                            "Автоматичне перезаписування заблоковано. "
+                            "Перевірте джерело перед повторним імпортом.",
+                        )
+                        return
 
         if not usable_local_transcript and media_path is None:
             # Only known local roots and exact video IDs; no recursive NAS
