@@ -208,7 +208,13 @@ def test_source_repair_uses_separate_local_srt_and_keeps_original_nas(tmp_path, 
         )
         return path
 
+    class SourcePicker:
+        @staticmethod
+        def getItem(*args, **kwargs):
+            return "Вибрати вихідний відеофайл для Whisper", True
+
     monkeypatch.setattr(ui, "QMessageBox", Messages)
+    monkeypatch.setattr(ui, "QInputDialog", SourcePicker)
     monkeypatch.setattr(ui, "QFileDialog", Picker)
     monkeypatch.setattr(ui, "generate_srt_offline", fake_whisper)
     stub = Window()
