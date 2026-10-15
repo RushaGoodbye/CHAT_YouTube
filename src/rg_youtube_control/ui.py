@@ -12896,9 +12896,18 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
+        # A user-confirmed replacement transcript takes priority over an
+        # old NAS SRT that may have been attached to the wrong video ID.
+        corrected_dir = self.data_dir / "seo_verified_transcripts"
         transcript_rows, transcript_source = find_local_transcript(
-            transcript_dir, video_id,
+            corrected_dir, video_id,
         )
+        if transcript_rows:
+            transcript_source = "local-confirmed-" + transcript_source
+        else:
+            transcript_rows, transcript_source = find_local_transcript(
+                transcript_dir, video_id,
+            )
 
         if not transcript_rows:
             try:
@@ -13480,13 +13489,79 @@ class MainWindow(QMainWindow):
             "nas_transcripts_path",
             DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
+        confirmed_dir = self.data_dir / "seo_verified_transcripts"
         local_rows, local_source = find_local_transcript(
-            transcript_dir, video_id,
+            confirmed_dir, video_id,
         )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                transcript_dir, video_id,
+            )
         usable_local_transcript = bool(local_rows)
         media_path = None
+        repairing_wrong_source = False
         model_dir = local_whisper_model_dir(self.data_dir)
-        if not usable_local_transcript:
+
+        if usable_local_transcript:
+            source_title_row = self.conn.execute(
+                "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                (video_id, self.current_profile),
+            ).fetchone()
+            source_title = str(source_title_row["title"] or "") if source_title_row else ""
+            source_text = " ".join(
+                str(row.get("text") or "") for row in local_rows
+                if isinstance(row, dict)
+            )
+            match = check_title_against_transcript(source_title, source_text)
+            if match.missing:
+                reply = QMessageBox.question(
+                    self,
+                    "SEO: можливо, транскрипт від іншого відео",
+                    f"Відео {video_id} має назву про "
+                    f"{', '.join(match.missing)}, але SRT не згадує цю тему.\n\n"
+                    "Транскрипт не буде використано для SEO.\n"
+                    "Бажаєте вручну вибрати оригінал саме цього відео "
+                    "та створити окремий виправлений SRT?\n\n"
+                    "Існуючий SRT на NAS буде збережено без змін.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                repairing_wrong_source = True
+                usable_local_transcript = False
+                chosen, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Оберіть перевірений оригінал для заміни помилкового SRT",
+                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                )
+                if not chosen:
+                    return
+                proposed = Path(chosen)
+                reply = QMessageBox.question(
+                    self, "Підтвердження вихідного відео",
+                    f"Підтвердьте, що файл\n{proposed.name}\n"
+                    f"є оригіналом опублікованого Video ID {video_id}.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                save_verified_media(
+                    self.data_dir / "verified_media.json", video_id, proposed,
+                )
+                media_path = proposed
+                if (confirmed_dir / f"{video_id}.srt").exists():
+                    QMessageBox.warning(
+                        self, "SEO: існує попереднє виправлення",
+                        "Вже існує підтверджений локальний SRT. "
+                        "Автоматичне перезаписування заблоковано. "
+                        "Перевірте джерело перед повторним імпортом.",
+                    )
+                    return
+
+        if not usable_local_transcript and media_path is None:
             # Only known local roots and exact video IDs; no recursive NAS
             # crawl or automatic download from YouTube.
             media_path = get_verified_media(
@@ -13610,7 +13685,8 @@ class MainWindow(QMainWindow):
                 generate_srt_offline(
                     video_id=video_id,
                     media=media_path,
-                    destination=transcript_dir,
+                    destination=confirmed_dir if repairing_wrong_source
+                        else transcript_dir,
                     model_dir=model_dir,
                     on_progress=whisper_progress,
                 )
