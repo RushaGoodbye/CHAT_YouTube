@@ -44,6 +44,30 @@ def _context_quote(text: str, aliases: tuple[str, ...]) -> str:
     return ""
 
 
+def _supports_title_event_in_quote(title: str, quote: str) -> bool:
+    """Avoid promoting a one-off name drop into a headline about a major event."""
+    title_words = title.casefold()
+    quote_words = quote.casefold()
+    event_families = (
+        (
+            ("уволь", "звільнен", "звильнен", "відстав", "отстав"),
+            ("увол", "звільн", "звильн", "отстав", "відстав",
+             "снят с пост", "сменил должност", "поменял должност"),
+        ),
+        (
+            ("корруп", "коруп"),
+            ("корруп", "коруп", "взят", "хабар"),
+        ),
+    )
+    required = [
+        options for triggers, options in event_families
+        if any(trigger in title_words for trigger in triggers)
+    ]
+    return not required or any(
+        fragment in quote_words for options in required for fragment in options
+    )
+
+
 def recover_omitted_named_quotes(
     evidence_report: dict[str, Any],
     transcript_rows: Iterable[dict[str, Any]],
@@ -83,7 +107,9 @@ def recover_omitted_named_quotes(
             continue
         for source_block, output_block in zip(source_blocks, output_blocks):
             quote = _context_quote(source_block["text"], aliases)
-            if not quote:
+            if not quote or not _supports_title_event_in_quote(
+                current_title, quote,
+            ):
                 continue
             summary = (
                 f"У фрагменті співрозмовники згадують {label}. "
