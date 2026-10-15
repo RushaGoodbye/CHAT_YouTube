@@ -10032,6 +10032,15 @@ class MainWindow(QMainWindow):
                 )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
+            if evidence_report.get("source_anchor_recovery"):
+                source_warning = QLabel(
+                    "УВАГА: модель пропустила основну тему, але її "
+                    "дослівну цитату знайдено в оригінальному "
+                    "транскрипті. Перевірте зміст цитати перед "
+                    "збереженням SEO-чернетки."
+                )
+                source_warning.setWordWrap(True)
+                layout.addWidget(source_warning)
             evidence_details = QPlainTextEdit()
             evidence_details.setReadOnly(True)
             evidence_details.setMaximumHeight(126)
