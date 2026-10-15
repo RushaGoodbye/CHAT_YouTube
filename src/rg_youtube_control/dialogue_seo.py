@@ -42,22 +42,25 @@ def split_timeline(
     first_time = 0.0
     last_time = 0.0
     current_cues = 0
+    block_untimed = False
 
     def flush() -> None:
-        nonlocal lines, used, current_cues
+        nonlocal lines, used, current_cues, block_untimed
         if lines:
             blocks.append({
                 "index": len(blocks) + 1,
                 "start": first_time,
                 "end": last_time,
-                "start_stamp": _stamp(first_time),
-                "end_stamp": _stamp(last_time),
+                "start_stamp": "без таймкоду" if block_untimed else _stamp(first_time),
+                "end_stamp": "без таймкоду" if block_untimed else _stamp(last_time),
+                "untimed": block_untimed,
                 "text": "\n".join(lines),
                 "pieces": current_cues,
             })
         lines = []
         used = 0
         current_cues = 0
+        block_untimed = False
 
     for row in rows:
         value = _compact(row.get("text"))
@@ -101,6 +104,8 @@ def split_timeline(
                 flush()
             if not lines:
                 first_time = start
+            if row.get("untimed"):
+                block_untimed = True
             last_time = max(last_time, start + duration)
             lines.append(part)
             used += len(part) + 1
@@ -244,6 +249,7 @@ def analyze_all_timeline_blocks(
             "end": block["end"],
             "start_stamp": block["start_stamp"],
             "end_stamp": block["end_stamp"],
+            "untimed": bool(block.get("untimed")),
             "topics": item["topics"],
             "excerpt": item["excerpt"],
             "verified": item["verified"],
