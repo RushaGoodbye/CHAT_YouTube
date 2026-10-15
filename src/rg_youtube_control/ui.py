@@ -13580,13 +13580,6 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            if not (model_dir / "model.bin").is_file():
-                QMessageBox.information(
-                    self, "Whisper: потрібна локальна модель",
-                    "Оригінал знайдено, але модель Whisper недоступна. "
-                    "Оберіть папку з model.bin під час наступного запуску.",
-                )
-                return
             save_verified_media(
                 self.data_dir / "verified_media.json", video_id, candidate.path,
             )
@@ -13618,6 +13611,9 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
+        save_verified_media(
+            self.data_dir / "verified_media.json", video_id, proposed,
+        )
         self._seo_pending_media_repair = (video_id, proposed)
         QTimer.singleShot(0, self.local_seo_selected)
 
@@ -13702,7 +13698,7 @@ class MainWindow(QMainWindow):
                     f"Відео {video_id} має назву про "
                     f"{', '.join(match.missing)}, але SRT не згадує цю тему.\n\n"
                     "Транскрипт не буде використано для SEO.\n"
-                    "Бажаєте вручну вибрати оригінал саме цього відео "
+                    "Бажаєте автоматично знайти й перевірити оригінал саме цього відео "
                     "та створити окремий виправлений SRT?\n\n"
                     "Існуючий SRT на NAS буде збережено без змін.",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
