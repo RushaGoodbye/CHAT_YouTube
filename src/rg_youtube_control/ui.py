@@ -13503,10 +13503,13 @@ class MainWindow(QMainWindow):
         model_dir = local_whisper_model_dir(self.data_dir)
 
         if usable_local_transcript:
-            source_title_row = self.conn.execute(
-                "SELECT title FROM videos WHERE video_id=? AND profile=?",
-                (video_id, self.current_profile),
-            ).fetchone()
+            source_title_row = (
+                self.conn.execute(
+                    "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                    (video_id, self.current_profile),
+                ).fetchone()
+                if hasattr(self, "conn") else None
+            )
             source_title = str(source_title_row["title"] or "") if source_title_row else ""
             source_text = " ".join(
                 str(row.get("text") or "") for row in local_rows
