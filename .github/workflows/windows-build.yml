@@ -53,6 +53,11 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Verify offline transcription runtime
+        shell: pwsh
+        run: |
+          python -c "import faster_whisper; print('faster-whisper import OK')"
+
       - name: Run tests
         shell: pwsh
         run: |
@@ -64,7 +69,29 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --windowed --onedir `
             --name "RG YouTube Control" `
+            --collect-data faster_whisper `
             --paths src run_app.py
+
+      - name: Verify packaged offline transcription
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $internal = "dist/RG YouTube Control/_internal"
+          if (-not (Test-Path $internal)) { throw "PyInstaller runtime missing" }
+          $ct2 = Get-ChildItem -Path $internal -Recurse -Filter "*ctranslate2*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ct2) { throw "ctranslate2 was not included in the Windows application" }
+          Write-Host "Packaged transcription runtime detected: $($ct2.FullName)"
+          # Silero VAD ONNX is package DATA, not a Python/DLL import.
+          # Runtime transcription with vad_filter=True must have this asset.
+          $vad = Join-Path $internal "faster_whisper/assets/silero_vad_v6.onnx"
+          if (-not (Test-Path $vad -PathType Leaf)) {
+            throw "VAD ONNX model missing from Windows application: $vad"
+          }
+          if ((Get-Item $vad).Length -lt 100000) {
+            throw "VAD ONNX model incomplete: $vad"
+          }
+          Write-Host "Bundled Silero VAD asset verified: $vad"
+
 
       - name: Install Inno Setup
         shell: pwsh
@@ -152,6 +179,24 @@ jobs:
           $internal = Join-Path $target "_internal"
           if (-not (Test-Path $internal)) { throw "Installed PyInstaller runtime missing" }
           Write-Host "QA installation successful: $app"
+
+          # Exercise the actual installed EXE, not just the build environment.
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $report = Join-Path $env:RUNNER_TEMP "rg-packaged-selftest.json"
+          $process = Start-Process -FilePath $app -ArgumentList @("--packaged-selftest", $report) -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "Installed app selftest timed out"
+          }
+          if (-not (Test-Path $report)) { throw "Installed app did not write selftest report" }
+          $proof = Get-Content $report -Raw | ConvertFrom-Json
+          Write-Host ("Installed selftest: " + ($proof | ConvertTo-Json -Compress))
+          if ($process.ExitCode -ne 0 -or $proof.status -ne "PASS") {
+            throw "Installed app selftest FAILED: exit=$($process.ExitCode)"
+          }
+          if (@($proof.checks).Count -lt 7) { throw "Incomplete packaged smoke proof" }
+          if (@($proof.checks) -notcontains "packaged-pyav-audio-decoding") { throw "Packaged PyAV decoding proof missing" }
+          if (@($proof.checks) -notcontains "silero-vad-onnx-real-inference") { throw "Silero VAD inference proof missing" }
 
       - name: Publish GitHub release (optional)
         continue-on-error: true
