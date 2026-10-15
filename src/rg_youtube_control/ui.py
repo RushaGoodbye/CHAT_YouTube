@@ -10015,12 +10015,20 @@ class MainWindow(QMainWindow):
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
-            evidence_label = QLabel(
-                f"Переглянуто ВСІ часові фрагменти: {total}; "
-                f"з доказовими цитатами: {verified}/{total}. "
-                "Межі діалогів не визначаються без розмітки. "
-                "Перевірте повноту тем до підтвердження."
-            )
+            if evidence_report.get("untimed"):
+                evidence_label = QLabel(
+                    f"Проаналізовано текстові блоки: {total}; "
+                    f"з доказовими цитатами: {verified}/{total}. "
+                    "Часових міток немає: блоки НЕ є таймкодами відео. "
+                    "Розділи YouTube не створюються. Лише чернетка."
+                )
+            else:
+                evidence_label = QLabel(
+                    f"Переглянуто ВСІ часові фрагменти: {total}; "
+                    f"з доказовими цитатами: {verified}/{total}. "
+                    "Межі діалогів не визначаються без розмітки. "
+                    "Перевірте повноту тем до підтвердження."
+                )
             evidence_label.setWordWrap(True)
             layout.addWidget(evidence_label)
             evidence_details = QPlainTextEdit()
