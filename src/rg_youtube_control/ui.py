@@ -7,11 +7,12 @@ import os
 import re
 import sys
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QThread, Signal, QUrl
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -114,6 +115,7 @@ from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
 from .local_transcript_sources import find_local_transcript
+from .nas_srt_index import scan_nas_srt_ids
 from .local_media_sources import find_exact_local_media
 from .offline_transcription import generate_srt_offline
 from .offline_source_config import local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir
@@ -858,6 +860,8 @@ class LocalToolWorker(QThread):
 
 
 class MainWindow(QMainWindow):
+    nas_srt_scanned = Signal(object)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -865,6 +869,11 @@ class MainWindow(QMainWindow):
         self.data_dir = app_data_dir()
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
         self.current_profile = get_setting(self.conn, "current_profile", "main")
+        # Network-drive transcript presence is never probed on the GUI thread.
+        self._nas_srt_path = ""
+        self._nas_srt_ids = None
+        self._nas_srt_scanning = False
+        self.nas_srt_scanned.connect(self._receive_nas_srt_index)
         self.advanced_mode = get_setting(
             self.conn,
             "ui_advanced_mode",
@@ -932,6 +941,59 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(10000, self.run_background_maintenance)
         QTimer.singleShot(9000, self._resume_saved_workflow)
         QTimer.singleShot(1500, self.refresh_free_tools_status)
+
+    def _start_nas_srt_index(self) -> None:
+        """Enumerate NAS transcript names outside the Qt event loop."""
+        target = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        if self._nas_srt_scanning or target == self._nas_srt_path:
+            return
+        self._nas_srt_scanning = True
+
+        def scan() -> None:
+            # Daemon worker does not delay shutdown if a network drive is down.
+            # SQLite and widgets are accessed exclusively on the GUI thread.
+            ids = scan_nas_srt_ids(Path(target))
+            try:
+                self.nas_srt_scanned.emit((target, ids))
+            except RuntimeError:
+                pass  # Window closed during a stalled NAS lookup.
+
+        threading.Thread(
+            target=scan, daemon=True, name="rg-nas-srt-index",
+        ).start()
+
+    @Slot(object)
+    def _receive_nas_srt_index(self, payload: object) -> None:
+        """Update the transcript column only, on the GUI thread."""
+        self._nas_srt_scanning = False
+        scanned_path, ids = payload
+        current_path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        if scanned_path != current_path:
+            self._nas_srt_path = ""
+            self._nas_srt_ids = None
+            QTimer.singleShot(0, self._start_nas_srt_index)
+            return
+
+        self._nas_srt_path = scanned_path
+        self._nas_srt_ids = ids
+        table = self.optimization_table
+        for row_number in range(table.rowCount()):
+            video_item = table.item(row_number, 3)
+            status_item = table.item(row_number, 7)
+            if video_item is None or status_item is None:
+                continue
+            video_id = str(
+                video_item.data(Qt.ItemDataRole.UserRole) or video_item.text()
+            )
+            found = isinstance(ids, set) and video_id in ids
+            status_item.setText("NAS" if found else "")
+            if found:
+                status_item.setForeground(QColor(SUCCESS))
+                status_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _startup_load_videos(self) -> None:
         self.statusBar().showMessage("Завантаження відео…")
@@ -8911,18 +8973,21 @@ class MainWindow(QMainWindow):
                 )
             )
 
+        # Fast cached lookup: no per-video network Path.exists() calls.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        transcript_ids = (
+            self._nas_srt_ids
+            if self._nas_srt_path == str(transcript_dir) else None
+        )
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
-            transcript_dir = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
             transcript_status = (
-                "NAS"
-                if (transcript_dir / f"{row['video_id']}.srt").exists()
-                else ""
+                "NAS" if isinstance(transcript_ids, set)
+                and str(row["video_id"]) in transcript_ids else ""
             )
             draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
@@ -9092,6 +9157,8 @@ class MainWindow(QMainWindow):
         self._update_optimization_context_card()
         self.update_dashboard()
         self.refresh_archive_dashboard()
+        if self._nas_srt_path != str(transcript_dir) and not self._nas_srt_scanning:
+            QTimer.singleShot(0, self._start_nas_srt_index)
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
