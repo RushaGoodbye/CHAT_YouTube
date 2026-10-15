@@ -189,7 +189,10 @@ def analyze_all_timeline_blocks(
 
     for index, block in enumerate(blocks, 1):
         if progress is not None:
-            progress(f"Аналіз фрагментів: {index}/{len(blocks)} · {_stamp(block['start'])}")
+            progress(
+                f"Аналіз фрагментів: {index}/{len(blocks)} · "
+                f"{block['start_stamp']}"
+            )
         path = _cache_file(cache, block, model) if cache is not None else None
         item: dict[str, Any] | None = None
         if path is not None and path.is_file():
