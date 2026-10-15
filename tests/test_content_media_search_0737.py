@@ -153,3 +153,20 @@ def test_legacy_nas_srt_still_preserved():
     assert "_start_media_content_search(video_id, transcript_dir)" in handler
     assert "save_verified_media(" in src
     assert "youtube.update" not in handler
+
+
+def test_real_short_window_decoding_from_local_wav(tmp_path):
+    import wave
+    from rg_youtube_control.media_sampled_speech import sample_audio_window
+
+    sample = tmp_path / "sound.wav"
+    with wave.open(str(sample), "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(16000)
+        stream.writeframes(b"\x00\x00" * 16000 * 6)
+
+    fragment = sample_audio_window(sample, start_seconds=1.0, max_seconds=2.0)
+    assert fragment is not None
+    assert 16000 <= len(fragment) <= 32000
+    assert fragment.dtype.name == "float32"
