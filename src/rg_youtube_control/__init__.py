@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.34 editorial review-safe SEO."""
+"""RG YouTube Control package. 0.7.35 nonblocking NAS startup."""
 
-__version__ = "0.7.34"
+__version__ = "0.7.35"
