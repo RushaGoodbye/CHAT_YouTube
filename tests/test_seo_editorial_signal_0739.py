@@ -103,3 +103,8 @@ def test_ui_uses_full_original_transcript_not_model_topic_as_source():
         "check_title_variants_against_primary_subject("
     )
     assert "off_topic_title_warnings(" in fn
+    assert fn.index("stronger_editorial = (") < fn.index(
+        "package = generate_seo_package_local("
+    )
+    assert "if stronger_editorial is None:" in fn
+    assert 'package["provider"] = "editorial:original-source-verified"' in fn
