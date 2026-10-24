@@ -2473,6 +2473,14 @@ chapters: рядок з підтвердженими таймкодами та �
         current_title,
         title,
     )
+    # The primary title is A/B candidate #1 in the operator's four-title
+    # review. Never promote appearance small-talk to the headline merely
+    # because a transcript excerpt literally contains those words.
+    incidental_primary_rejected = bool(
+        evidence_report and _incidental_ab_quote(title)
+    )
+    if incidental_primary_rejected and not _incidental_ab_quote(current_title):
+        title = str(current_title or "").strip()
     if fast_mode:
         title = _clean_project_title_for_seo(title)
     unchanged_title = bool(
@@ -2485,6 +2493,16 @@ chapters: рядок з підтвердженими таймкодами та �
         else str(item).strip()
         for item in (payload.get("title_variants") or [])
         if str(item).strip()
+    ]
+    # Incidentally quoted remarks must never enter the preview, including
+    # the third A/B option (which is title #4 including the main title).
+    rejected_incidental_variants = [
+        value for value in variants
+        if evidence_report and _incidental_ab_quote(value)
+    ]
+    variants = [
+        value for value in variants
+        if value not in rejected_incidental_variants
     ]
     description = _polish_generated_description(
         str(payload.get("description") or "").strip()
@@ -2576,6 +2594,8 @@ chapters: рядок з підтвердженими таймкодами та �
         "ab_source_quote_fallback_used": source_quote_fallback,
         "needs_review": (
             source_quote_fallback
+            or incidental_primary_rejected
+            or bool(rejected_incidental_variants)
             or
             title_fallback_used
             or unchanged_title
@@ -2600,6 +2620,11 @@ chapters: рядок з підтвердженими таймкодами та �
                 (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
                 (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
                 (source_quote_fallback, "A/B створено з дослівних цитат: перевірити редакційний стиль"),
+                (incidental_primary_rejected,
+                 "Побічну репліку відхилено як основну назву"),
+                (bool(rejected_incidental_variants),
+                 "Побічні репліки про зовнішність вилучено з A/B: "
+                 + str(len(rejected_incidental_variants))),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(payload.get("_evidence_editorial_review")),
