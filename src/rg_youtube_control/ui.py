@@ -12996,11 +12996,13 @@ class MainWindow(QMainWindow):
         *,
         fast_mode: bool = False,
         on_progress=None,
+        profile: str | None = None,
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
         import sqlite3
 
+        origin_profile = profile or self.current_profile
         state_conn = sqlite3.connect(
             str(self.data_dir / "rg_youtube_control.db")
         )
@@ -13009,10 +13011,10 @@ class MainWindow(QMainWindow):
                 """SELECT scheduled_publish_at,privacy_status,title,duration
                    FROM videos
                    WHERE video_id=? AND profile=?""",
-                (video_id, self.current_profile),
+                (video_id, origin_profile),
             ).fetchone()
             cached_context = cached_public_metadata(
-                state_conn, video_id, self.current_profile,
+                state_conn, video_id, origin_profile,
             )
             nas_row = state_conn.execute(
                 "SELECT value FROM settings WHERE key=?",
@@ -13247,6 +13249,7 @@ class MainWindow(QMainWindow):
         )
         return {
             "video_id": video_id,
+            "profile": origin_profile,
             "context": context,
             "transcript_rows": transcript_rows,
             "package": package,
@@ -13329,6 +13332,7 @@ class MainWindow(QMainWindow):
             (self.current_profile,),
         ).fetchall()
 
+        origin_profile = self.current_profile
         candidate_ids: list[str] = []
         for row in rows:
             try:
@@ -13396,6 +13400,7 @@ class MainWindow(QMainWindow):
                                 self._generate_local_seo_result(
                                     video_id,
                                     fast_mode=False,
+                                    profile=origin_profile,
                                 ),
                             )
                         )
@@ -13461,6 +13466,7 @@ class MainWindow(QMainWindow):
             return {
                 "prepared": prepared,
                 "skipped": skipped,
+                "profile": origin_profile,
                 "requested": limit,
                 "attempted": attempted,
                 "stopped_early": stopped_early,
@@ -13636,6 +13642,7 @@ class MainWindow(QMainWindow):
             )
             return
         video_id = video_ids[0]
+        origin_profile = self.current_profile
 
         def task():
             worker = getattr(self, "_local_tool_worker", None)
@@ -13643,7 +13650,7 @@ class MainWindow(QMainWindow):
                 if worker is not None:
                     worker.progress.emit(message)
             return self._generate_local_seo_result(
-                video_id, on_progress=progress,
+                video_id, on_progress=progress, profile=origin_profile,
             )
 
         self._run_local_tool(
