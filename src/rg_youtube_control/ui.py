@@ -911,7 +911,7 @@ class MainWindow(QMainWindow):
         # Previously all four refreshes ran inside __init__, making Windows
         # report an Application Hang before the first paint.
         self.statusBar().showMessage("Завантаження даних у фоні інтерфейсу…")
-        self._apply_advanced_mode()
+        self._apply_advanced_mode(refresh=False)
         QTimer.singleShot(100, self._startup_load_videos)
         # Chain startup stages: never pile up four blocking table refreshes.
         QTimer.singleShot(12000, self.recover_archive_campaign_state)
@@ -3642,7 +3642,7 @@ class MainWindow(QMainWindow):
                 self.optimization_density,
             )
 
-    def _apply_advanced_mode(self) -> None:
+    def _apply_advanced_mode(self, *, refresh: bool = True) -> None:
         advanced = bool(getattr(self, "advanced_mode", False))
         if hasattr(self, "optimization_table"):
             self.optimization_table.setColumnHidden(7, not advanced)
@@ -3685,7 +3685,8 @@ class MainWindow(QMainWindow):
                         index,
                         not advanced,
                     )
-        self.reload_optimization_queue()
+        if refresh:
+            self.reload_optimization_queue()
 
     def save_advanced_mode_setting(self, state: int) -> None:
         self.advanced_mode = bool(state)
