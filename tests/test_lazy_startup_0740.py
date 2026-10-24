@@ -59,6 +59,8 @@ def test_optimization_first_load_is_cooperative_and_search_cancels_old_batches()
 def test_archive_does_not_block_before_first_paint():
     build = _method("_build_archive_dashboard_tab")
     assert "self.refresh_archive_dashboard()" not in build
+    optimization_build = _method("_build_optimization_tab")
+    assert "self._refresh_archive_campaign_summary()" not in optimization_build
     init = _method("__init__")
     assert "self._startup_traced" in init
     assert "self.refresh_free_tools_status)" in init
