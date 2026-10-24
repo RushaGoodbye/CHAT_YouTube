@@ -842,6 +842,9 @@ class LocalToolWorker(QThread):
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
         self.func = func
+        # Local jobs can be invoked many times during long sessions. Qt
+        # must reclaim each QThread wrapper when the worker has finished.
+        self.finished.connect(self.deleteLater)
 
     def run(self) -> None:
         try:
