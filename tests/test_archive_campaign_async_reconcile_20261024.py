@@ -34,6 +34,7 @@ def test_archive_advance_does_not_reconcile_with_old_stats(tmp_path, monkeypatch
     running = getattr(window, "_archive_stats_worker", None)
     if running is not None:
         running.wait(10000)
+        app.processEvents()  # drain queued worker finished/result callbacks
     window._archive_stats_worker = None
     refreshed = []
     checkpoint = []
