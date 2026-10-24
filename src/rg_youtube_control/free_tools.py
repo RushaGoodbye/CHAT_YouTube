@@ -2072,6 +2072,63 @@ def _recover_chapters_from_transcript(
 from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
 
 
+def grounded_seo_review_draft(
+    *,
+    current_title: str,
+    transcript: str,
+    evidence_report: dict[str, Any],
+    failure_reason: str = "",
+    current_tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Recover a safely editable local draft when Ollama rejects valid excerpts.
+
+    Never fabricate SEO hooks or mark this package ready for YouTube.
+    Missing grounded evidence is a hard failure, unlike invalid model JSON,
+    missing A/B candidates, or inadequate tag diversity.
+    """
+    title = str(current_title or "").strip()
+    if not title or len(title) > 100:
+        raise ValueError("Current video title is missing or invalid")
+    verified = [
+        topic for block in evidence_report.get("blocks") or []
+        if isinstance(block, dict) and block.get("verified") is not False
+        for topic in block.get("topics") or []
+        if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+    ]
+    if not verified:
+        raise ValueError("Cannot create a grounded review draft without quotes")
+    editorial_notes: list[str] = []
+    description = _deterministic_evidence_description(
+        title, evidence_report, review_notes=editorial_notes,
+    )
+    if _description_quality_error(description, transcript, max_chars=950):
+        raise ValueError("Grounded review description fails safety checks")
+    grounded_tags = _grounded_tags_from_transcript(title, transcript)
+    # Existing YouTube tags are NOT automatically relevant. Retain only
+    # the creator/channel identity and independently source-supported tags.
+    tags = grounded_tags[:15]
+    if not tags:
+        tags = ["РАША ГУДБАЙ", "чат рулетка"]
+    return {
+        "title": title,
+        "title_variants": [],
+        "description": description,
+        "tags": tags,
+        "chapters": "",
+        "provider": "local:evidence-safe-recovery",
+        "needs_review": True,
+        "technical_fallback": True,
+        "youtube_data_api_quota": 0,
+        "evidence_editorial_review": editorial_notes[:20],
+        "review_reason": (
+            "Модель не змогла створити перевірений SEO-пакет. "
+            "Збережено лише підтверджені теми як ЧЕРНЕТКУ. "
+            "Назва YouTube не змінюється; A/B і теги потрібно "
+            "перевірити вручну."
+        ),
+    }
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -2154,7 +2211,7 @@ SHORTS: {is_short}
     payload: dict[str, Any] = {}
     title_fallback_used = False
     last_error: Exception | None = None
-    for attempt in range(1 if fast_mode else 3):
+    for attempt in range(1 if fast_mode else 2):
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -2520,7 +2577,19 @@ chapters: рядок з підтвердженими таймкодами та �
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
+            # Retrying Ollama cannot fix a deterministic shortage of
+            # source-supported tags. Avoid repeated full-video inference.
+            if "need at least 8 grounded tags" in str(exc):
+                break
     if not payload:
+        if evidence_report and not fast_mode and current_title.strip():
+            return grounded_seo_review_draft(
+                current_title=current_title,
+                transcript=transcript,
+                evidence_report=evidence_report,
+                current_tags=current_tags,
+                failure_reason=str(last_error or ""),
+            )
         mode_text = "швидкого проходу" if fast_mode else "повторів"
         raise ValueError(
             "Локальна SEO-генерація не пройшла валідацію після "
