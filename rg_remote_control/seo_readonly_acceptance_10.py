@@ -21,12 +21,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from rg_youtube_control.config import (DEFAULT_NAS_TRANSCRIPTS_PATH,
-                                       DEFAULT_OLLAMA_MODEL)
+from rg_youtube_control.config import DEFAULT_NAS_TRANSCRIPTS_PATH
 from rg_youtube_control.dialogue_seo import (ab_title_issues,
                                               analyze_all_timeline_blocks,
                                               evidence_outline_text)
-from rg_youtube_control.free_tools import (generate_seo_package_local,
+from rg_youtube_control.free_tools import (DEFAULT_OLLAMA_MODEL,
+                                           generate_seo_package_local,
                                            load_srt_transcript, ollama_chat,
                                            _incidental_ab_quote,
                                            _description_quality_error)
