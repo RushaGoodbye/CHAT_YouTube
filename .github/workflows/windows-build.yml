@@ -153,6 +153,37 @@ jobs:
           if (-not (Test-Path $internal)) { throw "Installed PyInstaller runtime missing" }
           Write-Host "QA installation successful: $app"
 
+      - name: Smoke test frozen GUI first paint and event loop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA"
+          $exe = Join-Path $target "RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGQtIsolated"
+          New-Item -ItemType Directory -Force $isolated | Out-Null
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_SMOKE_FILE = Join-Path $isolated "qt_ready.json"
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(90)
+            while (!(Test-Path $env:RG_YT_QA_SMOKE_FILE) -and (Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Frozen GUI exited early with $($process.ExitCode)" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_SMOKE_FILE)) { throw "Frozen GUI did not reach Qt event-loop probe" }
+            $probe = Get-Content $env:RG_YT_QA_SMOKE_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) { throw "Frozen GUI did not open its tabs" }
+            Write-Host "FROZEN_GUI_FIRST_PAINT_PASS tabs=$($probe.tab_count)"
+          } finally {
+            $process.Refresh()
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
