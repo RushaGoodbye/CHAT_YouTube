@@ -6748,6 +6748,18 @@ class MainWindow(QMainWindow):
             return False
 
     def create_recovery_backup_now(self) -> None:
+        """Manual NAS backup must not block the UI or share its SQLite handle."""
+        running = getattr(self, "_manual_backup_worker", None)
+        if running is not None and running.isRunning():
+            return
+        daily = getattr(self, "_daily_backup_worker", None)
+        if daily is not None and daily.isRunning():
+            QMessageBox.information(
+                self, "Резервна копія",
+                "Щоденне резервне копіювання вже виконується у фоні.",
+            )
+            return
+
         root = self._recovery_backup_root()
         answer = QMessageBox.question(
             self,
@@ -6764,29 +6776,57 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        self.statusBar().showMessage("Створюю резервну копію на NAS...")
-        QApplication.processEvents()
-        try:
-            archive = create_recovery_backup(
-                conn=self.conn,
-                data_dir=self.data_dir,
-                backup_root=root,
-                version=__version__,
-            )
-        except Exception as exc:
-            self._error("Помилка резервного копіювання", exc)
-            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        data_dir = self.data_dir
 
-        QMessageBox.information(
-            self,
-            "Резервну копію створено",
-            "Робочу версію збережено.\n\n"
-            f"Архів відновлення:\n{archive}\n\n"
-            "Після перевстановлення Windows встановіть збережений "
-            "інсталятор, відновіть цей архів і повторно підключіть два "
-            "YouTube-канали.",
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return create_recovery_backup(
+                    conn=worker_conn,
+                    data_dir=data_dir,
+                    backup_root=root,
+                    version=__version__,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._manual_backup_worker = worker
+        self.statusBar().showMessage(
+            "Створення резервної копії NAS у фоні…"
         )
-        self.statusBar().showMessage("Резервну копію робочої версії створено")
+
+        def success(result: object) -> None:
+            archive = Path(result)
+            QMessageBox.information(
+                self,
+                "Резервну копію створено",
+                "Робочу версію збережено.\n\n"
+                f"Архів відновлення:\n{archive}\n\n"
+                "Після перевстановлення Windows встановіть збережений "
+                "інсталятор, відновіть цей архів і повторно підключіть два "
+                "YouTube-канали.",
+            )
+            self.statusBar().showMessage(
+                "Резервну копію робочої версії створено"
+            )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Резервна копія NAS: помилка")
+            self._error("Помилка резервного копіювання", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_manual_backup_worker", None) is worker:
+                self._manual_backup_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def restore_recovery_backup_now(self) -> None:
         root = self._recovery_backup_root()
