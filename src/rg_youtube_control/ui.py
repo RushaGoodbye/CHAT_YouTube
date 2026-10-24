@@ -7828,6 +7828,12 @@ class MainWindow(QMainWindow):
         ):
             self._archive_campaign_reconcile_pending = False
             self._advance_archive_campaign(stats_override=result)
+            done_key = getattr(
+                self, "_archive_campaign_autorun_done_pending", None
+            )
+            if done_key:
+                set_setting(self.conn, done_key, "1")
+                self._archive_campaign_autorun_done_pending = None
         if hasattr(self, "archive_campaign_summary"):
             self._refresh_archive_campaign_summary()
 
@@ -8541,7 +8547,13 @@ class MainWindow(QMainWindow):
                         return
                 completed = self.run_archive_campaign_step(automatic=True)
                 if completed:
-                    set_setting(self.conn, done_key, "1")
+                    # Mark daily work complete only after fresh NAS+DB counts
+                    # reconcile the post-write phase. An offline share must
+                    # never silently mark an unverified run as finished.
+                    if getattr(self, "_archive_campaign_reconcile_pending", False):
+                        self._archive_campaign_autorun_done_pending = done_key
+                    else:
+                        set_setting(self.conn, done_key, "1")
                     log_action(
                         self.conn,
                         profile=target or self.current_profile,
