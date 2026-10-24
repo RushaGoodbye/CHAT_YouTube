@@ -1,5 +1,8 @@
+import json
+import os
 import sys
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QLocale, QLockFile, QStandardPaths, QTimer, QTranslator
@@ -34,6 +37,27 @@ def main() -> int:
     window = MainWindow()
     install_comment_action_ui(window)
     window.show()
+
+    # Explicit CI-only probe. A marker proves that the frozen executable
+    # entered Qt's event loop and responded after its initial table loads.
+    smoke_path = os.environ.get("RG_YT_QA_SMOKE_FILE", "").strip()
+    if smoke_path:
+        def finish_smoke() -> None:
+            try:
+                marker = Path(smoke_path)
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text(
+                    json.dumps({
+                        "visible": window.isVisible(),
+                        "tab_count": window.tabs.count(),
+                        "utc": datetime.now(timezone.utc).isoformat(),
+                    }),
+                    encoding="utf-8",
+                )
+            finally:
+                app.quit()
+
+        QTimer.singleShot(5000, finish_smoke)
 
     campaign_timer = QTimer(window)
     campaign_timer.setInterval(60 * 1000)
