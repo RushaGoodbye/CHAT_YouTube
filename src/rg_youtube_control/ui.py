@@ -14600,10 +14600,19 @@ class MainWindow(QMainWindow):
         # installer run and create an endless update loop.
         if not bool(getattr(sys, "frozen", False)):
             return
-        try:
-            info = check_for_update()
-        except Exception:
+        running = getattr(self, "_silent_update_worker", None)
+        if running is not None and running.isRunning():
             return
+        worker = LocalToolWorker(check_for_update, self)
+        self._silent_update_worker = worker
+        worker.succeeded.connect(self._on_silent_update_result)
+        worker.finished.connect(self._on_silent_update_finished)
+        worker.start()
+
+    def _on_silent_update_finished(self) -> None:
+        self._silent_update_worker = None
+
+    def _on_silent_update_result(self, info: object) -> None:
         if info is None:
             return
         dismissed = get_setting(
