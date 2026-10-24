@@ -816,15 +816,9 @@ def _deterministic_evidence_description(
         raise ValueError("No editorial subjects among verified transcript topics")
 
     labels = labels[:10]
-    subject = (
-        "Шойгу та "
-        if "шойгу" in str(title or "").casefold()
-        and any("Шойгу" in label for label in labels)
-        else ""
-    )
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють " + subject + "такі теми: " + "; ".join(labels) + ". "
+        "обговорюють такі теми: " + "; ".join(labels) + ". "
     )
     body = (
         "Учасники чат-рулетки висловлюють власні думки та припущення "
@@ -841,8 +835,7 @@ def _deterministic_evidence_description(
             labels.pop()
             lead = (
                 "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-                "обговорюють " + subject + "такі теми: "
-                + "; ".join(labels) + ". "
+                "обговорюють такі теми: " + "; ".join(labels) + ". "
             )
             result = lead + body
         if len(result) > 950:
