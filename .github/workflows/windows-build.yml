@@ -184,6 +184,40 @@ jobs:
             Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
           }
 
+      - name: Cold-start frozen GUI against large synthetic SQLite database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA/RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGQtLargeData"
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_SMOKE_FILE = Join-Path $isolated "qt_ready.json"
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $db = Join-Path $env:LOCALAPPDATA "RGYouTubeControl/rg_youtube_control.db"
+          python scripts/qa_seed_startup_db.py $db
+          $started = Get-Date
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = $started.AddSeconds(45)
+            while (!(Test-Path $env:RG_YT_QA_SMOKE_FILE) -and (Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Large-data GUI exited early: $($process.ExitCode)" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_SMOKE_FILE)) { throw "Large-data GUI hung at startup" }
+            $probe = Get-Content $env:RG_YT_QA_SMOKE_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) { throw "Large-data GUI failed first paint" }
+            $seconds = ((Get-Date) - $started).TotalSeconds
+            if ($seconds -gt 20) { throw "Large-data first paint took $seconds seconds" }
+            Write-Host "LARGE_SQLITE_GUI_STARTUP_PASS duration=$seconds tabs=$($probe.tab_count)"
+          } finally {
+            $process.Refresh()
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
