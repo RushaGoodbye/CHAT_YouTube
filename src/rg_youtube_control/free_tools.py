@@ -2042,9 +2042,16 @@ SHORTS: {is_short}
             "Поверни рівно JSON-об'єкт з ключами title, title_variants, description, tags, chapters."
         )
         if attempt:
+            # Give the model the actual reason for failure rather than repeating
+            # an identical generic prompt. The message is diagnostic context,
+            # never an instruction overriding the grounded transcript.
+            failure_reason = " ".join(str(last_error or "").split())[:350]
             system_text += (
                 " Попередня відповідь не пройшла валідацію. "
-                "Обов'язково заповни title і description. chapters має бути рядком."
+                "Обов'язково заповни title і description. chapters має бути рядком. "
+                "Не роби заголовком побічну репліку про зовнішність чи випадковий жарт. "
+                "Замість цього використай центральні підтверджені теми розмови. "
+                f"Причина попередньої відмови: {failure_reason}"
             )
         try:
             attempt_prompt = prompt
