@@ -218,6 +218,40 @@ jobs:
             Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
           }
 
+      - name: Check GUI after delayed archive recovery starts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA/RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGLateStartQA"
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_STABILITY_FILE = Join-Path $isolated "after_20s.json"
+          Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $proc = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(50)
+            while (!(Test-Path $env:RG_YT_QA_STABILITY_FILE) -and (Get-Date) -lt $deadline) {
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "Frozen GUI exited before delayed tasks" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_STABILITY_FILE)) {
+              throw "GUI frozen after delayed archive recovery timer"
+            }
+            $probe = Get-Content $env:RG_YT_QA_STABILITY_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) {
+              throw "GUI became unavailable after delayed startup tasks"
+            }
+            Write-Host "LATE_START_QT_RESPONSIVE_PASS"
+          } finally {
+            $proc.Refresh()
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_STABILITY_FILE -ErrorAction SilentlyContinue
+          }
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-
