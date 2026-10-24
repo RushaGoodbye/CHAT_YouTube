@@ -104,6 +104,8 @@ def main():
  if s.get('schedule_may_be_stalled'):problems.append('CALLBACK_LAST_TICK_STALE')
  if s.get('attempts',0)<3:problems.append('CRON_AUTONOMY_NOT_YET_VERIFIED')
  if not lg.get('exists'):problems.append('SCHEDULED_CALLBACK_LOG_ABSENT')
+ elif lg.get('mtime_age_sec',99999)>180 or lg.get('recent_tail_passes',0)<1:
+  problems.append('SCHEDULED_CALLBACK_LOG_NOT_RECENT_OR_NO_PASSES')
  if q.get('unresolved_moderation_cards',0)>3:problems.append('MODERATION_QUEUE_OVER_CAPACITY')
  if (B/'PUBLISH_ENABLED').exists():problems.append('PUBLICATION_GATE_ENABLED_UNEXPECTEDLY')
  if not (B/'MODERATION_DELIVERY_ENABLED').is_file():problems.append('MODERATION_DELIVERY_GATE_MISSING')
