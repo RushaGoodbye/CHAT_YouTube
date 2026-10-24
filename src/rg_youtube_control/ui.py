@@ -12315,39 +12315,79 @@ class MainWindow(QMainWindow):
             )
 
     def background_metadata_sync(self) -> None:
-        worker = getattr(self, "_local_tool_worker", None)
-        if worker is not None and worker.isRunning():
+        """Scheduled metadata refresh must never block the Qt event loop."""
+        local = getattr(self, "_local_tool_worker", None)
+        if local is not None and local.isRunning():
+            return
+        running = getattr(self, "_background_metadata_worker", None)
+        if running is not None and running.isRunning():
             return
         budget = quota_budget_status(self.conn)
         if bool(budget["exhausted"]) or int(budget["spendable"]) < 6:
             return
 
-        before = today_quota_units(self.conn)
-        changed = 0
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
-            try:
-                client.credentials()
-                rows = sync_videos(client, self.conn, limit=50)
-                streams = sync_upcoming_live_broadcasts(client, self.conn)
-                changed += len(rows) + len(streams)
-            except Exception as exc:
-                if _is_quota_exceeded_error(exc):
-                    mark_quota_exhausted(self.conn)
-                    break
-                log_action(
-                    self.conn,
-                    profile=profile,
-                    category="діагностика",
-                    action="Фонова синхронізація пропущена",
-                    details=str(exc)[:500],
-                )
+        self._metadata_sync_before_units = today_quota_units(self.conn)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS)
 
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                changed = 0
+                for profile in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                        rows = sync_videos(client, worker_conn, limit=50)
+                        streams = sync_upcoming_live_broadcasts(client, worker_conn)
+                        changed += len(rows) + len(streams)
+                    except Exception as exc:
+                        if _is_quota_exceeded_error(exc):
+                            mark_quota_exhausted(worker_conn)
+                            break
+                        log_action(
+                            worker_conn,
+                            profile=profile,
+                            category="діагностика",
+                            action="Фонова синхронізація пропущена",
+                            details=str(exc)[:500],
+                        )
+                return changed
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._background_metadata_worker = worker
+        worker.succeeded.connect(self._on_background_metadata_synced)
+        worker.failed.connect(self._on_background_metadata_error)
+        worker.finished.connect(self._on_background_metadata_finished)
+        worker.start()
+
+    def _on_background_metadata_finished(self) -> None:
+        self._background_metadata_worker = None
+
+    def _on_background_metadata_error(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="діагностика",
+            action="Фонова синхронізація: помилка",
+            details=str(message)[:500],
+        )
+
+    def _on_background_metadata_synced(self, changed: object) -> None:
+        changed = int(changed or 0)
         if changed:
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-        consumed = max(0, today_quota_units(self.conn) - before)
+        consumed = max(
+            0,
+            today_quota_units(self.conn)
+            - int(getattr(self, "_metadata_sync_before_units", 0)),
+        )
         if consumed:
             log_action(
                 self.conn,
