@@ -744,6 +744,7 @@ def _deterministic_evidence_description(
 
     labels: list[str] = []
     unmapped: list[str] = []
+    nonempty_verified_quotes = 0
     for block in blocks:
         topics = [
             item for item in (block.get("topics") or [])
@@ -758,6 +759,7 @@ def _deterministic_evidence_description(
                 if topic_name:
                     unmapped.append(topic_name[:100])
                 continue
+            nonempty_verified_quotes += 1
 
             # Do not infer the subject of a quote from the model's topic label:
             # a verified quotation does not verify all LLM-authored claims.
@@ -811,6 +813,10 @@ def _deterministic_evidence_description(
     if review_notes is not None:
         review_notes.extend(list(dict.fromkeys(unmapped))[:20])
     if not labels:
+        if not nonempty_verified_quotes:
+            # An unverified model label is never enough to author public
+            # prose. The neutral fallback is for REAL but unmapped quotes.
+            raise ValueError("No verified quotation text for SEO description")
         # The quotes were checked against source speech but provide no safe
         # topical hook. Preserve a neutral REVIEW-ONLY draft rather than
         # aborting every hour of analysis or guessing a headline from a
