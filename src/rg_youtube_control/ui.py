@@ -13171,6 +13171,11 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     reason = " ".join(str(exc).split())[:700]
                     skipped.append({"video_id": video_id, "error": reason})
+                    # A timed-out daemon may still be running. Never start a
+                    # second candidate while it can modify shared state.
+                    if isinstance(exc, TimeoutError):
+                        stopped_early = True
+                        break
                     # Repeated failures must not silently consume 30 candidates.
                     # Stop after five consecutive failures or three identical
                     # reasons, but preserve all diagnostics for the operator.
