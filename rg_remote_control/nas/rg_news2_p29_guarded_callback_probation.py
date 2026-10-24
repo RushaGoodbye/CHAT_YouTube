@@ -59,37 +59,47 @@ def guards():
  if not all(x in text for x in ('updates_handoff_','process_callback','getUpdates','PUBLISH_ENABLED')):
   raise RuntimeError('CALLBACK_WORKER_SOURCE_CHANGED')
 def proof():
- live=sorted(O.glob('p25_updates_*.json'))[-15:]
- archived=sorted(O.glob('updates_handoff_*.json'))[-200:]
- if not live:return {'verified':False,'reason':'LATEST_LIVE_TEST_ARCHIVE_MISSING'}
+ # Do not infer a live moderation decision from an old recheck or a test card.
+ p=O/'p30_real_decision_proof.json'
+ if not p.is_file() or p.is_symlink():return {'verified':False,'reason':'P30_PROOF_MISSING'}
+ try:d=json.loads(p.read_text('utf-8'))
+ except Exception:return {'verified':False,'reason':'P30_PROOF_INVALID'}
+ if d.get('verified') is not True or d.get('action')!='reject':
+  return {'verified':False,'reason':'NO_REAL_REJECT_PROOF'}
+ try:
+  issued=datetime.datetime.fromisoformat(d['time_utc'])
+  age=(datetime.datetime.now(datetime.timezone.utc)-issued).total_seconds()
+ except Exception:return {'verified':False,'reason':'INVALID_PROOF_TIME'}
+ if age<0 or age>3600:return {'verified':False,'reason':'PROOF_TOO_OLD'}
+ mid=d.get('message_id')
+ uid=d.get('update_id')
+ name=d.get('archive_name','')
+ if not isinstance(mid,int) or not isinstance(uid,int) or not re.fullmatch(r'p30_updates_[0-9]{8}T[0-9]{12}Z\.json',name):
+  return {'verified':False,'reason':'INVALID_PROOF_REFERENCES'}
+ archive=O/name
+ if not archive.is_file() or archive.is_symlink():
+  return {'verified':False,'reason':'PROOF_ARCHIVE_MISSING'}
+ try:
+  updates=json.loads(archive.read_text('utf-8')).get('updates',[])
+ except Exception:return {'verified':False,'reason':'PROOF_ARCHIVE_BAD'}
+ matched=False
+ for u in updates:
+  if not isinstance(u,dict) or u.get('update_id')!=uid:continue
+  q=u.get('callback_query') or {}
+  msg=q.get('message') or {}
+  parts=str(q.get('data','')).split(':')
+  if len(parts)>=3 and parts[0]=='rg3' and parts[1]=='reject' and msg.get('message_id')==mid and (msg.get('chat') or {}).get('type')=='private':
+   matched=True;break
+ if not matched:return {'verified':False,'reason':'PROOF_ARCHIVE_NO_REAL_REJECT'}
  db=sqlite3.connect('file:'+str(B/'news.sqlite3')+'?mode=ro',uri=True,timeout=5)
  try:
-  live_probe=None
-  for file in reversed(live):
-   for update in json.loads(file.read_text('utf-8')).get('updates',[]):
-    q=update.get('callback_query') or {}
-    message=q.get('message') or {}
-    if str(q.get('data','')).startswith('rgprobe25:') and message.get('message_id')==8032:
-     live_probe={'message_id':8032,'update_id':update.get('update_id'),'archive':file.name}
-  if not live_probe:return {'verified':False,'reason':'LIVE_P25_TEST_8032_NOT_ARCHIVED'}
-  decision=None
-  for file in reversed(live+archived):
-   for update in reversed(json.loads(file.read_text('utf-8')).get('updates',[])):
-    q=update.get('callback_query') or {}
-    data=str(q.get('data','')).split(':')
-    if len(data)<3 or data[0]!='rg3' or data[1] not in ('reject','recheck','approve'):continue
-    message=q.get('message') or {}
-    if (message.get('chat') or {}).get('type')!='private':continue
-    mid=message.get('message_id')
-    if not isinstance(mid,int):continue
-    row=db.execute('SELECT c.status FROM moderation_dispatch d JOIN candidates c ON c.id=d.candidate_id WHERE d.message_id=?',(mid,)).fetchone()
-    if row and row[0] not in ('awaiting_photo_review','awaiting_moderation'):
-     decision={'action':data[1],'candidate_status_after':row[0],
-      'message_id':mid,'archive':file.name}
-     break
-   if decision:break
-  if not decision:return {'verified':False,'reason':'NO_STATE_CHANGED_MODERATION_DECISION'}
-  return {'verified':True,'live_callback':live_probe,'moderation_decision':decision}
+  row=db.execute('SELECT c.status,c.id FROM moderation_dispatch d JOIN candidates c ON c.id=d.candidate_id WHERE d.message_id=?',(mid,)).fetchone()
+  saved=db.execute("SELECT value FROM moderation_meta WHERE key='offset'").fetchone()
+  if not row or str(row[1])!=d.get('candidate_id') or row[0]!=d.get('after') or row[0] in ('awaiting_photo_review','awaiting_moderation'):
+   return {'verified':False,'reason':'STATE_DOES_NOT_CONFIRM_DECISION'}
+  if not saved or int(saved[0])<=uid:
+   return {'verified':False,'reason':'OFFSET_HAS_NOT_ADVANCED'}
+  return {'verified':True,'message_id':mid,'update_id':uid,'action':'reject','candidate_status_after':row[0]}
  finally:db.close()
 def once():
  p=subprocess.run(['/usr/bin/python3',str(WORKER),'once'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,
