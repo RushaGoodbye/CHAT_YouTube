@@ -35,3 +35,14 @@ def test_archive_summary_does_not_synchronously_rescan_nas():
     block = source[start:end]
     assert "stats = self._archive_campaign_stats_cached()" in block
     assert "stats = self._archive_campaign_stats()" not in block
+
+
+def test_archive_summary_does_not_claim_completion_without_stats():
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    start = source.index("    def _refresh_archive_campaign_summary(")
+    end = source.index("    def _advance_archive_campaign(", start)
+    block = source[start:end]
+    assert '_archive_stats_unavailable' in block
+    assert 'статистика NAS недоступна' in block
+    assert 'оновлення статистики…' in block
+    assert 'if getattr(self, "_dashboard_archive_stats_cache", None) is None:' in block
