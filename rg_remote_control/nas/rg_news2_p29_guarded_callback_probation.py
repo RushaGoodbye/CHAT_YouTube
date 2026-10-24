@@ -112,8 +112,23 @@ def once():
   typ='TELEGRAM_409_POLL_CONFLICT' if '409' in detail or 'Conflict' in detail else (
        'HANDOFF_BLOCKED' if obj.get('status')=='BLOCKED' else 'ONESHOT_ERROR')
   return {'pass':False,'error_class':typ}
+ outcomes=[str(x)[:90] for x in obj.get('outcomes',[])[:25]]
+ ui=obj.get('ui_results') or []
+ if 'TEST_BUTTON_VISIBLE_CONFIRMATION_FAILED' in outcomes:
+  return {'pass':False,'error_class':'TEST_BUTTON_VISIBLE_REPLY_FAILED'}
+ if any(isinstance(item,dict) and
+        item.get('kind')=='TEST_BUTTON' and item.get('confirmation_sent') is not True
+        for item in ui):
+  return {'pass':False,'error_class':'TEST_REPLY_UNCONFIRMED'}
+ if any(isinstance(item,dict) and
+        item.get('action') in ('reject','recheck','similar')
+        and item.get('confirmation_sent') is not True
+        for item in ui):
+  return {'pass':False,'error_class':'MODERATION_REPLY_FAILED'}
  return {'pass':True,'updates':int(obj.get('update_count',0)),
-    'outcomes':[str(x)[:60] for x in obj.get('outcomes',[])[:25]],
+    'outcomes':outcomes,
+    'ui_confirmations_sent':sum(1 for item in ui if isinstance(item,dict)
+                               and item.get('confirmation_sent') is True),
     'offset_after':obj.get('offset_after')}
 def lock():
  fd=os.open(str(O/'callback_v29.lock'),os.O_CREAT|os.O_RDWR,0o600)
