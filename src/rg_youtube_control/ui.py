@@ -7016,34 +7016,84 @@ class MainWindow(QMainWindow):
             f"квота читання: {consumed}"
         )
 
-    def sync_video_list(self) -> None:
-        try:
-            if quota_exhausted(self.conn):
-                QMessageBox.information(
-                    self,
-                    "Квоту YouTube вичерпано",
-                    "Синхронізацію через YouTube Data API заблоковано до "
-                    "наступного квотного дня. Локальна 0-quota підготовка "
-                    "залишається доступною.",
-                )
-                return
-            before_units = today_quota_units(self.conn)
-            rows = sync_videos(self.client, self.conn, limit=50)
-            upcoming = sync_upcoming_live_broadcasts(
-                self.client,
-                self.conn,
+    def _start_manual_sync(self, label: str, task, on_success) -> None:
+        """Never block Qt on user-requested YouTube network operations."""
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
+            self.statusBar().showMessage(
+                "Синхронізація вже виконується. Дочекайтеся завершення."
             )
-            consumed = max(0, today_quota_units(self.conn) - before_units)
+            return
+
+        worker = LocalToolWorker(task, self)
+        self._manual_sync_worker = worker
+        self.statusBar().showMessage(f"{label} · виконується у фоні…")
+
+        def succeeded(result: object) -> None:
+            try:
+                on_success(result)
+            except Exception as exc:
+                self._error("Помилка після синхронізації", exc)
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage(f"{label} · помилка")
+            self._error("Помилка синхронізації", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_manual_sync_worker", None) is worker:
+                self._manual_sync_worker = None
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def sync_video_list(self) -> None:
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Синхронізацію через YouTube Data API заблоковано до "
+                "наступного квотного дня. Локальна 0-quota підготовка "
+                "залишається доступною.",
+            )
+            return
+
+        # Capture selection now: switching tabs/channels during a background
+        # request must not switch the API account midway.
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                client = YouTubeClient(profile=origin_profile)
+                rows = sync_videos(client, worker_conn, limit=50)
+                upcoming = sync_upcoming_live_broadcasts(client, worker_conn)
+                return (
+                    len(rows),
+                    len(upcoming),
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            videos, upcoming, consumed = result
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
             self.statusBar().showMessage(
-                f"Відео синхронізовано: {len(rows)} · "
-                f"майбутніх ефірів: {len(upcoming)} · "
-                f"квота читання: {consumed}"
+                f"{PROFILE_LABELS[origin_profile]} · відео: {videos} · "
+                f"майбутніх ефірів: {upcoming} · квота читання: {consumed}"
             )
-        except Exception as exc:
-            self._error("Помилка синхронізації", exc)
+
+        self._start_manual_sync("Синхронізація відео", task, done)
 
     def sync_both_channels(self) -> None:
         if quota_exhausted(self.conn):
@@ -7054,6 +7104,11 @@ class MainWindow(QMainWindow):
                 "заблоковано до наступного квотного дня.",
             )
             return
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
+            self.statusBar().showMessage("Синхронізація вже виконується.")
+            return
+
         answer = QMessageBox.question(
             self,
             "Синхронізація двох каналів",
@@ -7065,34 +7120,54 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        before_units = today_quota_units(self.conn)
-        results: list[str] = []
-        errors: list[str] = []
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
-            try:
-                client.credentials()
-            except Exception:
-                errors.append(f"{PROFILE_LABELS[profile]}: не підключено")
-                continue
-            try:
-                rows = sync_videos(client, self.conn, limit=1000)
-                results.append(f"{PROFILE_LABELS[profile]}: {len(rows)}")
-            except Exception as exc:
-                errors.append(f"{PROFILE_LABELS[profile]}: {exc}")
+        db_path = self.data_dir / "rg_youtube_control.db"
 
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
-        self.update_dashboard()
-        consumed = max(0, today_quota_units(self.conn) - before_units)
-        message = (
-            "Синхронізовано:\n" + ("\n".join(results) or "—")
-            + f"\n\nКвота читання YouTube Data API: {consumed} од."
-        )
-        if errors:
-            message += "\n\nНе виконано:\n" + "\n".join(errors)
-        QMessageBox.information(self, APP_NAME, message)
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                results: list[str] = []
+                errors: list[str] = []
+                for profile in PROFILE_TARGETS:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                    except Exception:
+                        errors.append(f"{PROFILE_LABELS[profile]}: не підключено")
+                        continue
+                    try:
+                        rows = sync_videos(client, worker_conn, limit=1000)
+                        results.append(f"{PROFILE_LABELS[profile]}: {len(rows)}")
+                    except Exception as exc:
+                        errors.append(f"{PROFILE_LABELS[profile]}: {exc}")
+                return (
+                    results,
+                    errors,
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            results, errors, consumed = result
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.reload_comments()
+            self.update_dashboard()
+            message = (
+                "Синхронізовано:\n" + ("\n".join(results) or "—")
+                + f"\n\nКвота читання YouTube Data API: {consumed} од."
+            )
+            if errors:
+                message += "\n\nНе виконано:\n" + "\n".join(errors)
+            QMessageBox.information(self, APP_NAME, message)
+            self.statusBar().showMessage("Синхронізацію двох каналів завершено")
+
+        self._start_manual_sync("Синхронізація двох каналів", task, done)
 
     def edit_selected_video(self) -> None:
         row = self.video_table.currentRow()
@@ -7132,6 +7207,10 @@ class MainWindow(QMainWindow):
             self._error("Помилка оновлення відео", exc)
 
     def sync_full_archive(self) -> None:
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
+            self.statusBar().showMessage("Синхронізація вже виконується.")
+            return
         answer = QMessageBox.question(
             self,
             "Повна синхронізація архіву",
@@ -7142,27 +7221,48 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        try:
-            before_units = today_quota_units(self.conn)
-            self.statusBar().showMessage("Синхронізую весь архів...")
-            QApplication.processEvents()
-            rows = sync_videos(self.client, self.conn, limit=1000)
-            consumed = max(0, today_quota_units(self.conn) - before_units)
+
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                client = YouTubeClient(profile=origin_profile)
+                rows = sync_videos(client, worker_conn, limit=1000)
+                stored = worker_conn.execute(
+                    "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+                    (origin_profile,),
+                ).fetchone()["n"]
+                return (
+                    len(rows),
+                    stored,
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            videos, stored, consumed = result
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-            stored = self.conn.execute(
-                "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
-                (self.current_profile,),
-            ).fetchone()["n"]
-            latin_titles = self._latin_title_review_count()
-            self.statusBar().showMessage(
-                f"Архів синхронізовано: {len(rows)} унікальних відео · "
-                f"у базі профілю: {stored} · англомовних назв: {latin_titles} · "
-                f"квота читання: {consumed}"
+            latin_text = (
+                f" · англомовних назв: {self._latin_title_review_count()}"
+                if self.current_profile == origin_profile else ""
             )
-        except Exception as exc:
-            self._error("Помилка повної синхронізації", exc)
+            self.statusBar().showMessage(
+                f"{PROFILE_LABELS[origin_profile]} · "
+                f"архів: {videos} відео · у базі: {stored}"
+                f"{latin_text} · квота читання: {consumed}"
+            )
+
+        self._start_manual_sync("Повна синхронізація архіву", task, done)
 
     def _selected_optimization_video_ids(self) -> list[str]:
         if not hasattr(self, "optimization_table"):
