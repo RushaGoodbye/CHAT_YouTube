@@ -112,6 +112,12 @@ def main():
      ret=m.process_callback(u,cfg)
      status=str(ret.get('status','UNKNOWN'))[:90]
      after=dispatch_state(mid)
+     if (before and after and before[0]==after[0] and
+         before[1] in ('awaiting_photo_review','awaiting_moderation') and
+         after[1]==before[1] and parts[1] in ('reject','recheck')):
+      # Do not silently acknowledge a legitimate moderation request that did
+      # not change the DB. Leave Telegram's offset untouched and halt probation.
+      raise RuntimeError('REAL_MODERATION_ACTION_DID_NOT_CHANGE_PENDING_STATE')
      if (before and after and before[0]==after[0] and before[1]!=after[1]):
       # Make a confirmed database transition visible on the exact moderator card.
       change={'message_id':mid,'action':parts[1],
@@ -135,6 +141,9 @@ def main():
       except Exception as error:
        change['confirmation_error_type']=type(error).__name__
       ui_results.append(change)
+     elif before and after and before[0]==after[0] and before[1]==after[1]:
+      # A stale already-completed card must never look like a new success.
+      status='MODERATION_ALREADY_PROCESSED_OR_UNCHANGED'
     elif owned and parts[1]=='approve':
      status='APPROVAL_PAUSED_PUBLISH_DISABLED'
     else:
