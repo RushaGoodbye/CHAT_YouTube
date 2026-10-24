@@ -3560,7 +3560,7 @@ class MainWindow(QMainWindow):
         self.archive_campaign_summary.setObjectName("ArchiveCampaignSummary")
         self.archive_campaign_summary.setProperty("muted", True)
         self.archive_campaign_summary.setWordWrap(True)
-        self._refresh_archive_campaign_summary()
+        # Archive aggregations are deferred until optimization is opened.
         self.archive_campaign_summary.setVisible(False)
 
         self.free_tools_status_label = QLabel(
