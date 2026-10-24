@@ -6490,58 +6490,98 @@ class MainWindow(QMainWindow):
             self.log_sections.setCurrentIndex(1)
 
     def refresh_diagnostics_panel(self) -> None:
-        try:
-            probes = probe_free_tools()
+        """Check external tools and NAS in a worker, never on the Qt thread."""
+        running = getattr(self, "_diagnostics_worker", None)
+        if running is not None and running.isRunning():
+            return
+
+        nas_path = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        if hasattr(self, "diagnostics_text"):
+            self.diagnostics_text.setText("Перевірка компонентів у фоні…")
+
+        def task():
+            errors = []
+            try:
+                probes = probe_free_tools()
+            except Exception as exc:
+                probes = {}
+                errors.append(str(exc)[:500])
+            try:
+                nas_state = "OK" if nas_path.parent.exists() else "недоступний"
+            except Exception as exc:
+                nas_state = f"помилка: {str(exc)[:150]}"
+            try:
+                ps = powershell_status()
+            except Exception as exc:
+                ps = {"available": False}
+                errors.append(str(exc)[:500])
+            return probes, nas_state, ps, errors
+
+        worker = LocalToolWorker(task, self)
+        self._diagnostics_worker = worker
+
+        def success(result: object) -> None:
+            probes, nas_state, ps, errors = result
             self._free_tools_last_probe = probes
-        except Exception as exc:
-            probes = {}
+            for error in errors:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="діагностика",
+                    action="Помилка діагностики",
+                    details=error,
+                )
+            budget = quota_budget_status(self.conn)
+            yt = probes.get("yt_dlp", {}) if isinstance(probes, dict) else {}
+            tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
+            ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
+            model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
+            ps_label = (
+                f"OK {ps.get('version') or ''}".strip()
+                if ps.get("available") else "недоступний"
+            )
+            lines = [
+                f"NAS: {nas_state}",
+                f"Шлях транскриптів: {nas_path}",
+                f"yt-dlp: {'OK' if yt.get('available') else '—'}",
+                f"Transcript: {'OK' if tr.get('available') else '—'}",
+                f"Ollama: {'OK' if ol.get('available') else '—'}",
+                f"PowerShell (вбудований): {ps_label}",
+                f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
+                (
+                    "YouTube API: "
+                    f"залишилось {int(budget['remaining']):,}; "
+                    f"резерв {int(budget['reserve']):,}; "
+                    f"доступно {int(budget['spendable']):,}"
+                ),
+            ]
+            if hasattr(self, "diagnostics_text"):
+                self.diagnostics_text.setText("\n".join(lines))
+            self.reload_action_log()
+
+        def failed(message: str) -> None:
             log_action(
                 self.conn,
                 profile=self.current_profile,
                 category="діагностика",
                 action="Помилка діагностики",
-                details=str(exc),
+                details=message[:500],
             )
+            if hasattr(self, "diagnostics_text"):
+                self.diagnostics_text.setText(
+                    "Діагностика не завершена: " + message[:250]
+                )
 
-        budget = quota_budget_status(self.conn)
-        try:
-            nas_path = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
-            nas_state = "OK" if nas_path.parent.exists() else "недоступний"
-        except Exception as exc:
-            nas_path = Path(DEFAULT_NAS_TRANSCRIPTS_PATH)
-            nas_state = f"помилка: {exc}"
+        def finished() -> None:
+            if getattr(self, "_diagnostics_worker", None) is worker:
+                self._diagnostics_worker = None
 
-        yt = probes.get("yt_dlp", {}) if isinstance(probes, dict) else {}
-        tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
-        ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
-        model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
-        ps = powershell_status()
-        ps_label = (
-            f"OK {ps.get('version') or ''}".strip()
-            if ps.get("available")
-            else "недоступний"
-        )
-        lines = [
-            f"NAS: {nas_state}",
-            f"Шлях транскриптів: {nas_path}",
-            f"yt-dlp: {'OK' if yt.get('available') else '—'}",
-            f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
-            f"PowerShell (вбудований): {ps_label}",
-            f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
-            (
-                "YouTube API: "
-                f"залишилось {int(budget['remaining']):,}; "
-                f"резерв {int(budget['reserve']):,}; "
-                f"доступно {int(budget['spendable']):,}"
-            ),
-        ]
-        if hasattr(self, "diagnostics_text"):
-            self.diagnostics_text.setText("\n".join(lines))
-        self.reload_action_log()
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def check_local_database(self) -> None:
         try:
@@ -9755,71 +9795,99 @@ class MainWindow(QMainWindow):
             self._error("Помилка попереднього перегляду", exc)
 
     def test_nas_transcript_path(self) -> None:
+        """NAS and bridge may time out; keep the entire probe off the UI."""
+        running = getattr(self, "_nas_test_worker", None)
+        if running is not None and running.isRunning():
+            return
         target_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        nas_ok = False
-        bridge_ok = False
-        details: list[str] = []
+        self.statusBar().showMessage("Перевірка NAS у фоні…")
 
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            probe = target_dir / "_rg_youtube_control_write_test.txt"
-            payload = (
-                "RG YouTube Control NAS write test\n"
-                + datetime.now(timezone.utc).isoformat()
-                + "\n"
+        def task():
+            from uuid import uuid4
+
+            nas_ok = False
+            bridge_ok = False
+            details: list[str] = []
+            probe = target_dir / (
+                "_rg_youtube_control_write_test_" + uuid4().hex + ".txt"
             )
-            probe.write_text(payload, encoding="utf-8")
-            check = probe.read_text(encoding="utf-8")
-            if check != payload:
-                raise RuntimeError("Контрольне читання не збіглося із записом.")
-            probe.unlink(missing_ok=True)
-            nas_ok = True
-            details.append(f"NAS: OK\n{target_dir}")
-        except Exception as exc:
-            details.append(f"NAS: ПОМИЛКА\n{target_dir}\n{exc}")
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                payload = (
+                    "RG YouTube Control NAS write test\n"
+                    + datetime.now(timezone.utc).isoformat() + "\n"
+                )
+                probe.write_text(payload, encoding="utf-8")
+                if probe.read_text(encoding="utf-8") != payload:
+                    raise RuntimeError(
+                        "Контрольне читання не збіглося із записом."
+                    )
+                nas_ok = True
+                details.append(f"NAS: OK\n{target_dir}")
+            except Exception as exc:
+                details.append(f"NAS: ПОМИЛКА\n{target_dir}\n{exc}")
+            finally:
+                try:
+                    probe.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
-        try:
-            health = bridge_health(PACKAGE_BRIDGE_URL)
-            bridge_ok = bool(health.get("ok"))
-            if bridge_ok:
+            try:
+                health = bridge_health(PACKAGE_BRIDGE_URL)
+                bridge_ok = bool(health.get("ok"))
+                if bridge_ok:
+                    details.append(
+                        f"Package Bridge: OK\n{PACKAGE_BRIDGE_URL}"
+                    )
+                else:
+                    details.append(
+                        "Package Bridge: некоректна відповідь\n"
+                        + PACKAGE_BRIDGE_URL
+                    )
+            except Exception as exc:
                 details.append(
-                    f"Package Bridge: OK\n{PACKAGE_BRIDGE_URL}"
+                    f"Package Bridge: ПОМИЛКА\n{PACKAGE_BRIDGE_URL}\n{exc}"
+                )
+            return nas_ok, bridge_ok, "\n\n".join(details)
+
+        worker = LocalToolWorker(task, self)
+        self._nas_test_worker = worker
+
+        def success(result: object) -> None:
+            nas_ok, bridge_ok, message = result
+            if nas_ok or bridge_ok:
+                QMessageBox.information(self, "Перевірка сховищ", message)
+                self.statusBar().showMessage(
+                    "Сховища: "
+                    + ("NAS + Bridge OK" if nas_ok and bridge_ok
+                       else "резервний канал доступний")
                 )
             else:
-                details.append(
-                    f"Package Bridge: некоректна відповідь\n{PACKAGE_BRIDGE_URL}"
+                QMessageBox.critical(
+                    self, "Помилка доступу до сховищ", message,
                 )
-        except Exception as exc:
-            details.append(
-                f"Package Bridge: ПОМИЛКА\n{PACKAGE_BRIDGE_URL}\n{exc}"
+                self.statusBar().showMessage(
+                    "Сховища: NAS і Package Bridge недоступні"
+                )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage(
+                "Перевірка сховищ: помилка " + message[:150]
+            )
+            QMessageBox.critical(
+                self, "Помилка доступу до сховищ", message[:500],
             )
 
-        message = "\n\n".join(details)
-        if nas_ok or bridge_ok:
-            QMessageBox.information(
-                self,
-                "Перевірка сховищ",
-                message,
-            )
-            self.statusBar().showMessage(
-                "Сховища: " + (
-                    "NAS + Bridge OK"
-                    if nas_ok and bridge_ok
-                    else "резервний канал доступний"
-                )
-            )
-        else:
-            QMessageBox.critical(
-                self,
-                "Помилка доступу до сховищ",
-                message,
-            )
-            self.statusBar().showMessage(
-                "Сховища: NAS і Package Bridge недоступні"
-            )
+        def finished() -> None:
+            if getattr(self, "_nas_test_worker", None) is worker:
+                self._nas_test_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def _export_transcript_video_to_nas(
         self,
