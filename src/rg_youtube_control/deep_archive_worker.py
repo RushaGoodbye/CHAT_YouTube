@@ -59,6 +59,7 @@ def prepare_deep_review_batch(
 
     max_downloads = max(0, min(20, int(max_downloads)))
     downloaded = 0
+    attempted_downloads = 0
     errors: list[str] = []
     drafts: list[dict[str, Any]] = []
     client = None
@@ -72,9 +73,13 @@ def prepare_deep_review_batch(
             continue
 
         srt_path = transcript_dir / f"{video_id}.srt"
-        if not bool(item.get("transcript_ready")) and downloaded < max_downloads:
+        if (
+            not bool(item.get("transcript_ready"))
+            and attempted_downloads < max_downloads
+        ):
             available = int(quota_budget_status(conn).get("spendable", 0))
             if available >= CAPTION_TRANSCRIPT_COST:
+                attempted_downloads += 1
                 try:
                     if client is None:
                         client = client_factory(profile)
@@ -144,6 +149,7 @@ def prepare_deep_review_batch(
         "exported": exported,
         "total": total,
         "downloaded": downloaded,
+        "attempted_downloads": attempted_downloads,
         "drafts": drafts,
         "errors": errors,
     }
