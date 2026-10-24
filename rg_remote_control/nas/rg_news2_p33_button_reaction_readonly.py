@@ -95,7 +95,7 @@ def handler():
     elif isinstance(fn,ast.Attribute):v=fn.attr
     else:continue
     if v not in calls:calls.append(v)
-   if isinstance(x,ast.Constant) and isinstance(x.value,str) and
+   if (isinstance(x,ast.Constant) and isinstance(x.value,str) and
       x.value in ('recheck','reject','similar','approve',
                   'update_id','callback_query','editMessageReplyMarkup',
                   'editMessageCaption','deleteMessage','answerCallbackQuery')):
