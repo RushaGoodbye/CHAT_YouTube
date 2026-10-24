@@ -46,14 +46,14 @@ def inspect():
 def patch_yaml(original):
  lines=original.splitlines(True)
  # Deliberately support only standard unambiguous Compose layout.
- roots=[i for i,s in enumerate(lines) if re.fullmatch(r'services:\\s*(?:#.*)?\\n?',s)]
+ roots=[i for i,s in enumerate(lines) if re.fullmatch(r'services:\s*(?:#.*)?\n?',s)]
  if len(roots)!=1:raise RuntimeError('NONSTANDARD_SERVICES_LAYOUT_ABORT')
  first=roots[0]
  candidates=[]
  for i in range(first+1,len(lines)):
   s=lines[i]
   if s.strip() and not s.startswith((' ','#')):break
-  if re.match(r'^  public-monitor:\\s*(?:#.*)?$',s.rstrip('\\r\\n')):
+  if re.match(r'^  public-monitor:\s*(?:#.*)?$',s.rstrip('\r\n')):
    candidates.append(i)
  if len(candidates)!=1:raise RuntimeError('PUBLIC_MONITOR_SERVICE_LAYOUT_AMBIGUOUS_ABORT')
  ix=candidates[0];end=len(lines)
@@ -64,16 +64,16 @@ def patch_yaml(original):
   if indent<=2:end=i;break
  field=[]
  for i in range(ix+1,end):
-  if re.match(r'^    init:\\s*',lines[i]):field.append(i)
+  if re.match(r'^    init:\s*',lines[i]):field.append(i)
  if len(field)>1:raise RuntimeError('DUPLICATE_INIT_FIELD_ABORT')
  if field:
   i=field[0]
-  if re.fullmatch(r'    init:\\s*true\\s*(?:#.*)?\\n?',lines[i]):
+  if re.fullmatch(r'    init:\s*true\s*(?:#.*)?\n?',lines[i]):
    return original,False
-  if not re.fullmatch(r'    init:\\s*false\\s*(?:#.*)?\\n?',lines[i]):
+  if not re.fullmatch(r'    init:\s*false\s*(?:#.*)?\n?',lines[i]):
    raise RuntimeError('EXISTING_INIT_UNEXPECTED_ABORT')
-  lines[i]='    init: true\\n'
- else:lines.insert(ix+1,'    init: true\\n')
+  lines[i]='    init: true\n'
+ else:lines.insert(ix+1,'    init: true\n')
  return ''.join(lines),True
 def compose_cmd(project,filepath):
  return [DOCKER,'compose','--project-directory',str(ROOT),'-p',project,'-f',str(filepath)]
