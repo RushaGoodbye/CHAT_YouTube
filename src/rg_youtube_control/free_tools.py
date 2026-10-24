@@ -811,9 +811,27 @@ def _deterministic_evidence_description(
     if review_notes is not None:
         review_notes.extend(list(dict.fromkeys(unmapped))[:20])
     if not labels:
-        # Fail closed when none of the excerpts supports a public-facing
-        # subject. The private timeline evidence report is retained.
-        raise ValueError("No editorial subjects among verified transcript topics")
+        # The quotes were checked against source speech but provide no safe
+        # topical hook. Preserve a neutral REVIEW-ONLY draft rather than
+        # aborting every hour of analysis or guessing a headline from a
+        # model-authored topic label. The full evidence report remains saved.
+        if review_notes is not None:
+            review_notes.append(
+                "Немає достатньо визначених тем для автоматичного SEO; "
+                "потрібен редакторський перегляд усіх цитат"
+            )
+        return (
+            "У цьому випуску «РАША ГУДБАЙ» представлені розмови "
+            "ведучого зі співрозмовниками в чат-рулетці. Учасники "
+            "ставлять запитання, обмінюються думками та відповідають "
+            "на аргументи один одного. Зміст окремих фрагментів "
+            "потребує додаткової редакторської перевірки за "
+            "оригінальним відео та повним транскриптом. "
+            "Непідтверджені імена, події або мотиви не включені "
+            "до цього попереднього опису. "
+            "Перед публікацією потрібно уточнити конкретні теми "
+            "та перевірити твердження співрозмовників."
+        )
 
     labels = labels[:10]
     lead = (
