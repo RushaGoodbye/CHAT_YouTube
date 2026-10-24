@@ -114,6 +114,7 @@ def main():
    time.sleep(2)
   emit(status='P30_NO_CONFIRMED_REJECT',updates_seen=updates_seen,
     pending_cards=ids,offset=off,channel_sends=0)
+  raise RuntimeError('NO_REAL_REJECT_RECEIVED_WITHIN_75_SECONDS')
  finally:os.close(fd)
 if __name__=='__main__':
  try:main()
