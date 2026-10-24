@@ -7806,6 +7806,11 @@ class MainWindow(QMainWindow):
 
     def _on_archive_stats_finished(self) -> None:
         self._archive_stats_worker = None
+        if getattr(self, "_archive_campaign_reconcile_needs_second_scan", False):
+            self._archive_campaign_reconcile_needs_second_scan = False
+            # A pre-existing scan could have observed counts before an
+            # archive write. Take a second scan after it has fully finished.
+            QTimer.singleShot(0, self._refresh_archive_stats_async)
 
     def _on_archive_stats_ready(self, result: object) -> None:
         if not isinstance(result, dict):
@@ -7817,7 +7822,10 @@ class MainWindow(QMainWindow):
         self._complete_archive_recovery(result)
         # Reconcile after the worker has read fresh DB/NAS state. Never
         # make phase decisions using the counts cached before a write.
-        if getattr(self, "_archive_campaign_reconcile_pending", False):
+        if (
+            getattr(self, "_archive_campaign_reconcile_pending", False)
+            and not getattr(self, "_archive_campaign_reconcile_needs_second_scan", False)
+        ):
             self._archive_campaign_reconcile_pending = False
             self._advance_archive_campaign(stats_override=result)
         if hasattr(self, "archive_campaign_summary"):
@@ -7925,6 +7933,9 @@ class MainWindow(QMainWindow):
             # including remote SRT checks, must arrive from a worker before
             # phase/checkpoint changes are allowed.
             self._archive_campaign_reconcile_pending = True
+            worker = getattr(self, "_archive_stats_worker", None)
+            if worker is not None and worker.isRunning():
+                self._archive_campaign_reconcile_needs_second_scan = True
             self._dashboard_archive_stats_cache = None
             self._refresh_archive_stats_async()
             return
