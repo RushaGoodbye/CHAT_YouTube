@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .build_info import BUILD_NUMBER, BUILD_SHA
 from .config import (
     APP_NAME,
     DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
@@ -6186,7 +6187,9 @@ class MainWindow(QMainWindow):
         self.refresh_youtube_quota_label()
         self.vidiq_quota_label = QLabel()
         self.refresh_vidiq_quota_label()
-        self.version_label = QLabel(f"Версія: {__version__}")
+        self.version_label = QLabel(
+            f"Версія: {__version__} · збірка #{BUILD_NUMBER} · {BUILD_SHA[:8]}"
+        )
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
         zip_update_btn = QPushButton("Оновити з ZIP")
