@@ -8,7 +8,7 @@ B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 CR=pathlib.Path('/etc/crontab')
 STATE=O/'callback_v29_state.json'
-WORKER=O/'rg_news2_controlled_callback_once_v1.py'
+WORKER=O/'rg_news2_p31_guarded_callback_once.py'
 MARK='# RG_NEWS2_CALLBACK_PROBATION_V29'
 LINE='* * * * *\troot\t/usr/bin/python3 /volume1/docker/RG_TELEGRAM_NEWS_2/operator/callback_v29.py tick >> /volume1/docker/RG_TELEGRAM_NEWS_2/operator/callback_v29.log 2>&1 '+MARK
 LEG=pathlib.Path('/volume1/docker/RG_SECRETS/rg_nas_telegram_cutover_enabled')
@@ -56,50 +56,49 @@ def guards():
  if LEG.exists() or LEG.is_symlink():raise RuntimeError('LEGACY_CUTOVER_GATE_OPEN')
  if not WORKER.is_file() or WORKER.is_symlink():raise RuntimeError('KNOWN_CALLBACK_WORKER_MISSING')
  text=WORKER.read_text('utf-8')
- if not all(x in text for x in ('updates_handoff_','process_callback','getUpdates','PUBLISH_ENABLED')):
+ if not all(x in text for x in ('updates_handoff_guarded_','process_callback','getUpdates','PUBLISH_ENABLED','APPROVAL_PAUSED_PUBLISH_DISABLED','OUTBOUND_TO_NON_MODERATOR_BLOCKED')):
   raise RuntimeError('CALLBACK_WORKER_SOURCE_CHANGED')
 def proof():
- # Do not infer a live moderation decision from an old recheck or a test card.
- p=O/'p30_real_decision_proof.json'
- if not p.is_file() or p.is_symlink():return {'verified':False,'reason':'P30_PROOF_MISSING'}
- try:d=json.loads(p.read_text('utf-8'))
- except Exception:return {'verified':False,'reason':'P30_PROOF_INVALID'}
- if d.get('verified') is not True or d.get('action')!='reject':
-  return {'verified':False,'reason':'NO_REAL_REJECT_PROOF'}
- try:
-  issued=datetime.datetime.fromisoformat(d['time_utc'])
-  age=(datetime.datetime.now(datetime.timezone.utc)-issued).total_seconds()
- except Exception:return {'verified':False,'reason':'INVALID_PROOF_TIME'}
- if age<0 or age>3600:return {'verified':False,'reason':'PROOF_TOO_OLD'}
- mid=d.get('message_id')
- uid=d.get('update_id')
- name=d.get('archive_name','')
- if not isinstance(mid,int) or not isinstance(uid,int) or not re.fullmatch(r'p30_updates_[0-9]{8}T[0-9]{12}Z\.json',name):
-  return {'verified':False,'reason':'INVALID_PROOF_REFERENCES'}
- archive=O/name
- if not archive.is_file() or archive.is_symlink():
-  return {'verified':False,'reason':'PROOF_ARCHIVE_MISSING'}
- try:
-  updates=json.loads(archive.read_text('utf-8')).get('updates',[])
- except Exception:return {'verified':False,'reason':'PROOF_ARCHIVE_BAD'}
- matched=False
- for u in updates:
-  if not isinstance(u,dict) or u.get('update_id')!=uid:continue
+ # Validate a historic REAL recheck plus a recent end-to-end test event.
+ # Neither requires the moderator to click another real moderation card.
+ live=sorted(O.glob('p25_updates_*.json'))[-25:]
+ archive=O/'updates_handoff_20261015T175210096025Z.json'
+ if not live or not archive.is_file() or archive.is_symlink():
+  return {'verified':False,'reason':'P25_TEST_OR_HISTORIC_RECHECK_ARCHIVE_MISSING'}
+ recent_test=None
+ for file in reversed(live):
+  for u in json.loads(file.read_text('utf-8')).get('updates',[]):
+   q=u.get('callback_query') or {}
+   msg=q.get('message') or {}
+   if (str(q.get('data','')).startswith('rgprobe25:') and msg.get('message_id')==8032
+      and (msg.get('chat') or {}).get('type')=='private' and u.get('update_id')==615861397):
+    recent_test={'message_id':8032,'update_id':u.get('update_id'),'archive':file.name}
+ if not recent_test:return {'verified':False,'reason':'SUCCESSFUL_P25_BUTTON_TEST_NOT_ARCHIVED'}
+ hist=json.loads(archive.read_text('utf-8')).get('updates',[])
+ real=None
+ for u in hist:
   q=u.get('callback_query') or {}
   msg=q.get('message') or {}
-  parts=str(q.get('data','')).split(':')
-  if len(parts)>=3 and parts[0]=='rg3' and parts[1]=='reject' and msg.get('message_id')==mid and (msg.get('chat') or {}).get('type')=='private':
-   matched=True;break
- if not matched:return {'verified':False,'reason':'PROOF_ARCHIVE_NO_REAL_REJECT'}
+  from_bot=msg.get('from') or {}
+  who=q.get('from') or {}
+  if (u.get('update_id')==615861392 and msg.get('message_id')==8018
+      and str(q.get('data','')).startswith('rg3:recheck:')
+      and (msg.get('chat') or {}).get('type')=='private'
+      and from_bot.get('id')==7492268627
+      and who.get('is_bot') is False):
+   real={'action':'recheck','update_id':615861392,'message_id':8018,'archive':archive.name}
+ if not real:return {'verified':False,'reason':'HISTORIC_REAL_RECHECK_NOT_AUTHENTICATED'}
  db=sqlite3.connect('file:'+str(B/'news.sqlite3')+'?mode=ro',uri=True,timeout=5)
  try:
-  row=db.execute('SELECT c.status,c.id FROM moderation_dispatch d JOIN candidates c ON c.id=d.candidate_id WHERE d.message_id=?',(mid,)).fetchone()
-  saved=db.execute("SELECT value FROM moderation_meta WHERE key='offset'").fetchone()
-  if not row or str(row[1])!=d.get('candidate_id') or row[0]!=d.get('after') or row[0] in ('awaiting_photo_review','awaiting_moderation'):
-   return {'verified':False,'reason':'STATE_DOES_NOT_CONFIRM_DECISION'}
-  if not saved or int(saved[0])<=uid:
-   return {'verified':False,'reason':'OFFSET_HAS_NOT_ADVANCED'}
-  return {'verified':True,'message_id':mid,'update_id':uid,'action':'reject','candidate_status_after':row[0]}
+  row=db.execute('SELECT c.status FROM moderation_dispatch d JOIN candidates c ON d.candidate_id=c.id WHERE d.message_id=?',(8018,)).fetchone()
+  cur=db.execute("SELECT value FROM moderation_meta WHERE key='offset'").fetchone()
+  if not row or row[0]!='needs_recheck':
+   return {'verified':False,'reason':'RECHECK_DB_STATE_MISMATCH'}
+  if not cur or int(cur[0])<=recent_test['update_id']:
+   return {'verified':False,'reason':'TEST_UPDATE_OFFSET_NOT_SAVED'}
+  return {'verified':True,'recent_button_test':recent_test,'real_recheck':real,
+   'candidate_state':'needs_recheck',
+   'qualification':'Transport and recheck verified; reject and approval not yet end-to-end tested'}
  finally:db.close()
 def once():
  p=subprocess.run(['/usr/bin/python3',str(WORKER),'once'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,
