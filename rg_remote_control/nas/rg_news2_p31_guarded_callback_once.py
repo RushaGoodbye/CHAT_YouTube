@@ -70,7 +70,15 @@ def main():
      raise RuntimeError('OUTBOUND_TO_NON_MODERATOR_BLOCKED')
    return old_api(method,payload)
   m.api=api_guard
-  statuses=[]
+  statuses=[]; ui_results=[]
+  def dispatch_state(message_id):
+   if not isinstance(message_id,int):return None
+   with m.db_connect() as db:
+    rec=db.execute("""SELECT c.id,c.status FROM moderation_dispatch d
+       JOIN candidates c ON d.candidate_id=c.id
+       WHERE d.message_id=? ORDER BY d.rowid DESC LIMIT 1""",
+       (message_id,)).fetchone()
+    return (str(rec[0]),str(rec[1])) if rec else None
   for u in ups:
    q=u.get('callback_query') or {}
    if isinstance(q,dict) and q:
@@ -81,8 +89,34 @@ def main():
     owned=(parts[0]=='rg3' and len(parts)>=3 and actor.get('id')==chat
       and mch.get('id')==chat and mch.get('type')=='private')
     if owned and parts[1] in ACTIONS:
+     mid=message.get('message_id')
+     before=dispatch_state(mid)
      ret=m.process_callback(u,cfg)
      status=str(ret.get('status','UNKNOWN'))[:90]
+     after=dispatch_state(mid)
+     if (before and after and before[0]==after[0] and before[1]!=after[1]):
+      # Make a confirmed database transition visible on the exact moderator card.
+      change={'message_id':mid,'action':parts[1],
+              'before':before[1],'after':after[1],
+              'reply_markup_cleared':False,'confirmation_sent':False}
+      try:
+       m.api('editMessageReplyMarkup',{
+        'chat_id':chat,'message_id':mid,
+        'reply_markup':{'inline_keyboard':[]}})
+       change['reply_markup_cleared']=True
+      except Exception as error:
+       change['ui_error_type']=type(error).__name__
+      # Message stays in the same private moderator chat; no news-channel sends.
+      labels={'recheck':'🔄 Новину направлено на переперевірку',
+              'reject':'❌ Новину відхилено',
+              'similar':'🔎 Перевірку схожих новин виконано'}
+      try:
+       m.api('sendMessage',{'chat_id':chat,'reply_to_message_id':mid,
+        'text':labels.get(parts[1],'✅ Рішення оброблено')})
+       change['confirmation_sent']=True
+      except Exception as error:
+       change['confirmation_error_type']=type(error).__name__
+      ui_results.append(change)
     elif owned and parts[1]=='approve':
      status='APPROVAL_PAUSED_PUBLISH_DISABLED'
     else:
@@ -99,7 +133,7 @@ def main():
    off=max(off,u['update_id']+1)
    putoff(m,off)
   emit(status='ONE_SHOT_CALLBACK_HANDOFF_COMPLETE',update_count=len(ups),
-   outcomes=statuses,offset_after=off,archive_name=filename,
+   outcomes=statuses,ui_results=ui_results,offset_after=off,archive_name=filename,
    publication_gate_opened=False,channel_sends=0,
    approval_callbacks_executed=0,exclusive_owner_proven=False)
  finally:os.close(fd)
