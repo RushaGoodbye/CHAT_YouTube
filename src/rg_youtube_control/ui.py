@@ -12423,16 +12423,18 @@ class MainWindow(QMainWindow):
             )
 
     def background_scan_all_channels(self) -> None:
+        """Run potentially slow YouTube comment API calls off the GUI thread."""
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
             return
         if getattr(self, "_archive_campaign_autorun_running", False):
             return
+        running = getattr(self, "_comment_scan_worker", None)
+        if running is not None and running.isRunning():
+            return
         if archive_priority_enabled(self.conn):
             now = datetime.now(timezone.utc)
             raw = get_setting(
-                self.conn,
-                "archive_priority_comment_scan_last",
-                "",
+                self.conn, "archive_priority_comment_scan_last", "",
             )
             if raw:
                 try:
@@ -12444,73 +12446,95 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     pass
             set_setting(
-                self.conn,
-                "archive_priority_comment_scan_last",
-                now.isoformat(),
+                self.conn, "archive_priority_comment_scan_last", now.isoformat(),
             )
 
-        summaries: list[str] = []
-        for profile, target_id in PROFILE_TARGETS.items():
-            client = YouTubeClient(profile=profile)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS.items())
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            summaries: list[str] = []
             try:
-                client.credentials()
-            except Exception:
-                continue
+                for profile, target_id in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                    except Exception:
+                        continue
+                    default_auto = (
+                        get_setting(worker_conn, "auto_reply_enabled", "0")
+                        if profile == "main" else "0"
+                    )
+                    auto_enabled = get_setting(
+                        worker_conn,
+                        f"auto_reply_enabled_{profile}",
+                        default_auto,
+                    ) == "1"
+                    daily_limit = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_daily_limit_{profile}",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    ))
+                    scan_limit = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_scan_limit_{profile}",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    ))
+                    age_hours = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_max_age_hours_{profile}",
+                        str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    ))
+                    try:
+                        stats = scan_channel_comments(
+                            client,
+                            worker_conn,
+                            target_id,
+                            auto_reply=auto_enabled,
+                            max_auto_replies=daily_limit,
+                            max_auto_replies_per_scan=scan_limit,
+                            max_auto_age_hours=age_hours,
+                        )
+                        summaries.append(
+                            f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
+                            f"авто {stats['auto_replied']}, API {stats['api_reads']}"
+                        )
+                    except Exception as exc:
+                        summaries.append(
+                            f"{PROFILE_LABELS[profile]}: помилка {str(exc)[:120]}"
+                        )
+                return summaries
+            finally:
+                worker_conn.close()
 
-            default_auto = (
-                get_setting(self.conn, "auto_reply_enabled", "0")
-                if profile == "main"
-                else "0"
-            )
-            auto_enabled = get_setting(
-                self.conn,
-                f"auto_reply_enabled_{profile}",
-                default_auto,
-            ) == "1"
-            daily_limit = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_daily_limit_{profile}",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
-                )
-            )
-            scan_limit = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_scan_limit_{profile}",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
-                )
-            )
-            age_hours = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_max_age_hours_{profile}",
-                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
-                )
-            )
+        worker = LocalToolWorker(task, self)
+        self._comment_scan_worker = worker
+        worker.succeeded.connect(self._on_comment_scan_finished_ok)
+        worker.failed.connect(self._on_comment_scan_failed)
+        worker.finished.connect(self._on_comment_scan_released)
+        worker.start()
 
-            try:
-                stats = scan_channel_comments(
-                    client,
-                    self.conn,
-                    target_id,
-                    auto_reply=auto_enabled,
-                    max_auto_replies=daily_limit,
-                    max_auto_replies_per_scan=scan_limit,
-                    max_auto_age_hours=age_hours,
-                )
-                summaries.append(
-                    f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
-                    f"авто {stats['auto_replied']}, API {stats['api_reads']}"
-                )
-            except Exception:
-                summaries.append(f"{PROFILE_LABELS[profile]}: помилка")
+    def _on_comment_scan_released(self) -> None:
+        self._comment_scan_worker = None
 
+    def _on_comment_scan_finished_ok(self, summaries: object) -> None:
         self.reload_comments()
         self.reload_action_log()
         self.update_dashboard()
-        if summaries:
-            self.statusBar().showMessage(" · ".join(summaries))
+        if isinstance(summaries, list) and summaries:
+            self.statusBar().showMessage(" · ".join(str(x) for x in summaries))
+
+    def _on_comment_scan_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="діагностика",
+            action="Фонове сканування коментарів: помилка",
+            details=str(message)[:700],
+        )
 
     def scan_comment_queue(self, silent: bool = False) -> None:
         if silent and not self.background_box.isChecked():
