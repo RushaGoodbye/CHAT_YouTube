@@ -76,7 +76,7 @@ def main():
    with m.db_connect() as db:
     rec=db.execute("""SELECT c.id,c.status FROM moderation_dispatch d
        JOIN candidates c ON d.candidate_id=c.id
-       WHERE d.message_id=? ORDER BY d.rowid DESC LIMIT 1""",
+       WHERE d.message_id=? LIMIT 1""",
        (message_id,)).fetchone()
     return (str(rec[0]),str(rec[1])) if rec else None
   for u in ups:
