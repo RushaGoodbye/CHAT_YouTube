@@ -912,10 +912,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Завантаження даних у фоні інтерфейсу…")
         self._apply_advanced_mode()
         QTimer.singleShot(100, self._startup_load_videos)
-        QTimer.singleShot(300, self._startup_load_optimization)
-        QTimer.singleShot(500, self._startup_load_comments)
-        QTimer.singleShot(700, self._startup_load_actions)
-        QTimer.singleShot(900, self._startup_finish)
+        # Chain startup stages: never pile up four blocking table refreshes.
         QTimer.singleShot(12000, self.recover_archive_campaign_state)
         QTimer.singleShot(18000, self.cleanup_cached_updates)
         QTimer.singleShot(30000, self.check_for_updates_silent)
@@ -949,6 +946,7 @@ class MainWindow(QMainWindow):
             self.reload_videos()
         finally:
             self._record_startup_duration("videos", started)
+            QTimer.singleShot(0, self._startup_load_optimization)
 
     def _startup_load_optimization(self) -> None:
         started = time.perf_counter()
@@ -957,6 +955,7 @@ class MainWindow(QMainWindow):
             self.reload_optimization_queue()
         finally:
             self._record_startup_duration("optimization", started)
+            QTimer.singleShot(0, self._startup_load_comments)
 
     def _startup_load_comments(self) -> None:
         started = time.perf_counter()
@@ -965,6 +964,7 @@ class MainWindow(QMainWindow):
             self.reload_comments()
         finally:
             self._record_startup_duration("comments", started)
+            QTimer.singleShot(0, self._startup_load_actions)
 
     def _startup_load_actions(self) -> None:
         started = time.perf_counter()
@@ -973,6 +973,7 @@ class MainWindow(QMainWindow):
             self.reload_action_log()
         finally:
             self._record_startup_duration("actions", started)
+            QTimer.singleShot(0, self._startup_finish)
 
     def _startup_finish(self) -> None:
         if hasattr(self, "optimization_density"):
