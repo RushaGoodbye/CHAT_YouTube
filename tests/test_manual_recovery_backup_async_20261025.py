@@ -28,7 +28,7 @@ def test_manual_backup_never_shares_gui_sqlite_connection():
     assert "sqlite3.connect(str(db_path), timeout=15)" in segment
     assert "worker_conn.close()" in segment
     assert "LocalToolWorker(task, self)" in segment
-    assert "self._daily_backup_worker" in segment
+    assert 'getattr(self, "_daily_backup_worker", None)' in segment
 
 
 def test_manual_backup_remains_responsive_and_deduplicates(
