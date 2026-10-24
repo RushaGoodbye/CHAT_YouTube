@@ -13116,6 +13116,9 @@ class MainWindow(QMainWindow):
             stopped_early = False
 
             def generate_with_timeout(video_id: str) -> dict:
+                # The timeout worker must not outlive the owner and continue
+                # using the same mutable UI state after another candidate starts.
+                # Capture immutable inputs before spawning the nested thread.
                 result_queue: queue.Queue = queue.Queue(maxsize=1)
 
                 def target() -> None:
