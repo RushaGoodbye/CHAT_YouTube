@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,10 +166,20 @@ def archive_profile_stats(
     ).fetchall()
 
     state = deep_review_state_map(conn, profile)
+    # Windows UNC drives can take seconds on each remote Path.exists().
+    # Enumerate once: a 1,800-video archive should cause one directory read,
+    # not 1,800 round trips to Synology NAS.
+    transcript_names: set[str] = set()
     try:
-        transcript_storage_available = transcript_dir.is_dir()
-    except OSError:
-        transcript_storage_available = False
+        with os.scandir(transcript_dir) as entries:
+            transcript_names = {
+                entry.name.casefold()
+                for entry in entries
+                if entry.name.casefold().endswith(".srt")
+            }
+    except (OSError, ValueError):
+        # No network share available: do not block/abort all local statistics.
+        transcript_names = set()
     safe_remaining = 0
     deep_remaining = 0
     transcripts = 0
@@ -185,15 +196,7 @@ def archive_profile_stats(
             and state.get(video_id) not in {"applied", "skipped"}
         ):
             deep_remaining += 1
-        transcript_exists = False
-        if transcript_storage_available:
-            try:
-                transcript_exists = (
-                    transcript_dir / f"{video_id}.srt"
-                ).exists()
-            except OSError:
-                transcript_exists = False
-        if transcript_exists:
+        if f"{video_id}.srt".casefold() in transcript_names:
             transcripts += 1
         draft_status = str(row["draft_status"] or "")
         deep_status = state.get(video_id)
