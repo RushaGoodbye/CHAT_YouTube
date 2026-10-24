@@ -876,12 +876,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(1280, 800)
         self.data_dir = app_data_dir()
+        self._startup_trace_path = self.data_dir / "startup_trace.log"
+        self._startup_trace("APP_CONSTRUCT_BEGIN")
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
+        self._startup_trace("DATABASE_OPENED")
         self._startup_views_ready = False
         self._startup_loaded_tabs: set[int] = set()
         self._startup_defer_optimization = False
         self._optimization_render_epoch = 0
-        self._startup_trace_path = self.data_dir / "startup_trace.log"
         self.current_profile = get_setting(self.conn, "current_profile", "main")
         # Network-drive transcript presence is never probed on the GUI thread.
         self._nas_srt_path = ""
@@ -909,15 +911,15 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         shell.addWidget(self.tabs, 1)
-        self._build_task_center_tab()
-        self._build_videos_tab()
-        self._build_optimization_tab()
-        self._build_comments_tab()
-        self._build_analytics_tab()
-        self._build_results_tab()
-        self._build_log_tab()
-        self._build_settings_tab()
-        self._build_archive_dashboard_tab()
+        self._startup_traced("_build_task_center_tab", self._build_task_center_tab)
+        self._startup_traced("_build_videos_tab", self._build_videos_tab)
+        self._startup_traced("_build_optimization_tab", self._build_optimization_tab)
+        self._startup_traced("_build_comments_tab", self._build_comments_tab)
+        self._startup_traced("_build_analytics_tab", self._build_analytics_tab)
+        self._startup_traced("_build_results_tab", self._build_results_tab)
+        self._startup_traced("_build_log_tab", self._build_log_tab)
+        self._startup_traced("_build_settings_tab", self._build_settings_tab)
+        self._startup_traced("_build_archive_dashboard_tab", self._build_archive_dashboard_tab)
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._on_main_tab_changed(self.tabs.currentIndex())
 
@@ -1054,7 +1056,11 @@ class MainWindow(QMainWindow):
         if handler is None:
             return
         self._startup_loaded_tabs.add(index)
-        self._startup_traced("tab:" + str(index), handler)
+        try:
+            self._startup_traced("tab:" + str(index), handler)
+        except Exception:
+            self._startup_loaded_tabs.discard(index)
+            raise
 
     def _startup_load_videos(self) -> None:
         self.statusBar().showMessage("Завантаження відео…")
