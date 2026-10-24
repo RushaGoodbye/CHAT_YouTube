@@ -7592,11 +7592,20 @@ class MainWindow(QMainWindow):
     def recover_archive_campaign_state(self) -> None:
         if not archive_priority_enabled(self.conn):
             return
+        # Never scan thousands of UNC transcript paths on the Qt GUI thread.
+        # The async stats callback reconciles the checkpoint after the scan.
+        self._archive_recovery_pending = True
+        self._refresh_archive_stats_async()
+
+    def _complete_archive_recovery(self, stats: dict) -> None:
+        if not getattr(self, "_archive_recovery_pending", False):
+            return
+        self._archive_recovery_pending = False
+        if not archive_priority_enabled(self.conn):
+            return
         try:
-            stats = self._archive_campaign_stats()
             checkpoint, interrupted = reconcile_campaign_checkpoint(
-                self.conn,
-                stats,
+                self.conn, stats,
             )
             if interrupted:
                 log_action(
@@ -7610,7 +7619,7 @@ class MainWindow(QMainWindow):
                         "продовження з поточного стану бази"
                     ),
                 )
-            self._advance_archive_campaign()
+            self._advance_archive_campaign(stats_override=stats)
         except Exception as exc:
             log_action(
                 self.conn,
@@ -7702,10 +7711,20 @@ class MainWindow(QMainWindow):
         self._dashboard_archive_stats_cache = result
         self._dashboard_archive_stats_cache_at = time.monotonic()
         self._archive_stats_unavailable = False
+        self._complete_archive_recovery(result)
         if hasattr(self, "archive_campaign_summary"):
             self._refresh_archive_campaign_summary()
 
     def _on_archive_stats_failed(self, message: str) -> None:
+        if getattr(self, "_archive_recovery_pending", False):
+            self._archive_recovery_pending = False
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="кампанія архіву",
+                action="Відновлення відкладено",
+                details=str(message)[:700],
+            )
         self._archive_stats_unavailable = True
         self._dashboard_archive_stats_cache_at = time.monotonic()
         self._dashboard_archive_stats_cache = {
@@ -7790,8 +7809,10 @@ class MainWindow(QMainWindow):
             + f" · скидання {budget['reset']}"
         )
 
-    def _advance_archive_campaign(self, *, notify: bool = False) -> None:
-        stats = self._archive_campaign_stats()
+    def _advance_archive_campaign(
+        self, *, notify: bool = False, stats_override: dict | None = None,
+    ) -> None:
+        stats = stats_override if stats_override is not None else self._archive_campaign_stats()
         self._dashboard_archive_stats_cache = stats
         self._dashboard_archive_stats_cache_at = time.monotonic()
         phase, target = next_campaign_phase(stats)
