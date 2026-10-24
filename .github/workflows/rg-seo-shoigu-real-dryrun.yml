@@ -1,52 +1,71 @@
-name: Shoigu SEO real read-only QA
-# Deterministic-editor verified Q&A filler filtering 2026-10-13
+name: Shoigu and multi-video real SEO acceptance (no writes)
 
 on:
-  push:
-    branches:
-      - fix/seo-evidence-no-invented-third-20261012
-      - fix/seo-preview-parity-20261012
-      - fix/stabilization-batch-20261013
-      - feat/deterministic-seo-editor-20261013
-    paths:
-      - ".github/workflows/rg-seo-shoigu-real-dryrun.yml"
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "Only run on ALEXPC; choose source videos"
+        required: true
+        type: choice
+        default: shoigu
+        options:
+          - shoigu
+          - main10
+          - live2
 
 permissions:
   contents: read
 
 jobs:
-  real-shoigu-qa:
-    runs-on: [self-hosted]
-    timeout-minutes: 25
-    # Fail on REVIEW; test deterministic quoted-angle recovery and final SEO sanitation.
+  read-only-acceptance:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Rebuild full Shoigu timeline without evidence cache
+      - name: Verify source machine and pinned Python
         shell: powershell
         run: |
-          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Fresh SEO QA must run on ALEXPC" }
-          $py = "C:\\Users\\fauto\\AppData\\Local\\Python\\pythoncore-3.12-64\\python.exe"
-          $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
-          if (-not (Test-Path (Join-Path $deps "rapidfuzz\\__init__.py"))) {
-            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') {
+            throw 'Real local Ollama acceptance requires the actual ALEXPC'
           }
-          $env:PYTHONPATH = "$deps;$pwd\\src;$env:PYTHONPATH"
-          & $py -B rg_remote_control/youtube_shoigu_fresh_timeline_qa.py
-          if ($LASTEXITCODE -ne 0) { throw "Fresh full-timeline Shoigu QA failed" }
-      - name: Verify ALEXPC and run no-write local SEO
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if (-not (Test-Path -LiteralPath $py)) {
+            throw 'Pinned local Python missing. No QA changes made.'
+          }
+          $deps = Join-Path $env:RUNNER_TEMP 'rg_real_seo_qa_deps'
+          if (-not (Test-Path (Join-Path $deps 'rapidfuzz\__init__.py'))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps 'rapidfuzz>=3.0,<4'
+            if ($LASTEXITCODE -ne 0) { throw 'QA dependency setup failed' }
+          }
+      - name: Analyze real full-length NAS subtitles with local Ollama
         shell: powershell
         run: |
-          if ($env:COMPUTERNAME.ToUpperInvariant() -ne "ALEXPC") { throw "Real SEO QA must run on ALEXPC" }
-          $py = "C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe"
-          if (-not (Test-Path $py)) { throw "Pinned Python missing on ALEXPC" }
-          $deps = Join-Path $env:RUNNER_TEMP "rg_shoigu_qa_deps"
-          if (-not (Test-Path (Join-Path $deps "rapidfuzz\__init__.py"))) {
-            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps "rapidfuzz>=3.0,<4"
-            if ($LASTEXITCODE -ne 0) { throw "QA dependency failed" }
-          }
+          $ErrorActionPreference = 'Stop'
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          $deps = Join-Path $env:RUNNER_TEMP 'rg_real_seo_qa_deps'
           $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
-          & $py -B rg_remote_control/youtube_shoigu_seo_0724_dryrun.py
-          if ($LASTEXITCODE -ne 0) { throw "Real Shoigu SEO read-only QA failed" }
+          $output = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
+          $scope = '${{ inputs.scope }}'
+          if ($scope -eq 'shoigu') {
+            & $py -B rg_remote_control/seo_readonly_acceptance_10.py --video-ids MEitKm687xo --output $output
+          } elseif ($scope -eq 'live2') {
+            & $py -B rg_remote_control/seo_readonly_acceptance_10.py --video-ids 4ItkxMPI1GA fdHXrCyw3Lw --output $output
+          } elseif ($scope -eq 'main10') {
+            & $py -B rg_remote_control/seo_readonly_acceptance_10.py --output $output
+          } else {
+            throw 'Unknown scope'
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Real video acceptance blocked or requires editorial review'
+          }
+      - name: Preserve sanitized status, never private SRT or SEO drafts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-readonly-acceptance-summary
+          path: ${{ runner.temp }}/rg_seo_qa_summary.json
+          if-no-files-found: ignore
+          retention-days: 7
