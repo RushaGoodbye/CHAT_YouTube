@@ -91,8 +91,7 @@ def main():
     is_test=(len(parts)==2 and parts[0]=='rgprobe25'
       and len(parts[1])==18 and all(ch in '0123456789abcdef' for ch in parts[1])
       and actor.get('id')==chat and mch.get('id')==chat
-      and mch.get('type')=='private' and message.get('message_id') in (8031,8032)
-      and (message.get('from') or {}).get('id')==BOT_ID)
+      and mch.get('type')=='private' and message.get('message_id') in (8031,8032))
     if is_test:
      mid=message['message_id']
      note={'message_id':mid,'kind':'TEST_BUTTON','confirmation_sent':False}
