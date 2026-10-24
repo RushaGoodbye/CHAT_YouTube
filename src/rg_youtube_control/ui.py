@@ -7638,17 +7638,86 @@ class MainWindow(QMainWindow):
         *,
         max_age_seconds: float = 300.0,
     ) -> dict[str, dict[str, int]]:
+        # UNC .exists() for each archive transcript can block Windows for
+        # minutes. Never perform those NAS probes inside the Qt event loop.
         now = time.monotonic()
         cached = getattr(self, "_dashboard_archive_stats_cache", None)
         cached_at = float(
             getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
         )
-        if cached is not None and now - cached_at < max_age_seconds:
+        if cached is None or now - cached_at >= max_age_seconds:
+            self._refresh_archive_stats_async()
+        if cached is not None:
             return cached
-        value = self._archive_campaign_stats()
-        self._dashboard_archive_stats_cache = value
-        self._dashboard_archive_stats_cache_at = now
-        return value
+        empty = {
+            "archive_total": 0,
+            "safe_remaining": 0,
+            "deep_remaining": 0,
+            "transcripts": 0,
+            "ready_packages": 0,
+            "applied_packages": 0,
+            "skipped_deep": 0,
+        }
+        return {profile: dict(empty) for profile in PROFILE_TARGETS}
+
+    def _refresh_archive_stats_async(self) -> None:
+        worker = getattr(self, "_archive_stats_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        profiles = tuple(PROFILE_TARGETS)
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return {
+                    profile: archive_profile_stats(
+                        worker_conn, profile, transcript_dir=transcript_dir
+                    )
+                    for profile in profiles
+                }
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._archive_stats_worker = worker
+        worker.succeeded.connect(self._on_archive_stats_ready)
+        worker.failed.connect(self._on_archive_stats_failed)
+        worker.finished.connect(self._on_archive_stats_finished)
+        worker.start()
+
+    def _on_archive_stats_finished(self) -> None:
+        self._archive_stats_worker = None
+
+    def _on_archive_stats_ready(self, result: object) -> None:
+        if not isinstance(result, dict):
+            self._on_archive_stats_failed("Некоректна статистика архіву")
+            return
+        self._dashboard_archive_stats_cache = result
+        self._dashboard_archive_stats_cache_at = time.monotonic()
+        if hasattr(self, "archive_campaign_summary"):
+            self._refresh_archive_campaign_summary()
+
+    def _on_archive_stats_failed(self, message: str) -> None:
+        self._dashboard_archive_stats_cache_at = time.monotonic()
+        self._dashboard_archive_stats_cache = {
+            profile: {
+                "archive_total": 0, "safe_remaining": 0,
+                "deep_remaining": 0, "transcripts": 0,
+                "ready_packages": 0, "applied_packages": 0,
+                "skipped_deep": 0,
+            }
+            for profile in PROFILE_TARGETS
+        }
+        if hasattr(self, "archive_campaign_summary"):
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · статистика NAS недоступна"
+            )
 
     def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
         budget = quota_budget_status(self.conn)
@@ -7673,7 +7742,7 @@ class MainWindow(QMainWindow):
     def _refresh_archive_campaign_summary(self) -> None:
         if not hasattr(self, "archive_campaign_summary"):
             return
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
         budget = self._archive_campaign_budget()
         phase, target = next_campaign_phase(stats)
         total_safe = sum(
