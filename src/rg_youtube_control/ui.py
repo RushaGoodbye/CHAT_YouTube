@@ -7700,10 +7700,12 @@ class MainWindow(QMainWindow):
             return
         self._dashboard_archive_stats_cache = result
         self._dashboard_archive_stats_cache_at = time.monotonic()
+        self._archive_stats_unavailable = False
         if hasattr(self, "archive_campaign_summary"):
             self._refresh_archive_campaign_summary()
 
     def _on_archive_stats_failed(self, message: str) -> None:
+        self._archive_stats_unavailable = True
         self._dashboard_archive_stats_cache_at = time.monotonic()
         self._dashboard_archive_stats_cache = {
             profile: {
@@ -7743,6 +7745,16 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "archive_campaign_summary"):
             return
         stats = self._archive_campaign_stats_cached()
+        if getattr(self, "_archive_stats_unavailable", False):
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · статистика NAS недоступна"
+            )
+            return
+        if getattr(self, "_dashboard_archive_stats_cache", None) is None:
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · оновлення статистики…"
+            )
+            return
         budget = self._archive_campaign_budget()
         phase, target = next_campaign_phase(stats)
         total_safe = sum(
