@@ -104,6 +104,7 @@ from .archive_campaign import (
     reconcile_campaign_checkpoint,
     save_campaign_checkpoint,
 )
+from .deep_archive_worker import prepare_deep_review_batch
 from .metadata_audit import (
     audit,
     blocks_automatic_title_language_change,
@@ -8320,6 +8321,143 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._error("Помилка транскриптів глибокої черги", exc)
 
+    def _start_deep_archive_worker(
+        self, profile: str, *, capacity: int, automatic: bool,
+    ) -> bool:
+        """Move all NAS manifest/caption/package reads out of the GUI."""
+        running = getattr(self, "_archive_deep_worker", None)
+        if running is not None and running.isRunning():
+            return False
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcripts = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        packages = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return prepare_deep_review_batch(
+                    worker_conn,
+                    profile=profile,
+                    transcript_dir=transcripts,
+                    package_dir=packages,
+                    max_downloads=capacity,
+                    client_factory=YouTubeClient,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._archive_deep_worker = worker
+        self.statusBar().showMessage(
+            f"Deep-черга {PROFILE_LABELS[profile]} · NAS у фоні…"
+        )
+
+        def success(result: dict) -> None:
+            failures = list(result.get("errors") or [])
+            imported = 0
+            for item in result.get("drafts") or []:
+                video_id = str(item.get("video_id") or "")
+                origin = self.conn.execute(
+                    "SELECT profile FROM videos WHERE video_id=?", (video_id,),
+                ).fetchone()
+                if origin is None or str(origin["profile"]) != profile:
+                    failures.append(f"{video_id}: невідповідний канал")
+                    continue
+                try:
+                    self._save_package_payload(
+                        video_id, dict(item["payload"]), force_draft=True,
+                    )
+                    set_deep_review_state(
+                        self.conn,
+                        video_id=video_id,
+                        profile=profile,
+                        status="review",
+                        note="package_imported_as_draft",
+                    )
+                    imported += 1
+                except Exception as exc:
+                    failures.append(f"{video_id}: {str(exc)[:200]}")
+            log_action(
+                self.conn,
+                profile=profile,
+                category="кампанія архіву",
+                action="Deep-чергу підготовлено у фоні",
+                details=(
+                    f"експортовано {result['exported']}; "
+                    f"SRT {result['downloaded']}; "
+                    f"чернеток {imported}; зауважень {len(failures)}"
+                ),
+            )
+            self.reload_optimization_queue()
+            self.reload_action_log()
+            self.refresh_youtube_quota_label()
+            if not automatic:
+                QMessageBox.information(
+                    self, "Глибока черга",
+                    f"Маніфест NAS: {result['exported']} відео.\n"
+                    f"Завантажено SRT: {result['downloaded']}.\n"
+                    f"Імпортовано чернеток: {imported}.\n"
+                    f"Зауважень: {len(failures)}.\n\n"
+                    "YouTube-метадані не змінено.",
+                )
+            if failures:
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="кампанія архіву",
+                    action="Deep-черга: зауваження",
+                    details="\n".join(failures[:8])[:1500],
+                )
+            # The day's automatic action is complete only once post-write
+            # NAS statistics have been independently reconciled.
+            if automatic:
+                self._archive_campaign_autorun_done_pending = (
+                    f"archive_campaign_autorun_done_{current_quota_day()}"
+                )
+            self._advance_archive_campaign()
+
+        def failed(message: str) -> None:
+            save_campaign_checkpoint(
+                self.conn,
+                phase="deep",
+                target=profile,
+                status="interrupted",
+                note=message[:250],
+            )
+            log_action(
+                self.conn,
+                profile=profile,
+                category="кампанія архіву",
+                action="Deep-черга відкладена",
+                details=message[:700],
+            )
+            if automatic:
+                # Avoid hammering an unreachable NAS with every timer tick.
+                set_setting(
+                    self.conn,
+                    f"archive_campaign_autorun_failed_{current_quota_day()}",
+                    "1",
+                )
+            else:
+                self._error("Помилка deep-черги NAS", RuntimeError(message))
+            self.statusBar().showMessage("Deep-черга NAS · помилка")
+
+        def finished() -> None:
+            if getattr(self, "_archive_deep_worker", None) is worker:
+                self._archive_deep_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+        return True
+
     def run_archive_campaign_step(self, *, automatic: bool = False) -> bool:
         stats = self._archive_campaign_stats_cached()
         if not self._archive_stats_fresh_for_actions():
@@ -8374,20 +8512,19 @@ class MainWindow(QMainWindow):
                 notify=not automatic,
             )
         elif phase == "deep":
-            self.export_deep_review_queue_to_nas(
+            launched = self._start_deep_archive_worker(
                 target,
-                notify=not automatic,
+                capacity=int(budget.get("deep_transcript_capacity", 0)),
+                automatic=automatic,
             )
-            if int(budget.get("deep_transcript_capacity", 0)) > 0:
-                self.export_deep_review_transcripts(
-                    target,
-                    confirm=False,
-                    notify=not automatic,
+            if not launched:
+                save_campaign_checkpoint(
+                    self.conn, phase="deep", target=target,
+                    status="paused_io", note="background_worker_busy",
                 )
-            self.import_deep_review_packages(
-                target,
-                notify=False,
-            )
+            # Do not mark this quota day finished before the worker imports
+            # drafts and a separate NAS scan confirms the resulting state.
+            return False
 
         # A phase transition is committed by _on_archive_stats_ready after
         # a new asynchronous NAS/SQLite scan, not here in the Qt event loop.
@@ -8496,6 +8633,15 @@ class MainWindow(QMainWindow):
             return
         if getattr(self, "_archive_campaign_autorun_running", False):
             return
+        active_deep = getattr(self, "_archive_deep_worker", None)
+        if active_deep is not None and active_deep.isRunning():
+            return
+        if get_setting(
+            self.conn,
+            f"archive_campaign_autorun_failed_{current_quota_day()}",
+            "0",
+        ) == "1":
+            return
         # Never scan remote subtitles inside a timed GUI callback.
         cached_stats = getattr(self, "_dashboard_archive_stats_cache", None)
         cached_at = float(
@@ -8540,7 +8686,7 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                if target:
+                if target and phase == "safe":
                     client = YouTubeClient(profile=target)
                     client.credentials()
                     self.client = client
