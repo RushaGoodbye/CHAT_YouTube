@@ -50,7 +50,9 @@ def main():
   ups=m.api('getUpdates',{'offset':off,'limit':100,'timeout':0,'allowed_updates':['callback_query']})
   if not isinstance(ups,list) or any(not isinstance(u,dict) or not isinstance(u.get('update_id'),int) for u in ups):
    raise RuntimeError('BAD_UPDATE_RESPONSE')
-  filename=archive(off,ups)
+  # Do not create a new zero-event JSON archive on every minute tick.
+  # Nonempty batches are still durably archived BEFORE any offset is advanced.
+  filename=archive(off,ups) if ups else None
   # Unknown callback families may belong to another system sharing the bot.
   # Do not acknowledge or steal them. Pause probation pending investigation.
   for item in ups:
