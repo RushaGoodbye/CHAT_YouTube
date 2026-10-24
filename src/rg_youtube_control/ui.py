@@ -12681,8 +12681,28 @@ class MainWindow(QMainWindow):
 
 
     def refresh_free_tools_status(self) -> None:
+        worker = getattr(self, "_free_tools_probe_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        worker = LocalToolWorker(probe_free_tools, self)
+        self._free_tools_probe_worker = worker
+        worker.succeeded.connect(self._apply_free_tools_status)
+        worker.failed.connect(self._free_tools_probe_failed)
+        worker.finished.connect(self._free_tools_probe_finished)
+        worker.start()
+
+    def _free_tools_probe_finished(self) -> None:
+        self._free_tools_probe_worker = None
+
+    def _free_tools_probe_failed(self, message: str) -> None:
+        self._free_tools_last_probe = {}
+        if hasattr(self, "free_tools_status_label"):
+            self.free_tools_status_label.setText(f"0-quota: {message[:180]}")
+        self._set_health_state("ollama", False, "Ollama")
+        self._set_health_state("transcript", False, "Transcript")
+
+    def _apply_free_tools_status(self, probes: object) -> None:
         try:
-            probes = probe_free_tools()
             self._free_tools_last_probe = probes
             yt = probes.get("yt_dlp", {})
             tr = probes.get("transcript", {})
