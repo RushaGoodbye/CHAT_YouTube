@@ -35,6 +35,7 @@ def test_bulk_prefers_nas_but_allows_api_fallback():
         "    def _save_local_seo_batch(", 1
     )[0]
     assert 'f"{video_id}.srt"' in batch
-    assert 'candidate_ids = sorted(' in batch
+    assert 'ordered_ids = sorted(' in batch
+    assert 'for video_id in ordered_ids[:max_attempts]:' in batch
     assert 'candidate_ids = [' not in batch
     assert "fast_mode=False" in batch
