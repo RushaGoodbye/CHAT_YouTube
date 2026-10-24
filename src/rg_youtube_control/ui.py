@@ -9054,184 +9054,219 @@ class MainWindow(QMainWindow):
             self._nas_srt_ids
             if self._nas_srt_path == str(transcript_dir) else None
         )
+        # Cancel an older cooperative render when search/status changes.
+        self._optimization_render_epoch = (
+            getattr(self, "_optimization_render_epoch", 0) + 1
+        )
+        epoch = self._optimization_render_epoch
         self.optimization_table.setRowCount(len(prepared))
-        for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
-            prepared
-        ):
-            transcript_status = (
-                "NAS" if isinstance(transcript_ids, set)
-                and str(row["video_id"]) in transcript_ids else ""
-            )
-            draft_key = displayed_status(row)
-            draft_generation = str(row["draft_generation"] or "legacy")
-            draft_status = {
-                "draft": (
-                    "СТАРИЙ ПАКЕТ"
-                    if draft_generation == "legacy"
-                    else "ПЕРЕВІРИТИ"
-                ),
-                "ready": "ГОТОВО",
-                "applied": "ЗАСТОСОВАНО",
-            }.get(draft_key, "")
-            last_optimized, checkpoint_text = (
-                self._optimization_checkpoint_text(row["last_optimized_at"])
-            )
-            values = [
-                priority_text,
-                publish_text,
-                PRIVACY_LABELS.get(
-                    str(row["privacy_status"] or ""),
-                    str(row["privacy_status"] or ""),
-                ),
-                row["video_id"],
-                row["title"],
-                str(row["views"] or 0),
-                (
-                    str(score)
-                    if self.advanced_mode
-                    else "Добре"
-                    if score >= 100
-                    else "Потрібно покращити"
-                    if score >= 70
-                    else "Критично"
-                ),
-                transcript_status,
-                draft_status,
-                last_optimized,
-                checkpoint_text,
-                _issue_labels(issues),
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column == 3:
-                    item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
-                if column == 0:
-                    if priority_text == "ЗАПЛАНОВАНО":
-                        item.setForeground(QColor("#5aa7ff"))
+
+        def render_rows(offset: int, limit: int) -> None:
+            if self._optimization_render_epoch != epoch:
+                return
+            for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
+                prepared[offset:offset + limit], start=offset
+            ):
+                transcript_status = (
+                    "NAS" if isinstance(transcript_ids, set)
+                    and str(row["video_id"]) in transcript_ids else ""
+                )
+                draft_key = displayed_status(row)
+                draft_generation = str(row["draft_generation"] or "legacy")
+                draft_status = {
+                    "draft": (
+                        "СТАРИЙ ПАКЕТ"
+                        if draft_generation == "legacy"
+                        else "ПЕРЕВІРИТИ"
+                    ),
+                    "ready": "ГОТОВО",
+                    "applied": "ЗАСТОСОВАНО",
+                }.get(draft_key, "")
+                last_optimized, checkpoint_text = (
+                    self._optimization_checkpoint_text(row["last_optimized_at"])
+                )
+                values = [
+                    priority_text,
+                    publish_text,
+                    PRIVACY_LABELS.get(
+                        str(row["privacy_status"] or ""),
+                        str(row["privacy_status"] or ""),
+                    ),
+                    row["video_id"],
+                    row["title"],
+                    str(row["views"] or 0),
+                    (
+                        str(score)
+                        if self.advanced_mode
+                        else "Добре"
+                        if score >= 100
+                        else "Потрібно покращити"
+                        if score >= 70
+                        else "Критично"
+                    ),
+                    transcript_status,
+                    draft_status,
+                    last_optimized,
+                    checkpoint_text,
+                    _issue_labels(issues),
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if column == 3:
+                        item.setData(Qt.ItemDataRole.UserRole, row["video_id"])
+                    if column == 0:
+                        if priority_text == "ЗАПЛАНОВАНО":
+                            item.setForeground(QColor("#5aa7ff"))
+                            item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                        elif priority_text.startswith("ПЕРЕПАК. ·"):
+                            potential = int(priority_text.rsplit(" ", 1)[-1])
+                            item.setForeground(
+                                QColor(
+                                    SUCCESS
+                                    if potential >= 70
+                                    else "#5aa7ff"
+                                    if potential >= 45
+                                    else WARNING
+                                )
+                            )
+                            item.setFont(
+                                QFont("Segoe UI", 9, QFont.Weight.Bold)
+                            )
+                            item.setToolTip(
+                                "Кандидат на перепаковку: "
+                                f"{int(row['analytics_views'] or 0):,} переглядів · "
+                                f"AVD {int(float(row['avd_seconds'] or 0) // 60)}:"
+                                f"{int(float(row['avd_seconds'] or 0) % 60):02d} · "
+                                "сильне утримання при слабшому охопленні"
+                            )
+                        elif (
+                            priority_text.startswith(("A ·", "B ·", "C ·", "DEEP "))
+                        ):
+                            potential = int(priority_text.rsplit(" ", 1)[-1])
+                            item.setForeground(
+                                QColor(
+                                    "#5aa7ff"
+                                    if potential >= 80
+                                    else WARNING
+                                    if potential >= 55
+                                    else MUTED
+                                )
+                            )
+                            item.setFont(
+                                QFont("Segoe UI", 9, QFont.Weight.Bold)
+                            )
+                            item.setToolTip(
+                                "90 днів: "
+                                f"{int(row['analytics_views'] or 0):,} переглядів · "
+                                f"{int(row['impressions'] or 0):,} показів · "
+                                f"CTR {float(row['ctr_percent'] or 0):.2f}% · "
+                                f"медіана каналу {channel_median_ctr:.2f}%"
+                            )
+                        elif priority_text == "НАЗВА":
+                            item.setForeground(QColor(WARNING))
+                            item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                        elif priority_text == "ВИСОКИЙ":
+                            item.setForeground(QColor(WARNING))
+                        elif priority_text == "ГОТОВО":
+                            item.setForeground(QColor(SUCCESS))
+                    elif column == 6:
+                        item.setForeground(
+                            QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
+                        )
+                        item.setToolTip(
+                            f"Внутрішня оцінка: {score}/100"
+                            + (f" · {issue_text}" if issue_text else "")
+                        )
+                    elif column == 7 and transcript_status:
+                        item.setForeground(QColor(SUCCESS))
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    elif priority_text.startswith("ПЕРЕПАК. ·"):
-                        potential = int(priority_text.rsplit(" ", 1)[-1])
+                    elif column == 8 and draft_status:
+                        if draft_status == "ЗАСТОСОВАНО":
+                            fg = QColor(SUCCESS)
+                            bg = QColor("#16371f")
+                        elif draft_status == "ГОТОВО":
+                            fg = QColor("#8ecbff")
+                            bg = QColor("#142b3c")
+                        elif draft_status == "СТАРИЙ ПАКЕТ":
+                            fg = QColor("#ff8ca1")
+                            bg = QColor("#431821")
+                        else:
+                            fg = QColor(WARNING)
+                            bg = QColor("#3b3012")
+                        item.setForeground(fg)
+                        item.setBackground(bg)
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                        quality_reason = str(
+                            row["draft_quality_reason"] or ""
+                        ).strip()
+                        item.setToolTip(
+                            (
+                                f"Покоління: {draft_generation}"
+                                + (
+                                    f" · {quality_reason}"
+                                    if quality_reason
+                                    else ""
+                                )
+                            )
+                        )
+                    elif column == 10 and checkpoint_text != "—":
                         item.setForeground(
                             QColor(
                                 SUCCESS
-                                if potential >= 70
-                                else "#5aa7ff"
-                                if potential >= 45
+                                if "90 ✓" in checkpoint_text
                                 else WARNING
                             )
                         )
-                        item.setFont(
-                            QFont("Segoe UI", 9, QFont.Weight.Bold)
-                        )
                         item.setToolTip(
-                            "Кандидат на перепаковку: "
-                            f"{int(row['analytics_views'] or 0):,} переглядів · "
-                            f"AVD {int(float(row['avd_seconds'] or 0) // 60)}:"
-                            f"{int(float(row['avd_seconds'] or 0) % 60):02d} · "
-                            "сильне утримання при слабшому охопленні"
+                            "Контрольні точки аналізу після останньої оптимізації"
                         )
-                    elif (
-                        priority_text.startswith(("A ·", "B ·", "C ·", "DEEP "))
-                    ):
-                        potential = int(priority_text.rsplit(" ", 1)[-1])
-                        item.setForeground(
-                            QColor(
-                                "#5aa7ff"
-                                if potential >= 80
-                                else WARNING
-                                if potential >= 55
-                                else MUTED
-                            )
-                        )
-                        item.setFont(
-                            QFont("Segoe UI", 9, QFont.Weight.Bold)
-                        )
-                        item.setToolTip(
-                            "90 днів: "
-                            f"{int(row['analytics_views'] or 0):,} переглядів · "
-                            f"{int(row['impressions'] or 0):,} показів · "
-                            f"CTR {float(row['ctr_percent'] or 0):.2f}% · "
-                            f"медіана каналу {channel_median_ctr:.2f}%"
-                        )
-                    elif priority_text == "НАЗВА":
-                        item.setForeground(QColor(WARNING))
-                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    elif priority_text == "ВИСОКИЙ":
-                        item.setForeground(QColor(WARNING))
-                    elif priority_text == "ГОТОВО":
-                        item.setForeground(QColor(SUCCESS))
-                elif column == 6:
-                    item.setForeground(
-                        QColor(SUCCESS if score >= 100 else WARNING if score >= 70 else YOUTUBE_RED)
-                    )
-                    item.setToolTip(
-                        f"Внутрішня оцінка: {score}/100"
-                        + (f" · {issue_text}" if issue_text else "")
-                    )
-                elif column == 7 and transcript_status:
-                    item.setForeground(QColor(SUCCESS))
-                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                elif column == 8 and draft_status:
-                    if draft_status == "ЗАСТОСОВАНО":
-                        fg = QColor(SUCCESS)
-                        bg = QColor("#16371f")
-                    elif draft_status == "ГОТОВО":
-                        fg = QColor("#8ecbff")
-                        bg = QColor("#142b3c")
-                    elif draft_status == "СТАРИЙ ПАКЕТ":
-                        fg = QColor("#ff8ca1")
-                        bg = QColor("#431821")
-                    else:
-                        fg = QColor(WARNING)
-                        bg = QColor("#3b3012")
-                    item.setForeground(fg)
-                    item.setBackground(bg)
-                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    quality_reason = str(
-                        row["draft_quality_reason"] or ""
-                    ).strip()
-                    item.setToolTip(
-                        (
-                            f"Покоління: {draft_generation}"
-                            + (
-                                f" · {quality_reason}"
-                                if quality_reason
-                                else ""
-                            )
-                        )
-                    )
-                elif column == 10 and checkpoint_text != "—":
-                    item.setForeground(
-                        QColor(
-                            SUCCESS
-                            if "90 ✓" in checkpoint_text
-                            else WARNING
-                        )
-                    )
-                    item.setToolTip(
-                        "Контрольні точки аналізу після останньої оптимізації"
-                    )
-                self.optimization_table.setItem(index, column, item)
-        if hasattr(self, "optimization_density"):
-            self._apply_table_density(
-                self.optimization_table,
-                self.optimization_density,
-            )
-        if hasattr(self, "optimization_table"):
-            self.optimization_table.setColumnHidden(
-                7,
-                not bool(getattr(self, "advanced_mode", False)),
-            )
-            header_item = self.optimization_table.horizontalHeaderItem(6)
-            if header_item is not None:
-                header_item.setText(
-                    "Аудит" if self.advanced_mode else "Стан"
+                    self.optimization_table.setItem(index, column, item)
+
+        def finish_rows() -> None:
+            if self._optimization_render_epoch != epoch:
+                return
+            if hasattr(self, "optimization_density"):
+                self._apply_table_density(
+                    self.optimization_table,
+                    self.optimization_density,
                 )
-        self._update_optimization_context_card()
-        self.update_dashboard()
-        self.refresh_archive_dashboard()
-        if self._nas_srt_path != str(transcript_dir) and not self._nas_srt_scanning:
-            QTimer.singleShot(0, self._start_nas_srt_index)
+            if hasattr(self, "optimization_table"):
+                self.optimization_table.setColumnHidden(
+                    7,
+                    not bool(getattr(self, "advanced_mode", False)),
+                )
+                header_item = self.optimization_table.horizontalHeaderItem(6)
+                if header_item is not None:
+                    header_item.setText(
+                        "Аудит" if self.advanced_mode else "Стан"
+                    )
+            self._update_optimization_context_card()
+            self.update_dashboard()
+            self.refresh_archive_dashboard()
+            if self._nas_srt_path != str(transcript_dir) and not self._nas_srt_scanning:
+                QTimer.singleShot(0, self._start_nas_srt_index)
+
+        if getattr(self, "_startup_defer_optimization", False):
+            chunk = 20
+
+            def next_batch(start_index: int = 0) -> None:
+                if self._optimization_render_epoch != epoch:
+                    return
+                render_rows(start_index, chunk)
+                if start_index + chunk < len(prepared):
+                    QTimer.singleShot(
+                        0, lambda start=start_index + chunk: next_batch(start),
+                    )
+                else:
+                    finish_rows()
+                    self._startup_trace(
+                        f"OPT_ROWS_READY rows={len(prepared)}"
+                    )
+
+            QTimer.singleShot(0, next_batch)
+        else:
+            render_rows(0, len(prepared))
+            finish_rows()
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
