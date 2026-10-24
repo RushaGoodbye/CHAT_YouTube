@@ -878,6 +878,7 @@ class MainWindow(QMainWindow):
         self._build_metrics(shell)
 
         self.tabs = QTabWidget()
+        self._lazy_loaded_tabs: set[int] = set()
         shell.addWidget(self.tabs, 1)
         self._build_task_center_tab()
         self._build_videos_tab()
@@ -943,7 +944,9 @@ class MainWindow(QMainWindow):
         started = time.perf_counter()
         try:
             self.statusBar().showMessage("Завантаження відео…")
-            self.reload_videos()
+            if self.tabs.currentIndex() == 1 and 1 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(1)
+                self.reload_videos()
         finally:
             self._record_startup_duration("videos", started)
             QTimer.singleShot(0, self._startup_load_optimization)
@@ -952,7 +955,9 @@ class MainWindow(QMainWindow):
         started = time.perf_counter()
         try:
             self.statusBar().showMessage("Завантаження SEO…")
-            self.reload_optimization_queue()
+            if self.tabs.currentIndex() == 2 and 2 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(2)
+                self.reload_optimization_queue()
         finally:
             self._record_startup_duration("optimization", started)
             QTimer.singleShot(0, self._startup_load_comments)
@@ -961,7 +966,9 @@ class MainWindow(QMainWindow):
         started = time.perf_counter()
         try:
             self.statusBar().showMessage("Завантаження коментарів…")
-            self.reload_comments()
+            if self.tabs.currentIndex() == 3 and 3 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(3)
+                self.reload_comments()
         finally:
             self._record_startup_duration("comments", started)
             QTimer.singleShot(0, self._startup_load_actions)
@@ -970,7 +977,9 @@ class MainWindow(QMainWindow):
         started = time.perf_counter()
         try:
             self.statusBar().showMessage("Завантаження журналу…")
-            self.reload_action_log()
+            if self.tabs.currentIndex() == 6 and 6 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(6)
+                self.reload_action_log()
         finally:
             self._record_startup_duration("actions", started)
             QTimer.singleShot(0, self._startup_finish)
@@ -1025,6 +1034,18 @@ class MainWindow(QMainWindow):
         self.metrics_wrapper.setVisible(
             current is getattr(self, "video_page", None)
         )
+        # Do not populate hidden 1200-row tables during the first paint.
+        # Each table loads once when its tab is visited.
+        loaders = {
+            1: self.reload_videos,
+            2: self.reload_optimization_queue,
+            3: self.reload_comments,
+            6: self.reload_action_log,
+        }
+        index = self.tabs.currentIndex()
+        if index in loaders and index not in self._lazy_loaded_tabs:
+            self._lazy_loaded_tabs.add(index)
+            QTimer.singleShot(0, loaders[index])
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
