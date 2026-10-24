@@ -2440,6 +2440,17 @@ chapters: рядок з підтвердженими таймкодами та �
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
+    if title_issues and evidence_report:
+        # The preview must never receive a variant already rejected as an
+        # incidental or ungrounded quote. Prefer grounded source titles; if
+        # no safe set exists, leave A/B incomplete for explicit human review.
+        grounded = _source_quote_ab_titles(evidence_report, current_title)
+        if grounded and not ab_title_issues(grounded, evidence_report):
+            variants = grounded[:3]
+            source_quote_fallback = True
+        else:
+            variants = []
+        title_issues = ab_title_issues(variants, evidence_report)
     tags = [
         str(item).strip().lstrip("#")
         for item in (payload.get("tags") or [])
