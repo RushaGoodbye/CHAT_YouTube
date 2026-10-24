@@ -10,7 +10,7 @@ def test_large_table_refreshes_not_in_window_constructor():
     assert 'QTimer.singleShot(100, self._startup_load_videos)' not in init
     assert 'QTimer.singleShot(300, self._startup_load_optimization)' not in init
     assert 'self._startup_views_ready = True' in init
-    assert 'self._load_requested_tab(target)' in init
+    assert 'self._startup_traced("tab:" + str(index), handler)' in init
     assert 'self._startup_traced("_build_optimization_tab"' in init
     assert "        self.reload_videos()" not in init
     assert "        self.reload_optimization_queue()" not in init
