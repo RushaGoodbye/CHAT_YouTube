@@ -1,0 +1,33 @@
+name: RG Smoking Release Read-only Inventory
+on:
+  push:
+    branches: [release/smoking-compliance-20261009]
+    paths:
+      - rg_remote_control/smoking_release/inspect_environment.py
+      - .github/workflows/rg-smoking-release-inventory.yml
+permissions:
+  contents: read
+concurrency:
+  group: rg-smoking-release-inventory
+  cancel-in-progress: true
+jobs:
+  alexpc-inventory:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect Studio and existing shadow fixtures without changing them
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -X utf8 rg_remote_control/smoking_release/inspect_environment.py smoking-inventory
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only inventory failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoking-release-readonly-inventory-${{ github.run_id }}
+          path: smoking-inventory/
+          retention-days: 14
+          if-no-files-found: error
