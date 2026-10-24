@@ -54,21 +54,30 @@ def scenario(name,source,m,cfg,old_db_connect,base):
   test=copy.deepcopy(source)
   q=test['callback_query']
   q['data']='rg3:'+name+':'+str(q['data']).split(':',2)[2]
-  # db_connect() is the only DB access function called by process_callback
-  # per the P33 AST audit. Redirect to a private SQLite clone.
-  def tempconnect():return open_shadow(local)
+  # Redirect and guard ALL SQLite connections, even if handler/audit bypasses
+  # db_connect() internally. Any access outside the private shadow is denied.
+  original_sqlite_connect=sqlite3.connect
+  original_audit=getattr(m,'audit',None)
+  def shadow_connect(*args,**kwargs):
+   path=str(args[0] if args else kwargs.get('database',''))
+   if path!=str(local):fail('SHADOW_DB_PATH_ONLY')
+   return original_sqlite_connect(*args,**kwargs)
+  def tempconnect():return shadow_connect(str(local),timeout=10)
   api_calls=[]
   def block_api(method,payload):
    api_calls.append(str(method)[:35])
    fail('TELEGRAM_API_FORBIDDEN_IN_SHADOW_TEST')
   m.db_connect=tempconnect
   m.api=block_api
+  sqlite3.connect=shadow_connect
+  if original_audit is not None:
+   m.audit=lambda *args,**kwargs:None
   try:
    try:r=m.process_callback(test,cfg)
    except Exception as exc:
     return {'scenario':name,'result':'FAIL','error_type':type(exc).__name__,
       'api_calls_attempted':len(api_calls)}
-   with open_shadow(local) as db:
+   with shadow_connect(str(local),timeout=10) as db:
     result=db.execute("SELECT status FROM candidates WHERE id=?",(cid,)).fetchone()
     after=result[0] if result else None
    changed=(after is not None and after!='awaiting_photo_review')
@@ -79,6 +88,8 @@ def scenario(name,source,m,cfg,old_db_connect,base):
     'handler_result_status':str(r.get('status','UNKNOWN'))[:120] if isinstance(r,dict) else type(r).__name__,
     'api_calls_attempted':len(api_calls)}
   finally:
+   sqlite3.connect=original_sqlite_connect
+   if original_audit is not None:m.audit=original_audit
    m.db_connect=old_db_connect
 def main():
  if os.geteuid()!=0:fail('SUDO_REQUIRED')
