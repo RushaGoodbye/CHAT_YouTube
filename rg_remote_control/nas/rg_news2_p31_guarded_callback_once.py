@@ -51,6 +51,14 @@ def main():
   if not isinstance(ups,list) or any(not isinstance(u,dict) or not isinstance(u.get('update_id'),int) for u in ups):
    raise RuntimeError('BAD_UPDATE_RESPONSE')
   filename=archive(off,ups)
+  # Unknown callback families may belong to another system sharing the bot.
+  # Do not acknowledge or steal them. Pause probation pending investigation.
+  for item in ups:
+   query=item.get('callback_query')
+   if not isinstance(query,dict):continue
+   val=str(query.get('data',''))
+   if not (val.startswith('rg3:') or val.startswith('rgprobe25:')):
+    raise RuntimeError('FOREIGN_CALLBACK_FAMILY_DETECTED_NOT_ACKNOWLEDGED')
   old_api=m.api
   def api_guard(method,payload):
    # Callback answers, edits and sends may target ONLY the authorized moderator chat.
