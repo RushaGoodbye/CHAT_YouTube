@@ -1331,10 +1331,13 @@ class MainWindow(QMainWindow):
                 else "YouTube: не підключено"
             )
 
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
-        self.reload_action_log()
+        # Switching channels previously repopulated four potentially
+        # thousand-row tables synchronously, even when only one tab was open.
+        # Mark each tab dirty; load only the visible one on the next Qt tick.
+        # The existing currentChanged handler refreshes a dirty tab on visit.
+        self._lazy_loaded_tabs.difference_update({1, 2, 3, 6})
+        visible = self.tabs.currentIndex()
+        self._on_main_tab_changed(visible)
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage(
