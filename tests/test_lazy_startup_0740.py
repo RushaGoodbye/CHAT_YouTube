@@ -9,6 +9,8 @@ def _ui():
 
 def _method(name):
     src = _ui()
+    if name == "__init__":
+        src = src.split("class MainWindow(QMainWindow):", 1)[1]
     i = src.index(f"    def {name}(")
     j = src.find("\n    def ", i + 8)
     return src[i:j if j > i else len(src)]
@@ -49,7 +51,7 @@ def test_optimization_first_load_is_cooperative_and_search_cancels_old_batches()
     assert "def next_batch(start_index: int = 0)" in method
     assert "chunk = 20" in method
     assert "QTimer.singleShot(" in method
-    assert "self._startup_defer_optimization" in method
+    assert '"_startup_defer_optimization"' in method
     assert "if self._optimization_render_epoch != epoch" in method
     # Non-startup callers preserve synchronous semantics for existing tests.
     assert "render_rows(0, len(prepared))" in method
