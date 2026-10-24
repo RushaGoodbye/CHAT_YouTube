@@ -175,9 +175,25 @@ def run_one(
             ),
         })
     except Exception as exc:
-        # No private captions, descriptions or model output are uploaded.
+        # The result is uploaded as a CI artifact. Never echo captions,
+        # a local NAS path, an Ollama response or an exception containing
+        # someone else's words into that public/private GitHub artifact.
+        known = (
+            "Invalid video ID",
+            "Video ID not present in app's synchronized database",
+            "Video metadata has no title",
+            "NAS SRT missing; no YouTube fallback is allowed in QA",
+            "Incomplete SRT: fewer than ten caption rows",
+            "SRT coverage below 75% of synchronized video duration",
+            "No evidence-backed dialogue blocks",
+        )
+        message = str(exc)
         result["error_type"] = type(exc).__name__
-        result["error"] = str(exc)[:240]
+        result["error"] = (
+            message if message in known
+            else "Local content-validation or dependency failure; "
+                 "review details on the source machine"
+        )
     result["elapsed_seconds"] = round(time.monotonic() - started, 1)
     return result
 
