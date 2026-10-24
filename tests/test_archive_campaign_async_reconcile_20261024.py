@@ -29,6 +29,12 @@ def test_archive_advance_does_not_reconcile_with_old_stats(tmp_path, monkeypatch
     monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
     app = QApplication.instance() or QApplication([])
     window = ui.MainWindow()
+    # Isolate this test from MainWindow's independent startup stats scan.
+    # The separate test below covers the already-running worker race.
+    running = getattr(window, "_archive_stats_worker", None)
+    if running is not None:
+        running.wait(10000)
+    window._archive_stats_worker = None
     refreshed = []
     checkpoint = []
     monkeypatch.setattr(
