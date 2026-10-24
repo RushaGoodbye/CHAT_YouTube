@@ -1700,19 +1700,17 @@ def _grounded_tags_from_transcript(
     if re.search(r"\b2023\b", haystack):
         add("Россия 2023")
 
-    # The published title is verified metadata and often names a narrow,
-    # searchable subject that the short public ASR excerpt misses. Preserve
-    # exact title phrases rather than inventing generic SEO keywords.
-    # Prefix and brand boilerplate do not count as a topical tag.
+    # Published video titles are verified metadata. Use their searchable
+    # topic phrases only when other source-grounded tags are insufficient.
     if len(tags) < 8:
         titled = re.sub(
-            r"(?i)\\b(?:чат\\s*рулетка|раша\\s*гудбай)\\b",
+            r"(?i)\b(?:чат\s*рулетка|раша\s*гудбай)\b",
             " ", title,
         )
         title_parts = [
-            re.sub(r"\\s+", " ", part).strip(" \\t.,!?'\"«»()")
+            re.sub(r"\s+", " ", part).strip(" \t.,!?'\"«»()")
             for part in re.split(
-                r"\\s*(?:[!?;:|]+|[.](?=\\s)|\\s+[—–-]\\s+)\\s*",
+                r"\s*(?:[!?;:|]+|[.](?=\s)|\s+[—–-]\s+)\s*",
                 titled,
             )
         ]
@@ -1722,7 +1720,7 @@ def _grounded_tags_from_transcript(
             if 9 <= len(part) <= 75 and len(part.split()) >= 2:
                 add(part)
         if len(tags) < 8:
-            whole = re.sub(r"\\s+", " ", titled).strip(" \\t.,!?'\"«»()")
+            whole = re.sub(r"\s+", " ", titled).strip(" \t.,!?'\"«»()")
             if 12 <= len(whole) <= 100 and len(whole.split()) >= 2:
                 add(whole)
 
