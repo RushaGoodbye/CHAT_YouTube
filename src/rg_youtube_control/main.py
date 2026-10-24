@@ -59,6 +59,28 @@ def main() -> int:
 
         QTimer.singleShot(5000, finish_smoke)
 
+    # A separate probe checks responsiveness after the 12s archive-recovery
+    # timer has fired. The 5s probe above deliberately exits early; use
+    # this longer one instead when testing delayed startup hangs.
+    stability_path = os.environ.get("RG_YT_QA_STABILITY_FILE", "").strip()
+    if stability_path:
+        def finish_stability_probe() -> None:
+            try:
+                marker = Path(stability_path)
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text(
+                    json.dumps({
+                        "visible": window.isVisible(),
+                        "tab_count": window.tabs.count(),
+                        "utc": datetime.now(timezone.utc).isoformat(),
+                    }),
+                    encoding="utf-8",
+                )
+            finally:
+                app.quit()
+
+        QTimer.singleShot(20000, finish_stability_probe)
+
     campaign_timer = QTimer(window)
     campaign_timer.setInterval(60 * 1000)
 
