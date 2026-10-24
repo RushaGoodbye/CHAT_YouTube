@@ -7815,6 +7815,11 @@ class MainWindow(QMainWindow):
         self._dashboard_archive_stats_cache_at = time.monotonic()
         self._archive_stats_unavailable = False
         self._complete_archive_recovery(result)
+        # Reconcile after the worker has read fresh DB/NAS state. Never
+        # make phase decisions using the counts cached before a write.
+        if getattr(self, "_archive_campaign_reconcile_pending", False):
+            self._archive_campaign_reconcile_pending = False
+            self._advance_archive_campaign(stats_override=result)
         if hasattr(self, "archive_campaign_summary"):
             self._refresh_archive_campaign_summary()
 
@@ -7915,7 +7920,15 @@ class MainWindow(QMainWindow):
     def _advance_archive_campaign(
         self, *, notify: bool = False, stats_override: dict | None = None,
     ) -> None:
-        stats = stats_override if stats_override is not None else self._archive_campaign_stats()
+        if stats_override is None:
+            # An archive write invalidates the old summary. Fresh counts,
+            # including remote SRT checks, must arrive from a worker before
+            # phase/checkpoint changes are allowed.
+            self._archive_campaign_reconcile_pending = True
+            self._dashboard_archive_stats_cache = None
+            self._refresh_archive_stats_async()
+            return
+        stats = stats_override
         self._dashboard_archive_stats_cache = stats
         self._dashboard_archive_stats_cache_at = time.monotonic()
         phase, target = next_campaign_phase(stats)
@@ -7987,7 +8000,18 @@ class MainWindow(QMainWindow):
         notify: bool = True,
     ) -> None:
         target = profile or self.current_profile
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
+        if (
+            getattr(self, "_dashboard_archive_stats_cache", None) is None
+            or getattr(self, "_archive_stats_unavailable", False)
+        ):
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Глибока черга",
+                    "Статистика NAS ще оновлюється. Спробуйте після завершення.",
+                )
+            return
         if int(stats.get(target, {}).get("safe_remaining", 0)) > 0:
             if notify:
                 QMessageBox.information(
@@ -8266,7 +8290,15 @@ class MainWindow(QMainWindow):
             self._error("Помилка транскриптів глибокої черги", exc)
 
     def run_archive_campaign_step(self, *, automatic: bool = False) -> bool:
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
+        if (
+            getattr(self, "_dashboard_archive_stats_cache", None) is None
+            or getattr(self, "_archive_stats_unavailable", False)
+        ):
+            self.statusBar().showMessage(
+                "Кампанія архіву: очікування статистики NAS"
+            )
+            return False
         phase, target = next_campaign_phase(stats)
         if phase == "complete":
             save_campaign_checkpoint(
@@ -8276,7 +8308,9 @@ class MainWindow(QMainWindow):
                 status="complete",
                 note="campaign_complete",
             )
-            self._advance_archive_campaign(notify=not automatic)
+            self._advance_archive_campaign(
+                notify=not automatic, stats_override=stats
+            )
             return True
 
         if target:
@@ -8327,16 +8361,9 @@ class MainWindow(QMainWindow):
                 notify=False,
             )
 
+        # A phase transition is committed by _on_archive_stats_ready after
+        # a new asynchronous NAS/SQLite scan, not here in the Qt event loop.
         self._advance_archive_campaign()
-        refreshed = self._archive_campaign_stats()
-        next_phase, next_target = next_campaign_phase(refreshed)
-        save_campaign_checkpoint(
-            self.conn,
-            phase=next_phase,
-            target=next_target,
-            status="complete" if next_phase == "complete" else "ready",
-            note="",
-        )
         return True
 
 
@@ -8469,7 +8496,7 @@ class MainWindow(QMainWindow):
             stats = cached_stats
             phase, target = next_campaign_phase(stats)
             if phase == "complete":
-                self._advance_archive_campaign()
+                self._advance_archive_campaign(stats_override=cached_stats)
                 set_setting(self.conn, done_key, "1")
                 return
 
