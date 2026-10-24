@@ -6871,7 +6871,7 @@ class MainWindow(QMainWindow):
             self._error("Помилка авторизації", exc)
 
     def sync_upcoming_streams_startup(self) -> None:
-        """Refresh upcoming broadcasts on both channels once after startup."""
+        """Refresh scheduled broadcasts without network calls on the GUI thread."""
         cleaned = cleanup_stale_scheduled_rows(self.conn)
         if cleaned:
             self.reload_videos()
@@ -6879,36 +6879,69 @@ class MainWindow(QMainWindow):
             self.update_dashboard()
         if quota_exhausted(self.conn):
             return
+        active = getattr(self, "_upcoming_sync_worker", None)
+        if active is not None and active.isRunning():
+            return
 
-        before_units = today_quota_units(self.conn)
-        synced = 0
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
+        self._upcoming_sync_baseline_units = today_quota_units(self.conn)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS)
+
+        def task():
+            # Each QThread must own its SQLite connection. GUI self.conn
+            # must never be passed into a blocking YouTube API request.
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
             try:
-                client.credentials()
-                rows = sync_upcoming_live_broadcasts(
-                    client,
-                    self.conn,
-                )
-                synced += len(rows)
-            except Exception as exc:
-                if _is_quota_exceeded_error(exc):
-                    mark_quota_exhausted(self.conn)
-                    break
-                continue
+                synced = 0
+                for profile in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                        synced += len(sync_upcoming_live_broadcasts(client, worker_conn))
+                    except Exception as exc:
+                        if _is_quota_exceeded_error(exc):
+                            mark_quota_exhausted(worker_conn)
+                            break
+                return synced
+            finally:
+                worker_conn.close()
 
-        if synced:
-            self.reload_videos()
-            self.reload_optimization_queue()
-            self.update_dashboard()
-            consumed = max(
-                0,
-                today_quota_units(self.conn) - before_units,
-            )
-            self.statusBar().showMessage(
-                f"Заплановані ефіри оновлено: {synced} · "
-                f"квота читання: {consumed}"
-            )
+        worker = LocalToolWorker(task, self)
+        self._upcoming_sync_worker = worker
+        worker.succeeded.connect(self._on_upcoming_sync_done)
+        worker.failed.connect(self._on_upcoming_sync_failed)
+        worker.finished.connect(self._on_upcoming_sync_finished)
+        worker.start()
+
+    def _on_upcoming_sync_finished(self) -> None:
+        self._upcoming_sync_worker = None
+
+    def _on_upcoming_sync_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="синхронізація",
+            action="Помилка фонової синхронізації ефірів",
+            details=str(message)[:700],
+        )
+
+    def _on_upcoming_sync_done(self, synced: object) -> None:
+        if not isinstance(synced, int) or synced < 1:
+            return
+        self.reload_videos()
+        self.reload_optimization_queue()
+        self.update_dashboard()
+        consumed = max(
+            0,
+            today_quota_units(self.conn)
+            - int(getattr(self, "_upcoming_sync_baseline_units", 0)),
+        )
+        self.statusBar().showMessage(
+            f"Заплановані ефіри оновлено: {synced} · "
+            f"квота читання: {consumed}"
+        )
 
     def sync_video_list(self) -> None:
         try:
