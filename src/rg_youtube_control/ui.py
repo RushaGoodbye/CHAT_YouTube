@@ -7773,6 +7773,20 @@ class MainWindow(QMainWindow):
         }
         return {profile: dict(empty) for profile in PROFILE_TARGETS}
 
+    def _archive_stats_fresh_for_actions(self) -> bool:
+        """Never run archive transitions against expired or failed NAS counts."""
+        cache = getattr(self, "_dashboard_archive_stats_cache", None)
+        cached_at = float(
+            getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
+        )
+        return (
+            isinstance(cache, dict)
+            and bool(cache)
+            and not getattr(self, "_archive_stats_unavailable", False)
+            and cached_at > 0
+            and 0 <= time.monotonic() - cached_at < 300.0
+        )
+
     def _refresh_archive_stats_async(self) -> None:
         worker = getattr(self, "_archive_stats_worker", None)
         if worker is not None and worker.isRunning():
@@ -8018,10 +8032,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         target = profile or self.current_profile
         stats = self._archive_campaign_stats_cached()
-        if (
-            getattr(self, "_dashboard_archive_stats_cache", None) is None
-            or getattr(self, "_archive_stats_unavailable", False)
-        ):
+        if not self._archive_stats_fresh_for_actions():
             if notify:
                 QMessageBox.information(
                     self,
@@ -8308,10 +8319,7 @@ class MainWindow(QMainWindow):
 
     def run_archive_campaign_step(self, *, automatic: bool = False) -> bool:
         stats = self._archive_campaign_stats_cached()
-        if (
-            getattr(self, "_dashboard_archive_stats_cache", None) is None
-            or getattr(self, "_archive_stats_unavailable", False)
-        ):
+        if not self._archive_stats_fresh_for_actions():
             self.statusBar().showMessage(
                 "Кампанія архіву: очікування статистики NAS"
             )
@@ -8647,7 +8655,7 @@ class MainWindow(QMainWindow):
             # A remote NAS .exists() can hang Windows indefinitely.
             # The async cache refreshes independently from this Qt dialog.
             stats = self._archive_campaign_stats_cached()
-            if getattr(self, "_dashboard_archive_stats_cache", None) is None:
+            if not self._archive_stats_fresh_for_actions():
                 phase_label.setText("Статистика архіву завантажується…")
                 next_label.setText("Пошук SRT на NAS виконується у фоні.")
                 quota_label.setText("Дані кампанії ще не готові.")
@@ -8744,10 +8752,7 @@ class MainWindow(QMainWindow):
 
         def open_current() -> None:
             stats = self._archive_campaign_stats_cached()
-            if (
-                getattr(self, "_dashboard_archive_stats_cache", None) is None
-                or getattr(self, "_archive_stats_unavailable", False)
-            ):
+            if not self._archive_stats_fresh_for_actions():
                 refresh()
                 return
             phase, target = next_campaign_phase(stats)
