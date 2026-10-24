@@ -109,7 +109,9 @@ def once():
  except Exception:pass
  if p.returncode or obj.get('status')!='ONE_SHOT_CALLBACK_HANDOFF_COMPLETE':
   detail=str(obj.get('reason',''))
-  typ='TELEGRAM_409_POLL_CONFLICT' if '409' in detail or 'Conflict' in detail else (
+  typ=('TELEGRAM_409_POLL_CONFLICT' if '409' in detail or 'Conflict' in detail else
+       'REAL_MODERATION_STATE_NOT_CHANGED' if 'REAL_MODERATION_ACTION_DID_NOT_CHANGE_PENDING_STATE' in detail else
+       'FOREIGN_CALLBACK_FAMILY' if 'FOREIGN_CALLBACK_FAMILY_DETECTED' in detail else
        'HANDOFF_BLOCKED' if obj.get('status')=='BLOCKED' else 'ONESHOT_ERROR')
   return {'pass':False,'error_class':typ}
  outcomes=[str(x)[:90] for x in obj.get('outcomes',[])[:25]]
@@ -204,7 +206,10 @@ def main():
   else:
    s['last']='FAILED';s['failures']+=1
    s['last_error_class']=result['error_class']
-   if 'CONFLICT' in result['error_class'] or s['failures']>=3:
+   if result['error_class'] in ('REAL_MODERATION_STATE_NOT_CHANGED',
+      'FOREIGN_CALLBACK_FAMILY','TEST_BUTTON_VISIBLE_REPLY_FAILED','MODERATION_REPLY_FAILED'):
+    s['halt']='callback_unhandled_or_reply_failed'
+   elif 'CONFLICT' in result['error_class'] or s['failures']>=3:
     s['halt']='poll_conflict_or_repeated_failures'
   s['last_poll_utc']=datetime.datetime.now(datetime.timezone.utc).isoformat()
   write(STATE,s)
