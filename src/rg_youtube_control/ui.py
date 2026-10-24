@@ -6583,22 +6583,70 @@ class MainWindow(QMainWindow):
         return archive
 
     def ensure_daily_recovery_backup(self) -> None:
-        try:
-            self._create_automatic_recovery_backup(
-                "щоденна копія",
-                force=False,
-            )
-        except Exception as exc:
+        """Daily NAS archive runs off the Qt UI thread, with its own SQLite."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        if get_setting(self.conn, "automatic_recovery_backup_day", "") == today:
+            return
+        running = getattr(self, "_daily_backup_worker", None)
+        if running is not None and running.isRunning():
+            return
+
+        backup_root = self._recovery_backup_root()
+        db_path = self.data_dir / "rg_youtube_control.db"
+        data_dir = self.data_dir
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
             try:
-                log_action(
-                    self.conn,
-                    profile=self.current_profile,
-                    category="резервна копія",
-                    action="Помилка щоденної копії",
-                    details=str(exc),
+                archive = create_recovery_backup(
+                    conn=worker_conn,
+                    data_dir=data_dir,
+                    backup_root=backup_root,
+                    version=__version__,
+                    include_installer=False,
+                    label="RG_YOUTUBE_CONTROL_AUTO",
                 )
-            except Exception:
-                pass
+                removed = prune_recovery_backups(
+                    backup_root,
+                    keep=20,
+                    prefix="RG_YOUTUBE_CONTROL_AUTO_",
+                )
+                return archive.name, removed, today
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._daily_backup_worker = worker
+        worker.succeeded.connect(self._on_daily_backup_success)
+        worker.failed.connect(self._on_daily_backup_failed)
+        worker.finished.connect(self._on_daily_backup_finished)
+        worker.start()
+
+    def _on_daily_backup_finished(self) -> None:
+        self._daily_backup_worker = None
+
+    def _on_daily_backup_success(self, result: object) -> None:
+        archive_name, removed, day = result
+        set_setting(self.conn, "automatic_recovery_backup_day", day)
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="резервна копія",
+            action="Автоматична копія",
+            details=f"щоденна копія · {archive_name} · очищено старих: {removed}",
+        )
+        self.reload_action_log()
+
+    def _on_daily_backup_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="резервна копія",
+            action="Помилка щоденної копії",
+            details=str(message)[:700],
+        )
 
     def _prechange_backup_or_warn(
         self,
