@@ -298,7 +298,11 @@ def export_deep_review_manifest(
     # Atomic replacement prevents readers from seeing a half-written manifest.
     staged.replace(path)
     # Commit queue state only after the manifest is safely present on storage.
+    # Exporting again must not demote an operator-reviewed draft back to queued.
+    previous = deep_review_state_map(conn, profile)
     for item in items:
+        if previous.get(str(item["video_id"])) == "review":
+            continue
         set_deep_review_state(
             conn,
             video_id=str(item["video_id"]),
