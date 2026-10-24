@@ -13351,13 +13351,9 @@ class MainWindow(QMainWindow):
         # Prefer verified local SRTs, but never REQUIRE NAS availability:
         # individual SEO can also fetch subtitles via YouTube Transcript API
         # and caption-track discovery. Bulk must use the same source chain.
-        candidate_ids = sorted(
-            candidate_ids,
-            key=lambda video_id: (
-                0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
-            ),
-        )
-
+        # A NAS directory can be slow or disconnected. Its per-file
+        # existence checks must execute in the background worker, never
+        # in this button handler on the Qt GUI thread.
         if not candidate_ids:
             QMessageBox.information(
                 self,
@@ -13373,6 +13369,12 @@ class MainWindow(QMainWindow):
             import queue
             import threading
 
+            ordered_ids = sorted(
+                candidate_ids,
+                key=lambda video_id: (
+                    0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
+                ),
+            )
             candidate_timeout_seconds = 180
             prepared: list[dict] = []
             skipped: list[dict] = []
@@ -13419,7 +13421,7 @@ class MainWindow(QMainWindow):
                     return payload
                 raise payload
 
-            for video_id in candidate_ids[:max_attempts]:
+            for video_id in ordered_ids[:max_attempts]:
                 if len(prepared) >= limit:
                     break
                 attempted += 1
