@@ -130,3 +130,32 @@ def test_real_qa_uses_ten_distinct_main_videos(qa_script):
     assert len(qa_script.MAIN_IDS) == 10
     assert len(set(qa_script.MAIN_IDS)) == 10
     assert all(qa_script.VALID_ID.fullmatch(i) for i in qa_script.MAIN_IDS)
+
+
+def test_acceptance_summary_never_leaks_internal_nas_path_or_model_text(
+    tmp_path, qa_script, monkeypatch,
+):
+    db, folder = _source_db(tmp_path)
+    (folder / "MEitKm687xo.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:05,000\nText\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        qa_script, "load_srt_transcript", lambda path: [
+            {"start": i * 5.0, "duration": 5.0, "text": "sample"}
+            for i in range(10)
+        ]
+    )
+    private_text = "PRIVATE_SUBTITLE: private quoted conversation"
+    private_path = "C:\\Users\\PrivateUser\\Secrets\\transcript.srt"
+    def fake_analyze(*a, **kw):
+        raise RuntimeError(private_text + " " + private_path)
+    monkeypatch.setattr(
+        qa_script, "analyze_all_timeline_blocks", fake_analyze
+    )
+    result = qa_script.run_one(
+        "MEitKm687xo", database=db, qa_cache=tmp_path / "cache"
+    )
+    assert result["status"] == "BLOCKED"
+    assert private_text not in str(result)
+    assert private_path not in str(result)
+    assert "Local content-validation" in result["error"]
