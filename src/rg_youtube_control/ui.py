@@ -13679,7 +13679,13 @@ class MainWindow(QMainWindow):
             variants,
         )
         if not check.ready:
-            raise RuntimeError("\n".join(check.errors))
+            recoverable = bool(package.get("technical_fallback")) and all(
+                "Потрібно щонайменше 8 релевантних тегів." in error
+                or "Теги не заповнені." in error
+                for error in check.errors
+            )
+            if not recoverable:
+                raise RuntimeError("\n".join(check.errors))
 
         return (
             video_id,
@@ -14078,7 +14084,20 @@ class MainWindow(QMainWindow):
             tags=tags,
             require_ukrainian=True,
         )
-        if quality_state == "blocked":
+        # A recovered source-verified draft is always editable but never
+        # apply-ready. Insufficient tags are allowed only as a stated
+        # editorial gap; all other content-policy/YouTube errors still block.
+        incomplete_tags_only = (
+            bool(package.get("technical_fallback"))
+            and bool(quality_reasons)
+            and all(
+                "менше 8 корисних тегів" in reason
+                or "Потрібно щонайменше 8 релевантних тегів" in reason
+                or "Теги не заповнені" in reason
+                for reason in quality_reasons
+            )
+        )
+        if quality_state == "blocked" and not incomplete_tags_only:
             QMessageBox.warning(
                 self,
                 "Пакет заблоковано автоперевіркою",
@@ -14087,7 +14106,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        requires_review = (
+            bool(package.get("technical_fallback"))
+            or bool(package.get("needs_review"))
+            or len(variants) < 3
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
@@ -14104,7 +14127,12 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=draft_reason,
+            quality_reason=(
+                draft_reason + (
+                    " · Недостатньо підтверджених тегів."
+                    if incomplete_tags_only else ""
+                )
+            ),
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
