@@ -30,10 +30,6 @@ def test_periodic_metadata_worker_sqlite_e2e(tmp_path, monkeypatch):
     monkeypatch.setattr(ui, "YouTubeClient", FakeClient)
     monkeypatch.setattr(ui, "sync_videos", fake_sync)
     monkeypatch.setattr(ui, "sync_upcoming_live_broadcasts", fake_sync)
-    monkeypatch.setattr(
-        ui, "quota_budget_status",
-        lambda _conn: {"exhausted": False, "spendable": 10000},
-    )
     monkeypatch.setattr(ui, "today_quota_units", lambda _conn: 0)
 
     window = ui.MainWindow()
