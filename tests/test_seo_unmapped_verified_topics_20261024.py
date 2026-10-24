@@ -74,8 +74,14 @@ def test_only_unrecognized_quotations_still_fail_closed():
             }]
         }]
     }
-    with pytest.raises(ValueError, match="No editorial subjects"):
-        _deterministic_evidence_description("Вымышленный громкий скандал", report)
+    notes = []
+    result = _deterministic_evidence_description(
+        "Вымышленный громкий скандал", report, review_notes=notes
+    )
+    assert "Вымышленный громкий скандал" not in result
+    assert "Непідтверджена назва установи" not in result
+    assert len(result) >= 260
+    assert any("потрібен редакторський" in note for note in notes)
 
 
 def test_missing_quotes_are_not_accepted_as_grounded():
@@ -87,7 +93,7 @@ def test_missing_quotes_are_not_accepted_as_grounded():
             }]
         }]
     }
-    with pytest.raises(ValueError, match="No editorial subjects"):
+    with pytest.raises(ValueError, match="No verified quotation"):
         _deterministic_evidence_description("Шойгу", report)
 
 
