@@ -877,6 +877,11 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.data_dir = app_data_dir()
         self.conn = connect(self.data_dir / "rg_youtube_control.db")
+        self._startup_views_ready = False
+        self._startup_loaded_tabs: set[int] = set()
+        self._startup_defer_optimization = False
+        self._optimization_render_epoch = 0
+        self._startup_trace_path = self.data_dir / "startup_trace.log"
         self.current_profile = get_setting(self.conn, "current_profile", "main")
         # Network-drive transcript presence is never probed on the GUI thread.
         self._nas_srt_path = ""
@@ -936,20 +941,24 @@ class MainWindow(QMainWindow):
         # report an Application Hang before the first paint.
         self.statusBar().showMessage("Завантаження даних у фоні інтерфейсу…")
         self._apply_advanced_mode()
-        QTimer.singleShot(100, self._startup_load_videos)
-        QTimer.singleShot(300, self._startup_load_optimization)
-        QTimer.singleShot(500, self._startup_load_comments)
-        QTimer.singleShot(700, self._startup_load_actions)
-        QTimer.singleShot(900, self._startup_finish)
-        QTimer.singleShot(1200, self.recover_archive_campaign_state)
-        QTimer.singleShot(2000, self.cleanup_cached_updates)
-        QTimer.singleShot(3000, self.check_for_updates_silent)
-        QTimer.singleShot(4500, self.sync_upcoming_streams_startup)
-        QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
-        QTimer.singleShot(8000, self.check_quota_plan_ready)
-        QTimer.singleShot(10000, self.run_background_maintenance)
-        QTimer.singleShot(9000, self._resume_saved_workflow)
-        QTimer.singleShot(1500, self.refresh_free_tools_status)
+        # Never populate hidden 400/500-row tables at startup. Even when
+        # executed from a QTimer, synchronous table filling blocks Qt.
+        # Load only the requested tab, cooperatively for large SEO tables.
+        self._startup_views_ready = True
+        QTimer.singleShot(200, self._startup_finish)
+        QTimer.singleShot(300, lambda: self._on_main_tab_changed(
+            self.tabs.currentIndex(),
+        ))
+        # Non-essential timers should not compete with first-paint work.
+        QTimer.singleShot(30_000, self.recover_archive_campaign_state)
+        QTimer.singleShot(35_000, self.cleanup_cached_updates)
+        QTimer.singleShot(40_000, self.check_for_updates_silent)
+        QTimer.singleShot(45_000, self.sync_upcoming_streams_startup)
+        QTimer.singleShot(50_000, self.ensure_daily_recovery_backup)
+        QTimer.singleShot(55_000, self.check_quota_plan_ready)
+        QTimer.singleShot(60_000, self.run_background_maintenance)
+        QTimer.singleShot(65_000, self._resume_saved_workflow)
+        QTimer.singleShot(20_000, self.refresh_free_tools_status)
 
     def _start_nas_srt_index(self) -> None:
         """Enumerate NAS transcript names outside the Qt event loop."""
@@ -1004,13 +1013,60 @@ class MainWindow(QMainWindow):
                 status_item.setForeground(QColor(SUCCESS))
                 status_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
+    def _startup_trace(self, action: str) -> None:
+        # Persist BEFORE entering a potentially blocking legacy action.
+        # Last START without END identifies the actual blocking stage on PC.
+        try:
+            with self._startup_trace_path.open("a", encoding="utf-8") as out:
+                out.write(
+                    datetime.now().isoformat(timespec="seconds")
+                    + " " + action + "\n"
+                )
+        except OSError:
+            pass
+
+    def _startup_traced(self, action: str, func) -> None:
+        started = time.perf_counter()
+        self._startup_trace("START " + action)
+        try:
+            func()
+        except Exception as exc:
+            self._startup_trace(
+                "ERROR " + action + " " + type(exc).__name__
+                + ": " + str(exc)[:180]
+            )
+            raise
+        finally:
+            elapsed = round(time.perf_counter() - started, 3)
+            self._startup_trace(f"END {action} elapsed={elapsed}s")
+
+    def _load_requested_tab(self, index: int) -> None:
+        if index in self._startup_loaded_tabs:
+            return
+        handlers = {
+            1: self._startup_load_videos,
+            2: self._startup_load_optimization,
+            3: self._startup_load_comments,
+            6: self._startup_load_actions,
+            8: self.refresh_archive_dashboard,
+        }
+        handler = handlers.get(index)
+        if handler is None:
+            return
+        self._startup_loaded_tabs.add(index)
+        self._startup_traced("tab:" + str(index), handler)
+
     def _startup_load_videos(self) -> None:
         self.statusBar().showMessage("Завантаження відео…")
         self.reload_videos()
 
     def _startup_load_optimization(self) -> None:
         self.statusBar().showMessage("Завантаження SEO…")
-        self.reload_optimization_queue()
+        self._startup_defer_optimization = True
+        try:
+            self.reload_optimization_queue()
+        finally:
+            self._startup_defer_optimization = False
 
     def _startup_load_comments(self) -> None:
         self.statusBar().showMessage("Завантаження коментарів…")
@@ -1030,6 +1086,7 @@ class MainWindow(QMainWindow):
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage("СИСТЕМА ГОТОВА")
+        self._startup_trace("FIRST_PAINT_READY")
 
     def _set_tab_badge(self, index: int, base: str, count: int = 0) -> None:
         if not hasattr(self, "tabs") or index >= self.tabs.count():
@@ -1070,6 +1127,12 @@ class MainWindow(QMainWindow):
         self.metrics_wrapper.setVisible(
             current is getattr(self, "video_page", None)
         )
+        if getattr(self, "_startup_views_ready", False):
+            index = self.tabs.currentIndex()
+            if index not in self._startup_loaded_tabs:
+                QTimer.singleShot(
+                    0, lambda target=index: self._load_requested_tab(target),
+                )
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -2949,7 +3012,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(priority_card)
         layout.addStretch()
         self.tabs.addTab(page, "Архів")
-        self.refresh_archive_dashboard()
+        # Archive metrics use multiple SQL aggregations and are loaded
+        # when the user opens the Archive tab, not during MainWindow init.
 
     def _open_archive_priority(self, minimum: int) -> None:
         set_setting(self.conn, "archive_ui_min_potential", str(int(minimum)))
