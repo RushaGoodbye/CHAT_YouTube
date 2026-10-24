@@ -8594,7 +8594,24 @@ class MainWindow(QMainWindow):
         layout.addLayout(buttons)
 
         def refresh() -> None:
-            stats = self._archive_campaign_stats()
+            # A remote NAS .exists() can hang Windows indefinitely.
+            # The async cache refreshes independently from this Qt dialog.
+            stats = self._archive_campaign_stats_cached()
+            if getattr(self, "_dashboard_archive_stats_cache", None) is None:
+                phase_label.setText("Статистика архіву завантажується…")
+                next_label.setText("Пошук SRT на NAS виконується у фоні.")
+                quota_label.setText("Дані кампанії ще не готові.")
+                run_btn.setEnabled(False)
+                open_btn.setEnabled(False)
+                return
+            if getattr(self, "_archive_stats_unavailable", False):
+                phase_label.setText("Статистика архіву недоступна")
+                next_label.setText("Перевірте з’єднання з NAS та оновіть.")
+                quota_label.setText("Невідомий стан. Автоматичні дії заблоковано.")
+                run_btn.setEnabled(False)
+                open_btn.setEnabled(False)
+                return
+            open_btn.setEnabled(True)
             budget = self._archive_campaign_budget()
             phase, target = next_campaign_phase(stats)
             phase_name = {
@@ -8676,7 +8693,13 @@ class MainWindow(QMainWindow):
             refresh()
 
         def open_current() -> None:
-            stats = self._archive_campaign_stats()
+            stats = self._archive_campaign_stats_cached()
+            if (
+                getattr(self, "_dashboard_archive_stats_cache", None) is None
+                or getattr(self, "_archive_stats_unavailable", False)
+            ):
+                refresh()
+                return
             phase, target = next_campaign_phase(stats)
             if target:
                 self._activate_profile(target)
@@ -8696,6 +8719,10 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(refresh)
         close_btn.clicked.connect(dialog.accept)
 
+        cache_timer = QTimer(dialog)
+        cache_timer.timeout.connect(refresh)
+        dialog.finished.connect(cache_timer.stop)
+        cache_timer.start(1000)
         refresh()
         dialog.exec()
 
