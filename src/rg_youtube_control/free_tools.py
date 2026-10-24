@@ -723,12 +723,17 @@ def _grounded_description_from_transcript(
 
 
 def _deterministic_evidence_description(
-    title: str, evidence_report: dict[str, Any]
+    title: str,
+    evidence_report: dict[str, Any],
+    *,
+    review_notes: list[str] | None = None,
 ) -> str:
-    """Create public Ukrainian prose only from cited, verified discussion subjects.
+    """Build Ukrainian SEO prose only from verifiable quotation subjects.
 
-    Do not publish model-written assertions or raw multilingual ASR topic labels.
-    Each verified topic must map to a supported editorial subject.
+    Evidence quotes support subject recognition, while LLM-written topic
+    labels are *not* independent evidence. Unknown but quoted subjects stay
+    in the private report for editorial review. One unsupported side topic
+    must never discard an otherwise grounded, operator-reviewable draft.
     """
     blocks = [
         block for block in (evidence_report.get("blocks") or [])
@@ -740,54 +745,83 @@ def _deterministic_evidence_description(
     labels: list[str] = []
     unmapped: list[str] = []
     for block in blocks:
-        topics = [item for item in (block.get("topics") or [])
-                  if isinstance(item, dict)]
+        topics = [
+            item for item in (block.get("topics") or [])
+            if isinstance(item, dict)
+        ]
         if not topics:
-            raise ValueError("Verified block has no topics")
+            continue
         for topic in topics:
             quote = str(topic.get("evidence") or "").strip()
+            topic_name = " ".join(str(topic.get("topic") or "").split())
             if not quote:
-                raise ValueError("No verified transcript quotations for SEO description")
-            combined = (str(topic.get("topic") or "") + " " + quote).casefold()
+                if topic_name:
+                    unmapped.append(topic_name[:100])
+                continue
+
+            # Do not infer the subject of a quote from the model's topic label:
+            # a verified quotation does not verify all LLM-authored claims.
+            quoted = quote.casefold()
+            normalized_topic = topic_name.casefold()
+            if any(phrase in normalized_topic for phrase in (
+                "ідентифікація співрозмовників", "знайомство зі співрозмовник",
+                "представлення співрозмовник", "представление собеседник",
+                "відповідь на запитання", "ответ на вопрос",
+                "реакція на запитання", "ответ собеседника на вопрос",
+            )):
+                continue
+
             recognized: list[str] = []
-            if "шойгу" in combined and any(
-                word in combined for word in (
+            if "шойгу" in quoted and any(
+                word in quoted for word in (
                     "увольнен", "звільнен", "посад", "коррупц", "корупц",
                 )
             ):
                 recognized.append("версії причин зміни посади Шойгу")
-            if any(w in combined for w in ("стратег", "войн", "війн")):
+            if any(w in quoted for w in ("стратег", "войн", "війн")):
                 recognized.append("війна та стратегічні рішення")
-            if any(w in combined for w in (
+            if any(w in quoted for w in (
                 "причин", "увольнен", "звільнен", "зміни посади", "смены должност",
                 "кадров", "назначен",
             )):
                 recognized.append("версії причин кадрових змін")
-            if any(w in combined for w in ("відповідаль", "ответствен")):
+            if any(w in quoted for w in ("відповідаль", "ответствен")):
                 recognized.append("відповідальність посадовців")
             for needles, label in _GROUNDED_TOPIC_RULES:
-                if any(needle in combined for needle in needles):
+                if any(needle in quoted for needle in needles):
                     recognized.append(label)
+            if "дагестан" in quoted and any(
+                word in quoted for word in (
+                    "бесплатн", "безкоштовн", "безплатн", "бесплатно",
+                )
+            ) and any(word in quoted for word in (
+                "ед", "їж", "їд", "столов", "питан", "харч",
+            )):
+                recognized.append("історія з безплатною їжею в Дагестані")
+            elif "дагестан" in quoted:
+                recognized.append("Дагестан у розповіді співрозмовника")
             if not recognized:
-                # Conversation mechanics are not meaningful SEO subjects.
-                if any(phrase in combined for phrase in (
-                    "відповідь на запитання", "ответ на вопрос",
-                    "реакція на запитання", "ответ собеседника на вопрос",
-                )):
-                    continue
-                unmapped.append(str(topic.get("topic") or "")[:100])
+                if topic_name:
+                    unmapped.append(topic_name[:100])
                 continue
             for label in recognized:
                 if label not in labels:
                     labels.append(label)
-    if unmapped:
-        raise ValueError(
-            "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
-        )
+
+    if review_notes is not None:
+        review_notes.extend(list(dict.fromkeys(unmapped))[:20])
     if not labels:
+        # Fail closed when none of the excerpts supports a public-facing
+        # subject. The private timeline evidence report is retained.
         raise ValueError("No editorial subjects among verified transcript topics")
+
     labels = labels[:10]
-    subject = "Шойгу та " if "шойгу" in str(title or "").casefold() else ""
+    subject = (
+        "Шойгу та "
+        if "шойгу" in str(title or "").casefold()
+        and any("Шойгу" in label for label in labels)
+        else ""
+    )
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
         "обговорюють " + subject + "такі теми: " + "; ".join(labels) + ". "
@@ -801,7 +835,18 @@ def _deterministic_evidence_description(
     )
     result = lead + body
     if len(result) > 950:
-        raise ValueError("Evidence subjects exceed editorial description budget")
+        # Keep only whole, individually supported subjects, never truncate
+        # a subject mid-word to satisfy the editor's length limit.
+        while len(result) > 950 and len(labels) > 1:
+            labels.pop()
+            lead = (
+                "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
+                "обговорюють " + subject + "такі теми: "
+                + "; ".join(labels) + ". "
+            )
+            result = lead + body
+        if len(result) > 950:
+            raise ValueError("Evidence subjects exceed editorial description budget")
     return result
 
 
@@ -2259,10 +2304,12 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
+                review_notes: list[str] = []
                 description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
+                    current_title, evidence_report, review_notes=review_notes,
                 )
                 candidate["description"] = description_candidate
+                candidate["_evidence_editorial_review"] = review_notes
                 candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
@@ -2544,6 +2591,10 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(evidence_report)
             or bool(omitted_topics)
             or bool(title_issues)
+            or bool(payload.get("_evidence_editorial_review"))
+        ),
+        "evidence_editorial_review": list(
+            payload.get("_evidence_editorial_review") or []
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2558,6 +2609,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 (source_quote_fallback, "A/B створено з дослівних цитат: перевірити редакційний стиль"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
+                (bool(payload.get("_evidence_editorial_review")),
+                 "Додаткові теми для редакційної перевірки: "
+                 + "; ".join(payload.get("_evidence_editorial_review") or [])[:260]),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
             )
