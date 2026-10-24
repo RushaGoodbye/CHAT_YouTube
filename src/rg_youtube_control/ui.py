@@ -8341,6 +8341,18 @@ class MainWindow(QMainWindow):
             return
         if getattr(self, "_archive_campaign_autorun_running", False):
             return
+        # Never scan remote subtitles inside a timed GUI callback.
+        cached_stats = getattr(self, "_dashboard_archive_stats_cache", None)
+        cached_at = float(
+            getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
+        )
+        if (
+            cached_stats is None
+            or getattr(self, "_archive_stats_unavailable", False)
+            or time.monotonic() - cached_at >= 300.0
+        ):
+            self._refresh_archive_stats_async()
+            return
 
         self._archive_campaign_autorun_running = True
         try:
@@ -8354,7 +8366,7 @@ class MainWindow(QMainWindow):
             ):
                 return
 
-            stats = self._archive_campaign_stats()
+            stats = cached_stats
             phase, target = next_campaign_phase(stats)
             if phase == "complete":
                 self._advance_archive_campaign()
