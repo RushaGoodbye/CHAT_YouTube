@@ -36,7 +36,7 @@ def test_diagnostics_and_nas_workers_hold_no_qt_widgets_or_main_db():
             ), f"Qt instance touched in {name} worker"
         segment = ast.get_source_segment(source, method)
         assert "LocalToolWorker(task, self)" in segment
-        assert "worker.isRunning()" in segment
+        assert "running.isRunning()" in segment
         assert "worker.finished.connect(finished)" in segment
 
 
