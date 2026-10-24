@@ -88,7 +88,24 @@ def main():
     mch=message.get('chat') or {}
     owned=(parts[0]=='rg3' and len(parts)>=3 and actor.get('id')==chat
       and mch.get('id')==chat and mch.get('type')=='private')
-    if owned and parts[1] in ACTIONS:
+    is_test=(len(parts)==2 and parts[0]=='rgprobe25'
+      and len(parts[1])==18 and all(ch in '0123456789abcdef' for ch in parts[1])
+      and actor.get('id')==chat and mch.get('id')==chat
+      and mch.get('type')=='private' and message.get('message_id') in (8031,8032)
+      and (message.get('from') or {}).get('id')==BOT_ID)
+    if is_test:
+     mid=message['message_id']
+     note={'message_id':mid,'kind':'TEST_BUTTON','confirmation_sent':False}
+     try:
+      m.api('sendMessage',{'chat_id':chat,'reply_to_message_id':mid,
+        'text':'✅ RG NEWS 2.0: тестова кнопка працює. Натискання отримано NAS, публікація новин вимкнена.'})
+      note['confirmation_sent']=True
+      status='TEST_BUTTON_VISIBLE_CONFIRMATION_SENT'
+     except Exception as error:
+      note['error_type']=type(error).__name__
+      status='TEST_BUTTON_VISIBLE_CONFIRMATION_FAILED'
+     ui_results.append(note)
+    elif owned and parts[1] in ACTIONS:
      mid=message.get('message_id')
      before=dispatch_state(mid)
      ret=m.process_callback(u,cfg)
@@ -125,7 +142,9 @@ def main():
      try:
       old_api('answerCallbackQuery',{
        'callback_query_id':q['id'],
-       'text':('⚠️ Публікацію тимчасово вимкнено; дію не виконано.' if status=='APPROVAL_PAUSED_PUBLISH_DISABLED'
+       'text':('✅ Кнопка працює, підтвердження в чаті.' if status=='TEST_BUTTON_VISIBLE_CONFIRMATION_SENT'
+        else '⚠️ Не вдалося надіслати відповідь; див. журнал.' if status=='TEST_BUTTON_VISIBLE_CONFIRMATION_FAILED'
+        else '⚠️ Публікацію тимчасово вимкнено; дію не виконано.' if status=='APPROVAL_PAUSED_PUBLISH_DISABLED'
         else 'Оброблено' if owned and parts[1] in ACTIONS else 'Кнопка не активна')})
      except Exception:pass
     statuses.append(status)
