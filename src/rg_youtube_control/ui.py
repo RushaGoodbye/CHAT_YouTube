@@ -926,21 +926,53 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(105000, self._resume_saved_workflow)
         QTimer.singleShot(15000, self.refresh_free_tools_status)
 
+    def _record_startup_duration(self, stage: str, started: float) -> None:
+        """Persist a bounded startup timing record without touching SQLite."""
+        try:
+            elapsed = round((time.perf_counter() - started) * 1000)
+            path = self.data_dir / "startup_timing.jsonl"
+            if path.exists() and path.stat().st_size > 2_000_000:
+                path.replace(path.with_suffix(".previous.jsonl"))
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({
+                    "stage": stage,
+                    "duration_ms": elapsed,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                }, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
     def _startup_load_videos(self) -> None:
-        self.statusBar().showMessage("Завантаження відео…")
-        self.reload_videos()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження відео…")
+            self.reload_videos()
+        finally:
+            self._record_startup_duration("videos", started)
 
     def _startup_load_optimization(self) -> None:
-        self.statusBar().showMessage("Завантаження SEO…")
-        self.reload_optimization_queue()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження SEO…")
+            self.reload_optimization_queue()
+        finally:
+            self._record_startup_duration("optimization", started)
 
     def _startup_load_comments(self) -> None:
-        self.statusBar().showMessage("Завантаження коментарів…")
-        self.reload_comments()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження коментарів…")
+            self.reload_comments()
+        finally:
+            self._record_startup_duration("comments", started)
 
     def _startup_load_actions(self) -> None:
-        self.statusBar().showMessage("Завантаження журналу…")
-        self.reload_action_log()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження журналу…")
+            self.reload_action_log()
+        finally:
+            self._record_startup_duration("actions", started)
 
     def _startup_finish(self) -> None:
         if hasattr(self, "optimization_density"):
