@@ -1288,6 +1288,26 @@ def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
     )
 
 
+def _incidental_ab_quote(text: str) -> bool:
+    """Reject chat pleasantries and incidental appearance remarks as SEO hooks.
+
+    This is a conservative safety gate for fallback headings, not a claim
+    that such words are absent from the original transcript.
+    """
+    value = " ".join(str(text or "").casefold().split())
+    return bool(re.search(
+        r"(?i)(?:\\bкак\\s+дела\\b|\\bкак\\s+поживаете\\b|"
+        r"\\bпривет(?:ствую)?\\b|\\bздравствуй(?:те)?\\b|"
+        r"\\bдо\\s+свидания\\b|\\bспасибо\\s+за\\s+(?:разговор|беседу)\\b|"
+        r"\\bяк\\s+справи\\b|\\bдякую\\s+за\\s+розмову\\b|"
+        r"\\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\\b|"
+        r"\\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\\b|"
+        r"\\b(?:внешность|зовнішність)\\b|"
+        r"\\b(?:твои|ваши|твої|ваші)\\s+(?:глаза|волосы|очі|волосся)\\b)",
+        value,
+    ))
+
+
 def _source_quote_ab_titles(
     report: dict[str, Any],
     current_title: str = "",
@@ -1311,6 +1331,8 @@ def _source_quote_ab_titles(
                 continue
             quote = " ".join(str(topic.get("evidence") or "").split())
             quote = quote.strip(' "«»„“”')
+            if _incidental_ab_quote(quote):
+                continue
             if quote.casefold() not in verified_quotes:
                 continue
             if len(quote) < 30 or len(quote.split()) < 5:
