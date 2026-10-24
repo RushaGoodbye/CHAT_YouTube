@@ -84,7 +84,8 @@ def proof():
   if (u.get('update_id')==615861392 and msg.get('message_id')==8018
       and str(q.get('data','')).startswith('rg3:recheck:')
       and (msg.get('chat') or {}).get('type')=='private'
-      and from_bot.get('id')==7492268627
+      and from_bot.get('is_bot') is True
+      and (from_bot.get('id')==7492268627 or from_bot.get('username')=='RushaGoodbyeNews_bot')
       and who.get('is_bot') is False):
    real={'action':'recheck','update_id':615861392,'message_id':8018,'archive':archive.name}
  if not real:return {'verified':False,'reason':'HISTORIC_REAL_RECHECK_NOT_AUTHENTICATED'}
