@@ -188,3 +188,69 @@ def test_deep_worker_gui_remains_responsive(tmp_path, monkeypatch):
         if worker is not None:
             worker.wait(5000)
         window.close()
+
+
+def test_caption_attempts_are_bounded_even_when_youtube_has_no_captions(
+    tmp_path, monkeypatch,
+):
+    from rg_youtube_control.db import connect
+    from rg_youtube_control import deep_archive_worker as mod
+
+    conn = connect(tmp_path / "videos.db")
+    ids = ["QADEEP00001", "QADEEP00002", "QADEEP00003"]
+    for video_id in ids:
+        _seed(conn, "main", video_id, ["no_chapters"])
+    attempted = []
+
+    class NoCaptionsClient:
+        def __init__(self, profile):
+            pass
+        def credentials(self):
+            return object()
+        def download_best_caption_srt(self, video_id):
+            attempted.append(video_id)
+            raise RuntimeError("не знайдено доступних субтитрів")
+
+    debits = []
+    monkeypatch.setattr(mod, "quota_budget_status", lambda _: {"spendable": 10000})
+    monkeypatch.setattr(
+        mod, "record_quota_units",
+        lambda _conn, cost, **kw: debits.append(cost),
+    )
+    try:
+        result = mod.prepare_deep_review_batch(
+            conn, profile="main",
+            transcript_dir=tmp_path / "nonexistent",
+            package_dir=tmp_path / "packages",
+            max_downloads=1, client_factory=NoCaptionsClient,
+        )
+        assert len(attempted) == 1
+        assert result["attempted_downloads"] == 1
+        assert result["downloaded"] == 0
+        assert debits == [50]
+    finally:
+        conn.close()
+
+
+def test_reexport_manifest_preserves_operator_review_state(tmp_path):
+    from rg_youtube_control.db import (
+        connect, set_deep_review_state, deep_review_state_map
+    )
+    from rg_youtube_control.archive_campaign import export_deep_review_manifest
+
+    conn = connect(tmp_path / "videos.db")
+    video_id = "QAREVW00001"
+    _seed(conn, "main", video_id, ["thin_description"])
+    try:
+        set_deep_review_state(
+            conn, video_id=video_id, profile="main",
+            status="review", note="operator_checked",
+        )
+        export_deep_review_manifest(
+            conn, "main",
+            transcript_dir=tmp_path / "nas-offline",
+            package_dir=tmp_path / "packages",
+        )
+        assert deep_review_state_map(conn, "main")[video_id] == "review"
+    finally:
+        conn.close()
