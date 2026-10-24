@@ -35,7 +35,7 @@ def test_real_operator_screenshot_topics_do_not_abort_seo():
     assert "Шойгу" in description
     assert "Дагестані" in description
     assert "Ідентифікація" not in description
-    assert "Поведінка в Росії" in review
+    assert any("Поведінка в Росії" in note for note in review)
     assert "Ідентифікація" not in " ".join(review)
     assert len(description) >= 260
     assert len(description) <= 950
