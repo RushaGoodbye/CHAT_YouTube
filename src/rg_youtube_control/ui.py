@@ -13493,6 +13493,7 @@ class MainWindow(QMainWindow):
         prepared = list(result.get("prepared") or [])
         skipped = list(result.get("skipped") or [])
         saved = 0
+        origin_profile = str(result.get("profile") or self.current_profile)
         validation_failed: list[dict] = []
 
         for item in prepared:
@@ -13536,7 +13537,7 @@ class MainWindow(QMainWindow):
                 saved += 1
                 log_action(
                     self.conn,
-                    profile=self.current_profile,
+                    profile=origin_profile,
                     category="локально",
                     action="SEO-чернетка batch · 0 квоти",
                     details=f"{video_id}: збережено як чернетку",
@@ -13557,7 +13558,7 @@ class MainWindow(QMainWindow):
             )
             log_action(
                 self.conn,
-                profile=self.current_profile,
+                profile=origin_profile,
                 category="локально",
                 action="SEO-чернетка batch · пропуск",
                 details=f"{video_id}: {error_text[:700]}",
@@ -13605,7 +13606,7 @@ class MainWindow(QMainWindow):
 
         log_action(
             self.conn,
-            profile=self.current_profile,
+            profile=origin_profile,
             category="локально",
             action="SEO-чернетка batch · результат",
             details=(
@@ -13662,6 +13663,7 @@ class MainWindow(QMainWindow):
     def _save_local_seo_result(self, result: dict) -> None:
         package = dict(result["package"])
         context = dict(result["context"])
+        origin_profile = str(result.get("profile") or self.current_profile)
         (
             video_id,
             title,
@@ -13736,7 +13738,7 @@ class MainWindow(QMainWindow):
         )
         log_action(
             self.conn,
-            profile=self.current_profile,
+            profile=origin_profile,
             category="локально",
             action="SEO-чернетка · 0 квоти",
             details=f"{video_id}: {package.get('provider', DEFAULT_OLLAMA_MODEL)}",
