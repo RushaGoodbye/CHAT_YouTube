@@ -8,7 +8,7 @@ def test_archive_resume_only_enqueues_async_stats(tmp_path, monkeypatch):
     from PySide6.QtWidgets import QApplication
     from rg_youtube_control import ui
 
-    QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(ui, "archive_priority_enabled", lambda _conn: True)
     window = ui.MainWindow()
@@ -28,7 +28,7 @@ def test_archive_resume_uses_completed_stats_without_second_scan(tmp_path, monke
     from PySide6.QtWidgets import QApplication
     from rg_youtube_control import ui
 
-    QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
     monkeypatch.setattr(ui, "archive_priority_enabled", lambda _conn: True)
     window = ui.MainWindow()
