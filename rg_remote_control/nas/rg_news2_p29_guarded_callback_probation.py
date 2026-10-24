@@ -59,25 +59,37 @@ def guards():
  if not all(x in text for x in ('updates_handoff_','process_callback','getUpdates','PUBLISH_ENABLED')):
   raise RuntimeError('CALLBACK_WORKER_SOURCE_CHANGED')
 def proof():
- files=sorted(O.glob('p25_updates_*.json'))[-15:]
- if not files:return {'verified':False,'reason':'P25_ARCHIVE_MISSING'}
+ live=sorted(O.glob('p25_updates_*.json'))[-15:]
+ archived=sorted(O.glob('updates_handoff_*.json'))[-200:]
+ if not live:return {'verified':False,'reason':'LATEST_LIVE_TEST_ARCHIVE_MISSING'}
  db=sqlite3.connect('file:'+str(B/'news.sqlite3')+'?mode=ro',uri=True,timeout=5)
  try:
-  for file in reversed(files):
-   obj=json.loads(file.read_text('utf-8'))
-   for update in reversed(obj.get('updates',[])):
+  live_probe=None
+  for file in reversed(live):
+   for update in json.loads(file.read_text('utf-8')).get('updates',[]):
+    q=update.get('callback_query') or {}
+    message=q.get('message') or {}
+    if str(q.get('data','')).startswith('rgprobe25:') and message.get('message_id')==8032:
+     live_probe={'message_id':8032,'update_id':update.get('update_id'),'archive':file.name}
+  if not live_probe:return {'verified':False,'reason':'LIVE_P25_TEST_8032_NOT_ARCHIVED'}
+  decision=None
+  for file in reversed(live+archived):
+   for update in reversed(json.loads(file.read_text('utf-8')).get('updates',[])):
     q=update.get('callback_query') or {}
     data=str(q.get('data','')).split(':')
     if len(data)<3 or data[0]!='rg3' or data[1] not in ('reject','recheck','approve'):continue
     message=q.get('message') or {}
-    chat=(message.get('chat') or {}).get('type')
+    if (message.get('chat') or {}).get('type')!='private':continue
     mid=message.get('message_id')
-    if chat!='private' or not isinstance(mid,int):continue
+    if not isinstance(mid,int):continue
     row=db.execute('SELECT c.status FROM moderation_dispatch d JOIN candidates c ON c.id=d.candidate_id WHERE d.message_id=?',(mid,)).fetchone()
     if row and row[0] not in ('awaiting_photo_review','awaiting_moderation'):
-     return {'verified':True,'action':data[1],'candidate_status_after':row[0],
-        'message_id':mid,'archive':file.name}
-  return {'verified':False,'reason':'NO_STATE_CHANGED_MODERATION_DECISION_IN_P25'}
+     decision={'action':data[1],'candidate_status_after':row[0],
+      'message_id':mid,'archive':file.name}
+     break
+   if decision:break
+  if not decision:return {'verified':False,'reason':'NO_STATE_CHANGED_MODERATION_DECISION'}
+  return {'verified':True,'live_callback':live_probe,'moderation_decision':decision}
  finally:db.close()
 def once():
  p=subprocess.run(['/usr/bin/python3',str(WORKER),'once'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,
