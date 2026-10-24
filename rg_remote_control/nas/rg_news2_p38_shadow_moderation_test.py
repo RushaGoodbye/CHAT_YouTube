@@ -3,7 +3,7 @@
 separate temporary SQLite snapshot, with ALL Telegram API calls forbidden.
 Reads a proven archived callback; never modifies production DB, cron, bot, or channel.
 """
-import copy,datetime,json,os,pathlib,sqlite3,sys,tempfile
+import ast,copy,datetime,json,os,pathlib,sqlite3,sys,tempfile
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 ARCHIVE=O/'updates_handoff_20261015T175210096025Z.json'
@@ -91,6 +91,25 @@ def scenario(name,source,m,cfg,old_db_connect,base):
    sqlite3.connect=original_sqlite_connect
    if original_audit is not None:m.audit=original_audit
    m.db_connect=old_db_connect
+def handler_safety_preflight():
+ source=(B/'rg_moderation.py').read_text('utf-8',errors='replace')
+ tree=ast.parse(source)
+ methods=[]
+ whitelist={'get','fullmatch','groups','isinstance','db_connect','fetchone','audit',
+            'execute','str','now'}
+ found=[n for n in ast.walk(tree)
+        if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name=='process_callback']
+ if len(found)!=1:fail('MODERATION_HANDLER_DEF_CHANGED')
+ for item in ast.walk(found[0]):
+  if not isinstance(item,ast.Call):continue
+  fn=item.func
+  if isinstance(fn,ast.Name):name=fn.id
+  elif isinstance(fn,ast.Attribute):name=fn.attr
+  else:fail('UNEXPECTED_INDIRECT_HANDLER_CALL')
+  methods.append(name)
+ if not set(methods)<=whitelist:
+  fail('MODERATION_HANDLER_HAS_UNEXPECTED_SIDE_EFFECT_CALLS')
+ return sorted(set(methods))
 def main():
  if os.geteuid()!=0:fail('SUDO_REQUIRED')
  if LEG.exists() or LEG.is_symlink():fail('LEGACY_BOT_GATE_OPEN')
@@ -98,6 +117,7 @@ def main():
  if (B/'NAS_EXCLUSIVE_OWNER_VERIFIED').exists():fail('OWNER_GATE_CHANGED')
  if not (B/'MODERATION_DELIVERY_ENABLED').is_file():fail('DELIVERY_GATE_CLOSED')
  if not LIVE_DB.is_file() or LIVE_DB.is_symlink():fail('LIVE_DB_UNSAFE')
+ allowed_calls=handler_safety_preflight()
  userupdate=archived_update()
  sys.path.insert(0,str(B))
  import rg_moderation as m
@@ -114,7 +134,7 @@ def main():
   m.db_connect=old_db_connect;m.api=old_api
  status='NEWS2_P38_SHADOW_MODERATION_PASS' if all(x['result']=='PASS' for x in res) else 'NEWS2_P38_SHADOW_MODERATION_NEEDS_FIX'
  emit(status=status,checked_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-  tests=res,source_message_id=8018,source_update_id=615861392,
+  tests=res,handler_call_names_checked=allowed_calls,source_message_id=8018,source_update_id=615861392,
   production_db_modified=False,temporary_db_removed=True,
   live_telegram_api_calls=0,live_channel_sends=0,
   publication_gate_opened=False,cron_changed=False,
