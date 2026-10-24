@@ -140,7 +140,8 @@ def test_batch_seo_prioritizes_nas_transcripts() -> None:
     block = source[start:end]
     assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
     assert 'f"{video_id}.srt"' in block
-    assert "candidate_ids = sorted(" in block
+    assert "ordered_ids = sorted(" in block
+    assert "for video_id in ordered_ids[:max_attempts]:" in block
 
 
 def test_local_seo_worker_never_uses_gui_nas_path() -> None:
