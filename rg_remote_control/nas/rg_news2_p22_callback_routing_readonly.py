@@ -67,11 +67,11 @@ def paths():
      if path.is_symlink() or path.stat().st_size>350000:continue
      data=path.read_text('utf-8',errors='replace')
     except Exception:continue
-    if re.search(r'getUpdates|start_polling|run_polling|infinity_polling|polling\\s*=',data,re.I):
+    if re.search(r'getUpdates|start_polling|run_polling|infinity_polling|polling\s*=',data,re.I):
      relpath=path.relative_to(root)
      sources.append({'path':str(relpath)[:180],
        'getUpdates':bool(re.search(r'getUpdates',data,re.I)),
-       'polling_framework':bool(re.search(r'start_polling|run_polling|infinity_polling|polling\\s*=',data,re.I))})
+       'polling_framework':bool(re.search(r'start_polling|run_polling|infinity_polling|polling\s*=',data,re.I))})
  return sources
 def main():
  if os.geteuid()!=0:
