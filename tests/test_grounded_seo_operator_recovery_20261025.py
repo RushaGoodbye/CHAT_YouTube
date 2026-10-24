@@ -85,6 +85,9 @@ def test_grounded_fallback_with_few_tags_keeps_draft_in_gui(
     app = QApplication.instance() or QApplication([])
     window = ui.MainWindow()
     video_id = "MEitKm687xo"
+    def fail_modal(*args, **kwargs):
+        raise AssertionError("Unexpected modal warning in recovery QA")
+    monkeypatch.setattr(ui.QMessageBox, "warning", fail_modal)
     try:
         window.conn.execute(
             "INSERT INTO videos(video_id,profile,title,privacy_status,"
