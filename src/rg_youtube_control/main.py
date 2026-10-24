@@ -50,6 +50,7 @@ def main() -> int:
                     json.dumps({
                         "visible": window.isVisible(),
                         "tab_count": window.tabs.count(),
+                        "build_label": window.version_label.text(),
                         "utc": datetime.now(timezone.utc).isoformat(),
                     }),
                     encoding="utf-8",
@@ -72,6 +73,7 @@ def main() -> int:
                     json.dumps({
                         "visible": window.isVisible(),
                         "tab_count": window.tabs.count(),
+                        "build_label": window.version_label.text(),
                         "utc": datetime.now(timezone.utc).isoformat(),
                     }),
                     encoding="utf-8",
