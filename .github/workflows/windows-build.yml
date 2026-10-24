@@ -59,6 +59,17 @@ jobs:
           $env:PYTHONPATH="src"
           python -m pytest -q tests
 
+      - name: Stamp exact build number and commit into Windows EXE
+        shell: pwsh
+        run: |
+          $short = $env:GITHUB_SHA.Substring(0, 8)
+          $number = $env:GITHUB_RUN_NUMBER
+          @(
+            '"""Build provenance, generated for the Windows executable."""'
+            "BUILD_SHA = '$short'"
+            "BUILD_NUMBER = '$number'"
+          ) | Set-Content -LiteralPath 'src/rg_youtube_control/build_info.py' -Encoding utf8
+
       - name: Build application
         shell: pwsh
         run: |
