@@ -13482,12 +13482,19 @@ class MainWindow(QMainWindow):
         )
         nas_transcript = transcript_dir / f"{video_id}.srt"
 
-        if nas_transcript.exists():
+        try:
+            nas_available = nas_transcript.is_file()
+        except (OSError, ValueError):
+            # Windows disconnected UNC drives raise WinError 64/53 during
+            # the existence probe. This is not a fatal SEO error: continue
+            # to YouTube captions without attempting cookies or scraping.
+            nas_available = False
+        if nas_available:
             try:
                 transcript_rows = load_srt_transcript(nas_transcript)
                 if transcript_rows:
                     transcript_source = "nas-srt"
-            except Exception:
+            except (OSError, ValueError, UnicodeError):
                 transcript_rows = []
 
         if not transcript_rows:
