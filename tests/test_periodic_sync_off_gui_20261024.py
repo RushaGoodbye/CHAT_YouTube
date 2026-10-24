@@ -6,7 +6,7 @@ from pathlib import Path
 def test_periodic_sync_runs_in_worker_owned_connection():
     source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
     start = source.index("    def background_metadata_sync(")
-    end = source.index("    def ", start + 6)
+    end = source.index("\n    def ", start + 6)
     method = source[start:end]
     assert "LocalToolWorker(task, self)" in method
     assert "worker_conn = sqlite3.connect(str(db_path), timeout=15)" in method
@@ -28,7 +28,7 @@ def test_periodic_sync_runs_in_worker_owned_connection():
 def test_periodic_sync_reports_results_on_main_thread():
     source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
     start = source.index("    def _on_background_metadata_synced(")
-    end = source.index("    def ", start + 6)
+    end = source.index("\n    def ", start + 6)
     callback = source[start:end]
     assert "self.reload_videos()" in callback
     assert "self.reload_optimization_queue()" in callback
