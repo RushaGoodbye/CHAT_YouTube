@@ -1390,8 +1390,19 @@ def _source_quote_ab_titles(
             break  # only one quoted story per timeline block
     if len(candidates) < 3:
         return []
-    # Pick the widest temporal coverage first; do not take three adjacent
-    # quotes from one conversation when later material exists.
+    # Long streams can contain hundreds of distinct quoted blocks. Building
+    # and sorting all nC3 combinations freezes the worker and uses unbounded
+    # memory. Evenly cover the timeline with at most 36 source candidates;
+    # 36C3=7140, while still including the first and final quoted blocks.
+    if len(candidates) > 36:
+        total = len(candidates)
+        positions = {
+            round(index * (total - 1) / 35)
+            for index in range(36)
+        }
+        candidates = [
+            candidates[index] for index in sorted(positions)
+        ]
     triplets = sorted(
         combinations(candidates, 3),
         key=lambda triplet: (
