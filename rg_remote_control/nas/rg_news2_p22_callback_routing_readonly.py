@@ -47,28 +47,32 @@ def checked_bin(a,t=12):
   return (x.returncode,x.stdout)
  except Exception:return 99,''
 def paths():
- # Focus on RG bot integration configs/scripts, not the whole volume or secrets.
+ # Search only shallow RG-owned integration source trees; never follow symlinks.
  root=pathlib.Path('/volume1/docker')
  sources=[]
+ checked=0
+ ignore={'node_modules','.git','venv','.venv','site-packages','__pycache__','backups','archive','data','cache','logs'}
  for top in sorted(root.iterdir()):
   if not top.is_dir() or top.is_symlink() or not top.name.startswith(('RG_','rg-','rg_')):continue
-  for path in top.rglob('*'):
-   if len(path.parts)-len(top.parts)>4:continue
-   if len(sources)>3500:break
-   if not path.is_file() or path.is_symlink():continue
-   if path.suffix.lower() not in ('.py','.js','.mjs','.cjs','.sh','.ts'):
-    continue
-   if any(x in path.parts for x in ('node_modules','.git','venv','.venv','site-packages','__pycache__','backups','archive')):continue
-   try:
-    if path.stat().st_size>350000:continue
-    data=path.read_text('utf-8',errors='replace')
-   except Exception:continue
-   if re.search(r'getUpdates|start_polling|run_polling|infinity_polling|polling\s*=',data,re.I):
-    rel=path.relative_to(root)
-    sources.append({'path':str(rel)[:180],
-      'getUpdates':bool(re.search(r'getUpdates',data,re.I)),
-      'polling_framework':bool(re.search(r'start_polling|run_polling|infinity_polling|polling\s*=',data,re.I))})
- return sources[:80]
+  for cur,dirs,files in os.walk(str(top),followlinks=False):
+   rel=pathlib.Path(cur).relative_to(top)
+   level=len(rel.parts) if str(rel)!='.' else 0
+   dirs[:]=[d for d in dirs if d not in ignore and not pathlib.Path(cur,d).is_symlink()] if level<3 else []
+   for filename in files:
+    checked+=1
+    if checked>6000 or len(sources)>=80:return sources
+    path=pathlib.Path(cur,filename)
+    if path.suffix.lower() not in ('.py','.js','.mjs','.cjs','.sh','.ts'):continue
+    try:
+     if path.is_symlink() or path.stat().st_size>350000:continue
+     data=path.read_text('utf-8',errors='replace')
+    except Exception:continue
+    if re.search(r'getUpdates|start_polling|run_polling|infinity_polling|polling\\s*=',data,re.I):
+     relpath=path.relative_to(root)
+     sources.append({'path':str(relpath)[:180],
+       'getUpdates':bool(re.search(r'getUpdates',data,re.I)),
+       'polling_framework':bool(re.search(r'start_polling|run_polling|infinity_polling|polling\\s*=',data,re.I))})
+ return sources
 def main():
  if os.geteuid()!=0:
   emit({'status':'P22_BLOCKED','reason':'SUDO_REQUIRED'});sys.exit(1)
