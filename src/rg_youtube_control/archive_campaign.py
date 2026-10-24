@@ -240,6 +240,15 @@ def export_deep_review_manifest(
 ) -> tuple[Path, int, int]:
     candidates, total = deep_review_candidates(conn, profile, limit=limit)
     package_dir.mkdir(parents=True, exist_ok=True)
+    # A single remote listing beats a separate network stat for each item.
+    try:
+        with os.scandir(transcript_dir) as entries:
+            available_srt = {
+                item.name.casefold() for item in entries
+                if item.name.casefold().endswith(".srt")
+            }
+    except (OSError, ValueError):
+        available_srt = set()
 
     items: list[dict[str, Any]] = []
     for item in candidates:
@@ -249,7 +258,7 @@ def export_deep_review_manifest(
         items.append(
             {
                 **item,
-                "transcript_ready": transcript_path.exists(),
+                "transcript_ready": f"{video_id}.srt".casefold() in available_srt,
                 "transcript_path": str(transcript_path),
                 "package_path": str(package_path),
                 "workflow": {
@@ -281,10 +290,13 @@ def export_deep_review_manifest(
         "items": items,
     }
     path = package_dir / f"deep_review_{profile}.json"
-    path.write_text(
+    staged = path.with_suffix(".json.tmp")
+    staged.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # Atomic replacement prevents readers from seeing a half-written manifest.
+    staged.replace(path)
     # Commit queue state only after the manifest is safely present on storage.
     for item in items:
         set_deep_review_state(
