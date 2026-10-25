@@ -80,8 +80,8 @@ def _read_secret(path: pathlib.Path) -> str:
 
 def push(results: dict, url: str, token: str) -> None:
     # Deliberately disallow arbitrary remote URLs and public-facing reporting.
-    if url not in {"http://127.0.0.1:18080", "http://localhost:18080"}:
-        raise ValueError("Gatus URL must be local loopback port 18080")
+    if url not in {"http://127.0.0.1:18080", "http://localhost:18080", "http://gatus:8080"}:
+        raise ValueError("Gatus URL must be local loopback or the isolated compose service")
     for key, result in results.items():
         params = {"success": str(result["success"]).lower()}
         if not result["success"]:
