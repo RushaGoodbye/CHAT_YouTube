@@ -48,6 +48,12 @@ def test_quote_fallback_caps_long_live_search(monkeypatch):
         calls.append(tuple(titles))
         return []
     monkeypatch.setattr(free_tools, "ab_title_issues", record)
+    # Isolate the bounding logic: deduplication belongs to distinct_evidence_topics.
+    monkeypatch.setattr("rg_youtube_control.dialogue_seo.distinct_evidence_topics",
+                        lambda _report: [
+                            {"evidence": item["evidence"], "topic": item["topic"]}
+                            for block in _report["blocks"] for item in block["topics"]
+                        ])
     result = free_tools._source_quote_ab_titles(report, "")
     assert len(result) == 3
     assert len(calls) == 1
