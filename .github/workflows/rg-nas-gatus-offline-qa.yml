@@ -26,6 +26,14 @@ jobs:
           persist-credentials: false
       - name: Python offline regression tests (no NAS access)
         run: python3 tests/test_rg_nas_gatus_observer.py
+      - name: Check installer shell syntax and ShellCheck
+        run: |
+          sh -n rg_remote_control/nas/monitoring/rg_nas_gatus_install.sh
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
+          shellcheck --shell=sh --severity=warning rg_remote_control/nas/monitoring/rg_nas_gatus_install.sh
       - name: Validate isolated compose config
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
