@@ -10664,6 +10664,10 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def edit_content_package(self) -> None:
+        """Never make a blocking YouTube request while opening the SEO editor."""
+        running = getattr(self, "_content_editor_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -10671,21 +10675,105 @@ class MainWindow(QMainWindow):
             )
             return
 
-        video_id = video_ids[0]
-        try:
-            video_row = self.conn.execute(
-                "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+        video_id = str(video_ids[0])
+        origin_profile = self.current_profile
+        row = self.conn.execute(
+            "SELECT profile FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        if row is None or str(row["profile"]) != origin_profile:
+            QMessageBox.warning(self, APP_NAME, "Відео не належить активному каналу.")
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                client = YouTubeClient(profile=origin_profile)
+                counted = getattr(
+                    client, "video_details_with_request_count", None
+                )
+                if callable(counted):
+                    items, requests = counted([video_id])
+                    cost = int(requests) * READ_REQUEST_COST
+                else:
+                    items = client.video_details([video_id])
+                    cost = READ_REQUEST_COST
+                record_quota_units(worker_conn, cost, purpose="video")
+                if not items:
+                    raise RuntimeError(f"Відео не знайдено: {video_id}")
+                snippet = items[0].get("snippet") or {}
+                return {
+                    "video_id": video_id,
+                    "profile": origin_profile,
+                    "title": str(snippet.get("title") or ""),
+                    "description": str(snippet.get("description") or ""),
+                    "tags": list(snippet.get("tags") or []),
+                }
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._content_editor_worker = worker
+        self.statusBar().showMessage(
+            f"SEO-редактор {video_id}: завантаження метаданих у фоні…"
+        )
+
+        def success(metadata: object) -> None:
+            self.refresh_youtube_quota_label()
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
                 (video_id,),
             ).fetchone()
+            if (self.current_profile != origin_profile
+                or ownership is None
+                or str(ownership["profile"]) != origin_profile):
+                self.statusBar().showMessage(
+                    "SEO-редактор скасовано: канал змінено"
+                )
+                return
+            self._show_content_package_editor(metadata)
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error("Помилка пакета оптимізації", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_content_editor_worker", None) is worker:
+                self._content_editor_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _show_content_package_editor(self, metadata: dict) -> None:
+        """Keep dialogs and saving on Qt, and reject obsolete draft revisions."""
+        video_id = str(metadata["video_id"])
+        origin_profile = str(metadata["profile"])
+        if self.current_profile != origin_profile:
+            return
+        try:
+            video_row = self.conn.execute(
+                "SELECT profile,scheduled_publish_at FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if video_row is None or str(video_row["profile"]) != origin_profile:
+                return
             scheduled_publish_at = (
                 str(video_row["scheduled_publish_at"])
-                if video_row and video_row["scheduled_publish_at"]
-                else None
+                if video_row["scheduled_publish_at"] else None
             )
-            current_title, current_description, current_tags = (
-                self._current_video_metadata(video_id)
-            )
+            current_title = str(metadata["title"])
+            current_description = str(metadata["description"])
+            current_tags = list(metadata["tags"])
             draft = get_optimization_draft(self.conn, video_id)
+            original_draft_timestamp = (
+                str(draft["updated_at"]) if draft is not None else None
+            )
             if draft is None:
                 title = current_title
                 description = current_description
@@ -10694,7 +10782,6 @@ class MainWindow(QMainWindow):
                 status = "draft"
                 title_variants = []
             else:
-                import json
                 title = draft["new_title"]
                 description = draft["description"]
                 chapters = draft["chapters"]
@@ -10703,31 +10790,42 @@ class MainWindow(QMainWindow):
                     draft["title_variants_json"] or "[]"
                 )
                 status = draft["status"]
-                # A stored "ready" flag is not editorial approval. Keep the
-                # original DB record intact, but show the effective status.
-                if status == "ready" and self._effective_optimization_status(video_id) != "ready":
+                # Stored ready status alone is not editorial approval.
+                if (status == "ready"
+                    and self._effective_optimization_status(video_id) != "ready"):
                     status = "draft"
 
             dialog = ContentOptimizationDialog(
-                title,
-                description,
-                chapters,
-                tags,
-                status,
-                title_variants,
-                scheduled_publish_at,
-                self,
-                generation=(str(draft["generation"] or "") if draft is not None else "manual"),
+                title, description, chapters, tags, status, title_variants,
+                scheduled_publish_at, self,
+                generation=(
+                    str(draft["generation"] or "")
+                    if draft is not None else "manual"
+                ),
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
+            revision = get_optimization_draft(self.conn, video_id)
+            current_revision = (
+                str(revision["updated_at"]) if revision is not None else None
+            )
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if (self.current_profile != origin_profile
+                or ownership is None
+                or str(ownership["profile"]) != origin_profile
+                or current_revision != original_draft_timestamp):
+                QMessageBox.warning(
+                    self, APP_NAME,
+                    "Чернетка або канал змінилися під час редагування. "
+                    "Зміни не записано. Відкрийте SEO-редактор повторно.",
+                )
+                return
 
             (
-                new_title,
-                description,
-                chapters,
-                tags,
-                status,
+                new_title, description, chapters, tags, status,
                 title_variants,
             ) = dialog.values()
             quality_state, quality_reasons = self._package_quality_gate(
@@ -10748,8 +10846,7 @@ class MainWindow(QMainWindow):
                 title_variants,
                 generation=(
                     str(draft["generation"] or "manual")
-                    if draft is not None
-                    else "manual"
+                    if draft is not None else "manual"
                 ),
                 quality_state=(
                     "safe" if quality_state == "safe" and status != "draft"
