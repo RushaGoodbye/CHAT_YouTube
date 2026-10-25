@@ -1,11 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "action": "reconcile_auto_edit_903_queue_review_v1",
   "args": {
-    "streams": [
-      "903"
-    ]
+    "apply": false
   },
-  "nonce": "rg-auto-edit-903-post-restart-health-check-20261025"
+  "nonce": "rg-903-queue-review-dryrun-20261025"
 }
