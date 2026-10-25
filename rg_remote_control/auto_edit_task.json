@@ -1,9 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_batch_891_892_qa_fix_v1",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "apply": true
+    "files": [
+      "rg_release_health_gate.py",
+      "891/RG_POSTRUN_QA.json",
+      "RG_EDITED_891_MULTI_DIALOGUE.json",
+      "rg_pack120.py",
+      "rg_studio_postrun.py"
+    ]
   },
-  "nonce": "rg-auto-edit-891-892-batch-apply-backup-20261025"
+  "nonce": "rg-891-release-health-failcause-readonly-20261025"
 }
