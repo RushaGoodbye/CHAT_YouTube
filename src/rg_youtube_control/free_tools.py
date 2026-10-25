@@ -1347,6 +1347,12 @@ def _source_quote_ab_titles(
         candidates.append((index, title))
     if len(candidates) < 3:
         return []
+    # Cap the combinatorial search on long LIVE transcripts. Preserve
+    # beginning, middle and end instead of silently ignoring late evidence.
+    if len(candidates) > 18:
+        last = len(candidates) - 1
+        sample_indices = sorted({round(i * last / 17) for i in range(18)})
+        candidates = [candidates[i] for i in sample_indices]
     # Pick the widest temporal coverage first; do not take three adjacent
     # quotes from one conversation when later material exists.
     triplets = sorted(
