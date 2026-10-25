@@ -1,13 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "qa_verify_903_v1",
   "args": {
-    "files": [
-      "RG_EDITED_903_2_R2_GUEST_ID_BOUNDARY_QA.json",
-      "RG_EDITED_903_5_R2_GUEST_ID_BOUNDARY_QA.json",
-      "rg_multi_dialogue.py"
-    ]
+    "apply": false
   },
-  "nonce": "rg-903-identity-detail-after-qa-fix-20261025"
+  "nonce": "qa903-verify-readonly-20261025"
 }
