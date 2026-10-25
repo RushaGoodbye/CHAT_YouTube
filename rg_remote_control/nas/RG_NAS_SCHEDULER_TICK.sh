@@ -23,7 +23,8 @@ fi
 TELEGRAM_CHECK_FAILED=0
 # Unique temporary path prevents concurrent task runs from mixing failure lists.
 FAILED_TMP="$STATE/telegram_scheduler_components_failed.$"
-trap 'rm -f "$FAILED_TMP"' EXIT HUP INT TERM
+trap 'rm -f "$FAILED_TMP"' EXIT
+trap 'exit 1' HUP INT TERM
 : > "$FAILED_TMP"
 if [ -f "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" ]; then
   sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_agent >> "$FAILED_TMP"; }
