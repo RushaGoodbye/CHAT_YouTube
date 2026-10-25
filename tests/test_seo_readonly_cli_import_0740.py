@@ -22,5 +22,7 @@ def test_duration_from_youtube_iso8601_and_seconds():
     spec.loader.exec_module(module)
     assert module._duration_seconds("PT1H25M2S") == 5102
     assert module._duration_seconds("PT34M") == 2040
+    assert module._duration_seconds("1:25:02") == 5102
+    assert module._duration_seconds("25:02") == 1502
     assert module._duration_seconds("122") == 122
     assert module._duration_seconds("") == 0
