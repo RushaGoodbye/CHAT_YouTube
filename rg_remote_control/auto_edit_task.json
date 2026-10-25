@@ -1,9 +1,20 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_batch_891_892_qa_fix_v1",
+  "action": "inspect_auto_edit_overnight_preflight_v1",
   "args": {
-    "apply": true
+    "streams": [
+      "886",
+      "891",
+      "892",
+      "893",
+      "899",
+      "901",
+      "902",
+      "903",
+      "904",
+      "905"
+    ]
   },
-  "nonce": "rg-891-892-release-health-batch-qa-apply-20261025-v2"
+  "nonce": "rg-auto-edit-batch-postfix-10streams-20261025"
 }
