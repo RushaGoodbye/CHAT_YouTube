@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .seo_asr_subjects import shoigu_source_evidence
+
 
 def _has(source: str, *terms: str) -> bool:
     return any(term in source for term in terms)
@@ -25,10 +27,11 @@ def source_grounded_shoigu_package(
     """
     title = str(original_title or "").casefold()
     source = str(original_transcript or "").casefold()
+    name_evidence = shoigu_source_evidence(original_transcript)
     if (
         "шойгу" not in title or
         not _has(title, "уволь", "відстав", "отстав", "звільн", "сменил", "змінив") or
-        source.count("шойгу") < 2 or len(source) < 350
+        not name_evidence.source_name_supported or len(source) < 350
     ):
         return None
     if not _has(source, "увольн", "уволил", "смени", "должност", "переставил"):
@@ -120,6 +123,11 @@ def source_grounded_shoigu_package(
             "виключено з публічного SEO"
         ),
         "editorial_source_relevance": "verbatim-original-transcript-topics",
+        "asr_name_evidence": {
+            "literal_shoigu": name_evidence.literal_mentions,
+            "contextual_approximate_shoigu": name_evidence.contextual_asr_mentions,
+            "original_transcript_preserved": True,
+        },
     }
 
 
