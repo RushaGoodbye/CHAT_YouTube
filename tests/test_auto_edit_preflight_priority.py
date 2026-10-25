@@ -58,6 +58,38 @@ class PreflightPriorityTests(unittest.TestCase):
 
 
 
+class CriticalVsAdvisoryQATests(unittest.TestCase):
+    def validator(self):
+        tree=ast.parse(SOURCE.read_text(encoding="utf-8"))
+        nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="qa_report_is_valid"]
+        self.assertEqual(len(nodes),1)
+        env={}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),str(SOURCE),"exec"),env)
+        return env["qa_report_is_valid"]
+
+    def test_advisory_cigarette_warning_does_not_invalidate_xml_release(self):
+        valid=self.validator()
+        checks=[
+            {"name":"Premiere сумісність","ok":True,"critical":True},
+            {"name":"Блюр сигарети","ok":False,"critical":False},
+            {"name":"Сигарети • детекція/blur","ok":False,"critical":False},
+        ]
+        self.assertTrue(valid({"passed":True,"checks":checks}))
+
+    def test_any_critical_failure_still_fails(self):
+        valid=self.validator()
+        for critical in (True,None):
+            self.assertFalse(valid({"passed":True,"checks":[
+                {"name":"Перевірка XML","ok":False,"critical":critical}
+            ]}))
+
+    def test_missing_or_malformed_check_fails_closed(self):
+        valid=self.validator()
+        self.assertFalse(valid({"passed":True,"checks":[]}))
+        self.assertFalse(valid({"passed":True,"checks":[{}]}))
+        self.assertFalse(valid({"passed":False,"checks":[{"ok":True}]}))
+
+
 class XmlGateSourceTests(unittest.TestCase):
     def test_validated_xml_required_for_completion(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))

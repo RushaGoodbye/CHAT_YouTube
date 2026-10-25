@@ -18,7 +18,9 @@ def qa_report_is_valid(postrun):
         return False
     checks=postrun.get("checks")
     return isinstance(checks,list) and bool(checks) and all(
-        isinstance(check,dict) and check.get("ok") is True for check in checks
+        isinstance(check,dict) and
+        (check.get("ok") is True or check.get("critical") is False)
+        for check in checks
     )
 def stat_file(p):
     try:
@@ -110,7 +112,11 @@ try:
         row["postrun_passed"]=postrun.get("passed") if isinstance(postrun,dict) else None
         checks=postrun.get("checks") if isinstance(postrun,dict) else None
         row["qa_checks_failed"]=bool(
-            isinstance(checks,list) and any(not isinstance(c,dict) or c.get("ok") is not True for c in checks)
+            isinstance(checks,list) and any(
+                not isinstance(c,dict)
+                or (c.get("ok") is not True and c.get("critical") is not False)
+                for c in checks
+            )
         )
         row["qa_report_valid"]=qa_report_is_valid(postrun)
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
@@ -170,7 +176,11 @@ try:
 
         if isinstance(postrun,dict) and "checks" in postrun:
             row["qa_failures"]=[{"name":str(c.get("name","")),"detail":str(c.get("message") or c.get("reason") or c.get("detail") or "")[:230]}
-                                for c in (postrun.get("checks") or []) if isinstance(c,dict) and c.get("ok") is not True][:12]
+                                for c in (postrun.get("checks") or []) if isinstance(c,dict)
+                                and c.get("ok") is not True and c.get("critical") is not False][:12]
+            row["qa_warnings"]=[{"name":str(c.get("name","")),"detail":str(c.get("detail") or "")[:230]}
+                                for c in (postrun.get("checks") or []) if isinstance(c,dict)
+                                and c.get("ok") is not True and c.get("critical") is False][:12]
         if st in ("886","901"):
             runlog=APP/"run_manifests"/st/"STUDIO_RUN.log"
             if runlog.is_file():
