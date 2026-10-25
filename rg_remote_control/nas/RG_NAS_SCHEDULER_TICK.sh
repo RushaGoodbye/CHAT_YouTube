@@ -44,14 +44,26 @@ fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
   if sh -n "$ROOT/RG_NAS_COMMAND_BUS.sh" >/dev/null 2>&1; then
-    sh "$ROOT/RG_NAS_COMMAND_BUS.sh" >> "$STATE/nas-command-bus.log" 2>&1 || true
-    rm -f "$STATE/nas_command_bus_error" 2>/dev/null || true
+    if sh "$ROOT/RG_NAS_COMMAND_BUS.sh" >> "$STATE/nas-command-bus.log" 2>&1; then
+      rm -f "$STATE/nas_command_bus_error" 2>/dev/null || true
+    else
+      printf '%s\n' "command_bus_runtime_error" > "$STATE/nas_command_bus_error"
+      TELEGRAM_CHECK_FAILED=1
+      echo command_bus_runtime >> "$STATE/telegram_scheduler_components_failed.tmp"
+    fi
   else
     printf '%s\n' "command_bus_syntax_error" > "$STATE/nas_command_bus_error"
+    TELEGRAM_CHECK_FAILED=1
+    echo command_bus_syntax >> "$STATE/telegram_scheduler_components_failed.tmp"
   fi
+else
+  printf '%s\n' "command_bus_missing" > "$STATE/nas_command_bus_error"
+  TELEGRAM_CHECK_FAILED=1
+  echo command_bus_missing >> "$STATE/telegram_scheduler_components_failed.tmp"
 fi
 
 # Publish a separate, durable component result: deploy success does not imply Telegram health.
+printf "%s\n" "$NOW" > "$STATE/telegram_scheduler_components_checked_at"
 if [ "$TELEGRAM_CHECK_FAILED" -eq 0 ]; then
   printf "%s\n" "OK" > "$STATE/telegram_scheduler_components_status"
   rm -f "$STATE/telegram_scheduler_components_failed"
