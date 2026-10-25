@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "restart_auto_edit_studio_ui",
-  "args": {},
-  "nonce": "rg-ui-reload-post-903-review-hotfix-20261025"
+  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "args": {
+    "streams": [
+      "903"
+    ]
+  },
+  "nonce": "rg-auto-edit-903-post-restart-health-check-20261025"
 }
