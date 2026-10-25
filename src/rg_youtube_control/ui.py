@@ -13971,10 +13971,10 @@ class MainWindow(QMainWindow):
                     model_dir=model_dir,
                     on_progress=whisper_progress,
                 )
-            return self._generate_local_seo_result(
-                video_id, on_progress=progress,
-                transcript_preference=transcript_preference,
-            )
+            seo_kwargs = {"on_progress": progress}
+            if transcript_preference:
+                seo_kwargs["transcript_preference"] = transcript_preference
+            return self._generate_local_seo_result(video_id, **seo_kwargs)
 
         self._run_local_tool(
             "Локальна SEO-оптимізація (0 квоти)",
