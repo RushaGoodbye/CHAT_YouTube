@@ -1325,32 +1325,26 @@ def _source_quote_ab_titles(
     from .dialogue_seo import distinct_evidence_topics
 
     candidates: list[tuple[int, str]] = []
-    verified_quotes = {entry["evidence"].casefold() for entry in distinct_evidence_topics(report)}
-    for index, block in enumerate(report.get("blocks") or []):
-        if not isinstance(block, dict) or block.get("verified") is False:
+    # Two timeline blocks can still contain three independently evidenced
+    # topics. Never require three blocks just to create three A/B drafts.
+    distinct = distinct_evidence_topics(report)
+    for index, entry in enumerate(distinct):
+        quote = " ".join(str(entry.get("evidence") or "").split())
+        quote = quote.strip(' "«»„“”')
+        if len(quote) < 30 or len(quote.split()) < 5:
             continue
-        for topic in block.get("topics") or []:
-            if not isinstance(topic, dict):
+        excerpt = quote
+        if len(excerpt) > 75:
+            excerpt = excerpt[:76].rsplit(" ", 1)[0].rstrip(" ,.;:")
+            if len(excerpt) < 30:
                 continue
-            quote = " ".join(str(topic.get("evidence") or "").split())
-            quote = quote.strip(' "«»„“”')
-            if quote.casefold() not in verified_quotes:
-                continue
-            if len(quote) < 30 or len(quote.split()) < 5:
-                continue
-            excerpt = quote
-            if len(excerpt) > 75:
-                excerpt = excerpt[:76].rsplit(" ", 1)[0].rstrip(" ,.;:")
-                if len(excerpt) < 30:
-                    continue
-                excerpt += "…"
-            title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
-            if not 30 <= len(title) <= 100:
-                continue
-            if title.casefold() == current_title.strip().casefold():
-                continue
-            candidates.append((index, title))
-            break  # only one quoted story per timeline block
+            excerpt += "…"
+        title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
+        if not 30 <= len(title) <= 100:
+            continue
+        if title.casefold() == current_title.strip().casefold():
+            continue
+        candidates.append((index, title))
     if len(candidates) < 3:
         return []
     # Pick the widest temporal coverage first; do not take three adjacent
