@@ -11,6 +11,15 @@ import subprocess
 
 TARGETS = ("RG_NAS_SCHEDULER_TICK.sh", "RG_NAS_MCP_TICK.sh",
            "RG_NAS_MCP_GUARD.sh", "RG_TELEGRAM_CONTROL_AGENT.sh")
+# Script basenames only; never return raw DSM task content or arguments.
+RG_SCRIPT_PATTERN = re.compile(r"\bRG_[A-Za-z0-9_-]{2,90}\.(?:sh|py)\b", re.I)
+SCHEDULE_KEYS = ("type", "run hour", "run min", "repeat min", "repeat hour",
+                 "can run task same time")
+def script_refs(source):
+    return sorted(set(RG_SCRIPT_PATTERN.findall(source)))
+def schedule_fields(fields):
+    return {key.replace(" ", "_"): fields[key] for key in SCHEDULE_KEYS
+            if key in fields and re.fullmatch(r"[a-zA-Z0-9_-]{1,16}", fields[key])}
 
 def targets(text):
     return [t for t in TARGETS if t.casefold() in text.casefold()]
@@ -28,7 +37,7 @@ def cli_parse(source):
             if current and (current["targets"] or current["rg_named"]):
                 entries.append(current)
             current = {"id": int(m.group(1)), "state": "unknown", "last_result": "unknown",
-                       "targets": [], "rg_named": False}
+                       "targets": [], "script_refs": [], "rg_named": False}
             continue
         if current is None:
             continue
@@ -42,6 +51,7 @@ def cli_parse(source):
             current["last_result"] = state(val)
         else:
             current["targets"] = sorted(set(current["targets"] + targets(val)))
+            current["script_refs"] = sorted(set(current["script_refs"] + script_refs(val)))
             if kind == "name" and re.search("RG|NAS|MCP|TELEGRAM", val, re.I):
                 current["rg_named"] = True
     if current and (current["targets"] or current["rg_named"]):
@@ -53,7 +63,7 @@ def task_parse(path, source):
     for line in source.splitlines():
         if "=" in line:
             key, val = line.split("=", 1)
-            if key.strip() in ("id", "state", "name", "cmd", "action", "app args"):
+            if key.strip() in ("id", "state", "name", "cmd", "action", "app args") + SCHEDULE_KEYS:
                 values[key.strip()] = val.strip()
     texts = [values.get(k,"") for k in ("name", "action", "app args")]
     encoded = values.get("cmd","")
@@ -73,7 +83,10 @@ def task_parse(path, source):
         found = re.search(r"(\d+)\.task$", path)
         task_id = int(found.group(1)) if found else -1
     return {"id": task_id, "state": state(values.get("state","")),
-            "targets": matched, "rg_named": named}
+            "targets": matched, "rg_named": named,
+            "script_refs": script_refs("\n".join(texts)),
+            "cmd_decoded": bool(encoded),
+            "schedule": schedule_fields(values)}
 
 def audit(task_root="/usr/syno/etc/synoschedule.d", cron="/etc/crontab", sched_bin=None):
     binary = sched_bin or next((x for x in ("/usr/syno/bin/synoschedtask",
@@ -147,6 +160,8 @@ def selftest():
         result = audit(str(root/"tasks"), str(root/"crontab"), sched_bin="/absent/no-such-synoschedtask")
         assert result["active_synoschedtask_cron_ids"] == [18]
         assert result["matching_task_files"][0]["state"] == "disabled"
+        assert result["matching_task_files"][0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
+        assert parsed[0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
         assert "SECRET_VALUE" not in json.dumps(result)
     print("RG_SYNOLOGY_TASK_AUDIT_SELFTEST_PASS")
 
