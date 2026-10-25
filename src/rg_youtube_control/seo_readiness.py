@@ -24,9 +24,10 @@ def ready_for_youtube(
         reasons.append("Пакет не має статусу готовності.")
     generation = (generation or "").strip()
     quality_state = (quality_state or "").strip()
-    # Scheduled streams and safe description/tag-only optimization do not
-    # replace the video title and therefore do not require A/B titles.
-    if scheduled or (
+    # Only the explicit safe-metadata path may bypass editorial A/B titles.
+    # A scheduled video can still receive a full videos.update (including a
+    # title change); scheduled=True alone is NOT proof of approval.
+    if (
         generation.startswith("safe-metadata")
         and quality_state == "safe_metadata"
     ):
