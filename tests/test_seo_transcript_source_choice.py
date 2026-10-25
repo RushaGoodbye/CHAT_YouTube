@@ -248,3 +248,59 @@ def test_iso8601_duration_blocks_partial_timed_track():
     )
     assert not result.offer_timed
     assert result.reason == "short_coverage"
+
+
+
+def test_source_note_explains_missing_or_mismatched_srt():
+    from rg_youtube_control.seo_transcript_choice import (
+        source_comparison_note, TimedComparison,
+    )
+    absent = source_comparison_note(
+        "nas-srt", TimedComparison(False, "missing_source"),
+    )
+    mismatch = source_comparison_note(
+        "confirmed-srt", TimedComparison(False, "content_mismatch", timed_cues=249),
+    )
+    assert "SRT на NAS" in absent and "не знайдено" in absent
+    assert "недостатньо збігається" in mismatch and "249" in mismatch
+    assert "\\\\" not in absent + mismatch
+
+
+def test_source_diagnostics_visible_in_real_qt_preview(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QWidget, QLabel, QDialog
+    from rg_youtube_control.ui import MainWindow
+
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    seen = []
+
+    def inspect_and_cancel(dialog):
+        seen.extend(w.text() for w in dialog.findChildren(QLabel))
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", inspect_and_cancel)
+    ok = MainWindow._preview_deep_content_package(
+        parent,
+        video_id="MEitKm687xo",
+        current_title="Увольнение Шойгу?",
+        current_description="",
+        current_tags=[],
+        new_title="Шойгу и коррупция: что говорят россияне?",
+        new_description="Огляд розмови",
+        new_tags=["Шойгу"],
+        title_variants=["Шойгу и коррупция?", "Почему ушел Шойгу?",
+                        "Шойгу: всё по плану?"],
+        source_diagnostics=[
+            "SRT на NAS: недостатньо збігається з підтвердженим TXT (249 реплік).",
+        ],
+    )
+    assert ok is False
+    assert any("SRT на NAS" in label and "249" in label for label in seen)
+
+
+def test_working_source_diagnostic_flows_worker_to_preview():
+    from pathlib import Path
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    assert 'context["seo_source_diagnostics"] = diagnostics' in source
+    assert "source_diagnostics=list(context.get(" in source
+    assert "source_comparison_note(key, result)" in source
