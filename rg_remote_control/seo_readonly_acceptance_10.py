@@ -54,6 +54,29 @@ MAIN_IDS = (
 LIVE_IDS = ("4ItkxMPI1GA", "fdHXrCyw3Lw")
 VALID_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
+_DURATION = re.compile(
+    r"^P(?:(?P<days>\\d+)D)?(?:T(?:(?P<hours>\\d+)H)?"
+    r"(?:(?P<minutes>\\d+)M)?(?:(?P<seconds>\\d+(?:\\.\\d+)?)S)?)?$"
+)
+
+
+def _duration_seconds(value: object) -> int:
+    """YouTube videos.duration uses ISO 8601 (PT1H2M3S), not integer seconds."""
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    if text.isdecimal():
+        return int(text)
+    match = _DURATION.fullmatch(text)
+    if match is None:
+        raise ValueError("Invalid synchronized duration format")
+    units = {key: float(amount or 0) for key, amount in match.groupdict().items()}
+    return round(
+        units["days"] * 86400 + units["hours"] * 3600
+        + units["minutes"] * 60 + units["seconds"]
+    )
+
+
 
 def get_video_inputs(db_file: Path, video_id: str) -> dict:
     """Read public metadata + NAS configuration with no SQLite mutations."""
@@ -77,7 +100,7 @@ def get_video_inputs(db_file: Path, video_id: str) -> dict:
             "video_id": video_id,
             "profile": str(row["profile"] or ""),
             "title": str(row["title"] or ""),
-            "duration": int(row["duration"] or 0),
+            "duration": _duration_seconds(row["duration"]),
             "transcript_root": configured or DEFAULT_NAS_TRANSCRIPTS_PATH,
         }
 
@@ -199,6 +222,7 @@ def run_one(
             "Incomplete SRT: fewer than ten caption rows",
             "SRT coverage below 75% of synchronized video duration",
             "No evidence-backed dialogue blocks",
+            "Invalid synchronized duration format",
         )
         message = str(exc)
         result["error_type"] = type(exc).__name__
