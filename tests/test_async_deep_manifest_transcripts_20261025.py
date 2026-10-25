@@ -162,3 +162,56 @@ def test_deep_transcript_action_contains_zero_qt_thread_unc_or_api_operations():
     assert ".write_text(" not in code
     assert "QApplication.processEvents()" not in code
     assert "self._export_transcript_video_to_nas(" not in code
+
+
+def test_deep_manifest_qt_button_returns_immediately_and_deduplicates(
+    tmp_path, monkeypatch,
+):
+    import threading
+    import time
+    from PySide6.QtWidgets import QApplication
+    from rg_youtube_control import ui
+
+    monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        ui.MainWindow, "_nas_path",
+        lambda self, *args: tmp_path / "simulated-nas",
+    )
+    source_thread = threading.get_ident()
+    thread_ids = []
+    def slow_export(conn, **kwargs):
+        thread_ids.append(threading.get_ident())
+        time.sleep(0.28)
+        return {
+            "saved": 1, "failed": 0, "errors": [], "pending": 1,
+            "existing": 0, "manifest_updated": True,
+            "quota_blocked": False,
+        }
+
+    monkeypatch.setattr(ui, "run_deep_manifest_transcript_export", slow_export)
+    app = QApplication.instance() or QApplication([])
+    window = ui.MainWindow()
+    try:
+        monkeypatch.setattr(window, "_refresh_archive_stats_async", lambda: None)
+        monkeypatch.setattr(
+            window, "_refresh_transcript_availability_async", lambda: None,
+        )
+        start = time.monotonic()
+        window.export_deep_review_transcripts(confirm=False, notify=False)
+        assert time.monotonic() - start < 0.15
+        worker = window._deep_transcript_export_worker
+        window.export_deep_review_transcripts(confirm=False, notify=False)
+        assert window._deep_transcript_export_worker is worker
+        deadline = time.monotonic() + 7
+        while getattr(window, "_deep_transcript_export_worker", None):
+            if time.monotonic() > deadline:
+                raise AssertionError("Deep export worker failed to finish")
+            app.processEvents()
+            time.sleep(0.01)
+        assert len(thread_ids) == 1
+        assert thread_ids[0] != source_thread
+    finally:
+        worker = getattr(window, "_deep_transcript_export_worker", None)
+        if worker is not None:
+            worker.wait(7000)
+        window.close()
