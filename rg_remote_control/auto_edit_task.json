@@ -1,7 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "restart_auto_edit_studio_ui",
-  "args": {},
-  "nonce": "rg-903-review-queue-reload-final-20261025"
+  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "args": {
+    "streams": [
+      "903"
+    ]
+  },
+  "nonce": "rg-903-final-queue-review-proof-20261025"
 }
