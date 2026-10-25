@@ -8296,11 +8296,11 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "Транскрипти глибокої черги",
-                f"Канал: {PROFILE_LABELS[target]}\\n"
+                f"Канал: {PROFILE_LABELS[target]}\n"
                 "Перевіримо маніфест на NAS та отримаємо до 20 "
-                "відсутніх транскриптів у фоні.\\n"
+                "відсутніх транскриптів у фоні.\n"
                 "Витрата квоти можлива лише понад захищений резерв; "
-                "точний ліміт визначається перед кожним запитом.\\n\\n"
+                "точний ліміт визначається перед кожним запитом.\n\n"
                 "Почати?",
                 QMessageBox.StandardButton.Yes
                 | QMessageBox.StandardButton.No,
@@ -8348,15 +8348,15 @@ class MainWindow(QMainWindow):
             saved = int(result.get("saved") or 0)
             failed = int(result.get("failed") or 0)
             message = (
-                f"Нових SRT: {saved}.\\n"
-                f"Уже на NAS: {int(result.get('existing') or 0)}.\\n"
-                f"Залишалося: {int(result.get('pending') or 0)}.\\n"
+                f"Нових SRT: {saved}.\n"
+                f"Уже на NAS: {int(result.get('existing') or 0)}.\n"
+                f"Залишалося: {int(result.get('pending') or 0)}.\n"
                 f"Помилок: {failed}."
             )
             if result.get("quota_blocked"):
-                message += "\\nЗахищений резерв квоти збережено."
+                message += "\nЗахищений резерв квоти збережено."
             if result.get("errors"):
-                message += "\\n" + "\\n".join(result["errors"][:5])
+                message += "\n" + "\n".join(result["errors"][:5])
             if notify:
                 QMessageBox.information(
                     self, "Транскрипти глибокої черги", message,
