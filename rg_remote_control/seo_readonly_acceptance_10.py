@@ -67,6 +67,12 @@ def _duration_seconds(value: object) -> int:
         return 0
     if text.isdecimal():
         return int(text)
+    # Legacy builds save MM:SS or HH:MM:SS.
+    if re.fullmatch(r"\d{1,4}:[0-5]?\d(?::[0-5]?\d)?", text):
+        seconds = 0
+        for part in text.split(":"):
+            seconds = seconds * 60 + int(part)
+        return seconds
     match = _DURATION.fullmatch(text)
     if match is None:
         raise ValueError("Invalid synchronized duration format")
@@ -226,6 +232,21 @@ def run_one(
         )
         message = str(exc)
         result["error_type"] = type(exc).__name__
+        if message == "Invalid synchronized duration format":
+            # Report format metadata only, never the actual database field.
+            try:
+                with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as db:
+                    raw = db.execute("SELECT duration FROM videos WHERE video_id=?", (video_id,)).fetchone()
+                value = str(raw[0] or "") if raw else ""
+                result["duration_shape"] = (
+                    "colon" if ":" in value else
+                    "iso8601" if value.upper().startswith("P") else
+                    "number" if value.replace(".", "", 1).isdigit() else
+                    "other"
+                )
+                result["duration_char_count"] = len(value)
+            except Exception:
+                pass
         result["error"] = (
             message if message in known
             else "Local content-validation or dependency failure; "
