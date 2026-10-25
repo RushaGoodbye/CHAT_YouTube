@@ -106,7 +106,10 @@ from .archive_campaign import (
     save_campaign_checkpoint,
 )
 from .deep_archive_worker import prepare_deep_review_batch
-from .transcript_export_worker import run_transcript_export
+from .transcript_export_worker import (
+    run_transcript_export,
+    run_deep_manifest_transcript_export,
+)
 from .metadata_audit import (
     audit,
     blocks_automatic_title_language_change,
@@ -8281,129 +8284,103 @@ class MainWindow(QMainWindow):
         confirm: bool = True,
         notify: bool = True,
     ) -> None:
-        target = profile or self.current_profile
-        if target != self.current_profile:
-            self._activate_profile(target)
-
-        package_dir = self._nas_path(
-            "nas_packages_path",
-            DEFAULT_NAS_PACKAGES_PATH,
-        )
-        transcript_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
-        )
-        manifest_path = package_dir / f"deep_review_{target}.json"
-        if not manifest_path.exists():
-            if notify:
-                QMessageBox.information(
-                    self,
-                    "Транскрипти глибокої черги",
-                    "Спочатку експортуйте глибоку чергу на NAS.",
-                )
+        """Never enumerate remote SRTs or download captions on the Qt thread."""
+        running = getattr(self, "_deep_transcript_export_worker", None)
+        if running is not None and running.isRunning():
             return
 
-        try:
-            payload = json.loads(
-                manifest_path.read_text(encoding="utf-8")
+        target = profile or self.current_profile
+        if target not in PROFILE_TARGETS:
+            raise ValueError("Невідомий канал глибокої черги.")
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                "Транскрипти глибокої черги",
+                f"Канал: {PROFILE_LABELS[target]}\\n"
+                "Перевіримо маніфест на NAS та отримаємо до 20 "
+                "відсутніх транскриптів у фоні.\\n"
+                "Витрата квоти можлива лише понад захищений резерв; "
+                "точний ліміт визначається перед кожним запитом.\\n\\n"
+                "Почати?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            items = [
-                item
-                for item in (payload.get("items") or [])
-                if isinstance(item, dict)
-            ]
-            pending = [
-                item
-                for item in items
-                if item.get("video_id")
-                and not (
-                    transcript_dir / f"{item['video_id']}.srt"
-                ).exists()
-            ]
-            if not pending:
-                if notify:
-                    QMessageBox.information(
-                        self,
-                        "Транскрипти глибокої черги",
-                        "Усі транскрипти поточної глибокої черги вже є на NAS.",
-                    )
+            if answer != QMessageBox.StandardButton.Yes:
                 return
 
-            budget = quota_budget_status(self.conn)
-            capacity = max(
-                0,
-                int(budget["spendable"]) // CAPTION_TRANSCRIPT_COST,
-            )
-            batch = pending[: min(20, capacity)]
-            if not batch:
-                if notify:
-                    QMessageBox.information(
-                        self,
-                        "Резерв квоти",
-                        "Над захищеним резервом недостатньо квоти "
-                        "для нового транскрипту.",
-                    )
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        package_dir = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+        manifest_path = package_dir / f"deep_review_{target}.json"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return run_deep_manifest_transcript_export(
+                    worker_conn, profile=target,
+                    manifest_path=manifest_path, target_dir=transcript_dir,
+                    client_factory=YouTubeClient,
+                    uploader=upload_transcript,
+                    bridge_url=PACKAGE_BRIDGE_URL,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._deep_transcript_export_worker = worker
+        self.statusBar().showMessage("Глибокі транскрипти · NAS у фоні…")
+
+        def success(result: object) -> None:
+            if not isinstance(result, dict):
+                self.statusBar().showMessage("Некоректна відповідь NAS")
                 return
-
-            estimated = len(batch) * CAPTION_TRANSCRIPT_COST
-            if confirm:
-                answer = QMessageBox.question(
-                    self,
-                    "Транскрипти глибокої черги",
-                    f"Канал: {PROFILE_LABELS[target]}\n"
-                    f"Без транскрипту: {len(pending)}.\n"
-                    f"Зараз буде отримано: до {len(batch)}.\n"
-                    f"Максимальна витрата: ≈{estimated} од. квоти.\n"
-                    f"Резерв {budget['reserve']} од. не буде використано.\n\n"
-                    "Продовжити?",
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if answer != QMessageBox.StandardButton.Yes:
-                    return
-
-            saved = 0
-            failed: list[str] = []
-            for index, item in enumerate(batch, start=1):
-                video_id = str(item["video_id"])
-                self.statusBar().showMessage(
-                    f"Глибокі транскрипти: {index}/{len(batch)} · {video_id}"
-                )
-                QApplication.processEvents()
-                try:
-                    path, _downloaded = self._export_transcript_video_to_nas(
-                        video_id,
-                        respect_reserve=True,
-                    )
-                    item["transcript_ready"] = True
-                    item["transcript_path"] = str(path)
-                    saved += 1
-                except Exception as exc:
-                    failed.append(f"{video_id}: {exc}")
-
-            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-            manifest_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            self.reload_optimization_queue()
-            self._refresh_archive_campaign_summary()
-
+            self.refresh_youtube_quota_label()
+            self._nas_transcript_cache_at = 0.0
+            self._refresh_transcript_availability_async()
+            self._refresh_archive_stats_async()
+            saved = int(result.get("saved") or 0)
+            failed = int(result.get("failed") or 0)
             message = (
-                f"Збережено транскриптів: {saved}.\n"
-                f"Помилок: {len(failed)}."
+                f"Нових SRT: {saved}.\\n"
+                f"Уже на NAS: {int(result.get('existing') or 0)}.\\n"
+                f"Залишалося: {int(result.get('pending') or 0)}.\\n"
+                f"Помилок: {failed}."
             )
-            if failed:
-                message += "\n\n" + "\n".join(failed[:5])
+            if result.get("quota_blocked"):
+                message += "\\nЗахищений резерв квоти збережено."
+            if result.get("errors"):
+                message += "\\n" + "\\n".join(result["errors"][:5])
             if notify:
                 QMessageBox.information(
-                    self,
-                    "Транскрипти глибокої черги",
-                    message,
+                    self, "Транскрипти глибокої черги", message,
                 )
-        except Exception as exc:
-            self._error("Помилка транскриптів глибокої черги", exc)
+            self.statusBar().showMessage(
+                f"Глибокі транскрипти · збережено {saved}"
+            )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Помилка SRT/NAS")
+            if notify:
+                self._error(
+                    "Помилка транскриптів глибокої черги",
+                    RuntimeError(message),
+                )
+
+        def finished() -> None:
+            if getattr(self, "_deep_transcript_export_worker", None) is worker:
+                self._deep_transcript_export_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def _start_deep_archive_worker(
         self, profile: str, *, capacity: int, automatic: bool,
