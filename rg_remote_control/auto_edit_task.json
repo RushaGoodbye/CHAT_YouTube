@@ -1,9 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_stream_result",
+  "action": "inspect_auto_edit_overnight_preflight_v1",
   "args": {
-    "stream": "903"
+    "streams": [
+      "903"
+    ]
   },
-  "nonce": "rg-903-readonly-inspect-20261025"
+  "nonce": "rg-auto-edit-903-preflight-20261025-v2"
 }
