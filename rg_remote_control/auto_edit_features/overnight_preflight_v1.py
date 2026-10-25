@@ -116,6 +116,8 @@ try:
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
+        row["manifest_status"]=str(mani.get("status") or "").upper()
+        row["review_hold_count"]=len(mani.get("review_holds") or []) if isinstance(mani.get("review_holds"),list) else 0
         row["manifest_dialogue_count"]=mani.get("dialogue_count")
         row["manifest_output_count"]=len(outputs) if isinstance(outputs,list) else 0
         try:
@@ -156,7 +158,14 @@ try:
         row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"] and
                                      not row["prior_backend_error"] and
                                      not (row.get("audio",{}).get("candidates",0)>1))
-        row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
+        row["requires_qa_review"]=bool(
+            not row["already_complete"] and (
+                row["complete_state"] or row["complete_manifest"]
+                or row["postrun_passed"] is False
+                or row["manifest_status"] in {"PARTIAL_REVIEW","PARTIAL_RETRY_COMPLETE","FAILED"}
+                or row["review_hold_count"]>0
+            )
+        )
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
         if isinstance(postrun,dict) and "checks" in postrun:
