@@ -12965,7 +12965,9 @@ class MainWindow(QMainWindow):
         if transcript_preference:
             # The operator explicitly chose a matching timed source during
             # GUI preflight. Revalidate in this worker to avoid TOCTOU swaps.
-            from .seo_transcript_choice import compare_timed_to_verified
+            from .seo_transcript_choice import (
+                compare_timed_to_verified, published_duration_seconds,
+            )
             if (transcript_source != "manual-confirmed-untimed-text"
                     or transcript_preference not in ("confirmed-srt", "nas-srt")):
                 raise RuntimeError("SEO: невірний вибір джерела; нічого не змінено.")
@@ -12976,10 +12978,9 @@ class MainWindow(QMainWindow):
             candidate_rows, candidate_label = find_local_transcript(
                 selected_root, video_id,
             )
-            try:
-                candidate_duration = float(context.get("duration") or 0)
-            except (ValueError, TypeError):
-                candidate_duration = 0.0
+            candidate_duration = published_duration_seconds(
+                context.get("duration") or (state[3] if state is not None else 0)
+            )
             comparison = compare_timed_to_verified(
                 current_title, transcript_rows, candidate_rows,
                 published_duration=candidate_duration,
@@ -13706,7 +13707,9 @@ class MainWindow(QMainWindow):
             match = check_title_against_transcript(source_title, source_text)
             if (not match.missing
                     and local_source == "manual-confirmed-untimed-text"):
-                from .seo_transcript_choice import compare_timed_to_verified
+                from .seo_transcript_choice import (
+                    compare_timed_to_verified, published_duration_seconds,
+                )
                 # Corrected, user-confirmed SRT takes precedence over NAS.
                 for source_key, source_dir in (
                     ("confirmed-srt", confirmed_dir),
@@ -13715,14 +13718,11 @@ class MainWindow(QMainWindow):
                     candidate_rows, _ = find_local_transcript(
                         source_dir, video_id,
                     )
-                    try:
-                        raw_duration = (
-                            source_title_row["duration"]
-                            if source_title_row is not None else 0
-                        )
-                        duration = float(raw_duration or 0)
-                    except (ValueError, TypeError, KeyError):
-                        duration = 0.0
+                    raw_duration = (
+                        source_title_row["duration"]
+                        if source_title_row is not None else 0
+                    )
+                    duration = published_duration_seconds(raw_duration)
                     comparison = compare_timed_to_verified(
                         source_title, local_rows, candidate_rows,
                         published_duration=duration,
