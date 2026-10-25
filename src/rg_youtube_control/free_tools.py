@@ -2519,6 +2519,8 @@ chapters: рядок з підтвердженими таймкодами та �
         title = str(current_title or "").strip()
         title_fallback_used = True
         unchanged_title = True
+    # Drop incidental candidates before selecting a replacement. Otherwise
+    # an incidental model title can re-enter via a weaker fallback.
     if any(_incidental_title(value) for value in variants):
         replacement = _source_quote_ab_titles(evidence_report, current_title) if evidence_report else []
         if replacement and not any(_incidental_title(value) for value in replacement):
