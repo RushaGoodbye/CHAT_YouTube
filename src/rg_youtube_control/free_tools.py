@@ -1500,6 +1500,18 @@ def _recover_title_variants(
     model: str,
 ) -> list[str]:
     """Focused recovery of exactly three distinct Russian title variants."""
+    from .seo_source_alignment import check_title_against_transcript
+    subject = check_title_against_transcript(current_title, transcript)
+    required_subjects = (
+        ", ".join(subject.anchors)
+        if subject.anchors and subject.passed else ""
+    )
+    subject_rule = (
+        "УСІ ТРИ назви мають прямо згадувати головну тему: "
+        + required_subjects
+        + ". Не переходь до інших сюжетів замість головної теми."
+        if required_subjects else ""
+    )
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
 A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
@@ -1507,6 +1519,7 @@ C: інша підтверджена тема, якщо вона є; інакш�
 Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
+{subject_rule}
 Поверни JSON:
 {{"title_variants":["...","...","..."]}}
 
