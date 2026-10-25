@@ -13693,7 +13693,7 @@ class MainWindow(QMainWindow):
         if usable_local_transcript:
             source_title_row = (
                 self.conn.execute(
-                    "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                    "SELECT title,duration FROM videos WHERE video_id=? AND profile=?",
                     (video_id, self.current_profile),
                 ).fetchone()
                 if hasattr(self, "conn") else None
@@ -13716,11 +13716,10 @@ class MainWindow(QMainWindow):
                         source_dir, video_id,
                     )
                     try:
-                        record = self.conn.execute(
-                            "SELECT duration FROM videos WHERE video_id=? AND profile=?",
-                            (video_id, self.current_profile),
-                        ).fetchone()
-                        raw_duration = record["duration"] if record else 0
+                        raw_duration = (
+                            source_title_row["duration"]
+                            if source_title_row is not None else 0
+                        )
                         duration = float(raw_duration or 0)
                     except (ValueError, TypeError, KeyError):
                         duration = 0.0
