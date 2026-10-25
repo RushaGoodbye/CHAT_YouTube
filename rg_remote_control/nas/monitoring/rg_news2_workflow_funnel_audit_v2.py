@@ -281,6 +281,13 @@ def selftest():
         os.utime(str(old_file),(time.time()-86400,time.time()-86400))
         assert find_live_database(root)==db
         old_file.touch()
+        # The documented data/ path remains authoritative even with copies.
+        assert find_live_database(root)==db
+        # Without the documented path, two equally fresh copies are ambiguous.
+        alternative=root/"candidate-A"
+        alternative.mkdir()
+        replacement=alternative/DB
+        db.replace(replacement)
         assert find_live_database(root) is None
         assert doc["publication_gate_must_remain_off"] is True
     print("RG_NEWS2_FUNNEL_AUDIT_V2_SELFTEST_PASS")
