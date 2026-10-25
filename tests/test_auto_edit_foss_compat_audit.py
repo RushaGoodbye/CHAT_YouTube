@@ -1,6 +1,7 @@
 """Read-only compatibility audit regression tests. No F: hardware required."""
 import importlib.util
 import pathlib
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +25,15 @@ class FossProbeTests(unittest.TestCase):
         self.assertEqual(result["status"], "MISSING_RUNTIME")
         self.assertFalse(result["installation_allowed"])
         self.assertFalse(result["model_downloads_allowed"])
+
+    def test_feature_wiring_scan_is_read_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            app=pathlib.Path(root)
+            (app / "a.py").write_text("import mediapipe\n# NO_REFERENCE_FACE\n",encoding="utf-8")
+            result=mod.probe_feature_wiring(app)
+            self.assertEqual(result["scanned"],1)
+            self.assertEqual(result["packages"]["mediapipe"],["a.py"])
+            self.assertEqual(result["identity"]["NO_REFERENCE_FACE"],["a.py"])
 
     def test_probe_is_safe_metadata_only(self):
         code = SOURCE.read_text(encoding="utf-8")
