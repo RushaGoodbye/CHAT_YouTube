@@ -4,12 +4,10 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "RG_EDITED_903_MULTI_DIALOGUE.json",
-      "rg_xml_verify_v51.py",
-      "rg_pack120.py",
-      "rg_studio_postrun.py",
-      "903/RG_BOUNDARY_QA_V51.json"
+      "RG_EDITED_903_2_R2_IDENTITY_REVIEW_HOLD.json",
+      "RG_EDITED_903_5_R2_IDENTITY_REVIEW_HOLD.json",
+      "rg_auto_edit_one_button.py"
     ]
   },
-  "nonce": "rg-903-manifest-and-xml-validator-readonly-v1"
+  "nonce": "rg-903-hold-details-20261025"
 }
