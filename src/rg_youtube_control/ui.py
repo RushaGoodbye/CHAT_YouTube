@@ -10334,6 +10334,10 @@ class MainWindow(QMainWindow):
         return status, tuple(errors), tuple(warnings)
 
     def import_selected_package_from_nas(self) -> None:
+        """Fetch the NAS/Bridge package outside Qt; commit only on the GUI thread."""
+        running = getattr(self, "_import_package_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -10342,60 +10346,91 @@ class MainWindow(QMainWindow):
             return
 
         video_id = video_ids[0]
-        try:
-            package_dir = self._nas_path(
-                "nas_packages_path",
-                DEFAULT_NAS_PACKAGES_PATH,
+        origin_profile = self.current_profile
+        owned = self.conn.execute(
+            "SELECT profile FROM videos WHERE video_id=?", (video_id,),
+        ).fetchone()
+        if owned is None or str(owned["profile"]) != origin_profile:
+            QMessageBox.warning(
+                self, APP_NAME, "Відео не належить активному каналу."
             )
+            return
+
+        package_dir = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+
+        def task():
             package_path = package_dir / f"{video_id}.json"
-            source = "NAS"
-            if package_path.exists():
-                payload = json.loads(
-                    package_path.read_text(encoding="utf-8")
-                )
+            if package_path.is_file():
+                payload = json.loads(package_path.read_text(encoding="utf-8"))
+                source = "NAS"
             else:
-                payload = fetch_package(
-                    PACKAGE_BRIDGE_URL,
-                    video_id,
-                )
+                payload = fetch_package(PACKAGE_BRIDGE_URL, video_id)
                 source = "Package Bridge"
-                if payload is None:
-                    QMessageBox.information(
-                        self,
-                        APP_NAME,
-                        "Пакет поки не знайдено.\n\n"
-                        f"NAS: {package_path}\n"
-                        f"Bridge: {PACKAGE_BRIDGE_URL}",
-                    )
-                    return
+            if payload is not None and not isinstance(payload, dict):
+                raise ValueError("Пакет повинен містити JSON-об'єкт")
+            return {"payload": payload, "source": source,
+                    "video_id": video_id, "profile": origin_profile,
+                    "path": str(package_path)}
 
-            status, errors, warnings = self._save_package_payload(
-                video_id,
-                payload,
-            )
-            self.reload_optimization_queue()
+        worker = LocalToolWorker(task, self)
+        self._import_package_worker = worker
+        self.statusBar().showMessage(f"Пакет {video_id}: NAS у фоні…")
 
-            details = [
-                f"Пакет імпортовано з {source}.",
-                f"Статус: {'Готово' if status == 'ready' else 'Чернетка'}.",
-            ]
-            if errors:
-                details.append(
-                    f"Критичних помилок: {len(errors)}."
+        def success(result: object) -> None:
+            if result["payload"] is None:
+                QMessageBox.information(
+                    self, APP_NAME,
+                    "Пакет поки не знайдено.\n\n"
+                    f"NAS: {result['path']}\nBridge: {PACKAGE_BRIDGE_URL}",
                 )
-            if warnings:
-                details.append(
-                    f"Рекомендацій: {len(warnings)}."
+                return
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if ownership is None or str(ownership["profile"]) != origin_profile:
+                self.statusBar().showMessage(
+                    "Імпорт скасовано: невідповідний канал"
                 )
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "\n".join(details),
-            )
-        except Exception as exc:
-            self._error("Помилка імпорту пакета", exc)
+                return
+            try:
+                status, errors, warnings = self._save_package_payload(
+                    video_id, result["payload"],
+                )
+                if self.current_profile == origin_profile:
+                    self.reload_optimization_queue()
+                details = [
+                    f"Пакет імпортовано з {result['source']}.",
+                    f"Статус: {'Готово' if status == 'ready' else 'Чернетка'}.",
+                ]
+                if errors:
+                    details.append(f"Критичних помилок: {len(errors)}.")
+                if warnings:
+                    details.append(f"Рекомендацій: {len(warnings)}.")
+                QMessageBox.information(self, APP_NAME, "\n".join(details))
+            except Exception as exc:
+                self._error("Помилка імпорту пакета", exc)
+
+        def failed(message: str) -> None:
+            self._error("Помилка імпорту пакета", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_import_package_worker", None) is worker:
+                self._import_package_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def fetch_scheduled_packages(self) -> None:
+        """Read scheduled NAS packages in one background job, never in Qt."""
+        running = getattr(self, "_scheduled_packages_worker", None)
+        if running is not None and running.isRunning():
+            return
+        origin_profile = self.current_profile
         rows = self.conn.execute(
             """SELECT v.video_id,v.scheduled_publish_at,
                       d.status,d.new_title
@@ -10404,101 +10439,133 @@ class MainWindow(QMainWindow):
                WHERE v.profile=?
                  AND v.scheduled_publish_at IS NOT NULL
                ORDER BY v.scheduled_publish_at ASC""",
-            (self.current_profile,),
+            (origin_profile,),
         ).fetchall()
         if not rows:
             QMessageBox.information(
-                self,
-                APP_NAME,
+                self, APP_NAME,
                 "На активному каналі немає запланованих стрімів.",
             )
             return
-
+        # Immutable snapshots only. Never pass SQLite rows to background jobs.
+        captured = [
+            (str(row["video_id"]), str(row["status"] or ""),
+             str(row["new_title"] or ""))
+            for row in rows
+        ]
         package_dir = self._nas_path(
-            "nas_packages_path",
-            DEFAULT_NAS_PACKAGES_PATH,
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
         )
-        imported = 0
-        ready = 0
-        draft = 0
-        skipped = 0
-        missing = 0
-        failed: list[str] = []
 
-        for index, row in enumerate(rows, start=1):
-            video_id = str(row["video_id"])
-            existing_status = str(row["status"] or "")
-            existing_title = _standard_hyphen(
-                str(row["new_title"] or "").strip()
-            )
+        def task():
+            loaded = []
+            for video_id, original_status, original_title in captured:
+                try:
+                    package_path = package_dir / f"{video_id}.json"
+                    if package_path.is_file():
+                        payload = json.loads(
+                            package_path.read_text(encoding="utf-8")
+                        )
+                    else:
+                        payload = fetch_package(PACKAGE_BRIDGE_URL, video_id)
+                    if payload is not None and not isinstance(payload, dict):
+                        raise ValueError("Пакет повинен містити JSON-об'єкт")
+                    loaded.append((
+                        video_id, original_status, original_title, payload, "",
+                    ))
+                except Exception as exc:
+                    loaded.append((
+                        video_id, original_status, original_title,
+                        None, str(exc)[:500],
+                    ))
+            return loaded
 
-            self.statusBar().showMessage(
-                f"Пакети запланованих: {index}/{len(rows)} · {video_id}"
-            )
-            QApplication.processEvents()
+        worker = LocalToolWorker(task, self)
+        self._scheduled_packages_worker = worker
+        self.statusBar().showMessage("Пакети запланованих: NAS у фоні…")
 
-            try:
-                package_path = package_dir / f"{video_id}.json"
-                if package_path.exists():
-                    payload = json.loads(
-                        package_path.read_text(encoding="utf-8")
-                    )
-                else:
-                    payload = fetch_package(
-                        PACKAGE_BRIDGE_URL,
-                        video_id,
-                    )
+        def success(loaded: object) -> None:
+            imported = ready = draft = skipped = missing = 0
+            failed: list[str] = []
+            for video_id, old_status, old_title, payload, error in loaded:
+                if error:
+                    failed.append(f"{video_id}: {error}")
+                    continue
                 if payload is None:
                     missing += 1
                     continue
-
-                remote_title = _standard_hyphen(
-                    str(
-                        payload.get("new_title")
-                        or payload.get("title")
-                        or ""
-                    ).strip()
-                )
-                if (
-                    existing_status in {"ready", "applied"}
-                    and existing_title
-                    and existing_title == remote_title
-                ):
+                # The operator may have edited the draft or switched channels
+                # while NAS was slow. Never overwrite that newer local state.
+                current = self.conn.execute(
+                    """SELECT v.profile,d.status,d.new_title
+                       FROM videos v
+                       LEFT JOIN optimization_drafts d
+                         ON d.video_id=v.video_id
+                       WHERE v.video_id=?""",
+                    (video_id,),
+                ).fetchone()
+                if current is None or str(current["profile"]) != origin_profile:
                     skipped += 1
                     continue
-
-                status, errors, _warnings = self._save_package_payload(
-                    video_id,
-                    payload,
+                if (str(current["status"] or "") != old_status
+                    or str(current["new_title"] or "") != old_title):
+                    skipped += 1
+                    continue
+                remote_title = _standard_hyphen(
+                    str(payload.get("new_title") or payload.get("title")
+                        or "").strip()
                 )
-                imported += 1
-                if status == "ready" and not errors:
-                    ready += 1
-                else:
-                    draft += 1
-            except Exception as exc:
-                failed.append(f"{video_id}: {exc}")
+                existing_title = _standard_hyphen(old_title.strip())
+                if (old_status in {"ready", "applied"}
+                    and existing_title == remote_title):
+                    skipped += 1
+                    continue
+                try:
+                    status, errors, _warnings = self._save_package_payload(
+                        video_id, payload,
+                    )
+                    imported += 1
+                    if status == "ready" and not errors:
+                        ready += 1
+                    else:
+                        draft += 1
+                except Exception as exc:
+                    failed.append(f"{video_id}: {exc}")
 
-        self.reload_optimization_queue()
-        message = (
-            f"Запланованих: {len(rows)}.\n"
-            f"Імпортовано пакетів: {imported}.\n"
-            f"Готово до застосування: {ready}.\n"
-            f"Чернеток після перевірки: {draft}.\n"
-            f"Без змін: {skipped}.\n"
-            f"Пакетів поки немає: {missing}."
-        )
-        if failed:
-            message += (
-                f"\nПомилок: {len(failed)}.\n\n"
-                + "\n".join(failed[:5])
+            if self.current_profile == origin_profile:
+                self.reload_optimization_queue()
+            message = (
+                f"Запланованих: {len(captured)}.\n"
+                f"Імпортовано пакетів: {imported}.\n"
+                f"Готово до застосування: {ready}.\n"
+                f"Чернеток після перевірки: {draft}.\n"
+                f"Без змін: {skipped}.\n"
+                f"Пакетів поки немає: {missing}."
             )
-        QMessageBox.information(
-            self,
-            "Пакети запланованих стрімів",
-            message,
-        )
-        self.statusBar().showMessage("Пакети запланованих перевірено")
+            if failed:
+                message += (
+                    f"\nПомилок: {len(failed)}.\n\n"
+                    + "\n".join(failed[:5])
+                )
+            QMessageBox.information(
+                self, "Пакети запланованих стрімів", message,
+            )
+            self.statusBar().showMessage("Пакети запланованих перевірено")
+
+        def failed(message: str) -> None:
+            self._error(
+                "Помилка пакетів запланованих стрімів",
+                RuntimeError(message),
+            )
+
+        def finished() -> None:
+            if getattr(self, "_scheduled_packages_worker", None) is worker:
+                self._scheduled_packages_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def edit_content_package(self) -> None:
         video_ids = self._selected_optimization_video_ids()
