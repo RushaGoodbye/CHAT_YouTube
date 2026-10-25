@@ -13,7 +13,7 @@ def fixture():
             "    def recheck(self):\n"
             "        if True:\n" + p.OLD_QA + "\n"
             "    def postrun(self):\n" + p.OLD_POST + "\n"
-            "            pass\n"
+            "        return passed\n"
             "    def batch(self):\n"
             "        if True:\n" + p.OLD_BATCH + "\n")
 
