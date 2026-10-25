@@ -118,6 +118,14 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .seo_source_alignment import (
+    check_title_against_transcript,
+    check_title_variants_against_primary_subject,
+)
+from .seo_original_quote_recovery import recover_omitted_named_quotes
+from .seo_editorial_signal import source_grounded_shoigu_package, off_topic_title_warnings
+from .local_transcript_sources import find_local_transcript
+from .verified_text_import import load_verified_text
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -13755,6 +13763,7 @@ class MainWindow(QMainWindow):
         import sqlite3
 
         origin_profile = profile or self.current_profile
+
         state_conn = sqlite3.connect(
             str(self.data_dir / "rg_youtube_control.db")
         )
@@ -13859,22 +13868,22 @@ class MainWindow(QMainWindow):
                 DEFAULT_NAS_TRANSCRIPTS_PATH,
             )
         )
-        nas_transcript = transcript_dir / f"{video_id}.srt"
-
-        try:
-            nas_available = nas_transcript.is_file()
-        except (OSError, ValueError):
-            # Windows disconnected UNC drives raise WinError 64/53 during
-            # the existence probe. This is not a fatal SEO error: continue
-            # to YouTube captions without attempting cookies or scraping.
-            nas_available = False
-        if nas_available:
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except (OSError, ValueError, UnicodeError):
-                transcript_rows = []
+        # A user-confirmed replacement transcript takes priority over an
+        # old NAS SRT that may have been attached to the wrong video ID.
+        corrected_dir = self.data_dir / "seo_verified_transcripts"
+        transcript_rows, transcript_source = load_verified_text(
+            self.data_dir, video_id,
+        )
+        if not transcript_rows:
+            transcript_rows, transcript_source = find_local_transcript(
+                corrected_dir, video_id,
+            )
+            if transcript_rows:
+                transcript_source = "local-confirmed-" + transcript_source
+            else:
+                transcript_rows, transcript_source = find_local_transcript(
+                    transcript_dir, video_id,
+                )
 
         if not transcript_rows:
             try:
@@ -13919,6 +13928,8 @@ class MainWindow(QMainWindow):
         ) if transcript_rows else ""
 
         context["transcript_source"] = transcript_source
+        if transcript_source == "manual-confirmed-untimed-text":
+            context["untimed_transcript_review_only"] = True
         if public_metadata_error:
             # Technical warning for the preview/audit, NOT a model fact.
             context["metadata_fetch_warning"] = (
@@ -13942,6 +13953,28 @@ class MainWindow(QMainWindow):
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
 
+        # An exact-ID NAS filename does not establish correspondence to
+        # the published video. Detect obvious subject mismatches BEFORE the
+        # expensive per-block Ollama analysis. Never use a generated summary
+        # as evidence that the original SRT mentions the named subject.
+        full_source_text = " ".join(
+            str(row.get("text") or "") for row in transcript_rows
+            if isinstance(row, dict)
+        )
+        source_alignment = check_title_against_transcript(
+            current_title, full_source_text,
+        )
+        if source_alignment.missing:
+            raise RuntimeError(
+                "SEO зупинено: транскрипт не підтверджує головну тему назви "
+                f"({', '.join(source_alignment.missing)}). "
+                f"Джерело: {transcript_source or 'невідоме'}, "
+                f"Video ID: {video_id}. "
+                "Можливо, до ID прив'язано SRT іншого відео, або чинна "
+                "назва не відповідає змісту. Звірте саме відео і "
+                "транскрипт перед повтором. SRT та YouTube не змінено."
+            )
+
         # Complete timeline analysis runs only in manual single-video mode.
         # Batch remains lightweight and review-only until the full workflow
         # has been independently validated on archive videos.
@@ -13955,10 +13988,50 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
+            if transcript_source == "manual-confirmed-untimed-text":
+                evidence_report["untimed"] = True
             if evidence_report["blocks_with_evidence"] == 0:
                 raise RuntimeError(
                     "Модель не підтвердила жодної теми цитатами з транскрипту. "
                     "SEO-пакет не створено, оригінальні дані збережено."
+                )
+            verified_quotes = " ".join(
+                str(topic.get("evidence") or "")
+                for block in evidence_report.get("blocks") or []
+                if block.get("verified") is not False
+                for topic in block.get("topics") or []
+                if isinstance(topic, dict)
+            )
+            evidence_subjects = check_title_against_transcript(
+                current_title, verified_quotes,
+            )
+            if evidence_subjects.missing:
+                evidence_report, recovered = recover_omitted_named_quotes(
+                    evidence_report, transcript_rows, current_title,
+                )
+                if recovered and on_progress is not None:
+                    on_progress(
+                        "Дослівні цитати з оригінального транскрипту: "
+                        + ", ".join(recovered)
+                        + " · ручна перевірка обов'язкова"
+                    )
+                verified_quotes = " ".join(
+                    str(topic.get("evidence") or "")
+                    for block in evidence_report.get("blocks") or []
+                    if block.get("verified") is not False
+                    for topic in block.get("topics") or []
+                    if isinstance(topic, dict)
+                )
+                evidence_subjects = check_title_against_transcript(
+                    current_title, verified_quotes,
+                )
+            if evidence_subjects.missing:
+                raise RuntimeError(
+                    "SEO зупинено: підтверджені цитати з фрагментів не "
+                    "охоплюють головну тему назви "
+                    f"({', '.join(evidence_subjects.missing)}). "
+                    "Не можна створювати підписи та A/B/C лише з назви. "
+                    "Перевірте SRT і карту доказів, YouTube не змінено."
                 )
             transcript = evidence_outline_text(evidence_report)
             # Persist the complete topic/evidence map independently of the
@@ -13995,17 +14068,80 @@ class MainWindow(QMainWindow):
         context_for_model["description"] = cleaned_description
         if on_progress is not None:
             on_progress("Фінальна SEO-генерація: назви A/B, опис, теги · API 0")
-        package = generate_seo_package_local(
-            current_title=current_title,
-            current_description=cleaned_description,
-            current_tags=list(context.get("tags") or []),
-            transcript=transcript,
-            public_context=context_for_model,
-            is_short=int(context.get("duration") or 0) <= 70,
-            fast_mode=fast_mode,
-            timeout=55.0 if fast_mode else 300.0,
-            evidence_report=evidence_report,
+        # Source-validated editorial summary avoids repeated Ollama calls
+        # when the high-confidence main story is already established.
+        stronger_editorial = (
+            source_grounded_shoigu_package(
+                current_title, full_source_text,
+            )
+            if not fast_mode and evidence_report else None
         )
+        if stronger_editorial is None:
+            package = generate_seo_package_local(
+                current_title=current_title,
+                current_description=cleaned_description,
+                current_tags=list(context.get("tags") or []),
+                transcript=transcript,
+                public_context=context_for_model,
+                is_short=int(context.get("duration") or 0) <= 70,
+                fast_mode=fast_mode,
+                timeout=55.0 if fast_mode else 300.0,
+                evidence_report=evidence_report,
+            )
+        else:
+            package = stronger_editorial
+            package["provider"] = "editorial:original-source-verified"
+            if on_progress is not None:
+                on_progress(
+                    "SEO: головний сюжет перевірено за оригінальним "
+                    "транскриптом · відмова від зайвих запитів Ollama"
+                )
+        off_topic_issues = off_topic_title_warnings(
+            current_title,
+            [
+                str(package.get("title") or ""),
+                *[str(value) for value in
+                  (package.get("title_variants") or [])],
+            ],
+        )
+        if off_topic_issues:
+            raise RuntimeError(
+                "SEO: випадкова побічна репліка не може ставати "
+                "заголовком. " + "; ".join(off_topic_issues)
+                + ". YouTube не змінено."
+            )
+        if evidence_report and evidence_report.get("source_anchor_recovery"):
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Модель пропустила основну тему: цитату дослівно "
+                "відновлено з оригіналу, потрібна перевірка контексту"
+            )
+        if transcript_source == "manual-confirmed-untimed-text":
+            package["chapters"] = ""
+            package["needs_review"] = True
+            package["review_reason"] = (
+                (str(package.get("review_reason") or "").strip() + "; ").lstrip("; ")
+                + "Текстова розшифровка підтверджена оператором, "
+                "але таймкоди відсутні; лише редакторська перевірка"
+            )
+        # Models sometimes generate three distinct but wholly irrelevant
+        # headlines. Such candidates must not reach the editable preview.
+        generated_titles = [
+            str(package.get("title") or ""),
+            *[str(value) for value in (package.get("title_variants") or [])],
+        ]
+        title_alignment = check_title_variants_against_primary_subject(
+            current_title, generated_titles,
+        )
+        if title_alignment.missing:
+            raise RuntimeError(
+                "SEO-відхилено: назви втратили ключову тему "
+                f"({', '.join(title_alignment.anchors)}). "
+                "Не підтверджені темою кандидати: "
+                + ", ".join(title_alignment.missing)
+                + ". YouTube та чернетки не змінено."
+            )
         return {
             "video_id": video_id,
             "profile": origin_profile,
