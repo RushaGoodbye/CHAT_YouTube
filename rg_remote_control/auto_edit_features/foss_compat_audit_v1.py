@@ -55,6 +55,31 @@ def run(command, timeout=15):
     except (OSError,ValueError) as e:
         return {"status":"UNAVAILABLE","error":type(e).__name__}
 
+def probe_feature_wiring(app: Path) -> dict:
+    """Read-only bounded scan of backend Python modules to find integration wiring."""
+    terms=("silero", "whisperx", "pyannote", "faster_whisper", "mediapipe",
+           "sam2", "scenedetect", "cv2", "onnxruntime")
+    identity=("NO_REFERENCE_FACE", "NO_CURRENT_COMPONENT_NEAR_SCREENSHOT",
+              "CURRENT_FACE_DESCRIPTOR_UNAVAILABLE", "FACE_VOICE_IDENTITY")
+    out={"scanned":0,"packages":{key:[] for key in terms},"identity":{}}
+    for file in sorted(app.glob("*.py"))[:1500]:
+        try:
+            if file.stat().st_size>1200000:
+                continue
+            content=file.read_text(encoding="utf-8-sig",errors="replace")
+        except (OSError,UnicodeError):
+            continue
+        out["scanned"]+=1
+        folded=content.casefold()
+        for key in terms:
+            if key in folded and len(out["packages"][key])<12:
+                out["packages"][key].append(file.name)
+        for key in identity:
+            if key.casefold() in folded:
+                out["identity"].setdefault(key,[]).append(file.name)
+    return out
+
+
 def probe():
     result={"schema":"RG_AUTO_EDIT_FOSS_COMPAT_AUDIT_V1","read_only":True,
             "installation_allowed":False,"model_downloads_allowed":False,
@@ -70,6 +95,7 @@ def probe():
     result["ffmpeg"]=run([ffmpeg,"-version"]) if ffmpeg else {"status":"NOT_ON_PATH"}
     result["studio_ffprobe_exists"]=(STUDIO/"tools"/"ffprobe.exe").is_file()
     result["gpu"]=run(["nvidia-smi","--query-gpu=name,memory.total,driver_version","--format=csv,noheader"],timeout=10)
+    result["feature_wiring"]=probe_feature_wiring(STUDIO)
     result["status"]="PASS" if result["packages"].get("status")=="OK" else "REVIEW"
     return result
 
