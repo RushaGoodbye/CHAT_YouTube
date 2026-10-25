@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "apply_auto_edit_partial_review_ui_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "rg-903-partial-ui-dryrun-real-20261025"
+  "nonce": "rg-903-partial-ui-install-real-20261025"
 }
