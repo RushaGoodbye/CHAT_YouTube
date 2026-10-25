@@ -26,6 +26,7 @@ class SchedulerOfflineTests(unittest.TestCase):
         self.put("nas/RG_TELEGRAM_CONTROL_AGENT.sh", "exit 0")
         self.put("nas/RG_NAS_TELEGRAM_WATCHDOG.sh", "exit 0")
         self.put("nas/RG_NAS_TELEGRAM_CONTROL_PLANE.sh", "exit 0")
+        self.put("nas/RG_NAS_COMMAND_BUS.sh", "exit 0")
         self.put("nas/RG_NAS_AUTO_DEPLOY.sh", "exit 0")
         self.env = os.environ.copy()
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env["PATH"]
@@ -79,6 +80,28 @@ class SchedulerOfflineTests(unittest.TestCase):
         self.run_scheduler(expected_code=1)
         self.assertEqual(self.value("scheduler_last_check_status"), "ERROR")
         self.assertEqual(self.value("telegram_scheduler_components_status"), "OK")
+
+    def test_command_bus_runtime_failure_reported(self):
+        self.put("nas/RG_NAS_COMMAND_BUS.sh", "exit 23")
+        self.run_scheduler()
+        self.assertEqual(self.value("nas_command_bus_error"), "command_bus_runtime_error")
+        self.assertEqual(self.value("telegram_scheduler_components_status"), "ERROR")
+        self.assertIn("command_bus_runtime", self.value("telegram_scheduler_components_failed"))
+
+    def test_command_bus_syntax_failure_reported(self):
+        self.put("nas/RG_NAS_COMMAND_BUS.sh", "if then")
+        self.run_scheduler()
+        self.assertEqual(self.value("nas_command_bus_error"), "command_bus_syntax_error")
+        self.assertIn("command_bus_syntax", self.value("telegram_scheduler_components_failed"))
+
+    def test_command_bus_recovery_clears_error(self):
+        self.put("nas/RG_NAS_COMMAND_BUS.sh", "exit 7")
+        self.run_scheduler()
+        self.put("nas/RG_NAS_COMMAND_BUS.sh", "exit 0")
+        self.run_scheduler()
+        self.assertEqual(self.value("telegram_scheduler_components_status"), "OK")
+        self.assertFalse((self.state / "nas_command_bus_error").exists())
+        self.assertFalse((self.state / "telegram_scheduler_components_failed").exists())
 
     def test_no_network_or_publication_invoked(self):
         self.put("bin/curl", "echo unexpected_curl >&2; exit 99")
