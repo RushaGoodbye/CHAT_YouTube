@@ -38,6 +38,19 @@ NEW2="""                        if (match is None or (identity is None and not _
                             good=False;break
                         ids.add(identity or 'MAIN')"""
 
+OLD3="""    q=app/(x.stem+"_CIGARETTE_BLUR_QA.json")
+    if not x.is_file() or not candidate.is_file() or not q.is_file():
+        return x"""
+NEW3="""    q=app/(x.stem+"_CIGARETTE_BLUR_QA.json")
+    # RG_POSTRUN_ROOT_SIDECAR_GATE_V1:
+    # Existing valid release/timeline QA may live beside the APP-root source XML.
+    # Reuse only for an identical delivery XML; never substitute stale revisions.
+    root_release_gate=app/(x.stem+"_FINAL_RELEASE_GATE.json")
+    root_timeline=app/(x.stem+"_FINAL_TIMELINE_AUDIT.json")
+    sidecar_ready=q.is_file() or (root_release_gate.is_file() and root_timeline.is_file())
+    if not x.is_file() or not candidate.is_file() or not sidecar_ready:
+        return x"""
+
 INVENTORY_METHOD="""
 def _rg_current_manifest_inventory(root:Path,stream,outs):
     \"""Return proved current screenshot IDs from a completed manifest, or None.
@@ -95,12 +108,14 @@ OVERRIDE="""    # RG_QA_MANIFEST_INVENTORY_V1: current completed manifest outran
 
 def patch_source(source):
     if "_rg_current_manifest_inventory(root:Path,stream,outs)" in source and "RG_QA_MANIFEST_INVENTORY_V1" in source:
+        if "RG_POSTRUN_ROOT_SIDECAR_GATE_V1" not in source:
+            raise RuntimeError("Partially patched postrun source; refusing to overwrite")
         ast.parse(source)
         return source,"ALREADY_PATCHED"
-    for i,old in enumerate((OLD1,OLD2,ANCHOR_FN,ANCHOR_USE)):
+    for i,old in enumerate((OLD1,OLD2,OLD3,ANCHOR_FN,ANCHOR_USE)):
         if source.count(old)!=1:
             raise RuntimeError(f"Live source anchor {i} count={source.count(old)}, patch aborted")
-    result=source.replace(OLD1,NEW1,1).replace(OLD2,NEW2,1)
+    result=source.replace(OLD1,NEW1,1).replace(OLD2,NEW2,1).replace(OLD3,NEW3,1)
     result=result.replace(ANCHOR_FN,INVENTORY_METHOD+"\n"+ANCHOR_FN,1)
     result=result.replace(ANCHOR_USE,OVERRIDE+ANCHOR_USE,1)
     ast.parse(result)
@@ -109,7 +124,7 @@ def patch_source(source):
 def smoke_test(source):
     tree=ast.parse(source)
     funcs={k:v for v in tree.body if isinstance(v,ast.FunctionDef) for k in [v.name]}
-    need=("_is_shorts","_primary_dialogue_id","_multi_dialogue_manifest","_primary_outputs","_rg_current_manifest_inventory")
+    need=("_is_shorts","_primary_dialogue_id","_multi_dialogue_manifest","_primary_outputs","_rg_current_manifest_inventory","_rg_verified_root_xml_for_qa")
     if any(k not in funcs for k in need):
         raise RuntimeError("Cannot isolate current output/manifest validation helpers")
     from tempfile import TemporaryDirectory
@@ -117,6 +132,7 @@ def smoke_test(source):
     exec(compile(ast.Module(body=[funcs[k] for k in need],type_ignores=[]),MODULE,"exec"),ctx)
     with TemporaryDirectory(prefix="rg_manifest_qa_") as tmp:
         app=Path(tmp)
+        ctx["__file__"]=str(app/MODULE)
         for stream,shots in TARGETS.items():
             folder=app/stream;folder.mkdir()
             rows=[]
@@ -128,6 +144,18 @@ def smoke_test(source):
             (app/f'RG_EDITED_{stream}_MULTI_DIALOGUE.json').write_text(json.dumps(manifest),encoding="utf-8")
             outs=ctx["_primary_outputs"](folder,[],stream)
             got=ctx["_rg_current_manifest_inventory"](folder,stream,outs)
+            # Current delivery XML can legitimately have its release-health
+            # evidence beside an APP-root identical XML (not in delivery dir).
+            if stream=="891":
+                appxml=app/"RG_EDITED_891.xml"
+                appxml.write_bytes(outs[0].read_bytes())
+                for suffix in ("_FINAL_RELEASE_GATE.json","_FINAL_TIMELINE_AUDIT.json"):
+                    (app/("RG_EDITED_891"+suffix)).write_text("{}",encoding="utf-8")
+                if ctx["_rg_verified_root_xml_for_qa"](outs[0]) != appxml:
+                    raise RuntimeError("Byte-identical APP-root gate provenance was not resolved")
+                appxml.write_text("<wrong revision/>",encoding="utf-8")
+                if ctx["_rg_verified_root_xml_for_qa"](outs[0]) != outs[0]:
+                    raise RuntimeError("Different APP-root revision was falsely trusted")
             if got!=shots:
                 raise RuntimeError(f"Manifest fixture {stream} expected {shots}; got {got}")
             manifest["status"]="PARTIAL_REVIEW"
