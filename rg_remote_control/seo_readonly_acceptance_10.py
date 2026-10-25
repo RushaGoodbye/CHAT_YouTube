@@ -28,8 +28,21 @@ from rg_youtube_control.dialogue_seo import (ab_title_issues,
 from rg_youtube_control.free_tools import (DEFAULT_OLLAMA_MODEL,
                                            generate_seo_package_local,
                                            load_srt_transcript, ollama_chat,
-                                           _incidental_ab_quote,
                                            _description_quality_error)
+def _incidental_ab_quote(title: str) -> bool:
+    """Reject incidental pleasantries and appearance-based SEO headlines."""
+    text = " ".join(str(title or "").casefold().split())
+    return bool(re.search(
+        r"(?:\\bкак\\s+дела\\b|\\bкак\\s+поживаете\\b|"
+        r"\\bпривет(?:ствую)?\\b|\\bздравствуй(?:те)?\\b|"
+        r"\\bдо\\s+свидания\\b|\\bспасибо\\s+за\\s+(?:разговор|беседу)\\b|"
+        r"\\bяк\\s+справи\\b|\\bдякую\\s+за\\s+розмову\\b|"
+        r"\\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\\b|"
+        r"\\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\\b|"
+        r"\\b(?:внешность|зовнішність)\\b|"
+        r"\\b(?:твои|ваши|твої|ваші)\\s+(?:глаза|волосы|очі|волосся)\\b)",
+        text,
+    ))
 from rg_youtube_control.optimization import safe_description_fix
 
 MAIN_IDS = (
