@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "reconcile_auto_edit_boundary_review_901_905_v1",
-  "args": {
-    "apply": true
-  },
-  "nonce": "rg-901-905-boundary-review-apply-backedup-20261025"
+  "action": "restart_auto_edit_studio_ui",
+  "args": {},
+  "nonce": "rg-auto-edit-reload-boundary-review-901-905-20261025"
 }
