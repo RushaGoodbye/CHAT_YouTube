@@ -20,7 +20,7 @@ class SchedulerOfflineTests(unittest.TestCase):
         self.bin.mkdir()
         source = SOURCE.read_text(encoding="utf-8")
         self.assertEqual(source.count('ROOT="/volume1/docker"'), 1)
-        self.assertIn('FAILED_TMP="$STATE/telegram_scheduler_components_failed.$"', source)
+        self.assertIn('FAILED_TMP="$STATE/telegram_scheduler_components_failed.$$"', source)
         self.assertNotIn('FAILED_TMP="$STATE/telegram_scheduler_components_failed.$"', source)
         self.scheduler = self.base / "scheduler.sh"
         self.scheduler.write_text(source.replace('ROOT="/volume1/docker"', 'ROOT="' + str(self.root) + '"', 1), encoding="utf-8")
