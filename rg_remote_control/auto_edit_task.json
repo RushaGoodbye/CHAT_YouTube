@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "qa_verify_903_v1",
-  "args": {
-    "apply": true
-  },
-  "nonce": "qa903-recheck-existing-xml-only-20261025"
+  "action": "inspect_auto_edit_foss_compat_v1",
+  "args": {},
+  "nonce": "rg-auto-edit-foss-readonly-audit-20261025"
 }
