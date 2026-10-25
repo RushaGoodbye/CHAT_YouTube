@@ -227,3 +227,24 @@ def test_preflight_rejects_unrelated_same_subject_srt_without_prompt(
     ui.MainWindow.local_seo_selected(window)
     assert window.received == [video_id]
     conn.close()
+
+
+def test_duration_formats_preserve_caption_coverage_checks():
+    from rg_youtube_control.seo_transcript_choice import published_duration_seconds
+    assert published_duration_seconds("PT9M53S") == 593
+    assert published_duration_seconds("PT1H25M2S") == 5102
+    assert published_duration_seconds("00:09:53") == 593
+    assert published_duration_seconds("09:53") == 593
+    assert published_duration_seconds(593) == 593
+    assert published_duration_seconds("untrusted") == 0
+
+
+def test_iso8601_duration_blocks_partial_timed_track():
+    from rg_youtube_control.seo_transcript_choice import published_duration_seconds
+    manual, timed = _source_pair()
+    result = compare_timed_to_verified(
+        "Увольнение Шойгу?", manual, timed,
+        published_duration=published_duration_seconds("PT9M53S"),
+    )
+    assert not result.offer_timed
+    assert result.reason == "short_coverage"
