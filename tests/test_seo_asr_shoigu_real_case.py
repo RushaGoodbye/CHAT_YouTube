@@ -76,8 +76,8 @@ def test_no_proper_name_does_not_turn_ordinary_step_into_shoigu():
 def test_one_incidental_literal_name_with_unrelated_context_not_sufficient():
     contaminated = (
         "В подписи один раз упомянут Шойгу, но всё интервью про погоду. "
-        "Далее идут обычные реплики о погоде и доме. "
-    ) * 2
+        + "Далее идут обычные реплики о погоде и доме. " * 12
+    )
     assert shoigu_source_evidence(contaminated).literal_mentions >= 1
     assert not shoigu_source_evidence(contaminated).source_name_supported
     assert source_grounded_shoigu_package(TITLE, contaminated) is None
