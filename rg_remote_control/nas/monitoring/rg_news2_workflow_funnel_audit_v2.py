@@ -41,6 +41,25 @@ SCHEMA = "RG_NEWS2_WORKFLOW_FUNNEL_AUDIT_V2"
 MAX_ROWS = 10000000
 SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 UTC = dt.timezone.utc
+# Unknown status values are NEVER echoed unless they have a narrow, predictable
+# application-workflow prefix or suffix, and contain no secret-like terms.
+SAFE_STAGE_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+SAFE_STAGE_PREFIXES = ("pending_", "awaiting_", "photo_", "moderation_", "review_", 
+                       "ready_", "dispatch_", "publication_", "candidate_", "intake_")
+SAFE_STAGE_SUFFIXES = ("_pending", "_ready", "_sent", "_failed", "_rejected",
+                       "_approved", "_review", "_moderation", "_blocked")
+REDACT_TERMS = ("secret", "token", "password", "private", "chat", "caption", "message",
+                "session", "credential", "auth", "key", "text", "url", "email")
+def safe_stage(value):
+    if not isinstance(value, str):
+        return None
+    status=value.strip().lower()
+    if (SAFE_STAGE_RE.fullmatch(status)
+        and not any(term in status for term in REDACT_TERMS)
+        and (status.startswith(SAFE_STAGE_PREFIXES) or status.endswith(SAFE_STAGE_SUFFIXES))):
+        return status
+    return None
+
 
 def find_live_database(root):
     """Select the production DB only under known candidate paths, never backups."""
@@ -135,10 +154,16 @@ def table_summary(connection, table, now):
                 elif type(val) in (bool,int) and val in (0,1):
                     counts["true" if val else "false"]=counts.get("true" if val else "false",0)+int(cnt)
                 else:
-                    unknown+=int(cnt)
+                    safe=safe_stage(val)
+                    if safe is not None:
+                        counts[safe]=counts.get(safe,0)+int(cnt)
+                    else:
+                        unknown+=int(cnt)
             if unknown:
                 counts["other_redacted"]=unknown
             summary["status_counts"][col]=counts
+            if len(rows)==120:
+                summary.setdefault("status_group_truncation_possible",[]).append(col)
         except sqlite3.Error:
             summary["status_counts"][col]={"query_unavailable":True}
     for col in TIME_CHOICES:
@@ -183,12 +208,31 @@ def db_summary(path, now):
     return out
 
 def signal(root, name, now):
-    """Read known JSON files; return only explicitly allowlisted counters/flags."""
-    paths=(root/name, root/"runtime"/name, root/"state"/name)
-    file=next((p for p in paths if p.is_file() and not p.is_symlink() and p.stat().st_size<2*1024*1024),None)
-    if file is None:
+    """Locate exact known status filenames under live NEWS2, including nested runtime paths.
+
+    No raw path, logs or arbitrary JSON values leave this function.
+    """
+    choices=[]
+    if root.is_dir() and not root.is_symlink():
+        for parent, dirs, files in os.walk(str(root),followlinks=False):
+            depth=len(pathlib.Path(parent).relative_to(root).parts)
+            dirs[:]=[d for d in dirs if depth<4 and not d.startswith(".")
+                     and d.lower() not in ("backups","backup","archive","old","snapshots",
+                                           "cache","secrets","venv")
+                     and not (pathlib.Path(parent)/d).is_symlink()]
+            if name in files:
+                p=pathlib.Path(parent)/name
+                try:
+                    if p.is_file() and not p.is_symlink() and p.stat().st_size<2*1024*1024:
+                        choices.append(p)
+                except OSError:
+                    pass
+    if not choices:
         return {"found":False}
-    result={"found":True,"age_sec":age_of(file,now),"json_valid":False}
+    choices.sort(key=lambda p:p.stat().st_mtime,reverse=True)
+    file=choices[0]
+    result={"found":True,"age_sec":age_of(file,now),"json_valid":False,
+            "matching_files":len(choices),"found_in_nested_directory":file.parent!=root}
     try:
         doc=json.loads(file.read_text(encoding="utf-8"))
         if not isinstance(doc,dict):
@@ -251,12 +295,13 @@ def selftest():
         cx.execute("CREATE TABLE rg_v35_publications(id INTEGER, status TEXT, access_token TEXT)")
         cx.executemany("INSERT INTO candidates VALUES (?,?,?,?)",[
             (1,"pending","SECRET_CAPTION","2026-10-24T15:00:00+00:00"),
-            (2,"accepted","PRIVATE_TEXT","2026-10-25T18:00:00+00:00"),
+            (2,"pending_photo_review","PRIVATE_TEXT","2026-10-25T18:00:00+00:00"),
             (3,"unrecognized_private_text","PRIVATE_TEXT","2026-10-25T18:10:00+00:00")])
         cx.execute("INSERT INTO moderation_dispatch VALUES(1,'sent','PRIVATE_CHAT_ID')")
         cx.execute("INSERT INTO rg_v35_publications VALUES(1,'blocked','TOKEN_PRIVATE')")
         cx.commit();cx.close()
-        (root/"callback_v29_state.json").write_text(json.dumps({
+        (root/"runtime"/"deep").mkdir(parents=True)
+        (root/"runtime"/"deep"/"callback_v29_state.json").write_text(json.dumps({
             "callbacks_processed":5,"chat_id":"PRIVATE_CHAT_ID",
             "bot_token":"TOKEN_PRIVATE","accept_count":2}),encoding="utf-8")
         now=dt.datetime(2026,10,25,19,0,tzinfo=UTC)
@@ -264,8 +309,10 @@ def selftest():
         assert doc["db"]["quick_check"]=="ok"
         assert doc["db"]["tables"]["candidates"]["rows"]==3
         assert doc["db"]["tables"]["candidates"]["status_counts"]["status"]["pending"]==1
+        assert doc["db"]["tables"]["candidates"]["status_counts"]["status"]["pending_photo_review"]==1
         assert doc["db"]["tables"]["candidates"]["status_counts"]["status"]["other_redacted"]==1
         assert doc["signals"]["callback_v29_state.json"]["allowlisted_fields_unverified"]["callbacks_processed"]==5
+        assert doc["signals"]["callback_v29_state.json"]["found_in_nested_directory"] is True
         assert doc["moderator_button_callbacks_confirmed"]=="NOT_PROVEN_BY_AGGREGATE_COUNTERS"
         printed=json.dumps(doc)
         for secret in ("SECRET_CAPTION","PRIVATE_TEXT","PRIVATE_CHAT_ID","TOKEN_PRIVATE",
