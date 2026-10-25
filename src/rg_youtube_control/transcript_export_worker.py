@@ -197,3 +197,116 @@ def run_transcript_export(
         "items": report_items,
         "total": len(validated),
     }
+
+
+def run_deep_manifest_transcript_export(
+    conn: sqlite3.Connection,
+    *,
+    profile: str,
+    manifest_path: Path,
+    target_dir: Path,
+    client_factory: Callable[..., Any],
+    uploader: Callable[..., Any],
+    bridge_url: str,
+    max_new: int = 20,
+) -> dict[str, Any]:
+    """Read an existing deep-review queue and export missing SRTs off Qt.
+
+    Limits new downloads to both the explicit batch cap and the *current*
+    protected quota budget. Existing SRTs are left untouched. The manifest
+    is updated atomically only if it has not changed since reading.
+    """
+    if profile not in PROFILE_TARGETS:
+        raise ValueError("Невідомий профіль глибокої черги.")
+    if max_new < 1 or max_new > 20:
+        raise ValueError("Глибока черга допускає максимум 20 нових SRT.")
+
+    # Manifest and every UNC stat happen only in this background worker.
+    original = manifest_path.read_bytes()
+    payload = json.loads(original.decode("utf-8-sig"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise ValueError("Некоректний маніфест глибокої черги.")
+    pending: list[dict[str, str]] = []
+    seen: set[str] = set()
+    existing = 0
+    for item in payload["items"]:
+        if not isinstance(item, dict):
+            continue
+        video_id = str(item.get("video_id") or "")
+        if not _VIDEO_ID.fullmatch(video_id) or video_id in seen:
+            continue
+        seen.add(video_id)
+        video = conn.execute(
+            "SELECT profile,title FROM videos WHERE video_id=?", (video_id,),
+        ).fetchone()
+        if video is None or str(video["profile"]) != profile:
+            continue
+        path = target_dir / f"{video_id}.srt"
+        if path.is_file() and path.stat().st_size > 0:
+            existing += 1
+            continue
+        pending.append({
+            "video_id": video_id,
+            "title": str(video["title"] or ""),
+            "scheduled_publish_at": "",
+        })
+
+    if not pending:
+        return {
+            "pending": 0, "existing": existing, "saved": 0,
+            "failed": 0, "errors": [], "manifest_updated": False,
+            "quota_blocked": False,
+        }
+
+    capacity = min(
+        max_new,
+        max(0, int(quota_budget_status(conn)["spendable"])
+            // CAPTION_TRANSCRIPT_COST),
+    )
+    if capacity <= 0:
+        return {
+            "pending": len(pending), "existing": existing, "saved": 0,
+            "failed": 0, "errors": [], "manifest_updated": False,
+            "quota_blocked": True,
+        }
+
+    result = run_transcript_export(
+        conn,
+        profile=profile,
+        rows=pending[:capacity],
+        target_dir=target_dir,
+        client_factory=client_factory,
+        uploader=uploader,
+        bridge_url=bridge_url,
+        max_new=capacity,
+    )
+    good = {
+        str(item["video_id"]): str(item["path"])
+        for item in result.get("items", [])
+        if item.get("ok") and item.get("path")
+    }
+    # Never erase a concurrent operator/agent change to the manifest.
+    manifest_updated = False
+    if good and manifest_path.read_bytes() == original:
+        for item in payload["items"]:
+            if not isinstance(item, dict):
+                continue
+            path = good.get(str(item.get("video_id") or ""))
+            if path:
+                item["transcript_ready"] = True
+                item["transcript_path"] = path
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _atomic_text(
+            manifest_path, json.dumps(payload, ensure_ascii=False, indent=2),
+        )
+        manifest_updated = True
+
+    return {
+        "pending": len(pending),
+        "existing": existing,
+        "saved": int(result.get("saved") or 0),
+        "failed": int(result.get("failed") or 0),
+        "errors": list(result.get("errors") or []),
+        "manifest_updated": manifest_updated,
+        "quota_blocked": False,
+    }
