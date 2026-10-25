@@ -209,6 +209,17 @@ def run_one(
         result.update({
             "checks": conditions,
             "ab_issue_count": len(issues),
+            # Only bounded diagnostic codes. Never export generated titles,
+            # transcript excerpts or NAS paths to GitHub Actions logs.
+            "ab_issue_categories": sorted({
+                "unsupported_topic" if "непідтверджен" in issue or "підтверджених тематичних" in issue or "дослівні цитати" in issue
+                else "duplicated_hook" if "повторюють" in issue or "сюжетну опору" in issue
+                else "asr_noise" if "розпізнавання" in issue
+                else "generic_hook" if "надто загальний" in issue or "загальною реплікою" in issue
+                else "title_length_or_count" if "20-100" in issue or "рівно 3" in issue
+                else "other"
+                for issue in issues
+            }),
             "ungrounded_block_count": max(0, blocks - grounded),
             "ab_count": len(ab),
             "tags_count": len(tags),
