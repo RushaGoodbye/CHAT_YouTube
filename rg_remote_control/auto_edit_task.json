@@ -1,20 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "action": "reconcile_auto_edit_boundary_review_901_905_v1",
   "args": {
-    "streams": [
-      "886",
-      "891",
-      "892",
-      "893",
-      "899",
-      "901",
-      "902",
-      "903",
-      "904",
-      "905"
-    ]
+    "apply": false
   },
-  "nonce": "rg-batch-10-streams-critical-only-qa-20261025"
+  "nonce": "rg-901-905-boundary-review-dryrun-20261025"
 }
