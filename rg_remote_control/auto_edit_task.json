@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "apply_auto_edit_batch_891_892_qa_fix_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "rg-auto-edit-891-892-batch-dryrun-20261025"
+  "nonce": "rg-auto-edit-891-892-batch-apply-backup-20261025"
 }
