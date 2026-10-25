@@ -139,6 +139,12 @@ def audit(task_root="/usr/syno/etc/synoschedule.d", cron="/etc/crontab", sched_b
         cron_available = True
     except OSError:
         cron_available = False
+
+    # Correlate real DSM cron IDs with the sanitized task inventory.
+    active_ids = set(cron_ids)
+    for entry in cli["related_tasks"] + matching_files:
+        entry["cron_active"] = entry["id"] in active_ids
+        entry["known_target_directly_referenced"] = bool(entry["targets"])
     return {"schema":"RG_SYNOLOGY_TASK_AUDIT_V1", "read_only": True,
             "synology_cli": cli, "task_directory_available": os.path.isdir(task_root),
             "matching_task_files": matching_files, "cron_available":cron_available,
@@ -172,6 +178,7 @@ def selftest():
         assert result["active_synoschedtask_cron_ids"] == [18]
         assert result["matching_task_files"][0]["state"] == "disabled"
         assert result["matching_task_files"][0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
+        assert result["matching_task_files"][0]["cron_active"] is True
         assert parsed[0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
         assert "SECRET_VALUE" not in json.dumps(result)
     print("RG_SYNOLOGY_TASK_AUDIT_SELFTEST_PASS")
