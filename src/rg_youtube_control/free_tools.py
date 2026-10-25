@@ -2157,6 +2157,21 @@ def generate_seo_package_local(
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    # Port the 0.7.39 source/title check. Verify on the ORIGINAL transcript,
+    # never on model-generated labels or the old YouTube description.
+    from .seo_source_alignment import (
+        check_title_against_transcript,
+        check_title_variants_against_primary_subject,
+    )
+    original_subject = check_title_against_transcript(current_title, transcript)
+    supported_subject = bool(original_subject.anchors and original_subject.passed)
+    named_subject_requirement = (
+        "КРИТИЧНО: основна назва й три A/B мають зберегти "
+        "головну підтверджену тему: "
+        + ", ".join(original_subject.anchors)
+        + ". Не підмінюй її випадковими репліками."
+        if supported_subject else ""
+    )
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
@@ -2172,6 +2187,7 @@ def generate_seo_package_local(
 
 Правила:
 - основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
+- {named_subject_requirement}
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
@@ -2723,6 +2739,21 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short:
         chapters = ""
 
+    # A correctly named original video still needs subject-parity review when
+    # its proposed main/A/B titles wander into incidental source remarks.
+    headline_alignment = (
+        check_title_variants_against_primary_subject(
+            current_title, [title] + variants[:3],
+        )
+        if supported_subject else None
+    )
+    editorial_alignment_issues = list(
+        headline_alignment.missing if headline_alignment else ()
+    )
+    source_identity_warning = bool(
+        original_subject.anchors and not original_subject.passed
+    )
+
     return {
         "title": title,
         "title_variants": variants[:3],
@@ -2730,11 +2761,15 @@ chapters: рядок з підтвердженими таймкодами та �
         "tags": tags[:15],
         "chapters": chapters,
         "provider": f"ollama:{model}",
+        "source_identity_warning": source_identity_warning,
+        "source_primary_alignment_issues": editorial_alignment_issues,
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
         "needs_review": (
-            source_quote_fallback
+            source_identity_warning
+            or bool(editorial_alignment_issues)
+            or source_quote_fallback
             or incidental_primary_rejected
             or bool(rejected_incidental_variants)
             or
@@ -2757,6 +2792,10 @@ chapters: рядок з підтвердженими таймкодами та �
         "ab_quality_issues": title_issues,
         "review_reason": "; ".join(
             message for condition, message in (
+                (source_identity_warning, "Названу тему оригіналу не підтверджено транскриптом — перевірте джерело"),
+                (bool(editorial_alignment_issues),
+                 "SEO-заголовки не зберігають центральну підтверджену тему: "
+                 + ", ".join(editorial_alignment_issues[:4])),
                 (title_fallback_used, "Модель не створила нову назву"),
                 (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
                 (len(variants) < 3, "Недостатньо підтверджених A/B назв"),
