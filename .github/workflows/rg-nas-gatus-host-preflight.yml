@@ -5,6 +5,9 @@ on:
     branches: [feat/nas-gatus-passive-monitor-20261025]
     paths:
       - .github/workflows/rg-nas-gatus-host-preflight.yml
+  pull_request:
+    paths:
+      - .github/workflows/rg-nas-gatus-host-preflight.yml
   workflow_dispatch:
 
 permissions:
