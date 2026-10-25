@@ -1,7 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_identity_cache_903_v1",
+  "action": "inspect_auto_edit_partial_ui_status_v1",
   "args": {},
-  "nonce": "rg-903-cache-real-anchor-20261025"
+  "nonce": "rg-ui-partial-status-inspect-live-20261025"
 }
