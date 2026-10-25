@@ -510,7 +510,7 @@ def test_silent_updater_suppresses_same_dismissed_version():
     import inspect
     from rg_youtube_control.ui import MainWindow
 
-    source = inspect.getsource(MainWindow.check_for_updates_silent)
+    source = inspect.getsource(MainWindow._receive_background_update_check)
     assert "update_dismissed_version" in source
     assert "_update_prompted_version_session" in source
 
