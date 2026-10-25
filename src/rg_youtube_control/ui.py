@@ -10170,6 +10170,82 @@ class MainWindow(QMainWindow):
                 profile=profile, single=True,
             )
 
+    def _start_transcript_export_worker(
+        self, rows: list[dict[str, str]], *, profile: str, single: bool,
+    ) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        target_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+
+        def task():
+            import sqlite3
+            conn = sqlite3.connect(str(db_path), timeout=15)
+            conn.row_factory = sqlite3.Row
+            try:
+                return run_transcript_export(
+                    conn, profile=profile, rows=rows,
+                    target_dir=target_dir, client_factory=YouTubeClient,
+                    uploader=upload_transcript, bridge_url=PACKAGE_BRIDGE_URL,
+                    max_new=1 if single else 20,
+                )
+            finally:
+                conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._transcript_export_worker = worker
+        self.statusBar().showMessage("Транскрипти: NAS у фоні")
+
+        def success(result: object) -> None:
+            self.refresh_youtube_quota_label()
+            if self.current_profile == profile:
+                self.reload_optimization_queue()
+            errors = list(result.get("errors") or [])
+            if single:
+                items = result.get("items") or []
+                if items and items[0]["ok"]:
+                    action = (
+                        "збережено" if items[0]["downloaded"] else "уже був на NAS"
+                    )
+                    QMessageBox.information(
+                        self, APP_NAME,
+                        f"Транскрипт {action}:\n{items[0]['path']}",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self, APP_NAME,
+                        "\n".join(errors[:5]) or "Транскрипт недоступний.",
+                    )
+            else:
+                message = (
+                    f"Нових транскриптів: {result['saved']}.\n"
+                    f"Уже існувало: {result['already']}."
+                )
+                if errors:
+                    message += "\nПомилки:\n" + "\n".join(errors[:8])
+                if result.get("report_error"):
+                    message += "\nЗвіт NAS: " + str(result["report_error"])
+                else:
+                    message += "\nЗвіт: " + str(result["report_path"])
+                QMessageBox.information(self, APP_NAME, message)
+            self.statusBar().showMessage("Транскрипти оброблено")
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error("Помилка отримання транскриптів", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_transcript_export_worker", None) is worker:
+                self._transcript_export_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
     def _save_package_payload(
         self,
         video_id: str,
