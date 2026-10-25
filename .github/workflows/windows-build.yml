@@ -12,6 +12,7 @@ on:
   pull_request:
     branches:
       - "main"
+      - "fix/seo-editorial-signal-0739-20261015"
     paths-ignore:
       - "rg_remote_mcp/**"
       - "rg_remote_control/**"
