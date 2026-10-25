@@ -20,15 +20,17 @@ if docker inspect rg-nas-autodeploy >/dev/null 2>&1; then
   printf '%s\n' "$NOW" > "$STATE/obsolete_autodeploy_removed_at"
 fi
 
+TELEGRAM_CHECK_FAILED=0
+: > "$STATE/telegram_scheduler_components_failed.tmp"
 if [ -f "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" ]; then
-  sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || true
+  sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_agent >> "$STATE/telegram_scheduler_components_failed.tmp"; }
 fi
 
 if [ -f "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" ]; then
-  sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1 || true
+  sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo watchdog >> "$STATE/telegram_scheduler_components_failed.tmp"; }
 fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
-  sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || true
+  sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_plane >> "$STATE/telegram_scheduler_components_failed.tmp"; }
 fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
@@ -40,6 +42,15 @@ if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
   fi
 fi
 
+# Publish a separate, durable component result: deploy success does not imply Telegram health.
+if [ "$TELEGRAM_CHECK_FAILED" -eq 0 ]; then
+  printf "%s\n" "OK" > "$STATE/telegram_scheduler_components_status"
+  rm -f "$STATE/telegram_scheduler_components_failed"
+else
+  printf "%s\n" "ERROR" > "$STATE/telegram_scheduler_components_status"
+  mv -f "$STATE/telegram_scheduler_components_failed.tmp" "$STATE/telegram_scheduler_components_failed"
+fi
+rm -f "$STATE/telegram_scheduler_components_failed.tmp"
 # RG_KYIV_SHADOW_POLL_BEGIN
 # Read-only Kyiv alert sampler. It never sends Telegram messages.
 # Ubilling cache and 429 cooldown are enforced inside the Python adapter.
