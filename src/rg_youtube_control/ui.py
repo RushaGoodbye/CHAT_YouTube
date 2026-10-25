@@ -12855,6 +12855,7 @@ class MainWindow(QMainWindow):
         fast_mode: bool = False,
         on_progress=None,
         transcript_preference: str = "",
+        source_diagnostics: list[str] | None = None,
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
@@ -13056,28 +13057,9 @@ class MainWindow(QMainWindow):
         context["transcript_source"] = transcript_source
         if transcript_source == "manual-confirmed-untimed-text":
             context["untimed_transcript_review_only"] = True
-            from .seo_transcript_choice import (
-                compare_timed_to_verified, published_duration_seconds,
-                source_comparison_note,
-            )
-            duration = published_duration_seconds(
-                context.get("duration") or (state[3] if state is not None else 0)
-            )
-            diagnostics: list[str] = []
-            for key, folder in (
-                ("confirmed-srt", corrected_dir),
-                ("nas-srt", transcript_dir),
-            ):
-                candidate_rows, _ = find_local_transcript(folder, video_id)
-                result = compare_timed_to_verified(
-                    current_title, transcript_rows, candidate_rows,
-                    published_duration=duration,
-                )
-                diagnostics.append(source_comparison_note(key, result))
-            context["seo_source_diagnostics"] = diagnostics
-            if on_progress is not None:
-                on_progress("SEO: використано підтверджений TXT без таймкодів; "
-                            "причини відбору SRT будуть у перегляді")
+            # Worker must not touch NAS when a confirmed TXT is selected.
+            # The GUI performed optional source comparison at preflight.
+            context["seo_source_diagnostics"] = list(source_diagnostics or [])
         elif transcript_source.startswith("operator-confirmed-"):
             context["seo_source_diagnostics"] = [
                 "Оператор підтвердив SRT для цієї перевірки; "
@@ -13722,6 +13704,7 @@ class MainWindow(QMainWindow):
         # Only the confirmed owner of an already imported TXT may elect
         # another source; no automatic replacement, no changes to NAS/TXT.
         transcript_preference = ""
+        source_diagnostics: list[str] = []
         media_path = None
         repairing_wrong_source = False
         model_dir = local_whisper_model_dir(self.data_dir)
@@ -13761,6 +13744,10 @@ class MainWindow(QMainWindow):
                     comparison = compare_timed_to_verified(
                         source_title, local_rows, candidate_rows,
                         published_duration=duration,
+                    )
+                    from .seo_transcript_choice import source_comparison_note
+                    source_diagnostics.append(
+                        source_comparison_note(source_key, comparison)
                     )
                     if comparison.offer_timed:
                         reply = QMessageBox.question(
@@ -14008,6 +13995,8 @@ class MainWindow(QMainWindow):
             seo_kwargs = {"on_progress": progress}
             if transcript_preference:
                 seo_kwargs["transcript_preference"] = transcript_preference
+            if source_diagnostics and not transcript_preference:
+                seo_kwargs["source_diagnostics"] = list(source_diagnostics)
             return self._generate_local_seo_result(video_id, **seo_kwargs)
 
         self._run_local_tool(
