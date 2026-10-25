@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "qa_verify_903_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "qa903-verify-readonly-20261025"
+  "nonce": "qa903-recheck-existing-xml-only-20261025"
 }
