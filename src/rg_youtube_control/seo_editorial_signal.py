@@ -129,6 +129,31 @@ _DISTRACTIONS = (
 )
 
 
+_INCIDENTAL_HEADLINE = re.compile(
+    r"(?i)(?:\bкак\s+дела\b|\bкак\s+поживаете\b|"
+    r"\bпривет(?:ствую)?\b|\bздравствуй(?:те)?\b|"
+    r"\bдо\s+свидания\b|\bспасибо\s+за\s+(?:разговор|беседу)\b|"
+    r"\bяк\s+справи\b|\bдякую\s+за\s+розмову\b|"
+    r"\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\b|"
+    r"\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\b|"
+    r"\b(?:внешность|зовнішність)\b|"
+    r"\b(?:твои|ваши|твої|ваші)\s+(?:глаза|волосы|очі|волосся)\b)"
+)
+
+def is_incidental_seo_headline(original_title: str, candidate: str) -> bool:
+    """One canonical predicate for desktop GUI and local SEO generator.
+
+    Source conversations may mention clothing or greetings in passing.
+    Clothing is legitimate only when it is the source video's own subject.
+    """
+    candidate_text = " ".join(str(candidate or "").casefold().split())
+    source_text = " ".join(str(original_title or "").casefold().split())
+    return bool(_INCIDENTAL_HEADLINE.search(candidate_text)) or (
+        not _has(source_text, *_DISTRACTIONS)
+        and _has(candidate_text, *_DISTRACTIONS)
+    )
+
+
 def off_topic_title_warnings(
     original_title: str, title_variants: list[str],
 ) -> list[str]:
@@ -136,11 +161,8 @@ def off_topic_title_warnings(
 
     The default remains permissive when clothing IS the original video topic.
     """
-    source = str(original_title or "").casefold()
-    if _has(source, *_DISTRACTIONS):
-        return []
     return [
         f"Варіант {index} просуває випадкову репліку про зовнішність"
         for index, value in enumerate(title_variants, 1)
-        if _has(str(value).casefold(), *_DISTRACTIONS)
+        if is_incidental_seo_headline(original_title, value)
     ]
