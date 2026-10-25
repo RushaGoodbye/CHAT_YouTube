@@ -24,13 +24,22 @@ TELEGRAM_CHECK_FAILED=0
 : > "$STATE/telegram_scheduler_components_failed.tmp"
 if [ -f "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" ]; then
   sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_agent >> "$STATE/telegram_scheduler_components_failed.tmp"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo control_agent_missing >> "$STATE/telegram_scheduler_components_failed.tmp"
 fi
 
 if [ -f "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" ]; then
   sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo watchdog >> "$STATE/telegram_scheduler_components_failed.tmp"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo watchdog_missing >> "$STATE/telegram_scheduler_components_failed.tmp"
 fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
   sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_plane >> "$STATE/telegram_scheduler_components_failed.tmp"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo control_plane_missing >> "$STATE/telegram_scheduler_components_failed.tmp"
 fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
