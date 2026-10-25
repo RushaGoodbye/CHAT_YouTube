@@ -79,6 +79,8 @@ class XmlGateSourceTests(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("ET.parse(p).getroot()", source)
         self.assertIn('root_xml.find(".//sequence")', source)
+        self.assertIn('sequence.findall("./media/video/track/clipitem")', source)
+        self.assertIn('sequence.findall("./media/audio/track/clipitem")', source)
 
 if __name__ == "__main__":
     unittest.main()
