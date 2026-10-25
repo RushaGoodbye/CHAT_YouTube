@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "apply_auto_edit_batch_891_892_qa_fix_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "rg-891-892-release-health-guarded-dryrun-20261025-v2"
+  "nonce": "rg-891-892-release-health-batch-qa-apply-20261025-v2"
 }
