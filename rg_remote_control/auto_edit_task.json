@@ -3,8 +3,8 @@
   "contour": "auto_edit",
   "action": "qa_partial_manifest_fix_v1",
   "args": {
-    "apply": false,
+    "apply": true,
     "stream": "903"
   },
-  "nonce": "qa-partial-v1-readonly-check-20261025"
+  "nonce": "qa-partial-v1-apply-backedup-20261025"
 }
