@@ -30,3 +30,25 @@ def test_quote_fallback_never_fabricates_third_topic(monkeypatch):
     ]}
     monkeypatch.setattr(free_tools, "ab_title_issues", lambda titles, report: [])
     assert free_tools._source_quote_ab_titles(report, "") == []
+
+
+def test_quote_fallback_caps_long_live_search(monkeypatch):
+    # 80 topics would otherwise create 82,160 triplets; 18 -> 816.
+    report = {"blocks": [
+        {"verified": True, "start_stamp": "00:00", "topics": [
+            {
+                "topic": f"Тема {i}",
+                "evidence": f"Цитата номер {i} містить окреме довге свідчення про конкретні події та аргументи."
+            }
+            for i in range(80)
+        ]}
+    ]}
+    calls = []
+    def record(titles, report):
+        calls.append(tuple(titles))
+        return []
+    monkeypatch.setattr(free_tools, "ab_title_issues", record)
+    result = free_tools._source_quote_ab_titles(report, "")
+    assert len(result) == 3
+    assert len(calls) == 1
+    assert "79" in " ".join(result)
