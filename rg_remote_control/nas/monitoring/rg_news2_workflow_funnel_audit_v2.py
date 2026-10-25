@@ -267,11 +267,29 @@ def main_report(root, now=None):
     candidates=tables.get("candidates",{})
     dispatch=tables.get("moderation_dispatch",{})
     publications=tables.get("rg_v35_publications",{})
+    cflags=candidates.get("status_counts",{}).get("photo_reviewed",{})
+    dflags=dispatch.get("status_counts",{}).get("state",{})
+    candidate_age=candidates.get("latest_event_age_sec")
+    dispatch_age=dispatch.get("latest_event_age_sec")
+    observation={
+        "candidates_total":candidates.get("rows"),
+        "candidates_photo_review_flag_true":cflags.get("true"),
+        "candidates_photo_review_flag_false":cflags.get("false"),
+        "moderation_dispatch_total":dispatch.get("rows"),
+        "moderation_dispatch_sent_status_count":dflags.get("sent"),
+        "publication_ledger_rows":publications.get("rows"),
+        "candidate_updates_recent_15m":candidate_age is not None and candidate_age<=900,
+        "moderation_dispatch_updates_recent_15m":dispatch_age is not None and dispatch_age<=900,
+        "intake_active_dispatch_not_recent":bool(
+            candidate_age is not None and candidate_age<=900
+            and dispatch_age is not None and dispatch_age>900),
+        "caution":"Candidate/dispatch states may not map to a one-to-one funnel; no automatic repairs.",
+    }
     return {
         "schema":SCHEMA,"read_only":True,"telegram_api_calls":0,
         "cloudflare_calls":0,"public_channel_messages_sent":0,
         "db_writes":0,
-        "db":db,"signals":signals,
+        "db":db,"signals":signals,"workflow_observations":observation,
         "candidates_table_available":candidates.get("present") is True,
         "dispatch_table_available":dispatch.get("present") is True,
         "publication_ledger_available":publications.get("present") is True,
@@ -314,6 +332,9 @@ def selftest():
         assert doc["signals"]["callback_v29_state.json"]["allowlisted_fields_unverified"]["callbacks_processed"]==5
         assert doc["signals"]["callback_v29_state.json"]["found_in_nested_directory"] is True
         assert doc["moderator_button_callbacks_confirmed"]=="NOT_PROVEN_BY_AGGREGATE_COUNTERS"
+        assert doc["workflow_observations"]["candidates_total"]==3
+        assert doc["workflow_observations"]["moderation_dispatch_sent_status_count"]==1
+        assert doc["workflow_observations"]["publication_ledger_rows"]==1
         printed=json.dumps(doc)
         for secret in ("SECRET_CAPTION","PRIVATE_TEXT","PRIVATE_CHAT_ID","TOKEN_PRIVATE",
                        "unrecognized_private_text"):
