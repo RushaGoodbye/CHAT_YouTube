@@ -1,0 +1,41 @@
+name: RG NAS Gatus Host Preflight (read only)
+
+on:
+  push:
+    branches: [feat/nas-gatus-passive-monitor-20261025]
+    paths:
+      - .github/workflows/rg-nas-gatus-host-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-nas-gatus-host-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, rg, nas]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect NAS tools and conflicts without changes
+        shell: bash
+        run: |
+          set -eu
+          echo "RG_GATUS_PREFLIGHT_START"
+          date -u '+UTC=%Y-%m-%dT%H:%M:%SZ'
+          uname -s
+          if [ -d /volume1/docker ]; then echo "NAS_VOLUME=yes"; else echo "NAS_VOLUME=no"; fi
+          if command -v docker >/dev/null 2>&1; then
+            echo "DOCKER_CLI=yes"
+            if docker info >/dev/null 2>&1; then echo "DOCKER_DAEMON=yes"; else echo "DOCKER_DAEMON=no"; fi
+            if docker compose version >/dev/null 2>&1; then echo "DOCKER_COMPOSE=yes"; else echo "DOCKER_COMPOSE=no"; fi
+            if docker inspect rg-nas-gatus >/dev/null 2>&1; then echo "GATUS_CONTAINER=present"; else echo "GATUS_CONTAINER=absent"; fi
+          else
+            echo "DOCKER_CLI=no"
+          fi
+          if command -v python3 >/dev/null 2>&1; then echo "PYTHON3=yes"; else echo "PYTHON3=no"; fi
+          if command -v curl >/dev/null 2>&1; then echo "CURL=yes"; else echo "CURL=no"; fi
+          if test -e /volume1/docker/RG_NAS_MONITOR; then echo "MONITOR_DIR=present"; else echo "MONITOR_DIR=absent"; fi
+          echo "RG_GATUS_PREFLIGHT_END"
