@@ -963,7 +963,12 @@ class MainWindow(QMainWindow):
         def scan() -> None:
             # Daemon worker does not delay shutdown if a network drive is down.
             # SQLite and widgets are accessed exclusively on the GUI thread.
-            ids = scan_nas_srt_ids(Path(target))
+            try:
+                ids = scan_nas_srt_ids(Path(target))
+            except Exception:
+                # An unreachable NAS must not permanently strand the
+                # "scanning" flag or mark missing captions as confirmed.
+                ids = None
             try:
                 self.nas_srt_scanned.emit((target, ids))
             except RuntimeError:
@@ -987,7 +992,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._start_nas_srt_index)
             return
 
-        self._nas_srt_path = scanned_path
+        # Failed scans stay retryable; do not cache an unavailable NAS as
+        # a successful empty transcript index.
+        self._nas_srt_path = scanned_path if ids is not None else ""
         self._nas_srt_ids = ids
         table = self.optimization_table
         for row_number in range(table.rowCount()):
