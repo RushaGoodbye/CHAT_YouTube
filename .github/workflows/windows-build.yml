@@ -24,6 +24,7 @@ on:
   push:
     branches:
       - "main"
+      - "fix/reconcile-0740-freeze-seo-20261025"
     tags:
       - "v*"
     paths-ignore:
