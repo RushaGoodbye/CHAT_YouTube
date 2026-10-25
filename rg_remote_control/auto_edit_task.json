@@ -1,11 +1,16 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "streams": [
-      "903"
+    "files": [
+      "rg_studio_postrun.py",
+      "rg_multi_dialogue.py",
+      "rg_final_release_gate.py",
+      "rg_xml_verify_v51_2.py",
+      "rg_xml_verify.py",
+      "rg_studio_version.py"
     ]
   },
-  "nonce": "rg-903-preflight-runner-restored-20261025-1948"
+  "nonce": "rg-903-readonly-code-repair-20261025-a"
 }
