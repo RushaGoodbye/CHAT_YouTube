@@ -73,6 +73,24 @@ def age_from(value, now):
     except (ValueError, OverflowError, OSError, TypeError):
         return None
 
+def photo_note_category(value):
+    """Finite diagnostics only. The source note itself is NEVER output."""
+    if not isinstance(value,str) or not value.strip():
+        return "blank"
+    note=value.strip().lower()
+    rules=(
+        ("provider_throttled_or_quota",("429","rate limit","quota","budget","cooldown","лимит","ліміт","квота")),
+        ("network_or_fetch_failed",("timeout","timed out","connection","dns","fetch","download","http 403","http 404","403","404","503","network")),
+        ("missing_or_bad_image",("missing","no image","no photo","invalid photo","invalid image","без фото","нема фото")),
+        ("manual_review_requested",("manual","human","operator","модератор","ручн","review required")),
+        ("image_decode_or_format",("decode","format","corrupt","unsupported","resize")),
+        ("image_mismatch",("mismatch","not relevant","невідповід","не відповіда")),
+    )
+    for label,patterns in rules:
+        if any(pattern in note for pattern in patterns):
+            return label
+    return "other_redacted_note"
+
 def image_quality_class(value):
     if not isinstance(value, str) or not value.strip():
         return "empty"
@@ -135,6 +153,7 @@ def db_photo_counts(root, now):
             query="SELECT "+", ".join('"'+c+'"' for c in valid)+' FROM "candidates" LIMIT '+str(MAX_ROWS)
             out=collections.defaultdict(lambda:{"total":0,"reviewed_true":0,"reviewed_false":0,
                 "photo_url_class":collections.Counter(),"photo_review_note_nonempty":0,
+                "photo_review_note_categories":collections.Counter(),
                 "updated_1h":0,"updated_24h":0,"oldest_age_days":None,
                 "latest_age_seconds":None})
             for row in cx.execute(query):
@@ -148,7 +167,9 @@ def db_photo_counts(root, now):
                     summary["reviewed_false"]+=1
                 image=record.get(image_col) if image_col else None
                 summary["photo_url_class"][image_quality_class(image)]+=1
-                if record.get("photo_review_note") is not None and str(record["photo_review_note"]).strip():
+                note_category=photo_note_category(record.get("photo_review_note"))
+                summary["photo_review_note_categories"][note_category]+=1
+                if note_category!="blank":
                     summary["photo_review_note_nonempty"]+=1
                 age=age_from(record.get("updated_at"),now)
                 if age is not None:
@@ -158,7 +179,10 @@ def db_photo_counts(root, now):
                     summary["latest_age_seconds"]=min(summary["latest_age_seconds"] if summary["latest_age_seconds"] is not None else age,age)
                 result["rows_inspected"]+=1
             result["truncated"]=result["total_rows"]>result["rows_inspected"]
-            result["stages"]={key:{**v,"photo_url_class":dict(v["photo_url_class"])} for key,v in sorted(out.items())}
+            result["stages"]={key:{**v,
+                "photo_url_class":dict(v["photo_url_class"]),
+                "photo_review_note_categories":dict(v["photo_review_note_categories"])}
+                for key,v in sorted(out.items())}
         finally:
             cx.close()
     except (sqlite3.Error,OSError,ValueError) as err:
@@ -267,6 +291,8 @@ def selftest():
         assert q["integrity"]=="ok" and q["rows_inspected"]==4
         assert q["stages"]["awaiting_photo_review"]["total"]==2
         assert q["stages"]["awaiting_photo_review"]["photo_url_class"]["empty"]==1
+        assert q["stages"]["awaiting_photo_review"]["photo_review_note_categories"]["missing_or_bad_image"]==1
+        assert photo_note_category("rate limit provider key=SECRET_NEVER_PRINT")=="provider_throttled_or_quota"
         assert q["stages"]["awaiting_photo_review"]["photo_url_class"]["remote_url_present_unverified"]==1
         assert r["active_dsm_tick"]["syntax"]=="PASS"
         assert r["decision"]["safe_to_automatically_approve_photos"] is False
