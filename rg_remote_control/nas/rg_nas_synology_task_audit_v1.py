@@ -131,13 +131,22 @@ def selftest():
         task="id=18\nstate=disabled\nname=RG NAS Scheduler\ncmd="+base64.b64encode(cmd.encode()).decode()+"\n"
         (root/"tasks"/"root"/"18.task").write_text(task)
         (root/"crontab").write_text("*/5 * * * * root /usr/syno/bin/synoschedtask --run id=18\n")
-        cli=root/"synoschedtask"
-        cli.write_text("#!/bin/sh\nprintf '%s\\n' 'ID: [18]' 'Name: [RG NAS Scheduler]' 'State: [disabled]' 'Command: [sh /volume1/docker/RG_NAS_SCHEDULER_TICK.sh --password=SECRET_VALUE]'\n")
-        cli.chmod(0o700)
-        result=audit(str(root/"tasks"), str(root/"crontab"), str(cli))
+        # Synology can mount /tmp with noexec; test the parser directly.
+        # The live diagnose path still invokes the read-only --get command.
+        fixture = "\\n".join((
+            "ID: [18]", "Name: [RG NAS Scheduler]", "State: [disabled]",
+            "Command: [sh /volume1/docker/RG_NAS_SCHEDULER_TICK.sh --password=SECRET_VALUE]",
+            "Status: [Failed]",
+        ))
+        parsed = cli_parse(fixture)
+        assert len(parsed) == 1
+        assert parsed[0]["id"] == 18
+        assert parsed[0]["state"] == "disabled"
+        assert parsed[0]["last_result"] == "failed"
+        assert "SECRET_VALUE" not in json.dumps(parsed)
+        result = audit(str(root/"tasks"), str(root/"crontab"), sched_bin="/absent/no-such-synoschedtask")
         assert result["active_synoschedtask_cron_ids"] == [18]
         assert result["matching_task_files"][0]["state"] == "disabled"
-        assert result["synology_cli"]["related_tasks"][0]["id"] == 18
         assert "SECRET_VALUE" not in json.dumps(result)
     print("RG_SYNOLOGY_TASK_AUDIT_SELFTEST_PASS")
 
