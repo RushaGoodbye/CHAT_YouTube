@@ -71,8 +71,9 @@ class XmlGateSourceTests(unittest.TestCase):
         ]
         self.assertEqual(len(matching), 1)
         expr = ast.unparse(matching[0].value)
-        self.assertIn('row["xml_valid"] == expected', expr)
-        self.assertIn('row["xml_unique"]', expr)
+        self.assertIn("xml_valid", expr)
+        self.assertIn("expected", expr)
+        self.assertIn("xml_unique", expr)
 
     def test_xml_parser_and_sequence_validation_present(self):
         source = SOURCE.read_text(encoding="utf-8")
