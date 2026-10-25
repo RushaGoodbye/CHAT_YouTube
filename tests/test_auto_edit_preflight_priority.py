@@ -57,5 +57,27 @@ class PreflightPriorityTests(unittest.TestCase):
         self.assertEqual(decision(), "RUN_EXPECTED")
 
 
+
+class XmlGateSourceTests(unittest.TestCase):
+    def test_validated_xml_required_for_completion(self):
+        tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+        matching = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Subscript)
+                    and isinstance(t.value, ast.Name) and t.value.id == "row"
+                    and isinstance(t.slice, ast.Constant)
+                    and t.slice.value == "complete_manifest" for t in n.targets)
+        ]
+        self.assertEqual(len(matching), 1)
+        expr = ast.unparse(matching[0].value)
+        self.assertIn('row["xml_valid"] == expected', expr)
+        self.assertIn('row["xml_unique"]', expr)
+
+    def test_xml_parser_and_sequence_validation_present(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("ET.parse(p).getroot()", source)
+        self.assertIn('root_xml.find(".//sequence")', source)
+
 if __name__ == "__main__":
     unittest.main()
