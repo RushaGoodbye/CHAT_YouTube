@@ -47,10 +47,18 @@ def test_metadata_only_keeps_safe_no_ab_workflow():
     assert ok and not why
 
 
-def test_scheduled_stream_remains_supported():
+def test_scheduled_video_cannot_skip_editorial_title_gate():
     ok, why = ready_for_youtube(
         status="ready", generation="scheduled-import",
         quality_state="", variants=[], scheduled=True,
+    )
+    assert not ok and any("A/B" in item for item in why)
+
+
+def test_safe_metadata_scheduled_stream_remains_supported():
+    ok, why = ready_for_youtube(
+        status="ready", generation="safe-metadata-0.7.6",
+        quality_state="safe_metadata", variants=[], scheduled=True,
     )
     assert ok and not why
 
