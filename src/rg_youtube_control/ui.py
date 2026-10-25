@@ -9572,18 +9572,22 @@ class MainWindow(QMainWindow):
                 )
             )
 
+        # One NAS directory scan runs in a worker; never perform one SMB
+        # .exists() call per table row on the Qt UI thread.
+        transcript_path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        cached_transcript_ids = (
+            getattr(self, "_nas_transcript_ids", set())
+            if getattr(self, "_nas_transcript_path", "") == transcript_path
+            else set()
+        )
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
-            transcript_dir = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
             transcript_status = (
-                "NAS"
-                if (transcript_dir / f"{row['video_id']}.srt").exists()
-                else ""
+                "NAS" if str(row["video_id"]) in cached_transcript_ids else ""
             )
             draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
@@ -9753,6 +9757,84 @@ class MainWindow(QMainWindow):
         self._update_optimization_context_card()
         self.update_dashboard()
         self.refresh_archive_dashboard()
+        QTimer.singleShot(0, self._refresh_transcript_availability_async)
+
+    def _refresh_transcript_availability_async(self) -> None:
+        """One background SMB directory scan supplies all transcript badges."""
+        worker = getattr(self, "_transcript_availability_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        cached_at = float(
+            getattr(self, "_nas_transcript_cache_at", 0.0) or 0.0
+        )
+        if (
+            path == getattr(self, "_nas_transcript_path", "")
+            and 0 <= time.monotonic() - cached_at < 30.0
+        ):
+            return
+
+        def task() -> tuple[str, set[str]]:
+            # Scandir reads the directory once; calling is_file()/stat() for
+            # every entry could still cause N extra remote round trips.
+            with os.scandir(path) as entries:
+                available = {
+                    entry.name[:-4]
+                    for entry in entries
+                    if entry.name.lower().endswith(".srt")
+                }
+            return path, available
+
+        worker = LocalToolWorker(task, self)
+        self._transcript_availability_worker = worker
+
+        def succeeded(result: object) -> None:
+            if not isinstance(result, tuple) or len(result) != 2:
+                return
+            scanned_path, video_ids = result
+            if scanned_path != str(self._nas_path(
+                "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )):
+                return
+            self._nas_transcript_path = scanned_path
+            self._nas_transcript_ids = set(video_ids)
+            self._nas_transcript_cache_at = time.monotonic()
+            self._paint_transcript_availability()
+
+        def failed(_message: str) -> None:
+            # A missing NAS must not freeze the Qt GUI or preserve stale badges.
+            self._nas_transcript_path = path
+            self._nas_transcript_ids = set()
+            self._nas_transcript_cache_at = time.monotonic()
+            self._paint_transcript_availability()
+
+        def finished() -> None:
+            if getattr(self, "_transcript_availability_worker", None) is worker:
+                self._transcript_availability_worker = None
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _paint_transcript_availability(self) -> None:
+        table = getattr(self, "optimization_table", None)
+        if table is None:
+            return
+        ids = getattr(self, "_nas_transcript_ids", set())
+        for row_index in range(table.rowCount()):
+            key = table.item(row_index, 3)
+            badge = table.item(row_index, 7)
+            if key is None or badge is None:
+                continue
+            video_id = str(key.data(Qt.ItemDataRole.UserRole) or "")
+            visible = video_id in ids
+            badge.setText("NAS" if visible else "")
+            if visible:
+                badge.setForeground(QColor(SUCCESS))
+                badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
