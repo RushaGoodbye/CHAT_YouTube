@@ -116,3 +116,22 @@ def compare_timed_to_verified(
                                round(agreement, 3), timed_cues, last_second)
     return TimedComparison(True, "verified_candidate", len(overlap),
                            round(agreement, 3), timed_cues, last_second)
+
+
+def source_comparison_note(
+    source_label: str, comparison: TimedComparison,
+) -> str:
+    """Concise safe operator diagnosis, with no transcript or NAS path."""
+    descriptions = {
+        "missing_source": "SRT не знайдено або має менше 10 реплік",
+        "invalid_cue": "SRT має некоректні репліки",
+        "invalid_timing": "SRT містить некоректні часові значення",
+        "incomplete_timing": "SRT не має повної часової розмітки",
+        "short_coverage": "SRT покриває менше 75% тривалості відео",
+        "subject_mismatch": "SRT не підтверджує названу тему відео",
+        "content_mismatch": "SRT недостатньо збігається з підтвердженим TXT",
+        "verified_candidate": "SRT узгоджується з TXT; використання лише після згоди",
+    }
+    label = "локальний підтверджений SRT" if source_label == "confirmed-srt" else "SRT на NAS"
+    reason = descriptions.get(comparison.reason, "непідтверджений SRT")
+    return f"{label}: {reason} ({comparison.timed_cues} реплік)."
