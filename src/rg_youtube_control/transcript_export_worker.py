@@ -74,7 +74,10 @@ def run_transcript_export(
     # All path lookups live here, never in the caller's Qt event loop.
     missing = [
         row for row in validated
-        if not (target_dir / f"{row['video_id']}.srt").is_file()
+        if not (
+            (target_dir / f"{row['video_id']}.srt").is_file()
+            and (target_dir / f"{row['video_id']}.srt").stat().st_size > 0
+        )
     ]
     if len(missing) > max_new:
         raise ValueError(
