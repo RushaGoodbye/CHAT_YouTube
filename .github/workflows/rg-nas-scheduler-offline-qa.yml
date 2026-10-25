@@ -3,6 +3,7 @@ name: NAS Telegram Scheduler Offline QA
 on:
   push:
     branches:
+      - main
       - fix/telegram-scheduler-observability-20261025
     paths:
       - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
