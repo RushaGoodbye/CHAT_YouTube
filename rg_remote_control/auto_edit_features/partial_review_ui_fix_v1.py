@@ -80,6 +80,13 @@ NEW_POST="""        passed=bool(result and result.get("passed") and int(code)==0
                     self._rg_partial_review_detail=(f'Готові XML: {len(_rows)}/{_total}; '
                         f'потребують перевірки гостя: {", ".join(str(i) for i in sorted(_held))}')
                     self._log('RG_PARTIAL_REVIEW_UI|'+self._rg_partial_review_detail)
+                    if (hasattr(self,'batch_queue') and hasattr(self,'batch_table')
+                            and _s in self.batch_queue and not self.batch_running):
+                        _row=self.batch_queue.index(_s)
+                        self._batch_set(_row,status='ПЕРЕВІРКА',
+                            progress=self._rg_partial_review_progress,
+                            stage='IDENTITY_REVIEW',eta='—',
+                            detail=self._rg_partial_review_detail)
         except Exception as _partial_exc:
             self._log('RG_PARTIAL_REVIEW_UI_AUDIT_ERROR|'+repr(_partial_exc))
         # R6: independently evaluate current-manifest cigarette evidence before"""
