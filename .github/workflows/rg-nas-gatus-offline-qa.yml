@@ -30,7 +30,7 @@ jobs:
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
         run: docker compose -f rg_remote_control/nas/monitoring/compose.yaml config -q
-      - name: Boot Gatus in sandbox without published ports
+      - name: Gatus sandbox integration with localhost status delivery
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
         run: |
@@ -38,6 +38,7 @@ jobs:
           temp_dir="$(mktemp -d)"
           trap 'docker rm -f rg-gatus-offline-qa >/dev/null 2>&1 || true; rm -rf "$temp_dir"' EXIT
           docker run -d --name rg-gatus-offline-qa \
+            --publish 127.0.0.1:18080:8080 \
             --env GATUS_MONITOR_TOKEN \
             --env GATUS_CONFIG_PATH=/config/config.yaml \
             --mount "type=bind,src=$PWD/rg_remote_control/nas/monitoring/config.yaml,dst=/config/config.yaml,readonly" \
@@ -46,3 +47,30 @@ jobs:
           sleep 5
           docker logs rg-gatus-offline-qa
           test "$(docker inspect -f '{{.State.Running}}' rg-gatus-offline-qa)" = true
+          python3 - "$temp_dir" <<'PY'
+          import json, os, pathlib, sys
+          from datetime import datetime, timezone
+          root=pathlib.Path(sys.argv[1])
+          state=root/"RG_NAS_STATE"
+          state.mkdir()
+          current=datetime.now(timezone.utc).isoformat()
+          (state/"scheduler_last_check_at").write_text(current)
+          (state/"scheduler_last_check_status").write_text("OK")
+          (state/"telegram_scheduler_components_checked_at").write_text(current)
+          (state/"telegram_scheduler_components_status").write_text("OK")
+          (state/"RG_CONTROL_CENTER.json").write_text(json.dumps({"updated_at":current,"status":"ok"}))
+          token=root/"token"
+          token.write_text(os.environ["GATUS_MONITOR_TOKEN"])
+          token.chmod(0o600)
+          PY
+          python3 rg_remote_control/nas/monitoring/rg_nas_gatus_observer_v1.py \
+            --root "$temp_dir" --push --token-file "$temp_dir/token"
+          printf 'ERROR\n' > "$temp_dir/RG_NAS_STATE/telegram_scheduler_components_status"
+          if python3 rg_remote_control/nas/monitoring/rg_nas_gatus_observer_v1.py \
+            --root "$temp_dir" --push --token-file "$temp_dir/token"; then
+            echo "FAIL: expected unhealthy status" >&2
+            exit 1
+          else
+            rc=$?
+            test "$rc" -eq 2
+          fi
