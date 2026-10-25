@@ -27,5 +27,13 @@ jobs:
           persist-credentials: false
       - name: POSIX shell syntax
         run: sh -n rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - name: ShellCheck POSIX static analysis (open source)
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
+          shellcheck --version
+          shellcheck --shell=sh --severity=warning rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - name: Isolated behavior tests without NAS or Telegram credentials
         run: python3 tests/test_rg_nas_scheduler_tick.py
