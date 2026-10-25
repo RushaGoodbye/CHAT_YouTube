@@ -2,6 +2,7 @@
 # Read-only RG Auto Edit night batch readiness check.
 from __future__ import annotations
 import ast, json, os, re, shutil, subprocess, sys, time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
 DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
@@ -127,10 +128,24 @@ try:
         paths=[Path(x["xml"]) for x in outputs if isinstance(x,dict)
                and isinstance(x.get("xml"),str) and x["xml"].strip()] if isinstance(outputs,list) else []
         row["xml_existing"]=sum(p.is_file() and p.stat().st_size>0 for p in paths)
+        row["xml_valid"]=0
+        row["xml_invalid"]=[]
+        for p in paths:
+            try:
+                if not p.is_file() or p.stat().st_size==0:
+                    raise ValueError("missing or empty")
+                root_xml=ET.parse(p).getroot()
+                if root_xml.find(".//sequence") is None:
+                    raise ValueError("missing Premiere sequence")
+                row["xml_valid"]+=1
+            except (OSError, ET.ParseError, ValueError) as exc:
+                row["xml_invalid"].append({"name":p.name,"reason":str(exc)[:100]})
+        row["xml_unique"]=len({str(p).casefold() for p in paths})==len(paths)
         row["complete_state"]=str(row["last_run_status"] or "").upper()=="COMPLETE"
         row["complete_manifest"]=bool(expected>0 and isinstance(outputs,list)
                                       and len(outputs)==expected and len(paths)==expected
-                                      and row["xml_existing"]==expected)
+                                      and row["xml_existing"]==expected
+                                      and row["xml_valid"]==expected and row["xml_unique"])
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
         row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"])
