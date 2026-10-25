@@ -1417,17 +1417,27 @@ def test_deep_transcript_batch_accounts_quota_and_reserve():
 
     from rg_youtube_control.service import CAPTION_TRANSCRIPT_COST
     from rg_youtube_control.ui import MainWindow
+    from rg_youtube_control.transcript_export_worker import (
+        run_deep_manifest_transcript_export,
+        run_transcript_export,
+    )
 
     assert CAPTION_TRANSCRIPT_COST == 250
 
     source = inspect.getsource(MainWindow._export_transcript_video_to_nas)
     deep_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+    safe_worker = inspect.getsource(run_deep_manifest_transcript_export)
+    export_worker = inspect.getsource(run_transcript_export)
     center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
 
     assert "respect_reserve" in source
     assert "record_quota_units" in source
     assert "CAPTION_TRANSCRIPT_COST" in source
-    assert "CAPTION_TRANSCRIPT_COST" in deep_source
+    assert "run_deep_manifest_transcript_export(" in deep_source
+    assert "LocalToolWorker(task, self)" in deep_source
+    assert "CAPTION_TRANSCRIPT_COST" in safe_worker
+    assert "quota_budget_status(conn)" in safe_worker
+    assert "quota_budget_status(conn)" in export_worker
     assert "deep-черга, транскрипти та імпорт" in center_source
 
 
