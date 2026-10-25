@@ -180,7 +180,7 @@ def run(root, cli_output=None, now=None):
                     "last_run_age_sec":clock_age, "script_match":task["script_match"]})
     callback=callback_probe(news,now)
     active=bool(task and task["state"]=="enabled" and task["status"]=="success"
-                and clock_age is not None and -120<=clock_age<=900 and syntax=="PASS"
+                and clock_age is not None and -120<=clock_age<=900 and syntax=="PASS" and task["script_match"]
                 and tick.is_file())
     # Task 4 being recently successful is scheduler evidence ONLY; not Telegram delivery proof.
     return {"schema":"RG_NEWS2_ACTIVE_BATCH_AUDIT_V1","read_only":True,
