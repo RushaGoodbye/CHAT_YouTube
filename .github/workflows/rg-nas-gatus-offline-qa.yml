@@ -97,3 +97,43 @@ jobs:
             rc=$?
             test "$rc" -eq 2
           fi
+
+      - name: NEWS2 Gatus end-to-end live container push (no NAS, no Telegram)
+        env:
+          GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
+        run: |
+          set -eu
+          temp_dir="$(mktemp -d)"
+          trap 'docker rm -f rg-gatus-news2-ci >/dev/null 2>&1 || true; rm -rf "$temp_dir"' EXIT
+          docker run -d --name rg-gatus-news2-ci \
+            --publish 127.0.0.1:18080:8080 \
+            --env GATUS_MONITOR_TOKEN \
+            --env GATUS_CONFIG_PATH=/config/config.yaml \
+            --mount "type=bind,src=$PWD/rg_remote_control/nas/monitoring/config-news2.yaml,dst=/config/config.yaml,readonly" \
+            --mount "type=bind,src=$temp_dir,dst=/data" \
+            ghcr.io/twin/gatus:v5.37.0
+          sleep 6
+          test "$(docker inspect -f '{{.State.Running}}' rg-gatus-news2-ci)" = true
+          python3 - "$temp_dir" <<'PY'
+          import os,pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          d=p/"RG_TELEGRAM_NEWS_2"/"runtime"
+          d.mkdir(parents=True)
+          (d/"callback_v29_state.json").write_text('{"ok":true}')
+          (d/"callback_v29.log").write_text("healthy\n")
+          t=p/"token"
+          t.write_text(os.environ["GATUS_MONITOR_TOKEN"])
+          t.chmod(0o600)
+          PY
+          python3 rg_remote_control/nas/monitoring/rg_news2_gatus_observer_v2.py \
+            --root "$temp_dir" --push --url http://127.0.0.1:18080 \
+            --token-file "$temp_dir/token"
+          printf '{\n' > "$temp_dir/RG_TELEGRAM_NEWS_2/runtime/callback_v29_state.json"
+          if python3 rg_remote_control/nas/monitoring/rg_news2_gatus_observer_v2.py \
+            --root "$temp_dir" --push --url http://127.0.0.1:18080 \
+            --token-file "$temp_dir/token"; then
+            echo "FAIL: expected invalid callback data to report unhealthy" >&2
+            exit 1
+          else
+            test "$?" -eq 2
+          fi
