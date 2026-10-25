@@ -154,11 +154,10 @@ def test_scheduled_import_refuses_stale_local_drafts_after_slow_nas(
         window.fetch_scheduled_packages()
         assert window._scheduled_packages_worker is worker
         # An edit committed after the import began must win.
-        window.conn.execute(
-            "INSERT INTO optimization_drafts(video_id,new_title,status)"
-            " VALUES (?,?,?)", (id1, "Operator edit", "draft"),
+        ui.save_optimization_draft(
+            window.conn, id1, "Operator edit", "description",
+            "", [], "draft",
         )
-        window.conn.commit()
         drain(window, "_scheduled_packages_worker", app)
         assert calls == [calls[0]] and calls[0] != main_thread
         assert saved == []
