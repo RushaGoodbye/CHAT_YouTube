@@ -526,7 +526,10 @@ class ContentOptimizationDialog(QDialog):
             chapters,
             tags,
             title_variants,
-            chapters_optional=bool(self.scheduled_publish_at),
+            chapters_optional=(
+                bool(self.scheduled_publish_at)
+                or self.generation.startswith("local-seo-evidence-")
+            ),
         )
 
         lines: list[str] = []
@@ -550,6 +553,12 @@ class ContentOptimizationDialog(QDialog):
         if display_warnings:
             lines.append("\nРЕКОМЕНДАЦІЇ:")
             lines.extend(f"- {item}" for item in display_warnings)
+        if (not chapters and
+                self.generation.startswith("local-seo-evidence-")):
+            lines.append(
+                "\nРозділи не потрібні для локальної SEO-чернетки: "
+                "непідтверджені таймкоди додавати заборонено."
+            )
         if not check.errors and not display_warnings:
             lines.append(
                 "\nПоля пакета перевірено. Редакторські зауваження - нижче."
@@ -610,7 +619,10 @@ class ContentOptimizationDialog(QDialog):
                 chapters,
                 tags,
                 title_variants,
-                chapters_optional=bool(self.scheduled_publish_at),
+                chapters_optional=(
+                bool(self.scheduled_publish_at)
+                or self.generation.startswith("local-seo-evidence-")
+            ),
             )
             if check.errors:
                 QMessageBox.warning(
