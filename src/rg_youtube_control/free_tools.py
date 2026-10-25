@@ -2500,6 +2500,30 @@ chapters: рядок з підтвердженими таймкодами та �
             max_topic_bullets=50,
             max_body_bytes=3800,
         )
+    # Never forward a model-generated greeting/appearance hook to the GUI.
+    # The desktop editorial gate rejects these; repair before assembling the
+    # package, using transcript-backed quotes only, or leave for human review.
+    from .seo_source_alignment import check_title_against_transcript
+    incidental_pattern = re.compile(
+        r"(?i)(?:\bкак\s+дела\b|\bкак\s+поживаете\b|"
+        r"\bпривет(?:ствую)?\b|\bздравствуй(?:те)?\b|"
+        r"\bдо\s+свидания\b|\bспасибо\s+за\s+(?:разговор|беседу)\b|"
+        r"\bяк\s+справи\b|\bдякую\s+за\s+розмову\b|"
+        r"\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\b|"
+        r"\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\b|"
+        r"\b(?:внешность|зовнішність)\b|"
+        r"\b(?:твои|ваши|твої|ваші)\s+(?:глаза|волосы|очі|волосся)\b)"
+    )
+    def _incidental_title(value: str) -> bool:
+        return bool(incidental_pattern.search(" ".join(value.casefold().split())))
+    if any(_incidental_title(value) for value in variants):
+        replacement = _source_quote_ab_titles(evidence_report, current_title) if evidence_report else []
+        if replacement and not any(_incidental_title(value) for value in replacement):
+            variants = replacement
+            payload["ab_source_quote_fallback_used"] = True
+        else:
+            # Do not quietly mislabel an appearance remark as SEO.
+            variants = [value for value in variants if not _incidental_title(value)]
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
