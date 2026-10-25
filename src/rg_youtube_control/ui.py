@@ -10356,6 +10356,14 @@ class MainWindow(QMainWindow):
             )
             return
 
+        draft_at_launch = self.conn.execute(
+            "SELECT status,new_title,updated_at FROM optimization_drafts "
+            "WHERE video_id=?", (video_id,),
+        ).fetchone()
+        expected_draft = (
+            tuple(draft_at_launch)
+            if draft_at_launch is not None else None
+        )
         package_dir = self._nas_path(
             "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
         )
@@ -10393,6 +10401,17 @@ class MainWindow(QMainWindow):
             if ownership is None or str(ownership["profile"]) != origin_profile:
                 self.statusBar().showMessage(
                     "Імпорт скасовано: невідповідний канал"
+                )
+                return
+            latest_draft = self.conn.execute(
+                "SELECT status,new_title,updated_at FROM optimization_drafts "
+                "WHERE video_id=?", (video_id,),
+            ).fetchone()
+            if (
+                tuple(latest_draft) if latest_draft is not None else None
+            ) != expected_draft:
+                self.statusBar().showMessage(
+                    "Пакет не імпортовано: SEO-чернетку змінено під час завантаження"
                 )
                 return
             try:
@@ -10516,8 +10535,9 @@ class MainWindow(QMainWindow):
                         or "").strip()
                 )
                 existing_title = _standard_hyphen(old_title.strip())
-                if (old_status in {"ready", "applied"}
-                    and existing_title == remote_title):
+                # A ready/applied draft belongs to the operator. A remote
+                # package import cannot silently replace reviewed work.
+                if old_status in {"ready", "applied"}:
                     skipped += 1
                     continue
                 try:
