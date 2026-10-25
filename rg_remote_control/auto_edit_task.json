@@ -1,12 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_studio_ui.py",
-      "rg_studio_postrun.py"
-    ]
-  },
-  "nonce": "rg-903-partial-ui-flow-readonly-20261025"
+  "action": "inspect_auto_edit_identity_cache_903_v1",
+  "args": {},
+  "nonce": "rg-903-cache-real-anchor-20261025"
 }
