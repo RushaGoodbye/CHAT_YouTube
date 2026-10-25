@@ -14559,7 +14559,9 @@ class MainWindow(QMainWindow):
         self._run_local_tool(
             "Локальна SEO-оптимізація (0 квоти)",
             task,
- 
+            self._save_local_seo_result,
+        )
+
     def _save_local_seo_result(self, result: dict) -> None:
         package = dict(result["package"])
         context = dict(result["context"])
