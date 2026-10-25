@@ -139,7 +139,7 @@ def validate_runtime():
     if not (APP/MODULE).is_file() or not RUNTIME.is_file() or not (APP/"rg_studio_version.py").is_file():
         raise RuntimeError("Installed Studio runtime not found")
     version=(APP/"rg_studio_version.py").read_text(encoding="utf-8-sig")
-    if not re.search(r'STUDIO_VERSION\\s*=\\s*["\\x27]0\\.20\\.20\\.14["\\x27]',version):
+    if not re.search(r'STUDIO_VERSION\s*=\s*["\x27]0\.20\.20\.14["\x27]',version):
         raise RuntimeError("Unexpected Studio version; source modifications refused")
     for stream,shot_ids in TARGETS.items():
         mf=APP/f'RG_EDITED_{stream}_MULTI_DIALOGUE.json'
