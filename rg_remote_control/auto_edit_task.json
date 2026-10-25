@@ -1,7 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_partial_ui_status_v1",
-  "args": {},
-  "nonce": "rg-ui-partial-status-inspect-live-20261025"
+  "action": "apply_auto_edit_partial_review_ui_v1",
+  "args": {
+    "apply": false
+  },
+  "nonce": "rg-903-partial-ui-dryrun-real-20261025"
 }
