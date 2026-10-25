@@ -1,13 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "qa_partial_manifest_fix_v1",
   "args": {
-    "files": [
-      "RG_EDITED_903_2_R2_IDENTITY_REVIEW_HOLD.json",
-      "RG_EDITED_903_5_R2_IDENTITY_REVIEW_HOLD.json",
-      "rg_auto_edit_one_button.py"
-    ]
+    "apply": false,
+    "stream": "903"
   },
-  "nonce": "rg-903-hold-details-20261025"
+  "nonce": "qa-partial-v1-readonly-check-20261025"
 }
