@@ -8,11 +8,13 @@ on:
     paths:
       - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - tests/test_rg_nas_scheduler_tick.py
+      - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
       - .github/workflows/rg-nas-scheduler-offline-qa.yml
   pull_request:
     paths:
       - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - tests/test_rg_nas_scheduler_tick.py
+      - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
       - .github/workflows/rg-nas-scheduler-offline-qa.yml
 
 permissions:
@@ -38,3 +40,7 @@ jobs:
           shellcheck --shell=sh --severity=warning rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - name: Isolated behavior tests without NAS or Telegram credentials
         run: python3 tests/test_rg_nas_scheduler_tick.py
+      - name: Redacted NAS preflight regression and syntax
+        run: |
+          python3 -m py_compile rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+          python3 rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py selftest
