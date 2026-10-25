@@ -1,9 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_partial_review_ui_v1",
-  "args": {
-    "apply": true
-  },
-  "nonce": "rg-903-partial-ui-install-real-20261025"
+  "action": "restart_auto_edit_studio_ui",
+  "args": {},
+  "nonce": "rg-ui-reload-post-903-review-hotfix-20261025"
 }
