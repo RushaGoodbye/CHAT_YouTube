@@ -148,7 +148,9 @@ try:
                                       and row["xml_valid"]==expected and row["xml_unique"])
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
-        row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"])
+        row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"] and
+                                     not row["prior_backend_error"] and
+                                     not (row.get("audio",{}).get("candidates",0)>1))
         row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
