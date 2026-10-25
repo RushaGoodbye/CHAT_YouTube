@@ -171,10 +171,12 @@ try:
                 except Exception:row["video_probe_error"]=probe.get("stderr") or probe.get("error")
 
         row["audio_ambiguous"]=bool(row.get("audio",{}).get("candidates",0)>1)
-        row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
-                             "REVIEW_QA" if row["requires_qa_review"] else
-                             "REVIEW_BACKEND" if row["prior_backend_error"] else
+        # Errors and ambiguous source audio require review even if stale
+        # manifests and QA reports still claim the stream is complete.
+        row["night_action"]=("REVIEW_BACKEND" if row["prior_backend_error"] else
                              "REVIEW_AUDIO" if row["audio_ambiguous"] else
+                             "REVIEW_QA" if row["requires_qa_review"] else
+                             "SKIP_COMPLETE" if row["already_complete"] else
                              "MISSING_INPUT" if not row["inputs_ready"] else
                              "RUN_EXPECTED")
 except Exception as exc:
