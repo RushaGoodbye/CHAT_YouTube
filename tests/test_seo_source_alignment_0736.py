@@ -186,7 +186,8 @@ def test_source_repair_uses_separate_local_srt_and_keeps_original_nas(tmp_path, 
         def _nas_path(self, *args):
             return nas
 
-        def _generate_local_seo_result(self, video_id, *, on_progress=None):
+        def _generate_local_seo_result(self, video_id, *, on_progress=None, profile=None):
+            assert profile == "main"
             repaired = self.data_dir / "seo_verified_transcripts" / f"{video_id}.srt"
             rows = load_srt_transcript(repaired)
             assert rows and "Шойгу" in rows[0]["text"]
