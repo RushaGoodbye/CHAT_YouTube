@@ -55,8 +55,8 @@ LIVE_IDS = ("4ItkxMPI1GA", "fdHXrCyw3Lw")
 VALID_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 _DURATION = re.compile(
-    r"^P(?:(?P<days>\\d+)D)?(?:T(?:(?P<hours>\\d+)H)?"
-    r"(?:(?P<minutes>\\d+)M)?(?:(?P<seconds>\\d+(?:\\.\\d+)?)S)?)?$"
+    r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?"
+    r"(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?)?$"
 )
 
 
