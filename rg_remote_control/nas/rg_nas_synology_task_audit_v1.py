@@ -133,7 +133,7 @@ def selftest():
         (root/"crontab").write_text("*/5 * * * * root /usr/syno/bin/synoschedtask --run id=18\n")
         # Synology can mount /tmp with noexec; test the parser directly.
         # The live diagnose path still invokes the read-only --get command.
-        fixture = "\\n".join((
+        fixture = "\n".join((
             "ID: [18]", "Name: [RG NAS Scheduler]", "State: [disabled]",
             "Command: [sh /volume1/docker/RG_NAS_SCHEDULER_TICK.sh --password=SECRET_VALUE]",
             "Status: [Failed]",
