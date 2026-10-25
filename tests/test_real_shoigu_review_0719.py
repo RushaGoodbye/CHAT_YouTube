@@ -72,7 +72,7 @@ def test_editor_does_not_display_unverified_stored_ready(monkeypatch):
     inspected = []
     class Row:
         def fetchone(self):
-            return None
+            return {"profile": "main", "scheduled_publish_at": None}
 
     class Conn:
         def execute(self, *_args):
@@ -94,15 +94,23 @@ def test_editor_does_not_display_unverified_stored_ready(monkeypatch):
         "title_variants_json": __import__("json").dumps(SHOIGU_VARIANTS, ensure_ascii=False),
         "status": "ready",
         "generation": "local-seo",
+        "updated_at": "2026-10-25T00:00:00Z",
     })
     fake_window = SimpleNamespace(
+        current_profile="main",
         _selected_optimization_video_ids=lambda: ["MiEtkMo87xo"],
         conn=Conn(),
         _current_video_metadata=lambda _id: ("Original", "Before", []),
         _effective_optimization_status=lambda _id: "draft",
         _error=lambda *_: (_ for _ in ()).throw(AssertionError("no UI error expected")),
     )
-    ui.MainWindow.edit_content_package(fake_window)
+    ui.MainWindow._show_content_package_editor(fake_window, {
+        "video_id": "MiEtkMo87xo",
+        "profile": "main",
+        "title": "Original",
+        "description": "Before",
+        "tags": [],
+    })
     assert inspected == ["draft"]
 
 
