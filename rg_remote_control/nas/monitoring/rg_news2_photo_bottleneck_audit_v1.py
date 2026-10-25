@@ -81,7 +81,7 @@ def photo_note_category(value):
     rules=(
         ("provider_throttled_or_quota",("429","rate limit","quota","budget","cooldown","лимит","ліміт","квота")),
         ("network_or_fetch_failed",("timeout","timed out","connection","dns","fetch","download","http 403","http 404","403","404","503","network")),
-        ("missing_or_bad_image",("missing","no image","no photo","invalid photo","invalid image","без фото","нема фото")),
+        ("missing_or_bad_image",("missing","no image","no photo","need original photo","original image needed","invalid photo","invalid image","без фото","нема фото")),
         ("manual_review_requested",("manual","human","operator","модератор","ручн","review required")),
         ("image_decode_or_format",("decode","format","corrupt","unsupported","resize")),
         ("image_mismatch",("mismatch","not relevant","невідповід","не відповіда")),
