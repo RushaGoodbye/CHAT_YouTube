@@ -4,10 +4,9 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      ".rg_cache/903/multi_job_2bc9d5ade6d01805222e.json",
-      "RG_EDITED_903_2_R2_GUEST_ID_BOUNDARY_QA.json",
-      "rg_clock_selector.py"
+      "rg_studio_ui.py",
+      "rg_studio_postrun.py"
     ]
   },
-  "nonce": "rg-903-2-timeline-anchor-readonly-20261025"
+  "nonce": "rg-903-partial-ui-flow-readonly-20261025"
 }
