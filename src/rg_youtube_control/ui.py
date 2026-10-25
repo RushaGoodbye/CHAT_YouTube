@@ -122,6 +122,7 @@ from .seo_source_alignment import (
     check_title_against_transcript,
     check_title_variants_against_primary_subject,
 )
+from .seo_evidence_gate import check_seo_evidence
 from .seo_original_quote_recovery import recover_omitted_named_quotes
 from .seo_editorial_signal import source_grounded_shoigu_package, off_topic_title_warnings
 from .local_transcript_sources import find_local_transcript
@@ -14558,9 +14559,7 @@ class MainWindow(QMainWindow):
         self._run_local_tool(
             "Локальна SEO-оптимізація (0 квоти)",
             task,
-            self._save_local_seo_result,
-        )
-
+ 
     def _save_local_seo_result(self, result: dict) -> None:
         package = dict(result["package"])
         context = dict(result["context"])
@@ -14599,6 +14598,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
 
+        # Unverified chapter timecodes may come from unrelated captions or
+        # ASR approximations. Never persist them without exact source mapping.
+        transcript_origin = str(context.get("transcript_source") or "")
+        chapter_warning = ""
+        if chapters:
+            chapters = ""
+            chapter_warning = (
+                "Розділи вилучено: кожен таймкод вимагає окремого "
+                "підтвердження за оригіналом."
+            )
+
         quality_state, quality_reasons = self._package_quality_gate(
             title=title,
             description=description,
@@ -14628,10 +14638,30 @@ class MainWindow(QMainWindow):
             )
             return
 
+        source_rows = result.get("transcript_rows") or []
+        source_text = " ".join(
+            str(row.get("text") or "") for row in source_rows
+            if isinstance(row, dict)
+        )
+        evidence_decision = check_seo_evidence(
+            video_id=video_id,
+            titles=[title, *variants],
+            description=description,
+            transcript=source_text,
+            transcript_video_id=video_id if source_rows else None,
+            # An SRT named after a video ID is not proof of correspondence.
+            verified_video_mapping=False,
+            expected_title_count=4,
+        )
+        # Preview is not editorial authorization. All AI-generated SEO must
+        # remain a reviewable draft until a separate explicit approval.
+        editorial_approval_verified = False
         requires_review = (
             bool(package.get("technical_fallback"))
             or bool(package.get("needs_review"))
             or len(variants) < 3
+            or not evidence_decision.approved_for_review
+            or not editorial_approval_verified
         )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
@@ -14649,11 +14679,16 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=(
-                draft_reason + (
-                    " · Недостатньо підтверджених тегів."
-                    if incomplete_tags_only else ""
-                )
+            quality_reason=" | ".join(
+                value for value in (
+                    draft_reason,
+                    chapter_warning,
+                    "Джерело: " + (transcript_origin or "невідоме"),
+                    ("Evidence: " + ", ".join(evidence_decision.issues))
+                    if evidence_decision.issues else "",
+                    "Недостатньо підтверджених тегів."
+                    if incomplete_tags_only else "",
+                ) if value
             ),
             source_title=before_title,
             source_description=before_description,
@@ -14682,6 +14717,8 @@ class MainWindow(QMainWindow):
                 "«Готово до застосування» · YouTube API: 0",
                 7000,
             )
+        self._update_optimization_context_card()
+
         self._update_optimization_context_card()
 
     def export_public_comments_zero_api(self) -> None:
