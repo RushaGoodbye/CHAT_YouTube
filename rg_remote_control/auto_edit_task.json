@@ -1,15 +1,7 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
-  "args": {
-    "files": [
-      "rg_face_identity.py",
-      "rg_mediapipe_tasks.py",
-      "rg_guest_identity_boundary.py",
-      "rg_host_visualprint.py",
-      "rg_light_asd_bridge.py"
-    ]
-  },
-  "nonce": "rg-903-identity-fallback-source-audit-20261025-v2"
+  "action": "inspect_auto_edit_face_rescue_903_v1",
+  "args": {},
+  "nonce": "rg-903-face-rescue-real-readonly-20261025-v1"
 }
