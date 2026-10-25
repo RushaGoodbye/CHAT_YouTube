@@ -5,12 +5,14 @@ on:
     paths:
       - rg_remote_control/nas/monitoring/**
       - tests/test_rg_nas_gatus_observer.py
+      - rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py
       - .github/workflows/rg-nas-gatus-offline-qa.yml
   push:
     branches: [main, feat/nas-gatus-passive-monitor-20261025]
     paths:
       - rg_remote_control/nas/monitoring/**
       - tests/test_rg_nas_gatus_observer.py
+      - rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py
       - .github/workflows/rg-nas-gatus-offline-qa.yml
 
 permissions:
@@ -34,6 +36,10 @@ jobs:
             sudo apt-get install -y -qq shellcheck
           fi
           shellcheck --shell=sh --severity=warning rg_remote_control/nas/monitoring/rg_nas_gatus_install.sh
+      - name: NEWS2 live scheduler offline audit selftest (no Bot API or SQLite writes)
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py selftest
       - name: Validate isolated compose config
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
