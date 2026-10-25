@@ -83,3 +83,147 @@ def test_desktop_only_switches_with_explicit_confirmation_and_worker_rechecks():
     assert "compare_timed_to_verified(" in worker
     assert '"operator-confirmed-" + candidate_label' in worker
     assert "find_local_transcript(" in worker
+
+
+def test_preflight_offers_timed_only_with_explicit_user_yes(monkeypatch, tmp_path):
+    import sqlite3
+    import rg_youtube_control.ui as ui
+
+    original, timed = _source_pair()
+    video_id = "MEitKm687xo"
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE videos(video_id TEXT, profile TEXT, title TEXT, duration TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO videos VALUES (?,?,?,?)",
+        (video_id, "main", "Увольнение Шойгу?", "217"),
+    )
+
+    class MessageBox:
+        class StandardButton:
+            Yes = 1
+            No = 2
+        questions = []
+        reply = 1
+
+        @classmethod
+        def question(cls, *args, **kwargs):
+            cls.questions.append(args)
+            return cls.reply
+
+    class Window:
+        data_dir = tmp_path
+        current_profile = "main"
+
+        def __init__(self):
+            self.conn = conn
+            self.received = []
+
+        def _nas_path(self, key, default):
+            return tmp_path / "nas"
+
+        def _selected_optimization_video_ids(self):
+            return [video_id]
+
+        def _generate_local_seo_result(self, video_id, *, on_progress=None,
+                                       transcript_preference=""):
+            self.received.append(transcript_preference)
+            return {"video_id": video_id}
+
+        def _save_local_seo_result(self, result):
+            assert result["video_id"] == video_id
+
+        def _run_local_tool(self, title, task, save):
+            save(task())
+
+    monkeypatch.setattr(ui, "QMessageBox", MessageBox)
+    monkeypatch.setattr(
+        ui, "load_verified_text",
+        lambda data_dir, selected: (original, "manual-confirmed-untimed-text")
+    )
+    monkeypatch.setattr(
+        ui, "find_local_transcript",
+        lambda folder, selected: (
+            (timed, "nas-srt") if Path(folder).name == "nas" else ([], "")
+        ),
+    )
+    window = Window()
+    ui.MainWindow.local_seo_selected(window)
+    assert window.received == ["nas-srt"]
+    assert len(MessageBox.questions) == 1
+    assert original[0]["untimed"] is True
+
+    # "No" retains original verified text; no new preference is supplied.
+    MessageBox.reply = MessageBox.StandardButton.No
+    ui.MainWindow.local_seo_selected(window)
+    assert window.received == ["nas-srt", ""]
+    conn.close()
+
+
+def test_preflight_rejects_unrelated_same_subject_srt_without_prompt(
+    monkeypatch, tmp_path,
+):
+    import sqlite3
+    import rg_youtube_control.ui as ui
+
+    manual, unrelated = _source_pair(shared=False)
+    video_id = "MEitKm687xo"
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE videos(video_id TEXT, profile TEXT, title TEXT, duration TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO videos VALUES (?,?,?,?)",
+        (video_id, "main", "Увольнение Шойгу?", "217"),
+    )
+
+    class MessageBox:
+        class StandardButton:
+            Yes = 1
+            No = 2
+        @staticmethod
+        def question(*args, **kwargs):
+            raise AssertionError("Unrelated captions must not be suggested")
+
+    class Window:
+        data_dir = tmp_path
+        current_profile = "main"
+
+        def __init__(self):
+            self.conn = conn
+            self.received = []
+
+        def _nas_path(self, key, default):
+            return tmp_path / "nas"
+
+        def _selected_optimization_video_ids(self):
+            return [video_id]
+
+        def _generate_local_seo_result(self, video_id, *, on_progress=None):
+            self.received.append(video_id)
+            return {"video_id": video_id}
+
+        def _save_local_seo_result(self, result):
+            assert result["video_id"] == video_id
+
+        def _run_local_tool(self, title, task, save):
+            save(task())
+
+    monkeypatch.setattr(ui, "QMessageBox", MessageBox)
+    monkeypatch.setattr(
+        ui, "load_verified_text",
+        lambda data_dir, selected: (manual, "manual-confirmed-untimed-text")
+    )
+    monkeypatch.setattr(
+        ui, "find_local_transcript",
+        lambda folder, selected: (
+            (unrelated, "nas-srt") if Path(folder).name == "nas" else ([], "")
+        ),
+    )
+    window = Window()
+    ui.MainWindow.local_seo_selected(window)
+    assert window.received == [video_id]
+    conn.close()
