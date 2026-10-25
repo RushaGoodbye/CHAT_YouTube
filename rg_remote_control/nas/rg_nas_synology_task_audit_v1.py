@@ -37,11 +37,18 @@ def cli_parse(source):
             if current and (current["targets"] or current["rg_named"]):
                 entries.append(current)
             current = {"id": int(m.group(1)), "state": "unknown", "last_result": "unknown",
-                       "targets": [], "script_refs": [], "rg_named": False}
+                       "targets": [], "script_refs": [], "rg_named": False,
+                       "last_run": "unknown", "task_type": "unknown"}
             continue
         if current is None:
             continue
-        match = re.match(r"^\s*(Name|State|Status|Command|Action):\s*(.*)$", line, re.I)
+        time_match = re.match(r"^\s*Last Run Time:\s*(.+)$", line, re.I)
+        if time_match:
+            candidate = time_match.group(1).strip()
+            if re.fullmatch(r"[A-Za-z]{3} [A-Za-z]{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} \d{4}", candidate):
+                current["last_run"] = candidate
+            continue
+        match = re.match(r"^\s*(Name|State|Status|Command|Action|Type):\s*(.*)$", line, re.I)
         if not match:
             continue
         kind, val = match.group(1).lower(), match.group(2).strip().strip("[]")
@@ -49,6 +56,9 @@ def cli_parse(source):
             current["state"] = state(val)
         elif kind == "status":
             current["last_result"] = state(val)
+        elif kind == "type":
+            if re.fullmatch(r"[A-Za-z_-]{1,20}", val):
+                current["task_type"] = val.lower()
         else:
             current["targets"] = sorted(set(current["targets"] + targets(val)))
             current["script_refs"] = sorted(set(current["script_refs"] + script_refs(val)))
@@ -149,13 +159,14 @@ def selftest():
         fixture = "\n".join((
             "ID: [18]", "Name: [RG NAS Scheduler]", "State: [disabled]",
             "Command: [sh /volume1/docker/RG_NAS_SCHEDULER_TICK.sh --password=SECRET_VALUE]",
-            "Status: [Failed]",
+            "Status: [Failed]", "Last Run Time: Sun Oct 11 15:21:11 2026",
         ))
         parsed = cli_parse(fixture)
         assert len(parsed) == 1
         assert parsed[0]["id"] == 18
         assert parsed[0]["state"] == "disabled"
         assert parsed[0]["last_result"] == "failed"
+        assert parsed[0]["last_run"] == "Sun Oct 11 15:21:11 2026"
         assert "SECRET_VALUE" not in json.dumps(parsed)
         result = audit(str(root/"tasks"), str(root/"crontab"), sched_bin="/absent/no-such-synoschedtask")
         assert result["active_synoschedtask_cron_ids"] == [18]
