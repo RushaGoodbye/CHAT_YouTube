@@ -871,6 +871,7 @@ class LocalToolWorker(QThread):
 class MainWindow(QMainWindow):
     nas_srt_scanned = Signal(object)
     free_tools_probed = Signal(object)
+    background_update_checked = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -886,6 +887,8 @@ class MainWindow(QMainWindow):
         self.nas_srt_scanned.connect(self._receive_nas_srt_index)
         self._free_tools_probe_running = False
         self.free_tools_probed.connect(self._receive_free_tools_probe)
+        self._background_update_check_running = False
+        self.background_update_checked.connect(self._receive_background_update_check)
         self.advanced_mode = get_setting(
             self.conn,
             "ui_advanced_mode",
@@ -15138,28 +15141,41 @@ class MainWindow(QMainWindow):
         )
 
     def check_for_updates_silent(self) -> None:
-        # An installer can update only the frozen installed EXE. A legacy
-        # python/pythonw source launch would reopen the old code after every
-        # installer run and create an endless update loop.
+        """Check remote releases without blocking the window's event loop."""
         if not bool(getattr(sys, "frozen", False)):
             return
-        try:
-            info = check_for_update()
-        except Exception:
+        if self._background_update_check_running:
             return
+        self._background_update_check_running = True
+
+        def probe() -> None:
+            try:
+                info = check_for_update()
+            except Exception:
+                info = None
+            try:
+                self.background_update_checked.emit(info)
+            except RuntimeError:
+                pass
+
+        threading.Thread(
+            target=probe, daemon=True, name="rg-silent-update-check",
+        ).start()
+
+    @Slot(object)
+    def _receive_background_update_check(self, info: object) -> None:
+        self._background_update_check_running = False
         if info is None:
             return
+        version = str(info.version).strip()
         dismissed = get_setting(
-            self.conn,
-            "update_dismissed_version",
-            "",
+            self.conn, "update_dismissed_version", "",
         ).strip()
-        if dismissed == str(info.version).strip():
+        if dismissed == version:
             return
-        prompted = getattr(self, "_update_prompted_version_session", "")
-        if prompted == str(info.version).strip():
+        if getattr(self, "_update_prompted_version_session", "") == version:
             return
-        self._update_prompted_version_session = str(info.version).strip()
+        self._update_prompted_version_session = version
         self._offer_update(info, manual=False)
 
     def install_update_from_zip(self) -> None:
