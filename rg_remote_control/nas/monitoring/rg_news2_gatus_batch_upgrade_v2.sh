@@ -72,9 +72,13 @@ task=d["news2_dsm_task"]
 tick=d["news2_tick_script"]
 if not d["task4_recent_execution_confirmed"]:
     raise SystemExit("TASK4_NOT_CONFIRMED: no change applied")
-if not (task.get("enabled") and task.get("last_result")=="success" and tick.get("shell_syntax")=="PASS"):
+if not (task.get("enabled") and task.get("last_result")=="success" and tick.get("shell_syntax")=="PASS"
+            and task.get("script_match")):
     raise SystemExit("TASK4_GATE_FAILED: no change applied")
-print("ACTIVE_NEWS2_TASK4_GATE=PASS")
+callback=d["callback_state"]
+if callback["count"] < 1:
+    raise SystemExit("NEWS2_CALLBACK_SOURCE_NOT_FOUND: no monitoring change applied")
+print("ACTIVE_NEWS2_TASK4_AND_CALLBACK_SOURCE_GATE=PASS")
 '
 # Validate Docker Compose with the pre-existing local token; no new credentials.
 ( cd "$STAGE" && docker compose --env-file "$MON/.env" -p rg-nas-monitor -f compose.yaml config -q )
