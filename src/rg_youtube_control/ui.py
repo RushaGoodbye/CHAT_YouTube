@@ -127,6 +127,14 @@ from .seo_original_quote_recovery import recover_omitted_named_quotes
 from .seo_editorial_signal import source_grounded_shoigu_package, off_topic_title_warnings
 from .local_transcript_sources import find_local_transcript
 from .verified_text_import import load_verified_text
+from .verified_text_import import import_verified_text
+from .local_media_sources import find_exact_local_media
+from .offline_transcription import generate_srt_offline
+from .offline_source_config import (
+    local_seo_media_roots, local_whisper_model_dir, remember_whisper_model_dir,
+)
+from .verified_media_registry import get_verified_media, save_verified_media
+from .historical_media_candidates import historical_media_candidates
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -14547,11 +14555,269 @@ class MainWindow(QMainWindow):
         video_id = video_ids[0]
         origin_profile = self.current_profile
 
+        # Fast local preflight: do not issue YouTube subtitle requests if
+        # there is no NAS SRT bound to the selected published Video ID.
+        # The online fallback is intentionally disabled until an explicit
+        # user-controlled retry flow can handle 429 safely.
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path",
+            DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        confirmed_dir = self.data_dir / "seo_verified_transcripts"
+        local_rows, local_source = load_verified_text(
+            self.data_dir, video_id,
+        )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                confirmed_dir, video_id,
+            )
+        if not local_rows:
+            local_rows, local_source = find_local_transcript(
+                transcript_dir, video_id,
+            )
+        usable_local_transcript = bool(local_rows)
+        media_path = None
+        repairing_wrong_source = False
+        model_dir = local_whisper_model_dir(self.data_dir)
+
+        if usable_local_transcript:
+            source_title_row = (
+                self.conn.execute(
+                    "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                    (video_id, self.current_profile),
+                ).fetchone()
+                if hasattr(self, "conn") else None
+            )
+            source_title = str(source_title_row["title"] or "") if source_title_row else ""
+            source_text = " ".join(
+                str(row.get("text") or "") for row in local_rows
+                if isinstance(row, dict)
+            )
+            match = check_title_against_transcript(source_title, source_text)
+            if match.missing:
+                reply = QMessageBox.question(
+                    self,
+                    "SEO: можливо, транскрипт від іншого відео",
+                    f"Відео {video_id} має назву про "
+                    f"{', '.join(match.missing)}, але SRT не згадує цю тему.\n\n"
+                    "Транскрипт не буде використано для SEO.\n"
+                    "Бажаєте вручну вибрати оригінал саме цього відео "
+                    "та створити окремий виправлений SRT?\n\n"
+                    "Існуючий SRT на NAS буде збережено без змін.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                repair_options = [
+                    "Імпортувати підтверджений TXT без таймкодів",
+                    "Вибрати вихідний відеофайл для Whisper",
+                ]
+                repair_method, method_ok = QInputDialog.getItem(
+                    self,
+                    "SEO: спосіб виправлення джерела",
+                    "Оберіть, що у вас вже є для цього Video ID:",
+                    repair_options, 0, False,
+                )
+                if not method_ok:
+                    return
+                if repair_method == repair_options[0]:
+                    chosen_txt, _ = QFileDialog.getOpenFileName(
+                        self,
+                        f"Оберіть повну TXT-розшифровку для {video_id}",
+                        str(Path.home() / "Downloads"),
+                        "Текстова розшифровка (*.txt)",
+                    )
+                    if not chosen_txt:
+                        return
+                    confirmation = QMessageBox.question(
+                        self,
+                        "Підтвердження джерела TXT",
+                        f"Ви особисто перевірили, що {Path(chosen_txt).name} "
+                        f"є повною розшифровкою саме YouTube Video ID {video_id}?\n\n"
+                        "Без справжніх таймкодів розділи не генеруються. "
+                        "Результат збережеться лише як чернетка для перевірки. "
+                        "SRT на NAS не зміниться.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if confirmation != QMessageBox.StandardButton.Yes:
+                        return
+                    try:
+                        import_verified_text(
+                            self.data_dir, video_id, Path(chosen_txt),
+                            current_title=source_title,
+                        )
+                    except (OSError, ValueError) as exc:
+                        QMessageBox.warning(
+                            self, "TXT: імпорт відхилено", str(exc),
+                        )
+                        return
+                    usable_local_transcript = True
+                    repairing_wrong_source = False
+                else:
+                    repairing_wrong_source = True
+                    usable_local_transcript = False
+                    chosen, _ = QFileDialog.getOpenFileName(
+                        self,
+                        "Оберіть перевірений оригінал для заміни помилкового SRT",
+                        r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                        "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                    )
+                    if not chosen:
+                        return
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Підтвердження вихідного відео",
+                        f"Підтвердьте, що файл\n{proposed.name}\n"
+                        f"є оригіналом опублікованого Video ID {video_id}.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+                    save_verified_media(
+                        self.data_dir / "verified_media.json", video_id, proposed,
+                    )
+                    media_path = proposed
+                    if (confirmed_dir / f"{video_id}.srt").exists():
+                        QMessageBox.warning(
+                            self, "SEO: існує попереднє виправлення",
+                            "Вже існує підтверджений локальний SRT. "
+                            "Автоматичне перезаписування заблоковано. "
+                            "Перевірте джерело перед повторним імпортом.",
+                        )
+                        return
+
+        if not usable_local_transcript and media_path is None:
+            # Only known local roots and exact video IDs; no recursive NAS
+            # crawl or automatic download from YouTube.
+            media_path = get_verified_media(
+                self.data_dir / "verified_media.json", video_id,
+            )
+            if media_path is None:
+                media_path = find_exact_local_media(
+                    video_id,
+                    local_seo_media_roots(self.data_dir, transcript_dir),
+                )
+            if media_path is None:
+                # Historical titles only shortlist candidates. A human must
+                # explicitly confirm the source; names alone never verify it.
+                import sqlite3
+                with sqlite3.connect(str(self.data_dir / "rg_youtube_control.db")) as match_conn:
+                    candidates = historical_media_candidates(
+                        match_conn, video_id,
+                        local_seo_media_roots(self.data_dir, transcript_dir),
+                    )
+                if candidates:
+                    labels = [
+                        f"{score:.0%} · {path.name} [історична назва: {title}]"
+                        for score, path, title in candidates
+                    ]
+                    selected, accepted = QInputDialog.getItem(
+                        self, "Підтвердження вихідного відео",
+                        "Оберіть файл тільки після перевірки, що це саме "
+                        "опублікований ролик:", labels, 0, False,
+                    )
+                    if accepted and selected in labels:
+                        proposed = candidates[labels.index(selected)][1]
+                        reply = QMessageBox.question(
+                            self, "Підтвердіть відповідність",
+                            f"Ви особисто підтверджуєте, що файл\n"
+                            f"{proposed.name}\nвідповідає Video ID {video_id}?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            save_verified_media(
+                                self.data_dir / "verified_media.json",
+                                video_id, proposed,
+                            )
+                            media_path = proposed
+            if media_path is None:
+                # One-time fallback for renamed originals. The operator chooses
+                # the actual file; no title similarity is treated as evidence.
+                chosen, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Оберіть оригінал саме цього відео",
+                    r"D:\YOUTUBE\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\YouTube",
+                    "Відео та аудіо (*.mp4 *.mkv *.mov *.webm *.m4a *.mp3 *.wav)",
+                )
+                if chosen:
+                    proposed = Path(chosen)
+                    reply = QMessageBox.question(
+                        self, "Перевірка відповідності",
+                        f"Підтвердьте, що цей файл дійсно відповідає\n"
+                        f"Video ID {video_id}:\n\n{proposed.name}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        save_verified_media(
+                            self.data_dir / "verified_media.json",
+                            video_id, proposed,
+                        )
+                        media_path = proposed
+            if media_path is None:
+                QMessageBox.information(
+                    self,
+                    "SEO: вихідний файл не обрано",
+                    "Для цього відео не знайдено SRT/VTT.\n\n"
+                    "Вихідний файл не обрано або його відповідність "
+                    "не підтверджена. Генерацію не запускали.",
+                )
+                return
+            if not (model_dir / "model.bin").is_file():
+                # Ask only when an actual source is confirmed. This is an
+                # explicit user selection, not a model download or scan.
+                chosen_model = QFileDialog.getExistingDirectory(
+                    self,
+                    "Оберіть папку faster-whisper з model.bin",
+                    str(model_dir.parent),
+                )
+                if chosen_model:
+                    try:
+                        model_dir = remember_whisper_model_dir(
+                            self.data_dir, Path(chosen_model),
+                        )
+                    except (OSError, ValueError):
+                        QMessageBox.warning(
+                            self,
+                            "Whisper: невірна папка",
+                            "У вибраній папці не знайдено model.bin. "
+                            "Потрібна модель у форматі faster-whisper.",
+                        )
+                        return
+            if not (model_dir / "model.bin").is_file():
+                QMessageBox.information(
+                    self,
+                    "SEO: відсутня модель Whisper",
+                    "Вихідний відеофайл підтверджено, але локальної моделі "
+                    "розпізнавання немає.\n\n"
+                    f"Очікувана папка моделі: {model_dir}\n\n"
+                    "Транскрипцію не запускали; файл і прив'язку збережено.",
+                )
+                return
+
         def task():
             worker = getattr(self, "_local_tool_worker", None)
             def progress(message: str) -> None:
                 if worker is not None:
                     worker.progress.emit(message)
+            if media_path is not None:
+                def whisper_progress(update: dict) -> None:
+                    active_worker = getattr(self, "_local_tool_worker", None)
+                    if active_worker is not None:
+                        active_worker.progress.emit(update)
+
+                generate_srt_offline(
+                    video_id=video_id,
+                    media=media_path,
+                    destination=confirmed_dir if repairing_wrong_source
+                        else transcript_dir,
+                    model_dir=model_dir,
+                    on_progress=whisper_progress,
+                )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress, profile=origin_profile,
             )
