@@ -3,7 +3,7 @@
   "contour": "auto_edit",
   "action": "reconcile_auto_edit_903_queue_review_v1",
   "args": {
-    "apply": false
+    "apply": true
   },
-  "nonce": "rg-903-queue-review-dryrun-20261025"
+  "nonce": "rg-903-queue-review-safe-apply-20261025"
 }
