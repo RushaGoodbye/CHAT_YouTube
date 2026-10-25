@@ -870,6 +870,7 @@ class LocalToolWorker(QThread):
 
 class MainWindow(QMainWindow):
     nas_srt_scanned = Signal(object)
+    free_tools_probed = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -883,6 +884,8 @@ class MainWindow(QMainWindow):
         self._nas_srt_ids = None
         self._nas_srt_scanning = False
         self.nas_srt_scanned.connect(self._receive_nas_srt_index)
+        self._free_tools_probe_running = False
+        self.free_tools_probed.connect(self._receive_free_tools_probe)
         self.advanced_mode = get_setting(
             self.conn,
             "ui_advanced_mode",
@@ -12766,8 +12769,32 @@ class MainWindow(QMainWindow):
 
 
     def refresh_free_tools_status(self) -> None:
+        """Probe external tools without blocking the Qt event loop."""
+        if self._free_tools_probe_running:
+            return
+        self._free_tools_probe_running = True
+
+        def run_probe() -> None:
+            try:
+                result = (probe_free_tools(), None)
+            except Exception as exc:
+                result = ({}, str(exc))
+            try:
+                self.free_tools_probed.emit(result)
+            except RuntimeError:
+                pass  # Window was destroyed during the probe.
+
+        threading.Thread(
+            target=run_probe, daemon=True, name="rg-free-tools-probe",
+        ).start()
+
+    @Slot(object)
+    def _receive_free_tools_probe(self, result: object) -> None:
+        self._free_tools_probe_running = False
+        probes, error = result
         try:
-            probes = probe_free_tools()
+            if error:
+                raise RuntimeError(error)
             self._free_tools_last_probe = probes
             yt = probes.get("yt_dlp", {})
             tr = probes.get("transcript", {})
