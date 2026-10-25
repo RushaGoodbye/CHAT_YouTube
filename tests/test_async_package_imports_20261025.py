@@ -167,3 +167,61 @@ def test_scheduled_import_refuses_stale_local_drafts_after_slow_nas(
         if worker is not None:
             worker.wait(8000)
         window.close()
+
+
+def test_selected_import_preserves_operator_changes_during_slow_nas(
+    tmp_path, monkeypatch,
+):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from rg_youtube_control import ui
+
+    monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        ui.MainWindow, "_nas_path", lambda self, *a: tmp_path / "offline",
+    )
+    monkeypatch.setattr(
+        QMessageBox, "information", lambda *args: None,
+    )
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args: None,
+    )
+    def slow_fetch(_url, video_id):
+        time.sleep(0.25)
+        return {"video_id": video_id, "new_title": "NAS version"}
+    monkeypatch.setattr(ui, "fetch_package", slow_fetch)
+    app = QApplication.instance() or QApplication([])
+    window = ui.MainWindow()
+    try:
+        video_id = "MEitKm687xo"
+        window.conn.execute(
+            "INSERT INTO videos(video_id,profile,title,privacy_status,"
+            "last_synced_at) VALUES (?,?,?,?,?)",
+            (video_id, "main", "Published", "public", "2026-10-25"),
+        )
+        window.conn.commit()
+        monkeypatch.setattr(
+            window, "_selected_optimization_video_ids",
+            lambda: [video_id],
+        )
+        saved = []
+        monkeypatch.setattr(
+            window, "_save_package_payload",
+            lambda *args: saved.append(args),
+        )
+        window.import_selected_package_from_nas()
+        ui.save_optimization_draft(
+            window.conn, video_id, "Operator version", "Manual description",
+            "", [], "draft",
+        )
+        drain(window, "_import_package_worker", app)
+        assert saved == []
+        row = window.conn.execute(
+            "SELECT new_title FROM optimization_drafts WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        assert row["new_title"] == "Operator version"
+    finally:
+        worker = getattr(window, "_import_package_worker", None)
+        if worker is not None:
+            worker.wait(8000)
+        window.close()
