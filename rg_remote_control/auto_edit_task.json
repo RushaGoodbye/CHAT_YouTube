@@ -1,21 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "apply_auto_edit_batch_891_892_qa_fix_v1",
   "args": {
-    "files": [
-      "RG_EDITED_891_MULTI_DIALOGUE.json",
-      "RG_EDITED_892_MULTI_DIALOGUE.json",
-      "RG_EDITED_901_MULTI_DIALOGUE.json",
-      "RG_EDITED_905_MULTI_DIALOGUE.json",
-      "891/RG_POSTRUN_QA.json",
-      "892/RG_POSTRUN_QA.json",
-      "901/RG_XML_VERIFY_V51.json",
-      "901/RG_BOUNDARY_QA_V51.json",
-      "905/RG_XML_VERIFY_V51.json",
-      "905/RG_BOUNDARY_QA_V51.json",
-      "902/RG_POSTRUN_QA.json"
-    ]
+    "apply": false
   },
-  "nonce": "rg-auto-edit-batch-qa-rootcause-891-892-901-902-905-20261025"
+  "nonce": "rg-auto-edit-891-892-batch-dryrun-20261025"
 }
