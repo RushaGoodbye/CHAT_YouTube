@@ -174,7 +174,8 @@ def test_full_ui_import_wrong_nas_to_untimed_text_without_media_scan(
             return [VIDEO_ID]
         def _nas_path(self, *args):
             return nas
-        def _generate_local_seo_result(self, video_id, on_progress=None):
+        def _generate_local_seo_result(self, video_id, on_progress=None, profile=None):
+            assert profile == "main"
             rows, origin = load_verified_text(self.data_dir, video_id)
             assert origin == "manual-confirmed-untimed-text"
             assert rows and "Шойгу" in rows[0]["text"]
