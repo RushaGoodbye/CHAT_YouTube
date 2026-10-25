@@ -1,0 +1,31 @@
+name: NAS Telegram Scheduler Offline QA
+
+on:
+  push:
+    branches:
+      - fix/telegram-scheduler-observability-20261025
+    paths:
+      - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - tests/test_rg_nas_scheduler_tick.py
+      - .github/workflows/rg-nas-scheduler-offline-qa.yml
+  pull_request:
+    paths:
+      - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - tests/test_rg_nas_scheduler_tick.py
+      - .github/workflows/rg-nas-scheduler-offline-qa.yml
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-scheduler-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: POSIX shell syntax
+        run: sh -n rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - name: Isolated behavior tests without NAS or Telegram credentials
+        run: python3 tests/test_rg_nas_scheduler_tick.py
