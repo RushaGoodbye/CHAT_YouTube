@@ -10137,39 +10137,38 @@ class MainWindow(QMainWindow):
             )
 
     def export_selected_transcript_to_nas(self) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для транскрипту виберіть рівно одне відео."
+                self, APP_NAME, "Для транскрипту виберіть рівно одне відео.",
             )
             return
-
-        video_id = video_ids[0]
+        profile = self.current_profile
+        video_id = str(video_ids[0])
+        row = self.conn.execute(
+            "SELECT video_id,title,scheduled_publish_at FROM videos "
+            "WHERE video_id=? AND profile=?", (video_id, profile),
+        ).fetchone()
+        if row is None:
+            QMessageBox.warning(
+                self, APP_NAME, "Відео не належить активному каналу.",
+            )
+            return
         answer = QMessageBox.question(
-            self,
-            "Отримати транскрипт",
-            "Буде використано офіційний YouTube Captions API. "
-            "Операція читання доріжки субтитрів витрачає квоту API. Продовжити?",
+            self, "Отримати транскрипт",
+            "Captions API витрачає квоту, якщо SRT ще немає. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            srt_path, downloaded = self._export_transcript_video_to_nas(video_id)
-            action = "збережено" if downloaded else "уже був на NAS"
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Транскрипт {action}:\n{srt_path}",
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_transcript_export_worker(
+                [{"video_id": video_id, "title": str(row["title"] or ""),
+                  "scheduled_publish_at": str(row["scheduled_publish_at"] or "")}],
+                profile=profile, single=True,
             )
-            self.reload_optimization_queue()
-            self.statusBar().showMessage(
-                f"Транскрипт {video_id}: {action}"
-            )
-        except Exception as exc:
-            self._error("Помилка отримання транскрипту", exc)
 
     def _save_package_payload(
         self,
