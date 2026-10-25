@@ -137,7 +137,10 @@ def run_one(
         folder = Path(metadata["transcript_root"])
         srt = folder / (video_id + ".srt")
         if not srt.is_file():
+            # Report availability only. Private NAS paths stay off GitHub.
+            result["srt_present"] = False
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
+        result["srt_present"] = True
         rows = load_srt_transcript(srt)
         if len(rows) < 10:
             raise RuntimeError("Incomplete SRT: fewer than ten caption rows")
@@ -205,6 +208,8 @@ def run_one(
         }
         result.update({
             "checks": conditions,
+            "ab_issue_count": len(issues),
+            "ungrounded_block_count": max(0, blocks - grounded),
             "ab_count": len(ab),
             "tags_count": len(tags),
             "description_length": len(description),
