@@ -9776,63 +9776,139 @@ class MainWindow(QMainWindow):
         )
 
     def preview_safe_optimization(self) -> None:
+        """Obtain live metadata off the GUI thread before showing the diff."""
+        running = getattr(self, "_safe_preview_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if not video_ids:
             QMessageBox.information(
                 self, APP_NAME, "Виберіть одне відео в черзі оптимізації."
             )
             return
-        video_id = video_ids[0]
-        try:
-            title, description, _tags = self._current_video_metadata(video_id)
-            fix = safe_description_fix(description, title)
-            needs_content = safe_description_needs_content_package(
-                fix.after,
-                title,
-            )
+        video_id = str(video_ids[0])
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
 
-            dialog = QDialog(self)
-            dialog.setWindowTitle(f"Попередній перегляд · {title}")
-            dialog.resize(1050, 720)
-            layout = QVBoxLayout(dialog)
-            changes = ", ".join(fix.changes) if fix.changes else "змін немає"
-            layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
-            if needs_content:
-                warning = QLabel(
-                    "УВАГА: після очищення старого службового блоку змістовного "
-                    "опису недостатньо. Це відео не можна застосовувати через "
-                    "безпечний пакет. Потрібен контент-пакет/транскрипт."
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                client = YouTubeClient(profile=origin_profile)
+                counted = getattr(
+                    client, "video_details_with_request_count", None
                 )
-                warning.setWordWrap(True)
-                warning.setObjectName("warningLabel")
-                layout.addWidget(warning)
+                if callable(counted):
+                    items, requests = counted([video_id])
+                    cost = int(requests) * READ_REQUEST_COST
+                else:
+                    items = client.video_details([video_id])
+                    cost = READ_REQUEST_COST
+                record_quota_units(worker_conn, cost, purpose="video")
+                if not items:
+                    raise RuntimeError(f"Відео не знайдено: {video_id}")
+                snippet = items[0].get("snippet") or {}
+                title = str(snippet.get("title") or "")
+                description = str(snippet.get("description") or "")
+                fix = safe_description_fix(description, title)
+                return {
+                    "title": title,
+                    "before": fix.before,
+                    "after": fix.after,
+                    "changes": tuple(fix.changes),
+                    "needs_content": safe_description_needs_content_package(
+                        fix.after, title,
+                    ),
+                    "video_id": video_id,
+                    "profile": origin_profile,
+                }
+            finally:
+                worker_conn.close()
 
-            columns = QHBoxLayout()
-            before = QPlainTextEdit(fix.before)
-            before.setReadOnly(True)
-            after = QPlainTextEdit(fix.after)
-            after.setReadOnly(True)
-            left = QVBoxLayout()
-            left.addWidget(QLabel("ДО"))
-            left.addWidget(before)
-            right = QVBoxLayout()
-            right.addWidget(QLabel("ПІСЛЯ"))
-            right.addWidget(after)
-            columns.addLayout(left)
-            columns.addLayout(right)
-            layout.addLayout(columns)
+        worker = LocalToolWorker(task, self)
+        self._safe_preview_worker = worker
+        self.statusBar().showMessage(
+            f"Попередній перегляд {video_id}: отримання метаданих…"
+        )
 
-            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
-            buttons.rejected.connect(dialog.reject)
-            buttons.accepted.connect(dialog.accept)
-            buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
-                dialog.accept
+        def success(result: object) -> None:
+            self.refresh_youtube_quota_label()
+            current = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (result["video_id"],),
+            ).fetchone()
+            if (current is None
+                or str(current["profile"]) != origin_profile
+                or self.current_profile != origin_profile):
+                self.statusBar().showMessage(
+                    "Попередній перегляд скасовано: канал змінено"
+                )
+                return
+            self._show_safe_optimization_preview(result)
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error(
+                "Помилка попереднього перегляду", RuntimeError(message),
             )
-            layout.addWidget(buttons)
-            dialog.exec()
-        except Exception as exc:
-            self._error("Помилка попереднього перегляду", exc)
+
+        def finished() -> None:
+            if getattr(self, "_safe_preview_worker", None) is worker:
+                self._safe_preview_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _show_safe_optimization_preview(self, result: dict) -> None:
+        """Only build/execute Qt dialogs on the GUI event loop."""
+        title = str(result["title"])
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Попередній перегляд · {title}")
+        dialog.resize(1050, 720)
+        layout = QVBoxLayout(dialog)
+        changes = (
+            ", ".join(result["changes"])
+            if result["changes"] else "змін немає"
+        )
+        layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
+        if result["needs_content"]:
+            warning = QLabel(
+                "УВАГА: після очищення старого службового блоку змістовного "
+                "опису недостатньо. Це відео не можна застосовувати через "
+                "безпечний пакет. Потрібен контент-пакет/транскрипт."
+            )
+            warning.setWordWrap(True)
+            warning.setObjectName("warningLabel")
+            layout.addWidget(warning)
+
+        columns = QHBoxLayout()
+        before = QPlainTextEdit(str(result["before"]))
+        before.setReadOnly(True)
+        after = QPlainTextEdit(str(result["after"]))
+        after.setReadOnly(True)
+        left = QVBoxLayout()
+        left.addWidget(QLabel("ДО"))
+        left.addWidget(before)
+        right = QVBoxLayout()
+        right.addWidget(QLabel("ПІСЛЯ"))
+        right.addWidget(after)
+        columns.addLayout(left)
+        columns.addLayout(right)
+        layout.addLayout(columns)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
+            dialog.accept
+        )
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def test_nas_transcript_path(self) -> None:
         """NAS and bridge may time out; keep the entire probe off the UI."""
