@@ -12846,6 +12846,7 @@ class MainWindow(QMainWindow):
         *,
         fast_mode: bool = False,
         on_progress=None,
+        transcript_preference: str = "",
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
@@ -12961,6 +12962,35 @@ class MainWindow(QMainWindow):
         transcript_rows, transcript_source = load_verified_text(
             self.data_dir, video_id,
         )
+        if transcript_preference:
+            # The operator explicitly chose a matching timed source during
+            # GUI preflight. Revalidate in this worker to avoid TOCTOU swaps.
+            from .seo_transcript_choice import compare_timed_to_verified
+            if (transcript_source != "manual-confirmed-untimed-text"
+                    or transcript_preference not in ("confirmed-srt", "nas-srt")):
+                raise RuntimeError("SEO: невірний вибір джерела; нічого не змінено.")
+            selected_root = (
+                corrected_dir if transcript_preference == "confirmed-srt"
+                else transcript_dir
+            )
+            candidate_rows, candidate_label = find_local_transcript(
+                selected_root, video_id,
+            )
+            try:
+                candidate_duration = float(context.get("duration") or 0)
+            except (ValueError, TypeError):
+                candidate_duration = 0.0
+            comparison = compare_timed_to_verified(
+                current_title, transcript_rows, candidate_rows,
+                published_duration=candidate_duration,
+            )
+            if not comparison.offer_timed:
+                raise RuntimeError(
+                    "SEO: обраний SRT змінився або не збігається з "
+                    "підтвердженим текстом. Збережено оригінальні файли."
+                )
+            transcript_rows = candidate_rows
+            transcript_source = "operator-confirmed-" + candidate_label
         if not transcript_rows:
             transcript_rows, transcript_source = find_local_transcript(
                 corrected_dir, video_id,
@@ -13653,6 +13683,9 @@ class MainWindow(QMainWindow):
                 transcript_dir, video_id,
             )
         usable_local_transcript = bool(local_rows)
+        # Only the confirmed owner of an already imported TXT may elect
+        # another source; no automatic replacement, no changes to NAS/TXT.
+        transcript_preference = ""
         media_path = None
         repairing_wrong_source = False
         model_dir = local_whisper_model_dir(self.data_dir)
@@ -13671,6 +13704,49 @@ class MainWindow(QMainWindow):
                 if isinstance(row, dict)
             )
             match = check_title_against_transcript(source_title, source_text)
+            if (not match.missing
+                    and local_source == "manual-confirmed-untimed-text"):
+                from .seo_transcript_choice import compare_timed_to_verified
+                # Corrected, user-confirmed SRT takes precedence over NAS.
+                for source_key, source_dir in (
+                    ("confirmed-srt", confirmed_dir),
+                    ("nas-srt", transcript_dir),
+                ):
+                    candidate_rows, _ = find_local_transcript(
+                        source_dir, video_id,
+                    )
+                    try:
+                        record = self.conn.execute(
+                            "SELECT duration FROM videos WHERE video_id=? AND profile=?",
+                            (video_id, self.current_profile),
+                        ).fetchone()
+                        raw_duration = record["duration"] if record else 0
+                        duration = float(raw_duration or 0)
+                    except (ValueError, TypeError, KeyError):
+                        duration = 0.0
+                    comparison = compare_timed_to_verified(
+                        source_title, local_rows, candidate_rows,
+                        published_duration=duration,
+                    )
+                    if comparison.offer_timed:
+                        reply = QMessageBox.question(
+                            self,
+                            "SEO: підтверджено також SRT з таймкодами",
+                            f"Для {video_id} є SRT з "
+                            f"{comparison.timed_cues} фрагментами. "
+                            "Його зміст схожий на підтверджений TXT, "
+                            "але автоматична заміна заборонена.\\n\\n"
+                            "Використати SRT лише для цієї SEO-перевірки? "
+                            "Оригінальний TXT та файли NAS не зміняться.\\n"
+                            "«Ні» — залишити перевірений TXT без таймкодів.",
+                            QMessageBox.StandardButton.Yes |
+                            QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            transcript_preference = source_key
+                            local_rows = candidate_rows
+                        break
             if match.missing:
                 reply = QMessageBox.question(
                     self,
@@ -13897,6 +13973,7 @@ class MainWindow(QMainWindow):
                 )
             return self._generate_local_seo_result(
                 video_id, on_progress=progress,
+                transcript_preference=transcript_preference,
             )
 
         self._run_local_tool(
