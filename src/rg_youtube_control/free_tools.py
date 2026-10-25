@@ -2503,7 +2503,6 @@ chapters: рядок з підтвердженими таймкодами та �
     # Never forward a model-generated greeting/appearance hook to the GUI.
     # The desktop editorial gate rejects these; repair before assembling the
     # package, using transcript-backed quotes only, or leave for human review.
-    from .seo_source_alignment import check_title_against_transcript
     incidental_pattern = re.compile(
         r"(?i)(?:\bкак\s+дела\b|\bкак\s+поживаете\b|"
         r"\bпривет(?:ствую)?\b|\bздравствуй(?:те)?\b|"
@@ -2516,6 +2515,10 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     def _incidental_title(value: str) -> bool:
         return bool(incidental_pattern.search(" ".join(value.casefold().split())))
+    if _incidental_title(title):
+        title = str(current_title or "").strip()
+        title_fallback_used = True
+        unchanged_title = True
     if any(_incidental_title(value) for value in variants):
         replacement = _source_quote_ab_titles(evidence_report, current_title) if evidence_report else []
         if replacement and not any(_incidental_title(value) for value in replacement):
