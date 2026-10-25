@@ -42,7 +42,6 @@ class PartialManifestFixTest(unittest.TestCase):
         patched,_=module.patch_source(source_fixture())
         self.assertIn("len(rows)+len(_holds)==_expected",patched)
         self.assertIn("held & ids",patched)
-        self.assertIn("identity!=match.group(1)",patched) if "identity!=match.group(1)" in patched else None
 
 if __name__=="__main__":
     unittest.main()
