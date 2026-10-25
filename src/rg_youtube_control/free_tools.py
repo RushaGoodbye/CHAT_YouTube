@@ -1325,34 +1325,34 @@ def _source_quote_ab_titles(
     from .dialogue_seo import distinct_evidence_topics
 
     candidates: list[tuple[int, str]] = []
-    verified_quotes = {entry["evidence"].casefold() for entry in distinct_evidence_topics(report)}
-    for index, block in enumerate(report.get("blocks") or []):
-        if not isinstance(block, dict) or block.get("verified") is False:
+    # Two timeline blocks can still contain three independently evidenced
+    # topics. Never require three blocks just to create three A/B drafts.
+    distinct = distinct_evidence_topics(report)
+    for index, entry in enumerate(distinct):
+        quote = " ".join(str(entry.get("evidence") or "").split())
+        quote = quote.strip(' "«»„“”')
+        if len(quote) < 30 or len(quote.split()) < 5:
             continue
-        for topic in block.get("topics") or []:
-            if not isinstance(topic, dict):
+        excerpt = quote
+        if len(excerpt) > 75:
+            excerpt = excerpt[:76].rsplit(" ", 1)[0].rstrip(" ,.;:")
+            if len(excerpt) < 30:
                 continue
-            quote = " ".join(str(topic.get("evidence") or "").split())
-            quote = quote.strip(' "«»„“”')
-            if quote.casefold() not in verified_quotes:
-                continue
-            if len(quote) < 30 or len(quote.split()) < 5:
-                continue
-            excerpt = quote
-            if len(excerpt) > 75:
-                excerpt = excerpt[:76].rsplit(" ", 1)[0].rstrip(" ,.;:")
-                if len(excerpt) < 30:
-                    continue
-                excerpt += "…"
-            title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
-            if not 30 <= len(title) <= 100:
-                continue
-            if title.casefold() == current_title.strip().casefold():
-                continue
-            candidates.append((index, title))
-            break  # only one quoted story per timeline block
+            excerpt += "…"
+        title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
+        if not 30 <= len(title) <= 100:
+            continue
+        if title.casefold() == current_title.strip().casefold():
+            continue
+        candidates.append((index, title))
     if len(candidates) < 3:
         return []
+    # Cap the combinatorial search on long LIVE transcripts. Preserve
+    # beginning, middle and end instead of silently ignoring late evidence.
+    if len(candidates) > 18:
+        last = len(candidates) - 1
+        sample_indices = sorted({round(i * last / 17) for i in range(18)})
+        candidates = [candidates[i] for i in sample_indices]
     # Pick the widest temporal coverage first; do not take three adjacent
     # quotes from one conversation when later material exists.
     triplets = sorted(
@@ -2042,6 +2042,9 @@ def generate_seo_package_local(
 - основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
 - {named_subject_requirement}
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
+- A/B заголовки прив’язуй до дослівних цитат у КАРТІ ПІДТВЕРДЖЕНИХ ТЕМ: використовуй конкретні назви подій і предметів, які буквально присутні в evidence, а не тільки в узагальненому topic;
+- не додавай до A/B назв нові причини, наслідки, прогнози або другорядні сюжети, для яких немає дослівної доказової цитати;
+- якщо фактажу замало для трьох незалежних подій, зроби три різні редакційні ракурси однієї підтвердженої розмови без нових тверджень;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
 - не копіюй російську назву відео як перше речення опису; перефразуй тему природною українською;
@@ -2216,12 +2219,16 @@ chapters: рядок з підтвердженими таймкодами та �
                     try:
                         brief = _ab_distinct_evidence_brief(evidence_report)
                         targeted = (
-                            "ТРИ РІЗНІ ОПОРИ З РЕАЛЬНИХ ФРАГМЕНТІВ:\n"
+                            "ПЕРЕВІРЕНІ ФРАГМЕНТИ ДІАЛОГУ:\n"
                             + brief + "\n"
-                            + "A/B/C мають висвітлювати РІЗНІ теми, "
-                            + "не змінювати одну фразу тричі. "
-                            + "Без вигаданих фактів.\n\n"
-                            if brief else ""
+                            + "ПОМИЛКИ ПОПЕРЕДНІХ ВАРІАНТІВ:\n"
+                            + "\n".join(issues[:6]) + "\n"
+                            + "Виправ ці конкретні помилки. A/B/C повинні "
+                            + "спиратися на дослівні цитати, а не на "
+                            + "домислені причини чи події. Якщо незалежних "
+                            + "тем немає — запропонуй різні ракурси "
+                            + "однієї підтвердженої теми. "
+                            + "Не вигадуй третю тему.\n\n"
                         )
                         recovered = _recover_title_variants(
                             current_title=current_title,
@@ -2493,6 +2500,35 @@ chapters: рядок з підтвердженими таймкодами та �
             max_topic_bullets=50,
             max_body_bytes=3800,
         )
+    # Never forward a model-generated greeting/appearance hook to the GUI.
+    # The desktop editorial gate rejects these; repair before assembling the
+    # package, using transcript-backed quotes only, or leave for human review.
+    incidental_pattern = re.compile(
+        r"(?i)(?:\bкак\s+дела\b|\bкак\s+поживаете\b|"
+        r"\bпривет(?:ствую)?\b|\bздравствуй(?:те)?\b|"
+        r"\bдо\s+свидания\b|\bспасибо\s+за\s+(?:разговор|беседу)\b|"
+        r"\bяк\s+справи\b|\bдякую\s+за\s+розмову\b|"
+        r"\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\b|"
+        r"\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\b|"
+        r"\b(?:внешность|зовнішність)\b|"
+        r"\b(?:твои|ваши|твої|ваші)\s+(?:глаза|волосы|очі|волосся)\b)"
+    )
+    def _incidental_title(value: str) -> bool:
+        return bool(incidental_pattern.search(" ".join(value.casefold().split())))
+    if _incidental_title(title):
+        title = str(current_title or "").strip()
+        title_fallback_used = True
+        unchanged_title = True
+    # Drop incidental candidates before selecting a replacement. Otherwise
+    # an incidental model title can re-enter via a weaker fallback.
+    if any(_incidental_title(value) for value in variants):
+        replacement = _source_quote_ab_titles(evidence_report, current_title) if evidence_report else []
+        if replacement and not any(_incidental_title(value) for value in replacement):
+            variants = replacement
+            payload["ab_source_quote_fallback_used"] = True
+        else:
+            # Do not quietly mislabel an appearance remark as SEO.
+            variants = [value for value in variants if not _incidental_title(value)]
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
