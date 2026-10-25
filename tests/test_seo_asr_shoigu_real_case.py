@@ -87,3 +87,73 @@ def test_long_word_not_misread_as_named_subject():
     source = ("Шайгумаров обсуждал разные шаги. ") * 40
     assert shoigu_source_evidence(source).literal_mentions == 0
     assert shoigu_source_evidence(source).contextual_asr_mentions == 0
+
+
+def test_real_desktop_generator_uses_guarded_editorial_on_asr_fixture(
+    tmp_path, monkeypatch,
+):
+    """Drive actual UI SEO worker through source selection and editorial gates."""
+    import sqlite3
+    from types import SimpleNamespace
+    import rg_youtube_control.ui as ui
+
+    video_id = "MEitKm687xo"
+    with sqlite3.connect(tmp_path / "rg_youtube_control.db") as conn:
+        conn.execute(
+            "CREATE TABLE videos (video_id TEXT, profile TEXT, "
+            "scheduled_publish_at TEXT, privacy_status TEXT, "
+            "title TEXT, duration TEXT)"
+        )
+        conn.execute("CREATE TABLE settings (key TEXT, value TEXT)")
+        conn.execute(
+            "INSERT INTO videos VALUES (?, 'main', NULL, 'public', ?, ?)",
+            (video_id, TITLE, "PT9M53S"),
+        )
+
+    rows = [{"start": 0.0, "duration": 0.0, "untimed": True,
+             "text": ASR_FIXTURE}]
+    monkeypatch.setattr(
+        ui, "cached_public_metadata",
+        lambda *args: {
+            "title": TITLE, "description": "", "tags": [],
+            "duration": 593,
+        },
+    )
+    monkeypatch.setattr(
+        ui, "load_verified_text",
+        lambda *args: (rows, "manual-confirmed-untimed-text"),
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Unexpected online request or NAS source swap")
+
+    monkeypatch.setattr(ui, "find_local_transcript", forbidden)
+    monkeypatch.setattr(ui, "fetch_transcript", forbidden)
+    monkeypatch.setattr(ui, "generate_seo_package_local", forbidden)
+    monkeypatch.setattr(
+        ui, "analyze_all_timeline_blocks",
+        lambda *args, **kwargs: {
+            "blocks_with_evidence": 1, "blocks_total": 1,
+            "blocks": [{
+                "index": 1, "verified": True, "start_stamp": "без таймкоду",
+                "topics": [{
+                    "topic": "Кадрова перестановка Шойгу",
+                    "evidence": (
+                        "Ведущий спрашивает: по какой причине произошло "
+                        "увольнение Шойгу?"
+                    ),
+                }],
+            }],
+        },
+    )
+    window = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    result = ui.MainWindow._generate_local_seo_result(window, video_id)
+    package = result["package"]
+    assert package["provider"] == "editorial:original-source-verified"
+    assert package["needs_review"]
+    assert len(package["title_variants"]) == 3
+    assert package["asr_name_evidence"]["literal_shoigu"] == 1
+    assert package["asr_name_evidence"]["contextual_approximate_shoigu"] >= 3
+    assert result["context"]["transcript_source"] == "manual-confirmed-untimed-text"
+    assert result["evidence_report"]["untimed"] is True
+    assert result["transcript_rows"] == rows
