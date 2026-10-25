@@ -10016,6 +10016,7 @@ class MainWindow(QMainWindow):
         evidence_report: dict | None = None,
         title_variants: list[str] | None = None,
         review_reason: str = "",
+        source_diagnostics: list[str] | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -10029,6 +10030,13 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setProperty("muted", True)
         layout.addWidget(note)
+        if source_diagnostics:
+            diagnostic_label = QLabel(
+                "ДЖЕРЕЛО SEO · " + " ".join(source_diagnostics)
+            )
+            diagnostic_label.setWordWrap(True)
+            diagnostic_label.setObjectName("StatusWarn")
+            layout.addWidget(diagnostic_label)
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
@@ -13048,6 +13056,33 @@ class MainWindow(QMainWindow):
         context["transcript_source"] = transcript_source
         if transcript_source == "manual-confirmed-untimed-text":
             context["untimed_transcript_review_only"] = True
+            from .seo_transcript_choice import (
+                compare_timed_to_verified, published_duration_seconds,
+                source_comparison_note,
+            )
+            duration = published_duration_seconds(
+                context.get("duration") or (state[3] if state is not None else 0)
+            )
+            diagnostics: list[str] = []
+            for key, folder in (
+                ("confirmed-srt", corrected_dir),
+                ("nas-srt", transcript_dir),
+            ):
+                candidate_rows, _ = find_local_transcript(folder, video_id)
+                result = compare_timed_to_verified(
+                    current_title, transcript_rows, candidate_rows,
+                    published_duration=duration,
+                )
+                diagnostics.append(source_comparison_note(key, result))
+            context["seo_source_diagnostics"] = diagnostics
+            if on_progress is not None:
+                on_progress("SEO: використано підтверджений TXT без таймкодів; "
+                            "причини відбору SRT будуть у перегляді")
+        elif transcript_source.startswith("operator-confirmed-"):
+            context["seo_source_diagnostics"] = [
+                "Оператор підтвердив SRT для цієї перевірки; "
+                "джерело повторно звірено з TXT."
+            ]
         if public_metadata_error:
             # Technical warning for the preview/audit, NOT a model fact.
             context["metadata_fetch_warning"] = (
@@ -14014,6 +14049,7 @@ class MainWindow(QMainWindow):
             evidence_report=evidence_report,
             title_variants=variants,
             review_reason=str(package.get("review_reason") or ""),
+            source_diagnostics=list(context.get("seo_source_diagnostics") or []),
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
