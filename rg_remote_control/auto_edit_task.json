@@ -4,13 +4,12 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
+      "RG_EDITED_903_MULTI_DIALOGUE.json",
+      "rg_xml_verify_v51.py",
+      "rg_pack120.py",
       "rg_studio_postrun.py",
-      "rg_multi_dialogue.py",
-      "rg_final_release_gate.py",
-      "rg_xml_verify_v51_2.py",
-      "rg_xml_verify.py",
-      "rg_studio_version.py"
+      "903/RG_BOUNDARY_QA_V51.json"
     ]
   },
-  "nonce": "rg-903-readonly-code-repair-20261025-a"
+  "nonce": "rg-903-manifest-and-xml-validator-readonly-v1"
 }
