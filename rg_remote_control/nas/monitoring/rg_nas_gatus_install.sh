@@ -1,6 +1,8 @@
 #!/bin/sh
 # Isolated Gatus monitor only. Does not touch Telegram or Cloudflare.
 set -eu
+PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH
 umask 077
 REF="$1"
 if ! printf '%s' "$REF" | grep -Eq '^[0-9a-f]{40}$'; then
