@@ -14,6 +14,8 @@ class BatchManifestQARegression(unittest.TestCase):
         self.assertIn("_rg_current_manifest_inventory",mod.INVENTORY_METHOD)
         self.assertIn("DIALOGUES_COMPLETE",mod.INVENTORY_METHOD)
         self.assertIn("legacy_single",mod.INVENTORY_METHOD)
+        self.assertIn("RG_POSTRUN_ROOT_SIDECAR_GATE_V1",mod.NEW3)
+        self.assertIn("root_release_gate.is_file() and root_timeline.is_file()",mod.NEW3)
         self.assertTrue(tree.body)
 
     def test_expected_real_891_892_screenshots(self):
