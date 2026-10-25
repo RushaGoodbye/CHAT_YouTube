@@ -38,6 +38,37 @@ def _content_stems(text: str) -> set[str]:
     }
 
 
+
+_DURATION_RE = re.compile(
+    r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?"
+    r"(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?)?$"
+)
+
+
+def published_duration_seconds(value: object) -> float:
+    """Normalize synchronized YouTube ISO-8601 or legacy duration formats."""
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        seconds = float(raw)
+        if 0 <= seconds < 1e9:
+            return seconds
+    except (TypeError, ValueError):
+        pass
+    if re.fullmatch(r"\d{1,4}:[0-5]?\d(?::[0-5]?\d)?", raw):
+        seconds = 0
+        for part in raw.split(":"):
+            seconds = seconds * 60 + int(part)
+        return float(seconds)
+    match = _DURATION_RE.fullmatch(raw)
+    if match:
+        values = {key: float(amount or 0) for key, amount in match.groupdict().items()}
+        return (values["days"] * 86400 + values["hours"] * 3600
+                + values["minutes"] * 60 + values["seconds"])
+    return 0.0
+
+
 def compare_timed_to_verified(
     original_title: str,
     verified_untimed: list[dict[str, Any]],
