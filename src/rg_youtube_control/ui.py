@@ -111,6 +111,7 @@ from .metadata_audit import (
     normalize_links,
     title_script_profile,
 )
+from .transcript_export_worker import run_transcript_export
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
 from .seo_evidence_gate import check_seo_evidence
@@ -9414,197 +9415,148 @@ class MainWindow(QMainWindow):
             pass
         return srt_path, True
 
+    def _start_transcript_export_worker(
+        self, rows: list[dict[str, str]], *, profile: str, single: bool,
+    ) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        target_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+
+        def task():
+            import sqlite3
+            conn = sqlite3.connect(str(db_path), timeout=15)
+            conn.row_factory = sqlite3.Row
+            try:
+                return run_transcript_export(
+                    conn, profile=profile, rows=rows,
+                    target_dir=target_dir, client_factory=YouTubeClient,
+                    uploader=upload_transcript, bridge_url=PACKAGE_BRIDGE_URL,
+                    max_new=1 if single else 20,
+                )
+            finally:
+                conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._transcript_export_worker = worker
+        self.statusBar().showMessage("Транскрипти: NAS у фоні")
+
+        def success(result: object) -> None:
+            self.refresh_youtube_quota_label()
+            if self.current_profile == profile:
+                self.reload_optimization_queue()
+            errors = list(result.get("errors") or [])
+            if single:
+                items = result.get("items") or []
+                if items and items[0]["ok"]:
+                    action = (
+                        "збережено" if items[0]["downloaded"] else "уже був на NAS"
+                    )
+                    QMessageBox.information(
+                        self, APP_NAME,
+                        f"Транскрипт {action}:\n{items[0]['path']}",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self, APP_NAME,
+                        "\n".join(errors[:5]) or "Транскрипт недоступний.",
+                    )
+            else:
+                message = (
+                    f"Нових транскриптів: {result['saved']}.\n"
+                    f"Уже існувало: {result['already']}."
+                )
+                if errors:
+                    message += "\nПомилки:\n" + "\n".join(errors[:8])
+                if result.get("report_error"):
+                    message += "\nЗвіт NAS: " + str(result["report_error"])
+                else:
+                    message += "\nЗвіт: " + str(result["report_path"])
+                QMessageBox.information(self, APP_NAME, message)
+            self.statusBar().showMessage("Транскрипти оброблено")
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error("Помилка отримання транскриптів", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_transcript_export_worker", None) is worker:
+                self._transcript_export_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
     def export_scheduled_transcripts_to_nas(self) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
+        profile = self.current_profile
         rows = self.conn.execute(
-            """SELECT video_id,title,scheduled_publish_at
-               FROM videos
-               WHERE profile=? AND scheduled_publish_at IS NOT NULL
-               ORDER BY scheduled_publish_at ASC""",
-            (self.current_profile,),
+            "SELECT video_id,title,scheduled_publish_at FROM videos "
+            "WHERE profile=? AND scheduled_publish_at IS NOT NULL "
+            "ORDER BY scheduled_publish_at ASC", (profile,),
         ).fetchall()
         if not rows:
             QMessageBox.information(
-                self,
-                APP_NAME,
-                "На активному каналі немає запланованих відео.",
+                self, APP_NAME, "На активному каналі немає запланованих відео.",
             )
             return
-
-        target_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
-        )
-        pending = [
-            row
+        captured = [
+            {"video_id": str(row["video_id"]),
+             "title": str(row["title"] or ""),
+             "scheduled_publish_at": str(row["scheduled_publish_at"] or "")}
             for row in rows
-            if not (target_dir / f"{row['video_id']}.srt").exists()
         ]
-        already = len(rows) - len(pending)
-
-        # Existing NAS transcripts are mirrored to Package Bridge without
-        # consuming YouTube Captions API quota.
-        for row in rows:
-            existing_path = target_dir / f"{row['video_id']}.srt"
-            if not existing_path.exists():
-                continue
-            try:
-                self._export_transcript_video_to_nas(str(row["video_id"]))
-            except Exception:
-                pass
-
-        if not pending:
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Усі {len(rows)} запланованих транскриптів уже є на NAS.",
-            )
-            self.reload_optimization_queue()
-            return
-
-        if len(pending) > 20:
-            QMessageBox.warning(
-                self,
-                APP_NAME,
-                "За один пакет можна отримати не більше 20 транскриптів.",
-            )
-            return
-
-        estimated = len(pending) * 250
         answer = QMessageBox.question(
-            self,
-            "Транскрипти запланованих відео",
-            f"Знайдено запланованих: {len(rows)}.\n"
-            f"Уже на NAS: {already}.\n"
-            f"Потрібно отримати: {len(pending)}.\n"
-            f"Оцінка квоти Captions API: до ≈{estimated} од.\n\n"
-            "Отримати транскрипти зараз?",
+            self, "Транскрипти запланованих відео",
+            f"Запланованих: {len(captured)}. До 20 нових SRT за пакет. "
+            "Перевірка NAS відбудеться у фоні, резерв API збережеться. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        saved = 0
-        skipped = already
-        errors: list[str] = []
-        report_items: list[dict[str, str | bool]] = []
-        for index, row in enumerate(pending, start=1):
-            video_id = row["video_id"]
-            self.statusBar().showMessage(
-                f"Транскрипти: {index}/{len(pending)} · {video_id}"
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_transcript_export_worker(
+                captured, profile=profile, single=False,
             )
-            QApplication.processEvents()
-            try:
-                path, downloaded = self._export_transcript_video_to_nas(video_id)
-                if downloaded:
-                    saved += 1
-                else:
-                    skipped += 1
-                report_items.append(
-                    {
-                        "video_id": video_id,
-                        "title": str(row["title"] or ""),
-                        "scheduled_publish_at": str(
-                            row["scheduled_publish_at"] or ""
-                        ),
-                        "ok": True,
-                        "downloaded": downloaded,
-                        "path": str(path),
-                        "error": "",
-                    }
-                )
-            except Exception as exc:
-                error_text = str(exc)
-                errors.append(f"{video_id}: {error_text}")
-                report_items.append(
-                    {
-                        "video_id": video_id,
-                        "title": str(row["title"] or ""),
-                        "scheduled_publish_at": str(
-                            row["scheduled_publish_at"] or ""
-                        ),
-                        "ok": False,
-                        "downloaded": False,
-                        "path": "",
-                        "error": error_text,
-                    }
-                )
-
-        report_payload = {
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "profile": self.current_profile,
-            "channel_id": PROFILE_TARGETS[self.current_profile],
-            "total_scheduled": len(rows),
-            "already_existing": already,
-            "downloaded": saved,
-            "failed": len(errors),
-            "items": report_items,
-        }
-        report_path = target_dir / "_last_transcript_report.json"
-        report_write_error = ""
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(
-                json.dumps(report_payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            report_write_error = str(exc)
-
-        self.reload_optimization_queue()
-        message = (
-            f"Готово. Збережено нових транскриптів: {saved}.\n"
-            f"Уже існувало: {skipped}."
-        )
-        if errors:
-            preview = "\n".join(errors[:8])
-            message += f"\n\nНе вдалося отримати: {len(errors)}\n{preview}"
-            if len(errors) > 8:
-                message += "\n…"
-        if report_write_error:
-            message += (
-                "\n\nЗвіт на NAS записати не вдалося:\n"
-                + report_write_error
-            )
-        else:
-            message += f"\n\nДіагностичний звіт:\n{report_path}"
-        QMessageBox.information(self, APP_NAME, message)
-        self.statusBar().showMessage("Пакет транскриптів оброблено")
 
     def export_selected_transcript_to_nas(self) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для транскрипту виберіть рівно одне відео."
+                self, APP_NAME, "Для транскрипту виберіть рівно одне відео.",
             )
             return
-
-        video_id = video_ids[0]
+        profile = self.current_profile
+        video_id = str(video_ids[0])
+        row = self.conn.execute(
+            "SELECT video_id,title,scheduled_publish_at FROM videos "
+            "WHERE video_id=? AND profile=?", (video_id, profile),
+        ).fetchone()
+        if row is None:
+            QMessageBox.warning(
+                self, APP_NAME, "Відео не належить активному каналу.",
+            )
+            return
         answer = QMessageBox.question(
-            self,
-            "Отримати транскрипт",
-            "Буде використано офіційний YouTube Captions API. "
-            "Операція читання доріжки субтитрів витрачає квоту API. Продовжити?",
+            self, "Отримати транскрипт",
+            "Captions API витрачає квоту, якщо SRT ще немає. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            srt_path, downloaded = self._export_transcript_video_to_nas(video_id)
-            action = "збережено" if downloaded else "уже був на NAS"
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Транскрипт {action}:\n{srt_path}",
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_transcript_export_worker(
+                [{"video_id": video_id, "title": str(row["title"] or ""),
+                  "scheduled_publish_at": str(row["scheduled_publish_at"] or "")}],
+                profile=profile, single=True,
             )
-            self.reload_optimization_queue()
-            self.statusBar().showMessage(
-                f"Транскрипт {video_id}: {action}"
-            )
-        except Exception as exc:
-            self._error("Помилка отримання транскрипту", exc)
 
     def _save_package_payload(
         self,
