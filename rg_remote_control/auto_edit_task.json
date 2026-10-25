@@ -1,7 +1,13 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_face_rescue_903_v1",
-  "args": {},
-  "nonce": "rg-903-face-rescue-real-readonly-20261025-v1"
+  "action": "inspect_auto_edit_files_generic",
+  "args": {
+    "files": [
+      ".rg_cache/903/multi_job_2bc9d5ade6d01805222e.json",
+      "RG_EDITED_903_2_R2_GUEST_ID_BOUNDARY_QA.json",
+      "rg_clock_selector.py"
+    ]
+  },
+  "nonce": "rg-903-2-timeline-anchor-readonly-20261025"
 }
