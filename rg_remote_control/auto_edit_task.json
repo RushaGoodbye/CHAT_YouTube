@@ -4,12 +4,21 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_release_health_gate.py",
-      "891/RG_POSTRUN_QA.json",
-      "RG_EDITED_891_MULTI_DIALOGUE.json",
-      "rg_pack120.py",
-      "rg_studio_postrun.py"
+      "891/RG_EDITED_891_FINAL_RELEASE_GATE.json",
+      "RG_EDITED_891_FINAL_RELEASE_GATE.json",
+      "891/RG_EDITED_891_FINAL_TIMELINE_AUDIT.json",
+      "RG_EDITED_891_FINAL_TIMELINE_AUDIT.json",
+      "891/RG_EDITED_891_CIGARETTE_BLUR_QA.json",
+      "RG_EDITED_891_CIGARETTE_BLUR_QA.json",
+      "891/RG_EDITED_891_DIRECTOR_QA.json",
+      "RG_EDITED_891_DIRECTOR_QA.json",
+      "891/RG_EDITED_891_decisions.json",
+      "RG_EDITED_891_decisions.json",
+      "RG_EDITED_892_3_FINAL_RELEASE_GATE.json",
+      "892/RG_EDITED_892_3_FINAL_RELEASE_GATE.json",
+      "RG_EDITED_892_3_FINAL_TIMELINE_AUDIT.json",
+      "892/RG_EDITED_892_3_FINAL_TIMELINE_AUDIT.json"
     ]
   },
-  "nonce": "rg-891-release-health-failcause-readonly-20261025"
+  "nonce": "rg-891-892-release-health-sidecar-audit-20261025"
 }
