@@ -40,6 +40,15 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py selftest
+      - name: Validate NEWS2 monitor and guarded updater
+        env:
+          GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
+        run: |
+          python3 rg_remote_control/nas/monitoring/rg_news2_gatus_observer_v2.py selftest
+          python3 rg_remote_control/nas/monitoring/rg_news2_batch_audit_v1.py selftest
+          sh -n rg_remote_control/nas/monitoring/rg_news2_gatus_batch_upgrade_v2.sh
+          shellcheck --shell=sh --severity=warning rg_remote_control/nas/monitoring/rg_news2_gatus_batch_upgrade_v2.sh
+          docker compose -f rg_remote_control/nas/monitoring/compose-news2.yaml config -q
       - name: Validate isolated compose config
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
