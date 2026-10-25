@@ -47,10 +47,20 @@ def test_metadata_only_keeps_safe_no_ab_workflow():
     assert ok and not why
 
 
-def test_scheduled_stream_remains_supported():
+def test_scheduled_video_does_not_bypass_editorial_gate_for_title_updates():
+    # apply_content_package writes title/description/tags even for a scheduled
+    # video. Scheduled alone must never approve a legacy full SEO package.
     ok, why = ready_for_youtube(
         status="ready", generation="scheduled-import",
         quality_state="", variants=[], scheduled=True,
+    )
+    assert not ok and any("A/B" in reason for reason in why)
+
+
+def test_scheduled_safe_metadata_only_remains_supported():
+    ok, why = ready_for_youtube(
+        status="ready", generation="safe-metadata-0.7.6",
+        quality_state="safe_metadata", variants=[], scheduled=True,
     )
     assert ok and not why
 
