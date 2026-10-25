@@ -9,12 +9,14 @@ on:
       - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - tests/test_rg_nas_scheduler_tick.py
       - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+      - rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
       - .github/workflows/rg-nas-scheduler-offline-qa.yml
   pull_request:
     paths:
       - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
       - tests/test_rg_nas_scheduler_tick.py
       - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+      - rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
       - .github/workflows/rg-nas-scheduler-offline-qa.yml
 
 permissions:
@@ -44,3 +46,5 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
           python3 rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py selftest
+          python3 -m py_compile rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
+          python3 rg_remote_control/nas/rg_nas_synology_task_audit_v1.py selftest
