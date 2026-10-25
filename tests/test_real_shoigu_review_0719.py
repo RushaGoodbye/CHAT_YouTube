@@ -118,17 +118,23 @@ def test_real_shoigu_draft_reports_both_status_and_duplicate_topics():
     assert any("SEO не підтверджено" in issue for issue in issues)
 
 
-def test_draft_safe_metadata_and_scheduled_do_not_require_ab():
-    for generation, quality, scheduled in [
-        ("safe-metadata-0.7.6", "safe_metadata", False),
-        ("scheduled-import", "", True),
-    ]:
-        ready, issues = ready_for_youtube(
-            status="draft", generation=generation, quality_state=quality,
-            variants=[], scheduled=scheduled,
-        )
-        assert not ready
-        assert issues == ("Пакет не має статусу готовності.",)
+def test_draft_safe_metadata_does_not_require_ab():
+    ready, issues = ready_for_youtube(
+        status="draft", generation="safe-metadata-0.7.6",
+        quality_state="safe_metadata", variants=[], scheduled=False,
+    )
+    assert not ready
+    assert issues == ("Пакет не має статусу готовності.",)
+
+
+def test_draft_scheduled_title_update_requires_editorial_review():
+    ready, issues = ready_for_youtube(
+        status="draft", generation="scheduled-import",
+        quality_state="", variants=[], scheduled=True,
+    )
+    assert not ready
+    assert any("A/B" in item for item in issues)
+    assert any("SEO не підтверджено" in item for item in issues)
 
 
 def test_editor_review_button_shows_ab_even_for_draft(monkeypatch):
