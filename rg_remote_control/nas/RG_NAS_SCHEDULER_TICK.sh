@@ -3,7 +3,6 @@ set -eu
 
 ROOT="/volume1/docker"
 STATE="$ROOT/RG_NAS_STATE"
-EXECUTOR="rg-nas-autodeploy"
 LOG="$STATE/auto-deploy.log"
 
 mkdir -p "$STATE"
