@@ -135,8 +135,13 @@ try:
                 if not p.is_file() or p.stat().st_size==0:
                     raise ValueError("missing or empty")
                 root_xml=ET.parse(p).getroot()
-                if root_xml.find(".//sequence") is None:
+                sequence=root_xml.find(".//sequence")
+                if sequence is None:
                     raise ValueError("missing Premiere sequence")
+                if not sequence.findall("./media/video/track/clipitem"):
+                    raise ValueError("missing video clips")
+                if not sequence.findall("./media/audio/track/clipitem"):
+                    raise ValueError("missing audio clips")
                 row["xml_valid"]+=1
             except (OSError, ET.ParseError, ValueError) as exc:
                 row["xml_invalid"].append({"name":p.name,"reason":str(exc)[:100]})
