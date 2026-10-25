@@ -115,9 +115,9 @@ def sqlite_probe(root):
             databases.append(p)
     results = []
     for db in databases[:4]:
-        item = {"found":True,"read_only":True,"quick_check":"unavailable"}
+        item = {"found":True,"read_only":True,"immutable_snapshot":True,"quick_check":"unavailable"}
         try:
-            connection=sqlite3.connect(db.resolve().as_uri()+"?mode=ro", uri=True, timeout=2)
+            connection=sqlite3.connect(db.resolve().as_uri()+"?mode=ro&immutable=1", uri=True, timeout=2)
             try:
                 connection.execute("PRAGMA query_only=ON")
                 item["quick_check"]=connection.execute("PRAGMA quick_check(1)").fetchone()[0]
@@ -190,7 +190,7 @@ def run(root, cli_output=None, now=None):
             "legacy_heartbeat_files":old,
             "old_autodeploy_task3_preserve_disabled":True,
             "public_channel_publish_status":"NOT_TESTED_NOT_CHANGED",
-            "second_poller_started":False,"telegram_api_calls":0,"database_writes":0,
+            "no_second_poller_invoked_by_audit":True,"telegram_api_calls":0,"database_writes":0,
             "task4_recent_execution_confirmed":active,
             "next_step":("monitor_REAL_NEWS2_callback_and_tick_without_reenabling_legacy"
                          if active else "inspect_TASK4_live_status_or_script_before_modification")}
@@ -213,6 +213,7 @@ def selftest():
         assert report["task4_recent_execution_confirmed"] is True
         assert report["callback_state"]["most_recent"]["fresh_5m"] is True
         assert report["public_channel_publish_status"]=="NOT_TESTED_NOT_CHANGED"
+        assert report["no_second_poller_invoked_by_audit"] is True
         assert not report["news2_dsm_task"].get("command")
         assert report["old_autodeploy_task3_preserve_disabled"] is True
         assert report["sqlite"]["candidates"] == 0
