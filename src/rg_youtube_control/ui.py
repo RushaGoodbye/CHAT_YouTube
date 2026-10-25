@@ -9446,8 +9446,14 @@ class MainWindow(QMainWindow):
 
         def success(result: object) -> None:
             self.refresh_youtube_quota_label()
+            # 0.7.39 uses a cached NAS SRT filename index. Invalidate the
+            # cache after exports or the green NAS badges remain stale.
+            self._nas_srt_path = ""
+            self._nas_srt_ids = None
             if self.current_profile == profile:
                 self.reload_optimization_queue()
+            if not self._nas_srt_scanning:
+                QTimer.singleShot(0, self._start_nas_srt_index)
             errors = list(result.get("errors") or [])
             if single:
                 items = result.get("items") or []
