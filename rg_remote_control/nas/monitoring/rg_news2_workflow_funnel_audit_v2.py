@@ -60,8 +60,18 @@ def find_live_database(root):
                 p=pathlib.Path(parent)/DB
                 if p.is_file() and not p.is_symlink():
                     choices.append(p)
-    # Fail closed rather than accidentally selecting a historical database.
-    return choices[0] if len(choices)==1 else None
+    # Multiple copies exist in legacy NEWS2 layouts: select only an
+    # unequivocally fresh DB, never guess between two active databases.
+    if len(choices)==1:
+        return choices[0]
+    if len(choices)>1:
+        choices.sort(key=lambda p:p.stat().st_mtime, reverse=True)
+        now=time.time()
+        latest=choices[0].stat().st_mtime
+        next_latest=choices[1].stat().st_mtime
+        if -120<=now-latest<=900 and latest-next_latest>=3600:
+            return choices[0]
+    return None
 
 def quote(identifier):
     if not SAFE_IDENTIFIER.fullmatch(identifier):
@@ -262,6 +272,16 @@ def selftest():
                        "unrecognized_private_text"):
             assert secret not in printed, secret
         assert doc["db"]["immutable_read_only"] is True
+        # A stale duplicate can be distinguished from the active DB.
+        old_dir=root/"legacy"
+        old_dir.mkdir()
+        old_file=old_dir/DB
+        import shutil
+        shutil.copyfile(str(db),str(old_file))
+        os.utime(str(old_file),(time.time()-86400,time.time()-86400))
+        assert find_live_database(root)==db
+        old_file.touch()
+        assert find_live_database(root) is None
         assert doc["publication_gate_must_remain_off"] is True
     print("RG_NEWS2_FUNNEL_AUDIT_V2_SELFTEST_PASS")
 
