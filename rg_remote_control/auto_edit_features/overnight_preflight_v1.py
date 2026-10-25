@@ -2,6 +2,7 @@
 # Read-only RG Auto Edit night batch readiness check.
 from __future__ import annotations
 import ast, json, os, re, shutil, subprocess, sys, time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
 DATA=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
@@ -115,6 +116,8 @@ try:
         mani=read_json(APP/("RG_EDITED_"+st+"_MULTI_DIALOGUE.json"))
         if not isinstance(mani,dict):mani={}
         outputs=mani.get("outputs") or []
+        row["manifest_status"]=str(mani.get("status") or "").upper()
+        row["review_hold_count"]=len(mani.get("review_holds") or []) if isinstance(mani.get("review_holds"),list) else 0
         row["manifest_dialogue_count"]=mani.get("dialogue_count")
         row["manifest_output_count"]=len(outputs) if isinstance(outputs,list) else 0
         try:
@@ -127,14 +130,42 @@ try:
         paths=[Path(x["xml"]) for x in outputs if isinstance(x,dict)
                and isinstance(x.get("xml"),str) and x["xml"].strip()] if isinstance(outputs,list) else []
         row["xml_existing"]=sum(p.is_file() and p.stat().st_size>0 for p in paths)
+        row["xml_valid"]=0
+        row["xml_invalid"]=[]
+        for p in paths:
+            try:
+                if not p.is_file() or p.stat().st_size==0:
+                    raise ValueError("missing or empty")
+                root_xml=ET.parse(p).getroot()
+                sequence=root_xml.find(".//sequence")
+                if sequence is None:
+                    raise ValueError("missing Premiere sequence")
+                if not sequence.findall("./media/video/track/clipitem"):
+                    raise ValueError("missing video clips")
+                if not sequence.findall("./media/audio/track/clipitem"):
+                    raise ValueError("missing audio clips")
+                row["xml_valid"]+=1
+            except (OSError, ET.ParseError, ValueError) as exc:
+                row["xml_invalid"].append({"name":p.name,"reason":str(exc)[:100]})
+        row["xml_unique"]=len({str(p).casefold() for p in paths})==len(paths)
         row["complete_state"]=str(row["last_run_status"] or "").upper()=="COMPLETE"
         row["complete_manifest"]=bool(expected>0 and isinstance(outputs,list)
                                       and len(outputs)==expected and len(paths)==expected
-                                      and row["xml_existing"]==expected)
+                                      and row["xml_existing"]==expected
+                                      and row["xml_valid"]==expected and row["xml_unique"])
         # Do not skip a stream merely because XML files or COMPLETE state exist.
         # Failed or absent postrun QA requires inspection, not silent skip.
-        row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"])
-        row["requires_qa_review"]=bool((row["complete_state"] or row["complete_manifest"]) and not row["already_complete"])
+        row["already_complete"]=bool(row["complete_manifest"] and row["qa_report_valid"] and
+                                     not row["prior_backend_error"] and
+                                     not (row.get("audio",{}).get("candidates",0)>1))
+        row["requires_qa_review"]=bool(
+            not row["already_complete"] and (
+                row["complete_state"] or row["complete_manifest"]
+                or row["postrun_passed"] is False
+                or row["manifest_status"] in {"PARTIAL_REVIEW","PARTIAL_RETRY_COMPLETE","FAILED"}
+                or row["review_hold_count"]>0
+            )
+        )
         row["inputs_ready"]=all(row.get(k,{}).get("ok") for k in ("video","audio","screenshots"))
 
         if isinstance(postrun,dict) and "checks" in postrun:
@@ -171,10 +202,12 @@ try:
                 except Exception:row["video_probe_error"]=probe.get("stderr") or probe.get("error")
 
         row["audio_ambiguous"]=bool(row.get("audio",{}).get("candidates",0)>1)
-        row["night_action"]=("SKIP_COMPLETE" if row["already_complete"] else
-                             "REVIEW_QA" if row["requires_qa_review"] else
-                             "REVIEW_BACKEND" if row["prior_backend_error"] else
+        # Errors and ambiguous source audio require review even if stale
+        # manifests and QA reports still claim the stream is complete.
+        row["night_action"]=("REVIEW_BACKEND" if row["prior_backend_error"] else
                              "REVIEW_AUDIO" if row["audio_ambiguous"] else
+                             "REVIEW_QA" if row["requires_qa_review"] else
+                             "SKIP_COMPLETE" if row["already_complete"] else
                              "MISSING_INPUT" if not row["inputs_ready"] else
                              "RUN_EXPECTED")
 except Exception as exc:
