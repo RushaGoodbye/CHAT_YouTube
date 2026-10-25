@@ -128,8 +128,9 @@ def test_preflight_offers_timed_only_with_explicit_user_yes(monkeypatch, tmp_pat
             return [video_id]
 
         def _generate_local_seo_result(self, video_id, *, on_progress=None,
-                                       transcript_preference=""):
+                                       transcript_preference="", source_diagnostics=None):
             self.received.append(transcript_preference)
+            self.last_diagnostics = list(source_diagnostics or [])
             return {"video_id": video_id}
 
         def _save_local_seo_result(self, result):
@@ -202,8 +203,10 @@ def test_preflight_rejects_unrelated_same_subject_srt_without_prompt(
         def _selected_optimization_video_ids(self):
             return [video_id]
 
-        def _generate_local_seo_result(self, video_id, *, on_progress=None):
+        def _generate_local_seo_result(self, video_id, *, on_progress=None,
+                                       source_diagnostics=None):
             self.received.append(video_id)
+            self.last_diagnostics = list(source_diagnostics or [])
             return {"video_id": video_id}
 
         def _save_local_seo_result(self, result):
@@ -226,6 +229,7 @@ def test_preflight_rejects_unrelated_same_subject_srt_without_prompt(
     window = Window()
     ui.MainWindow.local_seo_selected(window)
     assert window.received == [video_id]
+    assert any("недостатньо збігається" in line for line in window.last_diagnostics)
     conn.close()
 
 
@@ -301,6 +305,7 @@ def test_source_diagnostics_visible_in_real_qt_preview(qtbot, monkeypatch):
 def test_working_source_diagnostic_flows_worker_to_preview():
     from pathlib import Path
     source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
-    assert 'context["seo_source_diagnostics"] = diagnostics' in source
+    assert 'context["seo_source_diagnostics"] = list(source_diagnostics or [])' in source
     assert "source_diagnostics=list(context.get(" in source
-    assert "source_comparison_note(key, result)" in source
+    assert "source_comparison_note(source_key, comparison)" in source
+    assert 'seo_kwargs["source_diagnostics"] = list(source_diagnostics)' in source
