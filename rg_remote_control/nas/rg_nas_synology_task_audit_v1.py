@@ -17,6 +17,21 @@ SCHEDULE_KEYS = ("type", "run hour", "run min", "repeat min", "repeat hour",
                  "can run task same time")
 def script_refs(source):
     return sorted(set(RG_SCRIPT_PATTERN.findall(source)))
+def command_hints(source):
+    """Safe command classification, never command arguments or raw values."""
+    low = source.lower()
+    hints = []
+    for label, needle in (
+        ("volume1-docker", "/volume1/docker/"),
+        ("docker", "docker "),
+        ("python", "python3 "),
+        ("shell", "sh "),
+        ("github", "github.com/"),
+    ):
+        if needle in low:
+            hints.append(label)
+    return hints
+
 def schedule_fields(fields):
     return {key.replace(" ", "_"): fields[key] for key in SCHEDULE_KEYS
             if key in fields and re.fullmatch(r"[a-zA-Z0-9_-]{1,16}", fields[key])}
@@ -37,7 +52,7 @@ def cli_parse(source):
             if current and (current["targets"] or current["rg_named"]):
                 entries.append(current)
             current = {"id": int(m.group(1)), "state": "unknown", "last_result": "unknown",
-                       "targets": [], "script_refs": [], "rg_named": False,
+                       "targets": [], "script_refs": [], "command_hints": [], "rg_named": False,
                        "last_run": "unknown", "task_type": "unknown"}
             continue
         if current is None:
@@ -62,6 +77,8 @@ def cli_parse(source):
         else:
             current["targets"] = sorted(set(current["targets"] + targets(val)))
             current["script_refs"] = sorted(set(current["script_refs"] + script_refs(val)))
+            if kind in ("command", "action"):
+                current["command_hints"] = sorted(set(current["command_hints"] + command_hints(val)))
             if kind == "name" and re.search("RG|NAS|MCP|TELEGRAM", val, re.I):
                 current["rg_named"] = True
     if current and (current["targets"] or current["rg_named"]):
@@ -95,7 +112,8 @@ def task_parse(path, source):
     return {"id": task_id, "state": state(values.get("state","")),
             "targets": matched, "rg_named": named,
             "script_refs": script_refs("\n".join(texts)),
-            "cmd_decoded": bool(encoded),
+            "cmd_present": bool(encoded),
+            "command_hints": command_hints("\n".join(texts)),
             "schedule": schedule_fields(values)}
 
 def audit(task_root="/usr/syno/etc/synoschedule.d", cron="/etc/crontab", sched_bin=None):
@@ -180,6 +198,8 @@ def selftest():
         assert result["matching_task_files"][0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
         assert result["matching_task_files"][0]["cron_active"] is True
         assert parsed[0]["script_refs"] == ["RG_NAS_SCHEDULER_TICK.sh"]
+        assert "volume1-docker" in parsed[0]["command_hints"]
+        assert "volume1-docker" in result["matching_task_files"][0]["command_hints"]
         assert "SECRET_VALUE" not in json.dumps(result)
     print("RG_SYNOLOGY_TASK_AUDIT_SELFTEST_PASS")
 
