@@ -818,7 +818,17 @@ def _deterministic_evidence_description(
         # visible in review metadata and the full saved evidence timeline.
         review_topics.extend(dict.fromkeys(unmapped))
     if not labels:
-        raise ValueError("No editorial subjects among verified transcript topics")
+        # Keep a reviewable draft instead of failing the entire local SEO job.
+        # No unsupported topic becomes a public factual claim.
+        if review_topics is None:
+            raise ValueError("No editorial subjects among verified transcript topics")
+        review_topics.append("NO_RECOGNIZED_EDITORIAL_SUBJECT")
+        return (
+            "У цьому випуску «РАША ГУДБАЙ» співрозмовники обговорюють "
+            "питання, наведені в розшифровці. Автоматична перевірка не "
+            "визначила достатньо підтверджених тематичних деталей для "
+            "публікації опису. Потрібна редакторська перевірка за SRT."
+        )
     labels = labels[:10]
     subject = "Шойгу та " if "шойгу" in str(title or "").casefold() else ""
     lead = (
