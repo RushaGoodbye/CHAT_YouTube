@@ -257,16 +257,44 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_qa_summary.json",
     )
     parser.add_argument("--model", default=DEFAULT_OLLAMA_MODEL)
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
     qa_cache = Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_qa_cache"
     checked = []
     for video_id in args.video_ids:
-        checked.append(run_one(
-            video_id, database=args.db, qa_cache=qa_cache, model=args.model
-        ))
-    status = "READY_FOR_HUMAN_REVIEW" if checked and all(
-        row["status"] == "DRAFT_READY_FOR_HUMAN_REVIEW" for row in checked
-    ) else "BLOCKED"
+        if args.preflight_only:
+            entry = {"video_id": video_id, "status": "BLOCKED", "stage": "preflight"}
+            try:
+                meta = get_video_inputs(args.db, video_id)
+                path = Path(meta["transcript_root"]) / (video_id + ".srt")
+                if not path.is_file():
+                    raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
+                cues = load_srt_transcript(path)
+                if len(cues) < 10:
+                    raise RuntimeError("Incomplete SRT: fewer than ten caption rows")
+                entry.update(status="PREFLIGHT_PASS", cues=len(cues), duration=meta["duration"])
+            except Exception as exc:
+                entry.update(error_type=type(exc).__name__, error_code=(
+                    str(exc) if str(exc) in (
+                        "NAS SRT missing; no YouTube fallback is allowed in QA",
+                        "Incomplete SRT: fewer than ten caption rows",
+                        "Video ID not present in app's synchronized database",
+                        "Unsupported synchronized video duration format",
+                    ) else "LOCAL_INPUT_ERROR"))
+            checked.append(entry)
+        else:
+            checked.append(run_one(
+                video_id, database=args.db, qa_cache=qa_cache, model=args.model
+            ))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps({
+            "schema": "RG_SEO_REAL_READONLY_ACCEPTANCE_V1",
+            "status": "PARTIAL", "read_only": True,
+            "video_count": len(checked), "results": checked,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps({"progress_video": video_id, "status": checked[-1]["status"],
+                          "stage": checked[-1].get("stage")}), flush=True)
+    status = "PREFLIGHT_PASS" if args.preflight_only and checked and all(row["status"] == "PREFLIGHT_PASS" for row in checked) else ("READY_FOR_HUMAN_REVIEW" if checked and all(row["status"] == "DRAFT_READY_FOR_HUMAN_REVIEW" for row in checked) else "BLOCKED")
     summary = {
         "schema": "RG_SEO_REAL_READONLY_ACCEPTANCE_V1",
         "status": status,
@@ -279,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(json.dumps(summary, ensure_ascii=True), flush=True)
-    return 0 if status == "READY_FOR_HUMAN_REVIEW" else 1
+    return 0 if status in ("READY_FOR_HUMAN_REVIEW", "PREFLIGHT_PASS") else 1
 
 
 if __name__ == "__main__":
