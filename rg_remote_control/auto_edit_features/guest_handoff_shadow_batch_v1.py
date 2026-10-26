@@ -172,35 +172,63 @@ def audio_probe(left_xml,right_xml,start,end):
         return {"status":"AUDIO_OFFSET_CONFLICT","offsets_frames":offsets,"vad_pass":False}
     audio_start=(start+offsets[0])/FPS
     audio_end=(end+offsets[0])/FPS
-    pad=2.0
-    sample,error=pcm_from_source(shared[0],max(0.,audio_start-pad),audio_end-audio_start+2*pad)
-    if error:return {"status":error,"vad_pass":False}
-    if len(sample)<1600:return {"status":"AUDIO_TOO_SHORT","vad_pass":False}
-    frame=1600
-    rms=[float(np.sqrt(np.mean(x*x))) for x in
-         (sample[k:k+frame] for k in range(0,len(sample)-frame+1,frame))]
-    n_above=sum(float(v)>10**(-35/20) for v in rms)
-    out={"status":"AUDIO_LEVEL_MEASURED","offset_consistent":True,
-         "active_rms_windows_above_minus35db":n_above,
-         "total_100ms_windows":len(rms),"peak_rms_db":round(20*math.log10(max(rms)+1e-9),2),
-         "vad_pass":False}
-    # Silero output only as timing evidence: silence != permission to trim video.
+    windows=audio_windows(audio_start,audio_end)
+    results=[]
+    # Import and instantiate Silero only once for all three audio snippets.
+    vad=None
     try:
-        from silero_vad import load_silero_vad, get_speech_timestamps
+        from silero_vad import load_silero_vad,get_speech_timestamps
         import torch
         torch.set_num_threads(2)
-        model=load_silero_vad()
-        stamps=get_speech_timestamps(torch.from_numpy(sample),model,sampling_rate=16000,
-                                     return_seconds=True)
-        out["vad_spans_seconds"]=[[round(float(s["start"]),2),round(float(s["end"]),2)]
-                                  for s in stamps[:60]]
-        out["speech_overlap_span_count"]=sum(
-            float(s["end"])>pad and float(s["start"])<((end-start)/FPS+pad)
-            for s in stamps)
-        out["status"]="VAD_EVIDENCE_ONLY"
-    except Exception as exc:
-        out["vad_reason"]=type(exc).__name__
-    return out
+        vad=load_silero_vad()
+    except Exception:
+        vad=None
+    for t0,duration in windows:
+        sample,error=pcm_from_source(shared[0],t0,duration)
+        if error:
+            results.append({"status":error,"audio_t0_sec":round(t0,2)})
+            continue
+        if len(sample)<1600:
+            results.append({"status":"AUDIO_TOO_SHORT","audio_t0_sec":round(t0,2)})
+            continue
+        frame=1600
+        rms=[float(np.sqrt(np.mean(x*x))) for x in
+             (sample[k:k+frame] for k in range(0,len(sample)-frame+1,frame))]
+        n_above=sum(v>10**(-35/20) for v in rms)
+        result={"status":"AUDIO_LEVEL_MEASURED","audio_t0_sec":round(t0,2),
+                "duration_sec":round(duration,2),
+                "active_rms_windows_above_minus35db":n_above,
+                "total_100ms_windows":len(rms),
+                "peak_rms_db":round(20*math.log10(max(rms)+1e-9),2)}
+        if vad is not None:
+            try:
+                stamps=get_speech_timestamps(torch.from_numpy(sample),vad,
+                                             sampling_rate=16000,return_seconds=True)
+                result["vad_spans_seconds"]=[[round(float(x["start"]),2),round(float(x["end"]),2)]
+                                             for x in stamps[:30]]
+                result["speech_spans_in_overlap"]=sum(
+                    float(x["end"])>max(0.,audio_start-t0)
+                    and float(x["start"])<min(duration,audio_end-t0)
+                    for x in stamps)
+                result["status"]="VAD_EVIDENCE_ONLY"
+            except Exception as exc:
+                result["vad_reason"]=type(exc).__name__
+        results.append(result)
+    return {"status":"CHUNKED_AUDIO_EVIDENCE",
+            "offset_consistent":True,
+            "overlap_duration_sec":round(audio_end-audio_start,2),
+            "samples":results,"vad_pass":False,
+            "no_auto_trim":True}
+
+def audio_windows(start_sec,end_sec):
+    """At most three <= 16-second recordings, even for 3-minute overlaps."""
+    if end_sec<=start_sec:
+        raise RuntimeError("Invalid overlap audio window")
+    length=end_sec-start_sec
+    if length<=12:
+        return [(max(0.,start_sec-2),min(16.,length+4))]
+    centers=[start_sec+6,(start_sec+end_sec)/2,end_sec-6]
+    return [(max(0.,x-8),16.) for x in centers]
 
 def run(app=APP,shots=SCREEN):
     sys.path.insert(0,str(app))

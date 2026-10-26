@@ -34,6 +34,21 @@ class GuestHandoffShadowTests(unittest.TestCase):
         self.assertEqual(times[-1],5595.)
         self.assertLessEqual(len(m.sample_times(0.,999999.,1.)),24)
 
+    def test_long_overlaps_use_three_short_audio_vad_windows(self):
+        windows=m.audio_windows(12225.77,12387.2)
+        self.assertEqual(len(windows),3)
+        self.assertTrue(all(0 < duration <= 16 for _,duration in windows))
+        self.assertGreater(windows[1][0],windows[0][0])
+
+    def test_short_overlap_keeps_one_audio_window(self):
+        windows=m.audio_windows(5590.63,5597.33)
+        self.assertEqual(len(windows),1)
+        self.assertLessEqual(windows[0][1],16.0)
+
+    def test_invalid_audio_window_rejected(self):
+        with self.assertRaises(RuntimeError):
+            m.audio_windows(15.,13.)
+
     def test_all_three_controlled_handoffs_only(self):
         self.assertEqual({(a,b,c) for a,b,c,*_ in m.CASES},
                          {("901",4,5),("901",5,6),("905",1,2)})
