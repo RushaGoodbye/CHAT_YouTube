@@ -1,0 +1,14 @@
+{
+  "schema": "RG907_ALIGNMENT_PROOF_V1",
+  "stream": "907",
+  "status": "EVIDENCE_ONLY",
+  "video_anchor_seconds": [4586.25,5348.25,6737.39,7609.32,7851.75,7913.75,7979.25,8715.75],
+  "sync_segments": [
+    {"side": "before", "reference_mp3_minus_mp4_seconds": 313.064},
+    {"side": "after", "reference_mp3_minus_mp4_seconds": 484.197}
+  ],
+  "transition_video_seconds": {"lower":7318, "upper":7322},
+  "boundary_unproven": true,
+  "dialogue_edges_unproven": true,
+  "release_approved": false
+}
