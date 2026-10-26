@@ -57,3 +57,21 @@ def test_unrelated_model_response_rejected():
         generate_draft(video_id=VIDEO, current_title=TITLE,
                        transcript=TRANSCRIPT,
                        generate_json=lambda _: json.dumps(bad, ensure_ascii=False))
+
+
+def test_invalid_chapter_timestamp_rejected():
+    item = json.loads(candidate())
+    item["chapters"] = "00:72 Вопрос о школах"
+    with pytest.raises(ValueError, match="Invalid chapter timestamp"):
+        generate_draft(video_id=VIDEO, current_title=TITLE,
+                       transcript=TRANSCRIPT,
+                       generate_json=lambda _: json.dumps(item, ensure_ascii=False))
+
+
+def test_chapters_must_have_real_timestamps():
+    item = json.loads(candidate())
+    item["chapters"] = "Вступление и обсуждение"
+    with pytest.raises(ValueError, match="Invalid chapters format"):
+        generate_draft(video_id=VIDEO, current_title=TITLE,
+                       transcript=TRANSCRIPT,
+                       generate_json=lambda _: json.dumps(item, ensure_ascii=False))
