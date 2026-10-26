@@ -107,6 +107,22 @@ def run():
             try:
                 selected=clock.find_dialogues_by_clock(str(source),str(folder),window_sec=300,step_sec=1.0)
             except RuntimeError as exc:
+                # Diagnose 907-3/4/5/7/8 independently of screenshot-number order.
+                # This is evidence only: no edits or release.
+                local=[]
+                duration=clock._probe_duration(str(source))
+                for ix in (3,4,5,7,8):
+                    image=cv2.imread(str(SCREEN/f"907-{ix}.jpg"))
+                    if image is None:
+                        local.append({"index":ix,"reason":"SCREENSHOT_MISSING"})
+                        continue
+                    scores=[]
+                    for center in (6200.,7100.,7900.,8800.,9700.):
+                        best=original_match(str(source),image,center,duration,progress_cb=None,coarse_radius_sec=110.)
+                        scores.append({"time":round(float(best.get("time",center)),2),
+                                       "score":round(float(best.get("score",0)),4)})
+                    local.append({"index":ix,"candidates":sorted(scores,key=lambda r:r["score"],reverse=True)[:3]})
+                print("RG907|INDEPENDENT_REORDER_DIAGNOSTIC|"+json.dumps(local),flush=True)
                 print("RG907|SELECTOR_CONFLICT|"+json.dumps({
                     "error":str(exc),"verified":real_score,
                     "chronology":[{"index":k,"time":v} for k,v in sorted(exact.items(),key=lambda p:p[1])],
