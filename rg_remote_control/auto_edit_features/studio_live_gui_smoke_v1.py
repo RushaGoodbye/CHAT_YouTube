@@ -36,8 +36,7 @@ def source_check(root):
     version_path=root/"rg_studio_version.py"
     version=None
     if version_path.is_file():
-        match=re.search(r'\bSTUDIO_VERSION\s*=\s*["\\' + "'" + r']([^"\\' + "'" + r']+)',
-                        version_path.read_text(encoding="utf-8-sig"))
+        match=re.search(r"STUDIO_VERSION\s*=\s*['\"]([^'\"]+)", version_path.read_text(encoding="utf-8-sig"))
         if match:version=match.group(1)
     return result,version
 
