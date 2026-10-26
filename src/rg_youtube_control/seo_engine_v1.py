@@ -74,8 +74,21 @@ def generate_draft(
         raise ValueError("Tags invalid")
     if len({str(t).strip().casefold() for t in tags}) < 8:
         raise ValueError("At least eight unique tags required")
-    if len(" ".join(tags)) > 500:
+    # YouTube's tag budget counts commas between tags as well as values.
+    if len(",".join(tags)) > 500:
         raise ValueError("Tag text exceeds YouTube limit")
+    # A timestamped chapter list must not invent negative or impossible times.
+    if chapters:
+        for line in chapters.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(r"^(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s+\\S", line)
+            if not match:
+                raise ValueError("Invalid chapters format")
+            parts = [int(p) for p in match.group(1).split(":")]
+            if parts[-1] >= 60 or (len(parts) == 3 and parts[-2] >= 60):
+                raise ValueError("Invalid chapter timestamp")
     # Reject obvious transcript/title swaps: central nouns in the original
     # title must occur in the transcript, not merely in generated prose.
     stop = {"раша", "гудбай", "россии", "россия", "чат", "рулетка", "можно"}
