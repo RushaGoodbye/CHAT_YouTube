@@ -1,16 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "action": "inspect_auto_edit_batch_boundary_shadow_v1",
   "args": {
     "streams": [
       "901",
       "903",
-      "905",
-      "902",
-      "891",
-      "892"
-    ]
+      "905"
+    ],
+    "read_only": true
   },
-  "nonce": "rg-20261026-morning-batch-6-readonly"
+  "nonce": "rg-20261026-safe-batch-boundary-shadow-v1"
 }
