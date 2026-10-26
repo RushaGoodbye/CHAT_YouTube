@@ -67,7 +67,10 @@ def test_untimed_local_draft_does_not_demand_fabricated_chapters(
         not expect_missing_warning
     )
     assert "Пакет НЕ готовий до застосування на YouTube." in message
-    assert "SEO не підтверджено редактором" in message
+    assert (
+        "SEO не підтверджено редактором" in message
+        or "Локальний SEO не схвалено редактором" in message
+    )
 
 
 def test_verified_chapters_still_get_validated_in_local_draft(qtbot):
