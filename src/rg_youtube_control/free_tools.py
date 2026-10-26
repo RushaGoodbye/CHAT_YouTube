@@ -2319,9 +2319,13 @@ chapters: рядок з підтвердженими таймкодами та �
                     description_candidate, transcript, max_chars=950,
                 )
                 if description_error:
-                    raise ValueError(
-                        "grounded description failed final check: " + description_error
-                    )
+                    # Empty classification is a review-only draft, not a publishable
+                    # SEO description. Do not fail the whole job on the intentionally
+                    # concise explanation shown to the editor.
+                    if "NO_RECOGNIZED_EDITORIAL_SUBJECT" not in editorial_unmapped_subjects:
+                        raise ValueError(
+                            "grounded description failed final check: " + description_error
+                        )
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
