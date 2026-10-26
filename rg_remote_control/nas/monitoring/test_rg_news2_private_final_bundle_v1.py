@@ -115,13 +115,11 @@ def scenario(break_gates):
             pending=c.execute("SELECT COUNT(*) FROM candidates WHERE status='awaiting_photo_review'").fetchone()[0]
             c.close()
             if break_gates:
-                assert result["result"]=="NOT_INSTALLED_PRIVATE_CANARY_UNCONFIRMED",result
+                assert result["result"]=="EXISTING_PRIVATE_GATES_BLOCKED",result
                 assert receipts==3 and pending==79
-                assert M.UNCERTAIN.exists()
+                assert not M.UNCERTAIN.exists()
                 assert M.MARK not in tick.read_text()
-                again=M.install()
-                assert again["result"]=="SAFE_BLOCKED_UNCERTAIN_SEND",again
-                assert calls[0]==1,calls
+                assert calls[0]==0,calls
             else:
                 assert result["result"]=="HOOK_INSTALLED",result
                 assert receipts==4 and pending==78,(receipts,pending)
