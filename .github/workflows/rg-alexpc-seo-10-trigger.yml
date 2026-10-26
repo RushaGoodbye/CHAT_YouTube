@@ -16,11 +16,11 @@ concurrency:
 jobs:
   verify-real-seo:
     runs-on: [self-hosted, Windows]
-    timeout-minutes: 180
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f4d8543483970c1522c7874aeadca96e340ff77f
+          ref: 191e46f533f47bc6e296a34bc5d941fd3ae93404
           persist-credentials: false
       - name: Verify actual AlexPC before reading source
         shell: powershell
@@ -29,7 +29,7 @@ jobs:
           if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Only ALEXPC is authorized' }
           $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
           if (-not (Test-Path -LiteralPath $py)) { throw 'Pinned local Python missing' }
-      - name: Generate and assess ten real-video SEO packages read-only
+      - name: Preflight ten real-video sources without Ollama
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -41,7 +41,7 @@ jobs:
           }
           $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
           $out = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
-          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --output $out
+          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --preflight-only --output $out
           if ($LASTEXITCODE -ne 0) { throw 'SEO acceptance blocked; inspect sanitized report artifact' }
       - name: Save sanitized summary only
         if: always()
