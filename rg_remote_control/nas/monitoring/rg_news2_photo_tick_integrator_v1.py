@@ -47,15 +47,25 @@ def contract():
     txt=OUT.read_text(encoding="utf-8")
     if any(s in txt.lower() for s in ("getupdates","get_updates","public_channel","channel_username")):
         raise RuntimeError("OUTBOUND_PRIVACY_PROOF_FAILED")
-    if not all(s in txt for s in ("deliver_one","photo_auto_gate_open",
-                                "private_send_only","telegram_photo_review_flow",
-                                "photo_not_private","photo_pilot_gate_closed_no_send")):
-        raise RuntimeError("PHOTO_PRIVATE_GUARDS_MISSING")
+    # Human-readable error labels may change and cannot establish safety.
+    # Instead verify actual safety calls in the pinned outbound run() AST.
     tree=ast.parse(txt)
     runs=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="run"]
     if len(runs)!=1 or any(isinstance(n,(ast.For,ast.While,ast.AsyncFor))
                            for n in ast.walk(runs[0])):
         raise RuntimeError("PHOTO_MODE_NOT_SINGLE_PASS")
+    call_names=set()
+    for n in ast.walk(runs[0]):
+        if isinstance(n,ast.Call):
+            name=(n.func.id if isinstance(n.func,ast.Name) else
+                  n.func.attr if isinstance(n.func,ast.Attribute) else None)
+            if name:call_names.add(name)
+    needed={"deliver_one","photo_auto_gate_open","private_send_only"}
+    if not needed.issubset(call_names):
+        missing=sorted(needed-call_names)
+        raise RuntimeError("PRIVATE_PHOTO_SAFETY_CALLS_MISSING:"+",".join(missing))
+    if "telegram_photo_review_flow" not in txt:
+        raise RuntimeError("PHOTO_WORKER_IMPORT_NOT_FOUND")
     calls=sum(isinstance(n,ast.Call) and (
               isinstance(n.func,ast.Name) and n.func.id=="deliver_one" or
               isinstance(n.func,ast.Attribute) and n.func.attr=="deliver_one")
@@ -70,8 +80,8 @@ def contract():
             isinstance(n.func,ast.Name) and n.func.id=="claim_one")
             for n in ast.walk(delivery[0])):
         raise RuntimeError("PHOTO_CLAIM_GUARD_MISSING")
-    return {"pins":"PASS","additional_pollers":0,"public_gate_modifications":0,
-            "max_delivery_calls_per_tick":1}
+    return {"pins":"PASS","private_safety_calls":"PASS","additional_pollers":0,
+            "public_gate_modifications":0,"max_delivery_calls_per_tick":1}
 
 def sql_counts():
     if not DB.is_file() or DB.is_symlink():
