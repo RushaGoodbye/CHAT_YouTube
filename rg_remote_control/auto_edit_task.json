@@ -1,9 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_selective_retry_guard_v1",
+  "action": "inspect_auto_edit_903_guest_reference_v1",
   "args": {
-    "apply": true
+    "stream": "903",
+    "dialogues": [
+      2,
+      5
+    ],
+    "read_only": true
   },
-  "nonce": "rg-20261026-safe-selective-batch-retry-guard-install-v1"
+  "nonce": "rg-20261026-903-2-5-visual-reference-rescue-v1"
 }
