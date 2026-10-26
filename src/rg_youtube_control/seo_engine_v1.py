@@ -83,7 +83,7 @@ def generate_draft(
             line = line.strip()
             if not line:
                 continue
-            match = re.match(r"^(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s+\\S", line)
+            match = re.match(r"^(\d{1,2}:\d{2}(?::\d{2})?)\s+\S", line)
             if not match:
                 raise ValueError("Invalid chapters format")
             parts = [int(p) for p in match.group(1).split(":")]
