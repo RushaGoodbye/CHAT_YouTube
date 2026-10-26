@@ -1,11 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "apply_auto_edit_903_queue_5of6_v1",
+  "action": "inspect_auto_edit_run_log",
   "args": {
-    "apply": true,
-    "verified_completed": 5,
-    "remaining_hold": 5
+    "stream": "907",
+    "read_only": true
   },
-  "nonce": "rg-20261026-903-queue-5of6-after-replay-v1"
+  "nonce": "rg-20261026-907-real-failure-trace-v1"
 }
