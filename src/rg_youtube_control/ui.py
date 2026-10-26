@@ -13130,7 +13130,24 @@ class MainWindow(QMainWindow):
             )
             if not fast_mode and evidence_report else None
         )
-        if stronger_editorial is None:
+        if stronger_editorial is None and not fast_mode and full_source_text.strip():
+            from .seo_engine_ollama import generate_with_ollama
+            draft = generate_with_ollama(
+                video_id=video_id,
+                current_title=current_title,
+                transcript=full_source_text,
+            )
+            package = {
+                "title": draft.title,
+                "title_variants": list(draft.ab_titles),
+                "description": draft.description,
+                "tags": list(draft.tags),
+                "chapters": draft.chapters,
+                "provider": "ollama:rg-seo-engine-v1",
+                "needs_review": True,
+                "review_reason": "Перевірити SEO за оригінальною розшифровкою",
+            }
+        elif stronger_editorial is None:
             package = generate_seo_package_local(
                 current_title=current_title,
                 current_description=cleaned_description,
