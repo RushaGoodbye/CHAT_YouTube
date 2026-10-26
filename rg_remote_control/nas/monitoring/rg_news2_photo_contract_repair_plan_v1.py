@@ -112,6 +112,45 @@ def AST_options(code):
     result["called_functions"]=dict(sorted(calls.items()))
     return result
 
+def delivery_guard_ast(tree):
+    """Summarize AST guards around calls without returning raw source literals."""
+    words=("dry", "run", "limit", "max", "send", "allow", "disable", "enable",
+           "private", "moderator", "gate", "retry", "claim", "lock",
+           "publish", "review", "photo", "outbox", "pending", "recent",
+           "stale", "once", "safe", "duplicate")
+    found=[]
+    def visit(node, guards, owner):
+        local=owner
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+            local=node.name if node.name in ("run","main","tick","deliver_one") else "other"
+        if isinstance(node,ast.Call):
+            target=node.func.id if isinstance(node.func,ast.Name) else (
+                node.func.attr if isinstance(node.func,ast.Attribute) else "")
+            if target=="deliver_one":
+                found.append({"enclosing_function":local,
+                              "enclosing_if_count":len(guards),
+                              "guard_categories":sorted(set(k for terms in guards for k in terms)),
+                              "arg_count":len(node.args),
+                              "keyword_arg_count":len(node.keywords)})
+        if isinstance(node,ast.If):
+            names={x.id.lower() for x in ast.walk(node.test) if isinstance(x,ast.Name)}
+            names.update(x.attr.lower() for x in ast.walk(node.test) if isinstance(x,ast.Attribute))
+            tags={w for w in words if any(w in name for name in names)}
+            visit(node.body,guards+[tags],local)
+            visit(node.orelse,guards+[tags],local)
+            return
+        if isinstance(node,(list,tuple)):
+            for child in node:
+                if isinstance(child,ast.AST):
+                    visit(child,guards,local)
+        elif isinstance(node,ast.AST):
+            for field in node._fields:
+                child=getattr(node,field,None)
+                if isinstance(child,(ast.AST,list,tuple)):
+                    visit(child,guards,local)
+    visit(tree,[],"module")
+    return found[:15]
+
 def sources(root):
     results={}
     for label,rel in SOURCE_PATHS.items():
@@ -124,6 +163,7 @@ def sources(root):
             d={"found":True,"age_hours":round(max(0,time.time()-p.stat().st_mtime)/3600,1)}
             if rel.endswith(".py"):
                 d.update(AST_options(text))
+                d["delivery_call_guards"]=delivery_guard_ast(ast.parse(text))
                 d["photo_module_reference"]="telegram_photo_review_flow" in text
                 d["outbound_module_reference"]="rg_news2_outbound_queue_v2" in text
                 d["mentions_getupdates"]="getupdates" in text.lower() or "get_updates" in text.lower()
@@ -195,6 +235,7 @@ def selftest():
         states=data["dispatch"]["tables"]["rg_news2_photo_dispatch"]["states"]["state"]
         assert states["sending"]==1 and states["photo_sent"]==1 and states["unclassified"]==1
         assert "DISPATCH_STATE_AMBIGUOUS" in data["repair_safety"]["blockers"]
+        assert data["source_contract"]["outbound"]["delivery_call_guards"][0]["arg_count"]==3
         assert not data["repair_safety"]["unattended_scheduler_patch_allowed"]
         assert "SECRET" not in json.dumps(data)
     print("RG_NEWS2_PHOTO_CONTRACT_REPAIR_PLAN_SELFTEST_PASS")
