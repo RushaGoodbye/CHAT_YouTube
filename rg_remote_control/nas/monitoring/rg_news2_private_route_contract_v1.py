@@ -108,12 +108,12 @@ def selftest():
         root=pathlib.Path(td)
         (root/"operator").mkdir()
         p=root/"operator/rg_news2_outbound_queue_v2.py"
-        p.write_text("SECRET='NEVER_EXPOSE'\\n"
-          "def run(mode):\\n"
-          "    if mode not in ('status','once'): raise RuntimeError('HIDDEN')\\n"
-          "    if mode == 'once':\\n"
-          "        send_one()\\n"
-          "        deliver_one()\\n")
+        p.write_text("SECRET='NEVER_EXPOSE'\n"
+          "def run(mode):\n"
+          "    if mode not in ('status','once'): raise RuntimeError('HIDDEN')\n"
+          "    if mode == 'once':\n"
+          "        send_one()\n"
+          "        deliver_one()\n")
         r=inspect(root,root,hashlib.sha256(p.read_bytes()).hexdigest()[:12])
         text=json.dumps(r)
         assert "status" in text and "once" in text
