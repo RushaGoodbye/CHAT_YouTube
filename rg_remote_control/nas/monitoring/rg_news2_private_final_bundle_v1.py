@@ -376,6 +376,28 @@ def wrapper(original):
             "/usr/bin/python3 '"+str(GUARD)+"' tick\n"
             'exit $?\n')
 
+def installation_preflight():
+    # No Telegram call or SQLite write. Reports DSM-specific requirements and
+    # detects incomplete earlier installations before any retry.
+    proof,_=source_contract()
+    reconciled=verify_old_uncertain()
+    result={"schema":MARK,"status":"PREFLIGHT_READY",
+            "pending":sqlite_counts()["pending"],
+            "callback_pinned":proof["callback_contract_verified"],
+            "old_v6_marker_preserved":OLD_UNCERTAIN.is_file(),
+            "photo_sender_uncertainty_exists":UNCERTAIN.exists(),
+            "hook_installed":MARK in TICK.read_text(),
+            "sqlite_online_backup_api":hasattr(sqlite3.Connection,"backup"),
+            "timezone_guard":"CONSERVATIVE_UTC_KYIV_SUMMER_WINTER",
+            "telegram_calls":0,"publications":0}
+    if UNCERTAIN.exists():
+        result["status"]="BLOCKED_UNCONFIRMED_SEND_NO_RETRY"
+    elif not result["sqlite_online_backup_api"]:
+        result["status"]="BLOCKED_SQLITE_ONLINE_BACKUP_MISSING"
+    elif result["hook_installed"]:
+        result["status"]="ALREADY_INSTALLED"
+    return result
+
 def install():
     if os.geteuid()!=0:raise RuntimeError("ROOT_REQUIRED")
     fd=lock(BASE/"rg_news2_private_final_install.lock")
@@ -506,7 +528,13 @@ def main():
             print(json.dumps({"schema":MARK,"status":"READ_ONLY","proof":proof,
                    "reconciled":verify_old_uncertain(),"counts":sqlite_counts(),
                    "no_telegram_calls":True}))
-        elif args==["install"]:print(json.dumps(install(),indent=2))
+        elif args==["preflight"]:print(json.dumps(installation_preflight(),indent=2))
+        elif args==["install"]:
+            ready=installation_preflight()
+            if ready["status"]!="PREFLIGHT_READY":
+                print(json.dumps(ready,indent=2))
+            else:
+                print(json.dumps(install(),indent=2))
         elif args==["status"]:print(json.dumps(report(),indent=2))
         elif args==["tick"]:print(json.dumps(one_canary(),indent=2))
         elif args==["child"]:
