@@ -24,6 +24,8 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v3.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v4.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v5.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py
+      - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v3.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v2.py
@@ -54,6 +56,8 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v3.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v4.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v5.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py
+      - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v3.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v2.py
@@ -173,6 +177,12 @@ jobs:
           python3 -m py_compile rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
           sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v5.py selftest
           sudo python3 rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
+      - name: NEWS2 V6 pinned direct mode with no-return status branch, receipt and rollback
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py
+          python3 -m py_compile rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
+          sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py selftest
+          sudo python3 rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - name: Validate NEWS2 monitor and guarded updater
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
