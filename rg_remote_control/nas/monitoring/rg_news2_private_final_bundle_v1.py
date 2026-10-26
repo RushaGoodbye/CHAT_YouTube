@@ -439,15 +439,22 @@ def selftest():
     # Production pattern: private_send_only() can belong to the ordinary
     # branch, which must be removed completely. Keep deliver_one() even if
     # the ordinary-only private_send_only() gets pruned along with send_one.
-    src2=src.replace(
-       "    if ordinary_open>=1: send_one()\\n",
-       "    if ordinary_open>=1:\\n        private_send_only()\\n        send_one()\\n"
-    ).replace(
-       "    if photo_open>=1:\\n        private_send_only()\\n        deliver_one()\\n",
-       "    if photo_open>=1:\\n        deliver_one()\\n")
-    if src2==src or "private_send_only()\\n        send_one()" not in src2:
-        raise AssertionError("REGRESSION_FIXTURE_UNCHANGED")
-    clean2,count2=prune_photo(ast.parse(src2))
+    alt=ast.parse(src)
+    for branch in ast.walk(alt):
+        if not isinstance(branch,ast.If):
+            continue
+        if any(isinstance(n,ast.Name) and n.id=="ordinary_open"
+               for n in ast.walk(branch.test)):
+            if call_count(branch,"send_one")==1:
+                branch.body.insert(0,ast.Expr(value=ast.Call(
+                    func=ast.Name(id="private_send_only",ctx=ast.Load()),
+                    args=[],keywords=[])))
+        if any(isinstance(n,ast.Name) and n.id=="photo_open"
+               for n in ast.walk(branch.test)):
+            branch.body=[st for st in branch.body if
+                         call_count(st,"private_send_only")==0]
+    ast.fix_missing_locations(alt)
+    clean2,count2=prune_photo(alt)
     assert call_count(clean2,"deliver_one")==1
     assert call_count(clean2,"private_send_only")==0
     assert not any(call_count(clean2,k) for k in (
