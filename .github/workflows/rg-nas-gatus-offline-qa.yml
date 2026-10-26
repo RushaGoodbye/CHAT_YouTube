@@ -32,6 +32,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_post_button_live_verify_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_delivery_blocker_live_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_stalled_send_reconcile_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_private_final_bundle_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
@@ -72,6 +73,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_post_button_live_verify_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_delivery_blocker_live_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_stalled_send_reconcile_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_private_final_bundle_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
@@ -110,6 +112,8 @@ jobs:
           python rg_remote_control/nas/monitoring/rg_news2_delivery_blocker_live_v1.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/rg_news2_stalled_send_reconcile_v1.py
           python rg_remote_control/nas/monitoring/rg_news2_stalled_send_reconcile_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
+          python rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py selftest
           python rg_remote_control/nas/monitoring/test_rg_news2_private_final_bundle_v1.py
   monitor-qa:
     runs-on: ubuntu-latest
@@ -234,6 +238,10 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py selftest
+      - name: NEWS2 guarded capacity recovery, no-public regression, protected marker
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py selftest
       - name: NEWS2 pinned worker uncertain capacity root-cause AST audit
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_stalled_send_reconcile_v1.py
