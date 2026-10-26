@@ -1,11 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_907_guest_clock_wide_v1",
+  "action": "inspect_auto_edit_live_studio_gui_v1",
   "args": {
-    "stream": "907",
     "read_only": true,
-    "limited_windows": true
+    "do_not_launch": true
   },
-  "nonce": "rg-20261026-907-wide-hypothesis-proof-v1"
+  "nonce": "rg-20261026-real-studio-gui-responsiveness-v1"
 }
