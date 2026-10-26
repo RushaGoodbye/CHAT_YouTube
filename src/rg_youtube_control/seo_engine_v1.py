@@ -72,6 +72,10 @@ def generate_draft(
         not isinstance(t, str) or not t.strip() for t in tags
     ):
         raise ValueError("Tags invalid")
+    if len({str(t).strip().casefold() for t in tags}) < 8:
+        raise ValueError("At least eight unique tags required")
+    if len(" ".join(tags)) > 500:
+        raise ValueError("Tag text exceeds YouTube limit")
     # Reject obvious transcript/title swaps: central nouns in the original
     # title must occur in the transcript, not merely in generated prose.
     stop = {"раша", "гудбай", "россии", "россия", "чат", "рулетка", "можно"}
