@@ -11,7 +11,7 @@ spec=importlib.util.spec_from_file_location("news2_photo_tick",str(MODULE_FILE))
 M=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(M)
 
-def scenario(where,send_receipt):
+def scenario(where,send_receipt,drop_private_gate=False):
     root=where/"RG_TELEGRAM_NEWS_2";root.mkdir()
     (root/"operator").mkdir()
     vault=where/"vault";vault.mkdir(mode=0o700)
@@ -34,13 +34,12 @@ def scenario(where,send_receipt):
       "import sqlite3,sys\n"
       "sys.path.insert(0, "+repr(str(root))+")\n"
       "from telegram_photo_review_flow import deliver_one\n"
-      "PHOTO_PRIVATE_GUARDS='photo_not_private photo_pilot_gate_closed_no_send'\n"
       "def photo_auto_gate_open(): return True\n"
       "def private_send_only(): return True\n"
       "def run(mode):\n"
       "  if mode=='photo':\n"
       "    if photo_auto_gate_open():\n"
-      "      private_send_only()\n"
+      ("" if drop_private_gate else "      private_send_only()\n")
       "      deliver_one(None,None,chat=1)\n"
       "  return None\n"
       "if __name__=='__main__':\n"
@@ -78,7 +77,17 @@ def test_rollback():
         assert tick=="#!/bin/sh\nexit 0\n"
         assert mark not in tick
 
+def test_missing_private_safety_call_fails_closed():
+    with tempfile.TemporaryDirectory() as temp:
+        try:
+            scenario(pathlib.Path(temp),False,drop_private_gate=True)
+        except RuntimeError as exc:
+            assert "PRIVATE_PHOTO_SAFETY_CALLS_MISSING:private_send_only" in str(exc)
+        else:
+            raise AssertionError("Missing private-send guard must fail closed")
+
 if __name__=="__main__":
     test_success()
     test_rollback()
+    test_missing_private_safety_call_fails_closed()
     print("RG_NEWS2_PRIVATE_PHOTO_INTEGRATION_AND_ROLLBACK_TEST_PASS")
