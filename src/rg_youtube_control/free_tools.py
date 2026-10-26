@@ -770,6 +770,16 @@ def _deterministic_evidence_description(
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
                     recognized.append(label)
+            # Education and criminal-record discussion: require both topic
+            # anchors in verified transcript evidence, never title alone.
+            if any(w in combined for w in (
+                "школ", "учител", "учител", "преподава", "виклада",
+                "педагог", "образован", "освіт",
+            )) and any(w in combined for w in (
+                "осужден", "засуджен", "судим", "преступлен", "злочин",
+                "уголовн", "кримінальн",
+            )):
+                recognized.append("допуск засуджених до викладання у школах")
             # Describe the discussion neutrally, not as an assertion about
             # an entire nation, region or an individual.
             if "дагестан" in combined:
