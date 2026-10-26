@@ -19,8 +19,9 @@ class LiveProbeTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name=="nt","PowerShell AST parser requires Windows CI")
     def test_powershell_syntax(self):
-        ps=r"$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$t,[ref]$e)|Out-Null;foreach($x in $e){Write-Output $x.Message};if($e.Count){exit 2}"
-        p=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps,str(FILE)],
+        quoted=str(FILE).replace("\x27","\x27\x27")
+        ps=f"$path=\x27{quoted}\x27;$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$t,[ref]$e)|Out-Null;foreach($x in $e){{Write-Output $x.Message}};if($e.Count){{exit 2}}"
+        p=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],
                          capture_output=True,text=True,timeout=25)
         self.assertEqual(p.returncode,0,p.stdout+"\n"+p.stderr)
 
