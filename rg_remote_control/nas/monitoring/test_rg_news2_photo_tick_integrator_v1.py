@@ -39,8 +39,8 @@ def scenario(where,send_receipt,drop_private_gate=False):
       "def run(mode):\n"
       "  if mode=='photo':\n"
       "    if photo_auto_gate_open():\n"
-      ("" if drop_private_gate else "      private_send_only()\n")
-      "      deliver_one(None,None,chat=1)\n"
+      + ("" if drop_private_gate else "      private_send_only()\n")
+      + "      deliver_one(None,None,chat=1)\n"
       "  return None\n"
       "if __name__=='__main__':\n"
       "  run(sys.argv[1])\n")
