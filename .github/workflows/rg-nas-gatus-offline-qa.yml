@@ -102,6 +102,7 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_repair_bundle_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_photo_repair_bundle_v1.py selftest
+          sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_repair_bundle_v1.py selftest
       - name: Private NEWS2 photo backup launcher shell checks
         run: |
           sh -n rg_remote_control/nas/monitoring/rg_news2_photo_prepare_once_v1.sh
