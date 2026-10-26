@@ -4,12 +4,13 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_multi_dialogue.py",
+      "rg_server_resolver.py",
+      "rg_face_identity.py",
+      "rg_mediapipe_tasks.py",
       "rg_guest_identity_boundary.py",
-      "rg_studio_postrun.py",
-      "RG_EDITED_903_2_R2_GUEST_ID_BOUNDARY_QA.json",
-      "RG_EDITED_903_5_R2_GUEST_ID_BOUNDARY_QA.json"
+      "RG_EDITED_905_1_GUEST_ID_BOUNDARY_QA.json",
+      "RG_EDITED_905_2_GUEST_ID_BOUNDARY_QA.json"
     ]
   },
-  "nonce": "rg-20261026-batch-901-903-905-source-evidence-v3"
+  "nonce": "rg-20261026-source-audio-sampling-905-903-plan-v4"
 }
