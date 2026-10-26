@@ -39,6 +39,7 @@ def fixture(root,break_gates=False):
         "def record_sent(conn):\n"
         "    conn.execute('INSERT INTO rg_news2_photo_dispatch VALUES (999)')\n"
         "def deliver_one(conn,chat_id,send_photo):\n"
+        "    if False:record_uncertain(conn)\n"
         "    claim_one(conn)\n"
         "    record_sent(conn)\n"
         "    conn.commit()\n")
