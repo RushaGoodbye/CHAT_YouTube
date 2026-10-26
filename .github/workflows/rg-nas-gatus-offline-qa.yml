@@ -73,6 +73,21 @@ permissions:
   contents: read
 
 jobs:
+  nas-old-python-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: Confirm NAS Python <=3.8 compatibility and no unsafe literals
+        run: |
+          python -c "import sys, ast; assert sys.version_info[:2] == (3,8); assert not hasattr(ast,'unparse')"
+          python -m py_compile rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py
+          python rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py selftest
   monitor-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 7
