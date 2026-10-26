@@ -17,6 +17,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_contract_repair_plan_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_repair_bundle_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_batch_recovery_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_prepare_once_v1.sh
       - .github/workflows/rg-nas-gatus-offline-qa.yml
   push:
@@ -36,6 +37,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_contract_repair_plan_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_repair_bundle_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_batch_recovery_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_prepare_once_v1.sh
       - .github/workflows/rg-nas-gatus-offline-qa.yml
 
@@ -114,6 +116,10 @@ jobs:
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_batch_recovery_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_photo_batch_recovery_v1.py selftest
           sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_batch_recovery_v1.py selftest
+      - name: NEWS2 one-shot full photo source contract and privacy QA
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py selftest
       - name: Validate NEWS2 monitor and guarded updater
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
