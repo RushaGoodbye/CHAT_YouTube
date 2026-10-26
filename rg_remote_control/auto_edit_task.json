@@ -1,17 +1,14 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "inspect_auto_edit_batch_boundary_shadow_v1",
   "args": {
-    "files": [
-      ".rg_cache/901/multi_job_a0e254bd1a7334f5fcdc.json",
-      ".rg_cache/901/multi_job_664f20812b4b7eafee59.json",
-      ".rg_cache/901/multi_job_7eb1cfff9a00b38fe01a.json",
-      ".rg_cache/905/multi_job_7fc0e4ef9fd932fff614.json",
-      ".rg_cache/905/multi_job_271be21b240af0a9d28e.json",
-      "RG_EDITED_903_2_R2_IDENTITY_REVIEW_HOLD.json",
-      "RG_EDITED_903_5_R2_IDENTITY_REVIEW_HOLD.json"
-    ]
+    "streams": [
+      "901",
+      "903",
+      "905"
+    ],
+    "read_only": true
   },
-  "nonce": "rg-20261026-source-boundary-identity-evidence-batch-v2"
+  "nonce": "rg-20261026-901-905-clock-conflict-903-holds-v2"
 }
