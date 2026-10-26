@@ -105,16 +105,19 @@ def run_one(
         "production_draft_writes": 0,
         "review_required": True,
     }
+    stage = "database_metadata"
     try:
         metadata = get_video_inputs(database, video_id)
         result["profile"] = metadata["profile"]
         title = metadata["title"]
         if not title:
             raise RuntimeError("Video metadata has no title")
+        stage = "locate_srt"
         folder = Path(metadata["transcript_root"])
         srt = folder / (video_id + ".srt")
         if not srt.is_file():
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
+        stage = "load_srt"
         rows = load_srt_transcript(srt)
         if len(rows) < 10:
             raise RuntimeError("Incomplete SRT: fewer than ten caption rows")
@@ -127,6 +130,7 @@ def run_one(
             raise RuntimeError(
                 "SRT coverage below 75% of synchronized video duration"
             )
+        stage = "timeline_analysis"
         report = analyze_all_timeline_blocks(
             rows,
             model=model,
@@ -147,6 +151,7 @@ def run_one(
         )
         if grounded == 0:
             raise RuntimeError("No evidence-backed dialogue blocks")
+        stage = "seo_generation"
         package = generate_seo_package_local(
             current_title=title,
             current_description="",
@@ -159,6 +164,7 @@ def run_one(
             timeout=240.0,
             evidence_report=report,
         )
+        stage = "editorial_validation"
         main = str(package.get("title") or "")
         ab = list(package.get("title_variants") or [])
         description = str(package.get("description") or "")
@@ -207,6 +213,7 @@ def run_one(
             "No evidence-backed dialogue blocks",
         )
         message = str(exc)
+        result["stage"] = stage
         result["error_type"] = type(exc).__name__
         result["error"] = (
             message if message in known
