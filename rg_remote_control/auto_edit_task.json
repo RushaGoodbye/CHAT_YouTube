@@ -4,17 +4,13 @@
   "action": "inspect_auto_edit_overnight_preflight_v1",
   "args": {
     "streams": [
-      "886",
-      "891",
-      "892",
-      "893",
-      "899",
       "901",
-      "902",
       "903",
-      "904",
-      "905"
+      "905",
+      "902",
+      "891",
+      "892"
     ]
   },
-  "nonce": "rg-10-streams-final-batch-readiness-20261025"
+  "nonce": "rg-20261026-morning-batch-6-readonly"
 }
