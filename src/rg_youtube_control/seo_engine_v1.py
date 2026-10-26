@@ -78,6 +78,23 @@ def generate_draft(
     anchors = (_words(current_title) - stop)
     if anchors and len(anchors & _words(source)) == 0:
         raise ValueError("SOURCE_VIDEO_MISMATCH: title topic absent from transcript")
+    school_topic = (
+        any(w in current_title.casefold() for w in ("школ", "учител", "преподав"))
+        and any(w in current_title.casefold() for w in
+                ("осужден", "судим", "преступлен", "тяжк"))
+    )
+    if school_topic:
+        def _has_topic(value: str) -> bool:
+            v = value.casefold()
+            return (any(w in v for w in
+                        ("школ", "учител", "преподав", "педагог"))
+                    and any(w in v for w in
+                            ("осужден", "судим", "преступлен", "тяжк",
+                             "судим", "уголовн", "засуджен")))
+        if not _has_topic(source):
+            raise ValueError("SOURCE_VIDEO_MISMATCH: school crime theme missing")
+        if not _has_topic(title + " " + description):
+            raise ValueError("SEO_TOPIC_MISMATCH: generated text abandons subject")
     return SeoDraft(
         video_id=video_id, title=title,
         ab_titles=tuple(v.strip() for v in variants),
