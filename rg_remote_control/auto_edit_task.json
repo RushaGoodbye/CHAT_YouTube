@@ -1,13 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_files_generic",
+  "action": "retry_auto_edit_903_2_proven_guest_v1",
   "args": {
-    "files": [
-      "rg_pack500_reliability.py",
-      "RG_EDITED_903_MULTI_DIALOGUE.json",
-      "rg_build.py"
-    ]
+    "stream": "903",
+    "dialogue": 2,
+    "preserve_others": true
   },
-  "nonce": "rg-20261026-903-2-safe-anchor-replay-source-plan-v1"
+  "nonce": "rg-20261026-9032-proven-anchor-selective-retry-v1"
 }
