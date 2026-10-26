@@ -9,7 +9,7 @@ import hashlib,json,shutil,sys,tempfile
 from pathlib import Path
 APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
 SCREEN=Path(r"\\Desktop-v7gg0en\record\Screens")
-APPROVED={1:4586.25,2:5348.25}
+APPROVED={1:4586.25,2:5348.25,6:7913.75}
 MAX_ANCHOR_DRIFT=28.
 
 def fingerprint(image):
@@ -30,7 +30,25 @@ def run():
     base=proof()
     if not base["all_verified"]:
         raise RuntimeError("Independent screenshot plus SFace proof refused")
+    from rg_guest_identity_boundary import _reference_guest_descriptor,_frame_identity_state
+    from rg_clock_selector import _iter_window_ffmpeg
+    source6,*_=resolve_video(SCREEN.parent,"907")
+    if not source6 or not Path(source6).is_file():raise RuntimeError("907 source absent")
+    im6=cv2.imread(str(SCREEN/"907-6.jpg"))
+    if im6 is None:raise RuntimeError("907-6 screenshot absent")
+    ref6,_=_reference_guest_descriptor(im6)
+    if ref6 is None:raise RuntimeError("907-6 guest reference absent")
+    proof6=clock._best_local_match(str(source6),im6,7913.75,clock._probe_duration(str(source6)),progress_cb=None,coarse_radius_sec=24.)
+    hits6=0;strong6=0;peak6=0.
+    for sec,frame in _iter_window_ffmpeg(str(source6),7884,7944,sample_fps=1.):
+        state,_,val,_,_=_frame_identity_state(frame,{"CURRENT":ref6},layout_mode="RIGHT_WINDOW")
+        if state=="CURRENT":
+            hits6+=1;peak6=max(peak6,float(val))
+            if float(val)>=.5:strong6+=1
+    if not qualify(proof6,7913.75) or hits6<3 or strong6<3 or peak6<.6:
+        raise RuntimeError("907-6 missing double independent proof")
     exact={int(k):float(v["time"]) for k,v in base["screenshots"].items()}
+    exact[6]=7913.75
     for index,target in APPROVED.items():
         if abs(exact[index]-target)>MAX_ANCHOR_DRIFT:
             raise RuntimeError("Exact source anchor changed; refusing 907 override")
@@ -93,12 +111,12 @@ def run():
         clock._clock_locked_visual_confirmation=original_confirm
     matches=sorted(selected.get("matches",[]),
                    key=lambda x:int(Path(x["screenshot"]).stem.split("-")[-1]))
-    if len(matches)!=8 or set(cached)!={1,2}:
+    if len(matches)!=8 or set(cached)!={1,2,6}:
         raise RuntimeError("907 incomplete screenshot anchor coverage")
     times=[float(x["best_match_sec"]) for x in matches]
     if any(b<=a for a,b in zip(times,times[1:])):
         raise RuntimeError("907 reconstructed screenshot order non-monotonic")
-    for ix in (1,2):
+    for ix in (1,2,6):
         if not abs(times[ix-1]-exact[ix])<=MAX_ANCHOR_DRIFT:
             raise RuntimeError(f"907-{ix} verified anchor not preserved in selector")
     return {"schema":"RG_907_CLOCK_SELECTOR_SHADOW_V1",
