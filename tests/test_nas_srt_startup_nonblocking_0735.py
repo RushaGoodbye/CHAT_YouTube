@@ -67,7 +67,10 @@ def test_status_update_uses_only_cached_result_on_main_thread():
             self.value = value
 
         def setForeground(self, *args):
-            pass
+            self.foreground = args[0]
+
+        def setToolTip(self, tooltip):
+            self.tooltip = tooltip
 
         def setFont(self, *args):
             pass
@@ -96,5 +99,19 @@ def test_status_update_uses_only_cached_result_on_main_thread():
     )
     assert stub._nas_srt_scanning is False
     assert stub._nas_srt_ids == {"MEitKm687xo"}
-    assert stub.optimization_table.item(0, 7).text() == "NAS"
+    item = stub.optimization_table.item(0, 7)
+    assert item.text() == "NAS · ?"
+    assert "НЕ перевірено" in item.tooltip
     assert stub.optimization_table.item(1, 7).text() == ""
+
+
+def test_nas_index_labels_are_warning_about_unverified_file_not_green_success():
+    from pathlib import Path
+    source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
+    receive = source.split("    def _receive_nas_srt_index(", 1)[1].split("\n    def ", 1)[0]
+    queue = source.split("    def reload_optimization_queue(", 1)[1].split("\n    def ", 1)[0]
+    assert 'status_item.setText("NAS · ?" if found else "")' in receive
+    assert 'QColor(WARNING if found else MUTED)' in receive
+    assert 'QColor(WARNING if transcript_status else MUTED)' in queue
+    assert '"NAS · ?" if isinstance(transcript_ids, set)' in queue
+    assert "YouTube Video ID НЕ перевірено" in receive

@@ -31,7 +31,13 @@ def ready_for_youtube(
         and quality_state == "safe_metadata"
     ):
         return not reasons, tuple(reasons)
-    if quality_state not in {"safe", "editor_approved"}:
+    if generation.startswith("local-seo-evidence-"):
+        if quality_state != "editor_approved":
+            reasons.append(
+                "Локальний SEO не схвалено редактором після перевірки "
+                "змісту та джерел; залишити чернеткою."
+            )
+    elif quality_state not in {"safe", "editor_approved"}:
         reasons.append("SEO не підтверджено редактором; залишити чернеткою.")
     if isinstance(variants, str):
         try:

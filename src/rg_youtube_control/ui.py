@@ -393,6 +393,7 @@ class ContentOptimizationDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.generation = str(generation or "")
+        self.editorial_approved = False
         self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
@@ -526,7 +527,10 @@ class ContentOptimizationDialog(QDialog):
             chapters,
             tags,
             title_variants,
-            chapters_optional=bool(self.scheduled_publish_at),
+            chapters_optional=(
+                bool(self.scheduled_publish_at)
+                or self.generation.startswith("local-seo-evidence-")
+            ),
         )
 
         lines: list[str] = []
@@ -550,6 +554,12 @@ class ContentOptimizationDialog(QDialog):
         if display_warnings:
             lines.append("\nРЕКОМЕНДАЦІЇ:")
             lines.extend(f"- {item}" for item in display_warnings)
+        if (not chapters and
+                self.generation.startswith("local-seo-evidence-")):
+            lines.append(
+                "\nРозділи не потрібні для локальної SEO-чернетки: "
+                "непідтверджені таймкоди додавати заборонено."
+            )
         if not check.errors and not display_warnings:
             lines.append(
                 "\nПоля пакета перевірено. Редакторські зауваження - нижче."
@@ -610,7 +620,10 @@ class ContentOptimizationDialog(QDialog):
                 chapters,
                 tags,
                 title_variants,
-                chapters_optional=bool(self.scheduled_publish_at),
+                chapters_optional=(
+                bool(self.scheduled_publish_at)
+                or self.generation.startswith("local-seo-evidence-")
+            ),
             )
             if check.errors:
                 QMessageBox.warning(
@@ -636,6 +649,27 @@ class ContentOptimizationDialog(QDialog):
                     "\n".join(reasons) + "\n\nЗбережіть як «Чернетка».",
                 )
                 return
+
+        if (
+            self.status_combo.currentData() == "ready"
+            and self.generation.startswith("local-seo-evidence-")
+        ):
+            answer = QMessageBox.question(
+                self,
+                "Редакторське підтвердження SEO",
+                "Підтвердіть особисту перевірку цього відео: "
+                "основна назва й усі A/B-варіанти відповідають "
+                "справжньому змісту, цитати звірені з оригіналом, "
+                "а непідтверджені таймкоди не додано.\n\n"
+                "Ви перевірили це та схвалюєте SEO-пакет? "
+                "Підтвердження НЕ змінить YouTube.",
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.editorial_approved = True
 
         self.accept()
 
@@ -870,6 +904,8 @@ class LocalToolWorker(QThread):
 
 class MainWindow(QMainWindow):
     nas_srt_scanned = Signal(object)
+    free_tools_probed = Signal(object)
+    background_update_checked = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -883,6 +919,10 @@ class MainWindow(QMainWindow):
         self._nas_srt_ids = None
         self._nas_srt_scanning = False
         self.nas_srt_scanned.connect(self._receive_nas_srt_index)
+        self._free_tools_probe_running = False
+        self.free_tools_probed.connect(self._receive_free_tools_probe)
+        self._background_update_check_running = False
+        self.background_update_checked.connect(self._receive_background_update_check)
         self.advanced_mode = get_setting(
             self.conn,
             "ui_advanced_mode",
@@ -963,7 +1003,12 @@ class MainWindow(QMainWindow):
         def scan() -> None:
             # Daemon worker does not delay shutdown if a network drive is down.
             # SQLite and widgets are accessed exclusively on the GUI thread.
-            ids = scan_nas_srt_ids(Path(target))
+            try:
+                ids = scan_nas_srt_ids(Path(target))
+            except Exception:
+                # An unreachable NAS must not permanently strand the
+                # "scanning" flag or mark missing captions as confirmed.
+                ids = None
             try:
                 self.nas_srt_scanned.emit((target, ids))
             except RuntimeError:
@@ -987,7 +1032,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._start_nas_srt_index)
             return
 
-        self._nas_srt_path = scanned_path
+        # Failed scans stay retryable; do not cache an unavailable NAS as
+        # a successful empty transcript index.
+        self._nas_srt_path = scanned_path if ids is not None else ""
         self._nas_srt_ids = ids
         table = self.optimization_table
         for row_number in range(table.rowCount()):
@@ -999,9 +1046,17 @@ class MainWindow(QMainWindow):
                 video_item.data(Qt.ItemDataRole.UserRole) or video_item.text()
             )
             found = isinstance(ids, set) and video_id in ids
-            status_item.setText("NAS" if found else "")
+            status_item.setText("NAS · ?" if found else "")
+            status_item.setToolTip(
+                "SRT-файл знайдено на NAS. Його зміст і відповідність "
+                "YouTube Video ID НЕ перевірено. Файл не можна вважати "
+                "підтвердженим джерелом SEO."
+                if found else
+                "Підтверджений SRT на NAS не виявлено. "
+                "Це не свідчить про відсутність локального TXT."
+            )
+            status_item.setForeground(QColor(WARNING if found else MUTED))
             if found:
-                status_item.setForeground(QColor(SUCCESS))
                 status_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _startup_load_videos(self) -> None:
@@ -8995,7 +9050,7 @@ class MainWindow(QMainWindow):
             prepared
         ):
             transcript_status = (
-                "NAS" if isinstance(transcript_ids, set)
+                "NAS · ?" if isinstance(transcript_ids, set)
                 and str(row["video_id"]) in transcript_ids else ""
             )
             draft_key = displayed_status(row)
@@ -9104,9 +9159,18 @@ class MainWindow(QMainWindow):
                         f"Внутрішня оцінка: {score}/100"
                         + (f" · {issue_text}" if issue_text else "")
                     )
-                elif column == 7 and transcript_status:
-                    item.setForeground(QColor(SUCCESS))
-                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif column == 7:
+                    item.setForeground(QColor(WARNING if transcript_status else MUTED))
+                    item.setToolTip(
+                        "SRT-файл знайдено на NAS. Його зміст і відповідність "
+                        "YouTube Video ID НЕ перевірено. "
+                        "Сам факт наявності файлу не підтверджує SEO."
+                        if transcript_status else
+                        "SRT-файл не виявлено або NAS ще не проскановано. "
+                        "Локальний підтверджений TXT може бути доступний."
+                    )
+                    if transcript_status:
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 elif column == 8 and draft_status:
                     if draft_status == "ЗАСТОСОВАНО":
                         fg = QColor(SUCCESS)
@@ -9977,10 +10041,27 @@ class MainWindow(QMainWindow):
                     else "manual"
                 ),
                 quality_state=(
-                    "safe" if quality_state == "safe" and status != "draft"
+                    "editor_approved"
+                    if status == "ready"
+                    and str(draft["generation"] if draft is not None else "").startswith(
+                        "local-seo-evidence-"
+                    )
+                    and bool(dialog.editorial_approved)
+                    and quality_state == "safe"
+                    else "safe" if quality_state == "safe"
+                    and status == "ready"
+                    and not str(
+                        draft["generation"] if draft is not None else ""
+                    ).startswith("local-seo-evidence-")
                     else "review"
                 ),
-                quality_reason="; ".join(quality_reasons),
+                quality_reason="; ".join(
+                    quality_reasons + (
+                        ["Оператор вручну підтвердив зміст та джерела SEO."]
+                        if bool(dialog.editorial_approved)
+                        else []
+                    )
+                ),
                 source_title=current_title,
                 source_description=current_description,
                 source_tags=current_tags,
@@ -10003,6 +10084,7 @@ class MainWindow(QMainWindow):
         evidence_report: dict | None = None,
         title_variants: list[str] | None = None,
         review_reason: str = "",
+        source_diagnostics: list[str] | None = None,
     ) -> bool:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Глибока оптимізація · перегляд · {video_id}")
@@ -10016,6 +10098,13 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setProperty("muted", True)
         layout.addWidget(note)
+        if source_diagnostics:
+            diagnostic_label = QLabel(
+                "ДЖЕРЕЛО SEO · " + " ".join(source_diagnostics)
+            )
+            diagnostic_label.setWordWrap(True)
+            diagnostic_label.setObjectName("StatusWarn")
+            layout.addWidget(diagnostic_label)
         if evidence_report:
             total = int(evidence_report.get("blocks_total") or 0)
             verified = int(evidence_report.get("blocks_with_evidence") or 0)
@@ -12759,8 +12848,32 @@ class MainWindow(QMainWindow):
 
 
     def refresh_free_tools_status(self) -> None:
+        """Probe external tools without blocking the Qt event loop."""
+        if self._free_tools_probe_running:
+            return
+        self._free_tools_probe_running = True
+
+        def run_probe() -> None:
+            try:
+                result = (probe_free_tools(), None)
+            except Exception as exc:
+                result = ({}, str(exc))
+            try:
+                self.free_tools_probed.emit(result)
+            except RuntimeError:
+                pass  # Window was destroyed during the probe.
+
+        threading.Thread(
+            target=run_probe, daemon=True, name="rg-free-tools-probe",
+        ).start()
+
+    @Slot(object)
+    def _receive_free_tools_probe(self, result: object) -> None:
+        self._free_tools_probe_running = False
+        probes, error = result
         try:
-            probes = probe_free_tools()
+            if error:
+                raise RuntimeError(error)
             self._free_tools_last_probe = probes
             yt = probes.get("yt_dlp", {})
             tr = probes.get("transcript", {})
@@ -12809,6 +12922,8 @@ class MainWindow(QMainWindow):
         *,
         fast_mode: bool = False,
         on_progress=None,
+        transcript_preference: str = "",
+        source_diagnostics: list[str] | None = None,
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
@@ -12924,6 +13039,36 @@ class MainWindow(QMainWindow):
         transcript_rows, transcript_source = load_verified_text(
             self.data_dir, video_id,
         )
+        if transcript_preference:
+            # The operator explicitly chose a matching timed source during
+            # GUI preflight. Revalidate in this worker to avoid TOCTOU swaps.
+            from .seo_transcript_choice import (
+                compare_timed_to_verified, published_duration_seconds,
+            )
+            if (transcript_source != "manual-confirmed-untimed-text"
+                    or transcript_preference not in ("confirmed-srt", "nas-srt")):
+                raise RuntimeError("SEO: невірний вибір джерела; нічого не змінено.")
+            selected_root = (
+                corrected_dir if transcript_preference == "confirmed-srt"
+                else transcript_dir
+            )
+            candidate_rows, candidate_label = find_local_transcript(
+                selected_root, video_id,
+            )
+            candidate_duration = published_duration_seconds(
+                context.get("duration") or (state[3] if state is not None else 0)
+            )
+            comparison = compare_timed_to_verified(
+                current_title, transcript_rows, candidate_rows,
+                published_duration=candidate_duration,
+            )
+            if not comparison.offer_timed:
+                raise RuntimeError(
+                    "SEO: обраний SRT змінився або не збігається з "
+                    "підтвердженим текстом. Збережено оригінальні файли."
+                )
+            transcript_rows = candidate_rows
+            transcript_source = "operator-confirmed-" + candidate_label
         if not transcript_rows:
             transcript_rows, transcript_source = find_local_transcript(
                 corrected_dir, video_id,
@@ -12980,6 +13125,14 @@ class MainWindow(QMainWindow):
         context["transcript_source"] = transcript_source
         if transcript_source == "manual-confirmed-untimed-text":
             context["untimed_transcript_review_only"] = True
+            # Worker must not touch NAS when a confirmed TXT is selected.
+            # The GUI performed optional source comparison at preflight.
+            context["seo_source_diagnostics"] = list(source_diagnostics or [])
+        elif transcript_source.startswith("operator-confirmed-"):
+            context["seo_source_diagnostics"] = [
+                "Оператор підтвердив SRT для цієї перевірки; "
+                "джерело повторно звірено з TXT."
+            ]
         if public_metadata_error:
             # Technical warning for the preview/audit, NOT a model fact.
             context["metadata_fetch_warning"] = (
@@ -13616,6 +13769,10 @@ class MainWindow(QMainWindow):
                 transcript_dir, video_id,
             )
         usable_local_transcript = bool(local_rows)
+        # Only the confirmed owner of an already imported TXT may elect
+        # another source; no automatic replacement, no changes to NAS/TXT.
+        transcript_preference = ""
+        source_diagnostics: list[str] = []
         media_path = None
         repairing_wrong_source = False
         model_dir = local_whisper_model_dir(self.data_dir)
@@ -13623,7 +13780,7 @@ class MainWindow(QMainWindow):
         if usable_local_transcript:
             source_title_row = (
                 self.conn.execute(
-                    "SELECT title FROM videos WHERE video_id=? AND profile=?",
+                    "SELECT title,duration FROM videos WHERE video_id=? AND profile=?",
                     (video_id, self.current_profile),
                 ).fetchone()
                 if hasattr(self, "conn") else None
@@ -13634,6 +13791,51 @@ class MainWindow(QMainWindow):
                 if isinstance(row, dict)
             )
             match = check_title_against_transcript(source_title, source_text)
+            if (not match.missing
+                    and local_source == "manual-confirmed-untimed-text"):
+                from .seo_transcript_choice import (
+                    compare_timed_to_verified, published_duration_seconds,
+                )
+                # Corrected, user-confirmed SRT takes precedence over NAS.
+                for source_key, source_dir in (
+                    ("confirmed-srt", confirmed_dir),
+                    ("nas-srt", transcript_dir),
+                ):
+                    candidate_rows, _ = find_local_transcript(
+                        source_dir, video_id,
+                    )
+                    raw_duration = (
+                        source_title_row["duration"]
+                        if source_title_row is not None else 0
+                    )
+                    duration = published_duration_seconds(raw_duration)
+                    comparison = compare_timed_to_verified(
+                        source_title, local_rows, candidate_rows,
+                        published_duration=duration,
+                    )
+                    from .seo_transcript_choice import source_comparison_note
+                    source_diagnostics.append(
+                        source_comparison_note(source_key, comparison)
+                    )
+                    if comparison.offer_timed:
+                        reply = QMessageBox.question(
+                            self,
+                            "SEO: підтверджено також SRT з таймкодами",
+                            f"Для {video_id} є SRT з "
+                            f"{comparison.timed_cues} фрагментами. "
+                            "Його зміст схожий на підтверджений TXT, "
+                            "але автоматична заміна заборонена.\\n\\n"
+                            "Використати SRT лише для цієї SEO-перевірки? "
+                            "Оригінальний TXT та файли NAS не зміняться.\\n"
+                            "«Ні» — залишити перевірений TXT без таймкодів.",
+                            QMessageBox.StandardButton.Yes |
+                            QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            transcript_preference = source_key
+                            local_rows = candidate_rows
+                        break
             if match.missing:
                 reply = QMessageBox.question(
                     self,
@@ -13858,9 +14060,12 @@ class MainWindow(QMainWindow):
                     model_dir=model_dir,
                     on_progress=whisper_progress,
                 )
-            return self._generate_local_seo_result(
-                video_id, on_progress=progress,
-            )
+            seo_kwargs = {"on_progress": progress}
+            if transcript_preference:
+                seo_kwargs["transcript_preference"] = transcript_preference
+            if source_diagnostics and not transcript_preference:
+                seo_kwargs["source_diagnostics"] = list(source_diagnostics)
+            return self._generate_local_seo_result(video_id, **seo_kwargs)
 
         self._run_local_tool(
             "Локальна SEO-оптимізація (0 квоти)",
@@ -13901,6 +14106,7 @@ class MainWindow(QMainWindow):
             evidence_report=evidence_report,
             title_variants=variants,
             review_reason=str(package.get("review_reason") or ""),
+            source_diagnostics=list(context.get("seo_source_diagnostics") or []),
         ):
             self.statusBar().showMessage("Локальну SEO-чернетку скасовано")
             return
@@ -15104,28 +15310,41 @@ class MainWindow(QMainWindow):
         )
 
     def check_for_updates_silent(self) -> None:
-        # An installer can update only the frozen installed EXE. A legacy
-        # python/pythonw source launch would reopen the old code after every
-        # installer run and create an endless update loop.
+        """Check remote releases without blocking the window's event loop."""
         if not bool(getattr(sys, "frozen", False)):
             return
-        try:
-            info = check_for_update()
-        except Exception:
+        if self._background_update_check_running:
             return
+        self._background_update_check_running = True
+
+        def probe() -> None:
+            try:
+                info = check_for_update()
+            except Exception:
+                info = None
+            try:
+                self.background_update_checked.emit(info)
+            except RuntimeError:
+                pass
+
+        threading.Thread(
+            target=probe, daemon=True, name="rg-silent-update-check",
+        ).start()
+
+    @Slot(object)
+    def _receive_background_update_check(self, info: object) -> None:
+        self._background_update_check_running = False
         if info is None:
             return
+        version = str(info.version).strip()
         dismissed = get_setting(
-            self.conn,
-            "update_dismissed_version",
-            "",
+            self.conn, "update_dismissed_version", "",
         ).strip()
-        if dismissed == str(info.version).strip():
+        if dismissed == version:
             return
-        prompted = getattr(self, "_update_prompted_version_session", "")
-        if prompted == str(info.version).strip():
+        if getattr(self, "_update_prompted_version_session", "") == version:
             return
-        self._update_prompted_version_session = str(info.version).strip()
+        self._update_prompted_version_session = version
         self._offer_update(info, manual=False)
 
     def install_update_from_zip(self) -> None:
