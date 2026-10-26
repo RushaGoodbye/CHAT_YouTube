@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e2c7bc79bca8e28bd39d472c7aaa598d745271d4
+          ref: ad48f24bdbf85270e1c93e6482eddde0006a887a
           persist-credentials: false
       - name: Verify actual AlexPC before reading source
         shell: powershell
