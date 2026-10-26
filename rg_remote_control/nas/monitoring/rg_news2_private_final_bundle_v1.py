@@ -338,6 +338,17 @@ def install():
         if silence():
             return {"result":"KYIV_SILENCE_DEFERRED","counts":before}
         folder=backup()
+        # Verify the pinned sender's own gates before attempting Telegram.
+        try:
+            d=runpy.run_path(str(OUT),run_name="rg_private_preflight_no_main")
+            d["gates"]()
+            if not d["photo_auto_gate_open"]():
+                return {"result":"PRIVATE_GATE_CLOSED_NO_SEND",
+                        "backup_directory":str(folder)}
+        except Exception as e:
+            return {"result":"EXISTING_PRIVATE_GATES_BLOCKED",
+                    "error_type":type(e).__name__,
+                    "backup_directory":str(folder)}
         shutil.copyfile(__file__,str(GUARD))
         os.chmod(str(GUARD),0o700)
         result=one_canary()
