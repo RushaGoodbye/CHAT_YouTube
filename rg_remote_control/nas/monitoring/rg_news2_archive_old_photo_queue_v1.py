@@ -90,7 +90,7 @@ def backup_now(live,vault):
     if vault.is_symlink() or not vault.is_dir():
         raise RuntimeError("BACKUP_DIRECTORY_UNAVAILABLE")
     # Dedicated directory with owner-only permissions. Do not change Gatus.
-    folder=vault/("status-archive-"+dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"))
+    folder=vault/("status-archive-"+dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ"))
     folder.mkdir(mode=0o700)
     dest=folder/"before.sqlite3"
     source=read_conn(live)
