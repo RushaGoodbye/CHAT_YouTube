@@ -46,7 +46,7 @@ def fixture(root,break_gates=False):
         "    record_sent(conn)\n"
         "    conn.commit()\n")
     callback=app/"operator/rg_news2_p31_guarded_callback_once.py"
-    callback.write_text("def main():\\n    getoff()\\n    putoff()\\n")
+    callback.write_text("def main():\n    getoff()\n    putoff()\n")
     out=app/"operator/rg_news2_outbound_queue_v2.py"
     out.write_text(
         "import sqlite3\n"
