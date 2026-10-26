@@ -2040,6 +2040,28 @@ def generate_seo_package_local(
     subject_match = check_title_against_transcript(
         current_title, verified_evidence if evidence_report else transcript,
     )
+    # Do not generate convincing SEO for a different video when the selected
+    # upload concerns convicted school teachers. Verified evidence must
+    # independently contain BOTH semantic anchors; title text does not count.
+    title_norm = current_title.casefold()
+    source_norm = (verified_evidence if evidence_report else transcript).casefold()
+    is_school_conviction_video = (
+        any(w in title_norm for w in ("школ", "учител", "преподав", "вчител"))
+        and any(w in title_norm for w in
+                ("осужден", "судим", "преступлен", "засуджен", "злочин"))
+    )
+    if is_school_conviction_video and source_norm.strip():
+        has_school = any(w in source_norm for w in
+                         ("школ", "учител", "вчител", "преподав", "педагог"))
+        has_conviction = any(w in source_norm for w in
+                             ("осужден", "судим", "преступлен", "засуджен",
+                              "злочин", "тяжк"))
+        if not (has_school and has_conviction):
+            raise ValueError(
+                "SOURCE_VIDEO_MISMATCH: обране відео про судимих учителів, "
+                "але отримана розшифровка/карта доказів має іншу тему. "
+                "SEO не створено; перевірте прив'язку SRT до Video ID."
+            )
     named_subject_requirement = (
         "КРИТИЧНО: УСІ ЧОТИРИ назви (основна та A/B/C) повинні "
         "зберігати головну названу тему: "
