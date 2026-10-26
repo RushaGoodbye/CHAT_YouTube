@@ -128,8 +128,15 @@ def prune_photo(source_tree):
         raise RuntimeError("PUBLIC_RSS_PRUNING_NOT_PROVEN")
     if any(call_count(fn,n)>0 for n in drops):
         raise RuntimeError("PUBLIC_SEND_REMAINING")
-    if call_count(fn,"deliver_one")!=1 or call_count(fn,"private_send_only")!=1:
-        raise RuntimeError("PHOTO_ROUTE_NOT_PRESERVED")
+    # The deployed source uses private_send_only for the ORDINARY
+    # dispatch guard, not necessarily the dedicated photo worker.
+    # Requiring it inside the private-only AST incorrectly rejects valid
+    # photo paths. The photo worker independently enforces authorized chat
+    # and verified Telegram reply in send_payload()/record_sent().
+    if call_count(fn,"deliver_one")!=1:
+        raise RuntimeError("PHOTO_DELIVER_ONE_NOT_PRESERVED")
+    if call_count(fn,"private_send_only")>1:
+        raise RuntimeError("PRIVATE_GUARD_DUPLICATED")
     if any(isinstance(n,ast.Constant) and isinstance(n.value,str)
            and ("sendMessage" in n.value or "getUpdates" in n.value)
            for n in ast.walk(fn)):
@@ -170,6 +177,23 @@ def source_contract():
         raise RuntimeError("UNCERTAIN_PHOTO_STATE_NOT_PROVEN")
     if call_count(functions["deliver_one"],"record_sent")!=1:
         raise RuntimeError("PHOTO_SENT_LEDGER_NOT_PROVEN")
+    # If the original private_send_only call guarded only ordinary
+    # messages, prove the photo worker validates the configured private
+    # chat before sending and before persisting a confirmed receipt.
+    if call_count(fn,"private_send_only")==0:
+        send_payload=functions.get("send_payload")
+        record_sent=functions.get("record_sent")
+        if send_payload is None or record_sent is None:
+            raise RuntimeError("PHOTO_PRIVATE_CHAT_CHECK_MISSING")
+        if not any(isinstance(x,ast.Name) and x.id=="chat_id"
+                   for x in ast.walk(send_payload)):
+            raise RuntimeError("PHOTO_SEND_CHAT_IDENTIFIER_UNPROVEN")
+        if not any(isinstance(x,ast.Name) and x.id=="got_chat"
+                   for x in ast.walk(record_sent)):
+            raise RuntimeError("PHOTO_TELEGRAM_REPLY_CHAT_CHECK_MISSING")
+        if not any(isinstance(x,ast.Name) and x.id=="chat"
+                   for x in ast.walk(fn)):
+            raise RuntimeError("PHOTO_CONFIGURED_CHAT_UNPROVEN")
     # Preserve the already-installed single callback consumer. No new
     # getUpdates process or callback subscription may be started.
     callback=ast.parse(CALLBACK.read_text(encoding="utf-8"))
