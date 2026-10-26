@@ -41,7 +41,7 @@ def generate_draft(
         raise ValueError("Transcript missing or too short")
     prompt = (
         "Ти редактор каналу РАША ГУДБАЙ. Згенеруй лише JSON: "
-        "title, ab_titles (рівно 3), description, tags, chapters. "
+        "title, ab_titles (рівно 3), description, tags (8–15 релевантних), chapters. "
         "Назви російською, опис українською. "
         "Не вигадуй факти, цитати чи законодавчі зміни. "
         "Бери теми лише з розшифровки, уникай шаблонних фраз. "
@@ -68,7 +68,7 @@ def generate_draft(
         raise ValueError("A/B titles are duplicates")
     if not 260 <= len(description) <= 4500:
         raise ValueError("Description length invalid")
-    if not isinstance(tags, list) or not 3 <= len(tags) <= 15 or any(
+    if not isinstance(tags, list) or not 8 <= len(tags) <= 15 or any(
         not isinstance(t, str) or not t.strip() for t in tags
     ):
         raise ValueError("Tags invalid")
