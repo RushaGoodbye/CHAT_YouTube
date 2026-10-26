@@ -12,3 +12,7 @@ def test_verified_school_teaching_and_conviction_is_editorial_subject():
     assert "засуджених" in text
     assert "школах" in text
     assert review == []
+    assert len(text) >= 260
+    assert "другий шанс" in text
+    assert "безпеку учнів" in text
+    assert "законодавстві РФ" in text
