@@ -61,6 +61,27 @@ def _incidental_ab_quote(text: str) -> bool:
     ))
 
 
+def duration_seconds(raw: object) -> int:
+    """Normalize app video durations without inventing an unknown value."""
+    if raw is None or str(raw).strip() == "":
+        return 0
+    if isinstance(raw, (int, float)):
+        return max(0, int(raw))
+    value = str(raw).strip()
+    if re.fullmatch(r"\\d+(?:\\.\\d+)?", value):
+        return max(0, int(float(value)))
+    if re.fullmatch(r"\\d{1,3}:\\d{2}(?::\\d{2})?", value):
+        parts = [int(x) for x in value.split(":")]
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    match = re.fullmatch(r"PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?", value)
+    if match and any(part is not None for part in match.groups()):
+        hours, minutes, seconds = [int(part or 0) for part in match.groups()]
+        return hours * 3600 + minutes * 60 + seconds
+    raise RuntimeError("Unsupported synchronized video duration format")
+
+
 def get_video_inputs(db_file: Path, video_id: str) -> dict:
     """Read public metadata + NAS configuration with no SQLite mutations."""
     if not VALID_ID.fullmatch(video_id):
@@ -83,7 +104,7 @@ def get_video_inputs(db_file: Path, video_id: str) -> dict:
             "video_id": video_id,
             "profile": str(row["profile"] or ""),
             "title": str(row["title"] or ""),
-            "duration": int(row["duration"] or 0),
+            "duration": duration_seconds(row["duration"]),
             "transcript_root": configured or DEFAULT_NAS_TRANSCRIPTS_PATH,
         }
 
