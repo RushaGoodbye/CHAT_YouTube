@@ -331,13 +331,19 @@ def apply():
             "rollback_guard_backup_saved":True}
 
 def selftest():
-    # This is a source-to-source transformation, so use the actual pinned
-    # repository source file in CI, not a toy implementation.
-    original=pathlib.Path(__file__).with_name(
-               "rg_news2_private_final_bundle_v1.py")
-    if not original.is_file():
-        raise RuntimeError("ORIGINAL_REPO_SOURCE_MISSING")
-    original_text=original.read_text(encoding="utf-8")
+    # NAS uses a standalone /tmp download. CI has the original beside us;
+    # NAS already has the original pinned production file installed.
+    repository_original=pathlib.Path(__file__).with_name(
+        "rg_news2_private_final_bundle_v1.py")
+    if repository_original.is_file() and not repository_original.is_symlink():
+        original_bytes=repository_original.read_bytes()
+    else:
+        if not regular(GUARD):
+            raise RuntimeError("INSTALLED_ORIGINAL_GUARD_MISSING")
+        original_bytes=GUARD.read_bytes()
+    if git_blob(original_bytes)!=OLD_BLOB:
+        raise RuntimeError("SELFTEST_ORIGINAL_GUARD_SHA_MISMATCH")
+    original_text=original_bytes.decode("utf-8")
     patched=patched_content(original_text)
     assert patched!=original_text
     root=ast.parse(patched)
@@ -348,8 +354,8 @@ def selftest():
     try:patched_content(patched)
     except RuntimeError:pass
     else:raise AssertionError("SECOND_PATCH_NOT_BLOCKED")
-    # Markers and data are never deleted by the patcher.
-    assert "os.replace(str(MARK),str(archived))" in open(__file__).read()
+    assert "os.replace(str(MARK),str(archived))" in pathlib.Path(
+        __file__).read_text(encoding="utf-8")
     print("RG_NEWS2_CAPACITY_RESUME_SELFTEST_PASS")
 
 def main():
