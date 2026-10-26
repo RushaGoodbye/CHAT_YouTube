@@ -1,14 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_batch_boundary_shadow_v1",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "streams": [
-      "901",
-      "903",
-      "905"
-    ],
-    "read_only": true
+    "files": [
+      "rg_multi_dialogue.py",
+      "rg_guest_identity_boundary.py",
+      "rg_studio_postrun.py",
+      "RG_EDITED_903_2_R2_GUEST_ID_BOUNDARY_QA.json",
+      "RG_EDITED_903_5_R2_GUEST_ID_BOUNDARY_QA.json"
+    ]
   },
-  "nonce": "rg-20261026-901-905-clock-conflict-903-holds-v2"
+  "nonce": "rg-20261026-batch-901-903-905-source-evidence-v3"
 }
