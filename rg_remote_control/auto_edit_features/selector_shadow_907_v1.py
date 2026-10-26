@@ -104,8 +104,14 @@ def run():
             for p in shots:
                 shutil.copy2(p,folder/p.name)
             print("RG907|SELECTOR_SHADOW|START",flush=True)
-            selected=clock.find_dialogues_by_clock(str(source),str(folder),
-                                                   window_sec=300,step_sec=1.0)
+            try:
+                selected=clock.find_dialogues_by_clock(str(source),str(folder),window_sec=300,step_sec=1.0)
+            except RuntimeError as exc:
+                print("RG907|SELECTOR_CONFLICT|"+json.dumps({
+                    "error":str(exc),"verified":real_score,
+                    "chronology":[{"index":k,"time":v} for k,v in sorted(exact.items(),key=lambda p:p[1])],
+                    "review_required":True},ensure_ascii=False),flush=True)
+                raise
     finally:
         clock._best_local_match=original_match
         clock._clock_locked_visual_confirmation=original_confirm
