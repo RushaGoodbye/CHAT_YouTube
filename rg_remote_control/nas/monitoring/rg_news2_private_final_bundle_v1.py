@@ -436,6 +436,23 @@ def selftest():
        "        deliver_one()\n")
     tree=ast.parse(src)
     fn,c=prune_photo(tree)
+    # Production pattern: private_send_only() can belong to the ordinary
+    # branch, which must be removed completely. Keep deliver_one() even if
+    # the ordinary-only private_send_only() gets pruned along with send_one.
+    src2=src.replace(
+       "    if ordinary_open>=1: send_one()\\n",
+       "    if ordinary_open>=1:\\n        private_send_only()\\n        send_one()\\n"
+    ).replace(
+       "    if photo_open>=1:\\n        private_send_only()\\n        deliver_one()\\n",
+       "    if photo_open>=1:\\n        deliver_one()\\n")
+    if src2==src or "private_send_only()\\n        send_one()" not in src2:
+        raise AssertionError("REGRESSION_FIXTURE_UNCHANGED")
+    clean2,count2=prune_photo(ast.parse(src2))
+    assert call_count(clean2,"deliver_one")==1
+    assert call_count(clean2,"private_send_only")==0
+    assert not any(call_count(clean2,k) for k in (
+        "send_one","maybe_rss_hourly","standard_dispatch_source_safe"))
+    assert count2["public"]==1 and count2["rss"]==1
     assert c["public"]==1 and c["rss"]==1
     events=[]
     d={"gates":lambda:None,"photo_auto_gate_open":lambda:True,
