@@ -1,0 +1,54 @@
+name: NAS Telegram Scheduler Offline QA
+
+on:
+  push:
+    branches:
+      - main
+      - fix/telegram-scheduler-observability-20261025
+    paths:
+      - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - tests/test_rg_nas_scheduler_tick.py
+      - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+      - rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
+      - rg_remote_control/nas/rg_nas_readonly_batch_v1.sh
+      - .github/workflows/rg-nas-scheduler-offline-qa.yml
+  pull_request:
+    paths:
+      - rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - tests/test_rg_nas_scheduler_tick.py
+      - rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+      - rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
+      - rg_remote_control/nas/rg_nas_readonly_batch_v1.sh
+      - .github/workflows/rg-nas-scheduler-offline-qa.yml
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-scheduler-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: POSIX shell syntax
+        run: sh -n rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+      - name: ShellCheck POSIX static analysis (open source)
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
+          shellcheck --version
+          shellcheck --shell=sh --severity=warning rg_remote_control/nas/RG_NAS_SCHEDULER_TICK.sh
+          sh -n rg_remote_control/nas/rg_nas_readonly_batch_v1.sh
+          shellcheck --shell=sh --severity=warning rg_remote_control/nas/rg_nas_readonly_batch_v1.sh
+      - name: Isolated behavior tests without NAS or Telegram credentials
+        run: python3 tests/test_rg_nas_scheduler_tick.py
+      - name: Redacted NAS preflight regression and syntax
+        run: |
+          python3 -m py_compile rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py
+          python3 rg_remote_control/nas/rg_nas_scheduler_preflight_v1.py selftest
+          python3 -m py_compile rg_remote_control/nas/rg_nas_synology_task_audit_v1.py
+          python3 rg_remote_control/nas/rg_nas_synology_task_audit_v1.py selftest
