@@ -62,20 +62,20 @@ def _incidental_ab_quote(text: str) -> bool:
 
 
 def duration_seconds(raw: object) -> int:
-    """Normalize app video durations without inventing an unknown value."""
+    """Normalize durations without silently accepting unknown values."""
     if raw is None or str(raw).strip() == "":
         return 0
     if isinstance(raw, (int, float)):
         return max(0, int(raw))
     value = str(raw).strip()
-    if re.fullmatch(r"\\d+(?:\\.\\d+)?", value):
+    if re.fullmatch(r"[0-9]+(?:[.][0-9]+)?", value):
         return max(0, int(float(value)))
-    if re.fullmatch(r"\\d{1,3}:\\d{2}(?::\\d{2})?", value):
+    if re.fullmatch(r"[0-9]{1,3}:[0-9]{2}(?::[0-9]{2})?", value):
         parts = [int(x) for x in value.split(":")]
         if len(parts) == 2:
             return parts[0] * 60 + parts[1]
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    match = re.fullmatch(r"PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?", value)
+    match = re.fullmatch(r"PT(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)S)?", value)
     if match and any(part is not None for part in match.groups()):
         hours, minutes, seconds = [int(part or 0) for part in match.groups()]
         return hours * 3600 + minutes * 60 + seconds
