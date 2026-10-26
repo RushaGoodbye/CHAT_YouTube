@@ -433,6 +433,34 @@ def install():
     finally:os.close(f)
 
 def selftest():
+    # Prove direct entry calls run(mode) once without invoking __main__ CLI.
+    global BASE,OUT,EXPECTED
+    saved=(BASE,OUT,EXPECTED)
+    with tempfile.TemporaryDirectory() as tmp:
+        root=pathlib.Path(tmp)
+        operator=root/"operator"
+        operator.mkdir()
+        fake=operator/"outbound.py"
+        marker=root/"photo_was_called"
+        fake.write_text(
+            "from pathlib import Path\n"
+            "def run(mode):\n"
+            "    if mode=='photo':\n"
+            "        Path("+repr(str(marker))+").write_text('called_once')\n"
+            "    return None\n"
+            "if __name__=='__main__':\n"
+            "    raise RuntimeError('wrong_cli_entrypoint')\n")
+        try:
+            BASE=root
+            OUT=fake
+            EXPECTED=dict(EXPECTED, out=hashlib.sha256(fake.read_bytes()).hexdigest()[:12])
+            assert safe_direct_run_contract()["entrypoint"]=="DIRECT_PINNED_RUN_MODE"
+            invoke_pinned_run("status")
+            assert not marker.exists()
+            invoke_pinned_run("photo")
+            assert marker.read_text()=="called_once"
+        finally:
+            BASE,OUT,EXPECTED=saved
     with tempfile.TemporaryDirectory() as td:
         orig=pathlib.Path(td)/"original.sh"
         orig.write_text("#!/bin/sh\nexit 0\n")
