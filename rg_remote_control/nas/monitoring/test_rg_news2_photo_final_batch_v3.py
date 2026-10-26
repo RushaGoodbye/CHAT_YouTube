@@ -56,7 +56,8 @@ def scenario(where,send_receipt,drop_private_gate=False,flag_cli=False):
     outbound.write_text(code)
     M.BASE=root;M.VAULT=vault;M.TICK=tick;M.LEGACY=legacy
     M.OUT=outbound;M.PHOTO=photo;M.DB=database
-    M.GUARD=root/"rg_news2_photo_tick_guard_v1.py"
+    M.GUARD=root/"rg_news2_photo_tick_guard_v3.py"
+    M.UNCONFIRMED=vault/"rg_news2_photo_unconfirmed_v3.json"
     M.EXPECTED={key:M.digest(p) for key,p in
                 (("tick",tick),("legacy",legacy),("out",outbound),("photo",photo))}
     M.contract()
@@ -68,6 +69,7 @@ def test_success():
         result,tick,mark=scenario(pathlib.Path(temp),True)
         assert result["result"]=="HOOK_INSTALLED",result
         assert result["canary"]["new_receipts"]==1,result
+        assert not M.UNCONFIRMED.exists(), "Confirmed receipt releases uncertainty gate"
         assert result["canary"]["new_photo_rows"]==1,result
         assert mark in tick
         assert result["new_pollers_started"]==0
@@ -77,6 +79,7 @@ def test_rollback():
         result,tick,mark=scenario(pathlib.Path(temp),False)
         assert result["result"]=="HOOK_ROLLED_BACK",result
         assert result["canary"]["new_receipts"]==0,result
+        assert M.UNCONFIRMED.exists(), "Uncertain result must prevent repeat sends"
         assert tick=="#!/bin/sh\nexit 0\n"
         assert mark not in tick
 
