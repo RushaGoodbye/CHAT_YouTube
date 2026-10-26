@@ -29,12 +29,14 @@ TICK=BASE/"rg_news_dsm_tick.sh"
 LEGACY=BASE/"rg_v18.py"
 OUT=BASE/"operator/rg_news2_outbound_queue_v2.py"
 PHOTO=BASE/"telegram_photo_review_flow.py"
+CALLBACK=BASE/"operator/rg_news2_p31_guarded_callback_once.py"
 DB=BASE/"news.sqlite3"
 GUARD=BASE/"rg_news2_private_final_guard_v1.py"
 OLD_UNCERTAIN=VAULT/"rg_news2_photo_unconfirmed_v6.json"
 UNCERTAIN=VAULT/"rg_news2_private_final_unconfirmed_v1.json"
 EXPECTED={"tick":"9a2d04e499da","legacy":"63fef26bdf9f",
-          "out":"e94253084ea2","photo":"79c473bf774f"}
+          "out":"e94253084ea2","photo":"79c473bf774f",
+          "callback":"0c48d2030e99"}
 MARK="RG_NEWS2_PRIVATE_FINAL_V1"
 
 def sha12(p):
@@ -136,7 +138,8 @@ def prune_photo(source_tree):
     return fn,counts
 
 def source_contract():
-    for name,p in (("legacy",LEGACY),("out",OUT),("photo",PHOTO)):
+    for name,p in (("legacy",LEGACY),("out",OUT),("photo",PHOTO),
+                   ("callback",CALLBACK)):
         if sha12(p)!=EXPECTED[name]:
             raise RuntimeError("SOURCE_PIN_CHANGED_"+name.upper())
     # The DSM script changes after the confirmed first canary. Verify its
@@ -167,9 +170,20 @@ def source_contract():
         raise RuntimeError("UNCERTAIN_PHOTO_STATE_NOT_PROVEN")
     if call_count(functions["deliver_one"],"record_sent")!=1:
         raise RuntimeError("PHOTO_SENT_LEDGER_NOT_PROVEN")
+    # Preserve the already-installed single callback consumer. No new
+    # getUpdates process or callback subscription may be started.
+    callback=ast.parse(CALLBACK.read_text(encoding="utf-8"))
+    callback_fns={n.name:n for n in callback.body
+                  if isinstance(n,ast.FunctionDef)}
+    if "main" not in callback_fns or "handle_callback" not in functions:
+        raise RuntimeError("PRIVATE_MODERATOR_CALLBACK_MISSING")
+    if call_count(callback_fns["main"],"getoff")!=1 or call_count(callback_fns["main"],"putoff")!=1:
+        raise RuntimeError("PRIVATE_CALLBACK_OFFSET_GUARD_CHANGED")
+    if call_count(functions["handle_callback"],"execute")<1:
+        raise RuntimeError("PRIVATE_CALLBACK_DATABASE_GUARD_MISSING")
     return {"source_pins":"PASS","public_branch_removed":True,
             "rss_branch_removed":True,"private_branch_kept":True,
-            "photo_ledger_verified":True,
+            "photo_ledger_verified":True,"callback_contract_verified":True,
             "extra_pollers":0,"public_gate_changed":False},fn
 
 def sqlite_counts():
@@ -244,7 +258,7 @@ def backup():
     folder=VAULT/("private-final-"+datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     folder.mkdir(mode=0o700)
     for label,p in (("tick.sh",TICK),("legacy.py",LEGACY),("outbound.py",OUT),
-                    ("photo.py",PHOTO)):
+                    ("photo.py",PHOTO),("callback.py",CALLBACK)):
         shutil.copyfile(str(p),str(folder/label))
         os.chmod(str(folder/label),0o600)
     src=sqlite3.connect(DB.resolve().as_uri()+"?mode=ro",uri=True,timeout=4)
