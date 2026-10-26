@@ -32,6 +32,7 @@ def scenario(where,send_receipt):
     outbound=root/"operator/rg_news2_outbound_queue_v2.py"
     code=(
       "import sqlite3,sys\n"
+      "sys.path.insert(0, "+repr(str(root))+")\n"
       "from telegram_photo_review_flow import deliver_one\n"
       "PHOTO_PRIVATE_GUARDS='photo_not_private photo_pilot_gate_closed_no_send'\n"
       "def photo_auto_gate_open(): return True\n"
