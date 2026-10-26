@@ -1,10 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_run_log",
+  "action": "inspect_auto_edit_clock_boundary_code",
   "args": {
     "stream": "907",
-    "read_only": true
+    "read_only": true,
+    "focus": "joint_screenshot_clock_consensus VISUAL_CONFIRMATION_FAILED 907-1.jpg delta 123.8s"
   },
-  "nonce": "rg-20261026-907-real-failure-trace-v1"
+  "nonce": "rg-20261026-907-visual-consensus-root-cause-v1"
 }
