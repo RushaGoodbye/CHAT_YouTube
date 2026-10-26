@@ -48,7 +48,8 @@ def contract():
     if any(s in txt.lower() for s in ("getupdates","get_updates","public_channel","channel_username")):
         raise RuntimeError("OUTBOUND_PRIVACY_PROOF_FAILED")
     if not all(s in txt for s in ("deliver_one","photo_auto_gate_open",
-                                "private_send_only","telegram_photo_review_flow")):
+                                "private_send_only","telegram_photo_review_flow",
+                                "photo_not_private","photo_pilot_gate_closed_no_send")):
         raise RuntimeError("PHOTO_PRIVATE_GUARDS_MISSING")
     tree=ast.parse(txt)
     runs=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="run"]
@@ -100,6 +101,10 @@ def one_canary():
             return {"status":"ALREADY_RUNNING"}
         if silence():
             return {"status":"KYIV_MINUTE_OF_SILENCE"}
+        # Every recurring tick revalidates that the reviewed private-only
+        # worker and outbound module have not been replaced or updated.
+        if digest(OUT)!=EXPECTED["out"] or digest(PHOTO)!=EXPECTED["photo"]:
+            return {"status":"SOURCE_UPDATED_REQUIRES_NEW_PRIVATE_QA"}
         before=sql_counts()
         if before["archived"]<1353 or before["pending"]<1 or before["pending"]>50:
             return {"status":"FRESH_QUEUE_GUARD","counts":before}
