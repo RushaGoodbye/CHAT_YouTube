@@ -1,10 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_operational_acceptance_v1",
+  "action": "inspect_auto_edit_runtime_state",
   "args": {
     "read_only": true,
-    "all_installed_streams": true
+    "check_gui": true,
+    "check_updater": true
   },
-  "nonce": "rg-20261026-studio-operational-release-acceptance-v1"
+  "nonce": "rg-20261026-runtime-gui-installer-smoke-v1"
 }
