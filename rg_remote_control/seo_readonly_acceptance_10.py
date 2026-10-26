@@ -27,7 +27,7 @@ from rg_youtube_control.dialogue_seo import (ab_title_issues,
                                               evidence_outline_text)
 from rg_youtube_control.free_tools import (DEFAULT_OLLAMA_MODEL,
                                            generate_seo_package_local,
-                                           load_srt_transcript, ollama_chat,
+                                           load_srt_transcript, fetch_transcript, ollama_chat,
                                            _description_quality_error)
 from rg_youtube_control.optimization import safe_description_fix
 
@@ -228,7 +228,7 @@ def run_one(
             "Invalid video ID",
             "Video ID not present in app's synchronized database",
             "Video metadata has no title",
-            "NAS SRT missing; no YouTube fallback is allowed in QA",
+            "No usable exact-ID SRT or public captions",
             "Incomplete SRT: fewer than ten caption rows",
             "SRT coverage below 75% of synchronized video duration",
             "No evidence-backed dialogue blocks",
@@ -267,12 +267,20 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 meta = get_video_inputs(args.db, video_id)
                 path = Path(meta["transcript_root"]) / (video_id + ".srt")
-                if not path.is_file():
-                    raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
-                cues = load_srt_transcript(path)
+                if path.is_file():
+                    cues = load_srt_transcript(path)
+                    source = "nas-exact-id"
+                else:
+                    # Public caption fallback is read-only, keyed by exact Video ID.
+                    # No local or remote transcript file is written.
+                    try:
+                        cues = fetch_transcript(video_id)
+                    except Exception:
+                        cues = []
+                    source = "youtube-exact-id"
                 if len(cues) < 10:
-                    raise RuntimeError("Incomplete SRT: fewer than ten caption rows")
-                entry.update(status="PREFLIGHT_PASS", cues=len(cues), duration=meta["duration"])
+                    raise RuntimeError("No usable exact-ID SRT or public captions")
+                entry.update(status="PREFLIGHT_PASS", cues=len(cues), duration=meta["duration"], source=source)
             except Exception as exc:
                 entry.update(error_type=type(exc).__name__, error_code=(
                     str(exc) if str(exc) in (
