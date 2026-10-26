@@ -256,7 +256,7 @@ def patched_content(original):
     ast.parse(s)
     if s.count("PUBLIC_SEND_FORBIDDEN")!=1 or s.count("RSS_DISPATCH_FORBIDDEN")!=1:
         raise RuntimeError("PUBLIC_RSS_VETO_CHANGED")
-    if s.count("rg_capacity_relax_exact(fn)")!=1:
+    if s.count("    fn=rg_capacity_relax_exact(fn)")!=1:
         raise RuntimeError("CAPACITY_PATCH_MISSING")
     return s
 
