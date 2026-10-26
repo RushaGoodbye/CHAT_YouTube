@@ -11,6 +11,8 @@ spec.loader.exec_module(m)
 
 class FakeImage:
     shape=(1280,591,3)
+    def __getitem__(self, region):
+        return self
 
 def fake_face_finder(image,score_threshold=.50,min_face_px=24):
     return [
