@@ -1,11 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_runtime_state",
+  "action": "apply_auto_edit_903_queue_5of6_v1",
   "args": {
-    "read_only": true,
-    "check_gui": true,
-    "check_updater": true
+    "apply": true,
+    "verified_completed": 5,
+    "remaining_hold": 5
   },
-  "nonce": "rg-20261026-runtime-gui-installer-smoke-v1"
+  "nonce": "rg-20261026-903-queue-5of6-after-replay-v1"
 }
