@@ -246,17 +246,12 @@ def sqlite_counts():
     finally:c.close()
 
 def silence():
-    # Synology Python 3.8 lacks zoneinfo; use IANA libc timezone.
-    saved=os.environ.get("TZ")
-    try:
-        os.environ["TZ"]="Europe/Kyiv"
-        time.tzset()
-        now=time.localtime()
-        return now.tm_hour==9 and 0<=now.tm_min<=5
-    finally:
-        if saved is None:os.environ.pop("TZ",None)
-        else:os.environ["TZ"]=saved
-        time.tzset()
+    # DSM's Python may omit time.tzset(). UTC-hour fail-closed window
+    # protects Kyiv 09:00-09:05 in BOTH summer (+3) and winter (+2).
+    # Intentionally blocks 6 additional minutes to avoid relying on
+    # unverified zoneinfo or Synology-specific tz databases.
+    now=datetime.datetime.now(datetime.timezone.utc)
+    return now.hour in (6,7) and now.minute<=5
 
 def write_marker(label):
     if not VAULT.is_dir() or VAULT.is_symlink() or UNCERTAIN.is_symlink():
@@ -456,6 +451,11 @@ def selftest():
        "    if photo_open>=1:\n"
        "        private_send_only()\n"
        "        deliver_one()\n")
+    # Do not assume DSM Python implements time.tzset() or zoneinfo.
+    # The conservative UTC window must cover both seasonal Kyiv offsets.
+    original_datetime=datetime.datetime
+    assert "tzset" not in silence.__code__.co_names
+    assert "subprocess" not in silence.__code__.co_names
     tree=ast.parse(src)
     fn,c=prune_photo(tree)
     # Production pattern: private_send_only() can belong to the ordinary
@@ -520,7 +520,18 @@ def main():
                 sys.exit(2)
         else:raise RuntimeError("MODE_UNSUPPORTED")
     except Exception as e:
+        # Show only our verified local source function/line, never raw
+        # Python exception text, chat IDs, paths, Bot API output or sources.
+        tb=e.__traceback__
+        location=None
+        while tb is not None:
+            frame=tb.tb_frame
+            if frame.f_code.co_filename==__file__:
+                location={"function":frame.f_code.co_name,
+                          "source_line":tb.tb_lineno}
+            tb=tb.tb_next
         print(json.dumps({"status":"SAFE_ABORT","error_type":type(e).__name__,
+                          "safe_failure_location":location,
                           "error_code":str(e) if str(e).isupper() and
                           len(str(e))<72 else "INTERNAL_SAFE_ABORT",
                           "publications":0,"extra_pollers":0}))
