@@ -19,8 +19,8 @@ jobs:
       - name: Restore only stalled RG Auto Edit listener from the independent YouTube runner
         shell: powershell
         env:
-          GH_TOKEN: \${{ github.token }}
-          REPO: \${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           $ErrorActionPreference = 'Stop'
           $root = 'C:\RG_GITHUB_RUNNER'
