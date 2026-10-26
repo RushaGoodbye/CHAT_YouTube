@@ -1,11 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_907_selector_shadow_v1",
+  "action": "inspect_auto_edit_907_6_diagnostic_v1",
   "args": {
     "stream": "907",
-    "expected_screenshots": 8,
+    "dialogue": 6,
     "read_only": true
   },
-  "nonce": "rg-20261026-907-eight-verified-anchors-shadow-v1"
+  "nonce": "rg-20261026-907-6-independent-proof-v1"
 }
