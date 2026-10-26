@@ -57,11 +57,17 @@ def test_direct_strict_editor_still_fails_closed_on_unknown_topic():
 def test_zero_mapped_subjects_must_not_become_auto_published_seo():
     report = sample_report(("Секретный заговор инопланетян", "Что это было?"))
     review = []
+    description = _deterministic_evidence_description(
+        "Шойгу", report, review_topics=review,
+    )
+    assert "інопланетян" not in description
+    assert "Потрібна редакторська перевірка" in description
+    assert review == [
+        "Секретный заговор инопланетян",
+        "NO_RECOGNIZED_EDITORIAL_SUBJECT",
+    ]
     with pytest.raises(ValueError, match="No editorial subjects"):
-        _deterministic_evidence_description(
-            "Шойгу", report, review_topics=review,
-        )
-    assert review == ["Секретный заговор инопланетян"]
+        _deterministic_evidence_description("Шойгу", report)
 
 
 def test_missing_quote_blocks_public_description():
