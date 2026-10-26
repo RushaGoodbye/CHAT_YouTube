@@ -1,0 +1,53 @@
+name: RG AlexPC real SEO 10 read-only acceptance
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/rg-alexpc-seo-10-trigger.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-alexpc-seo-10-acceptance
+  cancel-in-progress: false
+
+jobs:
+  verify-real-seo:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cbaac4fc1ee03ca3e3543f11d07c6cda9594370
+          persist-credentials: false
+      - name: Verify actual AlexPC before reading source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Only ALEXPC is authorized' }
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if (-not (Test-Path -LiteralPath $py)) { throw 'Pinned local Python missing' }
+      - name: Generate and assess ten real-video SEO packages read-only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          $deps = Join-Path $env:RUNNER_TEMP 'rg_real_seo_qa_deps'
+          if (-not (Test-Path (Join-Path $deps 'rapidfuzz\__init__.py'))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps 'rapidfuzz>=3.0,<4'
+            if ($LASTEXITCODE -ne 0) { throw 'Dependency setup failed' }
+          }
+          $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
+          $out = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
+          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'SEO acceptance blocked; inspect sanitized report artifact' }
+      - name: Save sanitized summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-main10-readonly-summary
+          path: ${{ runner.temp }}/rg_seo_qa_summary.json
+          if-no-files-found: ignore
+          retention-days: 7
