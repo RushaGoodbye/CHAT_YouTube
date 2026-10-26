@@ -2518,6 +2518,28 @@ chapters: рядок з підтвердженими таймкодами та �
         )
 
     title = str(payload.get("title") or "").strip()
+    # A verified school/conviction discussion deserves a stronger main hook;
+    # never let a generic or off-topic local-model title replace its subject.
+    verified_school_topic = bool(
+        evidence_report
+        and any(
+            "школ" in (str(t.get("topic") or "") + " " +
+                       str(t.get("evidence") or "")).casefold()
+            and any(w in (str(t.get("topic") or "") + " " +
+                          str(t.get("evidence") or "")).casefold()
+                    for w in ("осужден", "судим", "преступлен", "засуджен", "тяжк"))
+            for b in evidence_report.get("blocks") or []
+            if isinstance(b, dict) and b.get("verified") is not False
+            for t in b.get("topics") or [] if isinstance(t, dict)
+        )
+    )
+    if verified_school_topic and any(
+        w in current_title.casefold() for w in ("школ", "преподав", "учител")
+    ):
+        title = (
+            "СУДИМЫЕ УЧИТЕЛЯ В ШКОЛАХ РФ? "
+            "РОССИЯНЕ О БЕЗОПАСНОСТИ ДЕТЕЙ | РАША ГУДБАЙ"
+        )
     title = _preserve_current_title_when_candidate_is_not_stronger(
         current_title,
         title,
