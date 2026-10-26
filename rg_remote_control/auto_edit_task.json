@@ -1,13 +1,9 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_guest_handoff_shadow_v1",
+  "action": "apply_auto_edit_selective_retry_guard_v1",
   "args": {
-    "streams": [
-      "901",
-      "905"
-    ],
-    "read_only": true
+    "apply": true
   },
-  "nonce": "rg-20261026-901-long-overlap-vad-batch-real-v2"
+  "nonce": "rg-20261026-safe-selective-batch-retry-guard-install-v1"
 }
