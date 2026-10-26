@@ -1,0 +1,41 @@
+name: RG Auto Edit Runner Queue Diagnosis (GitHub hosted)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-auto-edit-hosted-runner-triage.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect exact registered runners and blocked Auto Edit job statuses
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo '=== SELF-HOSTED RUNNERS (READ ONLY) ==='
+          if gh api --paginate "repos/$REPO/actions/runners?per_page=100" --jq '.runners[] | [.id,.name,.os,.status,(.busy|tostring),([.labels[].name]|join(","))] | @tsv'; then
+            echo 'RUNNER_INVENTORY:OK'
+          else
+            echo 'RUNNER_INVENTORY:UNAVAILABLE (token may lack runner administration permission)'
+          fi
+          echo '=== BLOCKED AUTO EDIT RUNS (READ ONLY) ==='
+          for id in 40302047455 40304409540; do
+            if ! gh api "repos/$REPO/actions/runs/$id" --jq '[.id,.status,(.conclusion//"null"),.run_attempt,.head_sha]|@tsv'; then
+              echo "RUN_STATUS_UNAVAILABLE:$id"
+            fi
+          done
+          echo '=== OLDEST QUEUED JOB (READ ONLY) ==='
+          if ! gh api "repos/$REPO/actions/runs/40302047455/jobs" --jq '.jobs[]|[.id,.name,.status,(.conclusion//"null"),(.runner_name//"unassigned"),([.labels[]]|join(","))]|@tsv'; then
+            echo 'QUEUED_JOB_UNAVAILABLE'
+          fi
+          echo 'No Windows processes or media were accessed.'
