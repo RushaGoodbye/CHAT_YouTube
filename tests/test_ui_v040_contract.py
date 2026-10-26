@@ -127,7 +127,10 @@ def test_batch_seo_uses_transcript_fallback_chain() -> None:
     start = source.index("    def _generate_local_seo_result")
     end = source.index("\n    def _normalize_local_seo_package", start)
     block = source[start:end]
-    assert "load_srt_transcript" in block
+    # v0.7.39 exact-ID source finder supports both SRT and VTT, plus
+    # operator-verified TXT. This supersedes a direct NAS .srt probe.
+    assert "find_local_transcript(" in block
+    assert "load_verified_text(" in block
     assert "fetch_transcript(video_id)" in block
     assert "fetch_transcript_from_public_metadata" in block
     assert 'context["transcript_source"] = transcript_source' in block
@@ -140,7 +143,8 @@ def test_batch_seo_prioritizes_nas_transcripts() -> None:
     block = source[start:end]
     assert 'DEFAULT_NAS_TRANSCRIPTS_PATH' in block
     assert 'f"{video_id}.srt"' in block
-    assert "candidate_ids = sorted(" in block
+    assert "ordered_ids = sorted(" in block
+    assert "for video_id in ordered_ids[:max_attempts]:" in block
 
 
 def test_local_seo_worker_never_uses_gui_nas_path() -> None:

@@ -1,3 +1,3 @@
-"""RG YouTube Control package. 0.7.28 editorial review and A/B diversity."""
+"""RG YouTube Control 0.7.40 — unified 0.7.39 editorial + async stability."""
 
-__version__ = "0.7.28"
+__version__ = "0.7.40"

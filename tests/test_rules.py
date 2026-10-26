@@ -1417,17 +1417,27 @@ def test_deep_transcript_batch_accounts_quota_and_reserve():
 
     from rg_youtube_control.service import CAPTION_TRANSCRIPT_COST
     from rg_youtube_control.ui import MainWindow
+    from rg_youtube_control.transcript_export_worker import (
+        run_deep_manifest_transcript_export,
+        run_transcript_export,
+    )
 
     assert CAPTION_TRANSCRIPT_COST == 250
 
     source = inspect.getsource(MainWindow._export_transcript_video_to_nas)
     deep_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+    safe_worker = inspect.getsource(run_deep_manifest_transcript_export)
+    export_worker = inspect.getsource(run_transcript_export)
     center_source = inspect.getsource(MainWindow.show_archive_campaign_center)
 
     assert "respect_reserve" in source
     assert "record_quota_units" in source
     assert "CAPTION_TRANSCRIPT_COST" in source
-    assert "CAPTION_TRANSCRIPT_COST" in deep_source
+    assert "run_deep_manifest_transcript_export(" in deep_source
+    assert "LocalToolWorker(task, self)" in deep_source
+    assert "CAPTION_TRANSCRIPT_COST" in safe_worker
+    assert "quota_budget_status(conn)" in safe_worker
+    assert "quota_budget_status(conn)" in export_worker
     assert "deep-черга, транскрипти та імпорт" in center_source
 
 
@@ -1435,19 +1445,26 @@ def test_deep_stage_runs_queue_and_transcripts_without_manual_dialogs():
     import inspect
 
     from rg_youtube_control.ui import MainWindow
+    from rg_youtube_control.deep_archive_worker import prepare_deep_review_batch
 
     step_source = inspect.getsource(MainWindow.run_archive_campaign_step)
-    queue_source = inspect.getsource(MainWindow.export_deep_review_queue_to_nas)
-    transcript_source = inspect.getsource(MainWindow.export_deep_review_transcripts)
+    worker_source = inspect.getsource(MainWindow._start_deep_archive_worker)
+    batch_source = inspect.getsource(prepare_deep_review_batch)
 
-    assert "export_deep_review_queue_to_nas(" in step_source
-    assert "export_deep_review_transcripts(" in step_source
-    assert "confirm=False" in step_source
-    assert "notify=not automatic" in step_source
-    assert "notify: bool = True" in queue_source
-    assert "confirm: bool = True" in transcript_source
-    assert "notify: bool = True" in transcript_source
-    assert "respect_reserve=True" in transcript_source
+    # The archive controller delegates NAS, caption API and manifest reads
+    # to a worker. It must not re-enter the legacy synchronous GUI paths.
+    assert "_start_deep_archive_worker(" in step_source
+    assert "capacity=int(budget.get(" in step_source
+    assert "return False" in step_source
+    assert "export_deep_review_transcripts(" not in step_source
+    assert "import_deep_review_packages(" not in step_source
+    assert "LocalToolWorker(task, self)" in worker_source
+    assert "prepare_deep_review_batch(" in worker_source
+    assert "worker_conn.close()" in worker_source
+    assert "export_deep_review_manifest(" in batch_source
+    assert "CAPTION_TRANSCRIPT_COST" in batch_source
+    assert "record_quota_units(" in batch_source
+    assert "max_downloads" in batch_source
 
 
 def test_daily_archive_capacity_uses_full_safe_budget():

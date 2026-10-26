@@ -219,3 +219,51 @@ def test_scheduled_stream_still_blocked_before_network(monkeypatch, tmp_path):
     state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
     with pytest.raises(RuntimeError, match="запланований"):
         ui.MainWindow._generate_local_seo_result(state, VIDEO)
+
+
+def test_disconnected_unc_nas_falls_back_to_caption_api_without_ytdlp(
+    monkeypatch, tmp_path,
+):
+    import rg_youtube_control.ui as ui
+    conn = connect(tmp_path / "rg_youtube_control.db")
+    _seed(conn)
+    conn.close()
+    original_is_file = Path.is_file
+
+    def disconnected_share(path):
+        if path.name == f"{VIDEO}.srt":
+            raise OSError(64, "The specified network name is no longer available")
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", disconnected_share)
+    monkeypatch.setattr(
+        ui, "fetch_public_metadata",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Do not access yt-dlp when captions are available")
+        ),
+    )
+    monkeypatch.setattr(
+        ui, "fetch_transcript",
+        lambda *_args: [
+            {"text": "Обсуждение Перуна.", "start": 0.0, "duration": 4.0}
+        ],
+    )
+    monkeypatch.setattr(
+        ui, "analyze_all_timeline_blocks",
+        lambda *_args, **_kwargs: {
+            "blocks_total": 1, "blocks_with_evidence": 1,
+            "blocks": [{"start_stamp": "00:00:00", "topics": [{
+                "topic": "Віра в Перуна",
+                "summary_uk": "Розмова про віру",
+                "evidence": "Обсуждение Перуна"
+            }]}],
+        },
+    )
+    monkeypatch.setattr(
+        ui, "generate_seo_package_local",
+        lambda **kwargs: {"title": kwargs["current_title"], "description": "Опис"},
+    )
+    state = SimpleNamespace(data_dir=tmp_path, current_profile="main")
+    result = ui.MainWindow._generate_local_seo_result(state, VIDEO)
+    assert result["context"]["transcript_source"] == "youtube-transcript-api"
+    assert result["context"]["youtube_data_api_quota"] == 0
