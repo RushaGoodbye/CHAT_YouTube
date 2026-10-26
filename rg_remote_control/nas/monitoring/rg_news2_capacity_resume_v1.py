@@ -240,7 +240,7 @@ def patched_content(original):
        '        # If no call to deliver_one was made, a clean child exit is\n'
        '        # conclusive proof the sender never reached the photo API.\n'
        '        # Revoke only the marker created by THIS exact tick.\n'
-       '        if rc==0 and dr==0 and receipts==0:\n'
+       '        if rc==0 and newrows==0 and delta==0:\n'
        '            try:\n'
        '                result=json.loads(p.stdout.decode("utf-8","replace").strip().splitlines()[-1])\n'
        '            except (ValueError,IndexError,UnicodeError):result={}\n'
