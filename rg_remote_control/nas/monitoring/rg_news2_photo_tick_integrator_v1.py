@@ -92,6 +92,22 @@ def silence():
     except ImportError:
         return dt.datetime.now(dt.timezone.utc).hour in (6,7)
 
+def safe_worker_reason(raw):
+    # Never echo raw Bot API output or any untrusted article text.
+    output=raw.decode("utf-8","replace").lower()[:50000]
+    whitelist=("photo_pilot_gate_closed_no_send",
+               "photo_daily_budget_exhausted",
+               "photo_rate_cooldown",
+               "photo_review_at_capacity",
+               "photo_not_private",
+               "photo_buttons_not_supported_by_active_worker",
+               "photo_dispatch_schema_not_installed",
+               "moderation_delivery_disabled",
+               "photo_rate_ledger_future_timestamp",
+               "uncertain_state_reconciliation_required")
+    return next((reason for reason in whitelist if reason in output),
+                "NO_EXPLICIT_SAFE_REASON")
+
 def one_canary():
     lockfile=BASE/"rg_news2_photo_tick_one.lock"
     f=os.open(str(lockfile),os.O_RDWR|os.O_CREAT,0o600)
@@ -115,13 +131,14 @@ def one_canary():
             rc=p.returncode
         except subprocess.TimeoutExpired:
             return {"status":"SEND_UNCERTAIN_TIMEOUT_NO_RETRY"}
+        reason=safe_worker_reason(p.stdout)+":"+safe_worker_reason(p.stderr)
         after=sql_counts()
         dr=after["photo_rows"]-before["photo_rows"]
         receipts=after["receipts"]-before["receipts"]
         status=("ONE_PRIVATE_RECEIPT_CONFIRMED" if rc==0 and dr==1
                 and receipts==1 else "CANARY_NOT_CONFIRMED")
         # Never print subprocess stdout/stderr (potential Bot API metadata).
-        return {"status":status,"exit_code":rc,"new_photo_rows":dr,
+        return {"status":status,"exit_code":rc,"safe_worker_reason":reason,"new_photo_rows":dr,
                 "new_receipts":receipts,"pending_before":before["pending"],
                 "pending_after":after["pending"],"public_posts_by_integrator":0,
                 "new_pollers_by_integrator":0}
