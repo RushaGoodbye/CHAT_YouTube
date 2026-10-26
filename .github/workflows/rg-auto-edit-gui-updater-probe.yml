@@ -1,0 +1,23 @@
+name: RG Auto Edit Live GUI and Updater Probe
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/rg-auto-edit-gui-updater-probe.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check running Studio window and update status without touching GUI
+        shell: powershell
+        run: |
+          & .\rg_remote_control\auto_edit_features\live_studio_gui_updater_probe_v1.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Read-only UI/updater probe failed" }
