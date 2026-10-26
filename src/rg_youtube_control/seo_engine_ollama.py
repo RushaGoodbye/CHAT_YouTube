@@ -17,7 +17,7 @@ SCHEMA = {
         "ab_titles": {"type": "array", "minItems": 3, "maxItems": 3,
                       "items": {"type": "string"}},
         "description": {"type": "string"},
-        "tags": {"type": "array", "minItems": 3, "maxItems": 15,
+        "tags": {"type": "array", "minItems": 8, "maxItems": 15,
                  "items": {"type": "string"}},
         "chapters": {"type": "string"},
     },
