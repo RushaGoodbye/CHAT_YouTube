@@ -1,10 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_live_studio_gui_v1",
+  "action": "inspect_auto_edit_907_precise_anchor_v1",
   "args": {
-    "read_only": true,
-    "do_not_launch": true
+    "stream": "907",
+    "read_only": true
   },
-  "nonce": "rg-20261026-real-studio-gui-responsiveness-v1"
+  "nonce": "rg-20261026-907-precise-visual-and-guest-proof-v1"
 }
