@@ -21,11 +21,12 @@ class Redact(ast.NodeTransformer):
         return node
 
 def safe_expr(node):
+    # ast.unparse is not available on the NAS /usr/bin/python3.
+    # ast.dump works on old Python versions; all literal text is redacted.
     try:
         t = Redact().visit(copy.deepcopy(node))
-        ast.fix_missing_locations(t)
-        return ast.unparse(t)[:400]
-    except (ValueError, TypeError):
+        return ast.dump(t, annotate_fields=False, include_attributes=False)[:700]
+    except (ValueError, TypeError, AttributeError):
         return "[unparsable]"
 
 def inspect(path=OUT, expected=EXPECTED):
@@ -59,8 +60,9 @@ def selftest():
         serialized = json.dumps(inspect(p, expected))
         assert "/some/path" not in serialized
         assert "private-error" not in serialized
-        assert ".exists()" in serialized
-    print("RG_NEWS2_GATE_SOURCE_INSPECT_SELFTEST_PASS")
+        assert "exists" in serialized
+        assert "Constant" in serialized
+    print("RG_NEWS2_GATE_SOURCE_INSPECT_OLD_PYTHON_SELFTEST_PASS")
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["selftest"]:
