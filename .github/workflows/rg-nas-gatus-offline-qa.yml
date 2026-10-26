@@ -27,6 +27,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/rg_news2_runtime_evidence_bundle_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v3.py
@@ -61,6 +62,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/rg_news2_runtime_evidence_bundle_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v6.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v5.py
       - rg_remote_control/nas/monitoring/test_rg_news2_photo_final_batch_v3.py
@@ -88,6 +90,8 @@ jobs:
           python -c "import sys, ast; assert sys.version_info[:2] == (3,8); assert not hasattr(ast,'unparse')"
           python -m py_compile rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py
           python rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py
+          python rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py selftest
   monitor-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 7
@@ -207,6 +211,10 @@ jobs:
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_runtime_evidence_bundle_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_runtime_evidence_bundle_v1.py selftest
           sudo python3 rg_remote_control/nas/monitoring/rg_news2_runtime_evidence_bundle_v1.py selftest
+      - name: NEWS2 verified installed mode and private-vs-public call path
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_news2_private_route_contract_v1.py selftest
       - name: NEWS2 gate inspector PowerShell independent source-only selftest
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_gate_source_only_v1.py
