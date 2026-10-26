@@ -30,6 +30,7 @@ PHOTO=BASE/"telegram_photo_review_flow.py"
 DB=BASE/"news.sqlite3"
 GUARD=BASE/"rg_news2_photo_tick_guard_v3.py"
 MARK="RG_NEWS2_PRIVATE_PHOTO_TICK_V3"
+UNCONFIRMED=VAULT/"rg_news2_photo_unconfirmed_v3.json"
 EXPECTED={"tick":"9a2d04e499da","legacy":"63fef26bdf9f",
           "out":"e94253084ea2","photo":"79c473bf774f"}
 
@@ -225,6 +226,29 @@ def source_status_probe(cli):
     except (OSError,subprocess.TimeoutExpired):
         return {"status":"READ_ONLY_STATUS_UNAVAILABLE"}
 
+def single_attempt_mark(status):
+    """Persist an uncertainty gate without recording candidate or chat IDs."""
+    if not VAULT.is_dir() or VAULT.is_symlink() or UNCONFIRMED.is_symlink():
+        raise RuntimeError("CANARY_GUARD_STORAGE_UNAVAILABLE")
+    temp=UNCONFIRMED.with_name(UNCONFIRMED.name+".tmp")
+    with open(str(temp),"w",encoding="utf-8") as h:
+        json.dump({"schema":"RG_NEWS2_V3_PRIVATE_CANARY","state":status},h)
+        h.flush()
+        os.fsync(h.fileno())
+    os.chmod(str(temp),0o600)
+    os.replace(str(temp),str(UNCONFIRMED))
+
+def readonly_status_proven():
+    """Status probe may run only when the first branch returns without send."""
+    t=ast.parse(OUT.read_text(encoding="utf-8"))
+    run=next((n for n in t.body if isinstance(n,ast.FunctionDef) and n.name=="run"),None)
+    if run is None or not run.body or not isinstance(run.body[0],ast.If):
+        return False
+    guard=run.body[0]
+    return (any(isinstance(n,ast.Constant) and n.value=="status"
+                for n in ast.walk(guard.test)) and
+            any(isinstance(n,ast.Return) for n in ast.walk(guard)))
+
 def one_canary():
     lockfile=BASE/"rg_news2_photo_tick_one.lock"
     f=os.open(str(lockfile),os.O_RDWR|os.O_CREAT,0o600)
@@ -232,6 +256,8 @@ def one_canary():
         try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:
             return {"status":"ALREADY_RUNNING"}
+        if UNCONFIRMED.exists():
+            return {"status":"UNCONFIRMED_PREVIOUS_CANARY_BLOCKS_RETRY"}
         if silence():
             return {"status":"KYIV_MINUTE_OF_SILENCE"}
         # Every recurring tick revalidates that the reviewed private-only
@@ -247,6 +273,9 @@ def one_canary():
             cli=photo_cli_arguments()
         except RuntimeError:
             return {"status":"PHOTO_CLI_SIGNATURE_UNPROVEN","counts":before}
+        # Hard gate protects against even a user repeating installation after
+        # a transport error with a Telegram message not durably recorded.
+        single_attempt_mark("SEND_ATTEMPTED_REQUIRES_RECEIPT")
         try:
             p=subprocess.run([sys.executable,str(OUT)]+cli,cwd=str(BASE),
                              capture_output=True,timeout=70,check=False)
@@ -260,6 +289,10 @@ def one_canary():
         receipts=after["receipts"]-before["receipts"]
         status=("ONE_PRIVATE_RECEIPT_CONFIRMED" if rc==0 and dr==1
                 and receipts==1 else "CANARY_NOT_CONFIRMED")
+        if status=="ONE_PRIVATE_RECEIPT_CONFIRMED":
+            # Gate removal occurs only after the local Telegram receipt exists.
+            UNCONFIRMED.unlink()
+        # Otherwise retain the gate: automatic retries are forbidden.
         # Never print subprocess stdout/stderr (potential Bot API metadata).
         return {"status":status,"exit_code":rc,"safe_worker_reason":reason,"safe_result_codes":safe_codes,"photo_cli_style":("flag" if len(cli)>1 else "positional"),"new_photo_rows":dr,
                 "new_receipts":receipts,"pending_before":before["pending"],
@@ -289,7 +322,8 @@ def install():
     proof=contract()
     cli=photo_cli_arguments()
     proof["photo_cli_style"]="flag" if len(cli)>1 else "positional"
-    status_probe=source_status_probe(cli)
+    status_probe=(source_status_probe(cli) if readonly_status_proven() else
+                  {"status":"READ_ONLY_STATUS_NOT_PROVEN_SKIPPED"})
     blocking={"photo_auto_gate_closed","private_delivery_disabled","gate_closed",
               "photo_pilot_gate_closed_no_send","config_missing"}
     if blocking.intersection(status_probe.get("safe_codes",[])):
