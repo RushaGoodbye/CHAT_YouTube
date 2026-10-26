@@ -1,0 +1,102 @@
+name: RG Auto Edit Rescue via Secondary AlexPC Runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-auto-edit-rescue-secondary.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rescue:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 5
+    steps:
+      - name: Restore only stalled RG Auto Edit listener from the independent YouTube runner
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'C:\RG_GITHUB_RUNNER'
+          $secondary = 'C:\RG_YT_AGENT_RUNNER\actions-runner'
+          $workspace = [string]$env:RUNNER_WORKSPACE
+          if (-not $workspace.StartsWith($secondary, [StringComparison]::OrdinalIgnoreCase)) {
+              Write-Host 'RG_RESCUE|SAFE_SKIP|Not executing on secondary YouTube runner'
+              exit 0
+          }
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') {
+              throw 'Unexpected Windows host'
+          }
+          if (-not (Test-Path -LiteralPath "$root\run.cmd")) {
+              throw 'Auto Edit runner run.cmd missing'
+          }
+          # Do not touch Auto Edit if its queued job has started since diagnosis.
+          $header = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $run = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:REPO/actions/runs/40302047455" -Headers $header
+          if ([string]$run.status -ne 'queued') {
+              Write-Host "RG_RESCUE|SAFE_SKIP|Auto Edit job is $($run.status)"
+              exit 0
+          }
+          $processes = @(Get-CimInstance Win32_Process)
+          $listener = @($processes | Where-Object { $_.ExecutablePath -ieq "$root\bin\Runner.Listener.exe" })
+          $worker = @($processes | Where-Object { $_.ExecutablePath -ieq "$root\bin\Runner.Worker.exe" })
+          if ($listener.Count -gt 1 -or $worker.Count -gt 1) {
+              throw 'Ambiguous primary runner processes: refusing restart'
+          }
+          if ($worker.Count -eq 1 -and ($listener.Count -ne 1 -or $worker[0].ParentProcessId -ne $listener[0].ProcessId)) {
+              throw 'Orphan/ambiguous worker: refusing restart'
+          }
+          # If the worker is present, require a stale runner-loop signature
+          # AND ensure no meaningful child process is doing montage work.
+          if ($worker.Count -eq 1) {
+              $log = Get-ChildItem -LiteralPath "$root\_diag" -Filter 'Worker_*.log' |
+                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              if ($null -eq $log) {
+                  Write-Host 'RG_RESCUE|SAFE_SKIP|Worker log unavailable'
+                  exit 0
+              }
+              $tail = @(Get-Content -LiteralPath $log.FullName -Tail 45)
+              $repeated = @($tail | Where-Object { $_ -match 'HostContext\] Well known directory' }).Count
+              if ($repeated -lt 40) {
+                  Write-Host "RG_RESCUE|SAFE_SKIP|Worker not proven stale: repeats=$repeated"
+                  exit 0
+              }
+              $descendant = @($processes | Where-Object { $_.ParentProcessId -eq $worker[0].ProcessId })
+              if ($descendant.Count -gt 0) {
+                  Write-Host 'RG_RESCUE|SAFE_SKIP|Worker has active child processes'
+                  exit 0
+              }
+              Write-Host 'RG_RESCUE|VERIFIED|Stale worker loop without children; old job is still queued'
+              Stop-Process -Id $worker[0].ProcessId -Force
+          }
+          if ($listener.Count -eq 1) {
+              Stop-Process -Id $listener[0].ProcessId -Force
+          }
+          Start-Sleep -Seconds 4
+          $new = @(Get-CimInstance Win32_Process | Where-Object {
+              $_.ExecutablePath -ieq "$root\bin\Runner.Listener.exe" -or
+              $_.ExecutablePath -ieq "$root\bin\Runner.Worker.exe"
+          })
+          if ($new.Count -gt 0) {
+              Write-Host 'RG_RESCUE|SAFE_SKIP|Another controller relaunched the primary listener'
+              exit 0
+          }
+          Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', ('"' + $root + '\run.cmd"') -WorkingDirectory $root
+          Write-Host 'RG_RESCUE|RESTARTED|Only RG_GITHUB_RUNNER; YouTube runner preserved'
+          Start-Sleep -Seconds 10
+          $check = @(Get-CimInstance Win32_Process | Where-Object {
+              $_.ExecutablePath -ieq "$root\bin\Runner.Listener.exe"
+          })
+          Write-Host "RG_RESCUE|LISTENER_COUNT|$($check.Count)"
+          if ($check.Count -ne 1) { throw 'New Auto Edit listener did not remain running' }
+          Write-Host 'RG_RESCUE|DONE|Await GitHub session arbitration and queued jobs'
