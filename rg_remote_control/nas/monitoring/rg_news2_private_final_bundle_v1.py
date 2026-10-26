@@ -136,10 +136,31 @@ def prune_photo(source_tree):
     return fn,counts
 
 def source_contract():
-    for name,p in (("tick",TICK),("legacy",LEGACY),("out",OUT),
-                   ("photo",PHOTO)):
+    for name,p in (("legacy",LEGACY),("out",OUT),("photo",PHOTO)):
         if sha12(p)!=EXPECTED[name]:
             raise RuntimeError("SOURCE_PIN_CHANGED_"+name.upper())
+    # The DSM script changes after the confirmed first canary. Verify its
+    # exact wrapper and the immutable original rather than rejecting it.
+    if MARK not in TICK.read_text(encoding="utf-8"):
+        if sha12(TICK)!=EXPECTED["tick"]:
+            raise RuntimeError("SOURCE_PIN_CHANGED_TICK")
+    else:
+        import re
+        current=TICK.read_text(encoding="utf-8")
+        match=re.search(r"^sh '([^']+/tick\\.sh)' \\"\\\$@\\\"$",current,re.M)
+        if match is None:
+            # Prefer simpler source-safe one-shot parsing when shell
+            # backslash differences are present.
+            line=next((x for x in current.splitlines()
+                 if x.startswith("sh '") and x.endswith("' \\"$@\\"")),None)
+            if line is None:raise RuntimeError("INSTALLED_WRAPPER_UNRECOGNIZED")
+            saved=pathlib.Path(line[4:].split("'",1)[0])
+        else:
+            saved=pathlib.Path(match.group(1))
+        if VAULT not in saved.parents or sha12(saved)!=EXPECTED["tick"]:
+            raise RuntimeError("WRAPPER_BACKUP_INVALID")
+        if current!=wrapper(saved):
+            raise RuntimeError("INSTALLED_WRAPPER_CONTENT_CHANGED")
     t=ast.parse(OUT.read_text(encoding="utf-8"))
     fn,counts=prune_photo(t)
     photo=ast.parse(PHOTO.read_text(encoding="utf-8"))
