@@ -13,6 +13,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_handoff_v2.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_repair_preflight_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_gate_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_recovery_gate_v2.py
       - .github/workflows/rg-nas-gatus-offline-qa.yml
   push:
     branches: [main, feat/nas-gatus-passive-monitor-20261025]
@@ -27,6 +28,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_handoff_v2.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_repair_preflight_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_final_gate_v1.py
+      - rg_remote_control/nas/monitoring/rg_news2_photo_recovery_gate_v2.py
       - .github/workflows/rg-nas-gatus-offline-qa.yml
 
 permissions:
@@ -82,6 +84,10 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_final_gate_v1.py
           python3 rg_remote_control/nas/monitoring/rg_news2_photo_final_gate_v1.py selftest
+      - name: Fail-closed NEWS2 photo state, duplicate and outbox safety regression
+        run: |
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_recovery_gate_v2.py
+          python3 rg_remote_control/nas/monitoring/rg_news2_photo_recovery_gate_v2.py selftest
       - name: Validate NEWS2 monitor and guarded updater
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
