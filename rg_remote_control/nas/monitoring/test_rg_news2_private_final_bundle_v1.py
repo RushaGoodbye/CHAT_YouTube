@@ -38,11 +38,15 @@ def fixture(root,break_gates=False):
         "    return False\n"
         "def record_sent(conn):\n"
         "    conn.execute('INSERT INTO rg_news2_photo_dispatch VALUES (999)')\n"
+        "def handle_callback(conn,callback):\n"
+        "    conn.execute('SELECT 1')\n"
         "def deliver_one(conn,chat_id,send_photo):\n"
         "    if False:record_uncertain(conn)\n"
         "    claim_one(conn)\n"
         "    record_sent(conn)\n"
         "    conn.commit()\n")
+    callback=app/"operator/rg_news2_p31_guarded_callback_once.py"
+    callback.write_text("def main():\\n    getoff()\\n    putoff()\\n")
     out=app/"operator/rg_news2_outbound_queue_v2.py"
     out.write_text(
         "import sqlite3\n"
@@ -79,13 +83,13 @@ def fixture(root,break_gates=False):
     import sys
     sys.path.insert(0,str(app))
     M.BASE=app;M.VAULT=vault;M.TICK=tick;M.LEGACY=legacy
-    M.OUT=out;M.PHOTO=worker;M.DB=db
+    M.OUT=out;M.PHOTO=worker;M.DB=db;M.CALLBACK=callback
     M.GUARD=app/"rg_news2_private_final_guard_v1.py"
     M.OLD_UNCERTAIN=vault/"rg_news2_photo_unconfirmed_v6.json"
     M.UNCERTAIN=vault/"rg_news2_private_final_unconfirmed_v1.json"
     M.OLD_UNCERTAIN.write_text(json.dumps({"state":"SEND_ATTEMPTED_REQUIRES_RECEIPT"}))
     M.EXPECTED={k:hashlib.sha256(f.read_bytes()).hexdigest()[:12]
-        for k,f in (("tick",tick),("legacy",legacy),("out",out),("photo",worker))}
+        for k,f in (("tick",tick),("legacy",legacy),("out",out),("photo",worker),("callback",callback))}
     return tick,db
 
 def scenario(break_gates):
