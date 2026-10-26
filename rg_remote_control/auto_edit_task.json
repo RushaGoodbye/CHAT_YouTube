@@ -1,11 +1,10 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "retry_auto_edit_903_2_proven_guest_v1",
+  "action": "inspect_auto_edit_operational_acceptance_v1",
   "args": {
-    "stream": "903",
-    "dialogue": 2,
-    "preserve_others": true
+    "read_only": true,
+    "all_installed_streams": true
   },
-  "nonce": "rg-20261026-9032-proven-anchor-selective-retry-v1"
+  "nonce": "rg-20261026-studio-operational-release-acceptance-v1"
 }
