@@ -4,12 +4,12 @@
   "action": "inspect_auto_edit_files_generic",
   "args": {
     "files": [
-      "rg_xml_verify_v51.py",
-      "rg_xml_verify_v51_2.py",
-      "rg_boundary_qa_v51.py",
-      "rg_studio_postrun.py",
-      "rg_guest_identity_boundary.py"
+      "RG_EDITED_901_MULTI_DIALOGUE.json",
+      "RG_EDITED_905_MULTI_DIALOGUE.json",
+      "901/RG_BOUNDARY_QA_V51.json",
+      "905/RG_BOUNDARY_QA_V51.json",
+      "RG_EDITED_903_MULTI_DIALOGUE.json"
     ]
   },
-  "nonce": "rg-20261026-overlap-qa-backend-source-review-v1"
+  "nonce": "rg-20261026-901-905-manifest-boundary-evidence-v1"
 }
