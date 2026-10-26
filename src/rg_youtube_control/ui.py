@@ -13130,7 +13130,7 @@ class MainWindow(QMainWindow):
             )
             if not fast_mode and evidence_report else None
         )
-        if stronger_editorial is None and not fast_mode and full_source_text.strip():
+        if stronger_editorial is None and not fast_mode and len(full_source_text.strip()) >= 150:
             from .seo_engine_ollama import generate_with_ollama
             draft = generate_with_ollama(
                 video_id=video_id,
