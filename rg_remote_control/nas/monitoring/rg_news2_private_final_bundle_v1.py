@@ -122,7 +122,29 @@ def prune_photo(source_tree):
             else:
                 raise RuntimeError("PUBLIC_ROUTE_NOT_FULLY_REMOVED")
         return result
+    # Detect required locals lost with the ordinary branch. If the photo
+    # code would now access an undefined name, stop before touching Telegram.
+    original_locals={n.id for n in ast.walk(fn)
+                     if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Store)}
+    original_locals.update(a.arg for a in fn.args.args)
+    for n in ast.walk(fn):
+        if isinstance(n,ast.Import):
+            original_locals.update(a.asname or a.name.split(".")[0] for a in n.names)
+        if isinstance(n,ast.ImportFrom):
+            original_locals.update(a.asname or a.name for a in n.names)
     fn.body=edit_block(fn.body)
+    remaining_locals={n.id for n in ast.walk(fn)
+                      if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Store)}
+    remaining_locals.update(a.arg for a in fn.args.args)
+    for n in ast.walk(fn):
+        if isinstance(n,ast.Import):
+            remaining_locals.update(a.asname or a.name.split(".")[0] for a in n.names)
+        if isinstance(n,ast.ImportFrom):
+            remaining_locals.update(a.asname or a.name for a in n.names)
+    referenced={n.id for n in ast.walk(fn)
+                if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Load)}
+    if (original_locals-remaining_locals) & referenced:
+        raise RuntimeError("PHOTO_REQUIRES_PRUNED_PUBLIC_LOCAL")
     fn.name="rg_private_only_tick"
     if counts["public"]!=1 or counts["rss"]!=1:
         raise RuntimeError("PUBLIC_RSS_PRUNING_NOT_PROVEN")
