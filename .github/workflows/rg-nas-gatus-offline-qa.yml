@@ -136,7 +136,7 @@ jobs:
           sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_tick_integrator_v1.py selftest
       - name: Simulate one private receipt and automatic DSM hook rollback
         run: |
-          python3 rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v1.py
+          sudo python3 rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v1.py
       - name: Validate NEWS2 monitor and guarded updater
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
