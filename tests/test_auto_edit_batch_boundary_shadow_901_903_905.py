@@ -79,6 +79,26 @@ class BatchBoundaryShadowTests(unittest.TestCase):
             self.assertFalse(evidence["automated_approval"])
             self.assertEqual(evidence["streams"]["901"]["xml"][0]["audio_tracks"],1)
 
+    def test_far_away_stronger_screenshot_candidate_is_flagged(self):
+        row={"identity_context":{"current_anchor_sec":12206.875,
+             "current_screenshot":"901-4.jpg"},
+             "matches":[{"screenshot":"901-4.jpg","best_match_sec":12206.875,
+                         "best_score":.61978,
+                         "candidates":[{"time":6186.25,"score":.77247}]}]}
+        d=b.screenshot_candidate_conflict(row)
+        self.assertEqual(d["state"],"CONFLICT")
+        self.assertGreater(d["alternative_distance_sec"],6000)
+        self.assertFalse(d["auto_move_allowed"])
+
+    def test_nearby_candidate_or_small_score_gain_not_conflict(self):
+        row={"identity_context":{"current_anchor_sec":6099.5,
+             "current_screenshot":"905-2.jpg"},
+             "matches":[{"screenshot":"905-2.jpg","best_match_sec":6099.5,
+                         "best_score":.74952,
+                         "candidates":[{"time":6099.5,"score":.74952},
+                                       {"time":9864.0,"score":.39684}]}]}
+        self.assertEqual(b.screenshot_candidate_conflict(row)["state"],"NO_STRONG_ALTERNATE")
+
     def test_changed_903_identity_hold_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)

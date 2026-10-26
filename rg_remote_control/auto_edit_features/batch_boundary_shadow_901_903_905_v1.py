@@ -142,6 +142,66 @@ def manifest_files(app: Path, stream: str, manifest: dict) -> list[Path]:
         raise RuntimeError("Duplicate primary XML")
     return out
 
+def screenshot_candidate_conflict(row: dict) -> dict:
+    """Audit only relative match scores/distances; never decide person's identity."""
+    context = row.get("identity_context") or {}
+    records = row.get("matches") or []
+    if not isinstance(context, dict) or not isinstance(records, list):
+        return {"state": "UNKNOWN"}
+    anchor = context.get("current_anchor_sec")
+    if not isinstance(anchor, (float, int)):
+        return {"state": "MISSING_ANCHOR"}
+    relevant = next((m for m in records if isinstance(m, dict)
+                     and str(m.get("screenshot") or "") ==
+                         str(context.get("current_screenshot") or "")), None)
+    if not isinstance(relevant, dict):
+        return {"state": "MISSING_SCREENSHOT_MATCH"}
+    observed = relevant.get("best_score")
+    selected = relevant.get("best_match_sec")
+    candidates = relevant.get("candidates") or []
+    if not isinstance(candidates, list):
+        return {"state": "BAD_CANDIDATE_LIST"}
+    valid = [c for c in candidates if isinstance(c, dict)
+             and isinstance(c.get("score"), (int, float))
+             and isinstance(c.get("time"), (int, float))]
+    if not valid or not isinstance(observed, (int, float)):
+        return {"state": "NO_COMPARABLE_CANDIDATES"}
+    strongest = max(valid, key=lambda item: item["score"])
+    delta = abs(float(strongest["time"]) - float(anchor))
+    gain = float(strongest["score"]) - float(observed)
+    conflict = bool(delta > 90 and gain > .08)
+    return {"state": "CONFLICT" if conflict else "NO_STRONG_ALTERNATE",
+            "selected_anchor_sec": round(float(anchor), 3),
+            "selected_match_sec": round(float(selected), 3)
+                if isinstance(selected, (int, float)) else None,
+            "selected_score": round(float(observed), 4),
+            "alternative_sec": round(float(strongest["time"]), 3),
+            "alternative_score": round(float(strongest["score"]), 4),
+            "alternative_distance_sec": round(delta, 2),
+            "score_advantage": round(gain, 4),
+            "auto_move_allowed": False}
+
+def read_candidate_audits(app: Path, stream: str, manifest: dict) -> list[dict]:
+    """Read canonical local cache only; don't follow paths from untrusted manifests."""
+    rows = []
+    allowed = app / ".rg_cache" / stream
+    for entry in manifest.get("outputs") or []:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Malformed dialogue output")
+        name = str(entry.get("ranges_json") or "").replace("\\", "/").split("/")[-1]
+        if not re.fullmatch(r"multi_job_[0-9a-f]{20}\.json", name):
+            rows.append({"index": entry.get("index"), "state": "MISSING_CACHE_NAME"})
+            continue
+        path = allowed / name
+        if not path.is_file():
+            rows.append({"index": entry.get("index"), "state": "MISSING_CACHE"})
+            continue
+        obj = read_json(path)
+        row = screenshot_candidate_conflict(obj)
+        row["index"] = entry.get("index")
+        rows.append(row)
+    return rows
+
 def shadow(app: Path = APP) -> dict:
     result = {"schema": "RG_AUTO_EDIT_BATCH_BOUNDARY_SHADOW_V1", "read_only": True,
               "media_writes": 0, "xml_writes": 0, "qa_writes": 0,
@@ -154,6 +214,7 @@ def shadow(app: Path = APP) -> dict:
         paths = manifest_files(app, stream, manifest)
         data = {"manifest_status": manifest.get("status"), "xml_count": len(paths),
                 "postrun_passed": qa.get("passed"), "xml": [xml_summary(x) for x in paths]}
+        data["screenshot_clock_candidates"] = read_candidate_audits(app, stream, manifest)
         if stream in EXPECTED_OVERLAPS:
             report = read_json(app / stream / "RG_BOUNDARY_QA_V51.json")
             if manifest.get("status") != "DIALOGUES_COMPLETE" or qa.get("passed") is not False:
