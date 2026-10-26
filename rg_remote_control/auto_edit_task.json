@@ -1,11 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_907_visual_proof_v1",
+  "action": "inspect_auto_edit_907_guest_clock_wide_v1",
   "args": {
     "stream": "907",
-    "screenshot": "907-1.jpg",
-    "read_only": true
+    "read_only": true,
+    "limited_windows": true
   },
-  "nonce": "rg-20261026-907-face-proof-grid-vs-local-v1"
+  "nonce": "rg-20261026-907-wide-hypothesis-proof-v1"
 }
