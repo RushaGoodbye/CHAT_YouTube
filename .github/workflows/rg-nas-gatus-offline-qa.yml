@@ -20,6 +20,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_archive_old_photo_queue_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_tick_integrator_v1.py
+      - rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_prepare_once_v1.sh
       - .github/workflows/rg-nas-gatus-offline-qa.yml
   push:
@@ -42,6 +43,7 @@ on:
       - rg_remote_control/nas/monitoring/rg_news2_photo_batch_contract_export_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_archive_old_photo_queue_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_tick_integrator_v1.py
+      - rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_photo_prepare_once_v1.sh
       - .github/workflows/rg-nas-gatus-offline-qa.yml
 
@@ -132,6 +134,9 @@ jobs:
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/rg_news2_photo_tick_integrator_v1.py
           sudo python3 rg_remote_control/nas/monitoring/rg_news2_photo_tick_integrator_v1.py selftest
+      - name: Simulate one private receipt and automatic DSM hook rollback
+        run: |
+          python3 rg_remote_control/nas/monitoring/test_rg_news2_photo_tick_integrator_v1.py
       - name: Validate NEWS2 monitor and guarded updater
         env:
           GATUS_MONITOR_TOKEN: test-local-token-only-never-production-000000
