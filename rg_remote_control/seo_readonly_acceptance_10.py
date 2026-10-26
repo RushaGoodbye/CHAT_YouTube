@@ -28,7 +28,6 @@ from rg_youtube_control.dialogue_seo import (ab_title_issues,
 from rg_youtube_control.free_tools import (DEFAULT_OLLAMA_MODEL,
                                            generate_seo_package_local,
                                            load_srt_transcript, ollama_chat,
-                                           _incidental_ab_quote,
                                            _description_quality_error)
 from rg_youtube_control.optimization import safe_description_fix
 
@@ -40,6 +39,26 @@ MAIN_IDS = (
 )
 LIVE_IDS = ("4ItkxMPI1GA", "fdHXrCyw3Lw")
 VALID_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def _incidental_ab_quote(text: str) -> bool:
+    """Reject chat pleasantries and incidental appearance remarks as SEO hooks.
+
+    This is a conservative safety gate for fallback headings, not a claim
+    that such words are absent from the original transcript.
+    """
+    value = " ".join(str(text or "").casefold().split())
+    return bool(re.search(
+        r"(?i)(?:\bкак\s+дела\b|\bкак\s+поживаете\b|"
+        r"\bпривет(?:ствую)?\b|\bздравствуй(?:те)?\b|"
+        r"\bдо\s+свидания\b|\bспасибо\s+за\s+(?:разговор|беседу)\b|"
+        r"\bяк\s+справи\b|\bдякую\s+за\s+розмову\b|"
+        r"\b(?:выглядишь|выглядите|виглядаєш|виглядаєте)\b|"
+        r"\b(?:красивый|красивая|красивые|красивий|красива|гарна|гарний)\b|"
+        r"\b(?:внешность|зовнішність)\b|"
+        r"\b(?:твои|ваши|твої|ваші)\s+(?:глаза|волосы|очі|волосся)\b)",
+        value,
+    ))
 
 
 def get_video_inputs(db_file: Path, video_id: str) -> dict:
