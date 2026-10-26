@@ -32,7 +32,7 @@ def detections(image,face_finder):
     return probes
 
 def source_path(xml):
-    from rg_remote_control.auto_edit_features.guest_handoff_shadow_batch_v1 import local_media_path
+    from guest_handoff_shadow_batch_v1 import local_media_path
     root=ET.parse(xml).getroot()
     paths=[local_media_path(x.text or "")
            for x in root.findall(".//sequence/media/video//pathurl")]
