@@ -66,7 +66,7 @@ def test_zero_mapped_subjects_must_not_become_auto_published_seo():
         "Секретный заговор инопланетян",
         "NO_RECOGNIZED_EDITORIAL_SUBJECT",
     ]
-    with pytest.raises(ValueError, match="No editorial subjects"):
+    with pytest.raises(ValueError, match="Verified subjects require editorial review"):
         _deterministic_evidence_description("Шойгу", report)
 
 
