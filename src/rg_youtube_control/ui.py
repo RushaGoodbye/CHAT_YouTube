@@ -12969,6 +12969,52 @@ class MainWindow(QMainWindow):
             str(row.get("text") or "") for row in transcript_rows
             if isinstance(row, dict)
         )
+        # Titles without named people still need a strong cross-video guard.
+        # If old NAS captions point to a different subject, recover directly
+        # from the exact YouTube ID before starting costly LLM analysis.
+        source_lower = full_source_text.casefold()
+        title_lower = current_title.casefold()
+        title_school_crime = (
+            any(w in title_lower for w in ("школ", "учител", "преподав", "вчител"))
+            and any(w in title_lower for w in
+                    ("осужден", "судим", "преступлен", "засуджен", "злочин"))
+        )
+        def _school_crime_evidence(text: str) -> bool:
+            words = text.casefold()
+            return (
+                any(w in words for w in ("школ", "учител", "вчител", "преподав", "педагог"))
+                and any(w in words for w in
+                        ("осужден", "судим", "преступлен", "засуджен", "злочин", "тяжк"))
+            )
+        if title_school_crime and not _school_crime_evidence(source_lower):
+            from_youtube = []
+            try:
+                from_youtube = fetch_transcript(video_id)
+            except Exception:
+                pass
+            youtube_text = " ".join(
+                str(row.get("text") or "") for row in from_youtube
+                if isinstance(row, dict)
+            )
+            if from_youtube and _school_crime_evidence(youtube_text):
+                transcript_rows = from_youtube
+                full_source_text = youtube_text
+                transcript_source = "youtube-transcript-api-recovered"
+                context["transcript_source"] = transcript_source
+                transcript = transcript_sample_text(
+                    transcript_rows, max_chars=12000, segments=6,
+                )
+                if on_progress is not None:
+                    on_progress(
+                        "Старий локальний SRT не відповідає темі; "
+                        "взято субтитри за точним YouTube Video ID"
+                    )
+            else:
+                raise RuntimeError(
+                    "SOURCE_VIDEO_MISMATCH: локальний SRT не відповідає "
+                    "темі відео, а правильну розшифровку за Video ID "
+                    f"{video_id} отримати не вдалося. SEO не створено."
+                )
         source_alignment = check_title_against_transcript(
             current_title, full_source_text,
         )
