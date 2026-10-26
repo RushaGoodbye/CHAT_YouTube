@@ -105,6 +105,26 @@ def silence():
 def safe_worker_reason(raw):
     # Never echo raw Bot API output or any untrusted article text.
     output=raw.decode("utf-8","replace").lower()[:50000]
+    # Categorize standard Python CLI/import failures without exposing lines
+    # containing paths, environment values, Telegram IDs or secrets.
+    if "unrecognized arguments" in output:
+        return "CLI_UNRECOGNIZED_ARGUMENT"
+    if "invalid choice:" in output:
+        return "CLI_INVALID_CHOICE"
+    if "the following arguments are required" in output:
+        return "CLI_REQUIRED_ARGUMENT"
+    if "modulenotfounderror" in output or "no module named" in output:
+        return "PYTHON_MODULE_IMPORT_FAILURE"
+    if "importerror" in output:
+        return "PYTHON_IMPORT_FAILURE"
+    if "filenotfounderror" in output:
+        return "MISSING_PATH"
+    if "permissionerror" in output:
+        return "PERMISSION_FAILURE"
+    if "operationalerror" in output and "locked" in output:
+        return "SQLITE_LOCKED"
+    if "runtimeerror" in output and "photo" in output:
+        return "PHOTO_RUNTIME_GUARD_EXCEPTION"
     whitelist=("photo_pilot_gate_closed_no_send",
                "photo_daily_budget_exhausted",
                "photo_rate_cooldown",
@@ -281,6 +301,9 @@ def selftest():
         assert p.returncode==0
         assert MARK in script
         assert "getUpdates" not in script and "sendPhoto" not in script
+    assert safe_worker_reason(b"usage: worker error: unrecognized arguments: photo")=="CLI_UNRECOGNIZED_ARGUMENT"
+    assert safe_worker_reason(b"Traceback: ModuleNotFoundError: No module named 'secret'")=="PYTHON_MODULE_IMPORT_FAILURE"
+    assert safe_worker_reason(b'{"status":"photo_rate_cooldown"}')=="photo_rate_cooldown"
     print("RG_NEWS2_PRIVATE_PHOTO_TICK_V2_SELFTEST_PASS")
 
 if __name__=="__main__":
