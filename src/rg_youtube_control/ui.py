@@ -1024,9 +1024,17 @@ class MainWindow(QMainWindow):
                 video_item.data(Qt.ItemDataRole.UserRole) or video_item.text()
             )
             found = isinstance(ids, set) and video_id in ids
-            status_item.setText("NAS" if found else "")
+            status_item.setText("NAS · ?" if found else "")
+            status_item.setToolTip(
+                "SRT-файл знайдено на NAS. Його зміст і відповідність "
+                "YouTube Video ID НЕ перевірено. Файл не можна вважати "
+                "підтвердженим джерелом SEO."
+                if found else
+                "Підтверджений SRT на NAS не виявлено. "
+                "Це не свідчить про відсутність локального TXT."
+            )
+            status_item.setForeground(QColor(WARNING if found else MUTED))
             if found:
-                status_item.setForeground(QColor(SUCCESS))
                 status_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _startup_load_videos(self) -> None:
@@ -9020,7 +9028,7 @@ class MainWindow(QMainWindow):
             prepared
         ):
             transcript_status = (
-                "NAS" if isinstance(transcript_ids, set)
+                "NAS · ?" if isinstance(transcript_ids, set)
                 and str(row["video_id"]) in transcript_ids else ""
             )
             draft_key = displayed_status(row)
@@ -9129,9 +9137,18 @@ class MainWindow(QMainWindow):
                         f"Внутрішня оцінка: {score}/100"
                         + (f" · {issue_text}" if issue_text else "")
                     )
-                elif column == 7 and transcript_status:
-                    item.setForeground(QColor(SUCCESS))
-                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif column == 7:
+                    item.setForeground(QColor(WARNING if transcript_status else MUTED))
+                    item.setToolTip(
+                        "SRT-файл знайдено на NAS. Його зміст і відповідність "
+                        "YouTube Video ID НЕ перевірено. "
+                        "Сам факт наявності файлу не підтверджує SEO."
+                        if transcript_status else
+                        "SRT-файл не виявлено або NAS ще не проскановано. "
+                        "Локальний підтверджений TXT може бути доступний."
+                    )
+                    if transcript_status:
+                        item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 elif column == 8 and draft_status:
                     if draft_status == "ЗАСТОСОВАНО":
                         fg = QColor(SUCCESS)
