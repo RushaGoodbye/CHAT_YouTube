@@ -1,11 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_clock_boundary_code",
+  "action": "inspect_auto_edit_907_visual_proof_v1",
   "args": {
     "stream": "907",
-    "read_only": true,
-    "focus": "joint_screenshot_clock_consensus VISUAL_CONFIRMATION_FAILED 907-1.jpg delta 123.8s"
+    "screenshot": "907-1.jpg",
+    "read_only": true
   },
-  "nonce": "rg-20261026-907-visual-consensus-root-cause-v1"
+  "nonce": "rg-20261026-907-face-proof-grid-vs-local-v1"
 }
