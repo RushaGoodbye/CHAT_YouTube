@@ -393,6 +393,7 @@ class ContentOptimizationDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.generation = str(generation or "")
+        self.editorial_approved = False
         self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
@@ -648,6 +649,27 @@ class ContentOptimizationDialog(QDialog):
                     "\n".join(reasons) + "\n\nЗбережіть як «Чернетка».",
                 )
                 return
+
+        if (
+            self.status_combo.currentData() == "ready"
+            and self.generation.startswith("local-seo-evidence-")
+        ):
+            answer = QMessageBox.question(
+                self,
+                "Редакторське підтвердження SEO",
+                "Підтвердіть особисту перевірку цього відео: "
+                "основна назва й усі A/B-варіанти відповідають "
+                "справжньому змісту, цитати звірені з оригіналом, "
+                "а непідтверджені таймкоди не додано.\\n\\n"
+                "Ви перевірили це та схвалюєте SEO-пакет? "
+                "Підтвердження НЕ змінить YouTube.",
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.editorial_approved = True
 
         self.accept()
 
@@ -10019,10 +10041,27 @@ class MainWindow(QMainWindow):
                     else "manual"
                 ),
                 quality_state=(
-                    "safe" if quality_state == "safe" and status != "draft"
+                    "editor_approved"
+                    if status == "ready"
+                    and str(draft["generation"] if draft is not None else "").startswith(
+                        "local-seo-evidence-"
+                    )
+                    and bool(dialog.editorial_approved)
+                    and quality_state == "safe"
+                    else "safe" if quality_state == "safe"
+                    and status == "ready"
+                    and not str(
+                        draft["generation"] if draft is not None else ""
+                    ).startswith("local-seo-evidence-")
                     else "review"
                 ),
-                quality_reason="; ".join(quality_reasons),
+                quality_reason="; ".join(
+                    quality_reasons + (
+                        ["Оператор вручну підтвердив зміст та джерела SEO."]
+                        if bool(dialog.editorial_approved)
+                        else []
+                    )
+                ),
                 source_title=current_title,
                 source_description=current_description,
                 source_tags=current_tags,
