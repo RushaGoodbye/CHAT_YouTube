@@ -140,7 +140,29 @@ def test_no_send_and_fail_closed():
         assert result["status"]=="PRIVATE_PHOTO_REVIEW_CAPACITY_3",result
         assert not marker.exists()
 
+def test_standalone_synology_selftest():
+    # Simulates only ONE /tmp downloaded script, without its repository
+    # companion. It must read the exact pinned installed guard instead.
+    with tempfile.TemporaryDirectory() as td:
+        temp=pathlib.Path(td)
+        single=temp/"only_downloaded_script.py"
+        single.write_bytes(PATCHER.read_bytes())
+        guard=temp/"rg_news2_private_final_guard_v1.py"
+        guard.write_bytes(ORIGINAL.read_bytes())
+        mod=load(single,"synology_standalone")
+        mod.GUARD=guard
+        mod.selftest()
+        guard.write_bytes(guard.read_bytes()+b"\n# changed\n")
+        try:
+            mod.selftest()
+        except RuntimeError as e:
+            assert str(e)=="SELFTEST_ORIGINAL_GUARD_SHA_MISMATCH"
+        else:
+            raise AssertionError("Changed guard must block selftest")
+
+
 if __name__=="__main__":
+    test_standalone_synology_selftest()
     test_reconcile()
     test_isolated_ast()
     test_no_send_and_fail_closed()
