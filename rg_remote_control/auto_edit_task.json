@@ -1,14 +1,15 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_batch_boundary_shadow_v1",
+  "action": "inspect_auto_edit_files_generic",
   "args": {
-    "streams": [
-      "901",
-      "903",
-      "905"
-    ],
-    "read_only": true
+    "files": [
+      "rg_xml_verify_v51.py",
+      "rg_xml_verify_v51_2.py",
+      "rg_boundary_qa_v51.py",
+      "rg_studio_postrun.py",
+      "rg_guest_identity_boundary.py"
+    ]
   },
-  "nonce": "rg-20261026-safe-batch-boundary-shadow-v1"
+  "nonce": "rg-20261026-overlap-qa-backend-source-review-v1"
 }
