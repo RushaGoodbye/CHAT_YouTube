@@ -216,13 +216,63 @@ def ollama_description_json(*, current_title: str, transcript: str,
     return candidate
 
 
+TAGS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tags": {
+            "type": "array", "minItems": 8, "maxItems": 15,
+            "items": {"type": "string", "description": "Useful specific searchable keyword"},
+        },
+    },
+    "required": ["tags"],
+    "additionalProperties": False,
+}
+
+
+def ollama_topic_tags_json(*, selected_title: str, current_title: str,
+                           transcript: str, model: str = "qwen3:8b",
+                           timeout: float = 80.0) -> dict:
+    """Regenerate off-topic tags once from the approved source-backed title."""
+    prompt = (
+        "Ты специалист SEO для YouTube. Верни только JSON поле tags. "
+        "Создай от 8 до 15 РАЗНЫХ коротких поисковых тегов для ролика. "
+        "ОБЯЗАТЕЛЬНО хотя бы 3 тега по КОНКРЕТНОЙ главной теме заголовка. "
+        "Никаких тегов про оружие, лазеры и дроны для ролика про рыбака "
+        "и джедая. Не придумывай факты. Допускаются РАША ГУДБАЙ и чат рулетка, "
+        "но они НЕ ЗАМЕНЯЮТ тематические ключевые слова. "
+        "Суммарная длина тегов менее 500 символов. "
+        "\\nПОДТВЕРЖДЕННЫЙ ЗАГОЛОВОК: " + selected_title +
+        "\\nИСХОДНЫЙ ЗАГОЛОВОК: " + current_title +
+        "\\nФРАГМЕНТЫ РАСШИФРОВКИ: " +
+        select_source_excerpt(selected_title, transcript, char_budget=6500)
+    )
+    body = json.dumps({
+        "model": model, "stream": False, "format": TAGS_SCHEMA,
+        "messages": [
+            {"role": "system", "content":
+             "Return JSON only. Tags must reflect the exact video's main title."},
+            {"role": "user", "content": prompt},
+        ],
+        "options": {"temperature": 0.15},
+    }, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/chat", data=body,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    data = json.loads(str(payload["message"]["content"]))
+    if not isinstance(data, dict) or not isinstance(data.get("tags"), list):
+        raise ValueError("Tags repair must return list")
+    return data
+
+
 def _restore_one_ab_from_verified_original(data: dict, current_title: str) -> None:
     """Recover one duplicate A/B title with the already source-verified title.
 
     This does NOT invent a new topic. The full editorial and source gates
     still validate the repaired package after this fallback.
     """
-    from .seo_source_alignment import _named_anchors
     variants = data.get("ab_titles")
     main = str(data.get("title") or "").strip()
     original = " ".join(str(current_title or "").split())
@@ -249,7 +299,7 @@ def _restore_one_ab_from_verified_original(data: dict, current_title: str) -> No
 
 def generate_with_ollama(*, video_id: str, current_title: str,
                          transcript: str, model: str = "qwen3:8b") -> SeoDraft:
-    """Two full attempts, followed by at most two FIELD-ONLY repairs.
+    """Two full attempts, followed by at most three FIELD-ONLY repairs.
 
     The complete strict source, language, and topic gates are always rerun
     after repairs. No model-produced field is allowed to bypass validation.
@@ -302,7 +352,7 @@ def generate_with_ollama(*, video_id: str, current_title: str,
             raise
 
     # Preserve verified title/tags while repairing only the invalid field.
-    # Two separate repairs are the upper bound: e.g. one title + one description.
+    # At most three separate repairs: titles, description and subject tags.
     data = json.loads(latest_raw)
     if not isinstance(data, dict):
         raise ValueError("SEO response must be an object")
@@ -330,7 +380,7 @@ def generate_with_ollama(*, video_id: str, current_title: str,
 
 
     used: set[str] = set()
-    for _ in range(2):
+    for _ in range(3):
         try:
             return generate_draft(
                 video_id=video_id, current_title=current_title,
@@ -351,8 +401,11 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                 field = "titles"
             elif message.startswith(("Description must be Ukrainian",
                                       "Description length invalid",
+                                      "Generic AI meta-description forbidden",
                                       "SEO_TOPIC_MISMATCH: title and description")):
                 field = "description"
+            elif message.startswith("SEO_TAGS_TOPIC_MISMATCH"):
+                field = "tags"
             else:
                 raise
             if field in used:
@@ -365,12 +418,20 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                 )
                 data["title"] = fixed.get("title")
                 data["ab_titles"] = fixed.get("ab_titles")
-            else:
+            elif field == "description":
                 fixed = ollama_description_json(
-                    current_title=current_title, selected_title=str(data.get("title") or ""),
+                    current_title=current_title,
+                    selected_title=str(data.get("title") or ""),
                     transcript=transcript, model=model,
                 )
                 data["description"] = fixed["description"]
+            else:
+                fixed = ollama_topic_tags_json(
+                    current_title=current_title,
+                    selected_title=str(data.get("title") or ""),
+                    transcript=transcript, model=model,
+                )
+                data["tags"] = fixed["tags"]
     # Re-run the whole gate after the second field-only repair.
     try:
         return generate_draft(
