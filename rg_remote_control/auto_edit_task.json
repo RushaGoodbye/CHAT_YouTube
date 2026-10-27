@@ -1,12 +1,11 @@
 {
   "target": "alexpc",
   "contour": "auto_edit",
-  "action": "inspect_auto_edit_overnight_preflight_v1",
+  "action": "inspect_auto_edit_unified_install_v1",
   "args": {
-    "streams": [
-      "907"
-    ],
-    "read_only": true
+    "read_only": true,
+    "stream": "907",
+    "expected_dialogue_xml": 8
   },
-  "nonce": "rg-20261027-907-one-batch-preflight-original-mp4-audio"
+  "nonce": "rg-20261027-unified-v1-installed-postcheck"
 }
