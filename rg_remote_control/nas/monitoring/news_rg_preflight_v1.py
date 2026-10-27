@@ -129,10 +129,9 @@ def inspect(root=ROOT,vault=VAULT,environ=None):
                         max(0,time.time()-stamp)/60,1)
             report["shadow_draft_table_present"]=draft_table
         finally:cx.close()
-    report["safe_to_send_editorial_preview"]=bool(
-        report["shadow_editorial_ready"]>0 and not report["unconfirmed_send_marker"]
-        and report["existing_bot_modules"]["active_sender"]["present"])
-    # This is only a prerequisite: no adapter is enabled.
+    report["editorial_draft_exists_for_future_private_preview"]=bool(
+        report["shadow_editorial_ready"]>0)
+    # A populated draft is NOT proof that any private delivery route is ready.
     report["new_editorial_preview_transport_enabled"]=False
     report["manual_link_receiving_in_existing_owner_enabled"]=False
     report["source_ingest_on_dsm_scheduler_enabled"]=False
