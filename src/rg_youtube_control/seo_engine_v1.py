@@ -117,8 +117,27 @@ def _bilingual_subject_roots(value: str) -> set[str]:
         "сегодня", "расска", "обсужд", "участн", "разгов", "различ",
         "политик", "событи", "ситуац", "видео", "стране",
     }
-    return {word[:6] for word in tokens if word[:6] not in generic
-            and word not in _TOPIC_STOP}
+    aliases = {
+        "войн": "war", "війн": "war", "вийн": "war",
+        "налог": "tax", "подат": "tax",
+        "бензин": "fuel", "пальн": "fuel", "топлив": "fuel",
+        "школ": "school",
+        "дрон": "drone", "безпіл": "drone", "беспил": "drone",
+        "ракет": "missile",
+        "экном": "economy", "эконом": "economy", "економ": "economy",
+        "учител": "teacher", "вчител": "teacher",
+        "выбор": "election", "вибор": "election",
+        "преступ": "crime", "злочин": "crime",
+        "обстрел": "attack", "удар": "attack", "атака": "attack",
+    }
+    roots = set()
+    for word in tokens:
+        if word[:6] in generic or word in _TOPIC_STOP:
+            continue
+        root = next((label for stem, label in aliases.items()
+                     if word.startswith(stem)), word[:6])
+        roots.add(root)
+    return roots
 
 
 def _check_title_description_alignment(title: str, description: str) -> None:
