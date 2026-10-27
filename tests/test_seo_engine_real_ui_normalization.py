@@ -68,3 +68,16 @@ def test_actual_gui_final_quality_gate_rejects_russian_description():
     )
     assert quality == "blocked"
     assert any("не українською" in reason for reason in reasons)
+
+
+
+def test_bulk_seo_does_not_abandon_live_ollama_calls():
+    # The outer LocalToolWorker already runs this method off the GUI thread.
+    # Starting daemon threads with short queue timeouts caused concurrent
+    # Ollama sessions and eventual hangs on the creator PC.
+    import inspect
+    source = inspect.getsource(MainWindow.local_seo_batch)
+    assert "threading.Thread" not in source
+    assert "daemon=True" not in source
+    assert "result_queue.get(" not in source
+    assert "prepared.append(generate_sequentially(video_id))" in source
