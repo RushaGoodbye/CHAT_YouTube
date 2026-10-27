@@ -160,10 +160,11 @@ def selftest():
                    "status TEXT,photo_reviewed INT)")
         cx.execute("CREATE TABLE rg_news2_photo_dispatch("
                    "candidate_id INT,telegram_message_id INT,updated_at TEXT)")
-        cx.execute("INSERT INTO candidates VALUES(1,'awaiting_moderation',0)")
+        cx.executemany("INSERT INTO candidates VALUES(?,?,?)",
+                       [(i,"awaiting_moderation",int(i<5)) for i in range(1,6)])
         now=dt.datetime.now(dt.timezone.utc).isoformat()
         cx.executemany("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",
-                       [(1,i,now) for i in range(11,16)])
+                       [(i,i+10,now) for i in range(1,6)])
         cx.commit();cx.close()
         sample={"available":True,"task4_found":True,"enabled":True,
                 "last_status":"success","script_matches":True}
@@ -171,17 +172,18 @@ def selftest():
         assert r["verdict"].startswith("FIRST_REPAIR_CARD_CONFIRMED")
         assert r["database"]["free_moderation_slots"]==2
         cx=sqlite3.connect(str(root/"news.sqlite3"))
-        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(1,16,now))
+        cx.execute("INSERT INTO candidates VALUES(6,'awaiting_moderation',1)")
+        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(6,16,now))
         cx.commit();cx.close()
         assert inspect(root,vault,sample)["verdict"]=="ADDITIONAL_PRIVATE_RECEIPT_AFTER_REPAIR"
         (vault/"rg_news2_private_final_unconfirmed_v1.json").write_text("{}")
         assert inspect(root,vault,sample)["verdict"]=="BLOCKED_UNCONFIRMED_SEND_DO_NOT_RETRY"
         (vault/"rg_news2_private_final_unconfirmed_v1.json").unlink()
         cx=sqlite3.connect(str(root/"news.sqlite3"))
-        cx.execute("INSERT INTO candidates VALUES(2,'awaiting_moderation',0)")
-        cx.execute("INSERT INTO candidates VALUES(3,'awaiting_moderation',0)")
-        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(2,17,now))
-        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(3,18,now))
+        cx.execute("INSERT INTO candidates VALUES(7,'awaiting_moderation',0)")
+        cx.execute("INSERT INTO candidates VALUES(8,'awaiting_moderation',0)")
+        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(7,17,now))
+        cx.execute("INSERT INTO rg_news2_photo_dispatch VALUES(?,?,?)",(8,18,now))
         cx.commit();cx.close()
         assert inspect(root,vault,sample)["verdict"]=="MODERATION_CAPACITY_FULL_REVIEW_CARDS"
     print("RG_NEWS2_AFTER_REPAIR_PULSE_SELFTEST_PASS")
