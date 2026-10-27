@@ -17,7 +17,13 @@ def call(url, payload=None, timeout=90):
         return json.load(response)
 
 def has_attribution(s):
-    return bool(re.search(r"(?:за\\s+(?:повідомленням|даними|інформацією)|(?:повідомил[аио]|заявил[аио]|стверджу(?:є|ють)|за словами))", s.lower()))
+    normalized = s.lower()
+    return any(phrase in normalized for phrase in (
+        "за повідомленням", "за даними", "за інформацією",
+        "за словами", "повідомили", "повідомила", "повідомив",
+        "заявили", "заявила", "заявив", "стверджують",
+        "стверджує", "повідомляє", "повідомляють"
+    ))
 
 def main():
     p = argparse.ArgumentParser()
