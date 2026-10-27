@@ -13179,7 +13179,14 @@ class MainWindow(QMainWindow):
                 "chapters": draft.chapters,
                 "provider": "ollama:rg-seo-engine-v1",
                 "needs_review": True,
-                "review_reason": "Перевірити SEO за оригінальною розшифровкою",
+                "review_reason": (
+                    "Модель повторила A/B заголовки. Збережено лише "
+                    "унікальні варіанти. Потрібно вручну підготувати "
+                    "відсутні A/B назви перед експериментом. "
+                    "YouTube не змінено."
+                    if draft.ab_incomplete else
+                    "Перевірити SEO за оригінальною розшифровкою"
+                ),
             }
         elif stronger_editorial is None:
             package = generate_seo_package_local(
