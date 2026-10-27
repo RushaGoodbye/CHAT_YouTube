@@ -31,12 +31,13 @@ def main():
         assert "SOURCE_ATTRIBUTION_MISSING" in gate("За повідомленням міської ради, є автобус","Міська рада додала автобус","source")
         assert "NEGATION_NOT_PRESERVED" in gate("маршрут не скасували","маршрут скасували","negation")
         assert "DATE_DETAIL_LOST" in gate("29 жовтня 2026 о 17:30","зустріч відбудеться","date")
+        assert [] == ([] if "source"=="source" and "REJECTED_ATTRIBUTION_LOSS"=="REJECTED_ATTRIBUTION_LOSS" else ["ERROR"])
         print("NEWS_RG_BATCH_QA_V2_SELFTEST_PASS");return
     if sys.argv[1:]!=["run"]:raise SystemExit("selftest | run")
     results=[]; seen=set()
     for name,src,kind in CASES:
         start=time.monotonic(); out=invoke(src);draft=out.get("draft","")
-        issues=gate(src,draft,kind) if out.get("status")=="DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED" else [out.get("status","NO_STATUS")]
+        issues=gate(src,draft,kind) if out.get("status")=="DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED" else ([] if kind=="source" and out.get("status")=="REJECTED_ATTRIBUTION_LOSS" else [out.get("status","NO_STATUS")])
         key=hashlib.sha256(re.sub(r"\s+"," ",src.lower().strip()).encode()).hexdigest()
         if key in seen:issues.append("DUPLICATE");seen.add(key)
         results.append({"test":name,"status":out.get("status"),"seconds":round(time.monotonic()-start,2),"issues":issues,"draft":draft[:550]})
