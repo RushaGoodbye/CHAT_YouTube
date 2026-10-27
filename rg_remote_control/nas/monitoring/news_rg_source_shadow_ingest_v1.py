@@ -105,7 +105,10 @@ def init(cx):
         CREATE TABLE IF NOT EXISTS editorial_draft(
         key TEXT PRIMARY KEY,headline TEXT NOT NULL,body TEXT NOT NULL,
         validated_at INTEGER NOT NULL,
-        FOREIGN KEY(key) REFERENCES story_shadow(key));""")
+        FOREIGN KEY(key) REFERENCES story_shadow(key));
+        CREATE TABLE IF NOT EXISTS shadow_bootstrap_once(
+        name TEXT PRIMARY KEY,completed_at INTEGER NOT NULL,
+        staged_count INTEGER NOT NULL);""")
 
 def db_connection(store):
     store.parent.mkdir(parents=True,exist_ok=True)
@@ -137,6 +140,18 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
         raise ValueError("SOURCE_LIST_NOT_APPROVED")
     cx=db_connection(store)
     try:
+        if bootstrap_recent and cx.execute(
+            "SELECT 1 FROM shadow_bootstrap_once WHERE name='fresh19_v1'"
+            ).fetchone():
+            return {"schema":"NEWS_RG_SOURCE_SHADOW_INGEST_V1",
+              "source_count":len(channels),
+              "fresh_bootstrap_mode":True,"bootstrap_already_completed":True,
+              "bootstrap_staged":0,"new_stories_staged_for_editorial":0,
+              "shadow_pending_rewrites":cx.execute(
+                "SELECT COUNT(*) FROM story_shadow "
+                "WHERE status='needs_editorial_rewrite'").fetchone()[0],
+              "telegram_bot_api_calls":0,"private_sends":0,
+              "publications":0,"pollers_started":0}
         old={c:n for c,n in cx.execute("SELECT channel,highest FROM source_cursor")}
         def load(channel):
             try:return channel,parse_page(fetch(channel,loader=loader),channel),None
@@ -158,6 +173,16 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
                 "publications":0,"pollers_started":0}
         cx.execute("BEGIN IMMEDIATE")
         try:
+            # Recheck under the SQLite write lock against a concurrent run.
+            if bootstrap_recent and cx.execute(
+               "SELECT 1 FROM shadow_bootstrap_once WHERE name='fresh19_v1'"
+               ).fetchone():
+                cx.execute("ROLLBACK")
+                status["bootstrap_already_completed"]=True
+                status["shadow_pending_rewrites"]=cx.execute(
+                  "SELECT COUNT(*) FROM story_shadow "
+                  "WHERE status='needs_editorial_rewrite'").fetchone()[0]
+                return status
             for channel,posts,error in batches:
                 if error:
                     status["failed_sources"]+=1
@@ -193,7 +218,7 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
                         break
                     reason=story_status(post,now)
                     if reason!="eligible_for_editorial":
-                        stat="media_missing_skipped" if reason=="missing_real_photo" \
+                        stat="media_missing_skipped" if reason=="missing_real_media" \
                                   else "old_or_short_skipped"
                         status[stat]+=1
                         continue
@@ -211,6 +236,11 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
                     else:status["duplicates"]+=1
                 cx.execute("UPDATE source_cursor SET highest=?,last_scan_at=? WHERE channel=?",
                            (max(last,high),now,channel))
+            # Exactly one explicit fresh bootstrap in this isolated database;
+            # subsequent calls never reveal older still-eligible source posts.
+            if bootstrap_recent:
+                cx.execute("INSERT INTO shadow_bootstrap_once VALUES(?,?,?)",
+                   ("fresh19_v1",now,status["bootstrap_staged"]))
             # This is a bounded shadow staging area, never a moderation queue.
             cx.execute("DELETE FROM story_shadow WHERE queued_at<?",(now-3*86400,))
             cx.execute("COMMIT")
