@@ -417,3 +417,132 @@ def test_concrete_school_tags_survive_one_third_rule():
         generate_json=lambda _: json.dumps(d, ensure_ascii=False),
     )
     assert len(draft.tags) == 8
+
+
+
+ISRAEL_VIDEO = "s3R09Hoocnc"
+ISRAEL_TITLE_UA = "ІЗРАЇЛЬ — ГЕРОЇ! АЛЕ РОСІЯ ПІДТРИМАЛА ХАМАС"
+ISRAEL_SOURCE = (
+    "Ізраїль та ХАМАС. Учасники чат-рулетки говорять про реакцію "
+    "росіян, підтримку ХАМАС з боку Росії і війну. " * 15
+)
+
+
+def _israel_candidate():
+    return {
+        "title": "Израиль и ХАМАС: позиция России и споры о поддержке",
+        "ab_titles": [
+            "Израиль и ХАМАС: что говорят россияне?",
+            "ХАМАС и Израиль: спор в чат-рулетке",
+            "Россия и ХАМАС: что означает поддержка?",
+        ],
+        "description": (
+            "У цьому випуску співрозмовники розмовляють про Ізраїль і ХАМАС. "
+            "Учасники обговорюють реакцію росіян на конфлікт, позицію Росії "
+            "та питання підтримки ХАМАС. Розмова стосується громадської "
+            "відповідальності, політики та оцінки подій. " * 3
+        ),
+        "tags": [
+            "Израиль и ХАМАС", "ХАМАС и Россия", "Израиль политика",
+            "Позиция России по Израилю", "ХАМАС и Израиль", "Израиль конфликт",
+            "чат рулетка", "Раша Гудбай",
+        ],
+        "chapters": "",
+    }
+
+
+def test_israel_hamas_duplicate_ab_no_longer_throws_after_targeted_model_repeats(
+        monkeypatch):
+    calls = []
+    expected = _israel_candidate()
+    expected["ab_titles"] = [expected["ab_titles"][0]] * 3
+
+    def duplicate_main(prompt, *, model):
+        calls.append("main")
+        return json.dumps(expected, ensure_ascii=False)
+
+    def duplicate_repair(**kwargs):
+        calls.append("titles")
+        return {"title": expected["title"],
+                "ab_titles": expected["ab_titles"]}
+
+    monkeypatch.setattr(module, "ollama_json", duplicate_main)
+    monkeypatch.setattr(module, "ollama_titles_json", duplicate_repair)
+    draft = module.generate_with_ollama(
+        video_id=ISRAEL_VIDEO, current_title=ISRAEL_TITLE_UA,
+        transcript=ISRAEL_SOURCE,
+    )
+    assert calls == ["main", "main", "titles"]
+    assert draft.needs_review
+    assert draft.ab_incomplete is True
+    assert len(draft.ab_titles) == 1
+    assert draft.ab_titles[0] == expected["ab_titles"][0]
+    assert len(draft.tags) == 8
+    assert "ХАМАС" in draft.title
+
+
+def test_duplicate_ab_repair_never_bypasses_wrong_ukrainian_description(
+        monkeypatch):
+    candidate_data = _israel_candidate()
+    candidate_data["ab_titles"] = [candidate_data["ab_titles"][0]] * 3
+    candidate_data["description"] = (
+        "Разговор о событиях, которые произошли в России и Израиле. " * 12
+    )
+
+    monkeypatch.setattr(
+        module, "ollama_json",
+        lambda prompt, *, model: json.dumps(candidate_data, ensure_ascii=False),
+    )
+    monkeypatch.setattr(
+        module, "ollama_titles_json",
+        lambda **kwargs: {"title": candidate_data["title"],
+                          "ab_titles": candidate_data["ab_titles"]},
+    )
+    monkeypatch.setattr(
+        module, "ollama_description_json",
+        lambda **kwargs: {"description": candidate_data["description"]},
+    )
+    with pytest.raises(ValueError, match="Description must be Ukrainian"):
+        module.generate_with_ollama(
+            video_id=ISRAEL_VIDEO, current_title=ISRAEL_TITLE_UA,
+            transcript=ISRAEL_SOURCE,
+        )
+
+
+def test_duplicate_ab_repair_never_bypasses_fake_hamas_video_source(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        module, "ollama_json",
+        lambda *args, **kwargs: calls.append(1) or json.dumps(_israel_candidate()),
+    )
+    with pytest.raises(ValueError, match="SOURCE_VIDEO_MISMATCH"):
+        module.generate_with_ollama(
+            video_id=ISRAEL_VIDEO, current_title=ISRAEL_TITLE_UA,
+            transcript="Собеседники говорят только о погоде и ремонте автомобилей. " * 13,
+        )
+    assert calls == []
+
+
+def test_duplicate_ab_still_rejected_by_default_strict_generator():
+    with pytest.raises(ValueError, match="A/B titles are duplicates"):
+        data = _israel_candidate()
+        data["ab_titles"] = [data["ab_titles"][0]] * 3
+        generate_draft(
+            video_id=ISRAEL_VIDEO, current_title=ISRAEL_TITLE_UA,
+            transcript=ISRAEL_SOURCE,
+            generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+        )
+
+
+def test_review_only_incomplete_ab_passes_remaining_full_content_gate():
+    data = _israel_candidate()
+    data["ab_titles"] = [data["ab_titles"][0]] * 3
+    draft = generate_draft(
+        video_id=ISRAEL_VIDEO, current_title=ISRAEL_TITLE_UA,
+        transcript=ISRAEL_SOURCE,
+        generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+        allow_incomplete_ab=True,
+    )
+    assert len(draft.ab_titles) == 1
+    assert draft.ab_incomplete
+    assert draft.needs_review
