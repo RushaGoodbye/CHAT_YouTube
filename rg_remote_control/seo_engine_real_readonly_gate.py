@@ -117,7 +117,24 @@ def run_one(video_id: str, *, database: Path, model: str,
             elif type(exc).__name__ == "JSONDecodeError":
                 code = "OLLAMA_INVALID_JSON"
             elif isinstance(exc, ValueError):
-                code = "OLLAMA_RESPONSE_FAILED_CONTRACT"
+                # Whitelisted field codes only; do not log raw model text.
+                if error.startswith(("Tags invalid", "At least eight unique tags")):
+                    code = "MODEL_TAGS_INVALID"
+                elif error.startswith("Tag text exceeds"):
+                    code = "MODEL_TAGS_TOO_LONG"
+                elif error.startswith(("Invalid primary title", "A/B titles are duplicates",
+                                       "Exactly three valid A/B titles")):
+                    code = "MODEL_TITLES_INVALID"
+                elif error.startswith("Description length invalid"):
+                    code = "MODEL_DESCRIPTION_INVALID"
+                elif error.startswith(("Invalid chapters", "Invalid chapter timestamp")):
+                    code = "MODEL_CHAPTERS_INVALID"
+                elif error.startswith("SEO_TOPIC_MISMATCH"):
+                    code = "MODEL_TOPIC_MISMATCH"
+                elif error.startswith("SOURCE_VIDEO_MISMATCH"):
+                    code = "SOURCE_VIDEO_MISMATCH"
+                else:
+                    code = "OLLAMA_RESPONSE_FAILED_CONTRACT"
             else:
                 code = "OLLAMA_GENERATION_FAILURE"
         else:
