@@ -388,3 +388,32 @@ def test_generic_meta_description_is_not_editorial_seo():
             video_id=VID, current_title=TITLE, transcript=SOURCE,
             generate_json=lambda _: json.dumps(data, ensure_ascii=False),
         )
+
+
+
+def test_two_on_topic_tags_cannot_mask_thirteen_irrelevant_keywords():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    d = json.loads(candidate(TAGS))
+    d["tags"] = [
+        "школы россии", "осужденные",
+        "лазерные установки", "военные корабли", "фантастика",
+        "погода", "облачное хранилище", "продажа бензина",
+        "рецепты", "рыбалка", "история москвы",
+        "оружейные технологии", "стройка", "мобильный интернет",
+        "новые видеокарты",
+    ]
+    with pytest.raises(ValueError, match="SEO_TAGS_TOPIC_MISMATCH"):
+        generate_draft(
+            video_id=VID, current_title=TITLE, transcript=SOURCE,
+            generate_json=lambda _: json.dumps(d, ensure_ascii=False),
+        )
+
+
+def test_concrete_school_tags_survive_one_third_rule():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    d = json.loads(candidate(TAGS))
+    draft = generate_draft(
+        video_id=VID, current_title=TITLE, transcript=SOURCE,
+        generate_json=lambda _: json.dumps(d, ensure_ascii=False),
+    )
+    assert len(draft.tags) == 8
