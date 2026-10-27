@@ -72,3 +72,23 @@ def test_no_source_never_starts_model(monkeypatch, tmp_path):
     result = gate.run_one("UC-zGLdheCE", database=Path("unused"), model="qwen3:8b")
     assert result["status"] == "BLOCKED"
     assert result["error_code"] == "INSUFFICIENT_CAPTION_ROWS"
+
+
+
+def test_private_qa_records_sanitized_topic_subcode_and_failed_generated_title(
+        monkeypatch, tmp_path):
+    inputs(tmp_path, monkeypatch)
+    def model(**kwargs):
+        error = ValueError(
+            "SEO_TOPIC_MISMATCH: title and description discuss different subjects"
+        )
+        error.seo_rejected_title = "  РЫБАЛКА   И   ДЖЕДАИ  "
+        raise error
+    monkeypatch.setattr(gate, "generate_with_ollama", model)
+    result = gate.run_one("UC-zGLdheCE", database=Path("unused"), model="qwen3:8b")
+    assert result["status"] == "BLOCKED"
+    assert result["error_code"] == "MODEL_TOPIC_MISMATCH"
+    assert result["error_detail_code"] == "TITLE_DESCRIPTION_SUBJECT_CONFLICT"
+    assert result["rejected_title"] == "РЫБАЛКА И ДЖЕДАИ"
+    assert "transcript" not in result
+    assert result["production_db_writes"] == 0
