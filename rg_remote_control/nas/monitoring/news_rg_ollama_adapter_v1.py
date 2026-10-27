@@ -58,14 +58,21 @@ def main():
     if len(tokens) < 7 or not re.search(r"[А-Яа-яІіЇїЄєҐґ]", args.text):
         print(json.dumps({"status":"REJECTED_INSUFFICIENT_FACTS","telegram_calls":0,"db_writes":0,"publications":0}))
         return
-    instruction = ("Ти редактор новин українською. Перепиши коротко як Telegram-чернетку. "
-                   "Не вигадуй дати, числа, джерела, цитати чи підтвердження. "
-                   "Зберігай атрибуцію заяв. Виведи лише текст чернетки.\n\n" + args.text)
+    instruction = ("Ти редактор фактологічних новин. Поверни лише короткий український текст. "
+                   "Заборонено додавати будь-які факти або змінювати заперечення, числа, дати та адреси. "
+                   "Якщо в оригіналі є атрибуція джерела (наприклад, 'За повідомленням міської ради' "
+                   "чи 'Організатори повідомили'), збережи явну згадку джерела та сам факт того, "
+                   "що це повідомлення або заява. Не перетворюй повідомлення на доведений факт. "
+                   "Збережи, хто саме повідомив. Якщо неможливо зберегти атрибуцію, поверни слово НЕВДАЛО. "
+                   "Не додавай пояснень.\\n\\nОригінал:\\n" + args.text)
     try:
         response = call(URL + "/api/generate", {"model": MODEL, "stream": False, "think": False,
             "prompt": instruction, "options": {"temperature": 0.1, "num_predict": 500}}, timeout=120)
         draft = response.get("response", "")
         if not isinstance(draft, str) or not draft.strip(): raise ValueError("empty response")
+        if draft.strip() == "НЕВДАЛО":
+            print(json.dumps({"status":"REJECTED_MODEL_UNCERTAIN","telegram_calls":0,"db_writes":0,"publications":0}))
+            return
         if has_attribution(args.text) and not has_attribution(draft):
             print(json.dumps({"status":"REJECTED_ATTRIBUTION_LOSS","reason":"SOURCE_ATTRIBUTION_MISSING","telegram_calls":0,"db_writes":0,"publications":0},ensure_ascii=False))
             return
