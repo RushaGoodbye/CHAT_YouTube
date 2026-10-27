@@ -323,7 +323,7 @@ def _restore_one_ab_from_verified_original(data: dict, current_title: str) -> No
 
 def generate_with_ollama(*, video_id: str, current_title: str,
                          transcript: str, model: str = "qwen3:8b") -> SeoDraft:
-    """Two full attempts, followed by at most three FIELD-ONLY repairs.
+    """Two full attempts, three field-only repairs and flagged A/B fallback.
 
     The complete strict source, language, and topic gates are always rerun
     after repairs. No model-produced field is allowed to bypass validation.
@@ -404,12 +404,15 @@ def generate_with_ollama(*, video_id: str, current_title: str,
 
 
     used: set[str] = set()
-    for _ in range(3):
+    incomplete_ab = False
+    # Two full generations + three field repairs and bounded duplicate collapse.
+    for _ in range(5):
         try:
             return generate_draft(
                 video_id=video_id, current_title=current_title,
                 transcript=transcript,
                 generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+                allow_incomplete_ab=incomplete_ab,
             )
         except ValueError as exc:
             last_exc = exc
@@ -433,6 +436,21 @@ def generate_with_ollama(*, video_id: str, current_title: str,
             else:
                 raise
             if field in used:
+                if field == "titles" and message.startswith("A/B titles are duplicates"):
+                    # An unfixable repeated A/B should not discard the
+                    # grounded main SEO title, Ukrainian text and tags.
+                    # The incomplete list is REVIEW-ONLY, never fabricated.
+                    incomplete_ab = True
+                    unique, seen = [], {str(data.get("title") or "").strip().casefold()}
+                    for variant in data.get("ab_titles") or []:
+                        if not isinstance(variant, str):
+                            break
+                        value = " ".join(variant.split())
+                        if value and value.casefold() not in seen:
+                            seen.add(value.casefold())
+                            unique.append(value)
+                    data["ab_titles"] = unique[:3]
+                    continue
                 annotate_rejected_title(exc)
                 raise
             used.add(field)
@@ -443,6 +461,7 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                 data["title"] = fixed.get("title")
                 data["ab_titles"] = fixed.get("ab_titles")
                 _restore_one_ab_from_verified_original(data, current_title)
+                incomplete_ab = False
             elif field == "description":
                 fixed = ollama_description_json(
                     current_title=current_title,
@@ -457,12 +476,13 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                     transcript=transcript, model=model,
                 )
                 data["tags"] = fixed["tags"]
-    # Re-run the whole gate after the second field-only repair.
+    # Validate all source, title, Ukrainian description and tag rules at the end.
     try:
         return generate_draft(
             video_id=video_id, current_title=current_title,
             transcript=transcript,
             generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+            allow_incomplete_ab=incomplete_ab,
         )
     except ValueError as exc:
         annotate_rejected_title(exc)
