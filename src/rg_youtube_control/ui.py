@@ -13358,10 +13358,11 @@ class MainWindow(QMainWindow):
         max_attempts = min(len(candidate_ids), max(limit * 3, limit))
 
         def task():
-            import queue
-            import threading
-
-            candidate_timeout_seconds = 180
+            # Already running off the GUI thread in LocalToolWorker.
+            # Previously a daemon child was abandoned after 180 seconds,
+            # while Ollama kept running and the next child started. This
+            # created concurrent model calls, memory contention, and
+            # misleading timeouts. Run candidates sequentially instead.
             prepared: list[dict] = []
             skipped: list[dict] = []
             attempted = 0
@@ -13369,41 +13370,10 @@ class MainWindow(QMainWindow):
             failure_reasons: dict[str, int] = {}
             stopped_early = False
 
-            def generate_with_timeout(video_id: str) -> dict:
-                result_queue: queue.Queue = queue.Queue(maxsize=1)
-
-                def target() -> None:
-                    try:
-                        result_queue.put(
-                            (
-                                True,
-                                self._generate_local_seo_result(
-                                    video_id,
-                                    fast_mode=False,
-                                ),
-                            )
-                        )
-                    except BaseException as exc:
-                        result_queue.put((False, exc))
-
-                thread = threading.Thread(
-                    target=target,
-                    name=f"rg-local-seo-{video_id}",
-                    daemon=True,
+            def generate_sequentially(video_id: str) -> dict:
+                return self._generate_local_seo_result(
+                    video_id, fast_mode=False,
                 )
-                thread.start()
-                try:
-                    ok, payload = result_queue.get(
-                        timeout=candidate_timeout_seconds
-                    )
-                except queue.Empty as exc:
-                    raise TimeoutError(
-                        f"Ліміт {candidate_timeout_seconds} с на одне відео. "
-                        "Кандидат пропущено автоматично."
-                    ) from exc
-                if ok:
-                    return payload
-                raise payload
 
             for video_id in candidate_ids[:max_attempts]:
                 if len(prepared) >= limit:
@@ -13414,10 +13384,10 @@ class MainWindow(QMainWindow):
                     worker_ref.progress.emit(
                         f"готово {len(prepared)}/{limit} · "
                         f"спроба {attempted}/{max_attempts} · {video_id} · "
-                        f"ліміт {candidate_timeout_seconds}с"
+                        "послідовний режим"
                     )
                 try:
-                    prepared.append(generate_with_timeout(video_id))
+                    prepared.append(generate_sequentially(video_id))
                     failure_streak = 0
                 except Exception as exc:
                     reason = " ".join(str(exc).split())[:700]
