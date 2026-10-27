@@ -123,9 +123,12 @@ def run_one(video_id: str, *, database: Path, model: str,
                 elif error.startswith("Tag text exceeds"):
                     code = "MODEL_TAGS_TOO_LONG"
                 elif error.startswith(("Invalid primary title", "A/B titles are duplicates",
-                                       "Exactly three valid A/B titles")):
+                                       "Exactly three valid A/B titles",
+                                       "Titles must be Russian",
+                                       "Generic non-editorial headline")):
                     code = "MODEL_TITLES_INVALID"
-                elif error.startswith("Description length invalid"):
+                elif error.startswith(("Description length invalid",
+                                       "Description must be Ukrainian")):
                     code = "MODEL_DESCRIPTION_INVALID"
                 elif error.startswith(("Invalid chapters", "Invalid chapter timestamp")):
                     code = "MODEL_CHAPTERS_INVALID"
