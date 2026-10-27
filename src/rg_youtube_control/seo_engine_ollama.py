@@ -228,7 +228,14 @@ def generate_with_ollama(*, video_id: str, current_title: str,
     data = json.loads(latest_raw)
     if not isinstance(data, dict):
         raise ValueError("SEO response must be an object")
-    last_exc: ValueError | None = None
+    def annotate_rejected_title(exc: ValueError) -> None:
+        # A generated title is shareable for a PRIVATE read-only QA receipt;
+        # never attach source captions, model payloads or local file paths.
+        candidate = data.get("title")
+        if isinstance(candidate, str):
+            clean = " ".join(candidate.split())
+            setattr(exc, "seo_rejected_title", clean[:110])
+
     used: set[str] = set()
     for _ in range(2):
         try:
@@ -256,6 +263,7 @@ def generate_with_ollama(*, video_id: str, current_title: str,
             else:
                 raise
             if field in used:
+                annotate_rejected_title(exc)
                 raise
             used.add(field)
             if field == "titles":
@@ -271,8 +279,12 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                 )
                 data["description"] = fixed["description"]
     # Re-run the whole gate after the second field-only repair.
-    return generate_draft(
-        video_id=video_id, current_title=current_title,
-        transcript=transcript,
-        generate_json=lambda _: json.dumps(data, ensure_ascii=False),
-    )
+    try:
+        return generate_draft(
+            video_id=video_id, current_title=current_title,
+            transcript=transcript,
+            generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+        )
+    except ValueError as exc:
+        annotate_rejected_title(exc)
+        raise
