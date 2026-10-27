@@ -24,7 +24,8 @@ def main():
     args = p.parse_args()
     if args.command == "selftest":
         assert MODEL == "qwen3:8b" and URL.startswith("http://192.168.50.")
-        assert len(re.findall(r"[^\\W_]+", "TEST_NEWS", re.UNICODE)) < 7
+        assert len(re.findall(r"[^\W_]+", "TEST_NEWS", re.UNICODE)) < 7
+        assert len(re.findall(r"[^\W_]+", "У Києві відкрили новий громадський простір площею 500 квадратних метрів.", re.UNICODE)) >= 7
         assert base64.b64decode(base64.b64encode("Київ".encode())).decode() == "Київ"
         print("NEWS_RG_OLLAMA_ADAPTER_SELFTEST_PASS")
         return
@@ -41,7 +42,7 @@ def main():
             raise SystemExit("Invalid UTF-8 Base64 input") from exc
     if not args.text.strip() or len(args.text) > 12000:
         raise SystemExit("Input length must be 1..12000 characters")
-    tokens = re.findall(r"[^\\W_]+", args.text, re.UNICODE)
+    tokens = re.findall(r"[^\W_]+", args.text, re.UNICODE)
     if len(tokens) < 7 or not re.search(r"[А-Яа-яІіЇїЄєҐґ]", args.text):
         print(json.dumps({"status":"REJECTED_INSUFFICIENT_FACTS","telegram_calls":0,"db_writes":0,"publications":0}))
         return
