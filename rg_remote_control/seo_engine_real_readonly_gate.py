@@ -22,7 +22,8 @@ from rg_youtube_control.seo_engine_ollama import generate_with_ollama
 from rg_youtube_control.seo_source_alignment import check_title_against_transcript
 
 
-def run_one(video_id: str, *, database: Path, model: str) -> dict:
+def run_one(video_id: str, *, database: Path, model: str,
+            preflight_only: bool = False) -> dict:
     started = time.monotonic()
     report = {
         "video_id": video_id,
@@ -64,6 +65,11 @@ def run_one(video_id: str, *, database: Path, model: str) -> dict:
         report.update(source=source_kind, caption_rows=len(rows),
                       source_chars=len(text), video_seconds=duration,
                       last_caption_second=round(last, 1))
+        if preflight_only:
+            report["stage"] = "source_preflight_pass"
+            report["status"] = "SOURCE_READY"
+            report["elapsed_seconds"] = round(time.monotonic() - started, 1)
+            return report
         report["stage"] = "actual_local_ollama"
         draft = generate_with_ollama(
             video_id=video_id, current_title=title, transcript=text,
@@ -129,23 +135,52 @@ def main() -> int:
         "RGYouTubeControl" / "rg_youtube_control.db"
     ))
     parser.add_argument("--model", default="qwen3:8b")
+    parser.add_argument("--pilot-first-eligible", action="store_true")
     parser.add_argument("--output", type=Path, default=(
         Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_engine_actual.json"
     ))
     args = parser.parse_args()
     results = []
+    def save() -> None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps({
+            "schema": "RG_SEO_ENGINE_ACTUAL_READONLY_V1",
+            "read_only": True,
+            "pilot_first_eligible": args.pilot_first_eligible,
+            "results": results,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if args.pilot_first_eligible:
+        # Scan all sources without invoking Ollama and run the model only
+        # for the FIRST video which passes source/title/coverage checks.
+        for video_id in args.video_ids:
+            result = run_one(video_id, database=args.db, model=args.model,
+                             preflight_only=True)
+            results.append(result)
+            print(json.dumps({"video_id": video_id, "status": result["status"],
+                              "stage": result["stage"],
+                              "error_code": result.get("error_code")}), flush=True)
+            save()
+        first = next((i for i, row in enumerate(results)
+                      if row["status"] == "SOURCE_READY"), None)
+        if first is not None:
+            result = run_one(results[first]["video_id"], database=args.db,
+                             model=args.model)
+            results[first] = result
+            print(json.dumps({"pilot_video": result["video_id"],
+                              "status": result["status"],
+                              "stage": result["stage"],
+                              "error_code": result.get("error_code")}), flush=True)
+            save()
+        return 0 if first is not None and results[first]["status"] == "DRAFT_REVIEW_REQUIRED" else 2
+
     for video_id in args.video_ids:
         result = run_one(video_id, database=args.db, model=args.model)
         results.append(result)
         print(json.dumps({"video_id": video_id, "status": result["status"],
                           "stage": result["stage"],
                           "error_code": result.get("error_code")}), flush=True)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps({
-            "schema": "RG_SEO_ENGINE_ACTUAL_READONLY_V1",
-            "read_only": True,
-            "results": results,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        save()
     return 0 if results and all(
         row["status"] == "DRAFT_REVIEW_REQUIRED" for row in results) else 2
 
