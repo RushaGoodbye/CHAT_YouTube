@@ -140,6 +140,12 @@ def main() -> int:
         Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_engine_actual.json"
     ))
     args = parser.parse_args()
+    # A CSV-shaped single argument safely carries YouTube IDs that begin
+    # with '-' through PowerShell and argparse.
+    args.video_ids = [
+        video_id for group in args.video_ids
+        for video_id in group.split(",") if video_id
+    ]
     results = []
     def save() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
