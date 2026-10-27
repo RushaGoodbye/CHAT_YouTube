@@ -124,6 +124,7 @@ DESCRIPTION_SCHEMA = {
 
 
 def ollama_description_json(*, current_title: str, transcript: str,
+                            selected_title: str = "",
                             model: str = "qwen3:8b",
                             timeout: float = 100.0) -> dict:
     """Generate one replacement field only, keeping validated SEO fields."""
@@ -137,6 +138,8 @@ def ollama_description_json(*, current_title: str, transcript: str,
         "Російську мову оригіналу переклади українською, "
         "не копіюй російські фрази в опис. "
         "Заголовок оригіналу: " + current_title +
+        "\nПеревірений заголовок майбутнього відео: " + selected_title +
+        "\nПиши опис тільки за темою цього заголовка. "
         "\nРозшифровка:\n" + transcript[:11500]
     )
     body = json.dumps({
@@ -235,13 +238,16 @@ def generate_with_ollama(*, video_id: str, current_title: str,
             message = str(exc)
             if message.startswith(("Titles must be Russian",
                                     "Generic non-editorial headline",
-                                    "SEO_TOPIC_MISMATCH",
                                     "Invalid primary title",
                                     "A/B titles are duplicates",
-                                    "Exactly three valid A/B titles")):
+                                    "Exactly three valid A/B titles")) or (
+                message.startswith("SEO_TOPIC_MISMATCH") and
+                not message.startswith("SEO_TOPIC_MISMATCH: title and description")
+            ):
                 field = "titles"
             elif message.startswith(("Description must be Ukrainian",
-                                      "Description length invalid")):
+                                      "Description length invalid",
+                                      "SEO_TOPIC_MISMATCH: title and description")):
                 field = "description"
             else:
                 raise
@@ -256,7 +262,8 @@ def generate_with_ollama(*, video_id: str, current_title: str,
                 data["ab_titles"] = fixed.get("ab_titles")
             else:
                 fixed = ollama_description_json(
-                    current_title=current_title, transcript=transcript, model=model,
+                    current_title=current_title, selected_title=str(data.get("title") or ""),
+                    transcript=transcript, model=model,
                 )
                 data["description"] = fixed["description"]
     # Re-run the whole gate after the second field-only repair.
