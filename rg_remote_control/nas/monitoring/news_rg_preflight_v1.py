@@ -78,9 +78,16 @@ def inspect(root=ROOT,vault=VAULT,environ=None):
                 environ.get("GEMINI_API_KEY")),
                 "news_rg_ai_explicitly_enabled":environ.get(
                     "NEWS_RG_AI_ALLOWED")=="1",
-                "configured_secrets_file_not_opened":True},
-            "auth_note":"sudo shell env is not sufficient to prove provider availability "
-                        "in Docker or other secured runtimes"}
+                "configured_secrets_file_not_opened":True,
+                "historical_r7_content_hub_directory_present":(
+                    root.parent/"RG_CONTENT_DEPLOY").is_dir(),
+                "historical_r7_deploy_env_present":(
+                    root.parent/"RG_CONTENT_DEPLOY/deploy.env").is_file(),
+                "historical_r7_provider_access_verified":False},
+            "auth_note":"The R7 content hub, where present, is NOT proof of a "
+                        "local Gemini key or standalone AI endpoint. "
+                        "sudo shell environment cannot verify Docker or "
+                        "Cloudflare credentials."}
     marker=vault/"rg_news2_private_final_unconfirmed_v1.json"
     if marker.is_symlink():raise RuntimeError("UNCONFIRMED_MARKER_SYMLINK")
     report["unconfirmed_send_marker"]=marker.is_file()
