@@ -2,7 +2,7 @@
 """NEWS RG private editorial delivery V2. One NEW staged draft only; private chat only.
 Never retries V1 uncertain draft, never polls Telegram, never publishes or edits production DB.
 """
-import os,sys,json,time,pathlib,importlib.util,hashlib,tempfile
+import os,sys,json,time,pathlib,importlib.util,hashlib,tempfile,urllib.request,urllib.parse
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2');O=B/'operator'
 ST=O/'news_rg_private_review_staging'; R=O/'news_rg_private_delivery_v2'
 V1=O/'news_rg_private_pilot_claim_v1.json'
@@ -41,6 +41,19 @@ def main(mode):
  item=choose();mod,chat=config()
  key=item['draft_id']
  if not isinstance(key,str) or len(key)!=24 or not all(ch in '0123456789abcdef' for ch in key):fail('BAD_DRAFT_ID')
+ # Content check BEFORE durable claim and Telegram action.
+ url=str(item['media_url'])
+ target=urllib.parse.urlsplit(url)
+ if target.scheme!='https' or target.hostname not in ('cdn1.telesco.pe','cdn2.telesco.pe','cdn3.telesco.pe','cdn4.telesco.pe','cdn5.telesco.pe'):
+  fail('MEDIA_HOST_UNVERIFIED')
+ try:
+  req=urllib.request.Request(url,method='HEAD',headers={'User-Agent':'Mozilla/5.0'})
+  with urllib.request.urlopen(req,timeout=12) as resp:
+   mime=resp.headers.get('Content-Type','').split(';')[0].strip().lower()
+   if mime not in ('image/jpeg','image/png','image/webp'):fail('MEDIA_NOT_PHOTO_'+mime.replace('/','_'))
+ except RuntimeError:raise
+ except Exception:fail('MEDIA_UNVERIFIED_NETWORK')
+
  if R.is_symlink():fail('RECEIPT_DIR_SYMLINK')
  receipt=R/(key+'.json')
  if receipt.exists() or receipt.is_symlink():fail('ALREADY_CLAIMED_NO_RETRY')
