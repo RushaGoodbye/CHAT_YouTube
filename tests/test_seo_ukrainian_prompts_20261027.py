@@ -28,9 +28,9 @@ def test_failed_ab_recovery_never_deletes_existing_hooks():
     root = Path(__file__).resolve().parents[1]
     source = (root / "src" / "rg_youtube_control" / "free_tools.py").read_text(encoding="utf-8")
     assert "recovered_variants = []" in source
-    assert "variants_candidate = []" not in source[
-        source.index("if (\\n                len(variants_candidate) < 3") if False else
-        source.index("if (\n                len(variants_candidate) < 3"):
-        source.index("candidate[\"title_variants\"] = variants_candidate")
+    recovery = source[
+        source.index("if (\\n                len(variants_candidate) < 3".replace("\\\\n", "\\n")):
+        source.index('candidate["title_variants"] = variants_candidate')
     ]
+    assert "variants_candidate = []" not in recovery
     assert "if len(set(map(str.casefold, recovered_variants))) >" in source
