@@ -95,12 +95,69 @@ def ollama_titles_json(*, current_title: str, transcript: str,
     return result
 
 
+
+DESCRIPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "description": {
+            "type": "string",
+            "description": "260–4500 characters, entirely Ukrainian language, no Russian paragraphs"
+        },
+    },
+    "required": ["description"],
+    "additionalProperties": False,
+}
+
+
+def ollama_description_json(*, current_title: str, transcript: str,
+                            model: str = "qwen3:8b",
+                            timeout: float = 100.0) -> dict:
+    """Generate one replacement field only, keeping validated SEO fields."""
+    prompt = (
+        "Ти професійний український редактор YouTube. "
+        "Відповідай ТІЛЬКИ JSON з полем description. "
+        "НАПИШИ ПОВНІСТЮ УКРАЇНСЬКОЮ МОВОЮ без жодного російського речення. "
+        "Створи конкретний SEO-опис на 450–1100 символів про основний сюжет "
+        "цього відео, а не шаблон 'у тексті описано'. "
+        "Не вигадуй прямих цитат, дат, фактів чи сторонніх подій. "
+        "Російську мову оригіналу переклади українською, "
+        "не копіюй російські фрази в опис. "
+        "Заголовок оригіналу: " + current_title +
+        "\nРозшифровка:\n" + transcript[:11500]
+    )
+    body = json.dumps({
+        "model": model, "stream": False, "format": DESCRIPTION_SCHEMA,
+        "messages": [
+            {"role": "system", "content": (
+                "Пиши тільки українською мовою. Поле description "
+                "має містити лише зв'язний український текст. JSON only."
+            )},
+            {"role": "user", "content": prompt},
+        ],
+        "options": {"temperature": 0.15},
+    }, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/chat", data=body,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    result = json.loads(str(payload["message"]["content"]))
+    if not isinstance(result, dict) or not isinstance(result.get("description"), str):
+        raise ValueError("Description repair must return a description string")
+    return result
+
+
 def generate_with_ollama(*, video_id: str, current_title: str,
                          transcript: str, model: str = "qwen3:8b") -> SeoDraft:
-    """Bounded model repair: one complete regeneration, then titles-only if needed."""
+    """Two full attempts, followed by at most two FIELD-ONLY repairs.
+
+    The complete strict source, language, and topic gates are always rerun
+    after repairs. No model-produced field is allowed to bypass validation.
+    """
     latest_raw: str | None = None
 
-    def original(prompt: str) -> str:
+    def first(prompt: str) -> str:
         nonlocal latest_raw
         latest_raw = ollama_json(prompt, model=model)
         return latest_raw
@@ -108,27 +165,25 @@ def generate_with_ollama(*, video_id: str, current_title: str,
     try:
         return generate_draft(
             video_id=video_id, current_title=current_title,
-            transcript=transcript, generate_json=original,
+            transcript=transcript, generate_json=first,
         )
     except (ValueError, json.JSONDecodeError) as exc:
-        if any(str(exc).startswith(prefix) for prefix in (
-            "SOURCE_VIDEO_MISMATCH", "Invalid YouTube Video ID",
-            "Transcript missing or too short",
-        )):
+        # A mismatch is a SOURCE defect, not an output defect.
+        if str(exc).startswith(("SOURCE_VIDEO_MISMATCH",
+                                "Invalid YouTube Video ID",
+                                "Transcript missing or too short")):
             raise
 
-    def one_repair(prompt: str) -> str:
+    def second(prompt: str) -> str:
         nonlocal latest_raw
         latest_raw = ollama_json(
             prompt + (
                 "\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. "
-                "Начни заново строго по JSON-схеме. "
-                "Все title и ab_titles на русском без букв і ї є ґ. "
-                "Не начинай название со слов Диалог, Разговор, Обсуждение. "
-                "description целиком на украинском языке, 260–4500 символов. "
-                "Нужны три уникальных A/B-заголовка и 8–15 уникальных тегов "
-                "общей длиной до 500 символов. chapters = пустая строка. "
-                "Не выдумывай факты и цитаты."
+                "Сформируй JSON заново. Все заголовки строго по-русски. "
+                "Описание строго на УКРАИНСКОМ языке, полностью без "
+                "русских предложений, 450–1100 символов, по главной теме "
+                "исходного видео. Ровно 3 A/B-заголовка, 8–15 разных тегов, "
+                "chapters = пустая строка. Нельзя выдумывать цитаты и события."
             ),
             model=model,
         )
@@ -137,26 +192,62 @@ def generate_with_ollama(*, video_id: str, current_title: str,
     try:
         return generate_draft(
             video_id=video_id, current_title=current_title,
-            transcript=transcript, generate_json=one_repair,
+            transcript=transcript, generate_json=second,
         )
     except ValueError as exc:
-        if not str(exc).startswith(("Titles must be Russian",
-                                    "Generic non-editorial headline")):
+        if str(exc).startswith(("SOURCE_VIDEO_MISMATCH",
+                                "Invalid YouTube Video ID",
+                                "Transcript missing or too short")):
             raise
-        # Only retry titles; preserve the description and tags already
-        # generated. Never allow a model to bypass the final quality gate.
         if latest_raw is None:
             raise
-        data = json.loads(latest_raw)
-        if not isinstance(data, dict):
-            raise
-        fixed = ollama_titles_json(
-            current_title=current_title, transcript=transcript, model=model,
-        )
-        data["title"] = fixed.get("title")
-        data["ab_titles"] = fixed.get("ab_titles")
-        return generate_draft(
-            video_id=video_id, current_title=current_title,
-            transcript=transcript,
-            generate_json=lambda _: json.dumps(data, ensure_ascii=False),
-        )
+
+    # Preserve verified title/tags while repairing only the invalid field.
+    # Two separate repairs are the upper bound: e.g. one title + one description.
+    data = json.loads(latest_raw)
+    if not isinstance(data, dict):
+        raise ValueError("SEO response must be an object")
+    last_exc: ValueError | None = None
+    used: set[str] = set()
+    for _ in range(2):
+        try:
+            return generate_draft(
+                video_id=video_id, current_title=current_title,
+                transcript=transcript,
+                generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+            )
+        except ValueError as exc:
+            last_exc = exc
+            message = str(exc)
+            if message.startswith(("Titles must be Russian",
+                                    "Generic non-editorial headline",
+                                    "SEO_TOPIC_MISMATCH",
+                                    "Invalid primary title",
+                                    "A/B titles are duplicates",
+                                    "Exactly three valid A/B titles")):
+                field = "titles"
+            elif message.startswith(("Description must be Ukrainian",
+                                      "Description length invalid")):
+                field = "description"
+            else:
+                raise
+            if field in used:
+                raise
+            used.add(field)
+            if field == "titles":
+                fixed = ollama_titles_json(
+                    current_title=current_title, transcript=transcript, model=model,
+                )
+                data["title"] = fixed.get("title")
+                data["ab_titles"] = fixed.get("ab_titles")
+            else:
+                fixed = ollama_description_json(
+                    current_title=current_title, transcript=transcript, model=model,
+                )
+                data["description"] = fixed["description"]
+    # Re-run the whole gate after the second field-only repair.
+    return generate_draft(
+        video_id=video_id, current_title=current_title,
+        transcript=transcript,
+        generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+    )
