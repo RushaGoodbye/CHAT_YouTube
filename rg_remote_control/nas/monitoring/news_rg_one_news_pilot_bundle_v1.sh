@@ -38,5 +38,5 @@ echo '=== ONE DRAFT FROM EXISTING PROVIDER IF CREDENTIAL AVAILABLE ==='
 # This one explicit run can consume AT MOST ONE Google Gemini AI request.
 /usr/bin/python3 "$DIR/news_rg_pilot_one_editorial_v1.py" pilot-one
 echo '=== DRAFT QUALITY (NO PUBLIC CHANNEL OR TELEGRAM SEND) ==='
-/usr/bin/python3 "$DIR/news_rg_editorial_draft_preview_v1.py" inspect
+/usr/bin/python3 "$DIR/news_rg_editorial_draft_preview_v1.py" operator-preview
 echo NEWS_RG_EDITORIAL_ONE_DRAFT_PILOT_COMPLETE_NO_TELEGRAM_SEND
