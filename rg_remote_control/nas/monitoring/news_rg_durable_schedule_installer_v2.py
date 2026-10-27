@@ -33,7 +33,7 @@ def install():
  if "news_rg_final.lock" not in script or "prepare-one" not in script:stop("UNKNOWN_SIDECAR")
  if "/tmp/news_rg_private_bridge_v1.py" not in script or "/tmp/news_rg_ollama_adapter_v1.py" not in script:stop("SIDECAR_ALREADY_CHANGED")
  new=script.replace('/tmp/news_rg_private_bridge_v1.py',str(R)).replace('/tmp/news_rg_ollama_adapter_v1.py',str(A))
- for name,content in ((A,SRC_A.read_bytes()),(R,SRC_R.read_bytes())):
+ for name,content in ((A,SRC_A.read_bytes()),(R,SRC_R.read_bytes().replace(b'/tmp/news_rg_ollama_adapter_v1.py',str(A).encode()))):
   if name.is_symlink():stop("DEST_SYMLINK")
   put(name,content,0o600)
  # Preserve backup once, before touching production tick.
