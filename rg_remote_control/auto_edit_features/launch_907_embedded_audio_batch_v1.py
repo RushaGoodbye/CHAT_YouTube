@@ -136,6 +136,9 @@ def install_verified_anchor_scope():
         key=digest(im)
         lookup[key]=ix
         verified[ix]={"time":v,"score":round(s,4),"strong_face_hits":strong}
+        report("ANCHOR_PASS",{"index":ix,"time":round(v,2),
+               "visual_score":round(s,4),"strong_face_hits":strong,
+               "face_peak":round(max_face,4)})
     cache={}
     def patched_match(*args,**kwargs):
         im=args[1] if len(args)>1 else kwargs.get("screenshot")
