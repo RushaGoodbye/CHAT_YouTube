@@ -320,6 +320,29 @@ def locked(path):
         os.close(fd);raise RuntimeError("ANOTHER_PRIVATE_WORKER_ACTIVE")
     return fd
 
+def parse_tick_result(process):
+    """Interpret the installed guard's entire pretty-printed JSON receipt.
+
+    The guard reports json.dumps(..., indent=2), so its last line is merely
+    '}'. Reading just that line caused the misleading UNCLASSIFIED_SAFE_STOP
+    even after one real confirmed receipt. Never print worker stdout.
+    """
+    if process.returncode!=0:
+        return {"status":"SEND_RESULT_UNCERTAIN"}
+    try:
+        raw=process.stdout.decode("utf-8","strict").strip()
+        if not raw or len(raw)>4096:
+            return {"status":"SEND_RESULT_UNCERTAIN"}
+        decoded=json.loads(raw)
+        if not isinstance(decoded,dict):
+            return {"status":"SEND_RESULT_UNCERTAIN"}
+        status=decoded.get("status")
+        if not isinstance(status,str):
+            return {"status":"SEND_RESULT_UNCERTAIN"}
+        return {"status":status}
+    except (ValueError,UnicodeError,AttributeError):
+        return {"status":"SEND_RESULT_UNCERTAIN"}
+
 def apply():
     if os.geteuid()!=0:raise RuntimeError("ROOT_REQUIRED")
     fd=locked(ROOT/"rg_news2_private_final_install.lock")
@@ -353,9 +376,8 @@ def apply():
     try:
         p=subprocess.run([sys.executable,str(GUARD),"tick"],cwd=str(ROOT),
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=85)
-        raw=p.stdout.decode("utf-8","replace").strip().splitlines()
-        item=json.loads(raw[-1]) if raw else {}
-    except (ValueError,OSError,subprocess.TimeoutExpired,UnicodeError):
+        item=parse_tick_result(p)
+    except (OSError,subprocess.TimeoutExpired,UnicodeError):
         item={"status":"SEND_RESULT_UNCERTAIN"}
     permitted={"ONE_PRIVATE_RECEIPT_CONFIRMED","NO_PHOTO_ATTEMPTED_NO_MARKER",
                "PRIVATE_PHOTO_REVIEW_CAPACITY_3","NO_SAFE_NEW_ITEMS",
