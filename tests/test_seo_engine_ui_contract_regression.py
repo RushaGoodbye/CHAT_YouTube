@@ -52,7 +52,7 @@ def test_duplicate_tags_rejected_before_ui():
 def test_unrelated_model_response_rejected():
     bad = json.loads(candidate())
     bad["title"] = "КАК РОССИЯНЕ ПРОВЕРЯЮТ НОВОСТИ?"
-    bad["description"] = "Проверяем фейковые новости. " * 35
+    bad["description"] = "Перевіряємо фейкові новини та інформаційні маніпуляції. " * 15
     with pytest.raises(ValueError, match="SEO_TOPIC_MISMATCH"):
         generate_draft(video_id=VIDEO, current_title=TITLE,
                        transcript=TRANSCRIPT,
