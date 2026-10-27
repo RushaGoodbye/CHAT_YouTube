@@ -51,7 +51,7 @@ def test_complete_contract_and_schema_agree():
     ({"tags":[x*40 for x in TAGS]},"Tag text exceeds"),
     ({"chapters":"00:76 impossible"},"Invalid chapter timestamp"),
     ({"chapters":"chapter without time"},"Invalid chapters format"),
-    ({"title":"ФЕЙКОВЫЕ НОВОСТИ В РОССИИ?","description":"Фейки в новостях. "*50},
+    ({"title":"ФЕЙКОВЫЕ НОВОСТИ В РОССИИ?","description":"Фейкові новини та інформаційні маніпуляції в медіа. "*15},
      "SEO_TOPIC_MISMATCH"),
 ])
 def test_bad_outputs_are_blocked_in_single_gate(mutation,pattern):
