@@ -75,7 +75,7 @@ def generate_draft(
     if any(any(ch in "іїєґ" for ch in value.casefold())
            for value in [title, *variants]):
         raise ValueError("Titles must be Russian")
-    if re.match(r"^\\s*(обсуждение|диалог|разговор|беседа|дискуссия)\\b",
+    if re.match(r"^\s*(обсуждение|диалог|разговор|беседа|дискуссия)\b",
                 title.casefold()):
         raise ValueError("Generic non-editorial headline")
     if not 260 <= len(description) <= 4500:
