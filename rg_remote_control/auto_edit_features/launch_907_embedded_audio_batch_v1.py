@@ -110,6 +110,7 @@ def install_verified_anchor_scope():
     lookup={};verified={};duration=clock._probe_duration(str(SOURCE))
     original_match=clock._best_local_match
     original_confirm=clock._clock_locked_visual_confirmation
+    original_selector=clock.find_dialogues_by_clock
     for ix,expect in ANCHORS.items():
         im=cv2.imread(str(SCREENS/f"907-{ix}.jpg"))
         if im is None:raise RuntimeError("OpenCV cannot load screenshot "+str(ix))
@@ -152,11 +153,28 @@ def install_verified_anchor_scope():
         info["reason"]="907_INDEPENDENT_SOURCE_FRAME_AND_FACE_PROOF"
         info["rg_907_proof"]=True
         return True,info
+    def guarded_select(*args,**kwargs):
+        result=original_selector(*args,**kwargs)
+        matches=result.get("matches",[]) if isinstance(result,dict) else []
+        seen={}
+        for row in matches:
+            if not isinstance(row,dict):continue
+            shot=Path(str(row.get("screenshot","")))
+            m=re.search(r"907-(\\d+)\\.jpg$",shot.name,re.I)
+            if m:
+                seen[int(m.group(1))]=float(row.get("best_match_sec",-1))
+        if set(seen)!=set(ANCHORS) or set(cache)!=set(ANCHORS):
+            raise RuntimeError("907 selector did not produce all eight proven anchors")
+        if any(abs(seen[i]-ANCHORS[i])>3 for i in ANCHORS):
+            raise RuntimeError("907 selector rejected: source frames differ from verified anchors")
+        report("GUEST_SELECTOR",{"status":"ALL_8_PRODUCTION_MATCHES_VERIFIED","times":seen})
+        return result
     clock._best_local_match=patched_match
     clock._clock_locked_visual_confirmation=patched_confirm
+    clock.find_dialogues_by_clock=guarded_select
     report("GUEST_PROOF",{"status":"ALL_EIGHT_VERIFIED","anchors":verified,
                          "studio_source_modified":False})
-    return clock,original_match,original_confirm,cache
+    return clock,original_match,original_confirm,original_selector,cache
 
 def run():
     sys.path.insert(0,str(APP))
@@ -165,7 +183,7 @@ def run():
     report("TEMPLATE",{"from_stream":template["source_stream"],
                        "output":template["output"]})
     # Verify anchor hooks before emitting even one Premiere output.
-    clock,original_match,original_confirm,cache=install_verified_anchor_scope()
+    clock,original_match,original_confirm,original_selector,cache=install_verified_anchor_scope()
     try:
         prepare_audio()
         options=dict(template["args"])
@@ -186,6 +204,7 @@ def run():
     finally:
         clock._best_local_match=original_match
         clock._clock_locked_visual_confirmation=original_confirm
+        clock.find_dialogues_by_clock=original_selector
     if not MANIFEST.is_file():
         raise RuntimeError("Studio returned without writing 907 result manifest")
     doc=json.loads(MANIFEST.read_text(encoding="utf-8-sig"))
