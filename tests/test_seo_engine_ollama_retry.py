@@ -280,3 +280,16 @@ def test_model_repairs_description_when_title_and_description_diverge(monkeypatc
     )
     assert draft.needs_review
     assert calls == ["full", "full", "description"]
+
+
+
+def test_duplicate_tags_are_removed_without_increasing_count():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    raw = json.loads(candidate(TAGS))
+    raw["tags"] = TAGS + [TAGS[0].upper(), TAGS[3]]
+    draft = generate_draft(
+        video_id=VID, current_title=TITLE, transcript=SOURCE,
+        generate_json=lambda _: json.dumps(raw, ensure_ascii=False),
+    )
+    assert len(draft.tags) == 8
+    assert len({t.casefold() for t in draft.tags}) == 8
