@@ -57,7 +57,7 @@ def test_actual_gate_rejects_bad_model_output_before_persistence(monkeypatch, tm
     monkeypatch.setattr(gate, "generate_with_ollama", model)
     result = gate.run_one("UC-zGLdheCE", database=Path("unused"), model="qwen3:8b")
     assert result["status"] == "BLOCKED"
-    assert result["error_code"] == "OLLAMA_RESPONSE_FAILED_CONTRACT"
+    assert result["error_code"] == "MODEL_TAGS_INVALID"
     assert result["production_draft_writes"] == 0
 
 
