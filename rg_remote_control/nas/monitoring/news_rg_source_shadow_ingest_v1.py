@@ -38,6 +38,7 @@ TIME=re.compile(r'<time\b[^>]*\bdatetime="([^"]+)"',re.I)
 PHOTO=re.compile(r'<[^>]+class="[^"]*tgme_widget_message_photo_wrap[^"]*"[^>]*>',re.I)
 PHOTO_URL=re.compile(r"background-image\s*:\s*url\((?:'([^']+)'|\"([^\"]+)\"|&quot;([^&]+)&quot;)\)",re.I)
 VIDEOS=re.compile(r'<video\b|tgme_widget_message_video\b',re.I)
+VIDEO_SRC=re.compile(r'<(?:video|source)\b[^>]*\bsrc="(https://[^"]+)"',re.I)
 LINK=re.compile(r"^https://(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z0-9_]{4,})/(\d{1,15})(?:\?single)?$",re.I)
 
 def plain(fragment):
@@ -51,7 +52,6 @@ def parse_page(page,channel):
     for i,m in enumerate(matches):
         if m.group(1).lower()!=channel.lower():continue
         piece=page[m.start():matches[i+1].start() if i+1<len(matches) else len(page)]
-        if VIDEOS.search(piece):continue
         body=BODY.search(piece)
         if not body:continue
         text=plain(body.group(1))
@@ -59,10 +59,13 @@ def parse_page(page,channel):
         photo_tag=PHOTO.search(piece)
         media=PHOTO_URL.search(photo_tag.group(0)) if photo_tag else None
         image=html.unescape(next((x for x in media.groups() if x), "")) if media else ""
+        video=VIDEO_SRC.search(piece) if VIDEOS.search(piece) else None
+        media_type="video" if video else "photo"
+        media_url=html.unescape(video.group(1)) if video else image
         stamp=TIME.search(piece)
         published=html.unescape(stamp.group(1)) if stamp else ""
         items.append({"channel":channel,"number":int(m.group(2)),
-                      "text":text,"photo_url":image,"published":published})
+                      "text":text,"media_url":media_url,"media_type":media_type,"published":published})
     return items
 
 def pub_epoch(raw):
@@ -88,7 +91,8 @@ def init(cx):
         initialized_at INTEGER NOT NULL, last_scan_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS story_shadow(
         key TEXT PRIMARY KEY,channel TEXT NOT NULL,number INTEGER NOT NULL,
-        posted_at INTEGER, text TEXT NOT NULL, photo_url TEXT NOT NULL,
+        posted_at INTEGER, text TEXT NOT NULL, media_url TEXT NOT NULL,
+        media_type TEXT NOT NULL CHECK(media_type IN ('photo','video')),
         status TEXT NOT NULL CHECK(status='needs_editorial_rewrite'),
         origin TEXT NOT NULL CHECK(origin IN ('approved_source','manual_link')),
         queued_at INTEGER NOT NULL,
@@ -111,9 +115,10 @@ def story_status(raw,now,manual=False):
     text=raw.get("text") or ""
     if len(text)<65 or any(x in text.lower() for x in BLOCK_AD):
         return "brief_or_advertisement"
-    image=raw.get("photo_url") or ""
-    if not image.startswith("https://") or len(image)>2048:
-        return "missing_real_photo"
+    media=raw.get("media_url") or ""
+    if not media.startswith("https://") or len(media)>2048 or \
+       raw.get("media_type") not in ("photo","video"):
+        return "missing_real_media"
     return "eligible_for_editorial"
 
 def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
@@ -160,9 +165,9 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
                         continue
                     key=hashlib.sha256((channel.lower()+":"+str(post["number"])).encode()).hexdigest()[:24]
                     stamp=int(pub_epoch(post["published"]))
-                    result=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?)",
+                    result=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (key,channel,post["number"],stamp,post["text"],
-                         post["photo_url"],"needs_editorial_rewrite",
+                         post["media_url"],post["media_type"],"needs_editorial_rewrite",
                          "approved_source",now))
                     if result.rowcount:
                         status["new_stories_staged_for_editorial"]+=1
@@ -200,9 +205,9 @@ def import_manual(link,store=STORE,now=None,loader=None):
     try:
         key=hashlib.sha256((channel.lower()+":"+str(number)).encode()).hexdigest()[:24]
         stamp=int(pub_epoch(found["published"]))
-        cursor=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?)",
-                          (key,channel,number,stamp,found["text"],found["photo_url"],
-                           "needs_editorial_rewrite","manual_link",now))
+        cursor=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          (key,channel,number,stamp,found["text"],found["media_url"],
+                           found["media_type"],"needs_editorial_rewrite","manual_link",now))
         return {"status":"MANUAL_STAGED_FOR_EDITORIAL" if cursor.rowcount else "DUPLICATE",
                 "telegram_bot_api_calls":0,"publications":0,
                 "text_not_sent_to_moderation_yet":True}
@@ -221,7 +226,7 @@ def selftest():
     def loader(channel,before):
         return msg(12,channel) if before is None else msg(before-1,channel)
     posts=parse_page(msg(12),"Ateobreaking")
-    assert len(posts)==1 and posts[0]["photo_url"].startswith("https://")
+    assert len(posts)==1 and posts[0]["media_type"]=="photo" and posts[0]["media_url"].startswith("https://")
     with tempfile.TemporaryDirectory() as td:
         store=pathlib.Path(td)/"shadows/db.sqlite3"
         a=scan_once(store,int(now),("Ateobreaking",),loader)
