@@ -78,3 +78,20 @@ def test_real_27_year_topic_passes_full_source_bound_editorial_gate():
     )
     assert "27 лет" in draft.title
     assert draft.needs_review is True
+
+
+
+def test_russian_antiwar_title_matches_ukrainian_subject_tags():
+    from rg_youtube_control.seo_engine_v1 import _topic_roots
+    headline = _topic_roots(
+        "Коллективная ответственность за войну: 27 лет без изменений"
+    )
+    for subject in ("війна", "зміни", "відповідальність"):
+        assert _topic_roots(subject).intersection(headline), subject
+
+
+def test_russian_fisherman_title_matches_ukrainian_fishing_keywords():
+    from rg_youtube_control.seo_engine_v1 import _topic_roots
+    topic = _topic_roots("Рыбак и джедай в абсурдном диалоге")
+    assert _topic_roots("рибалка").intersection(topic)
+    assert _topic_roots("джедай").intersection(topic)
