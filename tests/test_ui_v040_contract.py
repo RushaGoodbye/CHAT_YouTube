@@ -102,15 +102,15 @@ def test_local_seo_batch_lifecycle_is_logged() -> None:
     assert 'action="SEO-чернетка batch · результат"' in source
 
 
-def test_local_seo_batch_has_candidate_timeout() -> None:
+def test_local_seo_batch_is_serial_and_does_not_leave_background_ollama_calls() -> None:
     source = _ui_source()
     start = source.index("    def local_seo_batch")
     end = source.index("\n    def _save_local_seo_batch", start)
     block = source[start:end]
-    assert "candidate_timeout_seconds = 180" in block
-    assert "daemon=True" in block
+    assert "generate_sequentially(video_id)" in block
+    assert "daemon=True" not in block
     assert "fast_mode=False" in block
-    assert "Кандидат пропущено автоматично." in block
+    assert "result_queue.get(" not in block
 
 
 def test_batch_seo_requires_transcript_grounding() -> None:
