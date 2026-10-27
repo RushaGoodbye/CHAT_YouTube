@@ -2129,16 +2129,21 @@ chapters: рядок з підтвердженими таймкодами та �
                     # Strict for unattended batch preparation.
                     raise ValueError("need exactly 3 title variants")
                 try:
-                    variants_candidate = _recover_title_variants(
+                    recovered_variants = _recover_title_variants(
                         current_title=current_title,
                         transcript=transcript,
                         model=model,
                     )
                 except (ValueError, RuntimeError, TimeoutError):
-                    # Allow an incomplete *manual-review* draft instead of
-                    # discarding an otherwise useful transcript-grounded SEO
-                    # description and requiring another full model pass.
-                    variants_candidate = []
+                    # Keep the original grounded draft if recovery fails.
+                    recovered_variants = []
+                # Never discard two existing editorial hooks because an
+                # independent recovery returned zero or one candidate.
+                # Incomplete sets remain NEEDS_REVIEW, never ready to apply.
+                if len(set(map(str.casefold, recovered_variants))) > len(
+                    set(map(str.casefold, variants_candidate))
+                ):
+                    variants_candidate = recovered_variants
                 candidate["title_variants"] = variants_candidate
             variants_candidate = list(dict.fromkeys(
                 item for item in variants_candidate
