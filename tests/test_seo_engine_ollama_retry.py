@@ -42,7 +42,7 @@ def test_one_repair_recovers_bad_tag_count(monkeypatch):
     )
     assert len(draft.tags) == 8
     assert len(prompts) == 2
-    assert "ПОПЕРЕДНЯ ВІДПОВІДЬ" in prompts[1]
+    assert "ПРЕДЫДУЩИЙ ОТВЕТ" in prompts[1]
 
 
 def test_never_retries_source_title_mismatch(monkeypatch):
@@ -108,3 +108,30 @@ def test_one_repair_corrects_ukrainian_headline(monkeypatch):
     )
     assert count == 2
     assert "СУДИМЫЕ" in result.title
+
+
+def test_targeted_russian_headline_repair_after_two_bad_full_answers(monkeypatch):
+    from rg_youtube_control import seo_engine_ollama as adapter
+    calls = []
+    def bad_llm(prompt, *, model):
+        calls.append("full")
+        data = json.loads(candidate(TAGS))
+        data["title"] = "Політична активність та історичні корені"
+        return json.dumps(data, ensure_ascii=False)
+    def fixed_titles(**kwargs):
+        calls.append("titles")
+        return {
+            "title": "СУДИМЫЕ УЧИТЕЛЯ В ШКОЛАХ РФ? РОССИЯНЕ СПОРЯТ",
+            "ab_titles": [
+                "Судимые педагоги: реакция родителей",
+                "Школы России и осужденные учителя",
+                "Преподавание после тяжкого преступления?",
+            ],
+        }
+    monkeypatch.setattr(adapter, "ollama_json", bad_llm)
+    monkeypatch.setattr(adapter, "ollama_titles_json", fixed_titles)
+    result = adapter.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert "СУДИМЫЕ" in result.title
+    assert calls == ["full", "full", "titles"]
