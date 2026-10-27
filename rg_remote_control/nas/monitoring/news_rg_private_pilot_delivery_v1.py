@@ -28,12 +28,16 @@ def resolve():
  cfg=module.config()
  if not isinstance(cfg,dict):raise RuntimeError('EXISTING_CONFIG_UNEXPECTED')
  # Existing config must unambiguously expose a dedicated private moderator ID.
- vals=[(k,int(v)) for k,v in cfg.items() if ('moderator' in str(k).lower() or 'admin_chat' in str(k).lower()) and ('chat' in str(k).lower() or str(k).lower()=='moderator_id') and str(v).lstrip('-').isdigit()]
- uniq={v for _,v in vals if v>0}
- if len(uniq)!=1:
-  keys=[str(k) for k in cfg.keys() if not any(word in str(k).lower() for word in ('token','password','secret','key','auth','url'))]
-  raise RuntimeError('PRIVATE_MODERATOR_CHAT_NOT_PROVEN_CONFIG_KEYS_'+','.join(keys)[:220])
- chat=next(iter(uniq))
+ # Exact deployed config contract: moderation_chat_id and moderators.
+ raw=cfg.get('moderation_chat_id')
+ if isinstance(raw,bool) or not str(raw).isdigit():raise RuntimeError('PRIVATE_CHAT_ID_INVALID')
+ chat=int(raw)
+ if chat<=0:raise RuntimeError('PRIVATE_CHAT_NOT_USER_DIALOG')
+ mods=cfg.get('moderators')
+ if not isinstance(mods,(list,tuple,set)):raise RuntimeError('MODERATOR_ALLOWLIST_UNVERIFIED')
+ try: ids={int(x) for x in mods}
+ except (ValueError,TypeError):raise RuntimeError('MODERATOR_ALLOWLIST_INVALID')
+ if chat not in ids:raise RuntimeError('PRIVATE_CHAT_NOT_IN_MODERATOR_ALLOWLIST')
  return module,chat
 def do(preflight):
  p,item=safe()
