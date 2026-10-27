@@ -93,10 +93,15 @@ def init(cx):
         key TEXT PRIMARY KEY,channel TEXT NOT NULL,number INTEGER NOT NULL,
         posted_at INTEGER, text TEXT NOT NULL, media_url TEXT NOT NULL,
         media_type TEXT NOT NULL CHECK(media_type IN ('photo','video')),
-        status TEXT NOT NULL CHECK(status='needs_editorial_rewrite'),
+        status TEXT NOT NULL CHECK(status IN ('needs_editorial_rewrite',
+                                              'editorial_ready','editorial_rejected')),
         origin TEXT NOT NULL CHECK(origin IN ('approved_source','manual_link')),
         queued_at INTEGER NOT NULL,
-        UNIQUE(channel,number));""")
+        UNIQUE(channel,number));
+        CREATE TABLE IF NOT EXISTS editorial_draft(
+        key TEXT PRIMARY KEY,headline TEXT NOT NULL,body TEXT NOT NULL,
+        validated_at INTEGER NOT NULL,
+        FOREIGN KEY(key) REFERENCES story_shadow(key));""")
 
 def db_connection(store):
     store.parent.mkdir(parents=True,exist_ok=True)
@@ -148,6 +153,10 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
                     status["failed_sources"]+=1
                     continue
                 high=max((x["number"] for x in posts),default=old.get(channel,0))
+                if not posts:
+                    # Do not initialize an empty or unparsable public page.
+                    status["failed_sources"]+=1
+                    continue
                 if channel not in old:
                     # First observation is only a high-water mark: no backfill.
                     cx.execute("INSERT INTO source_cursor VALUES(?,?,?,?)",
