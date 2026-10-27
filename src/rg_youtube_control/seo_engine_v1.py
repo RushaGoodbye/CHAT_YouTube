@@ -44,7 +44,11 @@ def generate_draft(
         "title, ab_titles (рівно 3), description, tags (8–15 релевантних), chapters. "
         "Поле chapters завжди порожній рядок, бо звичайний текст розшифровки "
         "не містить перевірених таймкодів; не вигадуй розділи. "
-        "Назви російською, опис українською. "
+        "Назви тільки російською (не використовуй українські і, ї, є, ґ), "
+        "опис лише українською (з українськими словами, не перекладай російською). "
+        "Заголовок має називати конкретний центральний сюжет. "
+        "Не починай із шаблонів Обсуждение, Диалог, Разговор або Беседа. "
+        "Описуй конкретні події та питання, не пиши В тексте описывается. "
         "Не вигадуй факти, цитати чи законодавчі зміни. "
         "Бери теми лише з розшифровки, уникай шаблонних фраз. "
         "Усі твердження залишаються чернеткою до редакторського схвалення. "
@@ -68,8 +72,18 @@ def generate_draft(
         raise ValueError("Exactly three valid A/B titles required")
     if len({title.casefold(), *(v.strip().casefold() for v in variants)}) < 4:
         raise ValueError("A/B titles are duplicates")
+    if any(any(ch in "іїєґ" for ch in value.casefold())
+           for value in [title, *variants]):
+        raise ValueError("Titles must be Russian")
+    if re.match(r"^\\s*(обсуждение|диалог|разговор|беседа|дискуссия)\\b",
+                title.casefold()):
+        raise ValueError("Generic non-editorial headline")
     if not 260 <= len(description) <= 4500:
         raise ValueError("Description length invalid")
+    ua_chars = sum(ch in "іїєґ" for ch in description.casefold())
+    ru_chars = sum(ch in "ыъэё" for ch in description.casefold())
+    if ua_chars < 4 or (ru_chars > 2 and ru_chars * 3 > ua_chars):
+        raise ValueError("Description must be Ukrainian")
     if not isinstance(tags, list) or not 8 <= len(tags) <= 15 or any(
         not isinstance(t, str) or not t.strip() for t in tags
     ):
