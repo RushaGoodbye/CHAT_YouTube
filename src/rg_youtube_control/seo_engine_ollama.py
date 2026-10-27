@@ -216,6 +216,37 @@ def ollama_description_json(*, current_title: str, transcript: str,
     return candidate
 
 
+def _restore_one_ab_from_verified_original(data: dict, current_title: str) -> None:
+    """Recover one duplicate A/B title with the already source-verified title.
+
+    This does NOT invent a new topic. The full editorial and source gates
+    still validate the repaired package after this fallback.
+    """
+    from .seo_source_alignment import _named_anchors
+    variants = data.get("ab_titles")
+    main = str(data.get("title") or "").strip()
+    original = " ".join(str(current_title or "").split())
+    if not isinstance(variants, list) or len(variants) != 3:
+        return
+    if not original or len(original) > 100 or any(
+        ch in "іїєґ" for ch in original.casefold()
+    ):
+        return
+    clean: list[str] = []
+    seen = {main.casefold()}
+    for value in variants:
+        if not isinstance(value, str) or not value.strip():
+            return
+        candidate = " ".join(value.split())
+        if len(candidate) > 100:
+            return
+        if candidate.casefold() not in seen:
+            seen.add(candidate.casefold())
+            clean.append(candidate)
+    if len(clean) == 2 and original.casefold() not in seen:
+        data["ab_titles"] = [*clean, original]
+
+
 def generate_with_ollama(*, video_id: str, current_title: str,
                          transcript: str, model: str = "qwen3:8b") -> SeoDraft:
     """Two full attempts, followed by at most two FIELD-ONLY repairs.
@@ -275,6 +306,7 @@ def generate_with_ollama(*, video_id: str, current_title: str,
     data = json.loads(latest_raw)
     if not isinstance(data, dict):
         raise ValueError("SEO response must be an object")
+    _restore_one_ab_from_verified_original(data, current_title)
     def annotate_rejected_title(exc: ValueError) -> None:
         # A generated title is shareable for a PRIVATE read-only QA receipt;
         # never attach source captions, model payloads or local file paths.
