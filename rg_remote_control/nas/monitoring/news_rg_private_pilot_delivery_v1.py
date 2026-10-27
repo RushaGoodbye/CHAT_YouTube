@@ -30,7 +30,9 @@ def resolve():
  # Existing config must unambiguously expose a dedicated private moderator ID.
  vals=[(k,int(v)) for k,v in cfg.items() if ('moderator' in str(k).lower() or 'admin_chat' in str(k).lower()) and ('chat' in str(k).lower() or str(k).lower()=='moderator_id') and str(v).lstrip('-').isdigit()]
  uniq={v for _,v in vals if v>0}
- if len(uniq)!=1:raise RuntimeError('PRIVATE_MODERATOR_CHAT_NOT_PROVEN')
+ if len(uniq)!=1:
+  keys=[str(k) for k in cfg.keys() if not any(word in str(k).lower() for word in ('token','password','secret','key','auth','url'))]
+  raise RuntimeError('PRIVATE_MODERATOR_CHAT_NOT_PROVEN_CONFIG_KEYS_'+','.join(keys)[:220])
  chat=next(iter(uniq))
  return module,chat
 def do(preflight):
