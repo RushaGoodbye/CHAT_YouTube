@@ -72,3 +72,39 @@ def test_no_infinite_retry_on_repeated_malformed_model(monkeypatch):
             video_id=VID, current_title=TITLE, transcript=SOURCE
         )
     assert count == 2
+
+
+def test_one_repair_corrects_russian_description(monkeypatch):
+    count = 0
+    def fake_llm(prompt, *, model):
+        nonlocal count
+        count += 1
+        data = json.loads(candidate(TAGS))
+        if count == 1:
+            data["description"] = (
+                "Обсуждение событий войны, действий России и мнений людей. " * 8
+            )
+        return json.dumps(data, ensure_ascii=False)
+    monkeypatch.setattr(module, "ollama_json", fake_llm)
+    result = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert count == 2
+    assert "У цьому" in result.description or "Росіяни" in result.description
+
+
+def test_one_repair_corrects_ukrainian_headline(monkeypatch):
+    count = 0
+    def fake_llm(prompt, *, model):
+        nonlocal count
+        count += 1
+        data = json.loads(candidate(TAGS))
+        if count == 1:
+            data["title"] = "Політична активність та історичні корені"
+        return json.dumps(data, ensure_ascii=False)
+    monkeypatch.setattr(module, "ollama_json", fake_llm)
+    result = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert count == 2
+    assert "СУДИМЫЕ" in result.title
