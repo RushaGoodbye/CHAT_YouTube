@@ -29,6 +29,8 @@ def test_ollama_model_request_uses_valid_schema_and_offline_endpoint(monkeypatch
     assert seen["body"]["stream"] is False
     assert seen["body"]["format"]["properties"]["tags"]["minItems"] == 8
     assert seen["body"]["model"] == "qwen3:8b"
+    assert seen["body"]["think"] is False
+    assert seen["body"]["keep_alive"] == "20m"
 
 
 def test_ollama_connection_failure_is_not_silenced(monkeypatch):
@@ -110,3 +112,15 @@ def test_ukrainian_repair_never_accepts_two_russian_responses(monkeypatch):
             timeout=100,
         )
     assert len(calls) == 2
+
+
+
+def test_every_ollama_qa_call_disables_qwen3_reasoning():
+    # The 8B local model may spend >100 seconds generating hidden thinking
+    # rather than the tiny JSON response required by SEO.
+    from pathlib import Path
+    source = Path("src/rg_youtube_control/seo_engine_ollama.py").read_text(
+        encoding="utf-8"
+    )
+    assert source.count('"think": False') == 5
+    assert source.count('"keep_alive": "20m"') == 5
