@@ -103,6 +103,34 @@ def _valid_ukrainian_description(description: str) -> bool:
     return ua_hits >= 3 and ua_hits > ru_hits
 
 
+
+def _bilingual_subject_roots(value: str) -> set[str]:
+    # Letter normalization permits overlap between closely related Russian
+    # and Ukrainian forms without treating channel branding as evidence.
+    normalized = (str(value).casefold()
+                  .replace("і", "и").replace("ї", "и")
+                  .replace("є", "е").replace("ґ", "г"))
+    tokens = re.findall(r"[а-яёa-z]{5,}", normalized)
+    generic = {
+        "росси", "росий", "россий", "украин", "україн", "росиян",
+        "россия", "россии", "канала", "канале", "рулетк", "гудбай",
+        "сегодня", "расска", "обсужд", "участн", "разгов", "различ",
+        "политик", "событи", "ситуац", "видео", "стране",
+    }
+    return {word[:6] for word in tokens if word[:6] not in generic
+            and word not in _TOPIC_STOP}
+
+
+def _check_title_description_alignment(title: str, description: str) -> None:
+    title_roots = _bilingual_subject_roots(title)
+    description_roots = _bilingual_subject_roots(description)
+    # Descriptions must actually describe the SEO headline, not another
+    # interesting but incidental clip in the same multi-topic transcript.
+    if len(title_roots) >= 2 and not title_roots.intersection(description_roots):
+        raise ValueError("SEO_TOPIC_MISMATCH: title and description discuss different subjects")
+
+
+
 def generate_draft(
     *, video_id: str, current_title: str, transcript: str,
     generate_json: Callable[[str], str],
@@ -175,6 +203,7 @@ def generate_draft(
         raise ValueError("Description length invalid")
     if not _valid_ukrainian_description(description):
         raise ValueError("Description must be Ukrainian")
+    _check_title_description_alignment(title, description)
     if not isinstance(tags, list) or not 8 <= len(tags) <= 15 or any(
         not isinstance(t, str) or not t.strip() for t in tags
     ):
