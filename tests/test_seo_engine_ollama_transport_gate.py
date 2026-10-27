@@ -68,3 +68,45 @@ def test_non_retryable_http_400_does_not_loop(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         adapter.ollama_json("prompt", timeout=120)
     assert len(attempts) == 1
+
+
+
+def test_ukrainian_description_repairs_first_russian_language_result_once(monkeypatch):
+    calls = []
+    ru = "Участники обсуждают события в России и говорят о ситуации. " * 10
+    ua = (
+        "У відео співрозмовники обговорюють суспільні питання, "
+        "відповідальність за війну, а також розповідають про "
+        "причини відсутності змін у суспільстві. " * 5
+    )
+    def fake_open(req, timeout):
+        calls.append(json.loads(req.data.decode("utf-8")))
+        text = ru if len(calls) == 1 else ua
+        return FakeReply({"message": {"content": json.dumps(
+            {"description": text}, ensure_ascii=False)}})
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", fake_open)
+    result = adapter.ollama_description_json(
+        current_title="27 лет без изменений", selected_title="Против войны",
+        transcript="Россиияне обсуждают войну и гражданскую ответственность. " * 80,
+        timeout=120,
+    )
+    assert len(calls) == 2
+    assert result["description"] == ua
+    assert all(c["model"] == "qwen3:8b" for c in calls)
+    assert "ПОВНІСТЮ УКРАЇНСЬКОЮ" in calls[1]["messages"][1]["content"]
+
+
+def test_ukrainian_repair_never_accepts_two_russian_responses(monkeypatch):
+    calls = []
+    ru = "Обсуждение ситуации и вопросов власти, которые происходят в России. " * 12
+    def fake_open(req, timeout):
+        calls.append(timeout)
+        return FakeReply({"message": {"content": json.dumps(
+            {"description": ru}, ensure_ascii=False)}})
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", fake_open)
+    with pytest.raises(ValueError, match="Description must be Ukrainian"):
+        adapter.ollama_description_json(
+            current_title="Разговор", transcript="Исходная расшифровка." * 160,
+            timeout=100,
+        )
+    assert len(calls) == 2
