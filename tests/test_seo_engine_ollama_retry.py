@@ -293,3 +293,94 @@ def test_duplicate_tags_are_removed_without_increasing_count():
     )
     assert len(draft.tags) == 8
     assert len({t.casefold() for t in draft.tags}) == 8
+
+
+
+def test_reuses_verified_original_as_third_ab_when_model_duplicates(monkeypatch):
+    calls = []
+    def duplicate_ab(prompt, *, model):
+        calls.append(prompt)
+        data = json.loads(candidate(TAGS))
+        data["ab_titles"][2] = data["ab_titles"][0]
+        return json.dumps(data, ensure_ascii=False)
+    monkeypatch.setattr(module, "ollama_json", duplicate_ab)
+    draft = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert len(calls) == 2
+    assert len(set(t.casefold() for t in draft.ab_titles)) == 3
+    assert TITLE in draft.ab_titles
+    assert len(set([draft.title.casefold()] +
+                   [v.casefold() for v in draft.ab_titles])) == 4
+
+
+def test_irrelevant_military_keywords_blocked_for_fishing_jedi_video():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    current_title = "ФАНТАЗЁРЫ из РФ — РЫБАК И ДЖЕДАЙ"
+    transcript = (
+        "Рыбак и джедай рассказывают друг другу фантастические истории. "
+        "Они говорят о рыбалке, фантазиях и спорят о жизненных ситуациях. " * 12
+    )
+    data = json.loads(candidate(TAGS))
+    data["title"] = "Рыбак и джедай спорят о фантазиях"
+    data["ab_titles"] = [
+        "Фантазеры: рыбак и джедай в разговоре",
+        "Рыбак против джедая: кто прав?",
+        "Джедай и рыбак в чате: спор фантазеров",
+    ]
+    data["description"] = (
+        "У цьому відео росіяни обговорюють рибальство, "
+        "фантастичні історії рибалки та джедая. "
+        "Співрозмовники сперечаються про життєві питання, "
+        "висловлюють свої погляди та розповідають цікаві історії. " * 4
+    )
+    data["tags"] = [
+        "военная техника", "лазерное оружие", "военные технологии",
+        "оборона", "армия", "оружие", "боевые системы",
+        "дроны", "военные испытания",
+    ]
+    with pytest.raises(ValueError, match="SEO_TAGS_TOPIC_MISMATCH"):
+        generate_draft(
+            video_id=VID, current_title=current_title,
+            transcript=transcript,
+            generate_json=lambda _: json.dumps(data, ensure_ascii=False)
+        )
+
+
+def test_repair_of_off_topic_tags_does_not_change_main_title(monkeypatch):
+    calls = []
+    def bad_tags(prompt, *, model):
+        calls.append("full")
+        data = json.loads(candidate(TAGS))
+        data["tags"] = [
+            "ракеты", "армия", "военные лазеры", "дроны", "флот",
+            "полиция", "оружие", "инновации",
+        ]
+        return json.dumps(data, ensure_ascii=False)
+    def corrected(**kwargs):
+        calls.append("tags")
+        return {"tags": TAGS}
+    monkeypatch.setattr(module, "ollama_json", bad_tags)
+    monkeypatch.setattr(module, "ollama_topic_tags_json", corrected)
+    draft = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert calls == ["full", "full", "tags"]
+    assert "СУДИМЫЕ" in draft.title
+    assert len(draft.tags) == 8
+
+
+def test_generic_meta_description_is_not_editorial_seo():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    data = json.loads(candidate(TAGS))
+    data["description"] = (
+        "Цей текст є фрагментом діалогу, можливо, з підкаста "
+        "або інтерв’ю про вчителів та безпеку дітей. "
+        "Учасники обговорюють суспільні питання й розповідають "
+        "про різні погляди на школу. " * 4
+    )
+    with pytest.raises(ValueError, match="Generic AI meta-description"):
+        generate_draft(
+            video_id=VID, current_title=TITLE, transcript=SOURCE,
+            generate_json=lambda _: json.dumps(data, ensure_ascii=False),
+        )
