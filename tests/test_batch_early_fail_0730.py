@@ -25,7 +25,8 @@ def test_batch_uses_proven_interactive_editor_not_fast_experimental_mode():
     batch = source.split("    def local_seo_batch(", 1)[1].split(
         "    def _save_local_seo_batch(", 1
     )[0]
-    assert "candidate_timeout_seconds = 180" in batch
+    assert "generate_sequentially(video_id)" in batch
+    assert "daemon=True" not in batch
     assert "fast_mode=False" in batch
     assert "fast_mode=True" not in batch
 
