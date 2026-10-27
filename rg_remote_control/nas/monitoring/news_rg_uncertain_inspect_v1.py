@@ -12,7 +12,7 @@ def inspect():
  s=(B/"rg_moderation.py").read_text()
  tree=ast.parse(s)
  for node in tree.body:
-  if isinstance(node,ast.FunctionDef) and node.name in ("api","config"):
+  if isinstance(node,ast.FunctionDef) and node.name == "api":
    out[node.name+"_implementation"]=[ast.unparse(x)[:350] for x in node.body if isinstance(x,(ast.Return,ast.If,ast.Try,ast.Assign,ast.With))][:10]
  return out
 if __name__=="__main__":
