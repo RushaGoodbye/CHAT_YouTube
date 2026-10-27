@@ -85,8 +85,8 @@ def test_isolated_ast():
     assert patched.count("RSS_DISPATCH_FORBIDDEN")==1
     ns={"ast":ast,"RuntimeError":RuntimeError}
     exec(mod.CAP_HELPER,ns)
-    fixture_code=("def run():\n"
-       "    if photo_open >= 1: return 'blocked'\n"
+    fixture_code=("def run(mode):\n"
+       "    if mode=='tick' and photo_open >= 1: return 'blocked'\n"
        "    return deliver_one()\n")
     tree=ast.parse(fixture_code)
     fn=ns["rg_capacity_relax_exact"](tree.body[0])
@@ -96,11 +96,43 @@ def test_isolated_ast():
                  "ast_fixture","exec"),ctx)
     # Inject observer into AST-transformed private-only function.
     ctx["__rg_observe_private_delivery"]=lambda func,*a,**kw:func(*a,**kw)
-    ctx["run"]()
+    ctx["run"]("tick")
     assert observed==["sent"]
     ctx["photo_open"]=3
-    assert ctx["run"]()=="blocked"
+    assert ctx["run"]("tick")=="blocked"
     assert observed==["sent"]
+
+def test_prove_guard_nested_and_only():
+    mod=load(PATCHER,"capacity_nested_verification")
+    with tempfile.TemporaryDirectory() as td:
+        root=pathlib.Path(td)
+        (root/"operator").mkdir()
+        file=root/"operator/rg_news2_outbound_queue_v2.py"
+        file.write_text("def run(mode):\n"
+                        "  if mode=='tick' and photo_open>=1:\n"
+                        "    return 'capacity'\n"
+                        "  return deliver_one()\n")
+        v=mod.prove_capacity_abort(root)
+        assert v["guard_test_type"]=="BoolOp"
+        assert v["guard_line"]<v["deliver_line"]
+        # Never expand non-early-return or OR conditions.
+        file.write_text("def run(mode):\n"
+                        "  if mode=='tick' or photo_open>=1:\n"
+                        "    return 'capacity'\n"
+                        "  return deliver_one()\n")
+        try:mod.prove_capacity_abort(root)
+        except RuntimeError as e:
+            assert str(e)=="CAPACITY_ABORT_CODE_NOT_PROVEN"
+        else:raise AssertionError("OR branch must be rejected")
+        file.write_text("def run(mode):\n"
+                        "  if mode=='tick' and photo_open>=1:\n"
+                        "    pass\n"
+                        "  return deliver_one()\n")
+        try:mod.prove_capacity_abort(root)
+        except RuntimeError as e:
+            assert str(e)=="CAPACITY_ABORT_CODE_NOT_PROVEN"
+        else:raise AssertionError("fallthrough must be rejected")
+
 
 def test_no_send_and_fail_closed():
     with tempfile.TemporaryDirectory() as td:
@@ -165,5 +197,6 @@ if __name__=="__main__":
     test_standalone_synology_selftest()
     test_reconcile()
     test_isolated_ast()
+    test_prove_guard_nested_and_only()
     test_no_send_and_fail_closed()
     print("RG_NEWS2_CAPACITY_RESUME_FULL_OFFLINE_REGRESSION_PASS")
