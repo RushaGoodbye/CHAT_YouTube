@@ -144,6 +144,8 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
                 "new_stories_staged_for_editorial":0,
                 "media_missing_skipped":0,"old_or_short_skipped":0,
                 "failed_sources":0,"duplicates":0,
+                "observed_current_posts":0,"observed_real_media_posts":0,
+                "source_status":{},
                 "telegram_bot_api_calls":0,"private_sends":0,
                 "publications":0,"pollers_started":0}
         cx.execute("BEGIN IMMEDIATE")
@@ -151,18 +153,25 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
             for channel,posts,error in batches:
                 if error:
                     status["failed_sources"]+=1
+                    status["source_status"]["@"+channel]="fetch_failed"
                     continue
+                status["observed_current_posts"]+=len(posts)
+                status["observed_real_media_posts"]+=sum(
+                    story_status(x,now)=="eligible_for_editorial" for x in posts)
                 high=max((x["number"] for x in posts),default=old.get(channel,0))
                 if not posts:
                     # Do not initialize an empty or unparsable public page.
                     status["failed_sources"]+=1
+                    status["source_status"]["@"+channel]="no_usable_public_posts"
                     continue
                 if channel not in old:
                     # First observation is only a high-water mark: no backfill.
                     cx.execute("INSERT INTO source_cursor VALUES(?,?,?,?)",
                                (channel,high,now,now))
                     status["initialized_sources"]+=1
+                    status["source_status"]["@"+channel]="initialized_no_backfill"
                     continue
+                status["source_status"]["@"+channel]="scanned"
                 last=old[channel]
                 for post in posts:
                     if post["number"]<=last:continue
