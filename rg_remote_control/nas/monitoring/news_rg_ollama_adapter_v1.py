@@ -2,6 +2,7 @@
 """NEWS RG Ollama dry-run adapter. No Telegram or database writes."""
 import argparse
 import json
+import re
 import sys
 import urllib.request
 
@@ -21,6 +22,7 @@ def main():
     args = p.parse_args()
     if args.command == "selftest":
         assert MODEL == "qwen3:8b" and URL.startswith("http://192.168.50.")
+        assert len(re.findall(r"[^\\W_]+", "TEST_NEWS", re.UNICODE)) < 7
         print("NEWS_RG_OLLAMA_ADAPTER_SELFTEST_PASS")
         return
     if args.command == "probe":
@@ -31,6 +33,10 @@ def main():
         return
     if not args.text.strip() or len(args.text) > 12000:
         raise SystemExit("Input length must be 1..12000 characters")
+    tokens = re.findall(r"[^\\W_]+", args.text, re.UNICODE)
+    if len(tokens) < 7 or not re.search(r"[А-Яа-яІіЇїЄєҐґ]", args.text):
+        print(json.dumps({"status":"REJECTED_INSUFFICIENT_FACTS","telegram_calls":0,"db_writes":0,"publications":0}))
+        return
     instruction = ("Ти редактор новин українською. Перепиши коротко як Telegram-чернетку. "
                    "Не вигадуй дати, числа, джерела, цитати чи підтвердження. "
                    "Зберігай атрибуцію заяв. Виведи лише текст чернетки.\n\n" + args.text)
@@ -39,7 +45,7 @@ def main():
             "prompt": instruction, "options": {"temperature": 0.1, "num_predict": 500}}, timeout=120)
         draft = response.get("response", "")
         if not isinstance(draft, str) or not draft.strip(): raise ValueError("empty response")
-        print(json.dumps({"status": "DRAFT_ONLY_REVIEW_REQUIRED", "draft": draft.strip(),
+        print(json.dumps({"status": "DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED", "draft": draft.strip(),
             "factual_verification": "NOT_PERFORMED", "telegram_calls": 0, "db_writes": 0, "publications": 0}, ensure_ascii=False))
     except Exception as exc:
         print(json.dumps({"status": "SAFE_STOP", "error_type": type(exc).__name__,
