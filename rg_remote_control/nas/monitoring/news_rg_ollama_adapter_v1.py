@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """NEWS RG Ollama dry-run adapter. No Telegram or database writes."""
 import argparse
+import base64
 import json
 import re
 import sys
@@ -19,10 +20,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("command", choices=["selftest", "probe", "draft"])
     p.add_argument("--text", default="")
+    p.add_argument("--text-b64", default="")
     args = p.parse_args()
     if args.command == "selftest":
         assert MODEL == "qwen3:8b" and URL.startswith("http://192.168.50.")
         assert len(re.findall(r"[^\\W_]+", "TEST_NEWS", re.UNICODE)) < 7
+        assert base64.b64decode(base64.b64encode("Київ".encode())).decode() == "Київ"
         print("NEWS_RG_OLLAMA_ADAPTER_SELFTEST_PASS")
         return
     if args.command == "probe":
@@ -31,6 +34,11 @@ def main():
         print(json.dumps({"status": "MODEL_AVAILABLE" if ok else "MODEL_UNAVAILABLE", "read_only": True}))
         if not ok: sys.exit(2)
         return
+    if args.text_b64:
+        try:
+            args.text = base64.b64decode(args.text_b64, validate=True).decode("utf-8")
+        except (ValueError, UnicodeError) as exc:
+            raise SystemExit("Invalid UTF-8 Base64 input") from exc
     if not args.text.strip() or len(args.text) > 12000:
         raise SystemExit("Input length must be 1..12000 characters")
     tokens = re.findall(r"[^\\W_]+", args.text, re.UNICODE)
