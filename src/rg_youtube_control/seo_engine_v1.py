@@ -259,6 +259,15 @@ def generate_draft(
         raise ValueError("Description length invalid")
     if not _valid_ukrainian_description(description):
         raise ValueError("Description must be Ukrainian")
+    # Model descriptions must read like a published video description,
+    # not like a report about text, podcasts or possible other sources.
+    generic_meta = (
+        "цей текст є фрагментом", "можливо, з підкаста",
+        "у тексті описано", "наданий текст", "можливо, це",
+        "у даному тексті", "у вихідному тексті",
+    )
+    if any(phrase in description.casefold() for phrase in generic_meta):
+        raise ValueError("Generic AI meta-description forbidden")
     _check_title_description_alignment(title, description)
     if not isinstance(tags, list) or not 8 <= len(tags) <= 15 or any(
         not isinstance(t, str) or not t.strip() for t in tags
@@ -276,6 +285,16 @@ def generate_draft(
             seen_tags.add(key)
     if len(normalized_tags) < 8:
         raise ValueError("At least eight unique tags required")
+    # At least two tags must be meaningfully connected to the main topic.
+    # Channel branding tags are useful, but cannot mask unrelated keywords:
+    # e.g., video about Рыбак/Джедай with only military technology tags.
+    topic = _topic_roots(title)
+    relevant_tags = sum(
+        bool(_topic_roots(tag).intersection(topic))
+        for tag in normalized_tags
+    )
+    if topic and relevant_tags < min(2, len(topic)):
+        raise ValueError("SEO_TAGS_TOPIC_MISMATCH: no subject-specific tags")
     # YouTube's tag budget counts commas between tags as well as values.
     if len(", ".join(normalized_tags)) > 500:
         raise ValueError("Tag text exceeds YouTube limit")
