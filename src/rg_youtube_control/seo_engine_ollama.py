@@ -8,7 +8,7 @@ import json
 import urllib.request
 import urllib.error
 
-from .seo_engine_v1 import SeoDraft, generate_draft
+from .seo_engine_v1 import SeoDraft, generate_draft, _valid_ukrainian_description
 from .seo_source_excerpt import select_source_excerpt
 
 
@@ -83,6 +83,8 @@ def ollama_titles_json(*, current_title: str, transcript: str,
     prompt = (
         "Ты русский редактор YouTube. Отвечай строго JSON. "
         "Пиши title и три ab_titles ТОЛЬКО НА РУССКОМ языке. "
+        "Все четыре заголовка РАЗНЫЕ по формулировке, без повторов, "
+        "каждый не длиннее 100 символов, один центральный сюжет. "
         "Не употребляй украинские слова или буквы і ї є ґ. "
         "ОБЯЗАТЕЛЬНО сохрани центральных героев и главную тему "
         "ОРИГИНАЛЬНОГО ЗАГОЛОВКА во всех четырёх вариантах. "
@@ -172,7 +174,46 @@ def ollama_description_json(*, current_title: str, transcript: str,
     result = json.loads(str(payload["message"]["content"]))
     if not isinstance(result, dict) or not isinstance(result.get("description"), str):
         raise ValueError("Description repair must return a description string")
-    return result
+    if _valid_ukrainian_description(result["description"]):
+        return result
+    # Translating a first-pass draft is easier for the local 8B model than
+    # generating Ukrainian from thousands of Russian transcript words.
+    # One bounded retry; all topic and quality checks still run afterward.
+    translated_prompt = (
+        "Ти перекладач і редактор української мови. "
+        "Відповідай JSON {description: ...} і НІЧОГО БІЛЬШЕ. "
+        "Перепиши наведений текст ПОВНІСТЮ УКРАЇНСЬКОЮ МОВОЮ. "
+        "Усі слова та речення мають бути українськими, не залишай "
+        "російських службових слів 'что', 'которые', 'обсуждение', "
+        "'события', 'в России'. Збережи тему та факти, не додавай нових. "
+        "Від 450 до 1100 символів. "
+        "\\nТЕМА: " + (selected_title or current_title) +
+        "\\nТЕКСТ ДЛЯ УКРАЇНСЬКОГО ПЕРЕКЛАДУ:\\n" +
+        result["description"][:2000] +
+        "\\n\\nНАПИШИ ВИКЛЮЧНО УКРАЇНСЬКОЮ МОВОЮ."
+    )
+    retry_body = json.dumps({
+        "model": model, "stream": False, "format": DESCRIPTION_SCHEMA,
+        "messages": [
+            {"role": "system", "content": (
+                "Тільки українська мова. Ти перекладач. Ніколи не відповідай російською."
+            )},
+            {"role": "user", "content": translated_prompt},
+        ],
+        "options": {"temperature": 0.1},
+    }, ensure_ascii=False).encode("utf-8")
+    retry_req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/chat", data=retry_body,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(retry_req, timeout=min(timeout, 75.0)) as response:
+        translated = json.loads(response.read().decode("utf-8"))
+    candidate = json.loads(str(translated["message"]["content"]))
+    if not isinstance(candidate, dict) or not isinstance(candidate.get("description"), str):
+        raise ValueError("Description translation must be an object")
+    if not _valid_ukrainian_description(candidate["description"]):
+        raise ValueError("Description must be Ukrainian")
+    return candidate
 
 
 def generate_with_ollama(*, video_id: str, current_title: str,
@@ -241,6 +282,20 @@ def generate_with_ollama(*, video_id: str, current_title: str,
         if isinstance(candidate, str):
             clean = " ".join(candidate.split())
             setattr(exc, "seo_rejected_title", clean[:110])
+        variants = data.get("ab_titles")
+        if isinstance(variants, list):
+            setattr(exc, "seo_rejected_ab_count", len(variants))
+            setattr(exc, "seo_rejected_ab_unique", len({
+                str(v).strip().casefold() for v in variants
+            }))
+        desc = data.get("description")
+        if isinstance(desc, str):
+            lowered = desc.casefold()
+            setattr(exc, "seo_ua_letter_count",
+                    sum(ch in "іїєґ" for ch in lowered))
+            setattr(exc, "seo_ru_letter_count",
+                    sum(ch in "ыъэё" for ch in lowered))
+
 
     used: set[str] = set()
     for _ in range(2):
