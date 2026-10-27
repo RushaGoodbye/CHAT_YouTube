@@ -12969,6 +12969,33 @@ class MainWindow(QMainWindow):
             str(row.get("text") or "") for row in transcript_rows
             if isinstance(row, dict)
         )
+        # Recover stale or misidentified NAS SRT automatically, but ONLY from
+        # captions of this exact YouTube ID and without overwriting the SRT.
+        # This runs before any slow, expensive full-timeline Ollama analysis.
+        from .seo_source_recovery import validate_or_recover_exact_id_rows
+        transcript_rows, corrected_source, was_recovered = (
+            validate_or_recover_exact_id_rows(
+                video_id=video_id, current_title=current_title,
+                rows=transcript_rows, source_name=transcript_source,
+                fetch_exact_id=fetch_transcript,
+            )
+        )
+        if was_recovered:
+            transcript_source = corrected_source
+            context["transcript_source"] = transcript_source
+            full_source_text = " ".join(
+                str(row.get("text") or "") for row in transcript_rows
+                if isinstance(row, dict)
+            )
+            transcript = transcript_sample_text(
+                transcript_rows, max_chars=12000, segments=6,
+            )
+            if on_progress is not None:
+                on_progress(
+                    "Локальний SRT не пройшов перевірку теми. "
+                    "Автоматично знайдено субтитри точного Video ID; "
+                    "оригінальний SRT збережено"
+                )
         # Titles without named people still need a strong cross-video guard.
         # If old NAS captions point to a different subject, recover directly
         # from the exact YouTube ID before starting costly LLM analysis.
