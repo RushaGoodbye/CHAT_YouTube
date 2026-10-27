@@ -19,8 +19,10 @@ def put(p,buf,mode):
   if os.path.exists(n):os.unlink(n)
 def checks():
  if os.geteuid()!=0:stop("SUDO_REQUIRED")
- for p in (B,O,T,P,SRC_A,SRC_R,O/"news_rg_source_shadow_ingest_v1.py"):
-  if not p.is_file() or p.is_symlink():stop("MISSING_OR_SYMLINK_"+p.name)
+ for p in (B,O):
+  if not p.is_dir() or p.is_symlink():stop("MISSING_OR_SYMLINK_DIR_"+p.name)
+ for p in (T,P,SRC_A,SRC_R,O/"news_rg_source_shadow_ingest_v1.py"):
+  if not p.is_file() or p.is_symlink():stop("MISSING_OR_SYMLINK_FILE_"+p.name)
  txt=T.read_text()
  if "rg_news2_private_final_guard_v1.py" not in txt or "# RG_NEWS2_PRIVATE_FINAL_V1" not in txt:stop("UNEXPECTED_DSM_TICK")
  if txt.count(TAG)>1:stop("UNEXPECTED_MULTIPLE_PATCHES")
