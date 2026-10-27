@@ -75,7 +75,7 @@ def generate_draft(
     if len({str(t).strip().casefold() for t in tags}) < 8:
         raise ValueError("At least eight unique tags required")
     # YouTube's tag budget counts commas between tags as well as values.
-    if len(",".join(tags)) > 500:
+    if len(", ".join(tags)) > 500:
         raise ValueError("Tag text exceeds YouTube limit")
     # A timestamped chapter list must not invent negative or impossible times.
     if chapters:
