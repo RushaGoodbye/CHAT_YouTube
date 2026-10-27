@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ad48f24bdbf85270e1c93e6482eddde0006a887a
+          ref: 65c46774713b34b21b84b580958162f5081ebddd
           persist-credentials: false
       - name: Verify actual AlexPC before reading source
         shell: powershell
@@ -29,7 +29,7 @@ jobs:
           if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'Only ALEXPC is authorized' }
           $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
           if (-not (Test-Path -LiteralPath $py)) { throw 'Pinned local Python missing' }
-      - name: Preflight ten real-video sources without Ollama
+      - name: Real one-video SEO generation on ALEXPC (read-only)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -41,7 +41,7 @@ jobs:
           }
           $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
           $out = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
-          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --preflight-only --output $out
+          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --video-ids MEitKm687xo --output $out
           if ($LASTEXITCODE -ne 0) { throw 'SEO acceptance blocked; inspect sanitized report artifact' }
       - name: Save sanitized summary only
         if: always()
