@@ -30,7 +30,10 @@ def choose():
   if v.get('draft_id')==uncertain:continue
   if v.get('schema')!='NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1' or v.get('telegram_delivery')!='NOT_SENT':continue
   if v.get('public_publication')!='OFF' or not str(v.get('media_url','')).startswith('https://'):continue
-  if not (60<=len(str(v.get('proposed_text','')))<=900):continue
+  draft=str(v.get('proposed_text',''))
+  if not (60<=len(draft)<=900):continue
+  if 'НЕВДАЛО' in draft.upper() or any(ch in draft for ch in 'ыъэёЫЪЭЁ'):continue
+  # Never send an unverified URL as a photo. Media type must be verified separately.
   return v
  fail('NO_NEW_STAGED_DRAFT_EXCLUDING_UNCERTAIN_V1')
 def main(mode):
