@@ -46,7 +46,9 @@ def preflight():
                 "private_delivery":"NOT_CONNECTED","publications":0,"telegram_calls":0,"production_db_writes":0}
     finally:a.close();b.close()
 def clean(s):
-    return re.sub(r"\s*(?:🇺🇦\s*)?(?:УС\s*/\s*Підписатися|Підписатися\s*на\s*канал)\s*$","",s,flags=re.I).strip()
+    s=re.sub(r"\\s*(?:🇺🇦\\s*)?(?:УС\\s*/\\s*Підписатися|Підписатися\\s*на\\s*канал)\\s*$","",s,flags=re.I).strip()
+    s=re.sub(r"\\s*(?:🇺🇦\\s*)?(?:INSIDER\\s*UA\\s*\\|\\s*Прислати\\s*контент)\\s*$","",s,flags=re.I).strip()
+    return s
 def prepare_one():
     check=preflight()
     if not ADAPTER.is_file():raise RuntimeError("OLLAMA_ADAPTER_MISSING")
