@@ -57,7 +57,7 @@ def test_never_retries_source_title_mismatch(monkeypatch):
             video_id=VID, current_title=TITLE,
             transcript="Разговор о погоде и ремонте автомобилей. " * 10,
         )
-    assert count == 1
+    assert count == 0  # source/title checks run before any paid inference
 
 
 def test_no_infinite_retry_on_repeated_malformed_model(monkeypatch):
@@ -135,3 +135,73 @@ def test_targeted_russian_headline_repair_after_two_bad_full_answers(monkeypatch
     )
     assert "СУДИМЫЕ" in result.title
     assert calls == ["full", "full", "titles"]
+
+
+
+def test_targeted_ukrainian_description_repair_after_two_bad_full_answers(monkeypatch):
+    calls = []
+    def bad_full(prompt, *, model):
+        calls.append("full")
+        data = json.loads(candidate(TAGS))
+        data["description"] = (
+            "Обсуждение событий войны и действий России и участников. " * 12
+        )
+        return json.dumps(data, ensure_ascii=False)
+    def fixed_ukrainian(**kwargs):
+        calls.append("description")
+        return {"description": json.loads(candidate(TAGS))["description"]}
+    monkeypatch.setattr(module, "ollama_json", bad_full)
+    monkeypatch.setattr(module, "ollama_description_json", fixed_ukrainian)
+    result = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert calls == ["full", "full", "description"]
+    assert "Росіяни" in result.description
+
+
+def test_targeted_two_field_repair_is_bounded_and_validated(monkeypatch):
+    calls = []
+    def bad_full(prompt, *, model):
+        calls.append("full")
+        data = json.loads(candidate(TAGS))
+        data["title"] = "Політична активність та історичні корені"
+        data["description"] = (
+            "События и обсуждение политики, военных действий в стране. " * 12
+        )
+        return json.dumps(data, ensure_ascii=False)
+    def titles(**kwargs):
+        calls.append("titles")
+        d = json.loads(candidate(TAGS))
+        return {"title": d["title"], "ab_titles": d["ab_titles"]}
+    def description(**kwargs):
+        calls.append("description")
+        return {"description": json.loads(candidate(TAGS))["description"]}
+    monkeypatch.setattr(module, "ollama_json", bad_full)
+    monkeypatch.setattr(module, "ollama_titles_json", titles)
+    monkeypatch.setattr(module, "ollama_description_json", description)
+    draft = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert draft.needs_review
+    assert calls == ["full", "full", "titles", "description"]
+
+
+def test_ai_summer_headline_rejected_for_school_video():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    d = json.loads(candidate(TAGS))
+    d["title"] = "Летние приключения и забавные случаи с друзьями"
+    with pytest.raises(ValueError, match="SEO_TOPIC_MISMATCH"):
+        generate_draft(video_id=VID, current_title=TITLE, transcript=SOURCE,
+                       generate_json=lambda _: json.dumps(d, ensure_ascii=False))
+
+
+def test_russian_words_with_ukrainian_token_doping_are_rejected():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    d = json.loads(candidate(TAGS))
+    d["description"] = (
+        "У цьому описании обсуждаются события в России и действия "
+        "военных, которые также представлены в тексте. " * 9
+    )
+    with pytest.raises(ValueError, match="Description must be Ukrainian"):
+        generate_draft(video_id=VID, current_title=TITLE, transcript=SOURCE,
+                       generate_json=lambda _: json.dumps(d, ensure_ascii=False))
