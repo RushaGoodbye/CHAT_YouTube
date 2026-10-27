@@ -9,6 +9,7 @@ import urllib.request
 import urllib.error
 
 from .seo_engine_v1 import SeoDraft, generate_draft
+from .seo_source_excerpt import select_source_excerpt
 
 
 SCHEMA = {
@@ -87,7 +88,8 @@ def ollama_titles_json(*, current_title: str, transcript: str,
         "Не начинай заголовки словами Диалог, Разговор, Обсуждение или Беседа. "
         "Не выдумывай темы, события, цитаты. "
         "Оригинальный заголовок: " + current_title +
-        "\nФРАГМЕНТ ОРИГИНАЛЬНОЙ РАСШИФРОВКИ: " + transcript[:9000]
+        "\nЧАСТИ ОРИГИНАЛЬНОЙ РАСШИФРОВКИ ПО ВСЕМУ ВИДЕО: " +
+        select_source_excerpt(current_title, transcript, char_budget=9000)
     )
     body = json.dumps({
         "model": model, "stream": False, "format": TITLES_SCHEMA,
@@ -140,7 +142,9 @@ def ollama_description_json(*, current_title: str, transcript: str,
         "Заголовок оригіналу: " + current_title +
         "\nПеревірений заголовок майбутнього відео: " + selected_title +
         "\nПиши опис тільки за темою цього заголовка. "
-        "\nРозшифровка:\n" + transcript[:11500]
+        "\nРозшифровка (фрагменти з усього відео):\n" +
+        select_source_excerpt(selected_title or current_title,
+                              transcript, char_budget=11500)
     )
     body = json.dumps({
         "model": model, "stream": False, "format": DESCRIPTION_SCHEMA,
