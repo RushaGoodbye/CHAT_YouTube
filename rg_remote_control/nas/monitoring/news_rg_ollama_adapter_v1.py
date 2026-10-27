@@ -16,6 +16,9 @@ def call(url, payload=None, timeout=90):
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.load(response)
 
+def has_attribution(s):
+    return bool(re.search(r"(?:за\\s+(?:повідомленням|даними|інформацією)|(?:повідомил[аио]|заявил[аио]|стверджу(?:є|ють)|за словами))", s.lower()))
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("command", choices=["selftest", "probe", "draft"])
@@ -27,6 +30,9 @@ def main():
         assert len(re.findall(r"[^\W_]+", "TEST_NEWS", re.UNICODE)) < 7
         assert len(re.findall(r"[^\W_]+", "У Києві відкрили новий громадський простір площею 500 квадратних метрів.", re.UNICODE)) >= 7
         assert base64.b64decode(base64.b64encode("Київ".encode())).decode() == "Київ"
+        assert has_attribution("За повідомленням міської ради, відкрили маршрут")
+        assert has_attribution("Організатори повідомили, що зустріч відбудеться")
+        assert not has_attribution("Відкрили новий маршрут")
         print("NEWS_RG_OLLAMA_ADAPTER_SELFTEST_PASS")
         return
     if args.command == "probe":
@@ -54,6 +60,9 @@ def main():
             "prompt": instruction, "options": {"temperature": 0.1, "num_predict": 500}}, timeout=120)
         draft = response.get("response", "")
         if not isinstance(draft, str) or not draft.strip(): raise ValueError("empty response")
+        if has_attribution(args.text) and not has_attribution(draft):
+            print(json.dumps({"status":"REJECTED_ATTRIBUTION_LOSS","reason":"SOURCE_ATTRIBUTION_MISSING","telegram_calls":0,"db_writes":0,"publications":0},ensure_ascii=False))
+            return
         print(json.dumps({"status": "DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED", "draft": draft.strip(),
             "factual_verification": "NOT_PERFORMED", "telegram_calls": 0, "db_writes": 0, "publications": 0}, ensure_ascii=False))
     except Exception as exc:
