@@ -51,8 +51,18 @@ def gemini_api(text,model,api_key):
     if not re.fullmatch(r"gemini-[0-9a-zA-Z_.-]{4,60}",model):
         raise RuntimeError("AI_MODEL_NAME_INVALID")
     payload={"contents":[{"role":"user","parts":[{"text":text}]}],
-        "generationConfig":{"responseMimeType":"application/json",
-                            "temperature":0.2,"maxOutputTokens":1500}}
+        "generationConfig":{
+           "responseMimeType":"application/json",
+           "responseSchema":{
+               "type":"OBJECT",
+               "properties":{
+                   "relevant":{"type":"BOOLEAN"},
+                   "is_ad":{"type":"BOOLEAN"},
+                   "headline":{"type":"STRING"},
+                   "body":{"type":"STRING"}},
+               "required":["relevant","is_ad","headline","body"],
+               "propertyOrdering":["relevant","is_ad","headline","body"]},
+           "temperature":0.2,"maxOutputTokens":1800}}
     url="https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent"
     req=urllib.request.Request(url,data=json.dumps(payload).encode("utf-8"),
              headers={"Content-Type":"application/json","x-goog-api-key":api_key},
