@@ -43,11 +43,39 @@ _TOPIC_STOP = {
 }
 
 
+_TOPIC_ALIASES = (
+    # Conservative equivalences, not general semantic inference. This
+    # prevents false blocks such as "не менять" versus "без изменений".
+    (("войн", "війн", "виин"), "war"),
+    (("измен", "менят", "менял", "меняе", "меняю", "перемен", "змін"), "change"),
+    (("фантаз",), "fantasy"),
+    (("рыбак", "рыбал", "рыбац", "рибал"), "fishing"),
+    (("джед",), "jedi"),
+    (("налог", "подат"), "tax"),
+    (("бензин", "топлив", "пальн", "палив"), "fuel"),
+    (("учител", "вчител", "педагог", "преподав"), "teacher"),
+    (("школ",), "school"),
+    (("осужден", "судим", "засуджен"), "convicted"),
+    (("преступ", "злочин"), "crime"),
+)
+
+
 def _topic_roots(value: str) -> set[str]:
-    words = _words(value)
-    # Truncate grammatical endings (обстрелы/обстрелов) conservatively.
-    return {w[:6] for w in words if w not in _TOPIC_STOP
-            and len(w) >= 5 and not w.isdigit()}
+    # Fold limited RU/UA inflections and closely equivalent lexical stems.
+    # Ignore numerical durations, channel branding and general filler.
+    words = _words(value.replace("ё", "е").replace("і", "и")
+                   .replace("ї", "и").replace("є", "е"))
+    roots = set()
+    for word in words:
+        if word in _TOPIC_STOP or len(word) < 5 or word.isdigit():
+            continue
+        canonical = next(
+            (name for prefixes, name in _TOPIC_ALIASES
+             if any(word.startswith(prefix) for prefix in prefixes)),
+            word[:6],
+        )
+        roots.add(canonical)
+    return roots
 
 
 def _check_source_video(current_title: str, source: str) -> None:
