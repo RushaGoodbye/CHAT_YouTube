@@ -7,17 +7,26 @@ if [ "$(id -u)" != "0" ]; then
   printf '%s\n' NEWS_RG_SHADOW_V2_ROOT_REQUIRED
   exit 2
 fi
-BASE='https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/56004bae64f7f519eba16657b70ec3c897737b88/rg_remote_control/nas/monitoring'
+BASE='https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/3fa99becff47aa55d4d50473845bad5fd537767f/rg_remote_control/nas/monitoring'
 STAGE='/tmp/news_rg_shadow_stage_v2'
+if [ -L "$STAGE" ]; then
+  echo NEWS_RG_STAGE_SYMLINK_REFUSED
+  exit 2
+fi
 mkdir -p "$STAGE"
 chmod 700 "$STAGE"
 for f in \
     news_rg_editorial_contract_v1.py \
     news_rg_source_shadow_ingest_v1.py \
+    test_news_rg_source_shadow_ingest_v1.py \
     news_rg_source_pipeline_probe_v1.py \
     news_rg_editorial_rewrite_shadow_v1.py \
     news_rg_moderator_route_probe_v1.py
 do
+  if [ -L "$STAGE/$f" ]; then
+    echo NEWS_RG_STAGE_FILE_SYMLINK_REFUSED
+    exit 2
+  fi
   curl -fsSL --connect-timeout 10 --max-time 45 "$BASE/$f" -o "$STAGE/$f"
   chmod 600 "$STAGE/$f"
   /usr/bin/python3 -m py_compile "$STAGE/$f"
