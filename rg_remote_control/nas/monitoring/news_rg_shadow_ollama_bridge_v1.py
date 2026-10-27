@@ -4,7 +4,11 @@ import base64, json, pathlib, sqlite3, subprocess, sys, time
 DB=pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2/operator/news_rg_editorial_shadow_v1.sqlite3")
 ADAPTER="/tmp/news_rg_ollama_adapter_v1.py"
 def report():
-    if not DB.is_file() or DB.is_symlink():return {"status":"SHADOW_MISSING"}
+    try:
+        if DB.is_symlink():return {"status":"SHADOW_SYMLINK_STOP"}
+        if not DB.is_file():return {"status":"SHADOW_MISSING"}
+    except PermissionError:
+        return {"status":"SHADOW_PERMISSION_DENIED"}
     con=sqlite3.connect(DB.as_uri()+"?mode=ro",uri=True,timeout=5)
     try:
         con.execute("PRAGMA query_only=ON")
