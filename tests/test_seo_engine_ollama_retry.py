@@ -205,3 +205,78 @@ def test_russian_words_with_ukrainian_token_doping_are_rejected():
     with pytest.raises(ValueError, match="Description must be Ukrainian"):
         generate_draft(video_id=VID, current_title=TITLE, transcript=SOURCE,
                        generate_json=lambda _: json.dumps(d, ensure_ascii=False))
+
+
+
+def test_fishing_title_with_military_description_is_blocked():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    title = "Рыбалка в России: разговор о летних приключениях"
+    source = (
+        "Мы рыбачили на реке летом, рассказываем про рыбалку и приключения. "
+        "По пути еще вспоминали военные технологии и лазерное оружие. " * 8
+    )
+    d = json.loads(candidate(TAGS))
+    d["title"] = "Рыбалка летом: приключения на реке"
+    d["ab_titles"] = [
+        "Летняя рыбалка: истории из походов",
+        "Путешествие к реке и необычная рыбалка",
+        "Рыбаки рассказывают о своих летних приключениях",
+    ]
+    d["description"] = (
+        "У відео говорять про лазерне озброєння, військові технології, "
+        "нові системи боротьби проти дронів та мобілізацію. " * 6
+    )
+    with pytest.raises(ValueError, match="title and description"):
+        generate_draft(
+            video_id=VID, current_title=title, transcript=source,
+            generate_json=lambda _: json.dumps(d, ensure_ascii=False),
+        )
+
+
+def test_ukrainian_tax_description_matches_russian_tax_title():
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    title = "НАЛОГИ И ВОЙНА: КТО ОПЛАЧИВАЕТ БОЕВЫЕ ДЕЙСТВИЯ?"
+    source = (
+        "Налоги уходят на войну, деньги налогоплательщиков платят "
+        "за боевые действия. Жители обсуждают налоговые выплаты. " * 9
+    )
+    d = json.loads(candidate(TAGS))
+    d["title"] = "НАЛОГИ НА ВОЙНУ: КТО ПЛАТИТ И ЗАЧЕМ?"
+    d["ab_titles"] = [
+        "Куда идут налоги россиян во время войны?",
+        "Налогоплательщики и война: кто платит?",
+        "На что тратятся деньги и налоги во время войны?",
+    ]
+    d["description"] = (
+        "У відео обговорюють, як податки фінансують війну. "
+        "Співрозмовники згадують гроші платників податків, "
+        "державні витрати та суспільну відповідальність. " * 5
+    )
+    assert generate_draft(
+        video_id=VID, current_title=title, transcript=source,
+        generate_json=lambda _: json.dumps(d, ensure_ascii=False),
+    ).needs_review
+
+
+def test_model_repairs_description_when_title_and_description_diverge(monkeypatch):
+    from rg_youtube_control.seo_engine_v1 import generate_draft
+    calls = []
+    def bad_full(prompt, *, model):
+        calls.append("full")
+        d = json.loads(candidate(TAGS))
+        d["description"] = (
+            "У відео згадуються виключно лазерні технології, "
+            "ракетне озброєння та військові дрони. " * 7
+        )
+        return json.dumps(d, ensure_ascii=False)
+    def repair_description(**kwargs):
+        calls.append("description")
+        assert "СУДИМЫЕ УЧИТЕЛЯ" in kwargs["selected_title"]
+        return {"description": json.loads(candidate(TAGS))["description"]}
+    monkeypatch.setattr(module, "ollama_json", bad_full)
+    monkeypatch.setattr(module, "ollama_description_json", repair_description)
+    draft = module.generate_with_ollama(
+        video_id=VID, current_title=TITLE, transcript=SOURCE
+    )
+    assert draft.needs_review
+    assert calls == ["full", "full", "description"]
