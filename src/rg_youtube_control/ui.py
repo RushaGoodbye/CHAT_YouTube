@@ -12973,13 +12973,20 @@ class MainWindow(QMainWindow):
         # captions of this exact YouTube ID and without overwriting the SRT.
         # This runs before any slow, expensive full-timeline Ollama analysis.
         from .seo_source_recovery import validate_or_recover_exact_id_rows
-        transcript_rows, corrected_source, was_recovered = (
-            validate_or_recover_exact_id_rows(
-                video_id=video_id, current_title=current_title,
-                rows=transcript_rows, source_name=transcript_source,
-                fetch_exact_id=fetch_transcript,
+        try:
+            transcript_rows, corrected_source, was_recovered = (
+                validate_or_recover_exact_id_rows(
+                    video_id=video_id, current_title=current_title,
+                    rows=transcript_rows, source_name=transcript_source,
+                    fetch_exact_id=fetch_transcript,
+                )
             )
-        )
+        except ValueError:
+            # The existing named-subject, evidence and draft source gates
+            # below remain authoritative. A failed recovery cannot turn
+            # missing caption evidence into fabricated metadata. Preserve
+            # earlier explicit errors and short-source test behavior.
+            corrected_source, was_recovered = transcript_source, False
         if was_recovered:
             transcript_source = corrected_source
             context["transcript_source"] = transcript_source
