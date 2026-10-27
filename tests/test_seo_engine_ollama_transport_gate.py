@@ -44,3 +44,27 @@ def test_ollama_invalid_payload_is_not_treated_as_success(monkeypatch):
                         lambda req, timeout: FakeReply({"error": "model missing"}))
     with pytest.raises((KeyError, ValueError)):
         adapter.ollama_json("prompt")
+
+
+
+def test_transient_ollama_disconnect_recovers_once(monkeypatch):
+    attempts = []
+    def sometimes(req, timeout):
+        attempts.append(timeout)
+        if len(attempts) == 1:
+            raise urllib.error.URLError("local server temporarily unavailable")
+        return FakeReply({"message": {"content": '{"title":"ok"}'}})
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", sometimes)
+    assert adapter.ollama_json("prompt", timeout=120) == '{"title":"ok"}'
+    assert attempts == [120, 75.0]
+
+
+def test_non_retryable_http_400_does_not_loop(monkeypatch):
+    attempts = []
+    def error(req, timeout):
+        attempts.append(timeout)
+        raise urllib.error.HTTPError(req.full_url, 400, "bad format", {}, None)
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", error)
+    with pytest.raises(urllib.error.HTTPError):
+        adapter.ollama_json("prompt", timeout=120)
+    assert len(attempts) == 1
