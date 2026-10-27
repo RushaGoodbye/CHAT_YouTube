@@ -61,15 +61,15 @@ def _check_source_video(current_title: str, source: str) -> None:
 
 
 def _check_editorial_title(current_title: str, title: str, source: str) -> None:
-    # Avoid meaningless, generic AI summaries masquerading as search headlines.
+    # A subject change is more important than a generic headline defect.
     specific_words = _topic_roots(title)
-    if len(specific_words) < 3:
-        raise ValueError("Generic non-editorial headline")
     original = _topic_roots(current_title)
     source_roots = _topic_roots(source)
     if len(original) >= 2 and original.intersection(source_roots):
         if not original.intersection(specific_words):
             raise ValueError("SEO_TOPIC_MISMATCH: title abandons original subject")
+    if len(specific_words) < 3:
+        raise ValueError("Generic non-editorial headline")
     from .seo_source_alignment import check_title_variants_against_primary_subject
     alignment = check_title_variants_against_primary_subject(
         current_title, [title]
