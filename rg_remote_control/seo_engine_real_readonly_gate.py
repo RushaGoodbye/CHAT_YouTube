@@ -136,6 +136,10 @@ def run_one(video_id: str, *, database: Path, model: str,
                     code = "MODEL_DESCRIPTION_INVALID"
                 elif error.startswith(("Invalid chapters", "Invalid chapter timestamp")):
                     code = "MODEL_CHAPTERS_INVALID"
+                elif error.startswith("SEO_TAGS_TOPIC_MISMATCH"):
+                    code = "MODEL_TAGS_OFF_TOPIC"
+                elif error.startswith("Generic AI meta-description"):
+                    code = "MODEL_DESCRIPTION_NONEDITORIAL"
                 elif error.startswith("SEO_TOPIC_MISMATCH"):
                     code = "MODEL_TOPIC_MISMATCH"
                 elif error.startswith("SOURCE_VIDEO_MISMATCH"):
@@ -163,6 +167,8 @@ def run_one(video_id: str, *, database: Path, model: str,
             ("Invalid primary title", "MAIN_TITLE_INVALID"),
             ("Generic non-editorial headline", "GENERIC_MAIN_TITLE"),
             ("Description must be Ukrainian", "DESCRIPTION_LANGUAGE_INVALID"),
+            ("Generic AI meta-description", "DESCRIPTION_META_TEXT"),
+            ("SEO_TAGS_TOPIC_MISMATCH", "TAGS_ABANDON_MAIN_TOPIC"),
             ("Description length invalid", "DESCRIPTION_LENGTH_INVALID"),
         )
         detail = next((label for signature, label in failure_signatures
