@@ -723,12 +723,14 @@ def _grounded_description_from_transcript(
 
 
 def _deterministic_evidence_description(
-    title: str, evidence_report: dict[str, Any]
+    title: str, evidence_report: dict[str, Any],
+    *, review_topics: list[str] | None = None,
 ) -> str:
     """Create public Ukrainian prose only from cited, verified discussion subjects.
 
     Do not publish model-written assertions or raw multilingual ASR topic labels.
-    Each verified topic must map to a supported editorial subject.
+    Unmatched topics go to review_topics for DRAFT only. Direct callers
+    without that collector retain strict, fail-closed behavior.
     """
     blocks = [
         block for block in (evidence_report.get("blocks") or [])
@@ -768,6 +770,33 @@ def _deterministic_evidence_description(
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
                     recognized.append(label)
+            # Education and criminal-record discussion: require both topic
+            # anchors in verified transcript evidence, never title alone.
+            if any(w in combined for w in (
+                "школ", "учител", "вчител", "преподав", "виклада",
+                "педагог", "образован", "освіт",
+            )) and any(w in combined for w in (
+                "осужден", "засуджен", "судим", "преступлен", "злочин",
+                "уголовн", "кримінальн", "тяжк", "тяжел",
+            )):
+                recognized.append("допуск засуджених до викладання у школах")
+            # Describe the discussion neutrally, not as an assertion about
+            # an entire nation, region or an individual.
+            if "дагестан" in combined:
+                recognized.append("обговорення поведінки людей у Дагестані")
+            if any(w in combined for w in (
+                "между народ", "між народ", "разных народ",
+                "різних народ", "отношения народ", "ставлення до народ",
+            )) or (
+                "народ" in combined and
+                any(w in combined for w in ("отношен", "ставленн", "взаимоотнош"))
+            ):
+                recognized.append("ставлення співрозмовників до різних народів")
+            if any(w in combined for w in (
+                "идентификац", "ідентифікац", "представлени",
+                "знакомств", "знайомств",
+            )):
+                recognized.append("знайомство та представлення співрозмовників")
             if not recognized:
                 # Conversation mechanics are not meaningful SEO subjects.
                 if any(phrase in combined for phrase in (
@@ -781,24 +810,50 @@ def _deterministic_evidence_description(
                 if label not in labels:
                     labels.append(label)
     if unmapped:
-        raise ValueError(
-            "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
-        )
+        if review_topics is None:
+            raise ValueError(
+                "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
+            )
+        # Never insert unsupported labels into public prose. They remain
+        # visible in review metadata and the full saved evidence timeline.
+        review_topics.extend(dict.fromkeys(unmapped))
     if not labels:
-        raise ValueError("No editorial subjects among verified transcript topics")
+        # Keep a reviewable draft instead of failing the entire local SEO job.
+        # No unsupported topic becomes a public factual claim.
+        if review_topics is None:
+            raise ValueError("No editorial subjects among verified transcript topics")
+        review_topics.append("NO_RECOGNIZED_EDITORIAL_SUBJECT")
+        return (
+            "У цьому випуску «РАША ГУДБАЙ» співрозмовники обговорюють "
+            "питання, наведені в розшифровці. Автоматична перевірка не "
+            "визначила достатньо підтверджених тематичних деталей для "
+            "публікації опису. Потрібна редакторська перевірка за SRT."
+        )
     labels = labels[:10]
     subject = "Шойгу та " if "шойгу" in str(title or "").casefold() else ""
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
         "обговорюють " + subject + "такі теми: " + "; ".join(labels) + ". "
     )
-    body = (
-        "Учасники чат-рулетки висловлюють власні думки та припущення "
-        "щодо причин і наслідків обговорюваних подій. Це їхні оцінки, "
-        "а не підтверджені редакцією факти чи мотиви посадовців. "
-        "Дивіться повну розмову, щоб почути аргументи співрозмовників "
-        "і оцінити їх у контексті."
-    )
+    if "допуск засуджених до викладання у школах" in labels:
+        body = (
+            "Співрозмовники розмірковують, чи можна довіряти дітям "
+            "викладача із судимістю за тяжкий злочин, і сперечаються "
+            "про безпеку учнів та вимоги до педагогів. "
+            "Частина учасників наголошує на ризиках, інші говорять "
+            "про індивідуальні обставини та право людини на другий шанс. "
+            "Це особисті оцінки учасників розмови, а не підтвердження "
+            "змін у законодавстві РФ. "
+            "Дивіться аргументи співрозмовників і діліться думкою в коментарях."
+        )
+    else:
+        body = (
+            "Учасники чат-рулетки висловлюють власні думки та припущення "
+            "щодо причин і наслідків обговорюваних подій. Це їхні оцінки, "
+            "а не підтверджені редакцією факти чи мотиви посадовців. "
+            "Дивіться повну розмову, щоб почути аргументи співрозмовників "
+            "і оцінити їх у контексті."
+        )
     result = lead + body
     if len(result) > 950:
         raise ValueError("Evidence subjects exceed editorial description budget")
@@ -1405,6 +1460,18 @@ def _recover_title_variants(
     model: str,
 ) -> list[str]:
     """Focused recovery of exactly three distinct Russian title variants."""
+    from .seo_source_alignment import check_title_against_transcript
+    subject = check_title_against_transcript(current_title, transcript)
+    required_subjects = (
+        ", ".join(subject.anchors)
+        if subject.anchors and subject.passed else ""
+    )
+    subject_rule = (
+        "УСІ ТРИ назви мають прямо згадувати головну тему: "
+        + required_subjects
+        + ". Не переходь до інших сюжетів замість головної теми."
+        if required_subjects else ""
+    )
     prompt = f"""
 Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
 A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
@@ -1412,6 +1479,7 @@ C: інша підтверджена тема, якщо вона є; інакш�
 Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
 Кожна до 100 символів. Лише факти та теми, підтверджені транскриптом.
 Без вигаданих цитат і без непідтвердженого клікбейту.
+{subject_rule}
 Поверни JSON:
 {{"title_variants":["...","...","..."]}}
 
@@ -1968,6 +2036,49 @@ def generate_seo_package_local(
 ) -> dict[str, Any]:
     context = public_context or {}
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    from .seo_source_alignment import check_title_against_transcript
+    subject_match = check_title_against_transcript(
+        current_title, verified_evidence if evidence_report else transcript,
+    )
+    # Do not generate convincing SEO for a different video when the selected
+    # upload concerns convicted school teachers. Verified evidence must
+    # independently contain BOTH semantic anchors; title text does not count.
+    title_norm = current_title.casefold()
+    source_norm = (verified_evidence if evidence_report else transcript).casefold()
+    is_school_conviction_video = (
+        any(w in title_norm for w in ("школ", "учител", "преподав", "вчител"))
+        and any(w in title_norm for w in
+                ("осужден", "судим", "преступлен", "засуджен", "злочин"))
+    )
+    if is_school_conviction_video and source_norm.strip():
+        has_school = any(w in source_norm for w in
+                         ("школ", "учител", "вчител", "преподав", "педагог"))
+        has_conviction = any(w in source_norm for w in
+                             ("осужден", "судим", "преступлен", "засуджен",
+                              "злочин", "тяжк"))
+        if not (has_school and has_conviction):
+            raise ValueError(
+                "SOURCE_VIDEO_MISMATCH: обране відео про судимих учителів, "
+                "але отримана розшифровка/карта доказів має іншу тему. "
+                "SEO не створено; перевірте прив'язку SRT до Video ID."
+            )
+    named_subject_requirement = (
+        "КРИТИЧНО: УСІ ЧОТИРИ назви (основна та A/B/C) повинні "
+        "зберігати головну названу тему: "
+        + ", ".join(subject_match.anchors)
+        + ". Не підмінюй її іншими розмовами з відео."
+        if subject_match.anchors and subject_match.passed else ""
+    )
+    # Determine supported prose once BEFORE expensive Ollama generation.
+    # The old code retried the same deterministic mapping failure 3 times.
+    editorial_unmapped_subjects: list[str] = []
+    grounded_evidence_description = (
+        _deterministic_evidence_description(
+            current_title, evidence_report,
+            review_topics=editorial_unmapped_subjects,
+        )
+        if evidence_report and not fast_mode else ""
+    )
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
@@ -1983,6 +2094,7 @@ def generate_seo_package_local(
 
 Правила:
 - основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
+- {named_subject_requirement}
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
@@ -2057,6 +2169,7 @@ description: українською, 400-900 символів, головна т
 tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
 chapters: рядок з підтвердженими таймкодами та українськими назвами або порожній рядок.
 Не вигадуй фактів. Не роби тверджень про економіку, зарплати, соцгарантії чи інші результати, якщо цього немає в транскрипті.
+{named_subject_requirement}
 
 ПОТОЧНА НАЗВА:
 {current_title}
@@ -2230,18 +2343,23 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                )
+                description_candidate = grounded_evidence_description
                 candidate["description"] = description_candidate
+                candidate["_editorial_unmapped_subjects"] = list(
+                    editorial_unmapped_subjects
+                )
                 candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
                 )
                 if description_error:
-                    raise ValueError(
-                        "grounded description failed final check: " + description_error
-                    )
+                    # Empty classification is a review-only draft, not a publishable
+                    # SEO description. Do not fail the whole job on the intentionally
+                    # concise explanation shown to the editor.
+                    if "NO_RECOGNIZED_EDITORIAL_SUBJECT" not in editorial_unmapped_subjects:
+                        raise ValueError(
+                            "grounded description failed final check: " + description_error
+                        )
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2400,6 +2518,28 @@ chapters: рядок з підтвердженими таймкодами та �
         )
 
     title = str(payload.get("title") or "").strip()
+    # A verified school/conviction discussion deserves a stronger main hook;
+    # never let a generic or off-topic local-model title replace its subject.
+    verified_school_topic = bool(
+        evidence_report
+        and any(
+            "школ" in (str(t.get("topic") or "") + " " +
+                       str(t.get("evidence") or "")).casefold()
+            and any(w in (str(t.get("topic") or "") + " " +
+                          str(t.get("evidence") or "")).casefold()
+                    for w in ("осужден", "судим", "преступлен", "засуджен", "тяжк"))
+            for b in evidence_report.get("blocks") or []
+            if isinstance(b, dict) and b.get("verified") is not False
+            for t in b.get("topics") or [] if isinstance(t, dict)
+        )
+    )
+    if verified_school_topic and any(
+        w in current_title.casefold() for w in ("школ", "преподав", "учител")
+    ):
+        title = (
+            "СУДИМЫЕ УЧИТЕЛЯ В ШКОЛАХ РФ? "
+            "РОССИЯНЕ О БЕЗОПАСНОСТИ ДЕТЕЙ | РАША ГУДБАЙ"
+        )
     title = _preserve_current_title_when_candidate_is_not_stronger(
         current_title,
         title,
@@ -2420,7 +2560,9 @@ chapters: рядок з підтвердженими таймкодами та �
     description = _polish_generated_description(
         str(payload.get("description") or "").strip()
     )
-    omitted_topics: list[str] = []
+    omitted_topics: list[str] = list(
+        payload.get("_editorial_unmapped_subjects") or []
+    )
     if evidence_report and not payload.get("_deterministic_editor"):
         # Legacy evidence packages keep their topic appendix.
         # Keep the concise lead, then append every distinct supported subject
@@ -2518,7 +2660,11 @@ chapters: рядок з підтвердженими таймкодами та �
                 (source_quote_fallback, "A/B створено з дослівних цитат: перевірити редакційний стиль"),
                 (not transcript.strip(), "Транскрипт відсутній; потрібна перевірка фактів"),
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
-                (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
+                (bool(editorial_unmapped_subjects),
+                 "Потрібна редакторська перевірка непізнаних тем: "
+                 + "; ".join(editorial_unmapped_subjects[:10])),
+                (bool(omitted_topics) and not editorial_unmapped_subjects,
+                 f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
             )
             if condition

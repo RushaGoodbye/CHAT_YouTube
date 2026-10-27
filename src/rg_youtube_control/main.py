@@ -11,6 +11,11 @@ from .service import archive_priority_enabled
 from .ui import MainWindow
 
 def main() -> int:
+    # Packaging QA entry point: no user data, network, GUI window or
+    # single-instance lock. The report is written as JSON for CI.
+    if len(sys.argv) == 3 and sys.argv[1] == "--packaged-selftest":
+        from .packaged_smoke import run_packaged_selftest
+        return run_packaged_selftest(Path(sys.argv[2]))
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
 

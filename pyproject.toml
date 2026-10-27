@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rg-youtube-control"
-version = "0.7.28"
+version = "0.7.42"
 description = "Windows desktop control center for RASHA GOODBYE YouTube channels"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,6 +17,7 @@ dependencies = [
   "yt-dlp>=2026.8.19",
   "youtube-transcript-api>=1.2.4",
   "rapidfuzz>=3.12,<4",
+  "faster-whisper>=1.1,<2",
   "youtube-comment-downloader==0.1.83",
 ]
 

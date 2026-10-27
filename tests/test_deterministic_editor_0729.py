@@ -35,7 +35,12 @@ def test_editor_not_model_authored_when_evidence_is_verified():
     source = Path("src/rg_youtube_control/free_tools.py").read_text(encoding="utf-8")
     method = source.split("def generate_seo_package_local(", 1)[1]
     assert "if evidence_report:\n                # One deterministic editorial pass" in method
-    assert "description_candidate = _deterministic_evidence_description(" in method
+    assert "grounded_evidence_description = (" in method
+    assert method.count("_deterministic_evidence_description(") == 1
+    assert method.index("_deterministic_evidence_description(") < method.index(
+        "for attempt in range("
+    )
+    assert "description_candidate = grounded_evidence_description" in method
 
 
 def test_primary_seo_button_visible():

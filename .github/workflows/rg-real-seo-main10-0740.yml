@@ -1,0 +1,58 @@
+name: RG 0.7.40 real SEO main10 read-only QA
+
+on:
+  push:
+    branches:
+      - fix/rg-control-0740-unified-qa-20261025
+    paths:
+      - ".github/workflows/rg-real-seo-main10-0740.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-real-seo-main10-0740
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify AlexPC and read-only sources
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME.ToUpperInvariant() -ne 'ALEXPC') { throw 'This QA requires ALEXPC' }
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if (-not (Test-Path -LiteralPath $py)) { throw 'Pinned Python missing' }
+          $db = Join-Path $env:LOCALAPPDATA 'RGYouTubeControl\rg_youtube_control.db'
+          if (-not (Test-Path -LiteralPath $db)) { throw 'Production database missing; no fallback' }
+          $env:RG_PINNED_PY = $py
+          & $py -B -c "import sqlite3,sys; db=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True); db.execute('pragma query_only=on'); print('DB_READONLY_CHECK',db.execute('pragma quick_check').fetchone()[0]);db.close()" $db
+      - name: Read real NAS SRT, generate draft SEO, audit ten videos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          $deps = Join-Path $env:RUNNER_TEMP 'rg_real_seo_qa_deps'
+          if (-not (Test-Path (Join-Path $deps 'rapidfuzz\__init__.py'))) {
+            & $py -m pip install --quiet --disable-pip-version-check --no-input --target $deps 'rapidfuzz>=3.0,<4'
+            if ($LASTEXITCODE -ne 0) { throw 'QA dependency setup failed' }
+          }
+          $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
+          $out = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
+          & $py -B rg_remote_control/seo_readonly_acceptance_10.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'SEO acceptance blocked; inspect sanitized artifact' }
+      - name: Upload sanitized result, no transcripts or drafts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-main10-readonly-summary
+          path: ${{ runner.temp }}/rg_seo_qa_summary.json
+          if-no-files-found: ignore
+          retention-days: 7
