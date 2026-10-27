@@ -46,8 +46,9 @@ _TOPIC_STOP = {
 _TOPIC_ALIASES = (
     # Conservative equivalences, not general semantic inference. This
     # prevents false blocks such as "не менять" versus "без изменений".
-    (("войн", "війн", "виин"), "war"),
-    (("измен", "менят", "менял", "меняе", "меняю", "перемен", "змін"), "change"),
+    (("войн", "війн", "вийн", "виин"), "war"),
+    (("измен", "менят", "менял", "меняе", "меняю", "перемен", "змін", "змин"), "change"),
+    (("ответ", "відповід", "видпов"), "responsibility"),
     (("фантаз",), "fantasy"),
     (("рыбак", "рыбал", "рыбац", "рибал"), "fishing"),
     (("джед",), "jedi"),
