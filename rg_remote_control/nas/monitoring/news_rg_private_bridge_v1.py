@@ -5,7 +5,7 @@ Commands: selftest, preflight, prepare-one.
 No Bot API, no polling, no public posting. 'prepare-one' stores a review-required
 sidecar in a private operator directory; NEVER writes to production databases.
 """
-import base64,hashlib,json,os,pathlib,re,sqlite3,subprocess,sys,tempfile,time,fcntl
+import base64,hashlib,json,os,pathlib,re,sqlite3,subprocess,sys,tempfile,time,fcntl,urllib.request,urllib.parse
 ROOT=pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2")
 OP=ROOT/"operator"
 SHADOW=OP/"news_rg_editorial_shadow_v1.sqlite3"
@@ -56,37 +56,62 @@ def prepare_one():
           FROM story_shadow WHERE status='needs_editorial_rewrite'
           AND length(text)>=100 AND media_url LIKE 'https://%'
           ORDER BY posted_at DESC LIMIT 100""").fetchall()
-        row=next((r for r in rows if not (OUT/(hashlib.sha256(str(r[0]).encode()).hexdigest()[:24]+".json")).exists()),None)
     finally:c.close()
-    if not row:raise RuntimeError("NO_ELIGIBLE_NEWS")
-    key,source,photo,posted,channel=row
-    source=clean(source)
-    cmd=[sys.executable,str(ADAPTER),"draft","--text-b64",base64.b64encode(source.encode()).decode()]
-    proc=subprocess.run(cmd,capture_output=True,text=True,timeout=70)
-    if proc.returncode:raise RuntimeError("ADAPTER_FAILED")
-    try:response=json.loads(proc.stdout.strip().splitlines()[-1])
-    except (ValueError,IndexError):raise RuntimeError("ADAPTER_BAD_RESULT")
-    if response.get("status")!="DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED":raise RuntimeError("DRAFT_NOT_READY")
-    draft=clean(response.get("draft",""))
-    if not draft or len(draft)>1000 or "НЕВДАЛО" in draft.upper():raise RuntimeError("DRAFT_REJECTED_MODEL_FAILURE_MARKER")
-    if re.search(r"[ыъэёЫЪЭЁ]",draft):raise RuntimeError("DRAFT_REJECTED_NON_UKRAINIAN_OR_MIXED_LANGUAGE")
-    if not photo.startswith("https://"):raise RuntimeError("PHOTO_NOT_READY")
     if OUT.is_symlink():raise RuntimeError("OUTBOX_SYMLINK")
     OUT.mkdir(mode=0o700,exist_ok=True)
     os.chmod(OUT,0o700)
-    digest=hashlib.sha256(str(key).encode()).hexdigest()[:24]
-    target=OUT/(digest+".json")
-    if target.exists():return {"status":"ALREADY_STAGED_NO_DUPLICATE","draft_id":digest,"private_delivery":"NOT_CONNECTED","publications":0}
-    data={"schema":"NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1","draft_id":digest,
-          "source_key":key,"channel":channel,"posted_at":posted,"media_url":photo,
-          "original_text":source,"proposed_text":draft,"editorial_status":"HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED",
-          "photo_approval_is_not_editorial_approval":True,"telegram_delivery":"NOT_SENT",
-          "public_publication":"OFF","prepared_at":int(time.time())}
-    atomic(target,data)
-    return {"status":"ISOLATED_DRAFT_STAGED","draft_id":digest,"source_channel":channel,
-            "source_length":len(source),"draft_length":len(draft),"image_present":True,
-            "human_fact_review_required":True,"private_delivery":"NOT_CONNECTED",
-            "draft_preview":draft[:900],"production_db_writes":0,"telegram_calls":0,"publications":0}
+    existing_v1=OP/"news_rg_private_pilot_claim_v1.json"
+    reserved=set()
+    if existing_v1.is_file() and not existing_v1.is_symlink():
+        try:reserved.add(json.loads(existing_v1.read_text()).get("draft_id"))
+        except (OSError,ValueError):raise RuntimeError("UNCERTAIN_V1_RECEIPT_UNREADABLE")
+    receipts=OP/"news_rg_private_delivery_v2"
+    if receipts.is_dir():
+        reserved.update(p.stem for p in receipts.glob("*.json"))
+    tested=0; rejected=0; failures={}
+    for key,source,photo,posted,channel in rows:
+        digest=hashlib.sha256(str(key).encode()).hexdigest()[:24]
+        if digest in reserved or (OUT/(digest+".json")).exists():continue
+        if tested>=3:break
+        tested+=1
+        url=urllib.parse.urlsplit(photo)
+        if url.scheme!="https" or url.hostname not in ("cdn1.telesco.pe","cdn2.telesco.pe","cdn3.telesco.pe","cdn4.telesco.pe","cdn5.telesco.pe"):
+            rejected+=1;failures["UNTRUSTED_MEDIA_HOST"]=failures.get("UNTRUSTED_MEDIA_HOST",0)+1;continue
+        try:
+            req=urllib.request.Request(photo,method="HEAD",headers={"User-Agent":"Mozilla/5.0"})
+            with urllib.request.urlopen(req,timeout=8) as res:
+                mime=res.headers.get("Content-Type","").split(";")[0].strip().lower()
+            if mime not in ("image/jpeg","image/png","image/webp"):
+                rejected+=1;failures["NOT_PHOTO"]=failures.get("NOT_PHOTO",0)+1;continue
+        except Exception:
+            rejected+=1;failures["MEDIA_UNVERIFIED"]=failures.get("MEDIA_UNVERIFIED",0)+1;continue
+        source=clean(source)
+        cmd=[sys.executable,str(ADAPTER),"draft","--text-b64",base64.b64encode(source.encode()).decode()]
+        try:proc=subprocess.run(cmd,capture_output=True,text=True,timeout=50)
+        except subprocess.TimeoutExpired:
+            rejected+=1;failures["ADAPTER_TIMEOUT"]=failures.get("ADAPTER_TIMEOUT",0)+1;continue
+        if proc.returncode:
+            rejected+=1;failures["ADAPTER_FAILED"]=failures.get("ADAPTER_FAILED",0)+1;continue
+        try:response=json.loads(proc.stdout.strip().splitlines()[-1])
+        except (ValueError,IndexError):
+            rejected+=1;failures["ADAPTER_BAD_RESULT"]=failures.get("ADAPTER_BAD_RESULT",0)+1;continue
+        draft=clean(response.get("draft",""))
+        if response.get("status")!="DRAFT_ONLY_REVIEW_REQUIRED_UNVERIFIED" or not (60<=len(draft)<=900) or "НЕВДАЛО" in draft.upper() or re.search(r"[ыъэёЫЪЭЁ]",draft):
+            rejected+=1;failures["BAD_DRAFT"]=failures.get("BAD_DRAFT",0)+1;continue
+        target=OUT/(digest+".json")
+        data={"schema":"NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1","draft_id":digest,
+              "source_key":key,"channel":channel,"posted_at":posted,"media_url":photo,
+              "original_text":source,"proposed_text":draft,"editorial_status":"HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED",
+              "photo_approval_is_not_editorial_approval":True,"telegram_delivery":"NOT_SENT",
+              "public_publication":"OFF","prepared_at":int(time.time())}
+        atomic(target,data)
+        return {"status":"ISOLATED_DRAFT_STAGED","draft_id":digest,"source_channel":channel,
+                "source_length":len(source),"draft_length":len(draft),"verified_media_mime":mime,
+                "candidates_examined":tested,"candidates_rejected":rejected,"human_fact_review_required":True,
+                "private_delivery":"NOT_CONNECTED","draft_preview":draft[:900],
+                "production_db_writes":0,"telegram_calls":0,"publications":0}
+    return {"status":"NO_VALID_DRAFT_IN_BATCH","candidates_examined":tested,
+            "candidates_rejected":rejected,"reasons":failures,"publications":0,"telegram_calls":0}
 def main():
     try:
         if sys.argv[1:]==["selftest"]:
