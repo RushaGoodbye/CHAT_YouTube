@@ -32,7 +32,8 @@ def ollama_json(prompt: str, *, model: str = "qwen3:8b",
                 endpoint: str = "http://127.0.0.1:11434",
                 timeout: float = 240.0) -> str:
     body = json.dumps({
-        "model": model, "stream": False, "format": SCHEMA,
+        "model": model, "stream": False, "think": False,
+        "keep_alive": "20m", "format": SCHEMA,
         "messages": [
             {"role": "system", "content": ("Return JSON only. All title and ab_titles strings "
              "MUST be in Russian. The description MUST be in Ukrainian. "
@@ -111,7 +112,8 @@ def ollama_titles_json(*, current_title: str, transcript: str,
         select_source_excerpt(current_title, transcript, char_budget=6500)
     )
     body = json.dumps({
-        "model": model, "stream": False, "format": TITLES_SCHEMA,
+        "model": model, "stream": False, "think": False,
+        "keep_alive": "20m", "format": TITLES_SCHEMA,
         "messages": [
             {"role": "system", "content": "Russian title editor. JSON only; titles in Russian."},
             {"role": "user", "content": prompt},
@@ -172,7 +174,8 @@ def ollama_description_json(*, current_title: str, transcript: str,
         "І ТІЛЬКИ УКРАЇНСЬКОЮ МОВОЮ."
     )
     body = json.dumps({
-        "model": model, "stream": False, "format": DESCRIPTION_SCHEMA,
+        "model": model, "stream": False, "think": False,
+        "keep_alive": "20m", "format": DESCRIPTION_SCHEMA,
         "messages": [
             {"role": "system", "content": (
                 "Пиши тільки українською мовою. Поле description "
@@ -210,7 +213,8 @@ def ollama_description_json(*, current_title: str, transcript: str,
         "\\n\\nНАПИШИ ВИКЛЮЧНО УКРАЇНСЬКОЮ МОВОЮ."
     )
     retry_body = json.dumps({
-        "model": model, "stream": False, "format": DESCRIPTION_SCHEMA,
+        "model": model, "stream": False, "think": False,
+        "keep_alive": "20m", "format": DESCRIPTION_SCHEMA,
         "messages": [
             {"role": "system", "content": (
                 "Тільки українська мова. Ти перекладач. Ніколи не відповідай російською."
@@ -266,7 +270,8 @@ def ollama_topic_tags_json(*, selected_title: str, current_title: str,
         select_source_excerpt(selected_title, transcript, char_budget=6500)
     )
     body = json.dumps({
-        "model": model, "stream": False, "format": TAGS_SCHEMA,
+        "model": model, "stream": False, "think": False,
+        "keep_alive": "20m", "format": TAGS_SCHEMA,
         "messages": [
             {"role": "system", "content":
              "Return JSON only. Tags must reflect the exact video's main title."},
