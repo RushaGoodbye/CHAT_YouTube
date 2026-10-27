@@ -39,7 +39,7 @@ _TOPIC_STOP = {
     "почему", "когда", "какие", "какой", "можно", "нужно",
     "будет", "были", "было", "делают", "делает", "говорят",
     "сказал", "сказала", "что", "это", "все", "вот", "еще",
-    "путин", "putin",
+    "putin",
 }
 
 
@@ -58,17 +58,24 @@ _TOPIC_ALIASES = (
     (("школ",), "school"),
     (("осужден", "судим", "засуджен"), "convicted"),
     (("преступ", "злочин"), "crime"),
+    (("путин", "путін"), "putin"),
+    (("пятер", "пятёр"), "pyaterochka"),
+    (("приход",), "parish"),
+    (("храм",), "temple"),
 )
 
 
 def _topic_roots(value: str) -> set[str]:
     # Fold limited RU/UA inflections and closely equivalent lexical stems.
     # Ignore numerical durations, channel branding and general filler.
-    words = _words(value.replace("ё", "е").replace("і", "и")
-                   .replace("ї", "и").replace("є", "е"))
+    normalized = (value.replace("ё", "е").replace("і", "и")
+                  .replace("ї", "и").replace("є", "е"))
+    # Named four-letter subjects ("храм", "СБУ") must not disappear while
+    # generic words and channel branding are excluded below.
+    words = set(re.findall(r"[a-zа-яёґ0-9]{4,}", normalized.casefold()))
     roots = set()
     for word in words:
-        if word in _TOPIC_STOP or len(word) < 5 or word.isdigit():
+        if word in _TOPIC_STOP or len(word) < 4 or word.isdigit():
             continue
         canonical = next(
             (name for prefixes, name in _TOPIC_ALIASES
@@ -102,10 +109,9 @@ def _check_editorial_title(current_title: str, title: str, source: str) -> None:
     if len(specific_words) >= 3 and not specific_words.intersection(source_roots):
         raise ValueError("SEO_TOPIC_MISMATCH: generated headline absent from transcript")
     if len(specific_words) < 3:
-        # Two named, source-verified subjects can be an excellent precise
-        # headline: e.g., РЫБАК И ДЖЕДАЙ. Generic two-word paraphrases
-        # without distinct anchors from the original are still rejected.
-        if len(specific_words.intersection(original)) < 2:
+        # Two verified named subjects (e.g. "Храм Пятёрочки") can carry a
+        # specific headline. Do not downgrade it solely for being concise.
+        if len(specific_words.intersection(original).intersection(source_roots)) < 2:
             raise ValueError("Generic non-editorial headline")
     from .seo_source_alignment import check_title_variants_against_primary_subject
     alignment = check_title_variants_against_primary_subject(
