@@ -37,6 +37,7 @@ on:
       - rg_remote_control/nas/monitoring/news_rg_editorial_contract_v1.py
       - rg_remote_control/nas/monitoring/news_rg_source_pipeline_probe_v1.py
       - rg_remote_control/nas/monitoring/news_rg_source_shadow_ingest_v1.py
+      - rg_remote_control/nas/monitoring/news_rg_editorial_rewrite_shadow_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_one_visible_card_audit_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_capacity_resume_v1.py
@@ -85,6 +86,7 @@ on:
       - rg_remote_control/nas/monitoring/news_rg_editorial_contract_v1.py
       - rg_remote_control/nas/monitoring/news_rg_source_pipeline_probe_v1.py
       - rg_remote_control/nas/monitoring/news_rg_source_shadow_ingest_v1.py
+      - rg_remote_control/nas/monitoring/news_rg_editorial_rewrite_shadow_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_one_visible_card_audit_v1.py
       - rg_remote_control/nas/monitoring/rg_news2_capacity_resume_v1.py
       - rg_remote_control/nas/monitoring/test_rg_news2_capacity_resume_v1.py
@@ -135,6 +137,7 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_editorial_contract_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_source_pipeline_probe_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_source_shadow_ingest_v1.py selftest
+          python rg_remote_control/nas/monitoring/news_rg_editorial_rewrite_shadow_v1.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/rg_news2_one_visible_card_audit_v1.py
           python rg_remote_control/nas/monitoring/rg_news2_one_visible_card_audit_v1.py selftest
           python rg_remote_control/nas/monitoring/test_rg_news2_capacity_resume_v1.py
@@ -271,6 +274,7 @@ jobs:
           python3 rg_remote_control/nas/monitoring/news_rg_editorial_contract_v1.py selftest
           python3 rg_remote_control/nas/monitoring/news_rg_source_pipeline_probe_v1.py selftest
           python3 rg_remote_control/nas/monitoring/news_rg_source_shadow_ingest_v1.py selftest
+          python3 rg_remote_control/nas/monitoring/news_rg_editorial_rewrite_shadow_v1.py selftest
           python3 rg_remote_control/nas/monitoring/rg_news2_one_visible_card_audit_v1.py selftest
           python3 rg_remote_control/nas/monitoring/test_rg_news2_capacity_resume_v1.py
       - name: NEWS2 pinned worker uncertain capacity root-cause AST audit
