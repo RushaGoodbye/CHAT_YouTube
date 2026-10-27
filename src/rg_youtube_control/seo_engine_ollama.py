@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+import urllib.error
 
 from .seo_engine_v1 import SeoDraft, generate_draft
 
@@ -43,9 +44,22 @@ def ollama_json(prompt: str, *, model: str = "qwen3:8b",
         endpoint.rstrip("/") + "/api/chat", data=body,
         headers={"Content-Type": "application/json"}, method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    return str(payload["message"]["content"])
+    # One bounded retry for transient local Ollama errors only. Never
+    # retry malformed model content, and do not retry permanent HTTP 4xx.
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(
+                req, timeout=timeout if attempt == 0 else min(timeout, 75.0)
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            return str(payload["message"]["content"])
+        except urllib.error.HTTPError as exc:
+            if attempt or (exc.code < 500 and exc.code != 429):
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt:
+                raise
+    raise RuntimeError("Unreachable Ollama retry state")
 
 
 TITLES_SCHEMA = {
