@@ -21,6 +21,7 @@ def safe():
  if not str(o.get('media_url','')).startswith('https://'):raise RuntimeError('NO_HTTPS_MEDIA')
  return p,o
 def resolve():
+ if str(B) not in sys.path:sys.path.insert(0,str(B))
  spec=importlib.util.spec_from_file_location('_rg_production_moderation_readonly',str(RG))
  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
  if not callable(getattr(module,'config',None)) or not callable(getattr(module,'api',None)):raise RuntimeError('EXISTING_SENDER_UNAVAILABLE')
