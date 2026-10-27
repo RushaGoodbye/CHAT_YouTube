@@ -101,7 +101,11 @@ def _check_editorial_title(current_title: str, title: str, source: str) -> None:
     if len(specific_words) >= 3 and not specific_words.intersection(source_roots):
         raise ValueError("SEO_TOPIC_MISMATCH: generated headline absent from transcript")
     if len(specific_words) < 3:
-        raise ValueError("Generic non-editorial headline")
+        # Two named, source-verified subjects can be an excellent precise
+        # headline: e.g., РЫБАК И ДЖЕДАЙ. Generic two-word paraphrases
+        # without distinct anchors from the original are still rejected.
+        if len(specific_words.intersection(original)) < 2:
+            raise ValueError("Generic non-editorial headline")
     from .seo_source_alignment import check_title_variants_against_primary_subject
     alignment = check_title_variants_against_primary_subject(
         current_title, [title]
@@ -151,6 +155,8 @@ def _bilingual_subject_roots(value: str) -> set[str]:
         "войн": "war", "війн": "war", "вийн": "war", "виин": "war",
         "налог": "tax", "подат": "tax",
         "бензин": "fuel", "пальн": "fuel", "топлив": "fuel",
+        "рыбак": "fishing", "рыбал": "fishing", "рибал": "fishing",
+        "джед": "jedi", "фантаз": "fantasy", "фантаст": "fantasy",
         "школ": "school",
         "дрон": "drone", "безпіл": "drone", "беспил": "drone",
         "ракет": "missile",
