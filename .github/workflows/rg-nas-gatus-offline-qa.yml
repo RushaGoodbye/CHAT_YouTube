@@ -90,7 +90,7 @@ permissions:
 
 jobs:
   nas-old-python-readonly:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
