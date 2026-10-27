@@ -134,6 +134,29 @@ def test_prove_guard_nested_and_only():
         else:raise AssertionError("fallthrough must be rejected")
 
 
+def test_pretty_printed_private_tick_receipt():
+    # Real production 'tick' uses json.dumps(one_canary(), indent=2).
+    # Previously parsing stdout.splitlines()[-1] misclassified the success.
+    mod=load(PATCHER,"capacity_tick_report_test")
+    success=types.SimpleNamespace(returncode=0,
+        stdout=json.dumps({
+            "status":"ONE_PRIVATE_RECEIPT_CONFIRMED",
+            "new_receipts":1,
+            "new_photo_rows":1,
+        },indent=2).encode("utf-8"))
+    assert mod.parse_tick_result(success)["status"]=="ONE_PRIVATE_RECEIPT_CONFIRMED"
+    skipped=types.SimpleNamespace(returncode=0,
+        stdout=json.dumps({"status":"NO_PHOTO_ATTEMPTED_NO_MARKER"},
+                          indent=2).encode("utf-8"))
+    assert mod.parse_tick_result(skipped)["status"]=="NO_PHOTO_ATTEMPTED_NO_MARKER"
+    aborted=types.SimpleNamespace(returncode=2,
+        stdout=success.stdout)
+    assert mod.parse_tick_result(aborted)["status"]=="SEND_RESULT_UNCERTAIN"
+    invalid=types.SimpleNamespace(returncode=0,
+        stdout=b"debug log\n"+success.stdout)
+    assert mod.parse_tick_result(invalid)["status"]=="SEND_RESULT_UNCERTAIN"
+
+
 def test_no_send_and_fail_closed():
     with tempfile.TemporaryDirectory() as td:
         mod=load(PATCHER,"capacity_tick_test")
@@ -198,5 +221,6 @@ if __name__=="__main__":
     test_reconcile()
     test_isolated_ast()
     test_prove_guard_nested_and_only()
+    test_pretty_printed_private_tick_receipt()
     test_no_send_and_fail_closed()
     print("RG_NEWS2_CAPACITY_RESUME_FULL_OFFLINE_REGRESSION_PASS")
