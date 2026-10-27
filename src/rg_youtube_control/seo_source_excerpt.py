@@ -48,8 +48,13 @@ def select_source_excerpt(
     capacity = max(1, char_budget // (window_chars + 2))
     anchors = _topic_stems(title)
     # Always sample across the video, including later segments.
-    representative = [0, n // 4, n // 2, (3 * n) // 4, n - 1]
-    selected = set(representative[:capacity])
+    representative = [0, n // 2, n - 1, n // 4, (3 * n) // 4]
+    # Reserve at least one slot for title-grounded evidence. On small
+    # budgets, five fixed samples previously consumed the whole budget,
+    # silently discarding the central news subject.
+    representative_slots = max(0, capacity - 1)
+    selected = set(representative[:min(len(representative),
+                                       representative_slots)])
     # Select title-subject matches from the ENTIRE transcript, not only intro.
     scored = []
     for index, excerpt in enumerate(windows):
