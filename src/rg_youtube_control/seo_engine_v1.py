@@ -16,11 +16,12 @@ from .seo_source_excerpt import select_source_excerpt
 class SeoDraft:
     video_id: str
     title: str
-    ab_titles: tuple[str, str, str]
+    ab_titles: tuple[str, ...]
     description: str
     tags: tuple[str, ...]
     chapters: str
     needs_review: bool = True
+    ab_incomplete: bool = False
 
 
 def _words(value: str) -> set[str]:
@@ -196,6 +197,7 @@ def _check_title_description_alignment(title: str, description: str) -> None:
 def generate_draft(
     *, video_id: str, current_title: str, transcript: str,
     generate_json: Callable[[str], str],
+    allow_incomplete_ab: bool = False,
 ) -> SeoDraft:
     """Accept only a real exact-ID transcript and a schema-valid model response.
 
@@ -245,11 +247,25 @@ def generate_draft(
     chapters = str(data.get("chapters") or "").strip()
     if not title or len(title) > 100:
         raise ValueError("Invalid primary title")
-    if not isinstance(variants, list) or len(variants) != 3 or any(
+    if not isinstance(variants, list) or (
+        len(variants) > 3 if allow_incomplete_ab else len(variants) != 3
+    ) or any(
         not isinstance(v, str) or not v.strip() or len(v) > 100 for v in variants
     ):
         raise ValueError("Exactly three valid A/B titles required")
-    if len({title.casefold(), *(v.strip().casefold() for v in variants)}) < 4:
+    # This recovery mode is NOT a way to approve duplicate titles: retain
+    # only the separately checked unique suggestions as an INCOMPLETE,
+    # explicitly review-only draft. All other SEO and source gates stay on.
+    if allow_incomplete_ab:
+        unique_variants = []
+        used_titles = {title.strip().casefold()}
+        for value in variants:
+            key = " ".join(value.split()).casefold()
+            if key not in used_titles:
+                unique_variants.append(" ".join(value.split()))
+                used_titles.add(key)
+        variants = unique_variants
+    elif len({title.casefold(), *(v.strip().casefold() for v in variants)}) < 4:
         raise ValueError("A/B titles are duplicates")
     if any(any(ch in "іїєґ" for ch in value.casefold())
            for value in [title, *variants]):
@@ -346,4 +362,5 @@ def generate_draft(
         ab_titles=tuple(v.strip() for v in variants),
         description=description, tags=tuple(normalized_tags),
         chapters=chapters,
+        ab_incomplete=len(variants) != 3,
     )
