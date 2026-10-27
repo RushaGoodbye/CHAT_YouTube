@@ -107,30 +107,52 @@ def stats(root=ROOT):
                 "queued":other,"archived":old}
     finally:c.close()
 
+def rg_photo_capacity_guard(node):
+    # The pinned NAS run() wraps "photo_open >= 1" inside an AND
+    # condition (e.g. mode == "tick" and photo_open >= 1).
+    # Accept only conjunctions, never OR or negation.
+    if not isinstance(node,ast.If):
+        return None
+    test=node.test
+    terms=(test.values if isinstance(test,ast.BoolOp)
+           and isinstance(test.op,ast.And) else [test])
+    compares=[t for t in terms if isinstance(t,ast.Compare)
+              and isinstance(t.left,ast.Name) and
+              t.left.id=="photo_open" and len(t.ops)==1
+              and isinstance(t.ops[0],ast.GtE) and
+              len(t.comparators)==1 and
+              isinstance(t.comparators[0],ast.Constant)
+              and type(t.comparators[0].value) is int
+              and t.comparators[0].value==1]
+    if len(compares)!=1 or not node.body or not isinstance(node.body[-1],ast.Return):
+        return None
+    if node.orelse:
+        return None
+    # An early-exit branch must not contain a photo/public send itself.
+    if any(isinstance(x,ast.Call) and
+           (getattr(x.func,"id",None) in
+              ("deliver_one","send_one","maybe_rss_hourly") or
+            getattr(x.func,"attr",None) in
+              ("deliver_one","send_one","maybe_rss_hourly"))
+           for item in node.body for x in ast.walk(item)):
+        return None
+    return compares[0]
+
 def prove_capacity_abort(root=ROOT):
     path=root/"operator/rg_news2_outbound_queue_v2.py"
     tree=ast.parse(path.read_bytes().decode("utf-8"))
     fn=next((n for n in tree.body if isinstance(n,ast.FunctionDef)
              and n.name=="run"),None)
     if fn is None:raise RuntimeError("RUN_FUNCTION_MISSING")
-    matches=[]
-    for node in ast.walk(fn):
-        if not isinstance(node,ast.If):continue
-        test=node.test
-        if (isinstance(test,ast.Compare) and isinstance(test.left,ast.Name)
-            and test.left.id=="photo_open" and
-            len(test.ops)==1 and isinstance(test.ops[0],ast.GtE) and
-            len(test.comparators)==1 and isinstance(test.comparators[0],ast.Constant)
-            and test.comparators[0].value==1 and
-            len(node.body)==1 and isinstance(node.body[0],ast.Return)):
-            matches.append(node.lineno)
+    guards=[n for n in ast.walk(fn) if rg_photo_capacity_guard(n) is not None]
     calls=[n.lineno for n in ast.walk(fn) if isinstance(n,ast.Call) and
          (getattr(n.func,"id",None)=="deliver_one" or
           getattr(n.func,"attr",None)=="deliver_one")]
-    if len(matches)!=1 or len(calls)!=1 or not matches[0]<calls[0]:
+    if len(guards)!=1 or len(calls)!=1 or not guards[0].lineno<calls[0]:
         raise RuntimeError("CAPACITY_ABORT_CODE_NOT_PROVEN")
-    return {"guard_line":matches[0],"deliver_line":calls[0],
-            "max_outstanding_before_patch":1}
+    return {"guard_line":guards[0].lineno,"deliver_line":calls[0],
+            "max_outstanding_before_patch":1,
+            "guard_test_type":type(guards[0].test).__name__}
 
 def reconcile(root=ROOT,vault=VAULT):
     source_pins(root)
@@ -166,23 +188,47 @@ def reconcile(root=ROOT,vault=VAULT):
           "original_capacity":1,"safe_reconcile":True}
 
 CAP_HELPER='''
+def rg_photo_capacity_guard(node):
+    # The pinned NAS run() wraps "photo_open >= 1" inside an AND
+    # condition (e.g. mode == "tick" and photo_open >= 1).
+    # Accept only conjunctions, never OR or negation.
+    if not isinstance(node,ast.If):
+        return None
+    test=node.test
+    terms=(test.values if isinstance(test,ast.BoolOp)
+           and isinstance(test.op,ast.And) else [test])
+    compares=[t for t in terms if isinstance(t,ast.Compare)
+              and isinstance(t.left,ast.Name) and
+              t.left.id=="photo_open" and len(t.ops)==1
+              and isinstance(t.ops[0],ast.GtE) and
+              len(t.comparators)==1 and
+              isinstance(t.comparators[0],ast.Constant)
+              and type(t.comparators[0].value) is int
+              and t.comparators[0].value==1]
+    if len(compares)!=1 or not node.body or not isinstance(node.body[-1],ast.Return):
+        return None
+    if node.orelse:
+        return None
+    # An early-exit branch must not contain a photo/public send itself.
+    if any(isinstance(x,ast.Call) and
+           (getattr(x.func,"id",None) in
+              ("deliver_one","send_one","maybe_rss_hourly") or
+            getattr(x.func,"attr",None) in
+              ("deliver_one","send_one","maybe_rss_hourly"))
+           for item in node.body for x in ast.walk(item)):
+        return None
+    return compares[0]
+
 def rg_capacity_relax_exact(fn):
-    # Modify ONLY the isolated AST clone, never the installed outbound file.
-    count=0
-    for node in ast.walk(fn):
-        if not isinstance(node,ast.If):continue
-        c=node.test
-        if (isinstance(c,ast.Compare) and isinstance(c.left,ast.Name)
-            and c.left.id=="photo_open" and len(c.ops)==1
-            and isinstance(c.ops[0],ast.GtE) and len(c.comparators)==1
-            and isinstance(c.comparators[0],ast.Constant)
-            and c.comparators[0].value==1
-            and len(node.body)==1 and isinstance(node.body[0],ast.Return)):
-            c.comparators[0]=ast.copy_location(ast.Constant(value=3),c.comparators[0])
-            count+=1
-    if count!=1:raise RuntimeError("CAPACITY_AST_PATCH_UNPROVEN")
-    # Wrap actual photo.deliver_one(...) call, irrespective of module alias,
-    # to distinguish NO SEND attempts from uncertain API failures.
+    # Patch only the single exact photo capacity conjunct in the
+    # AST-isolated private route; never modify the installed outbound.
+    guards=[(n,rg_photo_capacity_guard(n)) for n in ast.walk(fn)
+            if isinstance(n,ast.If)]
+    guards=[(n,c) for n,c in guards if c is not None]
+    if len(guards)!=1:raise RuntimeError("CAPACITY_AST_PATCH_UNPROVEN")
+    target=guards[0][1]
+    target.comparators[0]=ast.copy_location(ast.Constant(value=3),
+                                            target.comparators[0])
     class ObservePhoto(ast.NodeTransformer):
         def __init__(self):self.count=0
         def visit_Call(self,node):
