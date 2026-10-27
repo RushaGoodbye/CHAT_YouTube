@@ -40,6 +40,10 @@ def run_one(video_id: str, *, database: Path, model: str,
         title = meta["title"].strip()
         if not title:
             raise ValueError("MISSING_TITLE")
+        # Public headline as stored in synced metadata, not captions or
+        # private NAS content. Helps distinguish a stale/overbroad original
+        # title from a model hallucination when evaluating subject continuity.
+        report["source_public_title"] = " ".join(title.split())[:160]
         report["stage"] = "load_exact_id_captions"
         nas = Path(meta["transcript_root"]) / (video_id + ".srt")
         if nas.is_file():
