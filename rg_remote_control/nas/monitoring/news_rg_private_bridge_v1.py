@@ -52,10 +52,11 @@ def prepare_one():
     if not ADAPTER.is_file():raise RuntimeError("OLLAMA_ADAPTER_MISSING")
     c=ro(SHADOW)
     try:
-        row=c.execute("""SELECT key,text,media_url,posted_at,channel
+        rows=c.execute("""SELECT key,text,media_url,posted_at,channel
           FROM story_shadow WHERE status='needs_editorial_rewrite'
           AND length(text)>=100 AND media_url LIKE 'https://%'
-          ORDER BY posted_at DESC LIMIT 1""").fetchone()
+          ORDER BY posted_at DESC LIMIT 100""").fetchall()
+        row=next((r for r in rows if not (OUT/(hashlib.sha256(str(r[0]).encode()).hexdigest()[:24]+".json")).exists()),None)
     finally:c.close()
     if not row:raise RuntimeError("NO_ELIGIBLE_NEWS")
     key,source,photo,posted,channel=row
