@@ -34,6 +34,8 @@ BLOCK_AD=("казино","промокод","букмек","розіграш","�
 FOUR_HOURS=4*3600
 BOOTSTRAP_MAX_TOTAL=24
 BOOTSTRAP_MAX_PER_CHANNEL=2
+BOOTSTRAP_EXTRA_PRIORITY=("tucha888","brosok_mangusta","kyivoperat",
+                          "nexta_live","u_now")
 POST=re.compile(r'data-post="([A-Za-z0-9_]{4,})/([0-9]{1,15})"',re.I)
 BODY=re.compile(r'<div\s+class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>',re.I)
 TIME=re.compile(r'<time\b[^>]*\bdatetime="([^"]+)"',re.I)
@@ -184,8 +186,10 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
                 per_channel=0
                 for post in eligible_posts:
                     if post["number"]<=last and not bootstrap_recent:continue
-                    if bootstrap_recent and (per_channel>=BOOTSTRAP_MAX_PER_CHANNEL or
-                      status["bootstrap_staged"]>=BOOTSTRAP_MAX_TOTAL):
+                    if bootstrap_recent and (
+                      per_channel >= (BOOTSTRAP_MAX_PER_CHANNEL
+                              if channel in BOOTSTRAP_EXTRA_PRIORITY else 1) or
+                      status["bootstrap_staged"] >= BOOTSTRAP_MAX_TOTAL):
                         break
                     reason=story_status(post,now)
                     if reason!="eligible_for_editorial":
