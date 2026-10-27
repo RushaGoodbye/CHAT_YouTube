@@ -25,6 +25,82 @@ def _words(value: str) -> set[str]:
     return set(re.findall(r"[a-zа-яёіїєґ0-9]{4,}", value.casefold()))
 
 
+
+# General channel words are not evidence of the video subject. Titles can be
+# rephrased, but must preserve at least one non-generic topic from the current
+# public headline if that headline has multiple meaningful topic words.
+_TOPIC_STOP = {
+    "раша", "гудбай", "россия", "россии", "россию", "россияне",
+    "русские", "россиянин", "ютуб", "youtube", "канал", "чат",
+    "рулетка", "против", "после", "снова", "опять", "новости",
+    "сегодня", "сейчас", "теперь", "видео", "стрим", "отвечает",
+    "почему", "когда", "какие", "какой", "можно", "нужно",
+    "будет", "были", "было", "делают", "делает", "говорят",
+    "сказал", "сказала", "что", "это", "все", "вот", "еще",
+    "путин", "putin",
+}
+
+
+def _topic_roots(value: str) -> set[str]:
+    words = _words(value)
+    # Truncate grammatical endings (обстрелы/обстрелов) conservatively.
+    return {w[:6] for w in words if w not in _TOPIC_STOP
+            and len(w) >= 5 and not w.isdigit()}
+
+
+def _check_source_video(current_title: str, source: str) -> None:
+    from .seo_source_alignment import check_title_against_transcript
+    match = check_title_against_transcript(current_title, source)
+    if match.missing:
+        raise ValueError("SOURCE_VIDEO_MISMATCH: named title anchor missing")
+    # Original metadata alone cannot prove captions belong to the video;
+    # guard against obvious title/source swaps BEFORE paying for inference.
+    roots = _topic_roots(current_title)
+    if len(roots) >= 2 and not roots.intersection(_topic_roots(source)):
+        raise ValueError("SOURCE_VIDEO_MISMATCH: title topic absent from transcript")
+
+
+def _check_editorial_title(current_title: str, title: str, source: str) -> None:
+    # Avoid meaningless, generic AI summaries masquerading as search headlines.
+    specific_words = _topic_roots(title)
+    if len(specific_words) < 3:
+        raise ValueError("Generic non-editorial headline")
+    original = _topic_roots(current_title)
+    source_roots = _topic_roots(source)
+    if len(original) >= 2 and original.intersection(source_roots):
+        if not original.intersection(specific_words):
+            raise ValueError("SEO_TOPIC_MISMATCH: title abandons original subject")
+    from .seo_source_alignment import check_title_variants_against_primary_subject
+    alignment = check_title_variants_against_primary_subject(
+        current_title, [title]
+    )
+    if alignment.missing:
+        raise ValueError("SEO_TOPIC_MISMATCH: named subject missing in title")
+
+
+def _valid_ukrainian_description(description: str) -> bool:
+    words = re.findall(r"[а-яёіїєґ]+", description.casefold())
+    if not words:
+        return False
+    ua_letters = sum(c in "іїєґ" for c in description.casefold())
+    ru_letters = sum(c in "ыъэё" for c in description.casefold())
+    if ua_letters < 4 or (ru_letters > 2 and ru_letters * 3 > ua_letters):
+        return False
+    ua = {"що", "це", "цей", "цьому", "також", "їх", "його",
+          "які", "який", "яка", "людей", "питання", "розмові",
+          "учасники", "говорять", "обговорюють", "росіяни", "України".casefold(),
+          "про", "через", "свою", "свої", "між", "або", "під",
+          "дітей", "після", "війни"}
+    ru = {"что", "это", "этот", "этой", "также", "которые",
+          "который", "вопросы", "говорят", "обсуждают", "события",
+          "между", "происходит", "России".casefold(), "россияне",
+          "участники", "тексте", "описано", "говорится", "для",
+          "свои", "после", "военных", "действий", "представлены"}
+    ua_hits = sum(w in ua for w in words)
+    ru_hits = sum(w in ru for w in words)
+    return ua_hits >= 3 and ua_hits > ru_hits
+
+
 def generate_draft(
     *, video_id: str, current_title: str, transcript: str,
     generate_json: Callable[[str], str],
@@ -39,6 +115,7 @@ def generate_draft(
     source = " ".join(transcript.split())
     if len(source) < 150:
         raise ValueError("Transcript missing or too short")
+    _check_source_video(current_title, source)
     prompt = (
         "Ты редактор YouTube-канала РАША ГУДБАЙ. Верни только JSON: "
         "title, ab_titles (ровно 3), description, tags (8–15), chapters. "
@@ -81,11 +158,10 @@ def generate_draft(
     if re.match(r"^\s*(обсуждение|диалог|разговор|беседа|дискуссия)\b",
                 title.casefold()):
         raise ValueError("Generic non-editorial headline")
+    _check_editorial_title(current_title, title, source)
     if not 260 <= len(description) <= 4500:
         raise ValueError("Description length invalid")
-    ua_chars = sum(ch in "іїєґ" for ch in description.casefold())
-    ru_chars = sum(ch in "ыъэё" for ch in description.casefold())
-    if ua_chars < 4 or (ru_chars > 2 and ru_chars * 3 > ua_chars):
+    if not _valid_ukrainian_description(description):
         raise ValueError("Description must be Ukrainian")
     if not isinstance(tags, list) or not 8 <= len(tags) <= 15 or any(
         not isinstance(t, str) or not t.strip() for t in tags
@@ -108,12 +184,6 @@ def generate_draft(
             parts = [int(p) for p in match.group(1).split(":")]
             if parts[-1] >= 60 or (len(parts) == 3 and parts[-2] >= 60):
                 raise ValueError("Invalid chapter timestamp")
-    # Reject obvious transcript/title swaps: central nouns in the original
-    # title must occur in the transcript, not merely in generated prose.
-    stop = {"раша", "гудбай", "россии", "россия", "чат", "рулетка", "можно"}
-    anchors = (_words(current_title) - stop)
-    if anchors and len(anchors & _words(source)) == 0:
-        raise ValueError("SOURCE_VIDEO_MISMATCH: title topic absent from transcript")
     school_topic = (
         any(w in current_title.casefold() for w in ("школ", "учител", "преподав"))
         and any(w in current_title.casefold() for w in
