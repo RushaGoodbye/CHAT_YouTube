@@ -12,7 +12,10 @@ import os
 import time
 from pathlib import Path
 
-from seo_readonly_acceptance_10 import get_video_inputs
+if __package__:
+    from .seo_readonly_acceptance_10 import get_video_inputs
+else:
+    from seo_readonly_acceptance_10 import get_video_inputs
 from rg_youtube_control.free_tools import load_srt_transcript, fetch_transcript
 from rg_youtube_control.optimization import validate_content_package, safe_description_fix
 from rg_youtube_control.seo_engine_ollama import generate_with_ollama
@@ -94,13 +97,26 @@ def run_one(video_id: str, *, database: Path, model: str) -> dict:
         # Do not upload arbitrary exception strings that may contain
         # local filesystem paths, private captions, or model output.
         report["error_type"] = type(exc).__name__
-        report["error_code"] = (
-            str(exc) if isinstance(exc, ValueError) and str(exc) in {
-                "MISSING_TITLE", "INSUFFICIENT_CAPTION_ROWS",
-                "CAPTION_TEXT_TOO_SHORT", "CAPTIONS_INCOMPLETE",
-                "SOURCE_TITLE_MISMATCH", "UI_PACKAGE_CONTRACT_FAILURE",
-            } else "SOURCE_OR_GENERATION_FAILED"
-        )
+        error = str(exc)
+        source_codes = {
+            "MISSING_TITLE", "INSUFFICIENT_CAPTION_ROWS",
+            "CAPTION_TEXT_TOO_SHORT", "CAPTIONS_INCOMPLETE",
+            "SOURCE_TITLE_MISMATCH", "UI_PACKAGE_CONTRACT_FAILURE",
+        }
+        if isinstance(exc, ValueError) and error in source_codes:
+            code = error
+        elif report["stage"] == "actual_local_ollama":
+            if type(exc).__name__ in {"URLError", "HTTPError", "TimeoutError"}:
+                code = "OLLAMA_CONNECTION_OR_TIMEOUT"
+            elif type(exc).__name__ == "JSONDecodeError":
+                code = "OLLAMA_INVALID_JSON"
+            elif isinstance(exc, ValueError):
+                code = "OLLAMA_RESPONSE_FAILED_CONTRACT"
+            else:
+                code = "OLLAMA_GENERATION_FAILURE"
+        else:
+            code = "SOURCE_OR_VALIDATION_FAILURE"
+        report["error_code"] = code
     report["elapsed_seconds"] = round(time.monotonic() - started, 1)
     return report
 
