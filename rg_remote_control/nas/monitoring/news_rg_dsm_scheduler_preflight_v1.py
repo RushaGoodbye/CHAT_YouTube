@@ -12,9 +12,9 @@ def main():
  if sys.argv[1:]!=["inspect"]:raise SystemExit("selftest|inspect")
  out={"schema":"NEWS_RG_DSM_PREFLIGHT_V1","read_only":True,"telegram_calls":0,"db_writes":0,"publications":0}
  results={}
- for exe,args in (("/usr/syno/bin/synoschedtask",["--enum"]),("/usr/syno/bin/synoschedtask",["--get","4"])):
+ for exe,args in (("/usr/syno/bin/synoschedtask",["--get"]),("/usr/syno/bin/synoschedtask",["--get","id=4"])):
   if os.path.isfile(exe):
-   k="task_enum" if "--enum" in args else "task_4"
+   k="task_all" if len(args)==1 else "task_4"
    v=run([exe]+args);lines=v.get("out","").splitlines()
    results[k]={"rc":v["rc"],"matching_lines":[line[:280] for line in lines if any(x in line.lower() for x in ("news","rg_","task id","task name","enabled","last result","task: 4"))][:35]}
  out["task_scheduler"]=results
