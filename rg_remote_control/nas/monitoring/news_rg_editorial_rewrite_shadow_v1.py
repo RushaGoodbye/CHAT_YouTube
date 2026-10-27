@@ -23,6 +23,7 @@ HERE=pathlib.Path(__file__).resolve().parent
 SHADOW=pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2/operator/news_rg_editorial_shadow_v1.sqlite3")
 MODEL_DEFAULT="gemini-3.5-flash-lite"
 MAX_AI_REQUESTS_PER_RUN=3
+MAX_AI_RESERVATIONS_ROLLING_24H=10
 MAX_AGE_SECONDS=4*3600
 POLICY_FILENAME="news_rg_editorial_contract_v1.py"
 
@@ -90,6 +91,27 @@ def validate_candidate(editorial,source,media_url,policy_module):
     # No source attribution or external URLs is allowed in the public draft.
     return None
 
+def reserve_ai_budget(cx,key,now):
+    # This guard is conservative: an attempted request consumes one unit,
+    # even if the provider fails. Quota cannot be bypassed by concurrent runs.
+    cx.execute("BEGIN IMMEDIATE")
+    try:
+        cx.execute("CREATE TABLE IF NOT EXISTS editorial_ai_budget(" 
+                   "story_key TEXT PRIMARY KEY, attempted_at INTEGER NOT NULL)")
+        count=cx.execute("SELECT COUNT(*) FROM editorial_ai_budget "
+                         "WHERE attempted_at>=?",(now-86400,)).fetchone()[0]
+        already=cx.execute("SELECT 1 FROM editorial_ai_budget WHERE story_key=?",
+                           (key,)).fetchone()
+        if already or count>=MAX_AI_RESERVATIONS_ROLLING_24H:
+            cx.execute("ROLLBACK")
+            return False
+        cx.execute("INSERT INTO editorial_ai_budget VALUES(?,?)",(key,now))
+        cx.execute("COMMIT")
+        return True
+    except Exception:
+        cx.execute("ROLLBACK")
+        raise
+
 def run(store=SHADOW,max_items=MAX_AI_REQUESTS_PER_RUN,provider=None,
         allowed=None,model=None):
     pol=policy()
@@ -112,10 +134,15 @@ def run(store=SHADOW,max_items=MAX_AI_REQUESTS_PER_RUN,provider=None,
     results={"schema":"NEWS_RG_EDITORIAL_SHADOW_V1","status":"SHADOW_EDITORIAL_RUN",
              "ai_requests":0,"drafts_ready_for_manual_review":0,
              "skipped_and_unpublished":0,"provider_deferrals":0,
+             "ai_budget_limit_rolling_24h":MAX_AI_RESERVATIONS_ROLLING_24H,
+             "ai_budget_guard_blocked":False,
              "telegram_calls":0,"publications":0,"private_sends":0}
     try:
         items=eligible(cx,now,max_items)
         for key,channel,source,posted,media,media_type in items:
+            if not reserve_ai_budget(cx,key,now):
+                results["ai_budget_guard_blocked"]=True
+                break
             prompt=pol.rewrite_instructions(source)
             try:
                 response=(provider(prompt) if provider is not None else
