@@ -44,9 +44,13 @@ def main():
         cx=sqlite3.connect(str(db))
         count=cx.execute("SELECT COUNT(*) FROM story_shadow").fetchone()[0]
         assert count==24,count
-        per_src=cx.execute("SELECT MAX(cnt) FROM "
-            "(SELECT COUNT(*) AS cnt FROM story_shadow GROUP BY channel)").fetchone()[0]
-        assert per_src<=2,per_src
+        counts=dict(cx.execute(
+            "SELECT channel,COUNT(*) FROM story_shadow GROUP BY channel"))
+        assert len(counts)==19,counts
+        assert set(counts)==set(m.SOURCE_CHANNELS)
+        assert all(counts[x]==2 for x in m.BOOTSTRAP_EXTRA_PRIORITY),counts
+        assert all(counts[x]==1 for x in m.SOURCE_CHANNELS
+                   if x not in m.BOOTSTRAP_EXTRA_PRIORITY),counts
         assert cx.execute("SELECT COUNT(*) FROM editorial_draft").fetchone()[0]==0
         cx.close()
         duplicate=m.scan_once(db,now+2,m.SOURCE_CHANNELS,later,
