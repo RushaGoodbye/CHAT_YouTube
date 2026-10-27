@@ -52,3 +52,19 @@ def test_invalid_ai_chapters_are_discarded_without_blocking_the_draft():
     item["package"]["chapters"] = "00:01 Непідтверджений таймкод"
     *_, chapters, _ = MainWindow._normalize_local_seo_package(None, item)
     assert chapters == ""
+
+
+def test_actual_gui_final_quality_gate_rejects_russian_description():
+    proxy_type = type("QualityGateProxy", (), {
+        "_looks_ukrainian_description": staticmethod(
+            MainWindow._looks_ukrainian_description),
+        "_generic_chapters": staticmethod(MainWindow._generic_chapters),
+    })
+    quality, reasons = MainWindow._package_quality_gate(
+        proxy_type(),
+        title=result(TAGS)["package"]["title"],
+        description=("Обсуждение политических и военных событий в России. " * 8),
+        chapters="", tags=TAGS, require_ukrainian=True,
+    )
+    assert quality == "blocked"
+    assert any("не українською" in reason for reason in reasons)
