@@ -32,6 +32,8 @@ SOURCE_CHANNELS=(
 BLOCK_AD=("казино","промокод","букмек","розіграш","розыгрыш",
           "ставки на спорт","на правах реклами","партнерський матеріал")
 FOUR_HOURS=4*3600
+BOOTSTRAP_MAX_TOTAL=24
+BOOTSTRAP_MAX_PER_CHANNEL=2
 POST=re.compile(r'data-post="([A-Za-z0-9_]{4,})/([0-9]{1,15})"',re.I)
 BODY=re.compile(r'<div\s+class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>',re.I)
 TIME=re.compile(r'<time\b[^>]*\bdatetime="([^"]+)"',re.I)
@@ -126,7 +128,8 @@ def story_status(raw,now,manual=False):
         return "missing_real_media"
     return "eligible_for_editorial"
 
-def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
+def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
+              bootstrap_recent=False):
     now=int(time.time()) if now is None else int(now)
     if not isinstance(channels,(tuple,list)) or any(c not in SOURCE_CHANNELS for c in channels):
         raise ValueError("SOURCE_LIST_NOT_APPROVED")
@@ -142,6 +145,9 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
         status={"schema":"NEWS_RG_SOURCE_SHADOW_INGEST_V1",
                 "source_count":len(channels),"initialized_sources":0,
                 "new_stories_staged_for_editorial":0,
+                "fresh_bootstrap_mode":bool(bootstrap_recent),
+                "bounded_bootstrap_limit":BOOTSTRAP_MAX_TOTAL if bootstrap_recent else 0,
+                "bootstrap_staged":0,
                 "media_missing_skipped":0,"old_or_short_skipped":0,
                 "failed_sources":0,"duplicates":0,
                 "observed_current_posts":0,"observed_real_media_posts":0,
@@ -173,8 +179,14 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
                     continue
                 status["source_status"]["@"+channel]="scanned"
                 last=old[channel]
-                for post in posts:
-                    if post["number"]<=last:continue
+                eligible_posts=(sorted(posts,key=lambda p:p["number"],reverse=True)
+                          if bootstrap_recent else posts)
+                per_channel=0
+                for post in eligible_posts:
+                    if post["number"]<=last and not bootstrap_recent:continue
+                    if bootstrap_recent and (per_channel>=BOOTSTRAP_MAX_PER_CHANNEL or
+                      status["bootstrap_staged"]>=BOOTSTRAP_MAX_TOTAL):
+                        break
                     reason=story_status(post,now)
                     if reason!="eligible_for_editorial":
                         stat="media_missing_skipped" if reason=="missing_real_photo" \
@@ -189,6 +201,9 @@ def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None):
                          "approved_source",now))
                     if result.rowcount:
                         status["new_stories_staged_for_editorial"]+=1
+                        if bootstrap_recent:
+                            per_channel+=1
+                            status["bootstrap_staged"]+=1
                     else:status["duplicates"]+=1
                 cx.execute("UPDATE source_cursor SET highest=?,last_scan_at=? WHERE channel=?",
                            (max(last,high),now,channel))
@@ -256,8 +271,14 @@ def selftest():
         assert c["new_stories_staged_for_editorial"]==0
         m=import_manual("https://t.me/otherpublic/17",store,int(now),loader)
         assert m["status"]=="MANUAL_STAGED_FOR_EDITORIAL",m
+        d=scan_once(store,int(now)+3,("Ateobreaking",),loader,
+                    bootstrap_recent=True)
+        assert d["fresh_bootstrap_mode"] is True and d["bootstrap_staged"]==1,d
+        again=scan_once(store,int(now)+4,("Ateobreaking",),loader,
+                        bootstrap_recent=True)
+        assert again["bootstrap_staged"]==0,again
         cx=sqlite3.connect(str(store))
-        assert cx.execute("SELECT COUNT(*) FROM story_shadow").fetchone()[0]==2
+        assert cx.execute("SELECT COUNT(*) FROM story_shadow").fetchone()[0]==3
         cx.close()
     print("NEWS_RG_SOURCE_SHADOW_INGEST_SELFTEST_PASS")
 
@@ -265,6 +286,9 @@ if __name__=="__main__":
     if sys.argv[1:]==["selftest"]:selftest()
     elif sys.argv[1:]==["scan"]:
         print(json.dumps(scan_once(),sort_keys=True,ensure_ascii=False,indent=2))
+    elif sys.argv[1:]==["bootstrap-fresh"]:
+        print(json.dumps(scan_once(bootstrap_recent=True),sort_keys=True,
+                         ensure_ascii=False,indent=2))
     elif len(sys.argv)==3 and sys.argv[1]=="manual":
         print(json.dumps(import_manual(sys.argv[2]),sort_keys=True,ensure_ascii=False,indent=2))
     else:raise SystemExit("Only selftest, scan and manual URL supported")
