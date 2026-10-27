@@ -76,11 +76,16 @@ def available():
 def check():
  ensure(os.geteuid()==0,'SUDO_REQUIRED')
  chat=identity()
- obj=available()
+ # Transport preflight uses a held JPEG draft only as a read-only media fixture.
+ # It NEVER clears or reuses an at-most-once Telegram claim.
+ files=sorted(D.glob('*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+ ensure(bool(files),'NO_STAGED_MEDIA')
+ obj=next((json.loads(p.read_text()) for p in files if p.is_file() and not p.is_symlink()),None)
+ ensure(obj is not None,'NO_SAFE_STAGED_MEDIA')
  data,ct=media(obj['media_url'])
  return {'status':'READY_MULTIPART_PRIVATE_ONLY','draft_id':obj['draft_id'],'media_type':ct,
   'media_bytes':len(data),'private_chat_masked':str(chat)[:2]+'***','telegram_sends':0,
-  'telegram_poll_calls':0,'publications':0,'old_uncertain_claims_preserved':True}
+  'telegram_poll_calls':0,'publications':0,'old_uncertain_claims_preserved':True,'delivery_eligible':False,'purpose':'TRANSPORT_TEST_ONLY'}
 def selftest():
  b=build(b'\xff\xd8\xffABC','x.jpg','image/jpeg','тест',123,'RGNEWSBOUNDARY')
  assert b'Content-Disposition: form-data; name="photo"; filename="x.jpg"' in b
