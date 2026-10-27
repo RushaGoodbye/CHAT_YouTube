@@ -292,16 +292,17 @@ def generate_draft(
             seen_tags.add(key)
     if len(normalized_tags) < 8:
         raise ValueError("At least eight unique tags required")
-    # At least two tags must be meaningfully connected to the main topic.
-    # Channel branding tags are useful, but cannot mask unrelated keywords:
-    # e.g., video about Рыбак/Джедай with only military technology tags.
+    # At least one-third of all tags must match the primary video subject.
+    # Two correct tags cannot justify thirteen irrelevant keywords. Accept
+    # grounded RU/UA inflections; channel branding never counts as subject.
     topic = _topic_roots(title)
     relevant_tags = sum(
         bool(_topic_roots(tag).intersection(topic))
         for tag in normalized_tags
     )
-    if topic and relevant_tags < min(2, len(topic)):
-        raise ValueError("SEO_TAGS_TOPIC_MISMATCH: no subject-specific tags")
+    minimum_relevant = max(2, (len(normalized_tags) + 2) // 3)
+    if topic and relevant_tags < minimum_relevant:
+        raise ValueError("SEO_TAGS_TOPIC_MISMATCH: insufficient main-subject tags")
     # YouTube's tag budget counts commas between tags as well as values.
     if len(", ".join(normalized_tags)) > 500:
         raise ValueError("Tag text exceeds YouTube limit")
