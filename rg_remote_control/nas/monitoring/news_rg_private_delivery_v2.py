@@ -67,7 +67,8 @@ def main(mode):
  except Exception as exc:
   # Record only an error class/code, never token/URL/Telegram text.
   err=str(exc)
-  safe=err if err in ('ACK_NOT_DICT','ACK_MESSAGE_NOT_DICT','ACK_MESSAGE_ID_MISSING','ACK_CHAT_MISSING','ACK_CHAT_ID_MISMATCH','ACK_NOT_PRIVATE') else type(exc).__name__
+  allowed=('ACK_NOT_DICT','ACK_MESSAGE_NOT_DICT','ACK_MESSAGE_ID_MISSING','ACK_CHAT_MISSING','ACK_CHAT_ID_MISMATCH','ACK_NOT_PRIVATE','TELEGRAM_REQUEST_REJECTED','MODERATOR_BOT_TOKEN_MISSING')
+  safe=err if err in allowed else type(exc).__name__
   with open(receipt,'w') as f:
    json.dump({'status':'UNCERTAIN_NO_RETRY','draft_id':key,'error_class':safe,'created_at':int(time.time())},f)
   raise RuntimeError('UNCERTAIN_NO_RETRY_'+safe)
