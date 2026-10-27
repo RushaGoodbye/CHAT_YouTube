@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
+from .seo_source_excerpt import select_source_excerpt
+
 
 @dataclass(frozen=True)
 class SeoDraft:
@@ -182,7 +184,8 @@ def generate_draft(
         "chapters должен быть пустой строкой: проверенных таймкодов нет. "
         "Все результаты только черновики для редакторской проверки. "
         "VIDEO ID: " + video_id + "\nИСХОДНЫЙ ЗАГОЛОВОК: " +
-        current_title + "\nРАСШИФРОВКА:\n" + source[:24000]
+        current_title + "\nРАСШИФРОВКА (фрагменти з початку, середини та кінця):\n" +
+        select_source_excerpt(current_title, source, char_budget=23000)
     )
     raw = generate_json(prompt)
     data = json.loads(raw)
