@@ -160,7 +160,7 @@ def install_verified_anchor_scope():
         for row in matches:
             if not isinstance(row,dict):continue
             shot=Path(str(row.get("screenshot","")))
-            m=re.search(r"907-(\\d+)\\.jpg$",shot.name,re.I)
+            m=re.search(r"907-([0-9]+)[.]jpg$",shot.name,re.I)
             if m:
                 seen[int(m.group(1))]=float(row.get("best_match_sec",-1))
         if set(seen)!=set(ANCHORS) or set(cache)!=set(ANCHORS):
