@@ -227,10 +227,20 @@ def generate_draft(
         not isinstance(t, str) or not t.strip() for t in tags
     ):
         raise ValueError("Tags invalid")
-    if len({str(t).strip().casefold() for t in tags}) < 8:
+    # Remove redundant model tags before checking YouTube's 500-char
+    # budget. Eight DISTINCT useful tags are still mandatory.
+    normalized_tags: list[str] = []
+    seen_tags: set[str] = set()
+    for tag in tags:
+        clean = tag.strip()
+        key = clean.casefold()
+        if key not in seen_tags:
+            normalized_tags.append(clean)
+            seen_tags.add(key)
+    if len(normalized_tags) < 8:
         raise ValueError("At least eight unique tags required")
     # YouTube's tag budget counts commas between tags as well as values.
-    if len(", ".join(tags)) > 500:
+    if len(", ".join(normalized_tags)) > 500:
         raise ValueError("Tag text exceeds YouTube limit")
     # A timestamped chapter list must not invent negative or impossible times.
     if chapters:
@@ -264,6 +274,6 @@ def generate_draft(
     return SeoDraft(
         video_id=video_id, title=title,
         ab_titles=tuple(v.strip() for v in variants),
-        description=description, tags=tuple(t.strip() for t in tags),
+        description=description, tags=tuple(normalized_tags),
         chapters=chapters,
     )
