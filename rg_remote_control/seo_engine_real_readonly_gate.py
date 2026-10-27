@@ -143,6 +143,28 @@ def run_one(video_id: str, *, database: Path, model: str,
         else:
             code = "SOURCE_OR_VALIDATION_FAILURE"
         report["error_code"] = code
+        # Stable diagnostic codes only: no transcript, model JSON,
+        # private NAS path or arbitrary error string in CI reports.
+        failure_signatures = (
+            ("title and description discuss different", "TITLE_DESCRIPTION_SUBJECT_CONFLICT"),
+            ("A/B headlines lose named subject", "AB_NAMED_SUBJECT_MISSING"),
+            ("A/B headline absent from transcript", "AB_SOURCE_SUBJECT_MISSING"),
+            ("title abandons original subject", "HEADLINE_CHANGED_MAIN_TOPIC"),
+            ("generated headline absent from transcript", "HEADLINE_NOT_IN_SOURCE"),
+            ("school crime theme missing", "SCHOOL_TOPIC_MISSING"),
+            ("generated text abandons subject", "EDITORIAL_TOPIC_MISSING"),
+            ("Titles must be Russian", "TITLE_LANGUAGE_INVALID"),
+            ("Description must be Ukrainian", "DESCRIPTION_LANGUAGE_INVALID"),
+            ("Description length invalid", "DESCRIPTION_LENGTH_INVALID"),
+        )
+        detail = next((label for signature, label in failure_signatures
+                       if signature in error), None)
+        if detail:
+            report["error_detail_code"] = detail
+        rejected = getattr(exc, "seo_rejected_title", None)
+        if isinstance(rejected, str):
+            # Generated headline only, not an original caption or NAS file.
+            report["rejected_title"] = " ".join(rejected.split())[:110]
     report["elapsed_seconds"] = round(time.monotonic() - started, 1)
     return report
 
