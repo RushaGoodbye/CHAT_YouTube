@@ -68,6 +68,8 @@ def _check_editorial_title(current_title: str, title: str, source: str) -> None:
     if len(original) >= 2 and original.intersection(source_roots):
         if not original.intersection(specific_words):
             raise ValueError("SEO_TOPIC_MISMATCH: title abandons original subject")
+    if len(specific_words) >= 3 and not specific_words.intersection(source_roots):
+        raise ValueError("SEO_TOPIC_MISMATCH: generated headline absent from transcript")
     if len(specific_words) < 3:
         raise ValueError("Generic non-editorial headline")
     from .seo_source_alignment import check_title_variants_against_primary_subject
@@ -159,6 +161,16 @@ def generate_draft(
                 title.casefold()):
         raise ValueError("Generic non-editorial headline")
     _check_editorial_title(current_title, title, source)
+    from .seo_source_alignment import check_title_variants_against_primary_subject
+    variants_alignment = check_title_variants_against_primary_subject(
+        current_title, variants
+    )
+    if variants_alignment.missing:
+        raise ValueError("SEO_TOPIC_MISMATCH: A/B headlines lose named subject")
+    for variant in variants:
+        roots = _topic_roots(variant)
+        if len(roots) >= 3 and not roots.intersection(_topic_roots(source)):
+            raise ValueError("SEO_TOPIC_MISMATCH: A/B headline absent from transcript")
     if not 260 <= len(description) <= 4500:
         raise ValueError("Description length invalid")
     if not _valid_ukrainian_description(description):
