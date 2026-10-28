@@ -40,3 +40,24 @@ def test_safe_error_codes_never_export_private_model_text():
     assert module._safe_error_code(ValueError(
         "Untrusted transcript private quoted sentence"
     )) == "LOCAL_SEO_OTHER_ERROR"
+
+
+def test_batch_accepts_video_ids_that_start_with_dash(tmp_path, monkeypatch):
+    import json
+    spec = importlib.util.spec_from_file_location("rg_seo_readonly_batch_ids", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    seen = []
+    def fake_run_one(video_id, **kwargs):
+        seen.append(video_id)
+        return {"video_id": video_id, "status": "DRAFT_READY_FOR_HUMAN_REVIEW"}
+    monkeypatch.setattr(module, "run_one", fake_run_one)
+    out = tmp_path / "summary.json"
+    exit_code = module.main([
+        "--video-ids", "MEitKm687xo,-Bu_aDIvEs4,fdHXrCyw3Lw",
+        "--output", str(out),
+    ])
+    assert exit_code == 0
+    assert seen == ["MEitKm687xo", "-Bu_aDIvEs4", "fdHXrCyw3Lw"]
+    assert json.loads(out.read_text(encoding="utf-8"))["video_count"] == 3
