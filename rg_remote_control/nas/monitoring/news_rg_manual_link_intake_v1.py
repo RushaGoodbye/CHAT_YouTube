@@ -327,10 +327,10 @@ def handle(update,cfg,api):
  except Exception:
   reply(api,chat,'⚠️ Не вдалося отримати повний текст і фото з відкритої публікації. Перевір, чи доступний пост без авторизації.')
   return {'status':'MANUAL_SOURCE_NOT_ACCESSIBLE'}
- proposed=prepare_ukrainian(text)
+ proposed,reason,provider=prepare_ukrainian_with_status(text)
  if proposed is None:
-  reply(api,chat,'⚠️ Публікацію прочитано, але український текст не вдалося безпечно підготувати локально. Модерацію не створено. Перевір доступність локальної AI-моделі.')
-  return {'status':'MANUAL_UKRAINIAN_PREPARATION_UNAVAILABLE'}
+  reply(api,chat,'⚠️ Публікацію прочитано, але створити надійний український текст не вдалося. Редакційна перевірка не створена.')
+  return {'status':'MANUAL_UKRAINIAN_PREPARATION_UNAVAILABLE','reason_code':reason[:95]}
  result=stage(link,text,photo,date,proposed=proposed)
  st=result['status']
  if st=='MANUAL_LINK_STAGED':
@@ -390,6 +390,8 @@ def selftest():
  except ValueError:pass
  else:raise AssertionError('POST_ID_MISMATCH_ACCEPTED')
  assert needs_ukrainian_rewrite(nexta)
+ assert existing_gemini_config.__name__=='existing_gemini_config'
+ assert len(ai_prompt(nexta))>len(nexta)
  ua=('У публікації NEXTA Live навели приписуване президентові США Гаррі Трумену '
      'висловлювання про недовіру до росіян. Достовірність цитати потребує перевірки.')
  assert ukrainian_draft_ok(nexta,ua)
@@ -424,8 +426,8 @@ def probe(url):
   raise ValueError('PROBE_URL_MUST_BE_EXACT_REPORTED_CASE')
  _,source,photo=source_to_post(url)
  if not photo_ok(photo):raise ValueError('PREVIEW_MEDIA_URL_UNSAFE')
- prepared=prepare_ukrainian(source)
- if not prepared:raise ValueError('UKRAINIAN_LOCAL_MODEL_NOT_READY_OR_GUARD_FAIL')
+ prepared,reason,provider=prepare_ukrainian_with_status(source)
+ if not prepared:raise ValueError(reason[:95])
  # Reuse existing transport media validation (size/MIME/JPEG signature).
  if str(O) not in sys.path:sys.path.insert(0,str(O))
  import news_rg_multipart as media_support
@@ -435,6 +437,7 @@ def probe(url):
  return {'status':'NEWS_RG_VIDEO_POST_AND_UA_PROBE_PASS',
    'source_url':'https://t.me/nexta_live/125698',
    'source_chars':len(source),'proposed_ukrainian_chars':len(prepared),
+   'provider_used':provider,'ai_reason_code':reason,
    'preview_mime':mime,'preview_bytes':len(image),
    'private_cards_sent':0,'publications':0,'telegram_bot_calls':0,'new_pollers':0}
 if __name__=='__main__':
