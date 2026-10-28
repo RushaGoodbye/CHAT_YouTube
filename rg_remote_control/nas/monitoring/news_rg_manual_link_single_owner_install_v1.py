@@ -185,7 +185,7 @@ def main():
  amended=builder(fake)
  assert "'allowed_updates':['callback_query','message']" in amended
  assert amended.count(ROUTE_TAG)==1
- assert amended.index("if isinstance(u.get('message'),dict):")<amended.index("q=u.get('callback_query') or {}")
+ assert amended.index("q=u.get('callback_query') or {}")<amended.index("if isinstance(u.get('message'),dict):")<amended.index("val=str(q.get('data',''))")
  assert 'news_rg_manual_link_intake_v1' in amended
  assert amended.count('getUpdates')==fake.count('getUpdates')
  print('NEWS_RG_MANUAL_SINGLE_OWNER_INSTALLER_SELFTEST_PASS')
