@@ -2306,6 +2306,20 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    # The model may repeatedly hallucinate a thematic label
+                    # while its verified literal quotations contain several
+                    # concrete source subjects. Extract ONLY those subjects,
+                    # phrased as factual-neutral Ukrainian editorial questions.
+                    # Every title still passes the same strict A/B validator;
+                    # this preview NEVER bypasses manual approval.
+                    from .source_ab_lexical import source_grounded_ukrainian_ab
+                    lexical = source_grounded_ukrainian_ab(
+                        evidence_report, current_title,
+                    )
+                    if lexical and not ab_title_issues(lexical, evidence_report):
+                        candidate["title_variants"] = lexical
+                        candidate["_source_lexical_review_only"] = True
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
@@ -2468,10 +2482,16 @@ chapters: рядок з підтвердженими таймкодами та �
                     "перевірити вручну за наявною картою цитат."
                 )
                 review_topics.append("unmapped_evidence")
+            from .source_ab_lexical import source_grounded_ukrainian_ab
             payload = {
                 "title": str(current_title).strip(),
-                "title_variants": _verified_source_ab_titles(
-                    evidence_report, current_title,
+                "title_variants": (
+                    source_grounded_ukrainian_ab(
+                        evidence_report, current_title,
+                    )
+                    or _verified_source_ab_titles(
+                        evidence_report, current_title,
+                    )
                 ),
                 "description": safe_description,
                 "tags": _grounded_tags_from_transcript(current_title, transcript)[:10],
@@ -2604,6 +2624,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("_tags_review_required"))
             or bool(payload.get("_fallback_review_only"))
             or bool(payload.get("_source_topic_fallback_review_only"))
+            or bool(payload.get("_source_lexical_review_only"))
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2625,6 +2646,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
                 (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
                 (bool(payload.get("_source_topic_fallback_review_only")), "A/B із перевірених цитат: обов'язкове редакторське затвердження"),
+                (bool(payload.get("_source_lexical_review_only")), "A/B сформовано лише з дослівних тем: перевірити редакційні формулювання"),
             )
             if condition
         ),
