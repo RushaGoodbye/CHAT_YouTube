@@ -12776,6 +12776,13 @@ class MainWindow(QMainWindow):
                 "Метадані отримано з локальної бази · yt-dlp не потрібен · API 0"
             )
 
+        raw_duration = context.get("duration") or (state[3] if state is not None else "")
+        duration_seconds = _duration_seconds(str(raw_duration or ""))
+        if 0 < duration_seconds <= 70:
+            raise RuntimeError(
+                "Shorts не оптимізуємо за редакційними правилами. "
+                "Дані відео не змінено."
+            )
         current_title = str(context.get("title") or "")
         raw_description = str(context.get("description") or "")
         cleaned_description = safe_description_fix(
@@ -12931,6 +12938,8 @@ class MainWindow(QMainWindow):
                 )
 
         context_for_model = dict(context)
+        # Live archives must keep chapters empty even if the model suggests them.
+        context_for_model["profile"] = self.current_profile
         context_for_model.pop("_caption_tracks", None)
         context_for_model.pop("metadata_fetch_warning", None)
         context_for_model["description"] = cleaned_description
@@ -12942,7 +12951,7 @@ class MainWindow(QMainWindow):
             current_tags=list(context.get("tags") or []),
             transcript=transcript,
             public_context=context_for_model,
-            is_short=int(context.get("duration") or 0) <= 70,
+            is_short=False,  # Shorts are blocked before reaching the generator
             fast_mode=fast_mode,
             timeout=55.0 if fast_mode else 300.0,
             evidence_report=evidence_report,
