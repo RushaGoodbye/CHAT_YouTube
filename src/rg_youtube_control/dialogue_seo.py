@@ -508,6 +508,17 @@ def ab_title_issues(
                     f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
                 )
 
+    # Extra offline evidence-independent duplicate detector (RapidFuzz/MIT).
+    # It only rejects repeated hooks; it cannot turn unsupported text into
+    # grounded metadata or create a missing A/B story.
+    from .seo_free_quality import repeated_ab_event_pairs
+    for left, right in repeated_ab_event_pairs(values):
+        reason = (
+            f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
+        )
+        if reason not in issues:
+            issues.append(reason)
+
     # Generic editorial labels are not a useful or factual third A/B hook.
     # They used to pass the offline gate and reach the real GUI preview.
     generic_hook = re.compile(
