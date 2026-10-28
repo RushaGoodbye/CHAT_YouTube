@@ -2508,11 +2508,16 @@ chapters: рядок з підтвердженими таймкодами та �
     if not is_short and not is_stream and transcript.strip():
         chapter_error = _chapters_quality_error(chapters, transcript)
         if chapter_error and not fast_mode:
-            chapters = _recover_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-                model=model,
-            )
+            try:
+                chapters = _recover_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+            except (RuntimeError, TimeoutError, ValueError):
+                # The chapter model is optional. An outage must not erase
+                # a verified, review-only SEO package for the whole video.
+                chapters = ""
         if not chapters or _chapters_quality_error(chapters, transcript):
             chapters = _grounded_chapters_from_transcript(
                 current_title=current_title,
