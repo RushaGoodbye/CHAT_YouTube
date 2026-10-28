@@ -89,11 +89,15 @@ def source_grounded_ukrainian_ab(
                 continue
             seen_quotes.add(key)
             labels = _grounded_labels(evidence)
-            for subject in labels:
-                for frame in _FRAMES:
-                    title = frame.format(subject=subject)
-                    if title.casefold() != current_title.strip().casefold():
-                        options.append((index, subject, title))
+            # Multiple mentions inside ONE utterance are not proof of three
+            # different stories (e.g. "Шойгу коррупция оборона"). Select
+            # just one concrete anchor per verbatim quotation.
+            labels.sort(key=lambda label: label in _GENERIC)
+            if labels:
+                subject = labels[0]
+                title = _FRAMES[0].format(subject=subject)
+                if title.casefold() != current_title.strip().casefold():
+                    options.append((index, subject, title))
         if len(options) >= 90:
             break
 
