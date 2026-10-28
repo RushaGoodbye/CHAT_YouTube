@@ -20,6 +20,13 @@ dependencies = [
   "youtube-comment-downloader==0.1.83",
 ]
 
+[project.optional-dependencies]
+# Lingua 2.x requires Python >=3.12; the production build currently uses
+# 3.11, so this is a tested opt-in local QA capability, not an installer bloat.
+seo-language = [
+  "lingua-language-detector>=2.0,<3; python_version >= '3.12'",
+]
+
 [project.scripts]
 rg-youtube-control = "rg_youtube_control.main:main"
 
