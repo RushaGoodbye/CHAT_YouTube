@@ -451,6 +451,35 @@ def preserve_outline_topics(
 
 
 
+def _cross_language_topic_word(word: str) -> str:
+    """Map only common Ukrainian/Russian subject roots for source matching.
+
+    The topic still has to occur in a verbatim verified quotation. This is
+    not an allowlist of facts: it only prevents language differences from
+    being mistaken for unsupported claims.
+    """
+    w = word.casefold().translate(str.maketrans({
+        "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е",
+    }))
+    roots = (
+        ("коруп", "корруп"),
+        ("звильн", "увольн"),
+        ("вийн", "войн"),
+        ("министер", "министер"),
+        ("путин", "путин"),
+        ("посад", "должн"),
+        ("змина", "смена"),
+        ("признач", "назнач"),
+        ("вийськов", "военн"),
+        ("розмов", "разговор"),
+        ("обговор", "обсужд"),
+    )
+    for ukrainian, russian in roots:
+        if w.startswith(ukrainian):
+            return russian + w[len(ukrainian):]
+    return w
+
+
 def ab_title_issues(
     variants: Iterable[str],
     report: dict[str, Any] | None = None,
@@ -580,7 +609,8 @@ def ab_title_issues(
             str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
         )
         stems = {
-            word[:5] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
+            _cross_language_topic_word(word)[:5]
+            for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
         }
         # A shared supported keyword must not conceal an invented unrelated
         # two-word subject (regression: "family psychology" in political SEO).
@@ -617,10 +647,13 @@ def ab_title_issues(
                 if word not in {
                     "чатрулетка", "рулетка", "рашагудбай",
                     "россияне", "россия", "российск",
+                    "кажуть", "говорять", "учасники", "розмови",
+                    "спиврозмовники", "питання", "думки", "версии",
+                    "обговорюють", "пояснюють", "скільки",
                 }
             ]
             if meaningful and not any(
-                word[:5] in stems for word in meaningful
+                _cross_language_topic_word(word)[:5] in stems for word in meaningful
             ):
                 issues.append(
                     f"A/B варіант {index} не має підтверджених тематичних слів."
@@ -631,7 +664,7 @@ def ab_title_issues(
             # legitimate paraphrases and are never called proven false.
             source_only = [
                 word for word in meaningful
-                if word[:5] not in stems
+                if _cross_language_topic_word(word)[:5] not in stems
                 and word not in {
                     "почему", "который", "которые", "говорят",
                     "рассказ", "вопросы", "ответы", "выпуск",
