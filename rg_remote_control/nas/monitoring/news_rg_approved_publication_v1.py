@@ -69,7 +69,7 @@ def discover_channel(cfg):
  # Optionally reuse the explicit channel from an existing installed native bot.
  # Never assume a destination from source feeds or from moderation chat IDs.
  legacy=pathlib.Path('/volume1/docker/RG_TELEGRAM_STATE/rg_telegram_nas_native_bot_v01.py')
- if legacy.is_file() and not legacy.is_symlink() and legacy.stat().st_size<120000:
+ if not found and legacy.is_file() and not legacy.is_symlink() and legacy.stat().st_size<120000:
   lines=legacy.read_text(encoding='utf-8').splitlines()
   for line in lines:
    if line.startswith('CHANNEL='):
