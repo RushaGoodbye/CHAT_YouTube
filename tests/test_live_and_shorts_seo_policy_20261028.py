@@ -43,3 +43,13 @@ def test_local_ui_skips_shorts_and_propagates_live_channel_profile():
     assert "if 0 < duration_seconds <= 70:" in section
     assert "Shorts не оптимізуємо" in section
     assert 'context_for_model["profile"] = self.current_profile' in section
+
+
+def test_short_duration_parser_handles_legacy_and_iso_formats():
+    from rg_youtube_control.ui import _duration_seconds
+    assert _duration_seconds("00:59") == 59
+    assert _duration_seconds("01:09") == 69
+    assert _duration_seconds("00:01:03") == 63
+    assert _duration_seconds("PT59S") == 59
+    assert _duration_seconds("PT1M10S") == 70
+    assert _duration_seconds("00:10:00") == 600
