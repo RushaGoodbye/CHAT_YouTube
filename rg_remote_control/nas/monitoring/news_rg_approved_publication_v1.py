@@ -14,8 +14,8 @@ DEC=O/'news_rg_editorial_decisions_v1'
 SENT=O/'news_rg_private_multipart_receipts_v1'
 STAGED=O/'news_rg_private_review_staging'
 LCK=O/'news_rg_publication.lock'
-CHANNEL_KEYS=('RG_NEWS_PUBLIC_CHANNEL_ID','RG_TELEGRAM_CHANNEL_ID','TELEGRAM_CHANNEL_ID','PUBLIC_CHANNEL_ID','PUBLISH_CHAT_ID')
-CFG_KEYS=('public_channel_id','publication_channel_id','channel_id','target_channel_id','publish_chat_id')
+CHANNEL_KEYS=('RG_NEWS_PUBLIC_CHANNEL_ID','RG_TELEGRAM_CHANNEL_ID','TELEGRAM_CHANNEL_ID','PUBLIC_CHANNEL_ID','PUBLISH_CHAT_ID','TG_CHANNEL_ID','NEWS_CHANNEL_ID')
+CFG_KEYS=('public_channel_id','publication_channel_id','channel_id','target_channel_id','publish_chat_id','telegram_channel_id','news_channel_id','channel_chat_id')
 def fail(s):raise RuntimeError(s)
 def emit(**a):print(json.dumps(a,ensure_ascii=False,sort_keys=True))
 def read_json(p,max_bytes=24000):
