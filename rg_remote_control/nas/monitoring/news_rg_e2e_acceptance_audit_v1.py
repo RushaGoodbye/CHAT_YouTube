@@ -33,6 +33,37 @@ def check():
             'private_delivery':'CONFIRMED','editorial_hook':'INSTALLED',
             'public_publication':'OFF','read_only':True,'telegram_calls':0,
             'pollers_started':0,'db_writes':0,'publications':0}
+    worker=OP/'rg_news2_p31_guarded_callback_once.py'
+    if not worker.is_file() or worker.is_symlink():
+        raise RuntimeError('GUARDED_CALLBACK_WORKER_MISSING')
+    worker_text=worker.read_text(encoding='utf-8')
+    result['editorial_worker_route']='INSTALLED' if (
+        '# NEWS_RG_NE1_OWNER_ROUTE_V1' in worker_text
+        and "val.startswith('ne1:')" in worker_text
+        and 'm.process_callback(u,cfg)' in worker_text
+    ) else 'NOT_INSTALLED'
+    result['single_owner_worker']='rg_news2_p31_guarded_callback_once.py'
+    result['archived_ne1_matches']=0
+    result['archived_ne1_latest_update_id']=None
+    for path in sorted(OP.glob('*updates*.json'),key=lambda p:p.stat().st_mtime,reverse=True)[:120]:
+        if not path.is_file() or path.is_symlink() or path.stat().st_size>3000000:
+            continue
+        try:
+            batch=json.loads(path.read_text(encoding='utf-8'))
+            updates=batch.get('updates',[]) if isinstance(batch,dict) else []
+            for event in updates:
+                query=event.get('callback_query') or {}
+                if not str(query.get('data','')).startswith('ne1:'):
+                    continue
+                if ID not in str(query.get('data','')):
+                    continue
+                message=query.get('message') or {}
+                if message.get('message_id') != EXPECTED_MESSAGE:
+                    continue
+                result['archived_ne1_matches']+=1
+                result['archived_ne1_latest_update_id']=event.get('update_id')
+        except (OSError,ValueError,TypeError,KeyError):
+            continue
     dec=OP/'news_rg_editorial_decisions_v1'/(ID+'.json')
     if dec.exists():
         d=load_json(dec)
