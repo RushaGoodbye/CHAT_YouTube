@@ -112,7 +112,7 @@ def test_auto_selection_reports_shortfall_instead_of_claiming_full_pass(
     spec.loader.exec_module(module)
     monkeypatch.setattr(
         module, "select_existing_srt_videos",
-        lambda db, profile, limit, preferred=(), allow_public_captions=False, preflight_captions=False: (
+        lambda db, profile, limit, preferred=(), allow_public_captions=False, preflight_captions=False, private_caption_cache=None: (
             ["12345678901"] if profile == "main" else []
         ),
     )
