@@ -276,6 +276,7 @@ def run_one(
             if cached is not None:
                 rows = cached
                 result["caption_cache_reused"] = True
+                result["caption_preflight_reused"] = True
                 result["public_caption_reads"] = 0
             else:
                 result["public_caption_reads"] = 1
