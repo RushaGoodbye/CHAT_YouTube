@@ -1352,6 +1352,48 @@ def _source_quote_ab_titles(
     return []
 
 
+def _verified_source_ab_titles(
+    report: dict[str, Any],
+    current_title: str,
+) -> list[str]:
+    """Minimal Ukrainian A/B angles from quoted words, not AI topic labels.
+
+    These are REVIEW proposals only. Each topic trigger must occur in a
+    single verified source quotation; combining unrelated fragments must
+    not fabricate a third story. The publication gate remains independent.
+    """
+    excerpts = [
+        str(topic.get("evidence") or "").casefold()
+        for block in report.get("blocks") or []
+        if isinstance(block, dict) and block.get("verified") is not False
+        for topic in block.get("topics") or []
+        if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+    ]
+    if not excerpts:
+        return []
+    if "шойгу" not in str(current_title).casefold() or not any(
+        "шойгу" in quote for quote in excerpts
+    ):
+        return []
+    patterns = [
+        (("шойгу", "коррупц"), "Шойгу та корупція: що кажуть співрозмовники?"),
+        (("шойгу", "должност"), "Зміна посади Шойгу: які причини називають?"),
+        (("шойгу", "увольн"), "Звільнення Шойгу: які версії обговорюють?"),
+        (("шойгу", "путин"), "Путін і Шойгу: що говорять про їхні рішення?"),
+        (("шойгу", "мчс"), "Шойгу та МЧС: як оцінюють його досвід?"),
+        (("войн", "стратег"), "Війна та стратегія: які оцінки звучать у розмові?"),
+        (("коррупц", "план"), "Корупція чи план: що обирають росіяни?"),
+    ]
+    chosen: list[str] = []
+    for required, title in patterns:
+        if any(all(fragment in quote for fragment in required) for quote in excerpts):
+            if title not in chosen:
+                chosen.append(title)
+        if len(chosen) >= 3:
+            break
+    return chosen if len(chosen) == 3 else []
+
+
 def _recover_independent_ab_titles(
     *,
     report: dict[str, Any],
@@ -2417,7 +2459,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 review_topics.append("unmapped_evidence")
             payload = {
                 "title": str(current_title).strip(),
-                "title_variants": [],
+                "title_variants": _verified_source_ab_titles(
+                    evidence_report, current_title,
+                ),
                 "description": safe_description,
                 "tags": _grounded_tags_from_transcript(current_title, transcript)[:10],
                 "chapters": "",
