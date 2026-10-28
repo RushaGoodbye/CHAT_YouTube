@@ -5,6 +5,7 @@ No getUpdates, sendPhoto, sendMessage, channel publication, or production DB edi
 An editorial approval is NOT a publication approval.
 """
 import os,json,re,pathlib,time
+import news_rg_wrong_photo_supersession_v1 as supersession
 B=pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2")
 O=B/"operator"
 ST=O/"news_rg_private_review_staging"
@@ -33,6 +34,12 @@ def process_callback(update,cfg):
     if not m:
         return None
     action,draft_id=m.groups()
+    if draft_id==supersession.OLD:
+        try:
+            if supersession.is_superseded(RECEIPTS/(draft_id+".json")):
+                return {"status":"EDITORIAL_CARD_SYSTEM_SUPERSEDED_BAD_PHOTO","public_publication":"OFF"}
+        except (OSError,ValueError,RuntimeError):
+            return {"status":"EDITORIAL_SUPERSESSION_UNVERIFIED_SAFE_STOP","public_publication":"OFF"}
     user=q.get("from") or {}
     chat=(q.get("message") or {}).get("chat") or {}
     msg=(q.get("message") or {})
