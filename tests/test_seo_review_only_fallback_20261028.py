@@ -124,3 +124,21 @@ def test_two_verified_topics_generate_three_distinct_angles(monkeypatch):
     )
     assert len(titles) == 3
     assert len(set(title.casefold() for title in titles)) == 3
+
+
+def test_source_verified_ukrainian_titles_no_model_required():
+    report = {
+        "blocks": [{
+            "verified": True, "topics": [
+                {"evidence": "Шойгу коррупция в министерстве"},
+                {"evidence": "Шойгу поменял должность после кадрового решения"},
+                {"evidence": "Шойгу Путин обсудили положение"},
+                {"evidence": "Шойгу МЧС и стратегия во время войны"},
+            ],
+        }]
+    }
+    titles = ft._verified_source_ab_titles(report, "Шойгу")
+    assert len(titles) == 3
+    assert all(20 <= len(title) <= 100 for title in titles)
+    assert all("Шойгу" in title or "Путін" in title for title in titles)
+    assert not ft._verified_source_ab_titles({"blocks": []}, "Шойгу")
