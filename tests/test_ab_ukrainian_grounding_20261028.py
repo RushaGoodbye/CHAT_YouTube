@@ -28,3 +28,32 @@ def test_unverified_family_psychology_is_still_rejected():
     ]
     issues = ab_title_issues(titles, REPORT)
     assert any("непідтверджену тему сімейної психології" in item for item in issues)
+
+
+def test_rejects_russian_titles_even_with_relevant_subjects():
+    titles = [
+        "Шойгу и коррупция: что говорят россияне?",
+        "Почему уволили Шойгу: какие реальные причины?",
+        "МЧС и военная стратегия: что происходит?",
+    ]
+    issues = ab_title_issues(titles, REPORT)
+    assert sum("не українською" in issue for issue in issues) == 3
+
+
+def test_unverified_quote_cannot_support_claims():
+    report = {"blocks": [
+        {"verified": False, "topics": [
+            {"topic": "сенсація", "evidence": "На Марсе обнаружили тайные документы"},
+        ]},
+        {"verified": True, "topics": [
+            {"topic": "бензин", "evidence": "Бензин на АЗС стал дороже"},
+        ]},
+    ]}
+    titles = [
+        "Бензин на АЗС: як змінилися ціни?",
+        "Сенсація на Марсі: чи знайшли документи?",
+        "Бензин дорожчає: що кажуть водії?",
+    ]
+    issues = ab_title_issues(titles, report)
+    assert any("не має підтверджених тематичних слів" in x or
+               "без опори на дослівні цитати" in x for x in issues)
