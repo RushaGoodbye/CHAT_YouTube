@@ -1,0 +1,48 @@
+name: NEWS RG public publication offline QA
+on:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
+      - '.github/workflows/news_rg_publication_qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publisher-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax and controlled rollback interface
+        run: |
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
+          python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
+      - name: Simulate private sender patch without network or NAS
+        run: |
+          python - <<'PY'
+          import pathlib, importlib.util, ast
+          root=pathlib.Path('rg_remote_control/nas/monitoring')
+          name=root/'news_rg_approved_publication_cutover_v1.py'
+          spec=importlib.util.spec_from_file_location('cutover',name)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          original=(root/'news_rg_durable_private_sender_v1.py').read_text()
+          new,already=mod.patch_sender(original)
+          assert not already
+          ast.parse(new)
+          assert '✅ Схвалити й опублікувати' in new
+          assert 'Схвалення опублікує цей текст і фото в каналі.' in new
+          assert 'НЕ ПУБЛІКУВАТИ.' not in new
+          assert 'telegram_photo_file_id' in new
+          another,already=mod.patch_sender(new)
+          assert already and another==new
+          print('NEWS_RG_SAFE_SENDER_PATCH_TEST_PASS')
+          PY
