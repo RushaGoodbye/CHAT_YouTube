@@ -132,32 +132,75 @@ def private_queue(now,alerts):
  return {'status':'OK','confirmed_private_cards':confirmed,
     'waiting_for_human_count':len(waiting),'pending_cards':waiting[:3],
     'latest_private_age_min':age_minutes(newest,now)},keys,bool(waiting)
-def staging_pending(now,alerts,already_sent,waiting):
+def staging_pending(now,alerts,already_sent,waiting,last_private_age_min=None):
+ """Mirror sender's *local* eligibility rules and account for newer dispatches.
+
+ Old sidecars are not evidence that a live queue is stalled when the same sender
+ has delivered a newer private card after those sidecars were prepared.
+ Never invoke the sender itself: it imports Telegram transport and can send.
+ """
  folder=OP/'news_rg_private_review_staging'
  if folder.is_symlink() or not folder.is_dir():
   flag(alerts,'CRITICAL','STAGING_DIR_MISSING','Нет папки AI-черновиков')
   return {'status':'MISSING'}
- ready=[];count=0
+ blocked=set(already_sent)
+ pilot=OP/'news_rg_private_pilot_claim_v1.json'
+ if pilot.exists() or pilot.is_symlink():
+  item=read_json(pilot)
+  if item is None:
+   flag(alerts,'UNKNOWN','PILOT_CLAIM_UNREADABLE','Не удалось проверить старую заявку')
+  else:
+   blocked.add(item.get('draft_id'))
+ legacy=OP/'news_rg_private_delivery_v2'
+ if legacy.is_symlink():
+  flag(alerts,'UNKNOWN','LEGACY_CLAIM_DIR_UNSAFE','Не удалось проверить старые заявки')
+ elif legacy.is_dir():
+  blocked.update(p.stem for p in legacy.glob('*.json'))
+ # The private sender also excludes all existing (including nonconfirmed)
+ # receipt claims, not just confirmed deliveries.
+ receipts=OP/'news_rg_private_multipart_receipts_v1'
+ if receipts.is_dir() and not receipts.is_symlink():
+  blocked.update(p.stem for p in receipts.glob('*.json'))
+ count=0;blocked_count=0;ready=[];unserved=[];oldest=None
  for p in folder.glob('*.json'):
   if count>=20000:
    flag(alerts,'WARNING','STAGING_TOO_LARGE','Аудит ограничен 20000 файлов')
    break
   count+=1
-  if not KEY_RE.fullmatch(p.name) or p.stem in already_sent:continue
-  v=read_json(p)
+  if not KEY_RE.fullmatch(p.name):continue
+  if p.stem in blocked:
+   blocked_count+=1
+   continue
+  try:
+   if p.is_symlink() or not p.is_file() or p.stat().st_size>16000:continue
+  except OSError:continue
+  v=read_json(p,max_bytes=16000)
   if not v:continue
   if v.get('schema')!='NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1' or v.get('draft_id')!=p.stem:continue
   if v.get('telegram_delivery')!='NOT_SENT' or v.get('public_publication')!='OFF':continue
   if v.get('editorial_status')!='HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED':continue
   txt=v.get('proposed_text')
   if not isinstance(txt,str) or not 60<=len(txt)<=900:continue
-  ready.append(age_minutes(v.get('prepared_at'),now))
- valid=[x for x in ready if x is not None]
- oldest=max(valid) if valid else None
- if ready and not waiting:
-  freshness(alerts,'PRIVATE_READY_STAGING',oldest,35,90,required=False)
+  if 'НЕВДАЛО' in txt.upper() or any(c in txt for c in 'ыъэёЫЪЭЁ'):continue
+  if 'INSIDER UA | Прислати контент' in txt:continue
+  prepared=age_minutes(v.get('prepared_at'),now)
+  ready.append(prepared)
+  if prepared is not None:
+   oldest=prepared if oldest is None else max(oldest,prepared)
+   # An actual private delivery after the staging timestamp proves the
+   # handoff system made progress, so do not mislabel old sidecars CRITICAL.
+   if last_private_age_min is None or prepared<last_private_age_min:
+    unserved.append(prepared)
+ overdue=max(unserved) if unserved else None
+ if not waiting:
+  freshness(alerts,'PRIVATE_READY_STAGING',overdue,35,90,required=False)
  return {'status':'OK','eligible_unsent_count':len(ready),
-   'oldest_unsent_age_min':oldest,'pending_human_blocks_new_delivery':bool(waiting)}
+   'blocked_by_prior_delivery_claim_count':blocked_count,
+   'oldest_unsent_age_min':oldest,
+   'unserved_after_last_private_delivery_count':len(unserved),
+   'oldest_unserved_age_min':overdue,
+   'pending_human_blocks_new_delivery':bool(waiting),
+   'backlog_progress_accounted_for':last_private_age_min is not None}
 def public_queue(now,alerts):
  activated=read_json(OP/'news_rg_publication_activation_v1.json')
  if activated is None or activated.get('status')!='ACTIVE' or activated.get('chat_id')!=EXPECTED_CHANNEL or activated.get('bot_id')!=EXPECTED_BOT:
@@ -226,7 +269,7 @@ def inspect():
  source=source_scan(now,alerts)
  tick=tick_wiring(alerts)
  private,keys,waiting=private_queue(now,alerts)
- stage=staging_pending(now,alerts,keys,waiting)
+ stage=staging_pending(now,alerts,keys,waiting,private.get('latest_private_age_min'))
  public=public_queue(now,alerts)
  state,rc=severity(alerts)
  return {
@@ -259,6 +302,41 @@ def selftest():
  assert empty[0]['code']=='APPROVED_PUBLICATION_STALE'
  assert age_minutes(None,time.time()) is None
  assert age_minutes(time.time()-120,time.time()) is not None
+ # Regression: an old sidecar cannot mean a stalled dispatcher if it
+ # successfully delivered another card more recently.
+ import tempfile
+ global OP
+ old_op=OP
+ try:
+  with tempfile.TemporaryDirectory() as folder:
+   OP=pathlib.Path(folder)
+   stage_dir=OP/'news_rg_private_review_staging'
+   stage_dir.mkdir()
+   key='a'*24
+   staged={
+    'schema':'NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1','draft_id':key,
+    'telegram_delivery':'NOT_SENT','public_publication':'OFF',
+    'editorial_status':'HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED',
+    'proposed_text':'Українська новина зі встановленим джерелом, перевірена редактором перед випуском.',
+    'prepared_at':int(time.time()-17*3600)}
+   (stage_dir/(key+'.json')).write_text(json.dumps(staged),encoding='utf-8')
+   a=[]
+   r=staging_pending(time.time(),a,set(),False,1.2)
+   assert r['eligible_unsent_count']==1 and r['unserved_after_last_private_delivery_count']==0
+   assert a==[],a
+   a=[]
+   r=staging_pending(time.time(),a,set(),False,None)
+   assert r['unserved_after_last_private_delivery_count']==1
+   assert any(x['code']=='PRIVATE_READY_STAGING_STALE' for x in a)
+   claim_dir=OP/'news_rg_private_delivery_v2'
+   claim_dir.mkdir()
+   (claim_dir/(key+'.json')).write_text('{}',encoding='utf-8')
+   a=[]
+   r=staging_pending(time.time(),a,set(),False,None)
+   assert r['eligible_unsent_count']==0 and r['blocked_by_prior_delivery_claim_count']==1
+   assert a==[]
+ finally:
+  OP=old_op
  print('NEWS_RG_STABILITY_HEALTHCHECK_SELFTEST_PASS')
 if __name__=='__main__':
  if sys.argv[1:]==['selftest']:selftest()
