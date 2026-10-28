@@ -5,6 +5,7 @@ Never reads Telegram updates, never calls publication endpoints, never
 starts a second callback worker. Stops at one outstanding editorial card.
 """
 import os,sys,json,pathlib,subprocess,time,fcntl,tempfile
+import news_rg_wrong_photo_supersession_v1 as supersession
 O=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2/operator')
 B=O.parent
 SENDER=O/'news_rg_durable_private_sender_v1.py'
@@ -20,6 +21,7 @@ def read(p,limit=20000):
  if not p.is_file() or p.is_symlink() or p.stat().st_size>limit:fail('UNSAFE_FILE_'+p.name)
  return json.loads(p.read_text(encoding='utf-8'))
 def receipt_check(p):
+ if supersession.is_superseded(p):return
  data=read(p)
  if data.get('status') in ('SENDING_UNCERTAIN','UNCERTAIN_NO_RETRY'):
   fail('UNCERTAIN_DELIVERY_PAUSE')
