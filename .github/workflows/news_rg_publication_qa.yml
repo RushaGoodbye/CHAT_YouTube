@@ -23,6 +23,9 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_manual_link_intake_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_manual_link_single_owner_install_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_manual_video_ua_upgrade_v2.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -74,6 +77,11 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_manual_link_single_owner_install_v1.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_manual_video_ua_upgrade_v2.py
           python rg_remote_control/nas/monitoring/news_rg_manual_video_ua_upgrade_v2.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
       - name: Simulate private sender patch without network or NAS
@@ -86,16 +94,17 @@ jobs:
           mod=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(mod)
           original=(root/'news_rg_durable_private_sender_v1.py').read_text()
-          new,already=mod.patch_sender(original)
-          assert not already
-          ast.parse(new)
-          assert '✅ Схвалити й опублікувати' in new
-          assert 'Схвалення опублікує цей текст і фото в каналі.' in new
-          assert 'НЕ ПУБЛІКУВАТИ.' not in new
-          assert 'telegram_photo_file_id' in new
-          another,already=mod.patch_sender(new)
-          assert already and another==new
-          print('NEWS_RG_SAFE_SENDER_PATCH_TEST_PASS')
+          # The old photo-only public cutover MUST reject a new
+          # video-aware private sender, not turn video approval into photo post.
+          assert 'def pack_original_video' in original
+          assert 'sendVideo' in original
+          try:
+              mod.patch_sender(original)
+          except RuntimeError as e:
+              assert str(e)=='PRIVATE_SENDER_SOURCE_UNEXPECTED'
+          else:
+              raise AssertionError('UNSAFE_OLD_PHOTO_CUTOVER_ACCEPTED_VIDEO_SENDER')
+          print('NEWS_RG_OBSOLETE_PHOTO_CUTOVER_BLOCKED_PASS')
           PY
 
       - name: Offline source patch contract for existing AI bridge
