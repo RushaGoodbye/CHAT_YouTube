@@ -4,7 +4,7 @@
 Never starts a new poller or enables public publication.
 Fully backed up; no change on unknown module or failed selftest.
 """
-import os,sys,json,pathlib,hashlib,subprocess,tempfile,ast
+import os,sys,json,pathlib,hashlib,subprocess,tempfile,ast,stat
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 TARGET=B/'rg_moderation.py'
@@ -63,21 +63,22 @@ def install():
  d=validate()
  if d['status']!='READY_TO_INSTALL':return d
  old=TARGET.read_bytes()
+ original_mode=stat.S_IMODE(TARGET.stat().st_mode)
  backup=O/('rg_moderation.before_newsrg_hook_'+hashlib.sha256(old).hexdigest()[:16]+'.py')
  if backup.exists() and backup.is_symlink():stop('BACKUP_UNSAFE')
  if not backup.exists():atomic(backup,old,0o600)
  old_module=MODULE.read_bytes() if MODULE.exists() and MODULE.is_file() and not MODULE.is_symlink() else None
  if MODULE.is_symlink():stop('MODULE_SYMLINK')
  try:
-  atomic(MODULE,d['module'].encode(),0o600)
-  atomic(TARGET,d['patched'].encode(),0o600)
+  atomic(MODULE,d['module'].encode(),original_mode & 0o777)
+  atomic(TARGET,d['patched'].encode(),original_mode)
   test=subprocess.run(['/usr/bin/python3','-m','py_compile',str(TARGET),str(MODULE)],capture_output=True,text=True,timeout=12)
   if test.returncode:stop('POST_INSTALL_SYNTAX_FAILED')
   t=subprocess.run(['/usr/bin/python3',str(MODULE)],capture_output=True,text=True,timeout=12)
   if t.returncode or 'SELFTEST_PASS' not in t.stdout:stop('POST_INSTALL_SELFTEST_FAILED')
  except Exception:
-  atomic(TARGET,old,0o600)
-  if old_module is not None:atomic(MODULE,old_module,0o600)
+  atomic(TARGET,old,original_mode)
+  if old_module is not None:atomic(MODULE,old_module,original_mode)
   elif MODULE.exists():MODULE.unlink()
   raise
  return {'status':'EDITORIAL_HOOK_INSTALLED','backup':str(backup),
