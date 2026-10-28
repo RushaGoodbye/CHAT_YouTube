@@ -55,10 +55,17 @@ def _grounded_labels(quote: str) -> list[str]:
     words = re.findall(r"[а-яёіїєґa-z]+", quote.casefold())
     # Root matching must begin at the source word start; substring matching
     # in arbitrary words can turn entirely unrelated content into a subject.
+    # Very short stems are ambiguous: "газета" is not a discussion of gas.
+    # Match gas inflections as complete words rather than matching "газ*".
+    gas_words = {"газ", "газа", "газу", "газом", "газе", "газів", "газові"}
     return [
         label
         for label, aliases in _TOPIC_ROOTS
-        if any(word.startswith(alias) for word in words for alias in aliases)
+        if (
+            any(word in gas_words for word in words)
+            if label == "Газ"
+            else any(word.startswith(alias) for word in words for alias in aliases)
+        )
     ]
 
 
