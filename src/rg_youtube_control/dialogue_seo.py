@@ -546,7 +546,12 @@ def ab_title_issues(
             r"военная|стратегия|происходит|причины|отставка)\b",
             folded,
         ))
-        if re.search(r"[ыэъё]", folded) or russian_grammar >= 2:
+        from .seo_free_quality import russian_language_signal
+        if (
+            re.search(r"[ыэъё]", folded)
+            or russian_grammar >= 2
+            or russian_language_signal(value)
+        ):
             issues.append(f"A/B варіант {index} не українською мовою.")
 
     for index, value in enumerate(values, 1):
