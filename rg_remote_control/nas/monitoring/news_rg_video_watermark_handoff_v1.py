@@ -25,6 +25,8 @@ def ensure_approved(draft_id):
   raise ValueError('UNSAFE_STAGING')
  if stage.get('media_type')!='video' or stage.get('watermark_required') is not True:
   return {'status':'NOT_A_WATERMARK_VIDEO','draft_id':draft_id}
+ if stage.get('editorial_status')!='HUMAN_FACT_AND_VIDEO_REVIEW_REQUIRED':
+  raise ValueError('VIDEO_EDITORIAL_REVIEW_NOT_GROUNDED')
  if stage.get('original_video_url') is None or not stage.get('original_media_source'):
   raise ValueError('ORIGINAL_VIDEO_MISSING')
  if receipt.get('status')!='PRIVATE_SENT_CONFIRMED' or receipt.get('media_type')!='video':
