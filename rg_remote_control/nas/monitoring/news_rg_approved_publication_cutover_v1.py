@@ -81,7 +81,14 @@ def patch_sender(src):
  if src.count(MARK_OLD)!=1 or src.count(OLD_RECEIPT)!=1:
   err('PRIVATE_SENDER_SOURCE_UNEXPECTED')
  updated=src.replace(MARK_OLD,SAFE_BUTTON,1).replace(OLD_RECEIPT,NEW_RECEIPT,1)
- updated=updated.replace('НЕ ПУБЛІКУВАТИ.\\n','СХВАЛЕННЯ ОЗНАЧАЄ ПУБЛІКАЦІЮ.\\n',1)
+ if src.count('НЕ ПУБЛІКУВАТИ.')!=1 or src.count('Факти та фото потребують перевірки.')!=1:
+  err('PRIVATE_REVIEW_CAPTION_CONTRACT_CHANGED')
+ updated=updated.replace('⚠️ NEWS RG · ПРИВАТНА ПЕРЕВІРКА. НЕ ПУБЛІКУВАТИ.',
+                         '📰 NEWS RG · ПРИВАТНА ПЕРЕВІРКА ПЕРЕД ПУБЛІКАЦІЄЮ.',1)
+ updated=updated.replace('Факти та фото потребують перевірки.',
+                         'Схвалення опублікує цей текст і фото в каналі.',1)
+ if 'НЕ ПУБЛІКУВАТИ.' in updated:
+  err('PRIVATE_CAPTION_STILL_PROHIBITS_PUBLICATION')
  if 'import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,hashlib' in updated:
   updated=updated.replace('import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,hashlib',
                           'import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,hashlib,re',1)
@@ -173,6 +180,8 @@ def install():
   ast.parse(SCHED.read_text())
   atomic(S,sender.encode(),sender_mode)
   if 'telegram_photo_file_id' not in S.read_text():err('SENDER_POSTINSTALL_MISMATCH')
+  if SAFE_BUTTON not in S.read_text() or 'НЕ ПУБЛІКУВАТИ.' in S.read_text():
+   err('PRIVATE_PUBLICATION_CONSENT_TEXT_MISMATCH')
   sender_check=subprocess.run(['/usr/bin/python3',str(S),'selftest'],
                               text=True,capture_output=True,timeout=12)
   if sender_check.returncode or 'SELFTEST_PASS' not in sender_check.stdout:
