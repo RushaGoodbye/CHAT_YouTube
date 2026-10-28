@@ -24,6 +24,7 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_manual_link_single_owner_install_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_manual_video_ua_upgrade_v2.py'
       - 'rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_manual_original_video_upgrade_v3.py'
       - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py'
   workflow_dispatch:
@@ -79,6 +80,8 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_manual_video_ua_upgrade_v2.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py
           python rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_manual_original_video_upgrade_v3.py
+          python rg_remote_control/nas/monitoring/news_rg_manual_original_video_upgrade_v3.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
           python rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
@@ -105,6 +108,25 @@ jobs:
           else:
               raise AssertionError('UNSAFE_OLD_PHOTO_CUTOVER_ACCEPTED_VIDEO_SENDER')
           print('NEWS_RG_OBSOLETE_PHOTO_CUTOVER_BLOCKED_PASS')
+          PY
+
+      - name: Offline original video private send contract (mocked photo support)
+        run: |
+          python - <<'PY'
+          import types,sys,importlib.util,pathlib
+          stub=types.ModuleType('news_rg_multipart')
+          def build(payload,filename,mime,caption,chat,boundary):
+            return b'photo'+('\r\n--'+boundary+'--\r\n').encode()
+          stub.build=build
+          sys.modules['news_rg_multipart']=stub
+          path=pathlib.Path('rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py')
+          spec=importlib.util.spec_from_file_location('private_video_sender_ci',path)
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          m.selftest()
+          assert m.video_source_allowed('https://cdn4.telesco.pe/file/original.mp4')
+          assert not m.video_source_allowed('https://www.evil.example/a.mp4')
+          assert m.pack_original_video(b'\0\0\0\0ftyp', 'Тест', 123, 'a'*24)[0].find(b'name="video"')>0
+          print('NEWS_RG_PRIVATE_VIDEO_SEND_CI_PASS')
           PY
 
       - name: Offline source patch contract for existing AI bridge
