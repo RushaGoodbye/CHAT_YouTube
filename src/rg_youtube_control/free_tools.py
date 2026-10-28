@@ -1415,13 +1415,29 @@ def _verified_source_ab_titles(
     # A previous bug returned the *first* three topical labels, even when two
     # reused a story. Evaluate other verified subjects instead of fabricating
     # a new one or weakening the editorial gate. Prefer different time blocks.
-    triplets = sorted(
-        combinations(proposals, 3),
-        key=lambda triple: (
-            -len({index for index, _ in triple}),
-            -max(index for index, _ in triple) + min(index for index, _ in triple),
-        ),
-    )
+    def rank(triple: tuple[tuple[int, str], ...]) -> tuple[int, int, int]:
+        # Distinct *subject roots* outrank three editorial phrasings of one
+        # recurring event. Ignore generic protagonists (e.g. 'Шойгу'), which
+        # can legitimately appear in headlines about different events.
+        roots = []
+        for _, title in triple:
+            subject = title.split(":", 1)[0].casefold()
+            roots.append({
+                _cross_language_topic_word(word)[:5]
+                for word in re.findall(r"[а-яіїєґa-z]{5,}", subject)
+                if _cross_language_topic_word(word)[:5] not in {
+                    "шойгу", "шойг", "росси", "росия", "путин",
+                    "украи", "участ", "розмо",
+                }
+            })
+        repeats = sum(
+            bool(roots[left] & roots[right])
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        )
+        indices = [index for index, _ in triple]
+        return (repeats, -len(set(indices)), -(max(indices) - min(indices)))
+
+    triplets = sorted(combinations(proposals, 3), key=rank)
     for triple in triplets:
         titles = [title for _, title in triple]
         if not ab_title_issues(titles, report):
