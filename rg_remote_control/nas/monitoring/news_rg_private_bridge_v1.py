@@ -46,8 +46,8 @@ def preflight():
                 "private_delivery":"NOT_CONNECTED","publications":0,"telegram_calls":0,"production_db_writes":0}
     finally:a.close();b.close()
 def clean(s):
-    s=re.sub(r"\\s*(?:🇺🇦\\s*)?(?:УС\\s*/\\s*Підписатися|Підписатися\\s*на\\s*канал)\\s*$","",s,flags=re.I).strip()
-    s=re.sub(r"\\s*(?:🇺🇦\\s*)?(?:INSIDER\\s*UA\\s*\\|\\s*Прислати\\s*контент)\\s*$","",s,flags=re.I).strip()
+    s=re.sub(r"\s*(?:🇺🇦\s*)?(?:УС\s*/\s*Підписатися|Підписатися\s*на\s*канал)\s*$","",s,flags=re.I).strip()
+    s=re.sub(r"\s*(?:🇺🇦\s*)?INSIDER\s*UA\s*\|\s*Прислати\s*контент\s*$","",s,flags=re.I).strip()
     return s
 def prepare_one():
     check=preflight()
@@ -118,6 +118,7 @@ def main():
     try:
         if sys.argv[1:]==["selftest"]:
             assert clean("Новина 🇺🇦 УС / Підписатися")=="Новина"
+            assert clean("Новина 🇺🇦 INSIDER UA | Прислати контент")=="Новина"
             print("NEWS_RG_PRIVATE_BRIDGE_SELFTEST_PASS")
         elif sys.argv[1:]==["preflight"]:print(json.dumps(preflight(),ensure_ascii=False,indent=2))
         elif sys.argv[1:]==["prepare-one"]:print(json.dumps(prepare_one(),ensure_ascii=False,indent=2))
