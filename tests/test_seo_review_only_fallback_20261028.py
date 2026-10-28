@@ -66,3 +66,36 @@ def test_partial_ab_and_sparse_tags_remain_review_draft(monkeypatch):
     )
     assert ok is False and reasons
     assert len(calls) == 1
+
+
+def test_exhausted_local_model_preserves_read_only_draft(monkeypatch):
+    def model_fails(*args, **kwargs):
+        raise RuntimeError("Ollama local model did not return a valid package")
+    monkeypatch.setattr(ft, "ollama_chat", model_fails)
+    result = ft.generate_seo_package_local(
+        current_title="Шойгу та корупція",
+        transcript="Шойгу коррупция и оборона",
+        evidence_report=REPORT,
+        is_short=True,
+        timeout=1,
+    )
+    assert result["needs_review"] is True
+    assert result["title"] == "Шойгу та корупція"
+    assert result["title_variants"] == []
+    assert "непублікаційний" in result["review_reason"]
+    assert result["youtube_data_api_quota"] == 0
+    ok, _ = ready_for_youtube(
+        status="draft", generation="local-seo-real",
+        quality_state="needs_review", variants=result["title_variants"],
+    )
+    assert not ok
+
+
+def test_model_failure_without_verified_quotes_is_still_blocked(monkeypatch):
+    import pytest
+    monkeypatch.setattr(ft, "ollama_chat", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("offline")))
+    with pytest.raises(ValueError, match="Локальна SEO-генерація"):
+        ft.generate_seo_package_local(
+            current_title="Шойгу", transcript="невідомо",
+            evidence_report={"blocks": []}, is_short=True, timeout=1,
+        )
