@@ -165,3 +165,33 @@ def test_fallback_never_uses_unverified_or_unrelated_model_labels():
     titles = ft._verified_source_ab_titles(report, "Бензин")
     assert len(titles) == 1
     assert "психолог" not in titles[0]
+
+
+def test_verified_topic_fallback_rejects_one_supported_word_hiding_false_claim():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "Бензин та секретні космічні документи",
+         "evidence": "Бензин на заправці дорожчає, говорять водії."},
+        {"topic": "Корупція",
+         "evidence": "Коррупция в министерстве это тема"},
+    ]}]}
+    choices = ft._verified_source_ab_titles(report, "Бензин")
+    assert not any("космічн" in item for item in choices)
+
+
+def test_fallback_is_review_only_even_with_three_grounded_titles(monkeypatch):
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "Корупція", "evidence": "Коррупция чиновников обсуждалась"},
+        {"topic": "Бензин", "evidence": "Бензин на заправке сильно подорожал"},
+        {"topic": "Мобілізація", "evidence": "Мобилизация людей в разных регионах"},
+    ]}]}
+    monkeypatch.setattr(ft, "ollama_chat", lambda *a, **k:
+                        (_ for _ in ()).throw(RuntimeError("model offline")))
+    package = ft.generate_seo_package_local(
+        current_title="Бензин, корупція та мобілізація",
+        transcript="Бензин на заправке подорожал. Коррупция чиновников. Мобилизация людей.",
+        evidence_report=report, timeout=1, fast_mode=False,
+    )
+    assert package["needs_review"] is True
+    assert package["youtube_data_api_quota"] == 0
+    assert package["provider"].startswith("ollama:")
+    assert len(package["title_variants"]) == 3
