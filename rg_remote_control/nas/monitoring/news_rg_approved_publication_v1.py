@@ -38,7 +38,13 @@ def module():
  p=B/'rg_moderation.py'
  if not p.is_file() or p.is_symlink() or '# NEWS_RG_EDITORIAL_HOOK_V1' not in p.read_text('utf-8'):
   fail('PRODUCTION_MODERATOR_MODULE_CHANGED')
+ # rg_moderation.py is part of the existing NAS application and imports
+ # sibling modules such as rg_news. Loading it by an absolute file path
+ # does not automatically put its parent directory on sys.path.
+ if str(B) not in sys.path:
+  sys.path.insert(0,str(B))
  spec=importlib.util.spec_from_file_location('_news_rg_publisher_mod',str(p))
+ if spec is None or spec.loader is None:fail('PRODUCTION_MODULE_SPEC_MISSING')
  m=importlib.util.module_from_spec(spec)
  spec.loader.exec_module(m)
  cfg=m.config()
