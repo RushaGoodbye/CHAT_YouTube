@@ -2196,42 +2196,6 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
-            # When several independent hooks are explicitly quoted, prefer
-            # stable source-grounded angles over random, sometimes malformed
-            # model A/B candidates. Never fabricate a third evidence topic.
-            if evidence_report:
-                quotes = " ".join(
-                    str(t.get("evidence") or "")
-                    for block in evidence_report.get("blocks") or []
-                    if block.get("verified") is not False
-                    for t in block.get("topics") or [] if isinstance(t, dict)
-                ).casefold()
-                if (
-                    "шойгу" in current_title.casefold()
-                    and any(stem in quotes for stem in ("корруп", "коруп"))
-                    and "мчс" in quotes
-                    and "план" in quotes
-                ):
-                    first = (
-                        "Шойгу и коррупция: что сказали об обвинениях?"
-                        if "обвинен" in quotes else
-                        "Шойгу и коррупция: что говорят о причинах?"
-                    )
-                    third = ""
-                    if "стратег" in quotes and "война" in quotes:
-                        third = "МЧС и война: кто должен отвечать за стратегию?"
-                    elif "сам захотел" in quotes and "должност" in quotes:
-                        third = "Уход Шойгу: сам захотел на другую должность?"
-                    elif "путин" in quotes and "отношен" in quotes:
-                        third = "Путин и Шойгу: что говорили об отношениях?"
-                    if third:
-                        grounded_angles = [
-                            first,
-                            "Шойгу и МЧС: «Всё идёт по плану»?",
-                            third,
-                        ]
-                        if not ab_title_issues(grounded_angles, evidence_report):
-                            candidate["title_variants"] = grounded_angles
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
