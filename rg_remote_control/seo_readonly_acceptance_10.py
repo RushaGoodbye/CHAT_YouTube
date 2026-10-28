@@ -54,6 +54,13 @@ MAIN_IDS = (
 LIVE_IDS = ("4ItkxMPI1GA", "fdHXrCyw3Lw")
 VALID_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
+# In-process only, bounded by the selected batch. Public subtitles fetched
+# during the read-only preflight must be reused by the exact same video ID.
+# Without this cache the second request can be rate-limited, wasting the
+# successful preflight and producing false PUBLIC_CAPTIONS_UNAVAILABLE.
+_PREFLIGHT_PUBLIC_CAPTIONS: dict[str, list[dict]] = {}
+
+
 _DURATION = re.compile(
     r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?"
     r"(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?)?$"
@@ -190,8 +197,14 @@ def run_one(
             # Public captions are obtained only for this exact video ID;
             # no cookies, videos or production database writes.
             result["transcript_source"] = "public_captions"
-            result["public_caption_reads"] = 1
-            rows = fetch_transcript(video_id)
+            cached = _PREFLIGHT_PUBLIC_CAPTIONS.pop(video_id, None)
+            if cached is not None:
+                rows = cached
+                result["caption_preflight_reused"] = True
+                result["public_caption_reads"] = 0
+            else:
+                result["public_caption_reads"] = 1
+                rows = fetch_transcript(video_id)
         if not rows and not allow_public_captions and not srt.is_file():
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
         if len(rows) < 10:
@@ -407,13 +420,18 @@ def select_existing_srt_videos(
                         for item in candidates
                     ) >= duration * 0.75)
                 )
+            source_was_public = False
             if not covers(cues) and allow_public_captions:
                 try:
                     cues = fetch_transcript(video_id)
+                    source_was_public = True
                 except Exception:
                     continue  # unreadable public captions: try next real video
             if not covers(cues):
                 continue
+            if source_was_public:
+                # Never save copies to NAS, production folders or GitHub.
+                _PREFLIGHT_PUBLIC_CAPTIONS[video_id] = cues
         chosen.append(video_id)
         if len(chosen) >= limit:
             break
