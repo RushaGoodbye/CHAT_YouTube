@@ -59,3 +59,9 @@ def test_does_not_use_model_topic_labels_as_source():
     names = source_grounded_ukrainian_ab(report)
     assert len(names) == 3, names
     assert all("атомн" not in title.casefold() for title in names)
+
+
+def test_short_gas_root_does_not_turn_newspaper_into_energy_topic():
+    from rg_youtube_control.source_ab_lexical import _grounded_labels
+    assert "Газ" not in _grounded_labels("Старая газета рассказывала об истории")
+    assert "Газ" in _grounded_labels("Газ на рынке стал дороже")
