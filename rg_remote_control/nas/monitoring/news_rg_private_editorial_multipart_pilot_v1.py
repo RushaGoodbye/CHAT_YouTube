@@ -67,6 +67,8 @@ def run(mode):
   return {'status':'PRIVATE_ONE_CARD_READY','draft_id':item['draft_id'],
     'media_mime':mime,'media_bytes':len(photo),'buttons':['accept','reject'],
     'delivery_claims':0,'telegram_sends':0,'publications':0}
+ # Validate credentials BEFORE creating the at-most-once delivery claim.
+ bot_token=media_support.token()
  OUT.mkdir(mode=0o700,exist_ok=True)
  os.chmod(OUT,0o700)
  receipt=OUT/(item['draft_id']+'.json')
@@ -75,7 +77,7 @@ def run(mode):
   json.dump({'status':'SENDING_UNCERTAIN','draft_id':item['draft_id'],'created_at':int(time.time())},f)
   f.flush();os.fsync(f.fileno())
  # Credential is retrieved locally from the existing private transport helper.
- url='https://api.telegram.org/bot'+media_support.token()+'/sendPhoto'
+ url='https://api.telegram.org/bot'+bot_token+'/sendPhoto'
  req=urllib.request.Request(url,data=body,headers={'Content-Type':'multipart/form-data; boundary='+boundary})
  try:
   with urllib.request.urlopen(req,timeout=40) as result:
