@@ -103,6 +103,46 @@ def selftest():
  assert OLD=='3b246d51d3f347f04125fa23'
  assert NEW=='03b204953315fa3abf443b75'
  assert SCHEMA.endswith('_V1')
+ # All operations below occur exclusively in temporary fixture directories.
+ import tempfile
+ global ST,R,D,LEDGER
+ saved=ST,R,D,LEDGER
+ try:
+  with tempfile.TemporaryDirectory() as temp:
+   root=pathlib.Path(temp)
+   ST=root/'st';R=root/'receipts';D=root/'decisions';LEDGER=root/'superseded'
+   for p in (ST,R,D,LEDGER):p.mkdir()
+   old={'schema':'NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1',
+     'draft_id':OLD,'original_media_source':URL,'media_type':'photo',
+     'public_publication':'OFF','telegram_delivery':'NOT_SENT'}
+   new={'schema':'NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1',
+     'draft_id':NEW,'original_media_source':URL,'media_type':'video',
+     'watermark_required':True,'original_video_url':'https://cdn4.telesco.pe/file/test.mp4',
+     'public_publication':'OFF','telegram_delivery':'NOT_SENT'}
+   receipt={'status':'PRIVATE_SENT_CONFIRMED','draft_id':OLD,'message_id':123,
+     'media_type':'photo','public_publication':'OFF'}
+   for p,obj in ((ST/(OLD+'.json'),old),(ST/(NEW+'.json'),new),(R/(OLD+'.json'),receipt)):
+    p.write_text(json.dumps(obj),encoding='utf8')
+   assert inputs()==123
+   outstanding_exactly_old()
+   assert not is_superseded(R/(OLD+'.json'))
+   marker={'schema':SCHEMA,'old_draft_id':OLD,'new_draft_id':NEW,
+     'source_url':URL,'old_message_id':123,
+     'human_editorial_decision':'NONE','public_publication':'OFF'}
+   p=LEDGER/(OLD+'.json')
+   p.write_text(json.dumps(marker),encoding='utf8')
+   assert is_superseded(R/(OLD+'.json'))
+   marker['old_message_id']=124
+   p.write_text(json.dumps(marker),encoding='utf8')
+   try:is_superseded(R/(OLD+'.json'))
+   except RuntimeError as exc:assert str(exc)=='SUPERSESSION_MESSAGE_MISMATCH'
+   else:raise AssertionError('INVALID_SUPERSESSION_ALLOWED')
+   # A real click is never rewritten to a system override.
+   (D/(OLD+'.json')).write_text('{"decision":"editorially_rejected"}',encoding='utf8')
+   try:inputs()
+   except RuntimeError as exc:assert str(exc)=='OLD_CARD_ALREADY_DECIDED'
+   else:raise AssertionError('DECIDED_CARD_SUPERSEDED')
+ finally:ST,R,D,LEDGER=saved
  print('NEWS_RG_WRONG_PHOTO_SUPERSESSION_SELFTEST_PASS')
 if __name__=='__main__':
  try:
