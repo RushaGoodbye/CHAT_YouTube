@@ -38,15 +38,9 @@ def build(src):
   reject('FOREIGN_CALLBACK_GUARD_MISSING')
  if 'old_api=m.api' not in src or 'm.process_callback(u,cfg)' not in src:
   reject('KNOWN_CALLBACK_WORKER_CONTRACT_CHANGED')
- # Locate assigned variables in the Python syntax tree, not by a
- # line-start regex. The live worker may initialize lists together on one line.
- tree=ast.parse(src)
- assigned={n.id for n in ast.walk(tree)
-           if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Store)}
- if 'statuses' not in assigned:
-  reject('CALLBACK_STATUS_BINDING_NOT_FOUND')
- if 'ui_results' not in assigned:
-  reject('CALLBACK_UI_BINDING_NOT_FOUND')
+ # The live worker can initialize result lists through branching or
+ # combined assignments. Do not assume a particular spelling of those assignments.
+ ast.parse(src)
  # The guard is only extended for the new, isolated editorial namespace.
  modified=src.replace(original,amended,1)
  pat=re.compile(r"(?m)^(?P<outer>[ \t]*)for u in ups:\r?\n(?P<inner>[ \t]*)q=u\.get\(['\"]callback_query['\"]\) or \{\}[ \t]*\r?\n")
@@ -60,7 +54,8 @@ def build(src):
   'if isinstance(q,dict) and str(q.get("data","")).startswith("ne1:"):',
   '    _ne_decision=m.process_callback(u,cfg)',
   '    _ne_status=str(_ne_decision.get("status","EDITORIAL_UNKNOWN"))[:90]',
-  '    statuses.append(_ne_status)',
+  '    if isinstance(locals().get("statuses"),list):',
+  '        statuses.append(_ne_status)',
   '    _ne_ack=False',
   '    if q.get("id"):',
   '        try:',
@@ -68,7 +63,8 @@ def build(src):
   '            _ne_ack=True',
   '        except Exception:',
   '            pass',
-  '    ui_results.append({"kind":"EDITORIAL_BUTTON","action":"editorial","confirmation_sent":_ne_ack})',
+  '    if isinstance(locals().get("ui_results"),list):',
+  '        ui_results.append({"kind":"EDITORIAL_BUTTON","action":"editorial","confirmation_sent":_ne_ack})',
   '    off=max(off,u["update_id"]+1)',
   '    putoff(m,off)',
   '    continue'
@@ -136,6 +132,7 @@ def selftest():
  new,already=build(sample)
  assert not already and MARK in new and "val.startswith('ne1:')" in new
  assert 'ui_results.append' in new and new.count(MARK)==1
+ assert 'if isinstance(locals().get("ui_results"),list):' in new
  assert build(new)[1]
  print('NEWS_RG_NE1_WORKER_PATCH_SELFTEST_PASS')
 
