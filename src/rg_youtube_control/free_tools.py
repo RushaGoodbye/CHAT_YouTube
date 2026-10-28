@@ -1361,13 +1361,25 @@ def _recover_independent_ab_titles(
     """Generate one verified Ukrainian hook per separate dialogue story."""
     outline = _ab_distinct_evidence_brief(report)
     anchors = outline.splitlines() if outline else []
-    if len(anchors) != 3:
+    if len(anchors) < 2:
         return []
+    # Two genuinely different verified subjects can support three A/B
+    # angles: the third must reinterpret the FIRST confirmed subject, not
+    # pretend that a third story exists. This fixes 2-block real videos.
+    two_subjects = len(anchors) == 2
+    if two_subjects:
+        anchors.append(anchors[0])
     titles: list[str] = []
-    for index, source_anchor in enumerate(anchors, 1):
+    for index, source_anchor in enumerate(anchors[:3], 1):
+        reuse_note = (
+            "Це третій РАКУРС першої підтвердженої теми, НЕ нова подія. "
+            "Не додавай фактів, яких немає у цитаті. "
+            if two_subjects and index == 3 else ""
+        )
         prompt = (
             f"Напиши ОДНУ назву українською, 25-95 символів, "
-            f"тільки про сюжет {index}:\n{source_anchor}\n"
+            f"тільки про підтверджену тему {index}:\n{source_anchor}\n"
+            + reuse_note + "\n"
             "Без вигаданих фактів, персонажів чи причин. "
             "Сформулюй конкретний гачок за цитатою. "
             "Не повторюй інші сюжети та назви. "
