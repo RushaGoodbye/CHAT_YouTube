@@ -348,6 +348,33 @@ def selftest():
    assert obj['public_publication']=='OFF' and obj['editorial_status']=='HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED'
  finally:ST=old
  print('NEWS_RG_MANUAL_LINK_INTAKE_SELFTEST_PASS')
+def probe(url):
+ """One source/translation/media probe. No Telegram Bot API or file writes."""
+ if url!='https://t.me/nexta_live/125698':
+  raise ValueError('PROBE_URL_MUST_BE_EXACT_REPORTED_CASE')
+ _,source,photo=source_to_post(url)
+ if not photo_ok(photo):raise ValueError('PREVIEW_MEDIA_URL_UNSAFE')
+ prepared=prepare_ukrainian(source)
+ if not prepared:raise ValueError('UKRAINIAN_LOCAL_MODEL_NOT_READY_OR_GUARD_FAIL')
+ # Reuse existing transport media validation (size/MIME/JPEG signature).
+ if str(O) not in sys.path:sys.path.insert(0,str(O))
+ import news_rg_multipart as media_support
+ image,mime=media_support.media(photo)
+ if mime not in ('image/jpeg','image/png','image/webp') or len(image)<100:
+  raise ValueError('PREVIEW_MIME_UNSUPPORTED')
+ return {'status':'NEWS_RG_VIDEO_POST_AND_UA_PROBE_PASS',
+   'source_url':'https://t.me/nexta_live/125698',
+   'source_chars':len(source),'proposed_ukrainian_chars':len(prepared),
+   'preview_mime':mime,'preview_bytes':len(image),
+   'private_cards_sent':0,'publications':0,'telegram_bot_calls':0,'new_pollers':0}
 if __name__=='__main__':
- if sys.argv[1:]==['selftest']:selftest()
- else:raise SystemExit('SELFTEST_ONLY_NO_POLLING')
+ try:
+  if sys.argv[1:]==['selftest']:selftest()
+  elif len(sys.argv)==3 and sys.argv[1]=='probe':
+   print(json.dumps(probe(sys.argv[2]),ensure_ascii=False,sort_keys=True))
+  else:raise ValueError('EXPECTED_SELFTEST_OR_EXACT_POST_PROBE')
+ except Exception as e:
+  reason=str(e) if isinstance(e,ValueError) and len(str(e))<90 else type(e).__name__
+  print(json.dumps({'status':'SAFE_STOP','reason':reason,'telegram_bot_calls':0,
+    'new_pollers':0,'publications':0},ensure_ascii=False))
+  sys.exit(2)
