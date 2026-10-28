@@ -12,6 +12,7 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_verify_8052_and_next_tick_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_dsm_autonomy_readonly_audit_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_card_8054_unattended_audit_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_latest_private_publication_audit_v1.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,6 +42,8 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_dsm_autonomy_readonly_audit_v1.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_card_8054_unattended_audit_v1.py
           python rg_remote_control/nas/monitoring/news_rg_card_8054_unattended_audit_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_latest_private_publication_audit_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_latest_private_publication_audit_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
       - name: Simulate private sender patch without network or NAS
