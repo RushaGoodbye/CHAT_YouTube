@@ -301,9 +301,70 @@ def run_one(
     return result
 
 
+def select_existing_srt_videos(
+    db_file: Path, profile: str, limit: int,
+    preferred: tuple[str, ...] = (),
+) -> list[str]:
+    """Pick real synchronized video IDs with *existing* local SRTs.
+
+    Selection reads SQLite in query-only mode and checks only file presence.
+    It never guesses a different file based on a changed public title.
+    """
+    if not 1 <= limit <= 20 or profile not in {"main", "live"}:
+        raise ValueError("Invalid source selection")
+    uri = db_file.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=12) as db:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        setting = db.execute(
+            "SELECT value FROM settings WHERE key='nas_transcripts_path'"
+        ).fetchone()
+        root = Path(
+            str(setting["value"] or "").strip() if setting
+            else DEFAULT_NAS_TRANSCRIPTS_PATH
+        )
+        rows = db.execute(
+            """SELECT video_id,duration
+               FROM videos
+               WHERE profile=? AND scheduled_publish_at IS NULL
+                 AND COALESCE(privacy_status,'public')='public'
+               ORDER BY COALESCE(views,0) DESC, video_id
+               LIMIT 2000""",
+            (profile,),
+        ).fetchall()
+
+    preferred_set = {vid: index for index, vid in enumerate(preferred)}
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            preferred_set.get(str(row["video_id"] or ""), len(preferred)),
+            -len(str(row["video_id"] or "")),
+        ),
+    )
+    chosen: list[str] = []
+    for row in ordered:
+        video_id = str(row["video_id"] or "")
+        if not VALID_ID.fullmatch(video_id):
+            continue
+        try:
+            duration = _duration_seconds(row["duration"])
+        except (ValueError, TypeError):
+            continue
+        if 0 < duration <= 70:
+            continue
+        if not (root / (video_id + ".srt")).is_file():
+            continue
+        chosen.append(video_id)
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video-ids", nargs="+", default=list(MAIN_IDS))
+    parser.add_argument("--auto-main", type=int, default=0)
+    parser.add_argument("--auto-live", type=int, default=0)
     parser.add_argument("--db", type=Path, default=(
         Path(os.environ.get("LOCALAPPDATA", ".")) /
         "RGYouTubeControl" / "rg_youtube_control.db"
@@ -321,8 +382,23 @@ def main(argv: list[str] | None = None) -> int:
         item.strip() for group in args.video_ids
         for item in str(group).split(",") if item.strip()
     ]
-    if not video_ids or len(video_ids) > 25 or len(set(video_ids)) != len(video_ids):
-        parser.error("Expected 1-25 unique video IDs")
+    auto_requested = args.auto_main + args.auto_live
+    if args.auto_main or args.auto_live:
+        if not (0 <= args.auto_main <= 20 and 0 <= args.auto_live <= 20
+                and 1 <= auto_requested <= 25):
+            parser.error("Invalid automatic source selection size")
+        video_ids = (
+            (select_existing_srt_videos(
+                args.db, "main", args.auto_main, MAIN_IDS,
+            ) if args.auto_main else [])
+            + (select_existing_srt_videos(
+                args.db, "live", args.auto_live, LIVE_IDS,
+            ) if args.auto_live else [])
+        )
+    if not video_ids and not auto_requested:
+        parser.error("Expected at least one video ID")
+    if len(video_ids) > 25 or len(set(video_ids)) != len(video_ids):
+        parser.error("Expected at most 25 unique video IDs")
     if any(not VALID_ID.fullmatch(video_id) for video_id in video_ids):
         parser.error("Invalid video ID in input batch")
     checked = []
@@ -330,14 +406,17 @@ def main(argv: list[str] | None = None) -> int:
         checked.append(run_one(
             video_id, database=args.db, qa_cache=qa_cache, model=args.model
         ))
-    status = "READY_FOR_HUMAN_REVIEW" if checked and all(
-        row["status"] == "DRAFT_READY_FOR_HUMAN_REVIEW" for row in checked
+    status = "READY_FOR_HUMAN_REVIEW" if (
+        checked and (not auto_requested or len(checked) == auto_requested)
+        and all(row["status"] == "DRAFT_READY_FOR_HUMAN_REVIEW" for row in checked)
     ) else "BLOCKED"
     summary = {
         "schema": "RG_SEO_REAL_READONLY_ACCEPTANCE_V1",
         "status": status,
         "read_only": True,
         "video_count": len(checked),
+        "requested_video_count": auto_requested or len(checked),
+        "source_shortfall_count": max(0, auto_requested - len(checked)),
         "results": checked,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
