@@ -143,6 +143,7 @@ def run_one(
     allow_public_captions: bool = False,
 ) -> dict:
     started = time.monotonic()
+    stage = "source_metadata"
     result = {
         "video_id": video_id,
         "status": "BLOCKED",
@@ -160,6 +161,7 @@ def run_one(
             raise RuntimeError("Video metadata has no title")
         folder = Path(metadata["transcript_root"])
         srt = folder / (video_id + ".srt")
+        stage = "transcript_fetch"
         if srt.is_file():
             result["srt_present"] = True
             result["transcript_source"] = "local_srt"
@@ -186,6 +188,7 @@ def run_one(
             raise RuntimeError(
                 "SRT coverage below 75% of synchronized video duration"
             )
+        stage = "evidence_analysis"
         report = analyze_all_timeline_blocks(
             rows,
             model=model,
@@ -206,6 +209,7 @@ def run_one(
         )
         if grounded == 0:
             raise RuntimeError("No evidence-backed dialogue blocks")
+        stage = "seo_generation"
         package = generate_seo_package_local(
             current_title=title,
             current_description="",
@@ -222,6 +226,7 @@ def run_one(
         ab = list(package.get("title_variants") or [])
         description = str(package.get("description") or "")
         tags = list(package.get("tags") or [])
+        stage = "editorial_quality_gate"
         issues = ab_title_issues(ab, report) if ab else ["Missing A/B titles"]
         quality = _description_quality_error(
             description, evidence_outline_text(report), max_chars=950
@@ -286,7 +291,14 @@ def run_one(
         )
         message = str(exc)
         result["error_type"] = type(exc).__name__
-        result["error_code"] = _safe_error_code(exc)
+        result["error_stage"] = stage
+        result["error_code"] = (
+            "PUBLIC_CAPTIONS_UNAVAILABLE"
+            if stage == "transcript_fetch" and result.get("transcript_source") == "public_captions"
+            else "LOCAL_TRANSCRIPT_INVALID"
+            if stage == "transcript_fetch" and result.get("transcript_source") == "local_srt"
+            else _safe_error_code(exc)
+        )
         if message == "Invalid synchronized duration format":
             # Report format metadata only, never the actual database field.
             try:
