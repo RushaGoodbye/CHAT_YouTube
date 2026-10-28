@@ -38,10 +38,15 @@ def build(src):
   reject('FOREIGN_CALLBACK_GUARD_MISSING')
  if 'old_api=m.api' not in src or 'm.process_callback(u,cfg)' not in src:
   reject('KNOWN_CALLBACK_WORKER_CONTRACT_CHANGED')
- if not re.search(r'(?m)^\s*statuses\s*=\s*\[\]',src):
-  reject('CALLBACK_STATUS_ARRAY_NOT_FOUND')
- if not re.search(r'(?m)^\s*ui_results\s*=\s*\[\]',src):
-  reject('CALLBACK_UI_ARRAY_NOT_FOUND')
+ # Locate assigned variables in the Python syntax tree, not by a
+ # line-start regex. The live worker may initialize lists together on one line.
+ tree=ast.parse(src)
+ assigned={n.id for n in ast.walk(tree)
+           if isinstance(n,ast.Name) and isinstance(n.ctx,ast.Store)}
+ if 'statuses' not in assigned:
+  reject('CALLBACK_STATUS_BINDING_NOT_FOUND')
+ if 'ui_results' not in assigned:
+  reject('CALLBACK_UI_BINDING_NOT_FOUND')
  # The guard is only extended for the new, isolated editorial namespace.
  modified=src.replace(original,amended,1)
  pat=re.compile(r"(?m)^(?P<outer>[ \t]*)for u in ups:\r?\n(?P<inner>[ \t]*)q=u\.get\(['\"]callback_query['\"]\) or \{\}[ \t]*\r?\n")
@@ -116,8 +121,7 @@ def run(mode):
 
 def selftest():
  sample = """def once():
- statuses=[]
- ui_results=[]
+ statuses=[];ui_results=[]
  old_api=m.api
  for u in ups:
   q=u.get('callback_query') or {}
@@ -131,7 +135,7 @@ def selftest():
 """
  new,already=build(sample)
  assert not already and MARK in new and "val.startswith('ne1:')" in new
- assert 'ui_results.append' in new
+ assert 'ui_results.append' in new and new.count(MARK)==1
  assert build(new)[1]
  print('NEWS_RG_NE1_WORKER_PATCH_SELFTEST_PASS')
 
