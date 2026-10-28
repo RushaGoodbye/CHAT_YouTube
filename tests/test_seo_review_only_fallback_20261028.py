@@ -99,3 +99,28 @@ def test_model_failure_without_verified_quotes_is_still_blocked(monkeypatch):
             current_title="Шойгу", transcript="невідомо",
             evidence_report={"blocks": []}, is_short=True, timeout=1,
         )
+
+
+def test_two_verified_topics_generate_three_distinct_angles(monkeypatch):
+    report = {
+        "blocks": [
+            {"verified": True, "start_stamp": "00:00:00", "topics": [{
+                "topic": "корупція", "evidence": "Шойгу коррупция в Министерстве обороны, об этом говорят россияне",
+            }]},
+            {"verified": True, "start_stamp": "00:06:00", "topics": [{
+                "topic": "стратегія", "evidence": "Шойгу и МЧС, война это война и нужна другая стратегия",
+            }]},
+        ]
+    }
+    responses = iter([
+        {"title": "Шойгу та корупція: що розповіли співрозмовники?"},
+        {"title": "Шойгу та МНС: як обговорювали військову стратегію?"},
+        {"title": "Зміна посади Шойгу: чому згадували корупцію?"},
+    ])
+    monkeypatch.setattr(ft, "ollama_chat", lambda *args, **kwargs:
+                        json.dumps(next(responses), ensure_ascii=False))
+    titles = ft._recover_independent_ab_titles(
+        report=report, current_title="Шойгу", model="mock",
+    )
+    assert len(titles) == 3
+    assert len(set(title.casefold() for title in titles)) == 3
