@@ -310,6 +310,7 @@ def run_one(
                 "last_caption_second": round(last_second, 1),
                 "timeline_blocks": blocks,
                 "grounded_blocks": grounded,
+                "evidence_cache_hits": int(report.get("cache_hits") or 0),
             }
         )
         if grounded == 0:
@@ -556,7 +557,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--model", default=DEFAULT_OLLAMA_MODEL)
     args = parser.parse_args(argv)
-    qa_cache = Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_qa_cache"
+    # Reuse only hashed, verified evidence per exact transcript and model in
+    # the optional private runner QA directory. Never store in the working
+    # GitHub checkout or touch the app's production SQLite database.
+    qa_cache = (
+        args.private_caption_cache.parent / "seo_qa_verified_evidence"
+        if args.private_caption_cache is not None
+        else Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_qa_cache"
+    )
     # Accept both separate IDs and a comma-delimited batch. The CSV form
     # avoids argparse treating valid YouTube IDs starting with '-' as options.
     video_ids = [
