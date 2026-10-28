@@ -111,6 +111,29 @@ def get_video_inputs(db_file: Path, video_id: str) -> dict:
         }
 
 
+def _safe_error_code(exc: Exception) -> str:
+    """Bounded SEO failure class without leaking private captions or drafts."""
+    message = str(exc).casefold()
+    cases = (
+        ("need at least 8 grounded tags", "TAGS_INSUFFICIENT"),
+        ("need exactly 3 title variants", "AB_VARIANTS_INCOMPLETE"),
+        ("grounded description failed final check", "DESCRIPTION_GROUNDING_FAILED"),
+        ("description quality failed", "DESCRIPTION_QUALITY_FAILED"),
+        ("missing description", "DESCRIPTION_MISSING"),
+        ("missing title", "TITLE_MISSING"),
+        ("no evidence-backed dialogue blocks", "EVIDENCE_MISSING"),
+        ("локальна seo-генерація не пройшла валідацію", "LOCAL_SEO_VALIDATION_FAILED"),
+    )
+    for fragment, code in cases:
+        if fragment in message:
+            if code == "LOCAL_SEO_VALIDATION_FAILED":
+                for nested_fragment, nested_code in cases[:-1]:
+                    if nested_fragment in message:
+                        return nested_code
+            return code
+    return "LOCAL_SEO_OTHER_ERROR"
+
+
 def run_one(
     video_id: str,
     *,
@@ -248,6 +271,7 @@ def run_one(
         )
         message = str(exc)
         result["error_type"] = type(exc).__name__
+        result["error_code"] = _safe_error_code(exc)
         if message == "Invalid synchronized duration format":
             # Report format metadata only, never the actual database field.
             try:
