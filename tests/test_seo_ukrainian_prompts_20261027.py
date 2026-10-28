@@ -34,3 +34,10 @@ def test_failed_ab_recovery_never_deletes_existing_hooks():
     ]
     assert "variants_candidate = []" not in recovery
     assert "if len(set(map(str.casefold, recovered_variants))) >" in source
+
+
+def test_no_hardcoded_russian_shoigu_titles_override_model():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "src" / "rg_youtube_control" / "free_tools.py").read_text(encoding="utf-8")
+    assert '"Шойгу и МЧС: «Всё идёт по плану»?"' not in source
+    assert 'candidate["title_variants"] = grounded_angles' not in source
