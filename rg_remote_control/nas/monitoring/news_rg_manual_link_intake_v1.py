@@ -73,11 +73,46 @@ class PublicPostReader(HTMLParser):
   if self.depth<=0:self.active=False
  def parsed(self):
   return ' '.join(html.unescape(' '.join(self.body)).split()),self.photo
+class CanonicalMeta(HTMLParser):
+ def __init__(self):
+  super().__init__(convert_charrefs=True);self.meta={}
+ def handle_starttag(self,tag,attrs):
+  if tag!='meta':return
+  a=dict(attrs);k=a.get('property') or a.get('name')
+  if k and isinstance(a.get('content'),str):self.meta.setdefault(k,a['content'])
+ def get(self,key):return self.meta.get(key,'')
 class BlockRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,req,fp,code,msg,headers,newurl):
   raise ValueError('TELEGRAM_REDIRECT_BLOCKED')
+def fetch_telegram_html(url):
+ req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0',
+    'Accept':'text/html'})
+ try:
+  with urllib.request.build_opener(BlockRedirect()).open(req,timeout=10) as resp:
+   typ=resp.headers.get('Content-Type','').lower()
+   if 'text/html' not in typ:raise ValueError('NOT_HTML')
+   raw=resp.read(200001)
+ except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError,OSError):
+  raise ValueError('SOURCE_UNAVAILABLE') from None
+ if len(raw)>200000:raise ValueError('HTML_TOO_BIG')
+ return raw.decode('utf8','replace')
+def from_canonical(html_page,channel,num):
+ """The canonical post has OG text + photo/video preview even for video posts."""
+ meta=CanonicalMeta();meta.feed(html_page)
+ expected='https://t.me/'+channel+'/'+num
+ android=meta.get('twitter:app:url:googleplay')
+ alternate=meta.get('al:android:url')
+ # Never trust a site-wide OG preview or media from a different post.
+ marker_match=(android==expected or
+    alternate=='tg://resolve?domain='+channel+'&post='+num)
+ if not marker_match:raise ValueError('CANONICAL_POST_ID_NOT_VERIFIED')
+ text=' '.join(html.unescape(meta.get('og:description') or '').split())
+ photo=html.unescape(meta.get('og:image'))
+ if not 60<=len(text)<=900:raise ValueError('CANONICAL_TEXT_MISSING')
+ if not photo_ok(photo):raise ValueError('CANONICAL_MEDIA_PREVIEW_MISSING')
+ return text,photo
 def source_to_post(url):
- """Only public t.me post, DNS must resolve exclusively to public addresses."""
+ """Public t.me post: canonical OG for photo AND video thumbnail; embed fallback."""
  parts=urllib.parse.urlsplit(url)
  if parts.scheme!='https' or parts.hostname!='t.me':raise ValueError('INVALID_HOST')
  tokens=parts.path.strip('/').split('/')
@@ -89,24 +124,17 @@ def source_to_post(url):
  except (OSError,ValueError):raise ValueError('SOURCE_DNS_FAILED') from None
  if not addresses or any(not address.is_global for address in addresses):
   raise ValueError('SOURCE_DNS_NOT_PUBLIC')
- embed='https://t.me/'+tokens[0]+'/'+tokens[1]+'?embed=1'
- req=urllib.request.Request(embed,headers={'User-Agent':'Mozilla/5.0',
-    'Accept':'text/html'})
+ errors=[]
  try:
-  with urllib.request.build_opener(BlockRedirect()).open(req,timeout=10) as resp:
-   typ=resp.headers.get('Content-Type','').lower()
-   if 'text/html' not in typ:raise ValueError('NOT_HTML')
-   raw=resp.read(200001)
- except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError,OSError):
-  raise ValueError('SOURCE_UNAVAILABLE') from None
- if len(raw)>200000:raise ValueError('HTML_TOO_BIG')
+  body,photo=from_canonical(fetch_telegram_html(url),tokens[0],tokens[1])
+  return body[:100].rsplit(' ',1)[0],body,photo
+ except (ValueError,UnicodeError) as e:errors.append(type(e).__name__)
+ embed='https://t.me/'+tokens[0]+'/'+tokens[1]+'?embed=1'
  reader=PublicPostReader(tokens[0],tokens[1])
- reader.feed(raw.decode('utf8','replace'))
+ reader.feed(fetch_telegram_html(embed))
  body,photo=reader.parsed()
- if not 85<=len(body)<=700 or body.endswith(('...', '…',',',';',':')):
-  raise ValueError('NO_COMPLETE_POST_TEXT')
- if not body.endswith(('.','!','?','»','”')):raise ValueError('INCOMPLETE_TEXT')
- if not photo:raise ValueError('NO_ALLOWED_PUBLIC_POST_PHOTO')
+ if not 60<=len(body)<=900:raise ValueError('NO_COMPLETE_POST_TEXT')
+ if not photo:raise ValueError('NO_ALLOWED_POST_MEDIA_PREVIEW')
  return body[:100].rsplit(' ',1)[0],body,photo
 def moderator(msg,cfg):
  chat=msg.get('chat') or {}
