@@ -15,6 +15,17 @@ def _read_safe(p):
     if not p.is_file() or p.is_symlink() or p.stat().st_size>20000:
         raise ValueError("UNSAFE_OR_MISSING_FILE")
     return json.loads(p.read_text(encoding="utf-8"))
+def _watermark_after_video_accept(draft_id):
+    """Local durable handoff; NEVER claim Cloudflare watermark is done."""
+    try:
+        import news_rg_video_watermark_handoff_v1 as handoff
+        outcome=handoff.ensure_approved(draft_id)
+        return {"status":"VIDEO_APPROVED_WATERMARK_HANDOFF_QUEUED_LOCAL",
+                "watermark_handoff":outcome.get("status"),
+                "cloudflare_delivery":"NOT_VERIFIED","public_publication":"OFF"}
+    except (OSError,ValueError,ImportError,RuntimeError):
+        return {"status":"VIDEO_APPROVED_WATERMARK_HANDOFF_NEEDS_RECOVERY",
+                "cloudflare_delivery":"NOT_ATTEMPTED","public_publication":"OFF"}
 def process_callback(update,cfg):
     """Return None for non-NEWS-RG callbacks; status dict for NEWS-RG callbacks."""
     q=update.get("callback_query") or {}
@@ -52,6 +63,9 @@ def process_callback(update,cfg):
         if dest.is_symlink():return {"status":"EDITORIAL_LEDGER_UNSAFE"}
         if dest.exists():
             existing=_read_safe(dest)
+            if (staged.get("media_type")=="video" and
+                existing.get("decision")=="editorially_accepted_not_published"):
+                return _watermark_after_video_accept(draft_id)
             return {"status":"EDITORIAL_ALREADY_DECIDED","decision":existing.get("decision")}
         fd=os.open(str(dest),os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
         with os.fdopen(fd,"w",encoding="utf-8") as out:
@@ -61,6 +75,8 @@ def process_callback(update,cfg):
                "moderator_id":moderator,"telegram_message_id":msg["message_id"],
                "timestamp":int(time.time()),"public_publication":"OFF"},out,ensure_ascii=False)
             out.flush();os.fsync(out.fileno())
+        if action=="accept" and staged.get("media_type")=="video":
+            return _watermark_after_video_accept(draft_id)
         return {"status":"EDITORIAL_ACCEPTED_NO_PUBLICATION" if action=="accept" else "EDITORIAL_REJECTED",
                 "public_publication":"OFF"}
     except FileExistsError:
@@ -69,6 +85,8 @@ def process_callback(update,cfg):
         return {"status":"EDITORIAL_SAFE_STOP"}
 def selftest():
     assert PAT.fullmatch("ne1:accept:"+"a"*24)
+    assert "watermark" in _watermark_after_video_accept.__doc__.lower()
+    assert _watermark_after_video_accept("invalid")["status"]=="VIDEO_APPROVED_WATERMARK_HANDOFF_NEEDS_RECOVERY"
     assert PAT.fullmatch("ne1:reject:"+"f"*24)
     assert not PAT.fullmatch("rg3:approve:"+"a"*24)
     assert not PAT.fullmatch("ne1:accept:"+"x"*24)
