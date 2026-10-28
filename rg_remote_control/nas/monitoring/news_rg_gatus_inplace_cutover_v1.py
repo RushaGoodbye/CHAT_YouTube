@@ -153,7 +153,11 @@ def write_file(path,data,mode=0o600,exclusive=True):
   fd,name=tempfile.mkstemp(prefix='.newsrg_monitor_',dir=str(path.parent))
   try:
    with os.fdopen(fd,'wb') as f:
-    os.fchmod(f.fileno(),mode);f.write(data);f.flush();os.fsync(f.fileno())
+    os.fchmod(f.fileno(),mode)
+    if path.exists() and not path.is_symlink():
+     old_meta=path.stat()
+     os.fchown(f.fileno(),old_meta.st_uid,old_meta.st_gid)
+    f.write(data);f.flush();os.fsync(f.fileno())
    os.replace(name,path)
   finally:
    if os.path.exists(name):os.unlink(name)
@@ -198,7 +202,8 @@ def install():
    for path in (HEALTH,PUSH):
     _,check=command(['/usr/bin/python3',str(path),'selftest'],timeout=10)
     if 'SELFTEST_PASS' not in check:fail('COPIED_MODULE_SELFTEST_FAILED')
-   set_config(cfg,rewritten,cmode,file_bind);config_changed=True
+   config_changed=True
+   set_config(cfg,rewritten,cmode,file_bind)
    # Apply via single Gatus-only restart. No Telegram, Observer, NAS reboot.
    if not restart_gatus(exe):fail('GATUS_RESTART_OR_HTTP_FAILED')
    # New endpoint receives a signed heartbeat. This verifies token and routing.
