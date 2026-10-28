@@ -162,11 +162,21 @@ def install():
  tick_mode=stat.S_IMODE(T.stat().st_mode)
  sender_mode=stat.S_IMODE(S.stat().st_mode)
  try:
+  receipts=O/'news_rg_publication_receipts_v1'
+  if receipts.is_symlink():err('PUBLIC_RECEIPTS_SYMLINK')
+  if not receipts.exists():
+   receipts.mkdir(mode=0o700)
+  elif not receipts.is_dir():err('PUBLIC_RECEIPTS_NOT_DIRECTORY')
+  os.chmod(receipts,0o700)
   atomic(PUB,pub.encode(),0o600)
   atomic(SCHED,SCHED_SRC.encode(),0o700)
   ast.parse(SCHED.read_text())
   atomic(S,sender.encode(),sender_mode)
   if 'telegram_photo_file_id' not in S.read_text():err('SENDER_POSTINSTALL_MISMATCH')
+  sender_check=subprocess.run(['/usr/bin/python3',str(S),'selftest'],
+                              text=True,capture_output=True,timeout=12)
+  if sender_check.returncode or 'SELFTEST_PASS' not in sender_check.stdout:
+   err('PATCHED_PRIVATE_SENDER_SELFTEST_FAILED')
   # Enable only after all code and backups verify. Historical acceptances excluded.
   act={'schema':'NEWS_RG_PUBLICATION_ACTIVATION_V1','status':'ACTIVE',
    'activated_at':int(time.time()),'chat_id':channel['chat_id'],
@@ -187,6 +197,9 @@ def install():
   elif old_pub is not None:atomic(PUB,old_pub,0o600)
   if old_sched is None and SCHED.exists():SCHED.unlink()
   elif old_sched is not None:atomic(SCHED,old_sched,0o700)
+  receipts=O/'news_rg_publication_receipts_v1'
+  if receipts.is_dir() and not receipts.is_symlink() and not any(receipts.iterdir()):
+   receipts.rmdir()
   raise
  return {'status':'NEWS_RG_APPROVED_PUBLICATION_ENABLED',
   'channel_title':channel['title'],'channel_id':channel['chat_id'],
