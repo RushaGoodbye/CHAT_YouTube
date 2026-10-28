@@ -723,7 +723,8 @@ def _grounded_description_from_transcript(
 
 
 def _deterministic_evidence_description(
-    title: str, evidence_report: dict[str, Any]
+    title: str, evidence_report: dict[str, Any],
+    *, review_unmapped: list[str] | None = None,
 ) -> str:
     """Create public Ukrainian prose only from cited, verified discussion subjects.
 
@@ -780,7 +781,12 @@ def _deterministic_evidence_description(
             for label in recognized:
                 if label not in labels:
                     labels.append(label)
-    if unmapped:
+    # Unknown ASR topics are NOT public claims. Keep the valid supported
+    # subjects, but carry omissions into the manual-review state instead of
+    # failing the whole package and repeatedly calling Ollama.
+    if unmapped and review_unmapped is not None:
+        review_unmapped.extend(unmapped)
+    if unmapped and review_unmapped is None:
         raise ValueError(
             "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
         )
@@ -2199,18 +2205,21 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
+                unmapped_evidence: list[str] = []
                 description_candidate = _deterministic_evidence_description(
                     current_title, evidence_report,
+                    review_unmapped=unmapped_evidence,
                 )
+                candidate["evidence_editorial_review"] = unmapped_evidence
                 candidate["description"] = description_candidate
                 candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
                 )
                 if description_error:
-                    raise ValueError(
-                        "grounded description failed final check: " + description_error
-                    )
+                    # Retain the evidence-only text as an explicitly unapproved
+                    # draft. Do not retry deterministic content with the model.
+                    candidate["_description_quality_issue"] = description_error
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2353,7 +2362,9 @@ chapters: рядок з підтвердженими таймкодами та �
                         break
 
             if len(merged_tags) < 8:
-                raise ValueError("need at least 8 grounded tags")
+                # Never pad keywords with unsupported claims to reach a quota.
+                # An incomplete tag set can be saved ONLY for human review.
+                candidate["_tags_review_required"] = True
             candidate["tags"] = merged_tags
 
             payload = candidate
@@ -2473,6 +2484,9 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(evidence_report)
             or bool(omitted_topics)
             or bool(title_issues)
+            or bool(payload.get("evidence_editorial_review"))
+            or bool(payload.get("_description_quality_issue"))
+            or bool(payload.get("_tags_review_required"))
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2489,6 +2503,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
+                (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
+                (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
             )
             if condition
         ),
