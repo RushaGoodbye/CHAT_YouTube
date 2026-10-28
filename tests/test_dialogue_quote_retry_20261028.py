@@ -5,7 +5,9 @@ from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
 
 
 def _rows():
-    return [{"text": "У розмові розповідали про бензин і ціни на заправках",
+    return [{"text": "У розмові розповідали про бензин і ціни на заправках. "
+             "Учасники повторювали запитання та знову поверталися до теми бензину і цін. "
+             "Розмова продовжувалася без нових тверджень.",
              "start": 0.0, "duration": 12.0}]
 
 
@@ -39,4 +41,4 @@ def test_rejects_nonverbatim_evidence_even_after_retry():
     result = analyze_all_timeline_blocks(_rows(), model="test", chat=chat)
     assert result["blocks_with_evidence"] == 0
     assert result["unverified_blocks"] == [1]
-    assert len(calls) == 1  # Too-short fragment: do not waste retries.
+    assert len(calls) == 2  # Invalid evidence cannot pass even with a retry.
