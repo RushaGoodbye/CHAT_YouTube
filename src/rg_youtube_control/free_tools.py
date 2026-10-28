@@ -2010,6 +2010,13 @@ def generate_seo_package_local(
     evidence_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = public_context or {}
+    live_profile = str(context.get("profile") or "").casefold()
+    live_state = str(context.get("live_broadcast_content") or "").casefold()
+    is_stream = (
+        live_profile in {"live", "livestream", "stream"}
+        or live_state in {"live", "upcoming", "completed"}
+        or bool(context.get("is_livestream"))
+    )
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
@@ -2054,6 +2061,7 @@ def generate_seo_package_local(
 - chapters = "" якщо точні таймкоди неможливо підтвердити транскриптом.
 
 SHORTS: {is_short}
+СТРІМ/АРХІВ СТРІМУ: {is_stream}. Для стріму chapters ОБОВ'ЯЗКОВО порожній рядок.
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
 КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
@@ -2477,7 +2485,7 @@ chapters: рядок з підтвердженими таймкодами та �
     else:
         chapters = ""
 
-    if not is_short and transcript.strip():
+    if not is_short and not is_stream and transcript.strip():
         chapter_error = _chapters_quality_error(chapters, transcript)
         if chapter_error and not fast_mode:
             chapters = _recover_chapters_from_transcript(
@@ -2504,7 +2512,7 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель не створила опис.")
     if len(description) > (3900 if evidence_report else 5000):
         raise ValueError("SEO-опис перевищує безпечний ліміт; збережено карту доказів без втрати тем.")
-    if is_short:
+    if is_short or is_stream:
         chapters = ""
 
     return {
