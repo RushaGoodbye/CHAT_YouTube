@@ -112,6 +112,11 @@ def choose(act,now=None):
  now=int(time.time()) if now is None else now
  if not DEC.is_dir() or DEC.is_symlink() or not SENT.is_dir() or SENT.is_symlink():fail('DECISION_OR_RECEIPT_DIR_UNSAFE')
  if not PUB.is_dir() or PUB.is_symlink():fail('PUBLIC_RECEIPT_DIR_UNSAFE')
+ # An uncertain send pauses the whole public queue until a human resolves it.
+ for pub_receipt in PUB.glob('*.json'):
+  if pub_receipt.is_symlink():fail('PUBLIC_RECEIPT_SYMLINK')
+  if read_json(pub_receipt).get('status')=='PUBLIC_SEND_UNCERTAIN_NO_RETRY':
+   fail('PREVIOUS_PUBLIC_SEND_UNCERTAIN_REQUIRES_REVIEW')
  eligible=[]
  for p in DEC.glob('*.json'):
   if not re.fullmatch(r'[a-f0-9]{24}\.json',p.name) or p.is_symlink():continue
@@ -159,8 +164,8 @@ def publish_one():
   try:
    result=telegram('sendPhoto',{'chat_id':act['chat_id'],'photo':photo,
                    'caption':caption,'disable_notification':'false'},token)
-   if not isinstance(result.get('message_id'),int) or
-      int((result.get('chat') or {}).get('id',0))!=act['chat_id']:
+   if (not isinstance(result.get('message_id'),int) or
+       int((result.get('chat') or {}).get('id',0))!=act['chat_id']):
     fail('PUBLIC_SEND_ACK_MISMATCH')
    persist(receipt,{'status':'PUBLIC_PUBLISHED_CONFIRMED','draft_id':key,
     'channel_id':act['chat_id'],'message_id':result['message_id'],
