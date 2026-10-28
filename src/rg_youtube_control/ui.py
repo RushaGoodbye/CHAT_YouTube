@@ -215,6 +215,16 @@ def _duration_seconds(value: str | int | float | None) -> int:
         return 0
     if text.isdigit():
         return max(0, int(text))
+    # Legacy synchronized durations can be MM:SS or HH:MM:SS.
+    # Without this, a 00:59 Short appears to have unknown duration and
+    # incorrectly enters the regular-video optimization queue.
+    if re.fullmatch(r"\d{1,4}:[0-5]\d(?::[0-5]\d)?", text):
+        seconds = 0
+        for component in text.split(":"):
+            seconds = seconds * 60 + int(component)
+        return seconds
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return max(0, int(float(text)))
     match = re.fullmatch(
         r"P(?:(?P<days>\d+)D)?T"
         r"(?:(?P<hours>\d+)H)?"
