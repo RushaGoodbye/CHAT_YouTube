@@ -61,9 +61,17 @@ def run():
   return
  before_status=dispatch_status()
  if before_status.get('status')!='PRIVATE_DISPATCH_ARMED':
-  report(status='CARD_8052_REJECTION_SAVED_BUT_DISPATCH_NOT_READY',
-    reason=str(before_status.get('reason',before_status.get('status')))[:100],
-    previous_message_id=MESSAGE_ID,publications=0,pollers_started=0)
+  existing=receipts()
+  newer=[{'draft_id':key,'message_id':value} for key,value in existing.items()
+         if value>MESSAGE_ID]
+  if newer and str(before_status.get('reason',''))=='ONE_OUTSTANDING_EDITORIAL_CARD':
+   newer.sort(key=lambda x:x['message_id'])
+   report(status='NEXT_PRIVATE_CARD_ALREADY_OUTSTANDING',new_cards=newer,
+     previous_rejection_confirmed=True,publications=0,pollers_started=0)
+  else:
+   report(status='CARD_8052_REJECTION_SAVED_BUT_DISPATCH_NOT_READY',
+     reason=str(before_status.get('reason',before_status.get('status')))[:100],
+     previous_message_id=MESSAGE_ID,publications=0,pollers_started=0)
   return
  tick=FINAL_TICK
  if tick.is_symlink() or not tick.is_file():raise RuntimeError('AI_TICK_MISSING')
