@@ -33,6 +33,7 @@ def detect_worker():
             result['callback_v29_excerpt'].append({'line':i+1,'text':safe(l)})
     candidates=[]
     for p in O.glob('*.py'):
+        if p==V:continue
         if not p.is_file() or p.is_symlink() or p.stat().st_size>300000:continue
         try:
             s=p.read_text('utf-8')
