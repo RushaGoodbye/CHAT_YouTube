@@ -26,6 +26,8 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_video_watermark_handoff_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_manual_original_video_upgrade_v3.py'
       - 'rg_remote_control/nas/monitoring/news_rg_original_video_delivery_status_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_wrong_photo_supersession_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_durable_private_dispatch_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py'
   workflow_dispatch:
@@ -85,6 +87,9 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_manual_original_video_upgrade_v3.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_original_video_delivery_status_v1.py
           python rg_remote_control/nas/monitoring/news_rg_original_video_delivery_status_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_wrong_photo_supersession_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_wrong_photo_supersession_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_dispatch_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
           python rg_remote_control/nas/monitoring/news_rg_editorial_callbacks_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
@@ -122,6 +127,7 @@ jobs:
             return b'photo'+('\r\n--'+boundary+'--\r\n').encode()
           stub.build=build
           sys.modules['news_rg_multipart']=stub
+          sys.path.insert(0,str(pathlib.Path('rg_remote_control/nas/monitoring').resolve()))
           path=pathlib.Path('rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py')
           spec=importlib.util.spec_from_file_location('private_video_sender_ci',path)
           m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
