@@ -28,7 +28,7 @@ from rg_youtube_control.dialogue_seo import (ab_title_issues,
 from rg_youtube_control.free_tools import (DEFAULT_OLLAMA_MODEL,
                                            generate_seo_package_local,
                                            load_srt_transcript, ollama_chat,
-                                           _description_quality_error)
+                                           fetch_transcript, _description_quality_error)
 def _incidental_ab_quote(title: str) -> bool:
     """Reject incidental pleasantries and appearance-based SEO headlines."""
     text = " ".join(str(title or "").casefold().split())
@@ -140,6 +140,7 @@ def run_one(
     database: Path,
     qa_cache: Path,
     model: str = DEFAULT_OLLAMA_MODEL,
+    allow_public_captions: bool = False,
 ) -> dict:
     started = time.monotonic()
     result = {
@@ -159,14 +160,23 @@ def run_one(
             raise RuntimeError("Video metadata has no title")
         folder = Path(metadata["transcript_root"])
         srt = folder / (video_id + ".srt")
-        if not srt.is_file():
-            # Report availability only. Private NAS paths stay off GitHub.
+        if srt.is_file():
+            result["srt_present"] = True
+            result["transcript_source"] = "local_srt"
+            rows = load_srt_transcript(srt)
+        elif allow_public_captions:
+            # Public transcript endpoint, NOT the YouTube Data API.
+            # Do not download video, write SRT, create production drafts,
+            # fetch cookies, or edit channel metadata. Quotes stay local.
+            result["srt_present"] = False
+            result["transcript_source"] = "public_captions"
+            result["public_caption_reads"] = 1
+            rows = fetch_transcript(video_id)
+        else:
             result["srt_present"] = False
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
-        result["srt_present"] = True
-        rows = load_srt_transcript(srt)
         if len(rows) < 10:
-            raise RuntimeError("Incomplete SRT: fewer than ten caption rows")
+            raise RuntimeError("Incomplete transcript: fewer than ten caption rows")
         duration = metadata["duration"]
         last_second = max(
             float(row.get("start") or 0) + float(row.get("duration") or 0)
@@ -304,6 +314,7 @@ def run_one(
 def select_existing_srt_videos(
     db_file: Path, profile: str, limit: int,
     preferred: tuple[str, ...] = (),
+    allow_public_captions: bool = False,
 ) -> list[str]:
     """Pick real synchronized video IDs with *existing* local SRTs.
 
@@ -335,8 +346,8 @@ def select_existing_srt_videos(
     ordered = sorted(
         rows,
         key=lambda row: (
+            0 if (root / (str(row["video_id"] or "") + ".srt")).is_file() else 1,
             preferred_set.get(str(row["video_id"] or ""), len(preferred)),
-            -len(str(row["video_id"] or "")),
         ),
     )
     chosen: list[str] = []
@@ -350,7 +361,7 @@ def select_existing_srt_videos(
             continue
         if 0 < duration <= 70:
             continue
-        if not (root / (video_id + ".srt")).is_file():
+        if not (root / (video_id + ".srt")).is_file() and not allow_public_captions:
             continue
         chosen.append(video_id)
         if len(chosen) >= limit:
@@ -363,6 +374,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--video-ids", nargs="+", default=list(MAIN_IDS))
     parser.add_argument("--auto-main", type=int, default=0)
     parser.add_argument("--auto-live", type=int, default=0)
+    parser.add_argument(
+        "--allow-public-captions", action="store_true",
+        help="Public subtitle reads only, zero YouTube Data API quota; never write",
+    )
     parser.add_argument("--db", type=Path, default=(
         Path(os.environ.get("LOCALAPPDATA", ".")) /
         "RGYouTubeControl" / "rg_youtube_control.db"
@@ -388,9 +403,11 @@ def main(argv: list[str] | None = None) -> int:
         video_ids = (
             (select_existing_srt_videos(
                 args.db, "main", args.auto_main, MAIN_IDS,
+                allow_public_captions=args.allow_public_captions,
             ) if args.auto_main else [])
             + (select_existing_srt_videos(
                 args.db, "live", args.auto_live, LIVE_IDS,
+                allow_public_captions=args.allow_public_captions,
             ) if args.auto_live else [])
         )
     if not video_ids and not auto_requested:
@@ -402,7 +419,8 @@ def main(argv: list[str] | None = None) -> int:
     checked = []
     for video_id in video_ids:
         checked.append(run_one(
-            video_id, database=args.db, qa_cache=qa_cache, model=args.model
+            video_id, database=args.db, qa_cache=qa_cache, model=args.model,
+            allow_public_captions=args.allow_public_captions,
         ))
     status = "READY_FOR_HUMAN_REVIEW" if (
         checked and (not auto_requested or len(checked) == auto_requested)
