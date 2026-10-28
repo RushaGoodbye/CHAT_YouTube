@@ -15,11 +15,9 @@ MOD=B/'rg_moderation.py'
 HELPER=O/'news_rg_manual_link_intake_v1.py'
 SOURCE=pathlib.Path('/tmp/news_rg_manual_link_intake_v1.py')
 ACT=O/'news_rg_manual_link_activation_v1.json'
-OLD=pathlib.Path('/volume1/docker/RG_TELEGRAM_STATE/rg_telegram_nas_native_bot_v01.py')
 BACKUP=O/'rg_news2_p31.before_manual_link_v1.backup'
 ROUTE_TAG='# NEWS_RG_MANUAL_LINK_SINGLE_OWNER_V1'
 EXPECTED_WORKER_SHA16='d45141664b5aba6d'
-EXPECTED_LEGACY_SHA16='a2512586b44cac'
 REVIEW=O/'news_rg_durable_private_dispatch_v1.py'
 def fail(s):raise RuntimeError(s)
 def emit(**d):print(json.dumps(d,ensure_ascii=False,sort_keys=True))
@@ -95,12 +93,11 @@ def check():
  if os.geteuid()!=0:fail('SUDO_REQUIRED')
  for p in (B,O):
   if p.is_symlink() or not p.is_dir():fail('BASE_DIRECTORY_UNSAFE')
- for p in (SOURCE,WORKER,OWNER,MOD,OLD,REVIEW):
+ for p in (SOURCE,WORKER,OWNER,MOD,REVIEW):
   read(p)
  if read(OWNER).count("WORKER=O/'rg_news2_p31_guarded_callback_once.py'")!=1:
   fail('CALLBACK_OWNER_CHANGED')
  if '# NEWS_RG_EDITORIAL_HOOK_V1' not in read(MOD):fail('EDITORIAL_HOOK_MISSING')
- if pin(read(OLD))!=EXPECTED_LEGACY_SHA16:fail('OLD_MANUAL_LINK_PARSER_CHANGED')
  if '# NEWS_RG_NE1_OWNER_ROUTE_V1' not in read(WORKER):fail('ACTIVE_ROUTE_CHANGED')
  if ACT.exists() or HELPER.exists():
   if (not ACT.is_symlink() and not HELPER.is_symlink() and
@@ -112,8 +109,10 @@ def check():
   fail('PARTIAL_OR_FOREIGN_MANUAL_INSTALL')
  if BACKUP.is_symlink() or BACKUP.exists():fail('BACKUP_ALREADY_EXISTS')
  src=read(SOURCE)
- if 'NEWS_RG_MANUAL_LINK_INTAKE_V1' not in src or 'def dispatch_once_async' not in src:
+ if 'NEWS_RG_MANUAL_LINK_INTAKE_V1' not in src or 'def dispatch_once_async' not in src or 'class PublicPostReader' not in src:
   fail('UNKNOWN_HELPER_SOURCE')
+ if re.search(r'(?m)^\s*(?:import|from)\s+(?:rg_telegram_nas_native_bot|importlib)',src):
+  fail('UNEXPECTED_LEGACY_IMPORT')
  if pin(read(WORKER))!=EXPECTED_WORKER_SHA16:
   fail('ACTIVE_WORKER_HASH_CHANGED_NO_PATCH')
  _=builder(read(WORKER))
@@ -121,7 +120,7 @@ def check():
   capture_output=True,text=True,timeout=12)
  if sub.returncode or 'SELFTEST_PASS' not in sub.stdout:fail('HELPER_SELFTEST_FAILED')
  return {'status':'MANUAL_LINK_RESTORE_PREFLIGHT_PASS',
-  'single_owner':True,'worker_pin_verified':True,'legacy_parser_pin_verified':True,
+  'single_owner':True,'worker_pin_verified':True,'self_contained_reader':True,
   'allowed_update_types_after':['callback_query','message'],
   'new_pollers':0,'new_schedules':0,'publications':0,'telegram_calls':0,
   'patches':['enable_message_update_type','route_message_before_callback_guard',
