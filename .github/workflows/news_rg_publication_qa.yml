@@ -7,6 +7,8 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
       - '.github/workflows/news_rg_publication_qa.yml'
       - 'rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_editorial_grounding_guard_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_guarded_auto_handoff_installer_v1.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +28,10 @@ jobs:
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py
           python rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_editorial_grounding_guard_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_editorial_grounding_guard_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_guarded_auto_handoff_installer_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_guarded_auto_handoff_installer_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
       - name: Simulate private sender patch without network or NAS
@@ -48,4 +54,21 @@ jobs:
           another,already=mod.patch_sender(new)
           assert already and another==new
           print('NEWS_RG_SAFE_SENDER_PATCH_TEST_PASS')
+          PY
+
+      - name: Offline source patch contract for existing AI bridge
+        run: |
+          python - <<'PY'
+          import importlib.util,pathlib,ast
+          root=pathlib.Path('rg_remote_control/nas/monitoring')
+          spec=importlib.util.spec_from_file_location('installer',root/'news_rg_guarded_auto_handoff_installer_v1.py')
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          bridge=(root/'news_rg_private_bridge_v1.py').read_text()
+          patched,already=m.modify_bridge(bridge)
+          assert not already
+          ast.parse(patched)
+          assert m.EDIT_MARK in patched
+          assert m.modify_bridge(patched)==(patched,True)
+          assert patched.count(m.EDIT_MARK)==1
+          print('NEWS_RG_GUARDED_BRIDGE_PATCH_PASS')
           PY
