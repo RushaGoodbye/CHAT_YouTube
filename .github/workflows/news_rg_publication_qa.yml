@@ -15,6 +15,7 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_latest_private_publication_audit_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_stability_healthcheck_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_gatus_readonly_preflight_v1.py'
+      - 'rg_remote_control/nas/monitoring/news_rg_gatus_integration_inventory_v1.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -50,6 +51,8 @@ jobs:
           python rg_remote_control/nas/monitoring/news_rg_stability_healthcheck_v1.py selftest
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_gatus_readonly_preflight_v1.py
           python rg_remote_control/nas/monitoring/news_rg_gatus_readonly_preflight_v1.py selftest
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_gatus_integration_inventory_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_gatus_integration_inventory_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
       - name: Simulate private sender patch without network or NAS
