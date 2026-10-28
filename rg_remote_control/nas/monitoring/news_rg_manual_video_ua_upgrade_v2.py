@@ -20,6 +20,21 @@ def read(p,limit=90000):
  if p.is_symlink() or not p.is_file() or p.stat().st_size>limit:stop('UNSAFE_'+p.name)
  return p.read_text('utf8')
 def digest(s):return hashlib.sha256(s.encode('utf8')).hexdigest()[:16]
+def prohibited_bot_activity(source):
+ """AST guard: ignore explanatory docstrings, reject real Bot API send/poll calls."""
+ tree=ast.parse(source)
+ forbidden={'getUpdates','sendPhoto','sendVideo','sendDocument','setWebhook','deleteWebhook'}
+ for node in ast.walk(tree):
+  if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in forbidden:
+   return True
+  if isinstance(node,ast.Call):
+   target=node.func
+   if isinstance(target,ast.Name) and target.id in forbidden:return True
+   if isinstance(target,ast.Attribute) and target.attr in forbidden:return True
+  if isinstance(node,ast.Constant) and isinstance(node.value,str):
+   if node.value in forbidden or 'api.telegram.org' in node.value:
+    return True
+ return False
 def check():
  if os.geteuid()!=0:stop('SUDO_REQUIRED')
  if not B.is_dir() or not O.is_dir() or B.is_symlink() or O.is_symlink():stop('UNSAFE_DIRECTORIES')
@@ -47,7 +62,7 @@ def check():
                     'def source_to_post','def stage','def handle','def dispatch_once_async',
                     "NEWS_RG_MANUAL_LINK_INTAKE_V1"):
   if signature not in fresh:stop('NEW_HELPER_MISSING_CONTRACT')
- if 'getUpdates' in fresh or 'api.telegram.org' in fresh or 'sendPhoto' in fresh:
+ if prohibited_bot_activity(fresh):
   stop('FORBIDDEN_TELEGRAM_POLLING_OR_SENDING')
  ast.parse(fresh)
  test=subprocess.run(['/usr/bin/python3',str(STAGE),'selftest'],
@@ -105,6 +120,15 @@ def selftest():
  assert 'def source_to_post' in sample and 'class PublicPostReader' in sample
  assert 'getUpdates' not in TAG
  assert 'news_rg_manual_link_intake_v1.py' in str(TARGET)
+ assert prohibited_bot_activity('def x():\n """No getUpdates, no public send."""\n return True\n') is False
+ assert prohibited_bot_activity("def x(api):\n return api('getUpdates',{})\n") is True
+ assert prohibited_bot_activity("def x():\n return sendPhoto(123)\n") is True
+ assert prohibited_bot_activity("def x():\n return 'https://api.telegram.org/botXX/sendPhoto'\n") is True
+ assert prohibited_bot_activity("def reply(api):\n return api('sendMessage',{'text':'ok'})\n") is False
+ candidate=pathlib.Path(__file__).with_name(STAGE.name)
+ if candidate.is_file() and not candidate.is_symlink():
+  assert not prohibited_bot_activity(candidate.read_text('utf8'))
+
  print('NEWS_RG_MANUAL_VIDEO_UA_UPGRADER_SELFTEST_PASS')
 if __name__=='__main__':
  try:
