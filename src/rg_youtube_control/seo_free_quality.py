@@ -27,6 +27,58 @@ _STOP = {
 }
 
 
+def russian_language_signal(title: str) -> bool:
+    """Optional Lingua cross-check for confidently Russian-only headlines.
+
+    It is used only as a REVIEW gate, never to generate or translate text.
+    In older Python/installer environments, lack of Lingua is safe: the
+    mandatory lexical Ukrainian guard still runs.
+    """
+    value = str(title or "").strip()
+    if len(value) < 26 or len(re.findall(r"[а-яіїєґ]", value.casefold())) < 18:
+        return False
+    # Strong Ukrainian-specific characters are decisive for mixed titles
+    # that quote Russian names or Russian-language source fragments.
+    if re.search(r"[іїєґ]", value.casefold()):
+        return False
+    try:
+        from lingua import Language, LanguageDetectorBuilder
+    except (ImportError, OSError):
+        return False
+    try:
+        # Lazy two-language comparison avoids loading unrelated languages.
+        detector = _lingua_detector(Language, LanguageDetectorBuilder)
+        values = detector.compute_language_confidence_values(value)
+        if len(values) < 2:
+            return False
+        russian = next(
+            (float(v.value) for v in values if v.language == Language.RUSSIAN),
+            0.0,
+        )
+        ukrainian = next(
+            (float(v.value) for v in values if v.language == Language.UKRAINIAN),
+            0.0,
+        )
+        return russian >= 0.92 and russian - ukrainian >= 0.60
+    except (RuntimeError, ValueError, AttributeError):
+        # Optional auxiliary detector may fail on unsupported platforms;
+        # mandatory deterministic source-grounding still protects outputs.
+        return False
+
+
+_detector_cache: dict[str, object] = {}
+
+
+def _lingua_detector(Language, Builder):
+    current = _detector_cache.get("ru_uk")
+    if current is None:
+        current = Builder.from_languages(
+            Language.UKRAINIAN, Language.RUSSIAN
+        ).build()
+        _detector_cache["ru_uk"] = current
+    return current
+
+
 def _event_signature(title: str) -> set[str]:
     """Meaningful short roots; ignore common editorial title scaffolding."""
     canonical = str(title or "").casefold().translate(str.maketrans({
