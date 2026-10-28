@@ -112,7 +112,7 @@ def test_auto_selection_reports_shortfall_instead_of_claiming_full_pass(
     spec.loader.exec_module(module)
     monkeypatch.setattr(
         module, "select_existing_srt_videos",
-        lambda db, profile, limit, preferred=(), allow_public_captions=False: (
+        lambda db, profile, limit, preferred=(), allow_public_captions=False, preflight_captions=False: (
             ["12345678901"] if profile == "main" else []
         ),
     )
@@ -220,3 +220,79 @@ def test_public_captions_read_only_fallback_never_writes_production(
     assert result["production_db_writes"] == 0
     assert result["youtube_writes"] == 0
     assert db_file.read_bytes() == before
+
+
+def test_preflight_skips_unplayable_and_incomplete_video_sources(
+    tmp_path, monkeypatch,
+):
+    import sqlite3
+    spec = importlib.util.spec_from_file_location("rg_seo_preflight", SCRIPT)
+    assert spec and spec.loader
+    qa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qa)
+    root = tmp_path / "captions"
+    root.mkdir()
+    db = tmp_path / "app.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)")
+        conn.execute(
+            "INSERT INTO settings VALUES('nas_transcripts_path',?)", (str(root),),
+        )
+        conn.execute(
+            "CREATE TABLE videos(video_id TEXT,profile TEXT,duration TEXT,"
+            "scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
+        )
+        conn.executemany("INSERT INTO videos VALUES(?,?,?,?,?,?)", [
+            ("11111111111", "live", "PT10M", None, "public", 100),
+            ("22222222222", "live", "PT10M", None, "public", 90),
+            ("33333333333", "live", "PT10M", None, "public", 80),
+        ])
+    def fake_fetch(video_id):
+        if video_id == "11111111111":
+            raise RuntimeError("unavailable")
+        return [
+            {"text": "говорили про війну", "start": n * 55, "duration": 30}
+            for n in range(12)
+        ]
+    monkeypatch.setattr(qa, "fetch_transcript", fake_fetch)
+    assert qa.select_existing_srt_videos(
+        db, "live", 2, allow_public_captions=True,
+        preflight_captions=True,
+    ) == ["22222222222", "33333333333"]
+
+
+def test_preflight_rejects_broken_srt_and_uses_same_id_public_fallback(
+    tmp_path, monkeypatch,
+):
+    import sqlite3
+    spec = importlib.util.spec_from_file_location("rg_seo_preflight_srt", SCRIPT)
+    assert spec and spec.loader
+    qa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qa)
+    root = tmp_path / "captions"
+    root.mkdir()
+    (root / "11111111111.srt").write_text("broken", encoding="utf-8")
+    db = tmp_path / "app.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)")
+        conn.execute("INSERT INTO settings VALUES('nas_transcripts_path',?)", (str(root),))
+        conn.execute(
+            "CREATE TABLE videos(video_id TEXT,profile TEXT,duration TEXT,"
+            "scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO videos VALUES('11111111111','main','PT10M',NULL,'public',100)"
+        )
+    monkeypatch.setattr(qa, "load_srt_transcript", lambda path: [])
+    seen = []
+    def fake_fetch(vid):
+        seen.append(vid)
+        return [{"text": "питання ціни", "start": n * 55, "duration": 30}
+                for n in range(12)]
+    monkeypatch.setattr(qa, "fetch_transcript", fake_fetch)
+    result = qa.select_existing_srt_videos(
+        db, "main", 1, allow_public_captions=True,
+        preflight_captions=True,
+    )
+    assert result == ["11111111111"]
+    assert seen == ["11111111111"]
