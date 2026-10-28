@@ -310,8 +310,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default=DEFAULT_OLLAMA_MODEL)
     args = parser.parse_args(argv)
     qa_cache = Path(os.environ.get("RUNNER_TEMP", ".")) / "rg_seo_qa_cache"
+    # Accept both separate IDs and a comma-delimited batch. The CSV form
+    # avoids argparse treating valid YouTube IDs starting with '-' as options.
+    video_ids = [
+        item.strip() for group in args.video_ids
+        for item in str(group).split(",") if item.strip()
+    ]
+    if not video_ids or len(video_ids) > 25 or len(set(video_ids)) != len(video_ids):
+        parser.error("Expected 1-25 unique video IDs")
+    if any(not VALID_ID.fullmatch(video_id) for video_id in video_ids):
+        parser.error("Invalid video ID in input batch")
     checked = []
-    for video_id in args.video_ids:
+    for video_id in video_ids:
         checked.append(run_one(
             video_id, database=args.db, qa_cache=qa_cache, model=args.model
         ))
