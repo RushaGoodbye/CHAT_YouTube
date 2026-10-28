@@ -202,7 +202,7 @@ def _ollama_generate(original,prompt):
     'prompt':prompt,'options':{'temperature':0.05,'num_predict':360}},
     ensure_ascii=False).encode('utf8'))
  try:
-  with urllib.request.urlopen(req,timeout=25) as resp:
+  with urllib.request.urlopen(req,timeout=15) as resp:
    if resp.status!=200:return None,'MODEL_NON_200'
    obj=json.loads(resp.read(50000))
   proposal=' '.join(str(obj.get('response','')).split())
