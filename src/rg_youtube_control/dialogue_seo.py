@@ -452,31 +452,48 @@ def preserve_outline_topics(
 
 
 def _cross_language_topic_word(word: str) -> str:
-    """Map only common Ukrainian/Russian subject roots for source matching.
+    """Conservative bilingual *topic* normalization for verified quotations.
 
-    The topic still has to occur in a verbatim verified quotation. This is
-    not an allowlist of facts: it only prevents language differences from
-    being mistaken for unsupported claims.
+    A normalized match is only a reason to consider a Ukrainian lexical
+    variant: it NEVER overrides title-language, quote provenance, factual
+    or editorial review gates. No external network, model or API quota.
     """
-    w = word.casefold().translate(str.maketrans({
+    w = str(word or "").casefold().translate(str.maketrans({
         "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е",
+        "ы": "и", "э": "е",
     }))
-    roots = (
-        ("коруп", "корруп"),
-        ("звильн", "увольн"),
-        ("вийн", "войн"),
-        ("министер", "министер"),
-        ("путин", "путин"),
-        ("посад", "должн"),
-        ("змина", "смена"),
-        ("признач", "назнач"),
-        ("вийськов", "военн"),
-        ("розмов", "разговор"),
-        ("обговор", "обсужд"),
+    # All matched prefixes in a family share the same canonical five-letter
+    # root; this also tolerates plural/declension in Ukrainian and Russian.
+    families = (
+        (("коруп", "корруп"), "корруп"),
+        (("війн", "вийн", "войн"), "война"),
+        (("звільн", "звилн", "увольн", "уволен"), "уволн"),
+        (("посад", "должн", "должност"), "должн"),
+        (("змін", "змин", "смен"), "смена"),
+        (("рішен", "ришен", "решен"), "решен"),
+        (("влад", "власт"), "власт"),
+        (("путін", "путин"), "путин"),
+        (("оборон",), "оборо"),
+        (("пенсі", "пенси"), "пенси"),
+        (("зарплат",), "зарпл"),
+        (("бензин",), "бензи"),
+        (("пальн", "топлив"), "топли"),
+        (("цін", "цин", "цен"), "ценыx"),
+        (("подорожч", "подорожа"), "дорож"),
+        (("мобілі", "мобили"), "мобил"),
+        (("крим", "крым"), "крымx"),
+        (("релігі", "религи"), "религ"),
+        (("пропаганд",), "пропа"),
+        (("армі", "арми", "армия"), "армия"),
+        (("вибух", "взрыв"), "взрив"),
+        (("президент",), "прези"),
+        (("стратег",), "страт"),
+        (("кадров",), "кадро"),
+        (("санкц",), "санкц"),
     )
-    for ukrainian, russian in roots:
-        if w.startswith(ukrainian):
-            return russian + w[len(ukrainian):]
+    for variants, canonical in families:
+        if any(w.startswith(alias.translate(str.maketrans({"і": "и", "ї": "и", "є": "е"}))) for alias in variants):
+            return canonical
     return w
 
 
