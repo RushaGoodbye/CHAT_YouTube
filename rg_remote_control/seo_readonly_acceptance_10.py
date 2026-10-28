@@ -201,7 +201,7 @@ def run_one(
             current_description="",
             current_tags=[],
             transcript=evidence_outline_text(report),
-            public_context={"title": title, "duration": duration},
+            public_context={"title": title, "duration": duration, "profile": metadata["profile"]},
             model=model,
             is_short=duration <= 70,
             fast_mode=False,
@@ -228,6 +228,11 @@ def run_one(
             "full_timeline_with_evidence": grounded == blocks,
             "channel_links": "links.rginfoua.pp.ua" in preview,
             "donation_links": "donate.rginfoua.pp.ua" in preview,
+            "live_has_no_chapters": (
+                str(metadata["profile"]).casefold() not in
+                {"live", "livestream", "stream"}
+                or not str(package.get("chapters") or "").strip()
+            ),
         }
         result.update({
             "checks": conditions,
