@@ -698,6 +698,18 @@ def ab_title_issues(
                     "кажуть", "говорять", "учасники", "розмови",
                     "спиврозмовники", "питання", "думки", "версии",
                     "обговорюють", "пояснюють", "скільки",
+                    # Non-factual editorial question scaffolding is not a
+                    # claimed subject and must not be counted as an
+                    # unsupported event merely because nobody said the same
+                    # interrogative wording verbatim.
+                    "оцінки", "оцінка", "пролунали", "звучать",
+                    "прозвучали", "співрозмовники", "співрозмовників",
+                    "переглядачі", "глядачі", "називають",
+                    "вважають", "припускають", "відповідають",
+                    "дискусія", "обговорення", "розповідають",
+                    "якими", "насправді", "запитують",
+                    "участники", "собеседники", "обсуждают",
+                    "оценки", "мнения", "рассказывают",
                 }
             ]
             if meaningful and not any(
@@ -710,6 +722,8 @@ def ab_title_issues(
             # assertion ("война переходит в новую фазу"). This is a
             # conservative editorial warning: lexical differences may be
             # legitimate paraphrases and are never called proven false.
+            # Above, neutral question/attribution words are already excluded:
+            # only factual subjects are checked against the exact quotes.
             source_only = [
                 word for word in meaningful
                 if _cross_language_topic_word(word)[:5] not in stems
