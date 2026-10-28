@@ -341,11 +341,12 @@ def select_existing_srt_videos(
     db_file: Path, profile: str, limit: int,
     preferred: tuple[str, ...] = (),
     allow_public_captions: bool = False,
+    preflight_captions: bool = False,
 ) -> list[str]:
-    """Pick real synchronized video IDs with *existing* local SRTs.
+    """Select same-ID subtitles, optionally proving access before costly SEO.
 
-    Selection reads SQLite in query-only mode and checks only file presence.
-    It never guesses a different file based on a changed public title.
+    Local DB is strictly query-only; no caption bytes or filenames are
+    uploaded. Public subtitle reads have no YouTube Data API quota.
     """
     if not 1 <= limit <= 20 or profile not in {"main", "live"}:
         raise ValueError("Invalid source selection")
@@ -377,7 +378,7 @@ def select_existing_srt_videos(
         ),
     )
     chosen: list[str] = []
-    for row in ordered:
+    for row in ordered[:max(30, limit * 5)]:
         video_id = str(row["video_id"] or "")
         if not VALID_ID.fullmatch(video_id):
             continue
@@ -387,8 +388,32 @@ def select_existing_srt_videos(
             continue
         if 0 < duration <= 70:
             continue
-        if not (root / (video_id + ".srt")).is_file() and not allow_public_captions:
+        local = root / (video_id + ".srt")
+        if not local.is_file() and not allow_public_captions:
             continue
+        if preflight_captions:
+            cues: list[dict] = []
+            if local.is_file():
+                try:
+                    cues = load_srt_transcript(local)
+                except (OSError, ValueError, RuntimeError, UnicodeError):
+                    cues = []
+            def covers(candidates: list[dict]) -> bool:
+                return (
+                    len(candidates) >= 10
+                    and (duration <= 0 or max(
+                        float(item.get("start") or 0)
+                        + float(item.get("duration") or 0)
+                        for item in candidates
+                    ) >= duration * 0.75)
+                )
+            if not covers(cues) and allow_public_captions:
+                try:
+                    cues = fetch_transcript(video_id)
+                except Exception:
+                    continue  # unreadable public captions: try next real video
+            if not covers(cues):
+                continue
         chosen.append(video_id)
         if len(chosen) >= limit:
             break
@@ -403,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-public-captions", action="store_true",
         help="Public subtitle reads only, zero YouTube Data API quota; never write",
+    )
+    parser.add_argument(
+        "--preflight-captions", action="store_true",
+        help="Verify source caption coverage before accepting each video",
     )
     parser.add_argument("--db", type=Path, default=(
         Path(os.environ.get("LOCALAPPDATA", ".")) /
@@ -430,10 +459,12 @@ def main(argv: list[str] | None = None) -> int:
             (select_existing_srt_videos(
                 args.db, "main", args.auto_main, MAIN_IDS,
                 allow_public_captions=args.allow_public_captions,
+                preflight_captions=args.preflight_captions,
             ) if args.auto_main else [])
             + (select_existing_srt_videos(
                 args.db, "live", args.auto_live, LIVE_IDS,
                 allow_public_captions=args.allow_public_captions,
+                preflight_captions=args.preflight_captions,
             ) if args.auto_live else [])
         )
     if not video_ids and not auto_requested:
