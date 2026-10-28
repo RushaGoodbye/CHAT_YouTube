@@ -10,6 +10,7 @@ It never means the titles are approved, or that content was published.
 from __future__ import annotations
 
 import argparse
+import time as _wall_clock
 import json
 import os
 import re
@@ -59,6 +60,75 @@ VALID_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 # Without this cache the second request can be rate-limited, wasting the
 # successful preflight and producing false PUBLIC_CAPTIONS_UNAVAILABLE.
 _PREFLIGHT_PUBLIC_CAPTIONS: dict[str, list[dict]] = {}
+
+def _private_caption_file(cache_dir: Path, video_id: str) -> Path:
+    if not VALID_ID.fullmatch(video_id):
+        raise ValueError("Invalid video ID for public caption cache")
+    return Path(cache_dir) / (video_id + ".json")
+
+
+def _read_private_caption_cache(
+    cache_dir: Path | None, video_id: str, duration: int,
+) -> list[dict]:
+    """Read *public* captions from a private runner-only cache, max 14 days.
+
+    Never use a caption file for a different video ID. The cache is opt-in,
+    disabled in production and outside the checked-out GitHub repository.
+    """
+    if cache_dir is None:
+        return []
+    path = _private_caption_file(cache_dir, video_id)
+    try:
+        if not path.is_file() or path.stat().st_size > 6_000_000:
+            return []
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(record, dict)
+                or record.get("video_id") != video_id
+                or record.get("source") != "public_captions"
+                or not (0 <= _wall_clock.time() - float(record.get("created", 0)) <= 14 * 86400)):
+            return []
+        rows = record.get("rows")
+        if not isinstance(rows, list) or len(rows) < 10 or len(rows) > 50_000:
+            return []
+        if any(not isinstance(row, dict)
+               or not isinstance(row.get("text"), str)
+               or len(row["text"]) > 5000
+               for row in rows):
+            return []
+        if duration > 0 and max(
+            float(row.get("start") or 0) + float(row.get("duration") or 0)
+            for row in rows
+        ) < duration * 0.75:
+            return []
+        return rows
+    except (OSError, TypeError, ValueError, OverflowError, KeyError, json.JSONDecodeError):
+        return []
+
+
+def _write_private_caption_cache(
+    cache_dir: Path | None, video_id: str, rows: list[dict],
+) -> None:
+    """Keep successful public source fetches private; never cache NAS SRT."""
+    if cache_dir is None or len(rows) < 10:
+        return
+    path = _private_caption_file(cache_dir, video_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "video_id": video_id,
+            "source": "public_captions",
+            "created": _wall_clock.time(),
+            "rows": rows,
+        }
+        content = json.dumps(record, ensure_ascii=False)
+        if len(content.encode("utf-8")) > 6_000_000:
+            return
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    except (OSError, ValueError, TypeError):
+        pass
+
 
 
 _DURATION = re.compile(
@@ -148,6 +218,7 @@ def run_one(
     qa_cache: Path,
     model: str = DEFAULT_OLLAMA_MODEL,
     allow_public_captions: bool = False,
+    private_caption_cache: Path | None = None,
 ) -> dict:
     started = time.monotonic()
     stage = "source_metadata"
@@ -198,13 +269,19 @@ def run_one(
             # no cookies, videos or production database writes.
             result["transcript_source"] = "public_captions"
             cached = _PREFLIGHT_PUBLIC_CAPTIONS.pop(video_id, None)
+            if cached is None:
+                cached = _read_private_caption_cache(
+                    private_caption_cache, video_id, duration,
+                ) or None
             if cached is not None:
                 rows = cached
-                result["caption_preflight_reused"] = True
+                result["caption_cache_reused"] = True
                 result["public_caption_reads"] = 0
             else:
                 result["public_caption_reads"] = 1
                 rows = fetch_transcript(video_id)
+                if valid_captions(rows):
+                    _write_private_caption_cache(private_caption_cache, video_id, rows)
         if not rows and not allow_public_captions and not srt.is_file():
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
         if len(rows) < 10:
@@ -355,6 +432,7 @@ def select_existing_srt_videos(
     preferred: tuple[str, ...] = (),
     allow_public_captions: bool = False,
     preflight_captions: bool = False,
+    private_caption_cache: Path | None = None,
 ) -> list[str]:
     """Select same-ID subtitles, optionally proving access before costly SEO.
 
@@ -421,17 +499,29 @@ def select_existing_srt_videos(
                     ) >= duration * 0.75)
                 )
             source_was_public = False
+            freshly_fetched = False
             if not covers(cues) and allow_public_captions:
-                try:
-                    cues = fetch_transcript(video_id)
-                    source_was_public = True
-                except Exception:
-                    continue  # unreadable public captions: try next real video
+                cues = _read_private_caption_cache(
+                    private_caption_cache, video_id, duration,
+                )
+                source_was_public = covers(cues)
+                if not source_was_public:
+                    try:
+                        cues = fetch_transcript(video_id)
+                        source_was_public = True
+                        freshly_fetched = True
+                    except Exception:
+                        continue  # unreadable public captions: try next real video
             if not covers(cues):
                 continue
             if source_was_public:
-                # Never save copies to NAS, production folders or GitHub.
+                # Public-only: in-memory for this job and optional private
+                # cache for future read-only QA runs. Never NAS or GitHub.
                 _PREFLIGHT_PUBLIC_CAPTIONS[video_id] = cues
+                if freshly_fetched:
+                    _write_private_caption_cache(
+                        private_caption_cache, video_id, cues,
+                    )
         chosen.append(video_id)
         if len(chosen) >= limit:
             break
@@ -450,6 +540,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--preflight-captions", action="store_true",
         help="Verify source caption coverage before accepting each video",
+    )
+    parser.add_argument(
+        "--private-caption-cache", type=Path, default=None,
+        help="Opt-in private runner-only cache for public captions (14 days); no production writes",
     )
     parser.add_argument("--db", type=Path, default=(
         Path(os.environ.get("LOCALAPPDATA", ".")) /
@@ -478,11 +572,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.db, "main", args.auto_main, MAIN_IDS,
                 allow_public_captions=args.allow_public_captions,
                 preflight_captions=args.preflight_captions,
+                private_caption_cache=args.private_caption_cache,
             ) if args.auto_main else [])
             + (select_existing_srt_videos(
                 args.db, "live", args.auto_live, LIVE_IDS,
                 allow_public_captions=args.allow_public_captions,
                 preflight_captions=args.preflight_captions,
+                private_caption_cache=args.private_caption_cache,
             ) if args.auto_live else [])
         )
     if not video_ids and not auto_requested:
@@ -496,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         checked.append(run_one(
             video_id, database=args.db, qa_cache=qa_cache, model=args.model,
             allow_public_captions=args.allow_public_captions,
+            private_caption_cache=args.private_caption_cache,
         ))
     status = "READY_FOR_HUMAN_REVIEW" if (
         checked and (not auto_requested or len(checked) == auto_requested)
