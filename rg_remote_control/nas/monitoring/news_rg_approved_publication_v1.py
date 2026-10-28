@@ -159,12 +159,14 @@ def choose(act,now=None):
  eligible.sort()
  return eligible[0] if eligible else None
 def publish_one():
- act=gate()
+ if PUB.is_symlink():fail('PUBLIC_RECEIPTS_SYMLINK')
  PUB.mkdir(mode=0o700,exist_ok=True)
- # Every send is claimed BEFORE the Telegram request; uncertain sends never retried.
+ # Lock BEFORE checking activation. A concurrent disable takes this same lock,
+ # so a send can never start from a stale ACTIVE decision.
  fd=os.open(str(LCK),os.O_CREAT|os.O_RDWR,0o600)
  try:
   fcntl.flock(fd,fcntl.LOCK_EX)
+  act=gate()
   selected=choose(act)
   if selected is None:return {'status':'NO_APPROVED_NEW_STORY','publications':0}
   decision_at,key,photo,caption=selected
