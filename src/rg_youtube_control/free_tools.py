@@ -1867,25 +1867,6 @@ def _grounded_chapters_from_transcript(
     if not available:
         return ""
 
-    if "шойгу" in title_text:
-        preferred = (
-            ("00:00", "Вступ і головне запитання"),
-            ("00:43", "Версії причин зміни Шойгу"),
-            ("02:21", "Корупція та команда Шойгу"),
-            ("03:17", "Військова стратегія і нове керівництво"),
-            ("04:00", "Перехід Шойгу на іншу посаду"),
-            ("06:03", "Корупція чи кадровий план"),
-            ("08:11", "Тимур Іванов і команда Шойгу"),
-        )
-        lines = [
-            f"{stamp} {label}"
-            for stamp, label in preferred
-            if stamp in available or stamp == "00:00"
-        ]
-        value = "\n".join(lines)
-        if not _chapters_quality_error(value, transcript_text):
-            return value
-
     stamps = sorted(
         (
             (_chapter_timestamp_seconds(stamp), stamp)
