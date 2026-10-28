@@ -23,7 +23,7 @@ def eligible():
   if key in blocked:continue
   if item.get('schema')!='NEWS_RG_PRIVATE_EDITORIAL_STAGING_V1':continue
   if item.get('telegram_delivery')!='NOT_SENT' or item.get('public_publication')!='OFF':continue
-  if item.get('editorial_status')!='HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED':continue
+  if item.get('editorial_status') not in ('HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED','HUMAN_FACT_AND_VIDEO_REVIEW_REQUIRED'):continue
   text=str(item.get('proposed_text',''))
   if not 60<=len(text)<=900 or 'НЕВДАЛО' in text.upper() or any(c in text for c in 'ыъэёЫЪЭЁ'):continue
   if 'INSIDER UA | Прислати контент' in text:continue
