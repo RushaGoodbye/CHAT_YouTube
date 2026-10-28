@@ -31,8 +31,25 @@ def evidence_report():
     ]}
 
 
-def test_direct_quotes_make_three_distinct_source_grounded_titles():
-    report = evidence_report()
+def ukrainian_evidence_report():
+    return {"blocks": [
+        {"start_stamp": "00:00:00", "verified": True, "topics": [{
+            "topic": "Ціни на бензин",
+            "evidence": "Бензин на заправці подорожчав, водії говорять про витрати на пальне.",
+        }]},
+        {"start_stamp": "00:08:00", "verified": True, "topics": [{
+            "topic": "Мобілізація",
+            "evidence": "Мобілізація триває, співрозмовники обговорюють наслідки для родин.",
+        }]},
+        {"start_stamp": "00:18:00", "verified": True, "topics": [{
+            "topic": "Відповідальність",
+            "evidence": "Відповідальність чиновників обговорюють після кадрових рішень.",
+        }]},
+    ]}
+
+
+def test_direct_ukrainian_quotes_make_three_distinct_source_grounded_titles():
+    report = ukrainian_evidence_report()
     titles = _source_quote_ab_titles(report)
     assert len(titles) == 3
     assert all(30 <= len(title) <= 100 for title in titles)
@@ -46,19 +63,24 @@ def test_direct_quotes_make_three_distinct_source_grounded_titles():
         )
 
 
-def test_partial_model_failure_does_not_discard_all_titles(monkeypatch):
+def test_russian_source_quotes_are_not_published_as_ukrainian_titles():
+    assert _source_quote_ab_titles(evidence_report()) == []
+
+
+def test_partial_model_failure_keeps_safe_ukrainian_quote_fallback(monkeypatch):
     calls = []
     def unreliable_chat(*args, **kwargs):
         calls.append(1)
         if len(calls) == 2:
             raise RuntimeError("qwen3 temporarily unavailable")
-        return '{"title":"Какая ответственность за войну и судьбы людей?"}'
+        return '{"title":"Бензин на заправці: як змінюються ціни?"}'
     monkeypatch.setattr("rg_youtube_control.free_tools.ollama_chat", unreliable_chat)
+    report = ukrainian_evidence_report()
     result = _recover_independent_ab_titles(
-        report=evidence_report(), current_title="РАША ГУДБАЙ", model="qwen3:8b",
+        report=report, current_title="РАША ГУДБАЙ", model="qwen3:8b",
     )
     assert len(result) == 3
-    assert not ab_title_issues(result, evidence_report())
+    assert not ab_title_issues(result, report)
 
 
 def test_missing_quotes_fail_closed_not_fake_titles():
