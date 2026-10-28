@@ -57,3 +57,34 @@ def test_unverified_quote_cannot_support_claims():
     issues = ab_title_issues(titles, report)
     assert any("не має підтверджених тематичних слів" in x or
                "без опори на дослівні цитати" in x for x in issues)
+
+
+def test_bilingual_lexical_subjects_remain_quote_anchored():
+    from rg_youtube_control.dialogue_seo import _cross_language_topic_word
+    pairs = [
+        ("корупція", "коррупция"),
+        ("війна", "война"),
+        ("звільнення", "увольнение"),
+        ("посада", "должность"),
+        ("зміни", "смена"),
+        ("рішення", "решения"),
+        ("влада", "власть"),
+        ("пенсії", "пенсии"),
+        ("ціни", "цены"),
+        ("Крим", "Крым"),
+        ("мобілізація", "мобилизация"),
+        ("пропаганда", "пропаганда"),
+        ("санкції", "санкции"),
+    ]
+    for ukrainian, russian in pairs:
+        assert _cross_language_topic_word(ukrainian)[:5] == (
+            _cross_language_topic_word(russian)[:5]
+        ), (ukrainian, russian)
+
+
+def test_translated_topic_without_any_source_word_stays_in_review():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "зарплати", "evidence": "Обсуждали только бензин и цены"},
+    ]}]}
+    from rg_youtube_control.free_tools import _verified_source_ab_titles
+    assert _verified_source_ab_titles(report, "Економіка") == []
