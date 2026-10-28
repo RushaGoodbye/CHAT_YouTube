@@ -5,6 +5,7 @@ B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 sys.path.insert(0,str(O))
 import news_rg_multipart as media_support
+import news_rg_wrong_photo_supersession_v1 as supersession
 OUT=O/'news_rg_private_multipart_receipts_v1'
 ST=O/'news_rg_private_review_staging'
 def die(why):raise RuntimeError(why)
@@ -105,6 +106,7 @@ def run(mode):
  if OUT.is_dir():
   for p in OUT.glob('*.json'):
    if p.is_symlink() or p.stat().st_size>20000:die('UNSAFE_PREVIOUS_RECEIPT')
+   if supersession.is_superseded(p):continue
    data=json.loads(p.read_text())
    status=data.get('status')
    if status in ('SENDING_UNCERTAIN','UNCERTAIN_NO_RETRY'):
