@@ -31,10 +31,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installer = Get-ChildItem "$env:RUNNER_TEMP\rg-gui-artifact" -Recurse -File -Filter 'RG_YouTube_Control_Setup_*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Verified installer artifact missing' }
-          $home = Join-Path $env:RUNNER_TEMP 'RG_GUI_QA'
-          $target = Join-Path $home 'installed'
-          $data = Join-Path $home 'appdata'
-          $scratch = Join-Path $home 'scratch'
+          $qaRoot = Join-Path $env:RUNNER_TEMP 'RG_GUI_QA'
+          $target = Join-Path $qaRoot 'installed'
+          $data = Join-Path $qaRoot 'appdata'
+          $scratch = Join-Path $qaRoot 'scratch'
           New-Item -ItemType Directory -Force $target,$data,$scratch | Out-Null
           $args = @('/VERYSILENT','/SP-','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target")
           $install = Start-Process -FilePath $installer.FullName -ArgumentList $args -PassThru -Wait
