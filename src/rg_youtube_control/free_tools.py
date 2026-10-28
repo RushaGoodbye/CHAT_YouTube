@@ -1353,45 +1353,72 @@ def _source_quote_ab_titles(
 
 
 def _verified_source_ab_titles(
-    report: dict[str, Any],
-    current_title: str,
+    report: dict[str, Any], current_title: str,
 ) -> list[str]:
-    """Minimal Ukrainian A/B angles from quoted words, not AI topic labels.
+    """Generic REVIEW-ONLY A/B proposals from distinct quoted topics.
 
-    These are REVIEW proposals only. Each topic trigger must occur in a
-    single verified source quotation; combining unrelated fragments must
-    not fabricate a third story. The publication gate remains independent.
+    No subject-specific names or handcrafted political events. Only topic
+    labels paired with verbatim, verified quotations can be used. This is
+    fallback presentation for editors, NOT a fact-checked publishable result.
     """
-    excerpts = [
-        str(topic.get("evidence") or "").casefold()
-        for block in report.get("blocks") or []
-        if isinstance(block, dict) and block.get("verified") is not False
-        for topic in block.get("topics") or []
-        if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
-    ]
-    if not excerpts:
+    from .dialogue_seo import distinct_evidence_topics
+
+    entries = distinct_evidence_topics(report)
+    if not entries:
         return []
-    if "шойгу" not in str(current_title).casefold() or not any(
-        "шойгу" in quote for quote in excerpts
-    ):
-        return []
-    patterns = [
-        (("шойгу", "коррупц"), "Шойгу та корупція: що кажуть співрозмовники?"),
-        (("шойгу", "должност"), "Зміна посади Шойгу: які причини називають?"),
-        (("шойгу", "увольн"), "Звільнення Шойгу: які версії обговорюють?"),
-        (("шойгу", "путин"), "Путін і Шойгу: що говорять про їхні рішення?"),
-        (("шойгу", "мчс"), "Шойгу та МЧС: як оцінюють його досвід?"),
-        (("войн", "стратег"), "Війна та стратегія: які оцінки звучать у розмові?"),
-        (("коррупц", "план"), "Корупція чи план: що обирають росіяни?"),
-    ]
-    chosen: list[str] = []
-    for required, title in patterns:
-        if any(all(fragment in quote for fragment in required) for quote in excerpts):
-            if title not in chosen:
-                chosen.append(title)
-        if len(chosen) >= 3:
-            break
-    return chosen if len(chosen) == 3 else []
+
+    # Labels are authored by the evidence model and thus require review.
+    # Reject clearly Russian strings, conversation mechanics and ASR noise.
+    generic = (
+        "дискусія", "розмова", "відповідь на запитання",
+        "реакція на запитання", "обговорення", "питання",
+        "різні погляди", "спілкування",
+    )
+    proposals: list[str] = []
+    subjects: set[str] = set()
+    endings = (
+        "що говорять співрозмовники?",
+        "які оцінки пролунали?",
+        "що обговорили учасники?",
+    )
+    for entry in entries:
+        subject = " ".join(str(entry.get("topic") or "").split())
+        source = str(entry.get("evidence") or "")
+        if not (8 <= len(subject) <= 66 and len(source) >= 16):
+            continue
+        low = subject.casefold()
+        if any(word in low for word in generic) or re.search(r"[ыэъё]", low):
+            continue
+        if re.search(r"(?i)\b(?:шагу|шогу|срашк[аи])\b", low):
+            continue
+
+        # A label must share a recognizable subject with the quotation;
+        # generic function words and model-only named claims are forbidden.
+        from .dialogue_seo import _cross_language_topic_word
+        label_roots = {
+            _cross_language_topic_word(w)[:5]
+            for w in re.findall(r"[а-яіїєґa-z]{5,}", low)
+            if w not in {"через", "після", "версії", "причини", "причина"}
+        }
+        quote_roots = {
+            _cross_language_topic_word(w)[:5]
+            for w in re.findall(r"[а-яіїєґa-z]{5,}", source.casefold())
+        }
+        if not (label_roots & quote_roots):
+            continue
+        key = re.sub(r"[^а-яіїєґa-z0-9]+", " ", low).strip()
+        if key in subjects:
+            continue
+        subjects.add(key)
+        subject = subject[0].upper() + subject[1:].rstrip(" .?!:;")
+        proposed = f"{subject}: {endings[len(proposals) % len(endings)]}"
+        if len(proposed) > 100:
+            proposed = f"{subject}: що кажуть співрозмовники?"
+        if 20 <= len(proposed) <= 100:
+            proposals.append(proposed)
+        if len(proposals) == 3:
+            return proposals
+    return proposals
 
 
 def _recover_independent_ab_titles(
