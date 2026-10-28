@@ -133,3 +133,90 @@ def test_auto_selection_reports_shortfall_instead_of_claiming_full_pass(
     assert report["requested_video_count"] == 4
     assert report["source_shortfall_count"] == 3
     assert report["status"] == "BLOCKED"
+
+
+def test_auto_source_selection_can_opt_in_to_public_live_captions(tmp_path):
+    import sqlite3
+    spec = importlib.util.spec_from_file_location("rg_seo_public_live_selector", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = tmp_path / "captions"
+    root.mkdir()
+    db_file = tmp_path / "source.db"
+    with sqlite3.connect(db_file) as db:
+        db.execute("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)")
+        db.execute("INSERT INTO settings VALUES('nas_transcripts_path', ?)", (str(root),))
+        db.execute(
+            "CREATE TABLE videos(video_id TEXT,profile TEXT,duration TEXT,"
+            " scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
+        )
+        db.executemany("INSERT INTO videos VALUES(?,?,?,?,?,?)", [
+            ("12345678901", "live", "PT2H", None, "public", 11),
+            ("12345678902", "live", "PT2H", None, "public", 10),
+            ("12345678903", "live", "PT59S", None, "public", 9),
+            ("12345678904", "live", "PT2H", None, "private", 8),
+        ])
+    (root / "12345678901.srt").write_text("data", encoding="utf-8")
+    assert module.select_existing_srt_videos(db_file, "live", 2) == [
+        "12345678901",
+    ]
+    assert module.select_existing_srt_videos(
+        db_file, "live", 2, allow_public_captions=True,
+    ) == ["12345678901", "12345678902"]
+
+
+def test_public_captions_read_only_fallback_never_writes_production(
+    tmp_path, monkeypatch,
+):
+    import sqlite3
+    from types import SimpleNamespace
+    spec = importlib.util.spec_from_file_location("rg_seo_public_fallback_test", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = tmp_path / "captions"
+    root.mkdir()
+    db_file = tmp_path / "source.db"
+    with sqlite3.connect(db_file) as db:
+        db.execute("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)")
+        db.execute("INSERT INTO settings VALUES('nas_transcripts_path', ?)", (str(root),))
+        db.execute("CREATE TABLE videos(video_id TEXT,profile TEXT,title TEXT,duration TEXT)")
+        db.execute(
+            "INSERT INTO videos VALUES('12345678901','live','Тема розмови','PT10M')"
+        )
+    before = db_file.read_bytes()
+    cues = [
+        {"text": "Текст розмови", "start": n * 45.0, "duration": 20.0}
+        for n in range(12)
+    ]
+    monkeypatch.setattr(module, "fetch_transcript", lambda video_id: cues)
+    monkeypatch.setattr(module, "analyze_all_timeline_blocks",
+        lambda *args, **kwargs: {
+            "blocks_total": 1, "blocks_with_evidence": 1,
+            "blocks": [{"verified": True, "topics": [
+                {"topic": "розмова", "evidence": "Розмова про питання життя"},
+            ]}],
+        })
+    monkeypatch.setattr(module, "generate_seo_package_local",
+        lambda **kwargs: {
+            "title": "Тема розмови", "title_variants": [],
+            "description": "Попередній опис.", "tags": [],
+            "chapters": "", "evidence_editorial_review": ["review"],
+        })
+    monkeypatch.setattr(module, "_description_quality_error", lambda *a, **k: "")
+    monkeypatch.setattr(
+        module, "safe_description_fix",
+        lambda *a: SimpleNamespace(after="links.rginfoua.pp.ua donate.rginfoua.pp.ua"),
+    )
+    result = module.run_one(
+        "12345678901", database=db_file, qa_cache=tmp_path / "cache",
+        allow_public_captions=True,
+    )
+    assert result["status"] == "NEEDS_REVIEW"
+    assert result["transcript_source"] == "public_captions"
+    assert result["srt_present"] is False
+    assert result["public_caption_reads"] == 1
+    assert result["production_db_writes"] == 0
+    assert result["youtube_writes"] == 0
+    assert db_file.read_bytes() == before
