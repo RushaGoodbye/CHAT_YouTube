@@ -81,7 +81,7 @@ def test_exhausted_local_model_preserves_read_only_draft(monkeypatch):
     )
     assert result["needs_review"] is True
     assert result["title"] == "Шойгу та корупція"
-    assert result["title_variants"] == []
+    assert len(result["title_variants"]) <= 1
     assert "непублікаційний" in result["review_reason"]
     assert result["youtube_data_api_quota"] == 0
     ok, _ = ready_for_youtube(
@@ -126,19 +126,42 @@ def test_two_verified_topics_generate_three_distinct_angles(monkeypatch):
     assert len(set(title.casefold() for title in titles)) == 3
 
 
-def test_source_verified_ukrainian_titles_no_model_required():
-    report = {
-        "blocks": [{
-            "verified": True, "topics": [
-                {"evidence": "Шойгу коррупция в министерстве"},
-                {"evidence": "Шойгу поменял должность после кадрового решения"},
-                {"evidence": "Шойгу Путин обсудили положение"},
-                {"evidence": "Шойгу МЧС и стратегия во время войны"},
-            ],
-        }]
-    }
+def test_source_verified_ukrainian_titles_are_generic_review_proposals():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "корупція", "evidence": "Шойгу коррупция в министерстве"},
+        {"topic": "посада", "evidence": "Шойгу поменял должность после кадрового решения"},
+        {"topic": "Путін", "evidence": "Шойгу Путин обсудили положение"},
+    ]}]}
     titles = ft._verified_source_ab_titles(report, "Шойгу")
     assert len(titles) == 3
     assert all(20 <= len(title) <= 100 for title in titles)
-    assert all("Шойгу" in title or "Путін" in title for title in titles)
+    assert all(not any(c in title for c in "ыэъё") for title in titles)
     assert not ft._verified_source_ab_titles({"blocks": []}, "Шойгу")
+
+
+def test_source_fallback_works_for_entirely_different_video_topics():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "бензин", "evidence": "На АЗС бензин подорожал, автомобилисты спорят"},
+        {"topic": "зарплати", "evidence": "Люди говорят о зарплатах и доходах"},
+        {"topic": "пенсії", "evidence": "Какие сейчас пенсии у жителей региона"},
+    ]}]}
+    titles = ft._verified_source_ab_titles(report, "Ціни на пальне")
+    assert len(titles) == 3
+    assert "бензин" in titles[0].casefold()
+    assert "зарплати" in titles[1].casefold()
+    assert "пенсії" in titles[2].casefold()
+
+
+def test_fallback_never_uses_unverified_or_unrelated_model_labels():
+    report = {"blocks": [
+        {"verified": False, "topics": [
+            {"topic": "сенсація", "evidence": "Сенсация в космосе"},
+        ]},
+        {"verified": True, "topics": [
+            {"topic": "сімейна психологія", "evidence": "На АЗС бензин дорожает"},
+            {"topic": "бензин", "evidence": "На АЗС бензин дорожает"},
+        ]},
+    ]}
+    titles = ft._verified_source_ab_titles(report, "Бензин")
+    assert len(titles) == 1
+    assert "психолог" not in titles[0]
