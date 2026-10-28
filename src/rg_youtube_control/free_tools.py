@@ -675,24 +675,6 @@ def _grounded_description_from_transcript(
     text = str(transcript or "").casefold()
     title_text = clean_title.casefold()
 
-    # High-confidence topic-specific fallback. It uses only facts and opinions
-    # that are directly visible in this transcript family.
-    if "шойгу" in title_text or "шойгу" in text:
-        sentences: list[str] = [
-            "У цьому випуску чат-рулетки росіяни обговорюють зміну посади Шойгу та причини кадрових рішень у Міністерстві оборони РФ.",
-            "У розмові звучать різні версії - від корупційних скандалів і перевірки військових витрат до планової кадрової перестановки.",
-            "Частина співрозмовників вважає, що Шойгу не усунули від влади, а перевели на іншу посаду, тоді як інші пов'язують зміни з проблемами в його команді.",
-        ]
-        if "белоусов" in text:
-            sentences.append(
-                "Також згадують Білоусова та його економічний профіль у контексті управління оборонною сферою."
-            )
-        if "тимур" in text and "иванов" in text:
-            sentences.append(
-                "Окремо порушують тему Тимура Іванова та корупційних звинувачень щодо представників команди Шойгу."
-            )
-        return _polish_generated_description(" ".join(sentences))
-
     topics: list[str] = []
     for needles, label in _GROUNDED_TOPIC_RULES:
         if any(needle in text for needle in needles):
@@ -751,12 +733,6 @@ def _deterministic_evidence_description(
                 raise ValueError("No verified transcript quotations for SEO description")
             combined = (str(topic.get("topic") or "") + " " + quote).casefold()
             recognized: list[str] = []
-            if "шойгу" in combined and any(
-                word in combined for word in (
-                    "увольнен", "звільнен", "посад", "коррупц", "корупц",
-                )
-            ):
-                recognized.append("версії причин зміни посади Шойгу")
             if any(w in combined for w in ("стратег", "войн", "війн")):
                 recognized.append("війна та стратегічні рішення")
             if any(w in combined for w in (
@@ -793,10 +769,9 @@ def _deterministic_evidence_description(
     if not labels:
         raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
-    subject = "Шойгу та " if "шойгу" in str(title or "").casefold() else ""
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють " + subject + "такі теми: " + "; ".join(labels) + ". "
+        "обговорюють такі теми: " + "; ".join(labels) + ". "
     )
     body = (
         "Учасники чат-рулетки висловлюють власні думки та припущення "
@@ -2309,45 +2284,6 @@ chapters: рядок з підтвердженими таймкодами та �
                     description_candidate = _remove_unsupported_named_claims(
                         description_candidate, evidence_report, current_title,
                     )
-                # A discussion quote does not establish Putin's intent.
-                # Remove the specific unsupported causal inference while retaining
-                # the verifiable discussion of relationships and reassignment.
-                if evidence_report and "шойгу" in current_title.casefold():
-                    description_candidate = re.sub(
-                        r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
-                        r"\s*щоб контролювати корупцію, але тепер він був переведений"
-                        r" на іншу посаду\.",
-                        "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
-                        description_candidate,
-                    )
-                    description_candidate = re.sub(
-                        r"(?i)щоб контролювати корупцію",
-                        "за припущенням співрозмовника",
-                        description_candidate,
-                    )
-                if evidence_report and "шойгу" in current_title.casefold():
-                    verified_quotes = " ".join(
-                        str(t.get("evidence") or "")
-                        for b in evidence_report.get("blocks") or []
-                        if b.get("verified") is not False
-                        for t in b.get("topics") or [] if isinstance(t, dict)
-                    ).casefold()
-                    # Statements about charges against unnamed people must not
-                    # become an assertion that Shoigu himself was charged.
-                    if "предъявлены обвинения" in verified_quotes and not re.search(
-                        r"обвинени[яй].{0,25}шойгу", verified_quotes
-                    ):
-                        description_candidate = re.sub(
-                            r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
-                            "обвинувачення щодо окремих осіб",
-                            description_candidate,
-                        )
-                    if "расход" not in verified_quotes and "витрат" not in verified_quotes:
-                        description_candidate = description_candidate.replace(
-                            "військові витрати",
-                            "фінансові питання" if "финанс" in verified_quotes
-                            else "кадрові рішення",
-                        )
                 candidate["description"] = description_candidate
                 description_error = _description_quality_error(
                     description_candidate,
