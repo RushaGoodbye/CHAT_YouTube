@@ -320,7 +320,7 @@ def stage(url,text,photo,message_date,proposed=None,media=None):
    'watermark_required':media['media_type']=='video',
    'watermark_pipeline':'NOT_SENT_TO_WATERMARK_UNTIL_EDITORIAL_ACCEPT',
    'review_media':'ORIGINAL_VIDEO' if media['media_type']=='video' else 'ORIGINAL_PHOTO',
-   'editorial_status':'HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED',
+   'editorial_status':('HUMAN_FACT_AND_VIDEO_REVIEW_REQUIRED' if media['media_type']=='video' else 'HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED'),
    'photo_approval_is_not_editorial_approval':True,
    'telegram_delivery':'NOT_SENT','public_publication':'OFF',
    'prepared_at':int(time.time()),
