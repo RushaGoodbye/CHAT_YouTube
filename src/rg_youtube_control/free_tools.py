@@ -1336,9 +1336,16 @@ def _verified_source_ab_titles(
     labels paired with verbatim, verified quotations can be used. This is
     fallback presentation for editors, NOT a fact-checked publishable result.
     """
-    from .dialogue_seo import distinct_evidence_topics
-
-    entries = distinct_evidence_topics(report)
+    # Preserve all candidate labels until the source check is performed.
+    # Deduplicating by quotation first can let a bogus model topic shadow
+    # the legitimate one that shares its source excerpt.
+    entries = [
+        item
+        for block in report.get("blocks") or []
+        if isinstance(block, dict) and block.get("verified") is not False
+        for item in block.get("topics") or []
+        if isinstance(item, dict) and str(item.get("evidence") or "").strip()
+    ]
     if not entries:
         return []
 
@@ -1351,6 +1358,7 @@ def _verified_source_ab_titles(
     )
     proposals: list[str] = []
     subjects: set[str] = set()
+    used_quotes: set[str] = set()
     endings = (
         "що говорять співрозмовники?",
         "які оцінки пролунали?",
@@ -1382,9 +1390,11 @@ def _verified_source_ab_titles(
         if not (label_roots & quote_roots):
             continue
         key = re.sub(r"[^а-яіїєґa-z0-9]+", " ", low).strip()
-        if key in subjects:
+        quote_key = " ".join(source.casefold().split())
+        if key in subjects or quote_key in used_quotes:
             continue
         subjects.add(key)
+        used_quotes.add(quote_key)
         subject = subject[0].upper() + subject[1:].rstrip(" .?!:;")
         proposed = f"{subject}: {endings[len(proposals) % len(endings)]}"
         if len(proposed) > 100:
