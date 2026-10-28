@@ -84,3 +84,19 @@ def test_ukrainian_titles_do_not_pass_russian_language_gate():
         "Пенсии: как люди живут на эти деньги?",
     ], report)
     assert sum("не українською" in issue for issue in issues) == 3
+
+
+def test_chapter_fallback_never_invents_person_specific_timestamps():
+    transcript = "[00:00] Шойгу обговорюють у розмові. [00:43] Інша тема."
+    chapters = ft._grounded_chapters_from_transcript(
+        current_title="Шойгу та кадрові зміни", transcript=transcript,
+    )
+    assert "Версії причин зміни Шойгу" not in chapters
+    assert "Тимур Іванов і команда Шойгу" not in chapters
+    function = (Path(__file__).resolve().parents[1] /
+                "src" / "rg_youtube_control" / "free_tools.py").read_text(encoding="utf-8")
+    section = function.split("def _grounded_chapters_from_transcript(", 1)[1].split(
+        "\ndef _recover_chapters_from_transcript(", 1
+    )[0]
+    assert "00:43" not in section
+    assert "00:00" in section
