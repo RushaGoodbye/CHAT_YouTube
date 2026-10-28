@@ -49,7 +49,7 @@ def process_callback(update,cfg):
         receipt=_read_safe(RECEIPTS/(draft_id+".json"))
         if staged.get("draft_id")!=draft_id or staged.get("public_publication")!="OFF":
             return {"status":"EDITORIAL_STAGING_NOT_SAFE"}
-        if staged.get("editorial_status")!="HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED":
+        if staged.get("editorial_status") not in ("HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED","HUMAN_FACT_AND_VIDEO_REVIEW_REQUIRED"):
             return {"status":"EDITORIAL_STAGING_NOT_READY"}
         if receipt.get("status")!="PRIVATE_SENT_CONFIRMED" or receipt.get("draft_id")!=draft_id:
             return {"status":"EDITORIAL_DELIVERY_NOT_CONFIRMED"}
