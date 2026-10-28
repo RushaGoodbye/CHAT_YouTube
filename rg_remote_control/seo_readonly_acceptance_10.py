@@ -162,32 +162,46 @@ def run_one(
         folder = Path(metadata["transcript_root"])
         srt = folder / (video_id + ".srt")
         stage = "transcript_fetch"
+        result["srt_present"] = srt.is_file()
+        duration = metadata["duration"]
+
+        def valid_captions(cues: list[dict]) -> bool:
+            if len(cues) < 10:
+                return False
+            end = max(
+                float(row.get("start") or 0) + float(row.get("duration") or 0)
+                for row in cues
+            )
+            return not (duration > 0 and end < duration * 0.75)
+
+        rows: list[dict] = []
         if srt.is_file():
-            result["srt_present"] = True
             result["transcript_source"] = "local_srt"
-            rows = load_srt_transcript(srt)
-        elif allow_public_captions:
-            # Public transcript endpoint, NOT the YouTube Data API.
-            # Do not download video, write SRT, create production drafts,
-            # fetch cookies, or edit channel metadata. Quotes stay local.
-            result["srt_present"] = False
+            try:
+                rows = load_srt_transcript(srt)
+            except (OSError, ValueError, RuntimeError, UnicodeError):
+                if not allow_public_captions:
+                    raise
+                result["local_srt_unusable"] = True
+            if rows and not valid_captions(rows) and allow_public_captions:
+                result["local_srt_unusable"] = True
+                rows = []
+        if not rows and allow_public_captions:
+            # Public captions are obtained only for this exact video ID;
+            # no cookies, videos or production database writes.
             result["transcript_source"] = "public_captions"
             result["public_caption_reads"] = 1
             rows = fetch_transcript(video_id)
-        else:
-            result["srt_present"] = False
+        if not rows and not allow_public_captions and not srt.is_file():
             raise RuntimeError("NAS SRT missing; no YouTube fallback is allowed in QA")
         if len(rows) < 10:
             raise RuntimeError("Incomplete transcript: fewer than ten caption rows")
-        duration = metadata["duration"]
         last_second = max(
             float(row.get("start") or 0) + float(row.get("duration") or 0)
             for row in rows
         )
         if duration > 0 and last_second < duration * 0.75:
-            raise RuntimeError(
-                "SRT coverage below 75% of synchronized video duration"
-            )
+            raise RuntimeError("Transcript coverage below 75% of synchronized duration")
         stage = "evidence_analysis"
         report = analyze_all_timeline_blocks(
             rows,
