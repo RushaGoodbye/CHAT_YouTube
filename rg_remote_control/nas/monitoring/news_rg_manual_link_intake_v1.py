@@ -136,6 +136,43 @@ def source_to_post(url):
  if not 60<=len(body)<=900:raise ValueError('NO_COMPLETE_POST_TEXT')
  if not photo:raise ValueError('NO_ALLOWED_POST_MEDIA_PREVIEW')
  return body[:100].rsplit(' ',1)[0],body,photo
+def classify_public_post_media(url,canonical_photo,fetcher=fetch_telegram_html):
+ """Exact Telegram post: video is NEVER silently converted to OG image."""
+ parsed=urllib.parse.urlsplit(url)
+ pieces=parsed.path.strip('/').split('/')
+ if parsed.hostname!='t.me' or len(pieces)!=2 or not VALID_CHANNEL.fullmatch(pieces[0]) or not VALID_POST.fullmatch(pieces[1]):
+  raise ValueError('INVALID_VIDEO_POST_LINK')
+ channel,num=pieces
+ listing=fetcher('https://t.me/s/'+channel+'/'+num)
+ marker=re.search(r'data-post=["\']'+re.escape(channel+'/'+num)+r'["\']',listing,re.I)
+ if marker is None:raise ValueError('EXACT_POST_MEDIA_NOT_VERIFIED')
+ start=listing.rfind('tgme_widget_message_wrap',0,marker.start())
+ start=listing.rfind('<div',0,start) if start>=0 else max(0,marker.start()-1300)
+ nextpost=re.search(r'<div\b[^>]*\bclass=["\'][^"\']*tgme_widget_message_wrap',listing[marker.end():],re.I)
+ stop=marker.end()+nextpost.start() if nextpost else min(len(listing),marker.end()+250000)
+ block=listing[max(0,start):stop]
+ # A valid <video> element must be inside the requested post, not the next.
+ vids=re.findall(r'<video\b[^>]*\bsrc=["\']([^"\']+)["\']',block,re.I)
+ vids+=re.findall(r'<source\b[^>]*\bsrc=["\']([^"\']+)["\']',block,re.I)
+ video_marker=bool(re.search(r'tgme_widget_message_video|<video\b',block,re.I))
+ for candidate in vids:
+  resolved=html.unescape(candidate)
+  if video_url_ok(resolved):
+   return {'media_type':'video','video_url':resolved,'preview_url':canonical_photo,
+    'watermark_required':True}
+ if video_marker or vids:raise ValueError('VIDEO_SOURCE_NOT_VERIFIED_NO_PHOTO_SUBSTITUTION')
+ # The public post really contains a photo, not a video.
+ if not re.search(r'tgme_widget_message_photo_wrap',block,re.I):
+  raise ValueError('POST_MEDIA_TYPE_UNKNOWN_NO_PHOTO_SUBSTITUTION')
+ if not photo_ok(canonical_photo):raise ValueError('SOURCE_PHOTO_UNAVAILABLE')
+ return {'media_type':'photo','preview_url':canonical_photo,
+  'watermark_required':False}
+def video_url_ok(url):
+ if not isinstance(url,str) or len(url)>3500:return False
+ try:
+  p=urllib.parse.urlsplit(url)
+  return p.scheme=='https' and p.hostname in MEDIA_HOSTS and not p.username and not p.password and p.port in (None,443) and bool(p.path)
+ except ValueError:return False
 def moderator(msg,cfg):
  chat=msg.get('chat') or {}
  user=msg.get('from') or {}
@@ -261,12 +298,16 @@ def atomic_exclusive(p,obj):
  content=json.dumps(obj,ensure_ascii=False,sort_keys=True).encode('utf8')
  fd=os.open(str(p),os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
  with os.fdopen(fd,'wb') as h:h.write(content);h.flush();os.fsync(h.fileno())
-def stage(url,text,photo,message_date,proposed=None):
+def stage(url,text,photo,message_date,proposed=None,media=None):
  if not photo_ok(photo):return {'status':'MANUAL_PHOTO_UNSUPPORTED'}
  if proposed is None:proposed=text
  if not ukrainian_draft_ok(text,proposed):return {'status':'MANUAL_REQUIRES_UKRAINIAN_FULL_TEXT'}
  if ST.is_symlink() or not ST.is_dir():err('STAGING_UNAVAILABLE')
- key=hashlib.sha256(('NEWS_RG_MANUAL_LINK_V1\0'+url).encode('utf8')).hexdigest()[:24]
+ if media is None:media={'media_type':'photo','preview_url':photo,'watermark_required':False}
+ if media.get('media_type') not in ('video','photo'):return {'status':'MANUAL_MEDIA_UNVERIFIED'}
+ if media['media_type']=='video' and (not media.get('watermark_required') or not video_url_ok(media.get('video_url'))):
+  return {'status':'MANUAL_VIDEO_NOT_VERIFIED'}
+ key=hashlib.sha256((('NEWS_RG_MANUAL_VIDEO_V2' if media['media_type']=='video' else 'NEWS_RG_MANUAL_LINK_V1')+'\0'+url).encode('utf8')).hexdigest()[:24]
  p=ST/(key+'.json')
  if p.is_symlink():err('STAGING_SYMLINK')
  if p.exists():return {'status':'MANUAL_LINK_ALREADY_QUEUED','draft_id':key}
@@ -274,7 +315,11 @@ def stage(url,text,photo,message_date,proposed=None):
    'draft_id':key,'source_key':'manual:'+url,'channel':'manual_link',
    'posted_at':message_date,'media_url':photo,
    'original_text':text,'proposed_text':proposed,
-   'original_media_source':url,'review_media':'SOURCE_IMAGE_OR_VIDEO_PREVIEW',
+   'original_media_source':url,'media_type':media['media_type'],
+   'original_video_url':media.get('video_url') if media['media_type']=='video' else None,
+   'watermark_required':media['media_type']=='video',
+   'watermark_pipeline':'NOT_SENT_TO_WATERMARK_UNTIL_EDITORIAL_ACCEPT',
+   'review_media':'ORIGINAL_VIDEO' if media['media_type']=='video' else 'ORIGINAL_PHOTO',
    'editorial_status':'HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED',
    'photo_approval_is_not_editorial_approval':True,
    'telegram_delivery':'NOT_SENT','public_publication':'OFF',
@@ -311,14 +356,21 @@ def handle(update,cfg,api):
  except Exception:
   reply(api,chat,'⚠️ Не вдалося отримати повний текст і фото з відкритої публікації. Перевір, чи доступний пост без авторизації.')
   return {'status':'MANUAL_SOURCE_NOT_ACCESSIBLE'}
+ try:
+  media=classify_public_post_media(link,photo)
+ except (ValueError,TypeError,OSError) as e:
+  code=str(e) if isinstance(e,ValueError) else 'MEDIA_VERIFICATION_FAILED'
+  reply(api,chat,'⚠️ Тип медіа або оригінальне відео не перевірено. Прев’ю-фото замість відео не надсилатиметься.')
+  return {'status':'MANUAL_VIDEO_MEDIA_SAFE_STOP','reason_code':code[:90]}
  proposed,reason,provider=prepare_ukrainian_with_status(text)
  if proposed is None:
   reply(api,chat,'⚠️ Публікацію прочитано, але створити надійний український текст не вдалося. Редакційна перевірка не створена.')
   return {'status':'MANUAL_UKRAINIAN_PREPARATION_UNAVAILABLE','reason_code':reason[:95]}
- result=stage(link,text,photo,date,proposed=proposed)
+ result=stage(link,text,photo,date,proposed=proposed,media=media)
  st=result['status']
  if st=='MANUAL_LINK_STAGED':
-  reply(api,chat,'✅ Посилання прийнято. Новина надійде на приватну перевірку; без твого схвалення публікації не буде.')
+  reply(api,chat,('✅ Оригінальне відео прийнято на приватну модерацію. Після схвалення — обов’язковий watermark RG, публікація поки вимкнена.' if media['media_type']=='video' else
+   '✅ Фото прийнято на приватну перевірку; без твого схвалення публікації не буде.'))
  elif st=='MANUAL_LINK_ALREADY_QUEUED':
   reply(api,chat,'ℹ️ Цю новину вже додано до черги модерації. Повторної публікації не буде.')
  elif st=='MANUAL_REQUIRES_UKRAINIAN_FULL_TEXT':
@@ -373,6 +425,19 @@ def selftest():
  try:from_canonical(canonical,'nexta_live','125699')
  except ValueError:pass
  else:raise AssertionError('POST_ID_MISMATCH_ACCEPTED')
+
+ mp4='https://cdn4.telesco.pe/file/a.mp4'
+ photo='https://cdn4.telesco.pe/file/still.jpg'
+ sample='<div class="tgme_widget_message_wrap"><div class="tgme_widget_message" data-post="nexta_live/125698"><video src="'+mp4+'"></video><div class="tgme_widget_message_video_thumb"></div></div></div>'
+ typed=classify_public_post_media('https://t.me/nexta_live/125698',photo,lambda _:sample)
+ assert typed['media_type']=='video' and typed['video_url']==mp4 and typed['watermark_required']
+ try:classify_public_post_media('https://t.me/nexta_live/125699',photo,lambda _:sample)
+ except ValueError:pass
+ else:raise AssertionError('WRONG_POST_VIDEO_ACCEPTED')
+ no_video='<div class="tgme_widget_message_wrap"><div class="tgme_widget_message" data-post="nexta_live/125698"><div class="tgme_widget_message_video_thumb"></div></div></div>'
+ try:classify_public_post_media('https://t.me/nexta_live/125698',photo,lambda _:no_video)
+ except ValueError as e:assert 'NO_PHOTO_SUBSTITUTION' in str(e)
+ else:raise AssertionError('VIDEO_AS_PHOTO_ACCEPTED')
  assert needs_ukrainian_rewrite(nexta)
  assert prepare_ukrainian_with_status.__name__=='prepare_ukrainian_with_status'
  assert len(ai_prompt(nexta))>len(nexta)
