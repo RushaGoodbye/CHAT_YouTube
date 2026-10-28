@@ -524,6 +524,19 @@ def ab_title_issues(
         r"(?i)\bответ\s+на\s+вопрос\b|"
         r"\bпочему\s+не\s+ответил[иа]?\b"
     )
+    # The model may ignore a Ukrainian prompt and return Russian headlines.
+    # Reject such drafts explicitly instead of trusting the prompt wording.
+    for index, value in enumerate(values, 1):
+        folded = value.casefold()
+        russian_grammar = len(re.findall(
+            r"\b(?:почему|что|это|увольнение|уволили|коррупция|"
+            r"россияне|российские|рассказывают|обсуждают|говорят|"
+            r"всё|все|который|которые|вопросы|ответы)\b",
+            folded,
+        ))
+        if re.search(r"[ыэъё]", folded) or russian_grammar >= 2:
+            issues.append(f"A/B варіант {index} не українською мовою.")
+
     for index, value in enumerate(values, 1):
         if asr_misspelling.search(value):
             issues.append(
@@ -602,6 +615,7 @@ def ab_title_issues(
         evidence_fragments = [
             _compact(item.get("evidence")).casefold()
             for block in report.get("blocks") or []
+            if isinstance(block, dict) and block.get("verified") is not False
             for item in block.get("topics") or []
             if isinstance(item, dict)
         ]
