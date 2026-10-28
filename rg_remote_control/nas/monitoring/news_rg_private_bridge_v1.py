@@ -84,7 +84,7 @@ def prepare_one():
         if permanent:
             with ledger.open("a",encoding="utf-8") as f:
                 fcntl.flock(f,fcntl.LOCK_EX)
-                f.write(json.dumps({"draft_id":digest,"reason":reason,"at":int(time.time())})+"\\n")
+                f.write(json.dumps({"draft_id":digest,"reason":reason,"at":int(time.time())})+"\n")
                 f.flush();os.fsync(f.fileno())
                 fcntl.flock(f,fcntl.LOCK_UN)
             os.chmod(ledger,0o600)
@@ -148,7 +148,9 @@ def main():
             assert clean("Новина 🇺🇦 INSIDER UA | Прислати контент")=="Новина"
             print("NEWS_RG_PRIVATE_BRIDGE_SELFTEST_PASS")
         elif sys.argv[1:]==["preflight"]:print(json.dumps(preflight(),ensure_ascii=False,indent=2))
-        elif sys.argv[1:]==["prepare-one"]:\n            result=prepare_one();print(json.dumps(result,ensure_ascii=False,indent=2))\n            if result["status"]!="ISOLATED_DRAFT_STAGED":sys.exit(3)
+        elif sys.argv[1:]==["prepare-one"]:
+            result=prepare_one();print(json.dumps(result,ensure_ascii=False,indent=2))
+            if result["status"]!="ISOLATED_DRAFT_STAGED":sys.exit(3)
         else:raise RuntimeError("COMMAND_NOT_ALLOWED")
     except Exception as e:
         print(json.dumps({"status":"SAFE_STOP","error_class":str(e) if isinstance(e,RuntimeError) else type(e).__name__,
