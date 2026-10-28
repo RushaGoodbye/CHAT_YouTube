@@ -1359,7 +1359,7 @@ def _verified_source_ab_titles(
     for entry in entries:
         subject = " ".join(str(entry.get("topic") or "").split())
         source = str(entry.get("evidence") or "")
-        if not (8 <= len(subject) <= 66 and len(source) >= 16):
+        if not (5 <= len(subject) <= 66 and len(source) >= 16):
             continue
         low = subject.casefold()
         if any(word in low for word in generic) or re.search(r"[ыэъё]", low):
