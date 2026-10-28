@@ -6,6 +6,7 @@ on:
       - 'rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py'
       - 'rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py'
       - '.github/workflows/news_rg_publication_qa.yml'
+      - 'rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,6 +24,8 @@ jobs:
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py
           python -m py_compile rg_remote_control/nas/monitoring/news_rg_durable_private_sender_v1.py
+          python -m py_compile rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py
+          python rg_remote_control/nas/monitoring/news_rg_no_card_root_cause_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_v1.py selftest
           python rg_remote_control/nas/monitoring/news_rg_approved_publication_cutover_v1.py selftest
       - name: Simulate private sender patch without network or NAS
