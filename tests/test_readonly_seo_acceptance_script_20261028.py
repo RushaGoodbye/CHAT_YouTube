@@ -27,3 +27,16 @@ def test_real_video_acceptance_duration_formats():
     assert module._duration_seconds("00:09:53") == 593
     assert module._duration_seconds("593") == 593
     assert module._duration_seconds("PT1H1M1S") == 3661
+
+
+def test_safe_error_codes_never_export_private_model_text():
+    spec = importlib.util.spec_from_file_location("rg_seo_readonly_acceptance_codes", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module._safe_error_code(ValueError(
+        "Локальна SEO-генерація не пройшла валідацію після повторів: need at least 8 grounded tags"
+    )) == "TAGS_INSUFFICIENT"
+    assert module._safe_error_code(ValueError(
+        "Untrusted transcript private quoted sentence"
+    )) == "LOCAL_SEO_OTHER_ERROR"
