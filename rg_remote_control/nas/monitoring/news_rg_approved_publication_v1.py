@@ -66,13 +66,19 @@ def discover_channel(cfg):
   if cfg.get(k) is not None:
    parsed=parse_channel(cfg[k])
    if parsed:found.add(parsed)
- # Older NAS native Telegram bot has a dedicated, literal CHANNEL value.
- # Trust it only if that production file is installed, not a symlink, and its
- # assignment is a single exact literal. Every candidate must agree.
- prior=pathlib.Path('/volume1/docker/RG_TELEGRAM_STATE/rg_telegram_nas_native_bot_v01.py')
- if prior.is_file() and not prior.is_symlink() and prior.stat().st_size<120000:
-  src=prior.read_text(encoding='utf-8')
-  matches=re.findall(r'(?m)^CHANNEL\\s*=\\s*["\\\'](-100\\d{7,15}|@[A-Za-z0-9_]{5,32})["\\\']\\s*
+ # Optionally reuse the explicit channel from an existing installed native bot.
+ # Never assume a destination from source feeds or from moderation chat IDs.
+ legacy=pathlib.Path('/volume1/docker/RG_TELEGRAM_STATE/rg_telegram_nas_native_bot_v01.py')
+ if legacy.is_file() and not legacy.is_symlink() and legacy.stat().st_size<120000:
+  lines=legacy.read_text(encoding='utf-8').splitlines()
+  for line in lines:
+   if line.startswith('CHANNEL='):
+    value=line.split('=',1)[1].strip().strip('"').strip("'")
+    parsed=parse_channel(value)
+    if parsed:found.add(parsed)
+ if len(found)!=1:fail('CHANNEL_NOT_UNAMBIGUOUS_IN_EXISTING_CONFIG')
+ return found.pop()
+
 def credentials():
  p=O/'news_rg_multipart.py'
  if not p.is_file() or p.is_symlink():fail('PRIVATE_BOT_TRANSPORT_NOT_INSTALLED')
