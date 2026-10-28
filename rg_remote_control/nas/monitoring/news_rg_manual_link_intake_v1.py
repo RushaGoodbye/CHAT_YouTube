@@ -477,6 +477,31 @@ def selftest():
    assert obj['public_publication']=='OFF' and obj['editorial_status']=='HUMAN_FACT_AND_PHOTO_REVIEW_REQUIRED'
  finally:ST=old
  print('NEWS_RG_MANUAL_LINK_INTAKE_SELFTEST_PASS')
+def probe_video(url):
+ """Read-only original media probe, exact user case. No Telegram Bot calls."""
+ if url!='https://t.me/nexta_live/125698':raise ValueError('VIDEO_PROBE_EXACT_LINK_ONLY')
+ _,source,preview=source_to_post(url)
+ media=classify_public_post_media(url,preview)
+ if media.get('media_type')!='video' or not media.get('watermark_required'):
+  raise ValueError('ORIGINAL_VIDEO_NOT_IDENTIFIED')
+ video=media['video_url']
+ req=urllib.request.Request(video,headers={'User-Agent':'Mozilla/5.0',
+    'Referer':'https://t.me/','Range':'bytes=0-63'})
+ try:
+  with urllib.request.build_opener(BlockRedirect()).open(req,timeout=14) as resp:
+   kind=resp.headers.get('Content-Type','').split(';')[0].lower()
+   head=resp.read(64)
+ except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError,OSError):
+  raise ValueError('VIDEO_ORIGINAL_FETCH_FAILED') from None
+ if len(head)<12 or head[4:8]!=b'ftyp':raise ValueError('VIDEO_ORIGINAL_MP4_MAGIC_FAILED')
+ if kind not in ('video/mp4','application/octet-stream','binary/octet-stream'):
+  raise ValueError('VIDEO_ORIGINAL_MIME_FAILED')
+ return {'status':'NEWS_RG_ORIGINAL_VIDEO_PROBE_PASS',
+  'media_type':'video','original_video_url_present':True,
+  'preview_is_video':False,'preview_is_photo':True,
+  'watermark_required_after_accept':True,
+  'source_chars':len(source),'original_mp4_magic_verified':True,
+  'private_cards_sent':0,'publications':0,'telegram_bot_calls':0}
 def probe(url):
  """One source/translation/media probe. No Telegram Bot API or file writes."""
  if url!='https://t.me/nexta_live/125698':
@@ -502,6 +527,8 @@ if __name__=='__main__':
   if sys.argv[1:]==['selftest']:selftest()
   elif len(sys.argv)==3 and sys.argv[1]=='probe':
    print(json.dumps(probe(sys.argv[2]),ensure_ascii=False,sort_keys=True))
+  elif len(sys.argv)==3 and sys.argv[1]=='probe-video':
+   print(json.dumps(probe_video(sys.argv[2]),ensure_ascii=False,sort_keys=True))
   else:raise ValueError('EXPECTED_SELFTEST_OR_EXACT_POST_PROBE')
  except Exception as e:
   reason=str(e) if isinstance(e,ValueError) and len(str(e))<90 else type(e).__name__
