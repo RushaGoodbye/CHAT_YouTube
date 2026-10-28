@@ -2372,6 +2372,49 @@ chapters: рядок з підтвердженими таймкодами та �
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
+    if not payload and evidence_report and not fast_mode and str(current_title).strip():
+        # A verified transcript is valuable even when the model or editorial
+        # rules cannot finish a complete SEO package. Preserve a review-only
+        # draft, NEVER silently mark it safe and NEVER post to YouTube.
+        verified_topics = [
+            topic for block in evidence_report.get("blocks") or []
+            if isinstance(block, dict) and block.get("verified") is not False
+            for topic in block.get("topics") or []
+            if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+        ]
+        if verified_topics:
+            review_topics: list[str] = []
+            try:
+                safe_description = _deterministic_evidence_description(
+                    current_title, evidence_report,
+                    review_unmapped=review_topics,
+                )
+            except ValueError:
+                # No verified public subject could be mapped, so never
+                # substitute an unchecked LLM narrative for public claims.
+                # This text exists ONLY as an unapproved local draft.
+                safe_description = (
+                    "Це попередній SEO-чернетковий опис для перевірки редактором. "
+                    "У відео є розмови співрозмовників, але автоматична система "
+                    "не змогла надійно підтвердити формулювання ключових тем. "
+                    "Потрібно звірити твердження з оригінальним записом і "
+                    "уточнити зміст перед публікацією. "
+                    "Назву, тематичні акценти та пошукові фрази слід "
+                    "перевірити вручну за наявною картою цитат."
+                )
+                review_topics.append("unmapped_evidence")
+            payload = {
+                "title": str(current_title).strip(),
+                "title_variants": [],
+                "description": safe_description,
+                "tags": _grounded_tags_from_transcript(current_title, transcript)[:10],
+                "chapters": "",
+                "_deterministic_editor": True,
+                "_fallback_review_only": True,
+                "evidence_editorial_review": review_topics,
+                "_description_quality_issue": "editorial_review_required",
+            }
+            title_fallback_used = True
     if not payload:
         mode_text = "швидкого проходу" if fast_mode else "повторів"
         raise ValueError(
@@ -2487,6 +2530,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("evidence_editorial_review"))
             or bool(payload.get("_description_quality_issue"))
             or bool(payload.get("_tags_review_required"))
+            or bool(payload.get("_fallback_review_only"))
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2506,6 +2550,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
+                (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
             )
             if condition
         ),
