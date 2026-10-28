@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """NEWS RG: one private editorial photo pilot. No polling or public publishing."""
-import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,hashlib
+import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,urllib.parse,hashlib
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 sys.path.insert(0,str(O))
@@ -48,6 +48,50 @@ def pack(photo,mime,caption,chat,key):
  field=('\r\n--'+boundary+'\r\nContent-Disposition: form-data; name="reply_markup"\r\n\r\n').encode()
  body=original[:-len(ending)]+field+json.dumps(buttons,ensure_ascii=False).encode()+ending
  return body,boundary
+MAX_VIDEO_BYTES=45*1024*1024
+VIDEO_HOSTS={'cdn1.telesco.pe','cdn2.telesco.pe','cdn3.telesco.pe',
+             'cdn4.telesco.pe','cdn5.telesco.pe'}
+def video_source_allowed(url):
+ if not isinstance(url,str) or len(url)>3500:return False
+ try:
+  u=urllib.parse.urlsplit(url)
+  return (u.scheme=='https' and u.hostname in VIDEO_HOSTS and
+          not u.username and not u.password and u.port in (None,443))
+ except ValueError:return False
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,req,fp,code,msg,headers,newurl):
+  raise RuntimeError('VIDEO_SOURCE_REDIRECT_REFUSED')
+def load_original_video(url):
+ if not video_source_allowed(url):die('VIDEO_ORIGIN_NOT_APPROVED')
+ req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0',
+   'Referer':'https://t.me/','Accept':'video/mp4,video/*'})
+ opener=urllib.request.build_opener(NoRedirect())
+ try:
+  with opener.open(req,timeout=22) as resp:
+   length=int(resp.headers.get('Content-Length','0') or 0)
+   if length>MAX_VIDEO_BYTES:die('VIDEO_TOO_BIG_45MB_LIMIT')
+   typ=resp.headers.get('Content-Type','').split(';')[0].strip().lower()
+   if typ not in ('video/mp4','application/octet-stream','binary/octet-stream'):
+    die('VIDEO_MIME_NOT_MP4')
+   raw=resp.read(MAX_VIDEO_BYTES+1)
+ except urllib.error.HTTPError as e:die('VIDEO_ORIGIN_HTTP_'+str(e.code))
+ if len(raw)>MAX_VIDEO_BYTES or len(raw)<256:die('VIDEO_SIZE_INVALID')
+ # MP4 ISO BMFF box ftyp magic at byte offset 4, not a JPEG proxy.
+ if raw[4:8]!=b'ftyp':die('VIDEO_MAGIC_NOT_MP4')
+ return raw,'video/mp4'
+def pack_original_video(video,caption,chat,key):
+ boundary='RGVIDEO'+uuid.uuid4().hex
+ buttons={'inline_keyboard':[[{'text':'✅ Схвалити → Watermark RG','callback_data':'ne1:accept:'+key},
+                              {'text':'❌ Відхилити','callback_data':'ne1:reject:'+key}]]}
+ parts=[]
+ for field,value in (('chat_id',str(chat)),('caption',caption),
+    ('supports_streaming','true'),('reply_markup',json.dumps(buttons,ensure_ascii=False))):
+  parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+field+
+   '"\r\n\r\n'+value+'\r\n').encode('utf8'))
+ parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="video"; filename="review.mp4"\r\n'
+   'Content-Type: video/mp4\r\n\r\n').encode('ascii')+video+b'\r\n')
+ parts.append(('--'+boundary+'--\r\n').encode('ascii'))
+ return b''.join(parts),boundary
 def run(mode):
  if os.geteuid()!=0:die('SUDO_REQUIRED')
  worker=O/'rg_news2_p31_guarded_callback_once.py'
@@ -72,14 +116,30 @@ def run(mode):
     if val.get('telegram_message_id')!=data.get('message_id') or val.get('draft_id')!=p.stem or val.get('decision') not in ('editorially_accepted_not_published','editorially_rejected') or val.get('public_publication')!='OFF':die('INVALID_PREVIOUS_EDITORIAL_DECISION')
  item=eligible()
  chat=media_support.identity()
- photo,mime=media_support.media(item['media_url'])
+ item_kind=item.get('media_type','photo')
+ if item_kind not in ('video','photo'):die('UNSUPPORTED_STAGED_MEDIA_TYPE')
+ if item_kind=='video':
+  if item.get('watermark_required') is not True:die('VIDEO_WATERMARK_REQUIRED')
+  original_url=item.get('original_video_url')
+  video,mime=load_original_video(original_url)
+  media_bytes=len(video)
+ else:
+  if item.get('original_video_url') or item.get('watermark_required'):
+   die('VIDEO_AS_PHOTO_REFUSED')
+  photo,mime=media_support.media(item['media_url'])
+  media_bytes=len(photo)
  text=item['proposed_text']
  caption=('⚠️ NEWS RG · ПРИВАТНА ПЕРЕВІРКА. НЕ ПУБЛІКУВАТИ.\n'
-          'Факти та фото потребують перевірки.\n\n'+text)[:1000]
- body,boundary=pack(photo,mime,caption,chat,item['draft_id'])
+          +('ОРИГІНАЛЬНЕ ВІДЕО. Після схвалення → Watermark RG.\n\n' if item_kind=='video'
+            else 'Факти та фото потребують перевірки.\n\n')+text)[:1000]
+ if item_kind=='video':
+  body,boundary=pack_original_video(video,caption,chat,item['draft_id'])
+ else:
+  body,boundary=pack(photo,mime,caption,chat,item['draft_id'])
  if mode=='preflight':
   return {'status':'PRIVATE_ONE_CARD_READY','draft_id':item['draft_id'],
-    'media_mime':mime,'media_bytes':len(photo),'buttons':['accept','reject'],
+    'media_type':item_kind,'media_mime':mime,'media_bytes':media_bytes,
+    'watermark_required':item_kind=='video','buttons':['accept','reject'],
     'delivery_claims':0,'telegram_sends':0,'publications':0}
  # Validate credentials BEFORE creating the at-most-once delivery claim.
  bot_token=media_support.token()
@@ -91,7 +151,7 @@ def run(mode):
   json.dump({'status':'SENDING_UNCERTAIN','draft_id':item['draft_id'],'created_at':int(time.time())},f)
   f.flush();os.fsync(f.fileno())
  # Credential is retrieved locally from the existing private transport helper.
- url='https://api.telegram.org/bot'+bot_token+'/sendPhoto'
+ url='https://api.telegram.org/bot'+bot_token+('/sendVideo' if item_kind=='video' else '/sendPhoto')
  req=urllib.request.Request(url,data=body,headers={'Content-Type':'multipart/form-data; boundary='+boundary})
  try:
   with urllib.request.urlopen(req,timeout=40) as result:
@@ -100,8 +160,14 @@ def run(mode):
   if not isinstance(message,dict) or not isinstance(message.get('message_id'),int):die('ACK_MISSING')
   dest=message.get('chat') or {}
   if int(dest.get('id',0))!=chat or dest.get('type')!='private':die('ACK_WRONG_CHAT')
+  if item_kind=='video' and not ((message.get('video') or {}).get('file_id')):
+   die('VIDEO_ACK_MISSING_FILE_ID')
+  if item_kind=='photo' and not message.get('photo'):
+   die('PHOTO_ACK_MISSING')
   store(receipt,{'status':'PRIVATE_SENT_CONFIRMED','draft_id':item['draft_id'],
-   'message_id':message['message_id'],'confirmed_at':int(time.time()),'public_publication':'OFF'})
+   'message_id':message['message_id'],'confirmed_at':int(time.time()),'public_publication':'OFF',
+   'media_type':item_kind,'media_bytes':media_bytes,
+   'original_video_file_id':(message.get('video') or {}).get('file_id') if item_kind=='video' else None})
   return {'status':'PRIVATE_SENT_CONFIRMED','draft_id':item['draft_id'],
     'message_id':message['message_id'],'buttons':['accept','reject'],'publications':0}
  except urllib.error.HTTPError as e:
@@ -118,6 +184,13 @@ def selftest():
  data,bound=pack(photo,'image/jpeg','Тест',123,'a'*24)
  assert b'name="reply_markup"' in data and b'ne1:reject:' in data
  assert data.endswith(('--'+bound+'--\r\n').encode())
+ video=b'\x00\x00\x00\x18ftypisom'+b'test_video'
+ raw,bound2=pack_original_video(video,'Оригінальне відео',123,'b'*24)
+ assert b'name="video"' in raw and b'filename="review.mp4"' in raw
+ assert b'ne1:accept:' in raw and b'Watermark RG' in raw
+ assert raw.endswith(('--'+bound2+'--\r\n').encode())
+ assert video_source_allowed('https://cdn4.telesco.pe/file/original.mp4')
+ assert not video_source_allowed('https://evil.example/video.mp4')
  print('NEWS_RG_DURABLE_PRIVATE_MULTIPART_SELFTEST_PASS')
 if __name__=='__main__':
  try:
