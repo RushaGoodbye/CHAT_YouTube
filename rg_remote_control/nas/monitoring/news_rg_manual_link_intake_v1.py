@@ -4,17 +4,16 @@
 No polling, no second Telegram owner, no automatic public publishing.
 A valid link produces only a review-required staging sidecar; existing
 at-most-once private dispatcher sends a card. The human alone approves public
-publication. Reuses the pinned former parser, WITHOUT starting its bot.
+publication. Uses a self-contained public Telegram post parser, no legacy bot imports.
 """
-import os,sys,json,re,time,hashlib,pathlib,urllib.parse,importlib.util,tempfile,subprocess
+import os,sys,json,re,time,hashlib,pathlib,urllib.parse,urllib.request,urllib.error,html,socket,ipaddress,subprocess
+from html.parser import HTMLParser
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
 ST=O/'news_rg_private_review_staging'
-OLD=pathlib.Path('/volume1/docker/RG_TELEGRAM_STATE/rg_telegram_nas_native_bot_v01.py')
 ACT=O/'news_rg_manual_link_activation_v1.json'
 DISPATCH=O/'news_rg_durable_private_dispatch_v1.py'
 LOG=O/'news_rg_manual_link_dispatch_v1.log'
-OLD_SHA_PREFIX='a2512586b44cac'
 VALID_CHANNEL=re.compile(r'^[A-Za-z_][A-Za-z0-9_]{3,}$')
 VALID_POST=re.compile(r'^\d{1,15}$')
 TELEGRAM_HOSTS=('t.me','telegram.me')
@@ -41,15 +40,74 @@ def link_from_text(s):
    continue
   return 'https://t.me/'+pieces[0]+'/'+str(int(pieces[1]))
  return None
-def loader():
- if OLD.is_symlink() or not OLD.is_file() or OLD.stat().st_size>100000:err('LEGACY_PARSER_UNAVAILABLE')
- content=OLD.read_bytes()
- if not hashlib.sha256(content).hexdigest().startswith(OLD_SHA_PREFIX):
-  err('LEGACY_PARSER_HASH_CHANGED')
- spec=importlib.util.spec_from_file_location('_newsrg_readonly_legacy_parser',str(OLD))
- m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
- if not callable(getattr(m,'source_to_post',None)):err('LEGACY_PARSER_FUNCTION_MISSING')
- return m
+class PublicPostReader(HTMLParser):
+ """Read exactly one public Telegram embed post, not the site's OG previews."""
+ def __init__(self,channel,num):
+  super().__init__(convert_charrefs=True)
+  self.expected=channel+'/'+num
+  self.active=False;self.depth=0;self.text_depth=0
+  self.body=[];self.photo=''
+ def handle_starttag(self,tag,attrs):
+  d=dict(attrs)
+  if not self.active:
+   if d.get('data-post')==self.expected and 'tgme_widget_message' in d.get('class','').split():
+    self.active=True;self.depth=1
+   return
+  if tag in ('br','hr','img','meta','input','link','source'):
+   if tag=='br' and self.text_depth:self.body.append(' ')
+   return
+  self.depth+=1
+  cl=d.get('class','').split()
+  if 'tgme_widget_message_text' in cl:self.text_depth=self.depth
+  if 'tgme_widget_message_photo_wrap' in cl:
+   match=re.search(r'background-image\s*:\s*url\(\s*["\']?(https://[^)\s"\']+)',d.get('style',''),re.I)
+   if match:
+    photo=html.unescape(match.group(1))
+    if photo_ok(photo):self.photo=photo
+ def handle_data(self,data):
+  if self.active and self.text_depth:self.body.append(data)
+ def handle_endtag(self,tag):
+  if not self.active or tag in ('br','hr','img','meta','input','link','source'):return
+  if self.text_depth==self.depth:self.text_depth=0
+  self.depth-=1
+  if self.depth<=0:self.active=False
+ def parsed(self):
+  return ' '.join(html.unescape(' '.join(self.body)).split()),self.photo
+class BlockRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,req,fp,code,msg,headers,newurl):
+  raise ValueError('TELEGRAM_REDIRECT_BLOCKED')
+def source_to_post(url):
+ """Only public t.me post, DNS must resolve exclusively to public addresses."""
+ parts=urllib.parse.urlsplit(url)
+ if parts.scheme!='https' or parts.hostname!='t.me':raise ValueError('INVALID_HOST')
+ tokens=parts.path.strip('/').split('/')
+ if len(tokens)!=2 or not VALID_CHANNEL.fullmatch(tokens[0]) or not VALID_POST.fullmatch(tokens[1]):
+  raise ValueError('INVALID_POST')
+ try:
+  addresses=[ipaddress.ip_address(r[4][0]) for r in
+    socket.getaddrinfo('t.me',443,type=socket.SOCK_STREAM)]
+ except (OSError,ValueError):raise ValueError('SOURCE_DNS_FAILED') from None
+ if not addresses or any(not address.is_global for address in addresses):
+  raise ValueError('SOURCE_DNS_NOT_PUBLIC')
+ embed='https://t.me/'+tokens[0]+'/'+tokens[1]+'?embed=1'
+ req=urllib.request.Request(embed,headers={'User-Agent':'Mozilla/5.0',
+    'Accept':'text/html'})
+ try:
+  with urllib.request.build_opener(BlockRedirect()).open(req,timeout=10) as resp:
+   typ=resp.headers.get('Content-Type','').lower()
+   if 'text/html' not in typ:raise ValueError('NOT_HTML')
+   raw=resp.read(200001)
+ except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError,OSError):
+  raise ValueError('SOURCE_UNAVAILABLE') from None
+ if len(raw)>200000:raise ValueError('HTML_TOO_BIG')
+ reader=PublicPostReader(tokens[0],tokens[1])
+ reader.feed(raw.decode('utf8','replace'))
+ body,photo=reader.parsed()
+ if not 85<=len(body)<=700 or body.endswith(('...', '…',',',';',':')):
+  raise ValueError('NO_COMPLETE_POST_TEXT')
+ if not body.endswith(('.','!','?','»','”')):raise ValueError('INCOMPLETE_TEXT')
+ if not photo:raise ValueError('NO_ALLOWED_PUBLIC_POST_PHOTO')
+ return body[:100].rsplit(' ',1)[0],body,photo
 def moderator(msg,cfg):
  chat=msg.get('chat') or {}
  user=msg.get('from') or {}
@@ -117,8 +175,7 @@ def handle(update,cfg,api):
   reply(api,chat,'Надішли посилання на відкритий пост Telegram з фото та повним текстом (t.me/канал/номер).')
   return {'status':'MANUAL_HELP_SENT'}
  try:
-  legacy=loader()
-  title,text,photo=legacy.source_to_post(link)
+  title,text,photo=source_to_post(link)
  except Exception:
   reply(api,chat,'⚠️ Не вдалося отримати повний текст і фото з відкритої публікації. Перевір, чи доступний пост без авторизації.')
   return {'status':'MANUAL_SOURCE_NOT_ACCESSIBLE'}
@@ -149,6 +206,20 @@ def selftest():
  assert link_from_text('https://t.me/c/123456/89') is None
  assert link_from_text('https://example.com/abc') is None
  assert link_from_text('https://t.me/channel') is None
+
+ html_sample=('<div class="tgme_widget_message" data-post="Some_Channel/123">'
+  '<div class="tgme_widget_message_text">За повідомленням міської ради, у місті відкрили новий пункт допомоги. '
+  'Подробиці повідомлять додатково.</div>'
+  '<a class="tgme_widget_message_photo_wrap" style="background-image:url(&#39;https://cdn3.telesco.pe/file/test.jpg&#39;)"></a></div>')
+ parser=PublicPostReader('Some_Channel','123')
+ parser.feed(html_sample)
+ value,photo=parser.parsed()
+ assert 'За повідомленням' in value
+ assert photo=='https://cdn3.telesco.pe/file/test.jpg'
+ wrong=PublicPostReader('Some_Channel','124')
+ wrong.feed(html_sample)
+ assert wrong.parsed()==('', '')
+ assert not photo_ok('https://evil.example/photo.jpg')
  assert photo_ok('https://cdn4.telesco.pe/file/a.jpg')
  assert not photo_ok('https://example.com/img.png')
  assert not photo_ok('http://cdn4.telesco.pe/a')
