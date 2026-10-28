@@ -207,11 +207,27 @@ def install():
   'private_moderation_preserved':True,'publications_during_install':0,
   'pollers_created':0,'new_dsm_tasks':0,
   'backup_tick':str(tick_bak),'backup_sender':str(sender_bak)}
+def disable():
+ if os.geteuid()!=0:err('SUDO_REQUIRED')
+ if not ACT.is_file() or ACT.is_symlink():err('ACTIVATION_NOT_FOUND')
+ data=json.loads(ACT.read_text('utf-8'))
+ if data.get('schema')!='NEWS_RG_PUBLICATION_ACTIVATION_V1':err('ACTIVATION_SCHEMA_CHANGED')
+ # Do not alter code or callbacks: the public gate alone is sufficient to pause.
+ if data.get('status')=='DISABLED':
+  return {'status':'NEWS_RG_PUBLICATION_ALREADY_DISABLED','publications':0}
+ if data.get('status')!='ACTIVE':err('ACTIVATION_STATE_UNEXPECTED')
+ import fcntl
+ lock=O/'news_rg_publication.lock'
+ fd=os.open(str(lock),os.O_CREAT|os.O_RDWR,0o600)
+ try:
+  fcntl.flock(fd,fcntl.LOCK_EX)
+  data['status']='DISABLED'
+  data['disabled_at']=int(time.time())
+  atomic(ACT,json.dumps(data,ensure_ascii=False,sort_keys=True).encode('utf-8'),0o600)
+ finally:os.close(fd)
+ return {'status':'NEWS_RG_PUBLICATION_DISABLED','publications':0}
 def selftest():
- src="""import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,hashlib
- def placeholder():
-  pass"""
- # Real selftest runs against exact production source when available.
+ # The live staged publisher runs its isolated full eligibility tests in preflight.
  assert 'getUpdates' not in SCHED_SRC and 'sendPhoto' not in SCHED_SRC
  assert MARK.startswith('# NEWS_RG_')
  assert SAFE_BUTTON!=MARK_OLD
@@ -223,6 +239,7 @@ if __name__=='__main__':
   elif args==['preflight']:
    r,_=preflight();emit(**r)
   elif args==['install']:emit(**install())
+  elif args==['disable']:emit(**disable())
   else:err('BAD_MODE')
  except Exception as e:
   emit(status='SAFE_STOP',reason=str(e)[:130],telegram_sends=0,publications=0)
