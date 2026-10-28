@@ -224,6 +224,36 @@ def analyze_all_timeline_blocks(
                 item = _validate_topics(candidate, block)
             except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                 item = _validate_topics({}, block)
+            # A single invalid model response must not silently lose an entire
+            # chronological block. Retry once with a shorter, exact-quote
+            # extraction prompt. The same strict source verifier applies.
+            # If the quote still cannot be proven, keep it unverified.
+            if not item["verified"] and len(block["text"].strip()) >= 100:
+                retry_prompt = (
+                    "Віднови ОДНУ тему лише з цього фрагмента. "
+                    "Поверни JSON з topics: [{topic, summary_uk, evidence}]. "
+                    "evidence — ДОСЛІВНА послідовність від 8 до 240 символів "
+                    "з наведеного тексту, НЕ перефразовуй і не перекладай її. "
+                    "topic та summary_uk українською. "
+                    "Якщо немає точної цитати, topics=[].\n\n"
+                    + block["text"][:3600]
+                )
+                try:
+                    raw_retry = chat(
+                        [
+                            {"role": "system", "content": "Лише валідний JSON з точною цитатою."},
+                            {"role": "user", "content": retry_prompt},
+                        ],
+                        model=model, timeout=timeout, temperature=0.0,
+                        json_mode=True,
+                    )
+                    retried = _validate_topics(
+                        json.loads(str(raw_retry).strip()), block,
+                    )
+                    if retried["verified"]:
+                        item = retried
+                except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                    pass
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
