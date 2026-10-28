@@ -319,10 +319,8 @@ def select_existing_srt_videos(
         setting = db.execute(
             "SELECT value FROM settings WHERE key='nas_transcripts_path'"
         ).fetchone()
-        root = Path(
-            str(setting["value"] or "").strip() if setting
-            else DEFAULT_NAS_TRANSCRIPTS_PATH
-        )
+        configured = str(setting["value"] or "").strip() if setting else ""
+        root = Path(configured or DEFAULT_NAS_TRANSCRIPTS_PATH)
         rows = db.execute(
             """SELECT video_id,duration
                FROM videos
