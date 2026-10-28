@@ -1,9 +1,6 @@
 name: Real SEO 0.7.40 acceptance (manual, no writes)
 
 on:
-  push:
-    branches:
-      - fix/seo-ukrainian-editorial-20261027
   workflow_dispatch:
     inputs:
       scope:
