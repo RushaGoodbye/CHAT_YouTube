@@ -1339,9 +1339,11 @@ def _verified_source_ab_titles(
     # Preserve all candidate labels until the source check is performed.
     # Deduplicating by quotation first can let a bogus model topic shadow
     # the legitimate one that shares its source excerpt.
+    from itertools import combinations
+
     entries = [
-        item
-        for block in report.get("blocks") or []
+        (block_index, item)
+        for block_index, block in enumerate(report.get("blocks") or [])
         if isinstance(block, dict) and block.get("verified") is not False
         for item in block.get("topics") or []
         if isinstance(item, dict) and str(item.get("evidence") or "").strip()
@@ -1356,7 +1358,7 @@ def _verified_source_ab_titles(
         "реакція на запитання", "обговорення", "питання",
         "різні погляди", "спілкування",
     )
-    proposals: list[str] = []
+    proposals: list[tuple[int, str]] = []
     subjects: set[str] = set()
     used_quotes: set[str] = set()
     endings = (
@@ -1364,7 +1366,7 @@ def _verified_source_ab_titles(
         "які оцінки пролунали?",
         "що обговорили учасники?",
     )
-    for entry in entries:
+    for block_index, entry in entries:
         subject = " ".join(str(entry.get("topic") or "").split())
         source = str(entry.get("evidence") or "")
         if not (5 <= len(subject) <= 66 and len(source) >= 16):
@@ -1402,10 +1404,31 @@ def _verified_source_ab_titles(
         if len(proposed) > 100:
             proposed = f"{subject}: що кажуть співрозмовники?"
         if 20 <= len(proposed) <= 100:
-            proposals.append(proposed)
-        if len(proposals) == 3:
-            return proposals
-    return proposals
+            proposals.append((block_index, proposed))
+        if len(proposals) >= 24:
+            break
+    if len(proposals) < 3:
+        # The source cannot support three different themes; keep whatever is
+        # verified, visibly incomplete, and ALWAYS subject to review.
+        return [title for _, title in proposals]
+
+    # A previous bug returned the *first* three topical labels, even when two
+    # reused a story. Evaluate other verified subjects instead of fabricating
+    # a new one or weakening the editorial gate. Prefer different time blocks.
+    triplets = sorted(
+        combinations(proposals, 3),
+        key=lambda triple: (
+            -len({index for index, _ in triple}),
+            -max(index for index, _ in triple) + min(index for index, _ in triple),
+        ),
+    )
+    for triple in triplets:
+        titles = [title for _, title in triple]
+        if not ab_title_issues(titles, report):
+            return titles
+    # No fully supported independent triplet: preserve a review-only preview
+    # rather than ever declaring the A/B set safe or inventing events.
+    return [title for _, title in proposals[:3]]
 
 
 def _recover_independent_ab_titles(
