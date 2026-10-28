@@ -88,3 +88,36 @@ def test_translated_topic_without_any_source_word_stays_in_review():
     ]}]}
     from rg_youtube_control.free_tools import _verified_source_ab_titles
     assert _verified_source_ab_titles(report, "Економіка") == []
+
+
+def test_ukrainian_editorial_questions_not_false_hallucinations():
+    # The headline's topic is evidenced. "оценки прозвучали" is editorial
+    # framing, not a factual event that must be spoken verbatim.
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "Корупція", "evidence": "Шойгу коррупция в министерстве"},
+        {"topic": "Бензин", "evidence": "На заправках бензин подорожал"},
+        {"topic": "Мобілізація", "evidence": "Мобилизация продолжается в регионе"},
+    ]}]}
+    titles = [
+        "Шойгу і корупція: які оцінки пролунали?",
+        "Бензин на АЗС: що кажуть співрозмовники?",
+        "Мобілізація: які думки називають учасники?",
+    ]
+    issues = ab_title_issues(titles, report)
+    assert not any("без опори на дослівні цитати" in i for i in issues)
+    assert not any("не має підтверджених тематичних слів" in i for i in issues)
+
+
+def test_substantive_unsourced_topic_remains_blocked_with_editorial_framing():
+    report = {"blocks": [{"verified": True, "topics": [
+        {"topic": "Бензин", "evidence": "На заправках бензин подорожал"},
+    ]}]}
+    titles = [
+        "Бензин та таємні космічні документи: які оцінки пролунали?",
+        "Бензин на АЗС: що кажуть співрозмовники?",
+        "Мобілізація: які думки називають учасники?",
+    ]
+    issues = ab_title_issues(titles, report)
+    assert any("без опори на дослівні цитати" in i or
+               "не має підтверджених тематичних слів" in i
+               for i in issues)
