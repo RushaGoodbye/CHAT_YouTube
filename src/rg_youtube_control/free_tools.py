@@ -1387,7 +1387,9 @@ def _verified_source_ab_titles(
             _cross_language_topic_word(w)[:5]
             for w in re.findall(r"[а-яіїєґa-z]{5,}", source.casefold())
         }
-        if not (label_roots & quote_roots):
+        # ALL substantive label subjects must be visible in the quote.
+        # A single overlapping name may not launder an invented extra claim.
+        if not label_roots or not label_roots.issubset(quote_roots):
             continue
         key = re.sub(r"[^а-яіїєґa-z0-9]+", " ", low).strip()
         quote_key = " ".join(source.casefold().split())
@@ -2248,6 +2250,14 @@ chapters: рядок з підтвердженими таймкодами та �
                     )
                     if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
                         candidate["title_variants"] = independent
+                # Generic zero-network fallback: use quote-anchored topics
+                # (not a model's unsupported paraphrases) before giving up.
+                # This is ALWAYS marked review-only and never auto-applied.
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    sourced = _verified_source_ab_titles(evidence_report, current_title)
+                    if len(sourced) == 3 and not ab_title_issues(sourced, evidence_report):
+                        candidate["title_variants"] = sourced
+                        candidate["_source_topic_fallback_review_only"] = True
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
                 if ab_title_issues(candidate["title_variants"], evidence_report):
@@ -2549,6 +2559,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("_description_quality_issue"))
             or bool(payload.get("_tags_review_required"))
             or bool(payload.get("_fallback_review_only"))
+            or bool(payload.get("_source_topic_fallback_review_only"))
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2569,6 +2580,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
                 (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
+                (bool(payload.get("_source_topic_fallback_review_only")), "A/B із перевірених цитат: обов'язкове редакторське затвердження"),
             )
             if condition
         ),
