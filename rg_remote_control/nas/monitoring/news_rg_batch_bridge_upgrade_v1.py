@@ -35,6 +35,19 @@ def run():
   with os.fdopen(fd,'wb') as h:
    os.fchmod(h.fileno(),0o600);h.write(current);h.flush();os.fsync(h.fileno())
   os.replace(fn,backup)
+ # Validate EXACT final bytes before replacing the live scheduled module.
+ fd,pre=tempfile.mkstemp(prefix='.newsrg_preflight_',suffix='.py',dir=str(O))
+ try:
+  with os.fdopen(fd,'wb') as h:
+   os.fchmod(h.fileno(),0o600);h.write(new);h.flush();os.fsync(h.fileno())
+  test=subprocess.run(['/usr/bin/python3',pre,'selftest'],capture_output=True,text=True,timeout=12)
+  if test.returncode or 'SELFTEST_PASS' not in test.stdout:
+   # Do not include stderr, paths, or configuration in user-visible errors.
+   return {'status':'PREINSTALL_BLOCKED_NO_CHANGES','exit_code':test.returncode,
+    'stdout_marker':test.stdout.strip()[:100], 'stderr_kind':('SyntaxError' if 'SyntaxError' in test.stderr else 'AssertionError' if 'AssertionError' in test.stderr else 'RuntimeFailure'),
+    'telegram_sends':0,'publications':0}
+ finally:
+  if os.path.exists(pre):os.unlink(pre)
  fd,fn=tempfile.mkstemp(prefix='.newsrg_upgrade_',dir=str(O))
  try:
   with os.fdopen(fd,'wb') as h:
