@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NEWS RG: one private editorial photo pilot. No polling or public publishing."""
+"""NEWS RG: bounded private video/photo cards. No polling or public publishing."""
 import os,sys,json,time,pathlib,uuid,urllib.request,urllib.error,urllib.parse,hashlib
 B=pathlib.Path('/volume1/docker/RG_TELEGRAM_NEWS_2')
 O=B/'operator'
@@ -8,6 +8,7 @@ import news_rg_multipart as media_support
 import news_rg_wrong_photo_supersession_v1 as supersession
 OUT=O/'news_rg_private_multipart_receipts_v1'
 ST=O/'news_rg_private_review_staging'
+MAX_OUTSTANDING=20
 def die(why):raise RuntimeError(why)
 def output(**kw):print(json.dumps(kw,ensure_ascii=False,sort_keys=True))
 def eligible():
@@ -102,7 +103,8 @@ def run(mode):
  if moderation.is_symlink() or hook.is_symlink() or not hook.is_file():die('EDITORIAL_CALLBACK_NOT_INSTALLED')
  if '# NEWS_RG_EDITORIAL_HOOK_V1' not in moderation.read_text():die('EDITORIAL_HOOK_NOT_INSTALLED')
  if OUT.is_symlink():die('RECEIPT_DIR_UNSAFE')
- # Halt after uncertain sends and allow at most ONE outstanding editorial card.
+ # Bounded parallel pending human decisions; every send remains at-most-once.
+ outstanding=0
  if OUT.is_dir():
   for p in OUT.glob('*.json'):
    if p.is_symlink() or p.stat().st_size>20000:die('UNSAFE_PREVIOUS_RECEIPT')
@@ -111,11 +113,18 @@ def run(mode):
    status=data.get('status')
    if status in ('SENDING_UNCERTAIN','UNCERTAIN_NO_RETRY'):
     die('PAUSED_UNCERTAIN_DELIVERY_REQUIRES_REVIEW')
-   if status=='PRIVATE_SENT_CONFIRMED':
-    decision=O/'news_rg_editorial_decisions_v1'/(p.stem+'.json')
-    if not decision.is_file() or decision.is_symlink():die('WAITING_FOR_EDITORIAL_DECISION')
-    val=json.loads(decision.read_text())
-    if val.get('telegram_message_id')!=data.get('message_id') or val.get('draft_id')!=p.stem or val.get('decision') not in ('editorially_accepted_not_published','editorially_rejected') or val.get('public_publication')!='OFF':die('INVALID_PREVIOUS_EDITORIAL_DECISION')
+   if status!='PRIVATE_SENT_CONFIRMED':die('NONCONFIRMED_DELIVERY_PAUSE')
+   if data.get('draft_id')!=p.stem or type(data.get('message_id')) is not int or data['message_id']<=0 or data.get('public_publication')!='OFF':
+    die('PRIVATE_RECEIPT_INTEGRITY_FAILED')
+   decision=O/'news_rg_editorial_decisions_v1'/(p.stem+'.json')
+   if decision.is_symlink():die('EDITORIAL_DECISION_SYMLINK')
+   if not decision.exists():
+    outstanding+=1
+    continue
+   val=json.loads(decision.read_text())
+   if val.get('telegram_message_id')!=data.get('message_id') or val.get('draft_id')!=p.stem or val.get('decision') not in ('editorially_accepted_not_published','editorially_rejected') or val.get('public_publication')!='OFF':
+    die('INVALID_PREVIOUS_EDITORIAL_DECISION')
+ if outstanding>=MAX_OUTSTANDING:die('MAX_OUTSTANDING_PRIVATE_CARDS_20')
  item=eligible()
  chat=media_support.identity()
  item_kind=item.get('media_type','photo')
@@ -182,6 +191,7 @@ def run(mode):
     'error_class':reason,'attempted_at':int(time.time()),'public_publication':'OFF'})
   die('UNCERTAIN_NO_RETRY_'+reason)
 def selftest():
+ assert MAX_OUTSTANDING==20
  photo=b'\xff\xd8\xfftest'
  data,bound=pack(photo,'image/jpeg','Тест',123,'a'*24)
  assert b'name="reply_markup"' in data and b'ne1:reject:' in data
