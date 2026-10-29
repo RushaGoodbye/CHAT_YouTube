@@ -2,7 +2,7 @@
 """NEWS RG: protected private delivery worker, reusing existing NAS DSM task.
 
 Never reads Telegram updates, never calls publication endpoints, never
-starts a second callback worker. Stops at one outstanding editorial card.
+starts a second callback worker. Allows up to 20 verified outstanding cards.
 """
 import os,sys,json,pathlib,subprocess,time,fcntl,tempfile
 import news_rg_wrong_photo_supersession_v1 as supersession
@@ -16,25 +16,32 @@ ANCHOR_ID='e793f4cd55c5246022bf86e8'
 ANCHOR_MSG=8050
 LOCK=O/'news_rg_private_dispatch.lock'
 LOG=O/'news_rg_private_dispatch_status_v1.json'
+MAX_OUTSTANDING=20
 def fail(reason):raise RuntimeError(reason)
 def read(p,limit=20000):
  if not p.is_file() or p.is_symlink() or p.stat().st_size>limit:fail('UNSAFE_FILE_'+p.name)
  return json.loads(p.read_text(encoding='utf-8'))
 def receipt_check(p):
- if supersession.is_superseded(p):return
+ if supersession.is_superseded(p):return 0
  data=read(p)
  if data.get('status') in ('SENDING_UNCERTAIN','UNCERTAIN_NO_RETRY'):
   fail('UNCERTAIN_DELIVERY_PAUSE')
  if data.get('status')!='PRIVATE_SENT_CONFIRMED':
   fail('NONCONFIRMED_DELIVERY_PAUSE')
+ if data.get('draft_id')!=p.stem or not isinstance(data.get('message_id'),int) or data['message_id']<=0:
+  fail('CONFIRMED_RECEIPT_ID_MISMATCH')
+ if data.get('public_publication')!='OFF':
+  fail('PUBLICATION_GUARD_CHANGED')
  dec=D/p.name
- if not dec.is_file():fail('ONE_OUTSTANDING_EDITORIAL_CARD')
+ if dec.is_symlink():fail('EDITORIAL_DECISION_SYMLINK')
+ if not dec.exists():return 1
  d=read(dec)
  if d.get('draft_id')!=p.stem or d.get('telegram_message_id')!=data.get('message_id'):
   fail('EDITORIAL_DECISION_MISMATCH')
  if d.get('decision') not in ('editorially_accepted_not_published','editorially_rejected'):
   fail('INVALID_EDITORIAL_DECISION')
  if d.get('public_publication')!='OFF':fail('PUBLICATION_GUARD_CHANGED')
+ return 0
 def gate():
  if os.geteuid()!=0:fail('SUDO_REQUIRED')
  worker=O/'rg_news2_p31_guarded_callback_once.py'
@@ -51,13 +58,15 @@ def gate():
   fail('WAITING_FOR_REAL_EDITORIAL_CALLBACK')
  anchor_dec=D/(ANCHOR_ID+'.json')
  if not anchor_dec.is_file():fail('WAITING_FOR_REAL_EDITORIAL_CALLBACK')
+ pending=0
  for receipt in M.glob('*.json'):
   if receipt.is_symlink():fail('RECEIPT_SYMLINK')
-  receipt_check(receipt)
+  pending+=receipt_check(receipt)
+ if pending>=MAX_OUTSTANDING:fail('MAX_OUTSTANDING_PRIVATE_CARDS_20')
  for directory in (ST,M,D):
   if not directory.is_dir() or directory.is_symlink():fail('UNSAFE_DIRECTORY_'+directory.name)
  if not SENDER.is_file() or SENDER.is_symlink():fail('PERSISTENT_SENDER_MISSING')
- return {'status':'PRIVATE_DISPATCH_ARMED','confirmed_anchor':ANCHOR_MSG,'outstanding':0,
+ return {'status':'PRIVATE_DISPATCH_ARMED','confirmed_anchor':ANCHOR_MSG,'outstanding':pending,'max_outstanding':MAX_OUTSTANDING,
     'second_poller':False,'publications':0}
 def state(result):
  LOG.parent.mkdir(exist_ok=True)
@@ -85,6 +94,7 @@ def act():
 def main():
  if sys.argv[1:]==['selftest']:
   assert ANCHOR_MSG>0 and len(ANCHOR_ID)==24
+  assert MAX_OUTSTANDING==20
   print('NEWS_RG_DURABLE_PRIVATE_DISPATCH_SELFTEST_PASS');return
  if sys.argv[1:]==['status']:
   try: result=gate()
