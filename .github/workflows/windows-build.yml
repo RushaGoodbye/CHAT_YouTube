@@ -59,6 +59,17 @@ jobs:
           $env:PYTHONPATH="src"
           python -m pytest -q tests
 
+      - name: Stamp exact build number and commit into Windows EXE
+        shell: pwsh
+        run: |
+          $short = $env:GITHUB_SHA.Substring(0, 8)
+          $number = $env:GITHUB_RUN_NUMBER
+          @(
+            '"""Build provenance, generated for the Windows executable."""'
+            "BUILD_SHA = '$short'"
+            "BUILD_NUMBER = '$number'"
+          ) | Set-Content -LiteralPath 'src/rg_youtube_control/build_info.py' -Encoding utf8
+
       - name: Build application
         shell: pwsh
         run: |
@@ -152,6 +163,112 @@ jobs:
           $internal = Join-Path $target "_internal"
           if (-not (Test-Path $internal)) { throw "Installed PyInstaller runtime missing" }
           Write-Host "QA installation successful: $app"
+
+      - name: Smoke test frozen GUI first paint and event loop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA"
+          $exe = Join-Path $target "RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGQtIsolated"
+          New-Item -ItemType Directory -Force $isolated | Out-Null
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_SMOKE_FILE = Join-Path $isolated "qt_ready.json"
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(90)
+            while (!(Test-Path $env:RG_YT_QA_SMOKE_FILE) -and (Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Frozen GUI exited early with $($process.ExitCode)" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_SMOKE_FILE)) { throw "Frozen GUI did not reach Qt event-loop probe" }
+            $probe = Get-Content $env:RG_YT_QA_SMOKE_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) { throw "Frozen GUI did not open its tabs" }
+            if ($probe.build_label -notlike "*збірка #$($env:GITHUB_RUN_NUMBER)*") {
+              throw "Frozen GUI does not display the exact CI build number"
+            }
+            $expectedSha = $env:GITHUB_SHA.Substring(0, 8)
+            if ($probe.build_label -notlike "*$expectedSha*") {
+              throw "Frozen GUI does not embed expected Git commit"
+            }
+            Write-Host "FROZEN_GUI_FIRST_PAINT_PASS tabs=$($probe.tab_count) build=$($probe.build_label)"
+          } finally {
+            $process.Refresh()
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+
+      - name: Cold-start frozen GUI against large synthetic SQLite database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA/RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGQtLargeData"
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_SMOKE_FILE = Join-Path $isolated "qt_ready.json"
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $db = Join-Path $env:LOCALAPPDATA "RGYouTubeControl/rg_youtube_control.db"
+          python scripts/qa_seed_startup_db.py $db
+          $started = Get-Date
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = $started.AddSeconds(45)
+            while (!(Test-Path $env:RG_YT_QA_SMOKE_FILE) -and (Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Large-data GUI exited early: $($process.ExitCode)" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_SMOKE_FILE)) { throw "Large-data GUI hung at startup" }
+            $probe = Get-Content $env:RG_YT_QA_SMOKE_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) { throw "Large-data GUI failed first paint" }
+            $seconds = ((Get-Date) - $started).TotalSeconds
+            if ($seconds -gt 20) { throw "Large-data first paint took $seconds seconds" }
+            Write-Host "LARGE_SQLITE_GUI_STARTUP_PASS duration=$seconds tabs=$($probe.tab_count)"
+          } finally {
+            $process.Refresh()
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          }
+
+      - name: Check GUI after delayed archive recovery starts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA/RG YouTube Control.exe"
+          $isolated = Join-Path $env:RUNNER_TEMP "RGLateStartQA"
+          $env:APPDATA = Join-Path $isolated "Roaming"
+          $env:LOCALAPPDATA = Join-Path $isolated "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:RG_YT_QA_STABILITY_FILE = Join-Path $isolated "after_20s.json"
+          Remove-Item Env:RG_YT_QA_SMOKE_FILE -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $proc = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(50)
+            while (!(Test-Path $env:RG_YT_QA_STABILITY_FILE) -and (Get-Date) -lt $deadline) {
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "Frozen GUI exited before delayed tasks" }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $env:RG_YT_QA_STABILITY_FILE)) {
+              throw "GUI frozen after delayed archive recovery timer"
+            }
+            $probe = Get-Content $env:RG_YT_QA_STABILITY_FILE -Raw | ConvertFrom-Json
+            if (!$probe.visible -or $probe.tab_count -lt 7) {
+              throw "GUI became unavailable after delayed startup tasks"
+            }
+            Write-Host "LATE_START_QT_RESPONSIVE_PASS"
+          } finally {
+            $proc.Refresh()
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            Remove-Item Env:RG_YT_QA_STABILITY_FILE -ErrorAction SilentlyContinue
+          }
 
       - name: Publish GitHub release (optional)
         continue-on-error: true

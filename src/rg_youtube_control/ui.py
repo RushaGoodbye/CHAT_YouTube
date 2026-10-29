@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .build_info import BUILD_NUMBER, BUILD_SHA
 from .config import (
     APP_NAME,
     DEFAULT_AUTO_REPLY_MAX_AGE_HOURS,
@@ -103,6 +104,11 @@ from .archive_campaign import (
     next_campaign_phase,
     reconcile_campaign_checkpoint,
     save_campaign_checkpoint,
+)
+from .deep_archive_worker import prepare_deep_review_batch
+from .transcript_export_worker import (
+    run_transcript_export,
+    run_deep_manifest_transcript_export,
 )
 from .metadata_audit import (
     audit,
@@ -842,6 +848,9 @@ class LocalToolWorker(QThread):
     def __init__(self, func, parent=None) -> None:
         super().__init__(parent)
         self.func = func
+        # Local jobs can be invoked many times during long sessions. Qt
+        # must reclaim each QThread wrapper when the worker has finished.
+        self.finished.connect(self.deleteLater)
 
     def run(self) -> None:
         try:
@@ -878,6 +887,7 @@ class MainWindow(QMainWindow):
         self._build_metrics(shell)
 
         self.tabs = QTabWidget()
+        self._lazy_loaded_tabs: set[int] = set()
         shell.addWidget(self.tabs, 1)
         self._build_task_center_tab()
         self._build_videos_tab()
@@ -910,37 +920,78 @@ class MainWindow(QMainWindow):
         # Previously all four refreshes ran inside __init__, making Windows
         # report an Application Hang before the first paint.
         self.statusBar().showMessage("Завантаження даних у фоні інтерфейсу…")
-        self._apply_advanced_mode()
+        self._apply_advanced_mode(refresh=False)
         QTimer.singleShot(100, self._startup_load_videos)
-        QTimer.singleShot(300, self._startup_load_optimization)
-        QTimer.singleShot(500, self._startup_load_comments)
-        QTimer.singleShot(700, self._startup_load_actions)
-        QTimer.singleShot(900, self._startup_finish)
-        QTimer.singleShot(1200, self.recover_archive_campaign_state)
-        QTimer.singleShot(2000, self.cleanup_cached_updates)
-        QTimer.singleShot(3000, self.check_for_updates_silent)
-        QTimer.singleShot(4500, self.sync_upcoming_streams_startup)
-        QTimer.singleShot(6000, self.ensure_daily_recovery_backup)
-        QTimer.singleShot(8000, self.check_quota_plan_ready)
-        QTimer.singleShot(10000, self.run_background_maintenance)
-        QTimer.singleShot(9000, self._resume_saved_workflow)
-        QTimer.singleShot(1500, self.refresh_free_tools_status)
+        # Chain startup stages: never pile up four blocking table refreshes.
+        QTimer.singleShot(12000, self.recover_archive_campaign_state)
+        QTimer.singleShot(18000, self.cleanup_cached_updates)
+        QTimer.singleShot(30000, self.check_for_updates_silent)
+        QTimer.singleShot(45000, self.sync_upcoming_streams_startup)
+        QTimer.singleShot(60000, self.ensure_daily_recovery_backup)
+        QTimer.singleShot(75000, self.check_quota_plan_ready)
+        QTimer.singleShot(90000, self.run_background_maintenance)
+        QTimer.singleShot(105000, self._resume_saved_workflow)
+        QTimer.singleShot(15000, self.refresh_free_tools_status)
+
+    def _record_startup_duration(self, stage: str, started: float) -> None:
+        """Persist a bounded startup timing record without touching SQLite."""
+        try:
+            elapsed = round((time.perf_counter() - started) * 1000)
+            path = self.data_dir / "startup_timing.jsonl"
+            if path.exists() and path.stat().st_size > 2_000_000:
+                path.replace(path.with_suffix(".previous.jsonl"))
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({
+                    "stage": stage,
+                    "duration_ms": elapsed,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                }, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     def _startup_load_videos(self) -> None:
-        self.statusBar().showMessage("Завантаження відео…")
-        self.reload_videos()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження відео…")
+            if self.tabs.currentIndex() == 1 and 1 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(1)
+                self.reload_videos()
+        finally:
+            self._record_startup_duration("videos", started)
+            QTimer.singleShot(0, self._startup_load_optimization)
 
     def _startup_load_optimization(self) -> None:
-        self.statusBar().showMessage("Завантаження SEO…")
-        self.reload_optimization_queue()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження SEO…")
+            if self.tabs.currentIndex() == 2 and 2 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(2)
+                self.reload_optimization_queue()
+        finally:
+            self._record_startup_duration("optimization", started)
+            QTimer.singleShot(0, self._startup_load_comments)
 
     def _startup_load_comments(self) -> None:
-        self.statusBar().showMessage("Завантаження коментарів…")
-        self.reload_comments()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження коментарів…")
+            if self.tabs.currentIndex() == 3 and 3 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(3)
+                self.reload_comments()
+        finally:
+            self._record_startup_duration("comments", started)
+            QTimer.singleShot(0, self._startup_load_actions)
 
     def _startup_load_actions(self) -> None:
-        self.statusBar().showMessage("Завантаження журналу…")
-        self.reload_action_log()
+        started = time.perf_counter()
+        try:
+            self.statusBar().showMessage("Завантаження журналу…")
+            if self.tabs.currentIndex() == 6 and 6 not in self._lazy_loaded_tabs:
+                self._lazy_loaded_tabs.add(6)
+                self.reload_action_log()
+        finally:
+            self._record_startup_duration("actions", started)
+            QTimer.singleShot(0, self._startup_finish)
 
     def _startup_finish(self) -> None:
         if hasattr(self, "optimization_density"):
@@ -992,6 +1043,18 @@ class MainWindow(QMainWindow):
         self.metrics_wrapper.setVisible(
             current is getattr(self, "video_page", None)
         )
+        # Do not populate hidden 1200-row tables during the first paint.
+        # Each table loads once when its tab is visited.
+        loaders = {
+            1: self.reload_videos,
+            2: self.reload_optimization_queue,
+            3: self.reload_comments,
+            6: self.reload_action_log,
+        }
+        index = self.tabs.currentIndex()
+        if index in loaders and index not in self._lazy_loaded_tabs:
+            self._lazy_loaded_tabs.add(index)
+            QTimer.singleShot(0, loaders[index])
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         bar = QFrame()
@@ -1274,10 +1337,13 @@ class MainWindow(QMainWindow):
                 else "YouTube: не підключено"
             )
 
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
-        self.reload_action_log()
+        # Switching channels previously repopulated four potentially
+        # thousand-row tables synchronously, even when only one tab was open.
+        # Mark each tab dirty; load only the visible one on the next Qt tick.
+        # The existing currentChanged handler refreshes a dirty tab on visit.
+        self._lazy_loaded_tabs.difference_update({1, 2, 3, 6})
+        visible = self.tabs.currentIndex()
+        self._on_main_tab_changed(visible)
         self.update_dashboard()
         self._refresh_channel_header()
         self.statusBar().showMessage(
@@ -3588,7 +3654,7 @@ class MainWindow(QMainWindow):
                 self.optimization_density,
             )
 
-    def _apply_advanced_mode(self) -> None:
+    def _apply_advanced_mode(self, *, refresh: bool = True) -> None:
         advanced = bool(getattr(self, "advanced_mode", False))
         if hasattr(self, "optimization_table"):
             self.optimization_table.setColumnHidden(7, not advanced)
@@ -3631,7 +3697,8 @@ class MainWindow(QMainWindow):
                         index,
                         not advanced,
                     )
-        self.reload_optimization_queue()
+        if refresh:
+            self.reload_optimization_queue()
 
     def save_advanced_mode_setting(self, state: int) -> None:
         self.advanced_mode = bool(state)
@@ -6124,7 +6191,9 @@ class MainWindow(QMainWindow):
         self.refresh_youtube_quota_label()
         self.vidiq_quota_label = QLabel()
         self.refresh_vidiq_quota_label()
-        self.version_label = QLabel(f"Версія: {__version__}")
+        self.version_label = QLabel(
+            f"Версія: {__version__} · збірка #{BUILD_NUMBER} · {BUILD_SHA[:8]}"
+        )
         update_btn = QPushButton("Перевірити оновлення")
         update_btn.clicked.connect(self.check_for_updates_manual)
         zip_update_btn = QPushButton("Оновити з ZIP")
@@ -6425,58 +6494,98 @@ class MainWindow(QMainWindow):
             self.log_sections.setCurrentIndex(1)
 
     def refresh_diagnostics_panel(self) -> None:
-        try:
-            probes = probe_free_tools()
+        """Check external tools and NAS in a worker, never on the Qt thread."""
+        running = getattr(self, "_diagnostics_worker", None)
+        if running is not None and running.isRunning():
+            return
+
+        nas_path = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        if hasattr(self, "diagnostics_text"):
+            self.diagnostics_text.setText("Перевірка компонентів у фоні…")
+
+        def task():
+            errors = []
+            try:
+                probes = probe_free_tools()
+            except Exception as exc:
+                probes = {}
+                errors.append(str(exc)[:500])
+            try:
+                nas_state = "OK" if nas_path.parent.exists() else "недоступний"
+            except Exception as exc:
+                nas_state = f"помилка: {str(exc)[:150]}"
+            try:
+                ps = powershell_status()
+            except Exception as exc:
+                ps = {"available": False}
+                errors.append(str(exc)[:500])
+            return probes, nas_state, ps, errors
+
+        worker = LocalToolWorker(task, self)
+        self._diagnostics_worker = worker
+
+        def success(result: object) -> None:
+            probes, nas_state, ps, errors = result
             self._free_tools_last_probe = probes
-        except Exception as exc:
-            probes = {}
+            for error in errors:
+                log_action(
+                    self.conn,
+                    profile=self.current_profile,
+                    category="діагностика",
+                    action="Помилка діагностики",
+                    details=error,
+                )
+            budget = quota_budget_status(self.conn)
+            yt = probes.get("yt_dlp", {}) if isinstance(probes, dict) else {}
+            tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
+            ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
+            model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
+            ps_label = (
+                f"OK {ps.get('version') or ''}".strip()
+                if ps.get("available") else "недоступний"
+            )
+            lines = [
+                f"NAS: {nas_state}",
+                f"Шлях транскриптів: {nas_path}",
+                f"yt-dlp: {'OK' if yt.get('available') else '—'}",
+                f"Transcript: {'OK' if tr.get('available') else '—'}",
+                f"Ollama: {'OK' if ol.get('available') else '—'}",
+                f"PowerShell (вбудований): {ps_label}",
+                f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
+                (
+                    "YouTube API: "
+                    f"залишилось {int(budget['remaining']):,}; "
+                    f"резерв {int(budget['reserve']):,}; "
+                    f"доступно {int(budget['spendable']):,}"
+                ),
+            ]
+            if hasattr(self, "diagnostics_text"):
+                self.diagnostics_text.setText("\n".join(lines))
+            self.reload_action_log()
+
+        def failed(message: str) -> None:
             log_action(
                 self.conn,
                 profile=self.current_profile,
                 category="діагностика",
                 action="Помилка діагностики",
-                details=str(exc),
+                details=message[:500],
             )
+            if hasattr(self, "diagnostics_text"):
+                self.diagnostics_text.setText(
+                    "Діагностика не завершена: " + message[:250]
+                )
 
-        budget = quota_budget_status(self.conn)
-        try:
-            nas_path = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
-            nas_state = "OK" if nas_path.parent.exists() else "недоступний"
-        except Exception as exc:
-            nas_path = Path(DEFAULT_NAS_TRANSCRIPTS_PATH)
-            nas_state = f"помилка: {exc}"
+        def finished() -> None:
+            if getattr(self, "_diagnostics_worker", None) is worker:
+                self._diagnostics_worker = None
 
-        yt = probes.get("yt_dlp", {}) if isinstance(probes, dict) else {}
-        tr = probes.get("transcript", {}) if isinstance(probes, dict) else {}
-        ol = probes.get("ollama", {}) if isinstance(probes, dict) else {}
-        model = probes.get("ollama_model", {}) if isinstance(probes, dict) else {}
-        ps = powershell_status()
-        ps_label = (
-            f"OK {ps.get('version') or ''}".strip()
-            if ps.get("available")
-            else "недоступний"
-        )
-        lines = [
-            f"NAS: {nas_state}",
-            f"Шлях транскриптів: {nas_path}",
-            f"yt-dlp: {'OK' if yt.get('available') else '—'}",
-            f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
-            f"PowerShell (вбудований): {ps_label}",
-            f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
-            (
-                "YouTube API: "
-                f"залишилось {int(budget['remaining']):,}; "
-                f"резерв {int(budget['reserve']):,}; "
-                f"доступно {int(budget['spendable']):,}"
-            ),
-        ]
-        if hasattr(self, "diagnostics_text"):
-            self.diagnostics_text.setText("\n".join(lines))
-        self.reload_action_log()
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def check_local_database(self) -> None:
         try:
@@ -6550,22 +6659,70 @@ class MainWindow(QMainWindow):
         return archive
 
     def ensure_daily_recovery_backup(self) -> None:
-        try:
-            self._create_automatic_recovery_backup(
-                "щоденна копія",
-                force=False,
-            )
-        except Exception as exc:
+        """Daily NAS archive runs off the Qt UI thread, with its own SQLite."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        if get_setting(self.conn, "automatic_recovery_backup_day", "") == today:
+            return
+        running = getattr(self, "_daily_backup_worker", None)
+        if running is not None and running.isRunning():
+            return
+
+        backup_root = self._recovery_backup_root()
+        db_path = self.data_dir / "rg_youtube_control.db"
+        data_dir = self.data_dir
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
             try:
-                log_action(
-                    self.conn,
-                    profile=self.current_profile,
-                    category="резервна копія",
-                    action="Помилка щоденної копії",
-                    details=str(exc),
+                archive = create_recovery_backup(
+                    conn=worker_conn,
+                    data_dir=data_dir,
+                    backup_root=backup_root,
+                    version=__version__,
+                    include_installer=False,
+                    label="RG_YOUTUBE_CONTROL_AUTO",
                 )
-            except Exception:
-                pass
+                removed = prune_recovery_backups(
+                    backup_root,
+                    keep=20,
+                    prefix="RG_YOUTUBE_CONTROL_AUTO_",
+                )
+                return archive.name, removed, today
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._daily_backup_worker = worker
+        worker.succeeded.connect(self._on_daily_backup_success)
+        worker.failed.connect(self._on_daily_backup_failed)
+        worker.finished.connect(self._on_daily_backup_finished)
+        worker.start()
+
+    def _on_daily_backup_finished(self) -> None:
+        self._daily_backup_worker = None
+
+    def _on_daily_backup_success(self, result: object) -> None:
+        archive_name, removed, day = result
+        set_setting(self.conn, "automatic_recovery_backup_day", day)
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="резервна копія",
+            action="Автоматична копія",
+            details=f"щоденна копія · {archive_name} · очищено старих: {removed}",
+        )
+        self.reload_action_log()
+
+    def _on_daily_backup_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="резервна копія",
+            action="Помилка щоденної копії",
+            details=str(message)[:700],
+        )
 
     def _prechange_backup_or_warn(
         self,
@@ -6595,6 +6752,18 @@ class MainWindow(QMainWindow):
             return False
 
     def create_recovery_backup_now(self) -> None:
+        """Manual NAS backup must not block the UI or share its SQLite handle."""
+        running = getattr(self, "_manual_backup_worker", None)
+        if running is not None and running.isRunning():
+            return
+        daily = getattr(self, "_daily_backup_worker", None)
+        if daily is not None and daily.isRunning():
+            QMessageBox.information(
+                self, "Резервна копія",
+                "Щоденне резервне копіювання вже виконується у фоні.",
+            )
+            return
+
         root = self._recovery_backup_root()
         answer = QMessageBox.question(
             self,
@@ -6611,29 +6780,57 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        self.statusBar().showMessage("Створюю резервну копію на NAS...")
-        QApplication.processEvents()
-        try:
-            archive = create_recovery_backup(
-                conn=self.conn,
-                data_dir=self.data_dir,
-                backup_root=root,
-                version=__version__,
-            )
-        except Exception as exc:
-            self._error("Помилка резервного копіювання", exc)
-            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        data_dir = self.data_dir
 
-        QMessageBox.information(
-            self,
-            "Резервну копію створено",
-            "Робочу версію збережено.\n\n"
-            f"Архів відновлення:\n{archive}\n\n"
-            "Після перевстановлення Windows встановіть збережений "
-            "інсталятор, відновіть цей архів і повторно підключіть два "
-            "YouTube-канали.",
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return create_recovery_backup(
+                    conn=worker_conn,
+                    data_dir=data_dir,
+                    backup_root=root,
+                    version=__version__,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._manual_backup_worker = worker
+        self.statusBar().showMessage(
+            "Створення резервної копії NAS у фоні…"
         )
-        self.statusBar().showMessage("Резервну копію робочої версії створено")
+
+        def success(result: object) -> None:
+            archive = Path(result)
+            QMessageBox.information(
+                self,
+                "Резервну копію створено",
+                "Робочу версію збережено.\n\n"
+                f"Архів відновлення:\n{archive}\n\n"
+                "Після перевстановлення Windows встановіть збережений "
+                "інсталятор, відновіть цей архів і повторно підключіть два "
+                "YouTube-канали.",
+            )
+            self.statusBar().showMessage(
+                "Резервну копію робочої версії створено"
+            )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Резервна копія NAS: помилка")
+            self._error("Помилка резервного копіювання", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_manual_backup_worker", None) is worker:
+                self._manual_backup_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def restore_recovery_backup_now(self) -> None:
         root = self._recovery_backup_root()
@@ -6838,7 +7035,7 @@ class MainWindow(QMainWindow):
             self._error("Помилка авторизації", exc)
 
     def sync_upcoming_streams_startup(self) -> None:
-        """Refresh upcoming broadcasts on both channels once after startup."""
+        """Refresh scheduled broadcasts without network calls on the GUI thread."""
         cleaned = cleanup_stale_scheduled_rows(self.conn)
         if cleaned:
             self.reload_videos()
@@ -6846,65 +7043,148 @@ class MainWindow(QMainWindow):
             self.update_dashboard()
         if quota_exhausted(self.conn):
             return
+        active = getattr(self, "_upcoming_sync_worker", None)
+        if active is not None and active.isRunning():
+            return
 
-        before_units = today_quota_units(self.conn)
-        synced = 0
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
+        self._upcoming_sync_baseline_units = today_quota_units(self.conn)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS)
+
+        def task():
+            # Each QThread must own its SQLite connection. GUI self.conn
+            # must never be passed into a blocking YouTube API request.
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
             try:
-                client.credentials()
-                rows = sync_upcoming_live_broadcasts(
-                    client,
-                    self.conn,
-                )
-                synced += len(rows)
-            except Exception as exc:
-                if _is_quota_exceeded_error(exc):
-                    mark_quota_exhausted(self.conn)
-                    break
-                continue
+                synced = 0
+                for profile in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                        synced += len(sync_upcoming_live_broadcasts(client, worker_conn))
+                    except Exception as exc:
+                        if _is_quota_exceeded_error(exc):
+                            mark_quota_exhausted(worker_conn)
+                            break
+                return synced
+            finally:
+                worker_conn.close()
 
-        if synced:
-            self.reload_videos()
-            self.reload_optimization_queue()
-            self.update_dashboard()
-            consumed = max(
-                0,
-                today_quota_units(self.conn) - before_units,
-            )
+        worker = LocalToolWorker(task, self)
+        self._upcoming_sync_worker = worker
+        worker.succeeded.connect(self._on_upcoming_sync_done)
+        worker.failed.connect(self._on_upcoming_sync_failed)
+        worker.finished.connect(self._on_upcoming_sync_finished)
+        worker.start()
+
+    def _on_upcoming_sync_finished(self) -> None:
+        self._upcoming_sync_worker = None
+
+    def _on_upcoming_sync_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="синхронізація",
+            action="Помилка фонової синхронізації ефірів",
+            details=str(message)[:700],
+        )
+
+    def _on_upcoming_sync_done(self, synced: object) -> None:
+        if not isinstance(synced, int) or synced < 1:
+            return
+        self.reload_videos()
+        self.reload_optimization_queue()
+        self.update_dashboard()
+        consumed = max(
+            0,
+            today_quota_units(self.conn)
+            - int(getattr(self, "_upcoming_sync_baseline_units", 0)),
+        )
+        self.statusBar().showMessage(
+            f"Заплановані ефіри оновлено: {synced} · "
+            f"квота читання: {consumed}"
+        )
+
+    def _start_manual_sync(self, label: str, task, on_success) -> None:
+        """Never block Qt on user-requested YouTube network operations."""
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
             self.statusBar().showMessage(
-                f"Заплановані ефіри оновлено: {synced} · "
-                f"квота читання: {consumed}"
+                "Синхронізація вже виконується. Дочекайтеся завершення."
             )
+            return
+
+        worker = LocalToolWorker(task, self)
+        self._manual_sync_worker = worker
+        self.statusBar().showMessage(f"{label} · виконується у фоні…")
+
+        def succeeded(result: object) -> None:
+            try:
+                on_success(result)
+            except Exception as exc:
+                self._error("Помилка після синхронізації", exc)
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage(f"{label} · помилка")
+            self._error("Помилка синхронізації", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_manual_sync_worker", None) is worker:
+                self._manual_sync_worker = None
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def sync_video_list(self) -> None:
-        try:
-            if quota_exhausted(self.conn):
-                QMessageBox.information(
-                    self,
-                    "Квоту YouTube вичерпано",
-                    "Синхронізацію через YouTube Data API заблоковано до "
-                    "наступного квотного дня. Локальна 0-quota підготовка "
-                    "залишається доступною.",
-                )
-                return
-            before_units = today_quota_units(self.conn)
-            rows = sync_videos(self.client, self.conn, limit=50)
-            upcoming = sync_upcoming_live_broadcasts(
-                self.client,
-                self.conn,
+        if quota_exhausted(self.conn):
+            QMessageBox.information(
+                self,
+                "Квоту YouTube вичерпано",
+                "Синхронізацію через YouTube Data API заблоковано до "
+                "наступного квотного дня. Локальна 0-quota підготовка "
+                "залишається доступною.",
             )
-            consumed = max(0, today_quota_units(self.conn) - before_units)
+            return
+
+        # Capture selection now: switching tabs/channels during a background
+        # request must not switch the API account midway.
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                client = YouTubeClient(profile=origin_profile)
+                rows = sync_videos(client, worker_conn, limit=50)
+                upcoming = sync_upcoming_live_broadcasts(client, worker_conn)
+                return (
+                    len(rows),
+                    len(upcoming),
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            videos, upcoming, consumed = result
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
             self.statusBar().showMessage(
-                f"Відео синхронізовано: {len(rows)} · "
-                f"майбутніх ефірів: {len(upcoming)} · "
-                f"квота читання: {consumed}"
+                f"{PROFILE_LABELS[origin_profile]} · відео: {videos} · "
+                f"майбутніх ефірів: {upcoming} · квота читання: {consumed}"
             )
-        except Exception as exc:
-            self._error("Помилка синхронізації", exc)
+
+        self._start_manual_sync("Синхронізація відео", task, done)
 
     def sync_both_channels(self) -> None:
         if quota_exhausted(self.conn):
@@ -6915,6 +7195,11 @@ class MainWindow(QMainWindow):
                 "заблоковано до наступного квотного дня.",
             )
             return
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
+            self.statusBar().showMessage("Синхронізація вже виконується.")
+            return
+
         answer = QMessageBox.question(
             self,
             "Синхронізація двох каналів",
@@ -6926,34 +7211,54 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        before_units = today_quota_units(self.conn)
-        results: list[str] = []
-        errors: list[str] = []
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
-            try:
-                client.credentials()
-            except Exception:
-                errors.append(f"{PROFILE_LABELS[profile]}: не підключено")
-                continue
-            try:
-                rows = sync_videos(client, self.conn, limit=1000)
-                results.append(f"{PROFILE_LABELS[profile]}: {len(rows)}")
-            except Exception as exc:
-                errors.append(f"{PROFILE_LABELS[profile]}: {exc}")
+        db_path = self.data_dir / "rg_youtube_control.db"
 
-        self.reload_videos()
-        self.reload_optimization_queue()
-        self.reload_comments()
-        self.update_dashboard()
-        consumed = max(0, today_quota_units(self.conn) - before_units)
-        message = (
-            "Синхронізовано:\n" + ("\n".join(results) or "—")
-            + f"\n\nКвота читання YouTube Data API: {consumed} од."
-        )
-        if errors:
-            message += "\n\nНе виконано:\n" + "\n".join(errors)
-        QMessageBox.information(self, APP_NAME, message)
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                results: list[str] = []
+                errors: list[str] = []
+                for profile in PROFILE_TARGETS:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                    except Exception:
+                        errors.append(f"{PROFILE_LABELS[profile]}: не підключено")
+                        continue
+                    try:
+                        rows = sync_videos(client, worker_conn, limit=1000)
+                        results.append(f"{PROFILE_LABELS[profile]}: {len(rows)}")
+                    except Exception as exc:
+                        errors.append(f"{PROFILE_LABELS[profile]}: {exc}")
+                return (
+                    results,
+                    errors,
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            results, errors, consumed = result
+            self.reload_videos()
+            self.reload_optimization_queue()
+            self.reload_comments()
+            self.update_dashboard()
+            message = (
+                "Синхронізовано:\n" + ("\n".join(results) or "—")
+                + f"\n\nКвота читання YouTube Data API: {consumed} од."
+            )
+            if errors:
+                message += "\n\nНе виконано:\n" + "\n".join(errors)
+            QMessageBox.information(self, APP_NAME, message)
+            self.statusBar().showMessage("Синхронізацію двох каналів завершено")
+
+        self._start_manual_sync("Синхронізація двох каналів", task, done)
 
     def edit_selected_video(self) -> None:
         row = self.video_table.currentRow()
@@ -6993,6 +7298,10 @@ class MainWindow(QMainWindow):
             self._error("Помилка оновлення відео", exc)
 
     def sync_full_archive(self) -> None:
+        active = getattr(self, "_manual_sync_worker", None)
+        if active is not None and active.isRunning():
+            self.statusBar().showMessage("Синхронізація вже виконується.")
+            return
         answer = QMessageBox.question(
             self,
             "Повна синхронізація архіву",
@@ -7003,27 +7312,48 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        try:
-            before_units = today_quota_units(self.conn)
-            self.statusBar().showMessage("Синхронізую весь архів...")
-            QApplication.processEvents()
-            rows = sync_videos(self.client, self.conn, limit=1000)
-            consumed = max(0, today_quota_units(self.conn) - before_units)
+
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                if quota_exhausted(worker_conn):
+                    raise RuntimeError("Квоту YouTube вичерпано.")
+                before_units = today_quota_units(worker_conn)
+                client = YouTubeClient(profile=origin_profile)
+                rows = sync_videos(client, worker_conn, limit=1000)
+                stored = worker_conn.execute(
+                    "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
+                    (origin_profile,),
+                ).fetchone()["n"]
+                return (
+                    len(rows),
+                    stored,
+                    max(0, today_quota_units(worker_conn) - before_units),
+                )
+            finally:
+                worker_conn.close()
+
+        def done(result: object) -> None:
+            videos, stored, consumed = result
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-            stored = self.conn.execute(
-                "SELECT COUNT(*) AS n FROM videos WHERE profile=?",
-                (self.current_profile,),
-            ).fetchone()["n"]
-            latin_titles = self._latin_title_review_count()
-            self.statusBar().showMessage(
-                f"Архів синхронізовано: {len(rows)} унікальних відео · "
-                f"у базі профілю: {stored} · англомовних назв: {latin_titles} · "
-                f"квота читання: {consumed}"
+            latin_text = (
+                f" · англомовних назв: {self._latin_title_review_count()}"
+                if self.current_profile == origin_profile else ""
             )
-        except Exception as exc:
-            self._error("Помилка повної синхронізації", exc)
+            self.statusBar().showMessage(
+                f"{PROFILE_LABELS[origin_profile]} · "
+                f"архів: {videos} відео · у базі: {stored}"
+                f"{latin_text} · квота читання: {consumed}"
+            )
+
+        self._start_manual_sync("Повна синхронізація архіву", task, done)
 
     def _selected_optimization_video_ids(self) -> list[str]:
         if not hasattr(self, "optimization_table"):
@@ -7456,11 +7786,20 @@ class MainWindow(QMainWindow):
     def recover_archive_campaign_state(self) -> None:
         if not archive_priority_enabled(self.conn):
             return
+        # Never scan thousands of UNC transcript paths on the Qt GUI thread.
+        # The async stats callback reconciles the checkpoint after the scan.
+        self._archive_recovery_pending = True
+        self._refresh_archive_stats_async()
+
+    def _complete_archive_recovery(self, stats: dict) -> None:
+        if not getattr(self, "_archive_recovery_pending", False):
+            return
+        self._archive_recovery_pending = False
+        if not archive_priority_enabled(self.conn):
+            return
         try:
-            stats = self._archive_campaign_stats()
             checkpoint, interrupted = reconcile_campaign_checkpoint(
-                self.conn,
-                stats,
+                self.conn, stats,
             )
             if interrupted:
                 log_action(
@@ -7474,7 +7813,7 @@ class MainWindow(QMainWindow):
                         "продовження з поточного стану бази"
                     ),
                 )
-            self._advance_archive_campaign()
+            self._advance_archive_campaign(stats_override=stats)
         except Exception as exc:
             log_action(
                 self.conn,
@@ -7503,17 +7842,131 @@ class MainWindow(QMainWindow):
         *,
         max_age_seconds: float = 300.0,
     ) -> dict[str, dict[str, int]]:
+        # UNC .exists() for each archive transcript can block Windows for
+        # minutes. Never perform those NAS probes inside the Qt event loop.
         now = time.monotonic()
         cached = getattr(self, "_dashboard_archive_stats_cache", None)
         cached_at = float(
             getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
         )
-        if cached is not None and now - cached_at < max_age_seconds:
+        if cached is None or now - cached_at >= max_age_seconds:
+            self._refresh_archive_stats_async()
+        if cached is not None:
             return cached
-        value = self._archive_campaign_stats()
-        self._dashboard_archive_stats_cache = value
-        self._dashboard_archive_stats_cache_at = now
-        return value
+        empty = {
+            "archive_total": 0,
+            "safe_remaining": 0,
+            "deep_remaining": 0,
+            "transcripts": 0,
+            "ready_packages": 0,
+            "applied_packages": 0,
+            "skipped_deep": 0,
+        }
+        return {profile: dict(empty) for profile in PROFILE_TARGETS}
+
+    def _archive_stats_fresh_for_actions(self) -> bool:
+        """Never run archive transitions against expired or failed NAS counts."""
+        cache = getattr(self, "_dashboard_archive_stats_cache", None)
+        cached_at = float(
+            getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
+        )
+        return (
+            isinstance(cache, dict)
+            and bool(cache)
+            and not getattr(self, "_archive_stats_unavailable", False)
+            and cached_at > 0
+            and 0 <= time.monotonic() - cached_at < 300.0
+        )
+
+    def _refresh_archive_stats_async(self) -> None:
+        worker = getattr(self, "_archive_stats_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        profiles = tuple(PROFILE_TARGETS)
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return {
+                    profile: archive_profile_stats(
+                        worker_conn, profile, transcript_dir=transcript_dir
+                    )
+                    for profile in profiles
+                }
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._archive_stats_worker = worker
+        worker.succeeded.connect(self._on_archive_stats_ready)
+        worker.failed.connect(self._on_archive_stats_failed)
+        worker.finished.connect(self._on_archive_stats_finished)
+        worker.start()
+
+    def _on_archive_stats_finished(self) -> None:
+        self._archive_stats_worker = None
+        if getattr(self, "_archive_campaign_reconcile_needs_second_scan", False):
+            self._archive_campaign_reconcile_needs_second_scan = False
+            # A pre-existing scan could have observed counts before an
+            # archive write. Take a second scan after it has fully finished.
+            QTimer.singleShot(0, self._refresh_archive_stats_async)
+
+    def _on_archive_stats_ready(self, result: object) -> None:
+        if not isinstance(result, dict):
+            self._on_archive_stats_failed("Некоректна статистика архіву")
+            return
+        self._dashboard_archive_stats_cache = result
+        self._dashboard_archive_stats_cache_at = time.monotonic()
+        self._archive_stats_unavailable = False
+        self._complete_archive_recovery(result)
+        # Reconcile after the worker has read fresh DB/NAS state. Never
+        # make phase decisions using the counts cached before a write.
+        if (
+            getattr(self, "_archive_campaign_reconcile_pending", False)
+            and not getattr(self, "_archive_campaign_reconcile_needs_second_scan", False)
+        ):
+            self._archive_campaign_reconcile_pending = False
+            self._advance_archive_campaign(stats_override=result)
+            done_key = getattr(
+                self, "_archive_campaign_autorun_done_pending", None
+            )
+            if done_key:
+                set_setting(self.conn, done_key, "1")
+                self._archive_campaign_autorun_done_pending = None
+        if hasattr(self, "archive_campaign_summary"):
+            self._refresh_archive_campaign_summary()
+
+    def _on_archive_stats_failed(self, message: str) -> None:
+        if getattr(self, "_archive_recovery_pending", False):
+            self._archive_recovery_pending = False
+            log_action(
+                self.conn,
+                profile=self.current_profile,
+                category="кампанія архіву",
+                action="Відновлення відкладено",
+                details=str(message)[:700],
+            )
+        self._archive_stats_unavailable = True
+        self._dashboard_archive_stats_cache_at = time.monotonic()
+        self._dashboard_archive_stats_cache = {
+            profile: {
+                "archive_total": 0, "safe_remaining": 0,
+                "deep_remaining": 0, "transcripts": 0,
+                "ready_packages": 0, "applied_packages": 0,
+                "skipped_deep": 0,
+            }
+            for profile in PROFILE_TARGETS
+        }
+        if hasattr(self, "archive_campaign_summary"):
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · статистика NAS недоступна"
+            )
 
     def _archive_campaign_budget(self) -> dict[str, int | str | bool]:
         budget = quota_budget_status(self.conn)
@@ -7538,7 +7991,17 @@ class MainWindow(QMainWindow):
     def _refresh_archive_campaign_summary(self) -> None:
         if not hasattr(self, "archive_campaign_summary"):
             return
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
+        if getattr(self, "_archive_stats_unavailable", False):
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · статистика NAS недоступна"
+            )
+            return
+        if getattr(self, "_dashboard_archive_stats_cache", None) is None:
+            self.archive_campaign_summary.setText(
+                "Кампанія архіву · оновлення статистики…"
+            )
+            return
         budget = self._archive_campaign_budget()
         phase, target = next_campaign_phase(stats)
         total_safe = sum(
@@ -7573,8 +8036,21 @@ class MainWindow(QMainWindow):
             + f" · скидання {budget['reset']}"
         )
 
-    def _advance_archive_campaign(self, *, notify: bool = False) -> None:
-        stats = self._archive_campaign_stats()
+    def _advance_archive_campaign(
+        self, *, notify: bool = False, stats_override: dict | None = None,
+    ) -> None:
+        if stats_override is None:
+            # An archive write invalidates the old summary. Fresh counts,
+            # including remote SRT checks, must arrive from a worker before
+            # phase/checkpoint changes are allowed.
+            self._archive_campaign_reconcile_pending = True
+            worker = getattr(self, "_archive_stats_worker", None)
+            if worker is not None and worker.isRunning():
+                self._archive_campaign_reconcile_needs_second_scan = True
+            self._dashboard_archive_stats_cache = None
+            self._refresh_archive_stats_async()
+            return
+        stats = stats_override
         self._dashboard_archive_stats_cache = stats
         self._dashboard_archive_stats_cache_at = time.monotonic()
         phase, target = next_campaign_phase(stats)
@@ -7646,7 +8122,15 @@ class MainWindow(QMainWindow):
         notify: bool = True,
     ) -> None:
         target = profile or self.current_profile
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
+        if not self._archive_stats_fresh_for_actions():
+            if notify:
+                QMessageBox.information(
+                    self,
+                    "Глибока черга",
+                    "Статистика NAS ще оновлюється. Спробуйте після завершення.",
+                )
+            return
         if int(stats.get(target, {}).get("safe_remaining", 0)) > 0:
             if notify:
                 QMessageBox.information(
@@ -7800,132 +8284,248 @@ class MainWindow(QMainWindow):
         confirm: bool = True,
         notify: bool = True,
     ) -> None:
-        target = profile or self.current_profile
-        if target != self.current_profile:
-            self._activate_profile(target)
-
-        package_dir = self._nas_path(
-            "nas_packages_path",
-            DEFAULT_NAS_PACKAGES_PATH,
-        )
-        transcript_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
-        )
-        manifest_path = package_dir / f"deep_review_{target}.json"
-        if not manifest_path.exists():
-            if notify:
-                QMessageBox.information(
-                    self,
-                    "Транскрипти глибокої черги",
-                    "Спочатку експортуйте глибоку чергу на NAS.",
-                )
+        """Never enumerate remote SRTs or download captions on the Qt thread."""
+        running = getattr(self, "_deep_transcript_export_worker", None)
+        if running is not None and running.isRunning():
             return
 
-        try:
-            payload = json.loads(
-                manifest_path.read_text(encoding="utf-8")
+        target = profile or self.current_profile
+        if target not in PROFILE_TARGETS:
+            raise ValueError("Невідомий канал глибокої черги.")
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                "Транскрипти глибокої черги",
+                f"Канал: {PROFILE_LABELS[target]}\n"
+                "Перевіримо маніфест на NAS та отримаємо до 20 "
+                "відсутніх транскриптів у фоні.\n"
+                "Витрата квоти можлива лише понад захищений резерв; "
+                "точний ліміт визначається перед кожним запитом.\n\n"
+                "Почати?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            items = [
-                item
-                for item in (payload.get("items") or [])
-                if isinstance(item, dict)
-            ]
-            pending = [
-                item
-                for item in items
-                if item.get("video_id")
-                and not (
-                    transcript_dir / f"{item['video_id']}.srt"
-                ).exists()
-            ]
-            if not pending:
-                if notify:
-                    QMessageBox.information(
-                        self,
-                        "Транскрипти глибокої черги",
-                        "Усі транскрипти поточної глибокої черги вже є на NAS.",
-                    )
+            if answer != QMessageBox.StandardButton.Yes:
                 return
 
-            budget = quota_budget_status(self.conn)
-            capacity = max(
-                0,
-                int(budget["spendable"]) // CAPTION_TRANSCRIPT_COST,
-            )
-            batch = pending[: min(20, capacity)]
-            if not batch:
-                if notify:
-                    QMessageBox.information(
-                        self,
-                        "Резерв квоти",
-                        "Над захищеним резервом недостатньо квоти "
-                        "для нового транскрипту.",
-                    )
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcript_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        package_dir = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+        manifest_path = package_dir / f"deep_review_{target}.json"
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return run_deep_manifest_transcript_export(
+                    worker_conn, profile=target,
+                    manifest_path=manifest_path, target_dir=transcript_dir,
+                    client_factory=YouTubeClient,
+                    uploader=upload_transcript,
+                    bridge_url=PACKAGE_BRIDGE_URL,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._deep_transcript_export_worker = worker
+        self.statusBar().showMessage("Глибокі транскрипти · NAS у фоні…")
+
+        def success(result: object) -> None:
+            if not isinstance(result, dict):
+                self.statusBar().showMessage("Некоректна відповідь NAS")
                 return
-
-            estimated = len(batch) * CAPTION_TRANSCRIPT_COST
-            if confirm:
-                answer = QMessageBox.question(
-                    self,
-                    "Транскрипти глибокої черги",
-                    f"Канал: {PROFILE_LABELS[target]}\n"
-                    f"Без транскрипту: {len(pending)}.\n"
-                    f"Зараз буде отримано: до {len(batch)}.\n"
-                    f"Максимальна витрата: ≈{estimated} од. квоти.\n"
-                    f"Резерв {budget['reserve']} од. не буде використано.\n\n"
-                    "Продовжити?",
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if answer != QMessageBox.StandardButton.Yes:
-                    return
-
-            saved = 0
-            failed: list[str] = []
-            for index, item in enumerate(batch, start=1):
-                video_id = str(item["video_id"])
-                self.statusBar().showMessage(
-                    f"Глибокі транскрипти: {index}/{len(batch)} · {video_id}"
-                )
-                QApplication.processEvents()
-                try:
-                    path, _downloaded = self._export_transcript_video_to_nas(
-                        video_id,
-                        respect_reserve=True,
-                    )
-                    item["transcript_ready"] = True
-                    item["transcript_path"] = str(path)
-                    saved += 1
-                except Exception as exc:
-                    failed.append(f"{video_id}: {exc}")
-
-            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-            manifest_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            self.reload_optimization_queue()
-            self._refresh_archive_campaign_summary()
-
+            self.refresh_youtube_quota_label()
+            self._nas_transcript_cache_at = 0.0
+            self._refresh_transcript_availability_async()
+            self._refresh_archive_stats_async()
+            saved = int(result.get("saved") or 0)
+            failed = int(result.get("failed") or 0)
             message = (
-                f"Збережено транскриптів: {saved}.\n"
-                f"Помилок: {len(failed)}."
+                f"Нових SRT: {saved}.\n"
+                f"Уже на NAS: {int(result.get('existing') or 0)}.\n"
+                f"Залишалося: {int(result.get('pending') or 0)}.\n"
+                f"Помилок: {failed}."
             )
-            if failed:
-                message += "\n\n" + "\n".join(failed[:5])
+            if result.get("quota_blocked"):
+                message += "\nЗахищений резерв квоти збережено."
+            if result.get("errors"):
+                message += "\n" + "\n".join(result["errors"][:5])
             if notify:
                 QMessageBox.information(
-                    self,
-                    "Транскрипти глибокої черги",
-                    message,
+                    self, "Транскрипти глибокої черги", message,
                 )
-        except Exception as exc:
-            self._error("Помилка транскриптів глибокої черги", exc)
+            self.statusBar().showMessage(
+                f"Глибокі транскрипти · збережено {saved}"
+            )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Помилка SRT/NAS")
+            if notify:
+                self._error(
+                    "Помилка транскриптів глибокої черги",
+                    RuntimeError(message),
+                )
+
+        def finished() -> None:
+            if getattr(self, "_deep_transcript_export_worker", None) is worker:
+                self._deep_transcript_export_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _start_deep_archive_worker(
+        self, profile: str, *, capacity: int, automatic: bool,
+    ) -> bool:
+        """Move all NAS manifest/caption/package reads out of the GUI."""
+        running = getattr(self, "_archive_deep_worker", None)
+        if running is not None and running.isRunning():
+            return False
+        db_path = self.data_dir / "rg_youtube_control.db"
+        transcripts = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+        packages = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                return prepare_deep_review_batch(
+                    worker_conn,
+                    profile=profile,
+                    transcript_dir=transcripts,
+                    package_dir=packages,
+                    max_downloads=capacity,
+                    client_factory=YouTubeClient,
+                )
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._archive_deep_worker = worker
+        self.statusBar().showMessage(
+            f"Deep-черга {PROFILE_LABELS[profile]} · NAS у фоні…"
+        )
+
+        def success(result: dict) -> None:
+            failures = list(result.get("errors") or [])
+            imported = 0
+            for item in result.get("drafts") or []:
+                video_id = str(item.get("video_id") or "")
+                origin = self.conn.execute(
+                    "SELECT profile FROM videos WHERE video_id=?", (video_id,),
+                ).fetchone()
+                if origin is None or str(origin["profile"]) != profile:
+                    failures.append(f"{video_id}: невідповідний канал")
+                    continue
+                try:
+                    self._save_package_payload(
+                        video_id, dict(item["payload"]), force_draft=True,
+                    )
+                    set_deep_review_state(
+                        self.conn,
+                        video_id=video_id,
+                        profile=profile,
+                        status="review",
+                        note="package_imported_as_draft",
+                    )
+                    imported += 1
+                except Exception as exc:
+                    failures.append(f"{video_id}: {str(exc)[:200]}")
+            log_action(
+                self.conn,
+                profile=profile,
+                category="кампанія архіву",
+                action="Deep-чергу підготовлено у фоні",
+                details=(
+                    f"експортовано {result['exported']}; "
+                    f"SRT {result['downloaded']}; "
+                    f"чернеток {imported}; зауважень {len(failures)}"
+                ),
+            )
+            self.reload_optimization_queue()
+            self.reload_action_log()
+            self.refresh_youtube_quota_label()
+            if not automatic:
+                QMessageBox.information(
+                    self, "Глибока черга",
+                    f"Маніфест NAS: {result['exported']} відео.\n"
+                    f"Завантажено SRT: {result['downloaded']}.\n"
+                    f"Імпортовано чернеток: {imported}.\n"
+                    f"Зауважень: {len(failures)}.\n\n"
+                    "YouTube-метадані не змінено.",
+                )
+            if failures:
+                log_action(
+                    self.conn,
+                    profile=profile,
+                    category="кампанія архіву",
+                    action="Deep-черга: зауваження",
+                    details="\n".join(failures[:8])[:1500],
+                )
+            # The day's automatic action is complete only once post-write
+            # NAS statistics have been independently reconciled.
+            if automatic:
+                self._archive_campaign_autorun_done_pending = (
+                    f"archive_campaign_autorun_done_{current_quota_day()}"
+                )
+            self._advance_archive_campaign()
+
+        def failed(message: str) -> None:
+            save_campaign_checkpoint(
+                self.conn,
+                phase="deep",
+                target=profile,
+                status="interrupted",
+                note=message[:250],
+            )
+            log_action(
+                self.conn,
+                profile=profile,
+                category="кампанія архіву",
+                action="Deep-черга відкладена",
+                details=message[:700],
+            )
+            if automatic:
+                # Avoid hammering an unreachable NAS with every timer tick.
+                set_setting(
+                    self.conn,
+                    f"archive_campaign_autorun_failed_{current_quota_day()}",
+                    "1",
+                )
+            else:
+                self._error("Помилка deep-черги NAS", RuntimeError(message))
+            self.statusBar().showMessage("Deep-черга NAS · помилка")
+
+        def finished() -> None:
+            if getattr(self, "_archive_deep_worker", None) is worker:
+                self._archive_deep_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+        return True
 
     def run_archive_campaign_step(self, *, automatic: bool = False) -> bool:
-        stats = self._archive_campaign_stats()
+        stats = self._archive_campaign_stats_cached()
+        if not self._archive_stats_fresh_for_actions():
+            self.statusBar().showMessage(
+                "Кампанія архіву: очікування статистики NAS"
+            )
+            return False
         phase, target = next_campaign_phase(stats)
         if phase == "complete":
             save_campaign_checkpoint(
@@ -7935,7 +8535,9 @@ class MainWindow(QMainWindow):
                 status="complete",
                 note="campaign_complete",
             )
-            self._advance_archive_campaign(notify=not automatic)
+            self._advance_archive_campaign(
+                notify=not automatic, stats_override=stats
+            )
             return True
 
         if target:
@@ -7971,31 +8573,23 @@ class MainWindow(QMainWindow):
                 notify=not automatic,
             )
         elif phase == "deep":
-            self.export_deep_review_queue_to_nas(
+            launched = self._start_deep_archive_worker(
                 target,
-                notify=not automatic,
+                capacity=int(budget.get("deep_transcript_capacity", 0)),
+                automatic=automatic,
             )
-            if int(budget.get("deep_transcript_capacity", 0)) > 0:
-                self.export_deep_review_transcripts(
-                    target,
-                    confirm=False,
-                    notify=not automatic,
+            if not launched:
+                save_campaign_checkpoint(
+                    self.conn, phase="deep", target=target,
+                    status="paused_io", note="background_worker_busy",
                 )
-            self.import_deep_review_packages(
-                target,
-                notify=False,
-            )
+            # Do not mark this quota day finished before the worker imports
+            # drafts and a separate NAS scan confirms the resulting state.
+            return False
 
+        # A phase transition is committed by _on_archive_stats_ready after
+        # a new asynchronous NAS/SQLite scan, not here in the Qt event loop.
         self._advance_archive_campaign()
-        refreshed = self._archive_campaign_stats()
-        next_phase, next_target = next_campaign_phase(refreshed)
-        save_campaign_checkpoint(
-            self.conn,
-            phase=next_phase,
-            target=next_target,
-            status="complete" if next_phase == "complete" else "ready",
-            note="",
-        )
         return True
 
 
@@ -8100,6 +8694,27 @@ class MainWindow(QMainWindow):
             return
         if getattr(self, "_archive_campaign_autorun_running", False):
             return
+        active_deep = getattr(self, "_archive_deep_worker", None)
+        if active_deep is not None and active_deep.isRunning():
+            return
+        if get_setting(
+            self.conn,
+            f"archive_campaign_autorun_failed_{current_quota_day()}",
+            "0",
+        ) == "1":
+            return
+        # Never scan remote subtitles inside a timed GUI callback.
+        cached_stats = getattr(self, "_dashboard_archive_stats_cache", None)
+        cached_at = float(
+            getattr(self, "_dashboard_archive_stats_cache_at", 0.0) or 0.0
+        )
+        if (
+            cached_stats is None
+            or getattr(self, "_archive_stats_unavailable", False)
+            or time.monotonic() - cached_at >= 300.0
+        ):
+            self._refresh_archive_stats_async()
+            return
 
         self._archive_campaign_autorun_running = True
         try:
@@ -8113,10 +8728,10 @@ class MainWindow(QMainWindow):
             ):
                 return
 
-            stats = self._archive_campaign_stats()
+            stats = cached_stats
             phase, target = next_campaign_phase(stats)
             if phase == "complete":
-                self._advance_archive_campaign()
+                self._advance_archive_campaign(stats_override=cached_stats)
                 set_setting(self.conn, done_key, "1")
                 return
 
@@ -8132,7 +8747,7 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                if target:
+                if target and phase == "safe":
                     client = YouTubeClient(profile=target)
                     client.credentials()
                     self.client = client
@@ -8150,7 +8765,13 @@ class MainWindow(QMainWindow):
                         return
                 completed = self.run_archive_campaign_step(automatic=True)
                 if completed:
-                    set_setting(self.conn, done_key, "1")
+                    # Mark daily work complete only after fresh NAS+DB counts
+                    # reconcile the post-write phase. An offline share must
+                    # never silently mark an unverified run as finished.
+                    if getattr(self, "_archive_campaign_reconcile_pending", False):
+                        self._archive_campaign_autorun_done_pending = done_key
+                    else:
+                        set_setting(self.conn, done_key, "1")
                     log_action(
                         self.conn,
                         profile=target or self.current_profile,
@@ -8241,7 +8862,24 @@ class MainWindow(QMainWindow):
         layout.addLayout(buttons)
 
         def refresh() -> None:
-            stats = self._archive_campaign_stats()
+            # A remote NAS .exists() can hang Windows indefinitely.
+            # The async cache refreshes independently from this Qt dialog.
+            stats = self._archive_campaign_stats_cached()
+            if not self._archive_stats_fresh_for_actions():
+                phase_label.setText("Статистика архіву завантажується…")
+                next_label.setText("Пошук SRT на NAS виконується у фоні.")
+                quota_label.setText("Дані кампанії ще не готові.")
+                run_btn.setEnabled(False)
+                open_btn.setEnabled(False)
+                return
+            if getattr(self, "_archive_stats_unavailable", False):
+                phase_label.setText("Статистика архіву недоступна")
+                next_label.setText("Перевірте з’єднання з NAS та оновіть.")
+                quota_label.setText("Невідомий стан. Автоматичні дії заблоковано.")
+                run_btn.setEnabled(False)
+                open_btn.setEnabled(False)
+                return
+            open_btn.setEnabled(True)
             budget = self._archive_campaign_budget()
             phase, target = next_campaign_phase(stats)
             phase_name = {
@@ -8323,7 +8961,10 @@ class MainWindow(QMainWindow):
             refresh()
 
         def open_current() -> None:
-            stats = self._archive_campaign_stats()
+            stats = self._archive_campaign_stats_cached()
+            if not self._archive_stats_fresh_for_actions():
+                refresh()
+                return
             phase, target = next_campaign_phase(stats)
             if target:
                 self._activate_profile(target)
@@ -8343,6 +8984,10 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(refresh)
         close_btn.clicked.connect(dialog.accept)
 
+        cache_timer = QTimer(dialog)
+        cache_timer.timeout.connect(refresh)
+        dialog.finished.connect(cache_timer.stop)
+        cache_timer.start(1000)
         refresh()
         dialog.exec()
 
@@ -8904,18 +9549,22 @@ class MainWindow(QMainWindow):
                 )
             )
 
+        # One NAS directory scan runs in a worker; never perform one SMB
+        # .exists() call per table row on the Qt UI thread.
+        transcript_path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        cached_transcript_ids = (
+            getattr(self, "_nas_transcript_ids", set())
+            if getattr(self, "_nas_transcript_path", "") == transcript_path
+            else set()
+        )
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
         ):
-            transcript_dir = self._nas_path(
-                "nas_transcripts_path",
-                DEFAULT_NAS_TRANSCRIPTS_PATH,
-            )
             transcript_status = (
-                "NAS"
-                if (transcript_dir / f"{row['video_id']}.srt").exists()
-                else ""
+                "NAS" if str(row["video_id"]) in cached_transcript_ids else ""
             )
             draft_key = displayed_status(row)
             draft_generation = str(row["draft_generation"] or "legacy")
@@ -9085,6 +9734,84 @@ class MainWindow(QMainWindow):
         self._update_optimization_context_card()
         self.update_dashboard()
         self.refresh_archive_dashboard()
+        QTimer.singleShot(0, self._refresh_transcript_availability_async)
+
+    def _refresh_transcript_availability_async(self) -> None:
+        """One background SMB directory scan supplies all transcript badges."""
+        worker = getattr(self, "_transcript_availability_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        path = str(self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        ))
+        cached_at = float(
+            getattr(self, "_nas_transcript_cache_at", 0.0) or 0.0
+        )
+        if (
+            path == getattr(self, "_nas_transcript_path", "")
+            and 0 <= time.monotonic() - cached_at < 30.0
+        ):
+            return
+
+        def task() -> tuple[str, set[str]]:
+            # Scandir reads the directory once; calling is_file()/stat() for
+            # every entry could still cause N extra remote round trips.
+            with os.scandir(path) as entries:
+                available = {
+                    entry.name[:-4]
+                    for entry in entries
+                    if entry.name.lower().endswith(".srt")
+                }
+            return path, available
+
+        worker = LocalToolWorker(task, self)
+        self._transcript_availability_worker = worker
+
+        def succeeded(result: object) -> None:
+            if not isinstance(result, tuple) or len(result) != 2:
+                return
+            scanned_path, video_ids = result
+            if scanned_path != str(self._nas_path(
+                "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+            )):
+                return
+            self._nas_transcript_path = scanned_path
+            self._nas_transcript_ids = set(video_ids)
+            self._nas_transcript_cache_at = time.monotonic()
+            self._paint_transcript_availability()
+
+        def failed(_message: str) -> None:
+            # A missing NAS must not freeze the Qt GUI or preserve stale badges.
+            self._nas_transcript_path = path
+            self._nas_transcript_ids = set()
+            self._nas_transcript_cache_at = time.monotonic()
+            self._paint_transcript_availability()
+
+        def finished() -> None:
+            if getattr(self, "_transcript_availability_worker", None) is worker:
+                self._transcript_availability_worker = None
+
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _paint_transcript_availability(self) -> None:
+        table = getattr(self, "optimization_table", None)
+        if table is None:
+            return
+        ids = getattr(self, "_nas_transcript_ids", set())
+        for row_index in range(table.rowCount()):
+            key = table.item(row_index, 3)
+            badge = table.item(row_index, 7)
+            if key is None or badge is None:
+                continue
+            video_id = str(key.data(Qt.ItemDataRole.UserRole) or "")
+            visible = video_id in ids
+            badge.setText("NAS" if visible else "")
+            if visible:
+                badge.setForeground(QColor(SUCCESS))
+                badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
 
     def _current_video_metadata(self, video_id: str) -> tuple[str, str, list[str]]:
         counted = getattr(self.client, "video_details_with_request_count", None)
@@ -9109,130 +9836,234 @@ class MainWindow(QMainWindow):
         )
 
     def preview_safe_optimization(self) -> None:
+        """Obtain live metadata off the GUI thread before showing the diff."""
+        running = getattr(self, "_safe_preview_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if not video_ids:
             QMessageBox.information(
                 self, APP_NAME, "Виберіть одне відео в черзі оптимізації."
             )
             return
-        video_id = video_ids[0]
-        try:
-            title, description, _tags = self._current_video_metadata(video_id)
-            fix = safe_description_fix(description, title)
-            needs_content = safe_description_needs_content_package(
-                fix.after,
-                title,
-            )
+        video_id = str(video_ids[0])
+        origin_profile = self.current_profile
+        db_path = self.data_dir / "rg_youtube_control.db"
 
-            dialog = QDialog(self)
-            dialog.setWindowTitle(f"Попередній перегляд · {title}")
-            dialog.resize(1050, 720)
-            layout = QVBoxLayout(dialog)
-            changes = ", ".join(fix.changes) if fix.changes else "змін немає"
-            layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
-            if needs_content:
-                warning = QLabel(
-                    "УВАГА: після очищення старого службового блоку змістовного "
-                    "опису недостатньо. Це відео не можна застосовувати через "
-                    "безпечний пакет. Потрібен контент-пакет/транскрипт."
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                client = YouTubeClient(profile=origin_profile)
+                counted = getattr(
+                    client, "video_details_with_request_count", None
                 )
-                warning.setWordWrap(True)
-                warning.setObjectName("warningLabel")
-                layout.addWidget(warning)
+                if callable(counted):
+                    items, requests = counted([video_id])
+                    cost = int(requests) * READ_REQUEST_COST
+                else:
+                    items = client.video_details([video_id])
+                    cost = READ_REQUEST_COST
+                record_quota_units(worker_conn, cost, purpose="video")
+                if not items:
+                    raise RuntimeError(f"Відео не знайдено: {video_id}")
+                snippet = items[0].get("snippet") or {}
+                title = str(snippet.get("title") or "")
+                description = str(snippet.get("description") or "")
+                fix = safe_description_fix(description, title)
+                return {
+                    "title": title,
+                    "before": fix.before,
+                    "after": fix.after,
+                    "changes": tuple(fix.changes),
+                    "needs_content": safe_description_needs_content_package(
+                        fix.after, title,
+                    ),
+                    "video_id": video_id,
+                    "profile": origin_profile,
+                }
+            finally:
+                worker_conn.close()
 
-            columns = QHBoxLayout()
-            before = QPlainTextEdit(fix.before)
-            before.setReadOnly(True)
-            after = QPlainTextEdit(fix.after)
-            after.setReadOnly(True)
-            left = QVBoxLayout()
-            left.addWidget(QLabel("ДО"))
-            left.addWidget(before)
-            right = QVBoxLayout()
-            right.addWidget(QLabel("ПІСЛЯ"))
-            right.addWidget(after)
-            columns.addLayout(left)
-            columns.addLayout(right)
-            layout.addLayout(columns)
+        worker = LocalToolWorker(task, self)
+        self._safe_preview_worker = worker
+        self.statusBar().showMessage(
+            f"Попередній перегляд {video_id}: отримання метаданих…"
+        )
 
-            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
-            buttons.rejected.connect(dialog.reject)
-            buttons.accepted.connect(dialog.accept)
-            buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
-                dialog.accept
+        def success(result: object) -> None:
+            self.refresh_youtube_quota_label()
+            current = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (result["video_id"],),
+            ).fetchone()
+            if (current is None
+                or str(current["profile"]) != origin_profile
+                or self.current_profile != origin_profile):
+                self.statusBar().showMessage(
+                    "Попередній перегляд скасовано: канал змінено"
+                )
+                return
+            self._show_safe_optimization_preview(result)
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error(
+                "Помилка попереднього перегляду", RuntimeError(message),
             )
-            layout.addWidget(buttons)
-            dialog.exec()
-        except Exception as exc:
-            self._error("Помилка попереднього перегляду", exc)
+
+        def finished() -> None:
+            if getattr(self, "_safe_preview_worker", None) is worker:
+                self._safe_preview_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _show_safe_optimization_preview(self, result: dict) -> None:
+        """Only build/execute Qt dialogs on the GUI event loop."""
+        title = str(result["title"])
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Попередній перегляд · {title}")
+        dialog.resize(1050, 720)
+        layout = QVBoxLayout(dialog)
+        changes = (
+            ", ".join(result["changes"])
+            if result["changes"] else "змін немає"
+        )
+        layout.addWidget(QLabel(f"Безпечні зміни: {changes}"))
+        if result["needs_content"]:
+            warning = QLabel(
+                "УВАГА: після очищення старого службового блоку змістовного "
+                "опису недостатньо. Це відео не можна застосовувати через "
+                "безпечний пакет. Потрібен контент-пакет/транскрипт."
+            )
+            warning.setWordWrap(True)
+            warning.setObjectName("warningLabel")
+            layout.addWidget(warning)
+
+        columns = QHBoxLayout()
+        before = QPlainTextEdit(str(result["before"]))
+        before.setReadOnly(True)
+        after = QPlainTextEdit(str(result["after"]))
+        after.setReadOnly(True)
+        left = QVBoxLayout()
+        left.addWidget(QLabel("ДО"))
+        left.addWidget(before)
+        right = QVBoxLayout()
+        right.addWidget(QLabel("ПІСЛЯ"))
+        right.addWidget(after)
+        columns.addLayout(left)
+        columns.addLayout(right)
+        layout.addLayout(columns)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(
+            dialog.accept
+        )
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def test_nas_transcript_path(self) -> None:
+        """NAS and bridge may time out; keep the entire probe off the UI."""
+        running = getattr(self, "_nas_test_worker", None)
+        if running is not None and running.isRunning():
+            return
         target_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
         )
-        nas_ok = False
-        bridge_ok = False
-        details: list[str] = []
+        self.statusBar().showMessage("Перевірка NAS у фоні…")
 
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            probe = target_dir / "_rg_youtube_control_write_test.txt"
-            payload = (
-                "RG YouTube Control NAS write test\n"
-                + datetime.now(timezone.utc).isoformat()
-                + "\n"
+        def task():
+            from uuid import uuid4
+
+            nas_ok = False
+            bridge_ok = False
+            details: list[str] = []
+            probe = target_dir / (
+                "_rg_youtube_control_write_test_" + uuid4().hex + ".txt"
             )
-            probe.write_text(payload, encoding="utf-8")
-            check = probe.read_text(encoding="utf-8")
-            if check != payload:
-                raise RuntimeError("Контрольне читання не збіглося із записом.")
-            probe.unlink(missing_ok=True)
-            nas_ok = True
-            details.append(f"NAS: OK\n{target_dir}")
-        except Exception as exc:
-            details.append(f"NAS: ПОМИЛКА\n{target_dir}\n{exc}")
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                payload = (
+                    "RG YouTube Control NAS write test\n"
+                    + datetime.now(timezone.utc).isoformat() + "\n"
+                )
+                probe.write_text(payload, encoding="utf-8")
+                if probe.read_text(encoding="utf-8") != payload:
+                    raise RuntimeError(
+                        "Контрольне читання не збіглося із записом."
+                    )
+                nas_ok = True
+                details.append(f"NAS: OK\n{target_dir}")
+            except Exception as exc:
+                details.append(f"NAS: ПОМИЛКА\n{target_dir}\n{exc}")
+            finally:
+                try:
+                    probe.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
-        try:
-            health = bridge_health(PACKAGE_BRIDGE_URL)
-            bridge_ok = bool(health.get("ok"))
-            if bridge_ok:
+            try:
+                health = bridge_health(PACKAGE_BRIDGE_URL)
+                bridge_ok = bool(health.get("ok"))
+                if bridge_ok:
+                    details.append(
+                        f"Package Bridge: OK\n{PACKAGE_BRIDGE_URL}"
+                    )
+                else:
+                    details.append(
+                        "Package Bridge: некоректна відповідь\n"
+                        + PACKAGE_BRIDGE_URL
+                    )
+            except Exception as exc:
                 details.append(
-                    f"Package Bridge: OK\n{PACKAGE_BRIDGE_URL}"
+                    f"Package Bridge: ПОМИЛКА\n{PACKAGE_BRIDGE_URL}\n{exc}"
+                )
+            return nas_ok, bridge_ok, "\n\n".join(details)
+
+        worker = LocalToolWorker(task, self)
+        self._nas_test_worker = worker
+
+        def success(result: object) -> None:
+            nas_ok, bridge_ok, message = result
+            if nas_ok or bridge_ok:
+                QMessageBox.information(self, "Перевірка сховищ", message)
+                self.statusBar().showMessage(
+                    "Сховища: "
+                    + ("NAS + Bridge OK" if nas_ok and bridge_ok
+                       else "резервний канал доступний")
                 )
             else:
-                details.append(
-                    f"Package Bridge: некоректна відповідь\n{PACKAGE_BRIDGE_URL}"
+                QMessageBox.critical(
+                    self, "Помилка доступу до сховищ", message,
                 )
-        except Exception as exc:
-            details.append(
-                f"Package Bridge: ПОМИЛКА\n{PACKAGE_BRIDGE_URL}\n{exc}"
+                self.statusBar().showMessage(
+                    "Сховища: NAS і Package Bridge недоступні"
+                )
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage(
+                "Перевірка сховищ: помилка " + message[:150]
+            )
+            QMessageBox.critical(
+                self, "Помилка доступу до сховищ", message[:500],
             )
 
-        message = "\n\n".join(details)
-        if nas_ok or bridge_ok:
-            QMessageBox.information(
-                self,
-                "Перевірка сховищ",
-                message,
-            )
-            self.statusBar().showMessage(
-                "Сховища: " + (
-                    "NAS + Bridge OK"
-                    if nas_ok and bridge_ok
-                    else "резервний канал доступний"
-                )
-            )
-        else:
-            QMessageBox.critical(
-                self,
-                "Помилка доступу до сховищ",
-                message,
-            )
-            self.statusBar().showMessage(
-                "Сховища: NAS і Package Bridge недоступні"
-            )
+        def finished() -> None:
+            if getattr(self, "_nas_test_worker", None) is worker:
+                self._nas_test_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def _export_transcript_video_to_nas(
         self,
@@ -9332,196 +10163,147 @@ class MainWindow(QMainWindow):
         return srt_path, True
 
     def export_scheduled_transcripts_to_nas(self) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
+        profile = self.current_profile
         rows = self.conn.execute(
-            """SELECT video_id,title,scheduled_publish_at
-               FROM videos
-               WHERE profile=? AND scheduled_publish_at IS NOT NULL
-               ORDER BY scheduled_publish_at ASC""",
-            (self.current_profile,),
+            "SELECT video_id,title,scheduled_publish_at FROM videos "
+            "WHERE profile=? AND scheduled_publish_at IS NOT NULL "
+            "ORDER BY scheduled_publish_at ASC", (profile,),
         ).fetchall()
         if not rows:
             QMessageBox.information(
-                self,
-                APP_NAME,
-                "На активному каналі немає запланованих відео.",
+                self, APP_NAME, "На активному каналі немає запланованих відео.",
             )
             return
-
-        target_dir = self._nas_path(
-            "nas_transcripts_path",
-            DEFAULT_NAS_TRANSCRIPTS_PATH,
-        )
-        pending = [
-            row
+        captured = [
+            {"video_id": str(row["video_id"]),
+             "title": str(row["title"] or ""),
+             "scheduled_publish_at": str(row["scheduled_publish_at"] or "")}
             for row in rows
-            if not (target_dir / f"{row['video_id']}.srt").exists()
         ]
-        already = len(rows) - len(pending)
-
-        # Existing NAS transcripts are mirrored to Package Bridge without
-        # consuming YouTube Captions API quota.
-        for row in rows:
-            existing_path = target_dir / f"{row['video_id']}.srt"
-            if not existing_path.exists():
-                continue
-            try:
-                self._export_transcript_video_to_nas(str(row["video_id"]))
-            except Exception:
-                pass
-
-        if not pending:
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Усі {len(rows)} запланованих транскриптів уже є на NAS.",
-            )
-            self.reload_optimization_queue()
-            return
-
-        if len(pending) > 20:
-            QMessageBox.warning(
-                self,
-                APP_NAME,
-                "За один пакет можна отримати не більше 20 транскриптів.",
-            )
-            return
-
-        estimated = len(pending) * 250
         answer = QMessageBox.question(
-            self,
-            "Транскрипти запланованих відео",
-            f"Знайдено запланованих: {len(rows)}.\n"
-            f"Уже на NAS: {already}.\n"
-            f"Потрібно отримати: {len(pending)}.\n"
-            f"Оцінка квоти Captions API: до ≈{estimated} од.\n\n"
-            "Отримати транскрипти зараз?",
+            self, "Транскрипти запланованих відео",
+            f"Запланованих: {len(captured)}. До 20 нових SRT за пакет. "
+            "Перевірка NAS відбудеться у фоні, резерв API збережеться. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        saved = 0
-        skipped = already
-        errors: list[str] = []
-        report_items: list[dict[str, str | bool]] = []
-        for index, row in enumerate(pending, start=1):
-            video_id = row["video_id"]
-            self.statusBar().showMessage(
-                f"Транскрипти: {index}/{len(pending)} · {video_id}"
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_transcript_export_worker(
+                captured, profile=profile, single=False,
             )
-            QApplication.processEvents()
-            try:
-                path, downloaded = self._export_transcript_video_to_nas(video_id)
-                if downloaded:
-                    saved += 1
-                else:
-                    skipped += 1
-                report_items.append(
-                    {
-                        "video_id": video_id,
-                        "title": str(row["title"] or ""),
-                        "scheduled_publish_at": str(
-                            row["scheduled_publish_at"] or ""
-                        ),
-                        "ok": True,
-                        "downloaded": downloaded,
-                        "path": str(path),
-                        "error": "",
-                    }
-                )
-            except Exception as exc:
-                error_text = str(exc)
-                errors.append(f"{video_id}: {error_text}")
-                report_items.append(
-                    {
-                        "video_id": video_id,
-                        "title": str(row["title"] or ""),
-                        "scheduled_publish_at": str(
-                            row["scheduled_publish_at"] or ""
-                        ),
-                        "ok": False,
-                        "downloaded": False,
-                        "path": "",
-                        "error": error_text,
-                    }
-                )
-
-        report_payload = {
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "profile": self.current_profile,
-            "channel_id": PROFILE_TARGETS[self.current_profile],
-            "total_scheduled": len(rows),
-            "already_existing": already,
-            "downloaded": saved,
-            "failed": len(errors),
-            "items": report_items,
-        }
-        report_path = target_dir / "_last_transcript_report.json"
-        report_write_error = ""
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(
-                json.dumps(report_payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            report_write_error = str(exc)
-
-        self.reload_optimization_queue()
-        message = (
-            f"Готово. Збережено нових транскриптів: {saved}.\n"
-            f"Уже існувало: {skipped}."
-        )
-        if errors:
-            preview = "\n".join(errors[:8])
-            message += f"\n\nНе вдалося отримати: {len(errors)}\n{preview}"
-            if len(errors) > 8:
-                message += "\n…"
-        if report_write_error:
-            message += (
-                "\n\nЗвіт на NAS записати не вдалося:\n"
-                + report_write_error
-            )
-        else:
-            message += f"\n\nДіагностичний звіт:\n{report_path}"
-        QMessageBox.information(self, APP_NAME, message)
-        self.statusBar().showMessage("Пакет транскриптів оброблено")
 
     def export_selected_transcript_to_nas(self) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
-                self, APP_NAME, "Для транскрипту виберіть рівно одне відео."
+                self, APP_NAME, "Для транскрипту виберіть рівно одне відео.",
             )
             return
-
-        video_id = video_ids[0]
+        profile = self.current_profile
+        video_id = str(video_ids[0])
+        row = self.conn.execute(
+            "SELECT video_id,title,scheduled_publish_at FROM videos "
+            "WHERE video_id=? AND profile=?", (video_id, profile),
+        ).fetchone()
+        if row is None:
+            QMessageBox.warning(
+                self, APP_NAME, "Відео не належить активному каналу.",
+            )
+            return
         answer = QMessageBox.question(
-            self,
-            "Отримати транскрипт",
-            "Буде використано офіційний YouTube Captions API. "
-            "Операція читання доріжки субтитрів витрачає квоту API. Продовжити?",
+            self, "Отримати транскрипт",
+            "Captions API витрачає квоту, якщо SRT ще немає. Продовжити?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_transcript_export_worker(
+                [{"video_id": video_id, "title": str(row["title"] or ""),
+                  "scheduled_publish_at": str(row["scheduled_publish_at"] or "")}],
+                profile=profile, single=True,
+            )
 
-        try:
-            srt_path, downloaded = self._export_transcript_video_to_nas(video_id)
-            action = "збережено" if downloaded else "уже був на NAS"
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                f"Транскрипт {action}:\n{srt_path}",
-            )
-            self.reload_optimization_queue()
-            self.statusBar().showMessage(
-                f"Транскрипт {video_id}: {action}"
-            )
-        except Exception as exc:
-            self._error("Помилка отримання транскрипту", exc)
+    def _start_transcript_export_worker(
+        self, rows: list[dict[str, str]], *, profile: str, single: bool,
+    ) -> None:
+        active = getattr(self, "_transcript_export_worker", None)
+        if active is not None and active.isRunning():
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+        target_dir = self._nas_path(
+            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH,
+        )
+
+        def task():
+            import sqlite3
+            conn = sqlite3.connect(str(db_path), timeout=15)
+            conn.row_factory = sqlite3.Row
+            try:
+                return run_transcript_export(
+                    conn, profile=profile, rows=rows,
+                    target_dir=target_dir, client_factory=YouTubeClient,
+                    uploader=upload_transcript, bridge_url=PACKAGE_BRIDGE_URL,
+                    max_new=1 if single else 20,
+                )
+            finally:
+                conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._transcript_export_worker = worker
+        self.statusBar().showMessage("Транскрипти: NAS у фоні")
+
+        def success(result: object) -> None:
+            self.refresh_youtube_quota_label()
+            if self.current_profile == profile:
+                self.reload_optimization_queue()
+            errors = list(result.get("errors") or [])
+            if single:
+                items = result.get("items") or []
+                if items and items[0]["ok"]:
+                    action = (
+                        "збережено" if items[0]["downloaded"] else "уже був на NAS"
+                    )
+                    QMessageBox.information(
+                        self, APP_NAME,
+                        f"Транскрипт {action}:\n{items[0]['path']}",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self, APP_NAME,
+                        "\n".join(errors[:5]) or "Транскрипт недоступний.",
+                    )
+            else:
+                message = (
+                    f"Нових транскриптів: {result['saved']}.\n"
+                    f"Уже існувало: {result['already']}."
+                )
+                if errors:
+                    message += "\nПомилки:\n" + "\n".join(errors[:8])
+                if result.get("report_error"):
+                    message += "\nЗвіт NAS: " + str(result["report_error"])
+                else:
+                    message += "\nЗвіт: " + str(result["report_path"])
+                QMessageBox.information(self, APP_NAME, message)
+            self.statusBar().showMessage("Транскрипти оброблено")
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error("Помилка отримання транскриптів", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_transcript_export_worker", None) is worker:
+                self._transcript_export_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def _save_package_payload(
         self,
@@ -9639,6 +10421,10 @@ class MainWindow(QMainWindow):
         return status, tuple(errors), tuple(warnings)
 
     def import_selected_package_from_nas(self) -> None:
+        """Fetch the NAS/Bridge package outside Qt; commit only on the GUI thread."""
+        running = getattr(self, "_import_package_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -9647,60 +10433,110 @@ class MainWindow(QMainWindow):
             return
 
         video_id = video_ids[0]
-        try:
-            package_dir = self._nas_path(
-                "nas_packages_path",
-                DEFAULT_NAS_PACKAGES_PATH,
+        origin_profile = self.current_profile
+        owned = self.conn.execute(
+            "SELECT profile FROM videos WHERE video_id=?", (video_id,),
+        ).fetchone()
+        if owned is None or str(owned["profile"]) != origin_profile:
+            QMessageBox.warning(
+                self, APP_NAME, "Відео не належить активному каналу."
             )
+            return
+
+        draft_at_launch = self.conn.execute(
+            "SELECT status,new_title,updated_at FROM optimization_drafts "
+            "WHERE video_id=?", (video_id,),
+        ).fetchone()
+        expected_draft = (
+            tuple(draft_at_launch)
+            if draft_at_launch is not None else None
+        )
+        package_dir = self._nas_path(
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
+        )
+
+        def task():
             package_path = package_dir / f"{video_id}.json"
-            source = "NAS"
-            if package_path.exists():
-                payload = json.loads(
-                    package_path.read_text(encoding="utf-8")
-                )
+            if package_path.is_file():
+                payload = json.loads(package_path.read_text(encoding="utf-8"))
+                source = "NAS"
             else:
-                payload = fetch_package(
-                    PACKAGE_BRIDGE_URL,
-                    video_id,
-                )
+                payload = fetch_package(PACKAGE_BRIDGE_URL, video_id)
                 source = "Package Bridge"
-                if payload is None:
-                    QMessageBox.information(
-                        self,
-                        APP_NAME,
-                        "Пакет поки не знайдено.\n\n"
-                        f"NAS: {package_path}\n"
-                        f"Bridge: {PACKAGE_BRIDGE_URL}",
-                    )
-                    return
+            if payload is not None and not isinstance(payload, dict):
+                raise ValueError("Пакет повинен містити JSON-об'єкт")
+            return {"payload": payload, "source": source,
+                    "video_id": video_id, "profile": origin_profile,
+                    "path": str(package_path)}
 
-            status, errors, warnings = self._save_package_payload(
-                video_id,
-                payload,
-            )
-            self.reload_optimization_queue()
+        worker = LocalToolWorker(task, self)
+        self._import_package_worker = worker
+        self.statusBar().showMessage(f"Пакет {video_id}: NAS у фоні…")
 
-            details = [
-                f"Пакет імпортовано з {source}.",
-                f"Статус: {'Готово' if status == 'ready' else 'Чернетка'}.",
-            ]
-            if errors:
-                details.append(
-                    f"Критичних помилок: {len(errors)}."
+        def success(result: object) -> None:
+            if result["payload"] is None:
+                QMessageBox.information(
+                    self, APP_NAME,
+                    "Пакет поки не знайдено.\n\n"
+                    f"NAS: {result['path']}\nBridge: {PACKAGE_BRIDGE_URL}",
                 )
-            if warnings:
-                details.append(
-                    f"Рекомендацій: {len(warnings)}."
+                return
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if ownership is None or str(ownership["profile"]) != origin_profile:
+                self.statusBar().showMessage(
+                    "Імпорт скасовано: невідповідний канал"
                 )
-            QMessageBox.information(
-                self,
-                APP_NAME,
-                "\n".join(details),
-            )
-        except Exception as exc:
-            self._error("Помилка імпорту пакета", exc)
+                return
+            latest_draft = self.conn.execute(
+                "SELECT status,new_title,updated_at FROM optimization_drafts "
+                "WHERE video_id=?", (video_id,),
+            ).fetchone()
+            if (
+                tuple(latest_draft) if latest_draft is not None else None
+            ) != expected_draft:
+                self.statusBar().showMessage(
+                    "Пакет не імпортовано: SEO-чернетку змінено під час завантаження"
+                )
+                return
+            try:
+                status, errors, warnings = self._save_package_payload(
+                    video_id, result["payload"],
+                )
+                if self.current_profile == origin_profile:
+                    self.reload_optimization_queue()
+                details = [
+                    f"Пакет імпортовано з {result['source']}.",
+                    f"Статус: {'Готово' if status == 'ready' else 'Чернетка'}.",
+                ]
+                if errors:
+                    details.append(f"Критичних помилок: {len(errors)}.")
+                if warnings:
+                    details.append(f"Рекомендацій: {len(warnings)}.")
+                QMessageBox.information(self, APP_NAME, "\n".join(details))
+            except Exception as exc:
+                self._error("Помилка імпорту пакета", exc)
+
+        def failed(message: str) -> None:
+            self._error("Помилка імпорту пакета", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_import_package_worker", None) is worker:
+                self._import_package_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def fetch_scheduled_packages(self) -> None:
+        """Read scheduled NAS packages in one background job, never in Qt."""
+        running = getattr(self, "_scheduled_packages_worker", None)
+        if running is not None and running.isRunning():
+            return
+        origin_profile = self.current_profile
         rows = self.conn.execute(
             """SELECT v.video_id,v.scheduled_publish_at,
                       d.status,d.new_title
@@ -9709,103 +10545,140 @@ class MainWindow(QMainWindow):
                WHERE v.profile=?
                  AND v.scheduled_publish_at IS NOT NULL
                ORDER BY v.scheduled_publish_at ASC""",
-            (self.current_profile,),
+            (origin_profile,),
         ).fetchall()
         if not rows:
             QMessageBox.information(
-                self,
-                APP_NAME,
+                self, APP_NAME,
                 "На активному каналі немає запланованих стрімів.",
             )
             return
-
+        # Immutable snapshots only. Never pass SQLite rows to background jobs.
+        captured = [
+            (str(row["video_id"]), str(row["status"] or ""),
+             str(row["new_title"] or ""))
+            for row in rows
+        ]
         package_dir = self._nas_path(
-            "nas_packages_path",
-            DEFAULT_NAS_PACKAGES_PATH,
+            "nas_packages_path", DEFAULT_NAS_PACKAGES_PATH,
         )
-        imported = 0
-        ready = 0
-        draft = 0
-        skipped = 0
-        missing = 0
-        failed: list[str] = []
 
-        for index, row in enumerate(rows, start=1):
-            video_id = str(row["video_id"])
-            existing_status = str(row["status"] or "")
-            existing_title = _standard_hyphen(
-                str(row["new_title"] or "").strip()
-            )
+        def task():
+            loaded = []
+            for video_id, original_status, original_title in captured:
+                try:
+                    package_path = package_dir / f"{video_id}.json"
+                    if package_path.is_file():
+                        payload = json.loads(
+                            package_path.read_text(encoding="utf-8")
+                        )
+                    else:
+                        payload = fetch_package(PACKAGE_BRIDGE_URL, video_id)
+                    if payload is not None and not isinstance(payload, dict):
+                        raise ValueError("Пакет повинен містити JSON-об'єкт")
+                    loaded.append((
+                        video_id, original_status, original_title, payload, "",
+                    ))
+                except Exception as exc:
+                    loaded.append((
+                        video_id, original_status, original_title,
+                        None, str(exc)[:500],
+                    ))
+            return loaded
 
-            self.statusBar().showMessage(
-                f"Пакети запланованих: {index}/{len(rows)} · {video_id}"
-            )
-            QApplication.processEvents()
+        worker = LocalToolWorker(task, self)
+        self._scheduled_packages_worker = worker
+        self.statusBar().showMessage("Пакети запланованих: NAS у фоні…")
 
-            try:
-                package_path = package_dir / f"{video_id}.json"
-                if package_path.exists():
-                    payload = json.loads(
-                        package_path.read_text(encoding="utf-8")
-                    )
-                else:
-                    payload = fetch_package(
-                        PACKAGE_BRIDGE_URL,
-                        video_id,
-                    )
+        def success(loaded: object) -> None:
+            imported = ready = draft = skipped = missing = 0
+            failed: list[str] = []
+            for video_id, old_status, old_title, payload, error in loaded:
+                if error:
+                    failed.append(f"{video_id}: {error}")
+                    continue
                 if payload is None:
                     missing += 1
                     continue
-
-                remote_title = _standard_hyphen(
-                    str(
-                        payload.get("new_title")
-                        or payload.get("title")
-                        or ""
-                    ).strip()
-                )
-                if (
-                    existing_status in {"ready", "applied"}
-                    and existing_title
-                    and existing_title == remote_title
-                ):
+                # The operator may have edited the draft or switched channels
+                # while NAS was slow. Never overwrite that newer local state.
+                current = self.conn.execute(
+                    """SELECT v.profile,d.status,d.new_title
+                       FROM videos v
+                       LEFT JOIN optimization_drafts d
+                         ON d.video_id=v.video_id
+                       WHERE v.video_id=?""",
+                    (video_id,),
+                ).fetchone()
+                if current is None or str(current["profile"]) != origin_profile:
                     skipped += 1
                     continue
-
-                status, errors, _warnings = self._save_package_payload(
-                    video_id,
-                    payload,
+                if (str(current["status"] or "") != old_status
+                    or str(current["new_title"] or "") != old_title):
+                    skipped += 1
+                    continue
+                remote_title = _standard_hyphen(
+                    str(payload.get("new_title") or payload.get("title")
+                        or "").strip()
                 )
-                imported += 1
-                if status == "ready" and not errors:
-                    ready += 1
-                else:
-                    draft += 1
-            except Exception as exc:
-                failed.append(f"{video_id}: {exc}")
+                existing_title = _standard_hyphen(old_title.strip())
+                # A ready/applied draft belongs to the operator. A remote
+                # package import cannot silently replace reviewed work.
+                if old_status in {"ready", "applied"}:
+                    skipped += 1
+                    continue
+                try:
+                    status, errors, _warnings = self._save_package_payload(
+                        video_id, payload,
+                    )
+                    imported += 1
+                    if status == "ready" and not errors:
+                        ready += 1
+                    else:
+                        draft += 1
+                except Exception as exc:
+                    failed.append(f"{video_id}: {exc}")
 
-        self.reload_optimization_queue()
-        message = (
-            f"Запланованих: {len(rows)}.\n"
-            f"Імпортовано пакетів: {imported}.\n"
-            f"Готово до застосування: {ready}.\n"
-            f"Чернеток після перевірки: {draft}.\n"
-            f"Без змін: {skipped}.\n"
-            f"Пакетів поки немає: {missing}."
-        )
-        if failed:
-            message += (
-                f"\nПомилок: {len(failed)}.\n\n"
-                + "\n".join(failed[:5])
+            if self.current_profile == origin_profile:
+                self.reload_optimization_queue()
+            message = (
+                f"Запланованих: {len(captured)}.\n"
+                f"Імпортовано пакетів: {imported}.\n"
+                f"Готово до застосування: {ready}.\n"
+                f"Чернеток після перевірки: {draft}.\n"
+                f"Без змін: {skipped}.\n"
+                f"Пакетів поки немає: {missing}."
             )
-        QMessageBox.information(
-            self,
-            "Пакети запланованих стрімів",
-            message,
-        )
-        self.statusBar().showMessage("Пакети запланованих перевірено")
+            if failed:
+                message += (
+                    f"\nПомилок: {len(failed)}.\n\n"
+                    + "\n".join(failed[:5])
+                )
+            QMessageBox.information(
+                self, "Пакети запланованих стрімів", message,
+            )
+            self.statusBar().showMessage("Пакети запланованих перевірено")
+
+        def failed(message: str) -> None:
+            self._error(
+                "Помилка пакетів запланованих стрімів",
+                RuntimeError(message),
+            )
+
+        def finished() -> None:
+            if getattr(self, "_scheduled_packages_worker", None) is worker:
+                self._scheduled_packages_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
 
     def edit_content_package(self) -> None:
+        """Never make a blocking YouTube request while opening the SEO editor."""
+        running = getattr(self, "_content_editor_worker", None)
+        if running is not None and running.isRunning():
+            return
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
@@ -9813,21 +10686,105 @@ class MainWindow(QMainWindow):
             )
             return
 
-        video_id = video_ids[0]
-        try:
-            video_row = self.conn.execute(
-                "SELECT scheduled_publish_at FROM videos WHERE video_id=?",
+        video_id = str(video_ids[0])
+        origin_profile = self.current_profile
+        row = self.conn.execute(
+            "SELECT profile FROM videos WHERE video_id=?",
+            (video_id,),
+        ).fetchone()
+        if row is None or str(row["profile"]) != origin_profile:
+            QMessageBox.warning(self, APP_NAME, "Відео не належить активному каналу.")
+            return
+        db_path = self.data_dir / "rg_youtube_control.db"
+
+        def task():
+            import sqlite3
+
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                client = YouTubeClient(profile=origin_profile)
+                counted = getattr(
+                    client, "video_details_with_request_count", None
+                )
+                if callable(counted):
+                    items, requests = counted([video_id])
+                    cost = int(requests) * READ_REQUEST_COST
+                else:
+                    items = client.video_details([video_id])
+                    cost = READ_REQUEST_COST
+                record_quota_units(worker_conn, cost, purpose="video")
+                if not items:
+                    raise RuntimeError(f"Відео не знайдено: {video_id}")
+                snippet = items[0].get("snippet") or {}
+                return {
+                    "video_id": video_id,
+                    "profile": origin_profile,
+                    "title": str(snippet.get("title") or ""),
+                    "description": str(snippet.get("description") or ""),
+                    "tags": list(snippet.get("tags") or []),
+                }
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._content_editor_worker = worker
+        self.statusBar().showMessage(
+            f"SEO-редактор {video_id}: завантаження метаданих у фоні…"
+        )
+
+        def success(metadata: object) -> None:
+            self.refresh_youtube_quota_label()
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
                 (video_id,),
             ).fetchone()
+            if (self.current_profile != origin_profile
+                or ownership is None
+                or str(ownership["profile"]) != origin_profile):
+                self.statusBar().showMessage(
+                    "SEO-редактор скасовано: канал змінено"
+                )
+                return
+            self._show_content_package_editor(metadata)
+
+        def failed(message: str) -> None:
+            self.refresh_youtube_quota_label()
+            self._error("Помилка пакета оптимізації", RuntimeError(message))
+
+        def finished() -> None:
+            if getattr(self, "_content_editor_worker", None) is worker:
+                self._content_editor_worker = None
+
+        worker.succeeded.connect(success)
+        worker.failed.connect(failed)
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _show_content_package_editor(self, metadata: dict) -> None:
+        """Keep dialogs and saving on Qt, and reject obsolete draft revisions."""
+        video_id = str(metadata["video_id"])
+        origin_profile = str(metadata["profile"])
+        if self.current_profile != origin_profile:
+            return
+        try:
+            video_row = self.conn.execute(
+                "SELECT profile,scheduled_publish_at FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if video_row is None or str(video_row["profile"]) != origin_profile:
+                return
             scheduled_publish_at = (
                 str(video_row["scheduled_publish_at"])
-                if video_row and video_row["scheduled_publish_at"]
-                else None
+                if video_row["scheduled_publish_at"] else None
             )
-            current_title, current_description, current_tags = (
-                self._current_video_metadata(video_id)
-            )
+            current_title = str(metadata["title"])
+            current_description = str(metadata["description"])
+            current_tags = list(metadata["tags"])
             draft = get_optimization_draft(self.conn, video_id)
+            original_draft_timestamp = (
+                str(draft["updated_at"]) if draft is not None else None
+            )
             if draft is None:
                 title = current_title
                 description = current_description
@@ -9836,7 +10793,6 @@ class MainWindow(QMainWindow):
                 status = "draft"
                 title_variants = []
             else:
-                import json
                 title = draft["new_title"]
                 description = draft["description"]
                 chapters = draft["chapters"]
@@ -9845,31 +10801,42 @@ class MainWindow(QMainWindow):
                     draft["title_variants_json"] or "[]"
                 )
                 status = draft["status"]
-                # A stored "ready" flag is not editorial approval. Keep the
-                # original DB record intact, but show the effective status.
-                if status == "ready" and self._effective_optimization_status(video_id) != "ready":
+                # Stored ready status alone is not editorial approval.
+                if (status == "ready"
+                    and self._effective_optimization_status(video_id) != "ready"):
                     status = "draft"
 
             dialog = ContentOptimizationDialog(
-                title,
-                description,
-                chapters,
-                tags,
-                status,
-                title_variants,
-                scheduled_publish_at,
-                self,
-                generation=(str(draft["generation"] or "") if draft is not None else "manual"),
+                title, description, chapters, tags, status, title_variants,
+                scheduled_publish_at, self,
+                generation=(
+                    str(draft["generation"] or "")
+                    if draft is not None else "manual"
+                ),
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
+            revision = get_optimization_draft(self.conn, video_id)
+            current_revision = (
+                str(revision["updated_at"]) if revision is not None else None
+            )
+            ownership = self.conn.execute(
+                "SELECT profile FROM videos WHERE video_id=?",
+                (video_id,),
+            ).fetchone()
+            if (self.current_profile != origin_profile
+                or ownership is None
+                or str(ownership["profile"]) != origin_profile
+                or current_revision != original_draft_timestamp):
+                QMessageBox.warning(
+                    self, APP_NAME,
+                    "Чернетка або канал змінилися під час редагування. "
+                    "Зміни не записано. Відкрийте SEO-редактор повторно.",
+                )
+                return
 
             (
-                new_title,
-                description,
-                chapters,
-                tags,
-                status,
+                new_title, description, chapters, tags, status,
                 title_variants,
             ) = dialog.values()
             quality_state, quality_reasons = self._package_quality_gate(
@@ -9890,8 +10857,7 @@ class MainWindow(QMainWindow):
                 title_variants,
                 generation=(
                     str(draft["generation"] or "manual")
-                    if draft is not None
-                    else "manual"
+                    if draft is not None else "manual"
                 ),
                 quality_state=(
                     "safe" if quality_state == "safe" and status != "draft"
@@ -12099,39 +13065,79 @@ class MainWindow(QMainWindow):
             )
 
     def background_metadata_sync(self) -> None:
-        worker = getattr(self, "_local_tool_worker", None)
-        if worker is not None and worker.isRunning():
+        """Scheduled metadata refresh must never block the Qt event loop."""
+        local = getattr(self, "_local_tool_worker", None)
+        if local is not None and local.isRunning():
+            return
+        running = getattr(self, "_background_metadata_worker", None)
+        if running is not None and running.isRunning():
             return
         budget = quota_budget_status(self.conn)
         if bool(budget["exhausted"]) or int(budget["spendable"]) < 6:
             return
 
-        before = today_quota_units(self.conn)
-        changed = 0
-        for profile in PROFILE_TARGETS:
-            client = YouTubeClient(profile=profile)
-            try:
-                client.credentials()
-                rows = sync_videos(client, self.conn, limit=50)
-                streams = sync_upcoming_live_broadcasts(client, self.conn)
-                changed += len(rows) + len(streams)
-            except Exception as exc:
-                if _is_quota_exceeded_error(exc):
-                    mark_quota_exhausted(self.conn)
-                    break
-                log_action(
-                    self.conn,
-                    profile=profile,
-                    category="діагностика",
-                    action="Фонова синхронізація пропущена",
-                    details=str(exc)[:500],
-                )
+        self._metadata_sync_before_units = today_quota_units(self.conn)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS)
 
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            try:
+                changed = 0
+                for profile in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                        rows = sync_videos(client, worker_conn, limit=50)
+                        streams = sync_upcoming_live_broadcasts(client, worker_conn)
+                        changed += len(rows) + len(streams)
+                    except Exception as exc:
+                        if _is_quota_exceeded_error(exc):
+                            mark_quota_exhausted(worker_conn)
+                            break
+                        log_action(
+                            worker_conn,
+                            profile=profile,
+                            category="діагностика",
+                            action="Фонова синхронізація пропущена",
+                            details=str(exc)[:500],
+                        )
+                return changed
+            finally:
+                worker_conn.close()
+
+        worker = LocalToolWorker(task, self)
+        self._background_metadata_worker = worker
+        worker.succeeded.connect(self._on_background_metadata_synced)
+        worker.failed.connect(self._on_background_metadata_error)
+        worker.finished.connect(self._on_background_metadata_finished)
+        worker.start()
+
+    def _on_background_metadata_finished(self) -> None:
+        self._background_metadata_worker = None
+
+    def _on_background_metadata_error(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="діагностика",
+            action="Фонова синхронізація: помилка",
+            details=str(message)[:500],
+        )
+
+    def _on_background_metadata_synced(self, changed: object) -> None:
+        changed = int(changed or 0)
         if changed:
             self.reload_videos()
             self.reload_optimization_queue()
             self.update_dashboard()
-        consumed = max(0, today_quota_units(self.conn) - before)
+        consumed = max(
+            0,
+            today_quota_units(self.conn)
+            - int(getattr(self, "_metadata_sync_before_units", 0)),
+        )
         if consumed:
             log_action(
                 self.conn,
@@ -12142,16 +13148,18 @@ class MainWindow(QMainWindow):
             )
 
     def background_scan_all_channels(self) -> None:
+        """Run potentially slow YouTube comment API calls off the GUI thread."""
         if not hasattr(self, "background_box") or not self.background_box.isChecked():
             return
         if getattr(self, "_archive_campaign_autorun_running", False):
             return
+        running = getattr(self, "_comment_scan_worker", None)
+        if running is not None and running.isRunning():
+            return
         if archive_priority_enabled(self.conn):
             now = datetime.now(timezone.utc)
             raw = get_setting(
-                self.conn,
-                "archive_priority_comment_scan_last",
-                "",
+                self.conn, "archive_priority_comment_scan_last", "",
             )
             if raw:
                 try:
@@ -12163,73 +13171,95 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     pass
             set_setting(
-                self.conn,
-                "archive_priority_comment_scan_last",
-                now.isoformat(),
+                self.conn, "archive_priority_comment_scan_last", now.isoformat(),
             )
 
-        summaries: list[str] = []
-        for profile, target_id in PROFILE_TARGETS.items():
-            client = YouTubeClient(profile=profile)
+        db_path = self.data_dir / "rg_youtube_control.db"
+        profiles = tuple(PROFILE_TARGETS.items())
+
+        def task():
+            import sqlite3
+            worker_conn = sqlite3.connect(str(db_path), timeout=15)
+            worker_conn.row_factory = sqlite3.Row
+            summaries: list[str] = []
             try:
-                client.credentials()
-            except Exception:
-                continue
+                for profile, target_id in profiles:
+                    client = YouTubeClient(profile=profile)
+                    try:
+                        client.credentials()
+                    except Exception:
+                        continue
+                    default_auto = (
+                        get_setting(worker_conn, "auto_reply_enabled", "0")
+                        if profile == "main" else "0"
+                    )
+                    auto_enabled = get_setting(
+                        worker_conn,
+                        f"auto_reply_enabled_{profile}",
+                        default_auto,
+                    ) == "1"
+                    daily_limit = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_daily_limit_{profile}",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
+                    ))
+                    scan_limit = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_scan_limit_{profile}",
+                        str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
+                    ))
+                    age_hours = int(get_setting(
+                        worker_conn,
+                        f"auto_reply_max_age_hours_{profile}",
+                        str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
+                    ))
+                    try:
+                        stats = scan_channel_comments(
+                            client,
+                            worker_conn,
+                            target_id,
+                            auto_reply=auto_enabled,
+                            max_auto_replies=daily_limit,
+                            max_auto_replies_per_scan=scan_limit,
+                            max_auto_age_hours=age_hours,
+                        )
+                        summaries.append(
+                            f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
+                            f"авто {stats['auto_replied']}, API {stats['api_reads']}"
+                        )
+                    except Exception as exc:
+                        summaries.append(
+                            f"{PROFILE_LABELS[profile]}: помилка {str(exc)[:120]}"
+                        )
+                return summaries
+            finally:
+                worker_conn.close()
 
-            default_auto = (
-                get_setting(self.conn, "auto_reply_enabled", "0")
-                if profile == "main"
-                else "0"
-            )
-            auto_enabled = get_setting(
-                self.conn,
-                f"auto_reply_enabled_{profile}",
-                default_auto,
-            ) == "1"
-            daily_limit = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_daily_limit_{profile}",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_DAY),
-                )
-            )
-            scan_limit = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_scan_limit_{profile}",
-                    str(DEFAULT_MAX_AUTO_REPLIES_PER_SCAN),
-                )
-            )
-            age_hours = int(
-                get_setting(
-                    self.conn,
-                    f"auto_reply_max_age_hours_{profile}",
-                    str(DEFAULT_AUTO_REPLY_MAX_AGE_HOURS),
-                )
-            )
+        worker = LocalToolWorker(task, self)
+        self._comment_scan_worker = worker
+        worker.succeeded.connect(self._on_comment_scan_finished_ok)
+        worker.failed.connect(self._on_comment_scan_failed)
+        worker.finished.connect(self._on_comment_scan_released)
+        worker.start()
 
-            try:
-                stats = scan_channel_comments(
-                    client,
-                    self.conn,
-                    target_id,
-                    auto_reply=auto_enabled,
-                    max_auto_replies=daily_limit,
-                    max_auto_replies_per_scan=scan_limit,
-                    max_auto_age_hours=age_hours,
-                )
-                summaries.append(
-                    f"{PROFILE_LABELS[profile]}: нових {stats['seen']}, "
-                    f"авто {stats['auto_replied']}, API {stats['api_reads']}"
-                )
-            except Exception:
-                summaries.append(f"{PROFILE_LABELS[profile]}: помилка")
+    def _on_comment_scan_released(self) -> None:
+        self._comment_scan_worker = None
 
+    def _on_comment_scan_finished_ok(self, summaries: object) -> None:
         self.reload_comments()
         self.reload_action_log()
         self.update_dashboard()
-        if summaries:
-            self.statusBar().showMessage(" · ".join(summaries))
+        if isinstance(summaries, list) and summaries:
+            self.statusBar().showMessage(" · ".join(str(x) for x in summaries))
+
+    def _on_comment_scan_failed(self, message: str) -> None:
+        log_action(
+            self.conn,
+            profile=self.current_profile,
+            category="діагностика",
+            action="Фонове сканування коментарів: помилка",
+            details=str(message)[:700],
+        )
 
     def scan_comment_queue(self, silent: bool = False) -> None:
         if silent and not self.background_box.isChecked():
@@ -12648,8 +13678,28 @@ class MainWindow(QMainWindow):
 
 
     def refresh_free_tools_status(self) -> None:
+        worker = getattr(self, "_free_tools_probe_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        worker = LocalToolWorker(probe_free_tools, self)
+        self._free_tools_probe_worker = worker
+        worker.succeeded.connect(self._apply_free_tools_status)
+        worker.failed.connect(self._free_tools_probe_failed)
+        worker.finished.connect(self._free_tools_probe_finished)
+        worker.start()
+
+    def _free_tools_probe_finished(self) -> None:
+        self._free_tools_probe_worker = None
+
+    def _free_tools_probe_failed(self, message: str) -> None:
+        self._free_tools_last_probe = {}
+        if hasattr(self, "free_tools_status_label"):
+            self.free_tools_status_label.setText(f"0-quota: {message[:180]}")
+        self._set_health_state("ollama", False, "Ollama")
+        self._set_health_state("transcript", False, "Transcript")
+
+    def _apply_free_tools_status(self, probes: object) -> None:
         try:
-            probes = probe_free_tools()
             self._free_tools_last_probe = probes
             yt = probes.get("yt_dlp", {})
             tr = probes.get("transcript", {})
@@ -12698,11 +13748,13 @@ class MainWindow(QMainWindow):
         *,
         fast_mode: bool = False,
         on_progress=None,
+        profile: str | None = None,
     ) -> dict:
         # Local SEO runs inside LocalToolWorker. Never reuse the GUI thread's
         # SQLite connection here: sqlite3 connections are thread-affine.
         import sqlite3
 
+        origin_profile = profile or self.current_profile
         state_conn = sqlite3.connect(
             str(self.data_dir / "rg_youtube_control.db")
         )
@@ -12711,10 +13763,10 @@ class MainWindow(QMainWindow):
                 """SELECT scheduled_publish_at,privacy_status,title,duration
                    FROM videos
                    WHERE video_id=? AND profile=?""",
-                (video_id, self.current_profile),
+                (video_id, origin_profile),
             ).fetchone()
             cached_context = cached_public_metadata(
-                state_conn, video_id, self.current_profile,
+                state_conn, video_id, origin_profile,
             )
             nas_row = state_conn.execute(
                 "SELECT value FROM settings WHERE key=?",
@@ -12809,12 +13861,19 @@ class MainWindow(QMainWindow):
         )
         nas_transcript = transcript_dir / f"{video_id}.srt"
 
-        if nas_transcript.exists():
+        try:
+            nas_available = nas_transcript.is_file()
+        except (OSError, ValueError):
+            # Windows disconnected UNC drives raise WinError 64/53 during
+            # the existence probe. This is not a fatal SEO error: continue
+            # to YouTube captions without attempting cookies or scraping.
+            nas_available = False
+        if nas_available:
             try:
                 transcript_rows = load_srt_transcript(nas_transcript)
                 if transcript_rows:
                     transcript_source = "nas-srt"
-            except Exception:
+            except (OSError, ValueError, UnicodeError):
                 transcript_rows = []
 
         if not transcript_rows:
@@ -12949,6 +14008,7 @@ class MainWindow(QMainWindow):
         )
         return {
             "video_id": video_id,
+            "profile": origin_profile,
             "context": context,
             "transcript_rows": transcript_rows,
             "package": package,
@@ -13005,7 +14065,13 @@ class MainWindow(QMainWindow):
             variants,
         )
         if not check.ready:
-            raise RuntimeError("\n".join(check.errors))
+            recoverable = bool(package.get("technical_fallback")) and all(
+                "Потрібно щонайменше 8 релевантних тегів." in error
+                or "Теги не заповнені." in error
+                for error in check.errors
+            )
+            if not recoverable:
+                raise RuntimeError("\n".join(check.errors))
 
         return (
             video_id,
@@ -13031,6 +14097,7 @@ class MainWindow(QMainWindow):
             (self.current_profile,),
         ).fetchall()
 
+        origin_profile = self.current_profile
         candidate_ids: list[str] = []
         for row in rows:
             try:
@@ -13053,13 +14120,9 @@ class MainWindow(QMainWindow):
         # Prefer verified local SRTs, but never REQUIRE NAS availability:
         # individual SEO can also fetch subtitles via YouTube Transcript API
         # and caption-track discovery. Bulk must use the same source chain.
-        candidate_ids = sorted(
-            candidate_ids,
-            key=lambda video_id: (
-                0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
-            ),
-        )
-
+        # A NAS directory can be slow or disconnected. Its per-file
+        # existence checks must execute in the background worker, never
+        # in this button handler on the Qt GUI thread.
         if not candidate_ids:
             QMessageBox.information(
                 self,
@@ -13075,6 +14138,12 @@ class MainWindow(QMainWindow):
             import queue
             import threading
 
+            ordered_ids = sorted(
+                candidate_ids,
+                key=lambda video_id: (
+                    0 if (transcript_dir / f"{video_id}.srt").is_file() else 1
+                ),
+            )
             candidate_timeout_seconds = 180
             prepared: list[dict] = []
             skipped: list[dict] = []
@@ -13084,6 +14153,8 @@ class MainWindow(QMainWindow):
             stopped_early = False
 
             def generate_with_timeout(video_id: str) -> dict:
+                # A timed-out worker can remain alive. The enclosing batch
+                # stops on timeout rather than overlapping another candidate.
                 result_queue: queue.Queue = queue.Queue(maxsize=1)
 
                 def target() -> None:
@@ -13094,6 +14165,7 @@ class MainWindow(QMainWindow):
                                 self._generate_local_seo_result(
                                     video_id,
                                     fast_mode=False,
+                                    profile=origin_profile,
                                 ),
                             )
                         )
@@ -13119,7 +14191,7 @@ class MainWindow(QMainWindow):
                     return payload
                 raise payload
 
-            for video_id in candidate_ids[:max_attempts]:
+            for video_id in ordered_ids[:max_attempts]:
                 if len(prepared) >= limit:
                     break
                 attempted += 1
@@ -13136,6 +14208,11 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     reason = " ".join(str(exc).split())[:700]
                     skipped.append({"video_id": video_id, "error": reason})
+                    # A timed-out daemon may still be running. Never start a
+                    # second candidate while it can modify shared state.
+                    if isinstance(exc, TimeoutError):
+                        stopped_early = True
+                        break
                     # Repeated failures must not silently consume 30 candidates.
                     # Stop after five consecutive failures or three identical
                     # reasons, but preserve all diagnostics for the operator.
@@ -13154,6 +14231,7 @@ class MainWindow(QMainWindow):
             return {
                 "prepared": prepared,
                 "skipped": skipped,
+                "profile": origin_profile,
                 "requested": limit,
                 "attempted": attempted,
                 "stopped_early": stopped_early,
@@ -13180,6 +14258,7 @@ class MainWindow(QMainWindow):
         prepared = list(result.get("prepared") or [])
         skipped = list(result.get("skipped") or [])
         saved = 0
+        origin_profile = str(result.get("profile") or self.current_profile)
         validation_failed: list[dict] = []
 
         for item in prepared:
@@ -13223,7 +14302,7 @@ class MainWindow(QMainWindow):
                 saved += 1
                 log_action(
                     self.conn,
-                    profile=self.current_profile,
+                    profile=origin_profile,
                     category="локально",
                     action="SEO-чернетка batch · 0 квоти",
                     details=f"{video_id}: збережено як чернетку",
@@ -13244,7 +14323,7 @@ class MainWindow(QMainWindow):
             )
             log_action(
                 self.conn,
-                profile=self.current_profile,
+                profile=origin_profile,
                 category="локально",
                 action="SEO-чернетка batch · пропуск",
                 details=f"{video_id}: {error_text[:700]}",
@@ -13292,7 +14371,7 @@ class MainWindow(QMainWindow):
 
         log_action(
             self.conn,
-            profile=self.current_profile,
+            profile=origin_profile,
             category="локально",
             action="SEO-чернетка batch · результат",
             details=(
@@ -13329,6 +14408,7 @@ class MainWindow(QMainWindow):
             )
             return
         video_id = video_ids[0]
+        origin_profile = self.current_profile
 
         def task():
             worker = getattr(self, "_local_tool_worker", None)
@@ -13336,7 +14416,7 @@ class MainWindow(QMainWindow):
                 if worker is not None:
                     worker.progress.emit(message)
             return self._generate_local_seo_result(
-                video_id, on_progress=progress,
+                video_id, on_progress=progress, profile=origin_profile,
             )
 
         self._run_local_tool(
@@ -13348,6 +14428,7 @@ class MainWindow(QMainWindow):
     def _save_local_seo_result(self, result: dict) -> None:
         package = dict(result["package"])
         context = dict(result["context"])
+        origin_profile = str(result.get("profile") or self.current_profile)
         (
             video_id,
             title,
@@ -13389,7 +14470,20 @@ class MainWindow(QMainWindow):
             tags=tags,
             require_ukrainian=True,
         )
-        if quality_state == "blocked":
+        # A recovered source-verified draft is always editable but never
+        # apply-ready. Insufficient tags are allowed only as a stated
+        # editorial gap; all other content-policy/YouTube errors still block.
+        incomplete_tags_only = (
+            bool(package.get("technical_fallback"))
+            and bool(quality_reasons)
+            and all(
+                "менше 8 корисних тегів" in reason
+                or "Потрібно щонайменше 8 релевантних тегів" in reason
+                or "Теги не заповнені" in reason
+                for reason in quality_reasons
+            )
+        )
+        if quality_state == "blocked" and not incomplete_tags_only:
             QMessageBox.warning(
                 self,
                 "Пакет заблоковано автоперевіркою",
@@ -13398,7 +14492,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        requires_review = bool(package.get("needs_review")) or len(variants) < 3
+        requires_review = (
+            bool(package.get("technical_fallback"))
+            or bool(package.get("needs_review"))
+            or len(variants) < 3
+        )
         draft_reason = (
             str(package.get("review_reason") or "").strip()
             or "Неповні A/B варіанти - потрібна перевірка."
@@ -13415,14 +14513,19 @@ class MainWindow(QMainWindow):
             variants,
             generation="local-seo-evidence-0.7.9",
             quality_state="needs_review" if requires_review else "safe",
-            quality_reason=draft_reason,
+            quality_reason=(
+                draft_reason + (
+                    " · Недостатньо підтверджених тегів."
+                    if incomplete_tags_only else ""
+                )
+            ),
             source_title=before_title,
             source_description=before_description,
             source_tags=before_tags,
         )
         log_action(
             self.conn,
-            profile=self.current_profile,
+            profile=origin_profile,
             category="локально",
             action="SEO-чернетка · 0 квоти",
             details=f"{video_id}: {package.get('provider', DEFAULT_OLLAMA_MODEL)}",
@@ -14540,10 +15643,19 @@ class MainWindow(QMainWindow):
         # installer run and create an endless update loop.
         if not bool(getattr(sys, "frozen", False)):
             return
-        try:
-            info = check_for_update()
-        except Exception:
+        running = getattr(self, "_silent_update_worker", None)
+        if running is not None and running.isRunning():
             return
+        worker = LocalToolWorker(check_for_update, self)
+        self._silent_update_worker = worker
+        worker.succeeded.connect(self._on_silent_update_result)
+        worker.finished.connect(self._on_silent_update_finished)
+        worker.start()
+
+    def _on_silent_update_finished(self) -> None:
+        self._silent_update_worker = None
+
+    def _on_silent_update_result(self, info: object) -> None:
         if info is None:
             return
         dismissed = get_setting(
