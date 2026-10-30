@@ -65,3 +65,31 @@ def test_short_gas_root_does_not_turn_newspaper_into_energy_topic():
     from rg_youtube_control.source_ab_lexical import _grounded_labels
     assert "Газ" not in _grounded_labels("Старая газета рассказывала об истории")
     assert "Газ" in _grounded_labels("Газ на рынке стал дороже")
+
+
+def test_two_distinct_verified_sources_produce_three_review_angles():
+    report = {"blocks": [
+        _block("Коррупция чиновников обсуждалась на встрече"),
+        _block("Бензин на заправках подорожал в регионе"),
+    ]}
+    proposals = source_grounded_ukrainian_ab(report, "Стара назва")
+    assert len(proposals) == 3, proposals
+    assert any("Корупція" in title for title in proposals)
+    assert any("Бензин" in title for title in proposals)
+    assert "Корупція та Бензин" in proposals[2], proposals
+    assert ab_title_issues(proposals, report) == []
+
+
+def test_two_topics_in_one_quotation_cannot_fake_two_independent_sources():
+    report = {"blocks": [
+        _block("Бензин и коррупция обсуждались вместе в одной реплике"),
+    ]}
+    assert source_grounded_ukrainian_ab(report, "Стара назва") == []
+
+
+def test_unverified_second_source_does_not_unlock_three_titles():
+    report = {"blocks": [
+        _block("Коррупция чиновников обсуждалась на встрече"),
+        _block("Бензин на заправках подорожал в регионе", verified=False),
+    ]}
+    assert source_grounded_ukrainian_ab(report) == []
