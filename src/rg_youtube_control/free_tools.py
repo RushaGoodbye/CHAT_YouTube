@@ -2451,6 +2451,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 str(item).strip().lstrip("#")
                 for item in (candidate.get("tags") or [])
                 if str(item).strip()
+                and not _seo_ukrainian_language_issue(str(item))
                 and _tag_is_grounded(
                     str(item),
                     current_title,
