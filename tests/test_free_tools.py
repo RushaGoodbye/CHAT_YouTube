@@ -183,8 +183,8 @@ def test_grounded_tags_fill_local_seo_package() -> None:
     assert "чат рулетка" in tags
     assert "ціни в Росії" in tags
     assert "зарплати в Росії" in tags
-    assert "пенсии в России" in tags
-    assert "экономика России" in tags
+    assert "пенсії в Росії" in tags
+    assert "економіка Росії" in tags
 
 
 def test_preserve_current_title_when_candidate_only_strips_brand() -> None:
@@ -229,7 +229,7 @@ def test_specific_shoigu_tags_beat_generic_model_words() -> None:
 
     title = "Увольнение ШОЙГУ - коррупция или все идет по плану? | РАША ГУДБАЙ"
     transcript = (
-        "Обсуждаем Шойгу, увольнение, Міністерство оборони РФ и коррупцию. "
+        "Обсуждаем Шойгу, увольнение, Министерство обороны России и коррупцию. "
         "Собеседники спорят о причинах кадровых решений. "
     ) * 12
 
@@ -238,7 +238,7 @@ def test_specific_shoigu_tags_beat_generic_model_words() -> None:
     assert "Шойгу" in tags
     assert "звільнення Шойгу" in tags
     assert "Міністерство оборони РФ" in tags
-    assert "коррупция в России" in tags
+    assert "корупція в Росії" in tags
     assert _tag_is_grounded("план", title, transcript) is False
     assert _tag_is_grounded("стратегия", title, transcript) is False
     assert _tag_is_grounded("Шойгу", title, transcript) is True
@@ -316,7 +316,7 @@ def test_belarus_grounded_tags_are_specific() -> None:
     assert "Лукашенко" in tags
     assert "Білорусь" in tags
     assert "Україна" in tags
-    assert "Беларусь и Україна" in tags
+    assert "Білорусь і Україна" in tags
 
 
 def test_generic_fast_chapters_are_removed(monkeypatch):
