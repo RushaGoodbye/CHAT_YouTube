@@ -1819,12 +1819,10 @@ _SEO_RUSSIAN_MARKERS = re.compile(
 
 
 def _seo_ukrainian_language_issue(value: str) -> bool:
-    """Conservative flag for Russian output; do not guess translations."""
-    candidate = str(value or "")
-    return bool(
-        re.search(r"[ыэъё]", candidate.casefold())
-        or _SEO_RUSSIAN_MARKERS.search(candidate)
-    )
+    """Use the same conservative Ukrainian language rule as the QA gate."""
+    from .seo_quality_gate import language_error
+
+    return language_error(value)
 
 
 def _preserve_current_title_when_candidate_is_not_stronger(
