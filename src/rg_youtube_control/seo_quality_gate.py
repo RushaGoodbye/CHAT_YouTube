@@ -64,3 +64,29 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
         "problems": problems,
         "counts": {"variants": len(variants), "tags": len(tags)},
     }
+
+
+def sanitize_review_variants(
+    title: str,
+    variants: list[str],
+    source_topic_suggestions: list[str],
+) -> tuple[list[str], bool]:
+    """Remove obvious Russian A/B drafts; restore only source-topic alternatives.
+
+    Never translate unsupported claims or create artificial duplicates.
+    The caller must mark a changed result as review-only.
+    """
+    original = [str(item).strip() for item in variants if str(item).strip()]
+    accepted: list[str] = []
+    used = {str(title or "").strip().casefold()}
+    for item in [*original, *source_topic_suggestions]:
+        candidate = str(item).strip()
+        key = candidate.casefold()
+        if not candidate or len(candidate) > 100 or key in used or language_error(candidate):
+            continue
+        # Source-topic suggestions may fill missing slots, but cannot validate facts.
+        used.add(key)
+        accepted.append(candidate)
+        if len(accepted) >= 3:
+            break
+    return accepted, accepted != original[:3]
