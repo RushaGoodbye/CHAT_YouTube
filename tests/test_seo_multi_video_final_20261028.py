@@ -68,8 +68,10 @@ def test_version_consistent_for_installer_and_app():
     root = Path(__file__).resolve().parents[1]
     config = (root / "pyproject.toml").read_text(encoding="utf-8")
     module = (root / "src" / "rg_youtube_control" / "__init__.py").read_text(encoding="utf-8")
-    assert 'version = "0.7.41"' in config
-    assert '__version__ = "0.7.41"' in module
+    import tomllib
+    version = tomllib.loads(config)["project"]["version"]
+    assert version.count(".") == 2
+    assert f'__version__ = "{version}"' in module
 
 
 def test_ukrainian_titles_do_not_pass_russian_language_gate():
