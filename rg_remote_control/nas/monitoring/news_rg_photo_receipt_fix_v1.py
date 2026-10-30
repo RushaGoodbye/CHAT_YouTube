@@ -34,7 +34,7 @@ def preflight():
  if a.count(OLD)!=1 or NEW in a or NEW_FIELD in a:stop('LIVE_SENDER_UNEXPECTED')
  # Exact allowed change is new photo validation and new field; preserve every other byte.
  start=a.index(OLD);end=start+len(OLD)
- expected=a[:start]+b[b.index(NEW):b.index("  store(receipt,{'status':'PRIVATE_SENT_CONFIRMED'",b.index(NEW))]+a[end:]
+ expected=a[:start]+b[b.index(NEW):b.index("  store(receipt,{'status':'PRIVATE_SENT_CONFIRMED'",b.index(NEW))].rstrip('\n')+a[end:]
  expected=expected.replace("   'media_type':item_kind,'media_bytes':media_bytes,\n", "   'media_type':item_kind,'media_bytes':media_bytes,\n   'telegram_photo_file_id':photo_id,\n",1)
  if expected!=b:stop('STAGED_HAS_OTHER_CHANGES')
  return old,new,False
