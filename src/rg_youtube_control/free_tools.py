@@ -1528,6 +1528,25 @@ def _recover_independent_ab_titles(
     return _source_quote_ab_titles(report, current_title)
 
 
+def _grounded_review_title_variants(current_title: str, transcript: str) -> list[str]:
+    """Review-only alternatives from explicit source-topic matches, never asserted facts."""
+    source = f"{current_title}\n{transcript}".casefold()
+    labels: list[str] = []
+    for needles, label in _GROUNDED_TOPIC_RULES:
+        if any(needle in source for needle in needles) and label.casefold() not in {x.casefold() for x in labels}:
+            labels.append(label)
+    if not labels:
+        return []
+    primary = labels[0]
+    suggestions = [
+        f"{primary}: про що говорять у чат-рулетці?",
+        f"Розмова про {primary[0].lower() + primary[1:]} | РАША ГУДБАЙ",
+        f"{labels[1]}: думки співрозмовників" if len(labels) > 1
+        else f"{primary}: погляди співрозмовників",
+    ]
+    return [title for title in suggestions if len(title) <= 100]
+
+
 def _recover_title_variants(
     *,
     current_title: str,
@@ -2305,6 +2324,12 @@ chapters: рядок з підтвердженими таймкодами та �
                 if item.casefold() != str(candidate["title"]).casefold()
             ))
             if fast_mode and len(variants_candidate) < 3:
+                deterministic = _grounded_review_title_variants(current_title, transcript)
+                for proposed in deterministic:
+                    if proposed.casefold() not in {x.casefold() for x in variants_candidate} and proposed.casefold() != str(candidate["title"]).casefold():
+                        variants_candidate.append(proposed)
+                    if len(variants_candidate) >= 3:
+                        break
                 candidate["_fallback_review_only"] = True
             candidate["title_variants"] = variants_candidate[:3]
             if evidence_report and not fast_mode:
