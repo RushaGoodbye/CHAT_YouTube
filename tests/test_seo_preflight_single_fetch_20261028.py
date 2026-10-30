@@ -28,7 +28,7 @@ def test_public_preflight_is_reused_not_downloaded_twice(tmp_path, monkeypatch):
             " scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
         )
         cx.execute(
-            "INSERT INTO videos VALUES('12345678901','live','Тема розмови','PT10M',NULL,'public',4)"
+            "INSERT INTO videos VALUES('12345678901','main','Тема розмови','PT10M',NULL,'public',4)"
         )
     cues = [
         {"text": "Тема розмови", "start": n * 55.0, "duration": 30.0}
@@ -42,7 +42,7 @@ def test_public_preflight_is_reused_not_downloaded_twice(tmp_path, monkeypatch):
         return cues
     monkeypatch.setattr(qa, "fetch_transcript", public_captions)
     ids = qa.select_existing_srt_videos(
-        db, "live", 1, allow_public_captions=True, preflight_captions=True,
+        db, "main", 1, allow_public_captions=True, preflight_captions=True,
     )
     assert ids == ["12345678901"]
     assert len(fetched) == 1
