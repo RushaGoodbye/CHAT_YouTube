@@ -501,7 +501,9 @@ def select_existing_srt_videos(
             duration = _duration_seconds(row["duration"])
         except (ValueError, TypeError):
             continue
-        if duration >= minimum_seconds:
+        # Preserve legacy main videos with unknown duration (0). Long-form
+        # livestream acceptance, by contrast, REQUIRES a known >=30m length.
+        if duration >= minimum_seconds or (profile == "main" and duration == 0):
             eligible.append(row)
     preferred_set = {vid: index for index, vid in enumerate(preferred)}
     ordered = sorted(
@@ -521,7 +523,7 @@ def select_existing_srt_videos(
             duration = _duration_seconds(row["duration"])
         except (ValueError, TypeError):
             continue
-        if duration < minimum_seconds:
+        if duration < minimum_seconds and not (profile == "main" and duration == 0):
             continue
         local = root / (video_id + ".srt")
         if not local.is_file() and not allow_public_captions:
