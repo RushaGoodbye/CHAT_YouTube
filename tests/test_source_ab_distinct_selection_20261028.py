@@ -36,8 +36,10 @@ def test_unverified_sources_cannot_fill_missing_third_hook():
         _block("Мобілізація", "Мобилизация продолжается в регионе", verified=False),
     ]}
     proposals = _verified_source_ab_titles(report, "Заголовок відео")
-    assert len(proposals) == 2
+    assert len(proposals) == 3
+    assert "Корупція та Бензин" in proposals[2]
     assert all("Мобілізація" not in title for title in proposals)
+    assert not ab_title_issues(proposals, report)
 
 
 def test_model_only_subject_does_not_become_verified_source():
@@ -48,3 +50,21 @@ def test_model_only_subject_does_not_become_verified_source():
     ]}
     proposals = _verified_source_ab_titles(report, "Заголовок відео")
     assert all("Психологія" not in title for title in proposals)
+
+
+def test_two_non_dictionary_topics_still_allow_source_verified_third_angle():
+    report = {"blocks": [
+        _block("Культура", "Культура здесь обсуждалась очень подробно"),
+        _block("Бюджет", "Бюджет региона обсуждали в другой беседе"),
+    ]}
+    titles = _verified_source_ab_titles(report, "Стара назва")
+    assert len(titles) == 3, titles
+    assert "Культура та Бюджет" in titles[2], titles
+    assert ab_title_issues(titles, report) == []
+
+
+def test_single_quoted_story_never_claims_three_independent_topics():
+    report = {"blocks": [
+        _block("Корупція", "Коррупция чиновников обсуждалась долго"),
+    ]}
+    assert len(_verified_source_ab_titles(report, "Стара назва")) == 1
