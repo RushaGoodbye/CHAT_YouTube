@@ -39,3 +39,16 @@ def test_grounded_fallback_tags_use_ukrainian():
     assert "корупція в Росії" in tags
     assert "Росія" in tags
     assert "Россия" not in tags
+
+
+
+def test_language_gate_rejects_russian_seo_phrases():
+    from rg_youtube_control.free_tools import _seo_ukrainian_language_issue
+
+    assert _seo_ukrainian_language_issue("Увольнение Шойгу: коррупция в России")
+    assert _seo_ukrainian_language_issue("Россия: мнение россиян")
+    assert _seo_ukrainian_language_issue("Война и санкции")
+    assert not _seo_ukrainian_language_issue(
+        "Звільнення Шойгу: корупція та відповідальність чиновників"
+    )
+    assert not _seo_ukrainian_language_issue("РАША ГУДБАЙ")
