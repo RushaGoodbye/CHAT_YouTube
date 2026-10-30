@@ -125,3 +125,27 @@ def test_two_independent_quotes_with_overlapping_words_yield_review_angles():
     titles = source_grounded_ukrainian_ab(report)
     assert len(titles) == 3, titles
     assert not ab_title_issues(titles, report), titles
+
+
+def test_source_ab_failure_diagnostics_are_bounded_codes_without_source_text():
+    report = {"blocks": [
+        _block("Коррупция, мобилизация и бензин обсуждались в одной фразе"),
+    ]}
+    stats = {}
+    assert source_grounded_ukrainian_ab(report, diagnostics=stats) == []
+    assert stats["source_quote_count"] == 1
+    assert stats["distinct_root_count"] >= 2
+    assert stats["failure_counts"].get("no_distinct_quote_assignment", 0) > 0
+    assert "Коррупция" not in repr(stats)
+    assert "мобилизация" not in repr(stats)
+
+
+def test_success_diagnostics_contain_only_counts():
+    report = {"blocks": [
+        _block("Коррупция чиновников обсуждалась на встрече"),
+        _block("Бензин на заправке подорожал в регионе"),
+    ]}
+    stats = {}
+    assert len(source_grounded_ukrainian_ab(report, diagnostics=stats)) == 3
+    assert stats["source_quote_count"] == 2
+    assert stats["distinct_root_count"] >= 2
