@@ -334,10 +334,15 @@ def run_one(
                     continue
                 verified_quote_count += 1
                 recognized_subjects.update(_grounded_labels(quote))
-        safe_ab = source_grounded_ukrainian_ab(report, title)
+        safe_ab_diag = {}
+        safe_ab = source_grounded_ukrainian_ab(
+            report, title, diagnostics=safe_ab_diag,
+        )
         result["source_quote_count"] = verified_quote_count
         result["recognized_source_subject_count"] = len(recognized_subjects)
         result["deterministic_ab_ready"] = len(safe_ab) == 3
+        # Safe-only counts and error-code buckets, never evidence text.
+        result["source_ab_diagnostics"] = safe_ab_diag
         stage = "seo_generation"
         package = generate_seo_package_local(
             current_title=title,
