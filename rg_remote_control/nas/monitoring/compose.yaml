@@ -1,0 +1,36 @@
+# Isolated passive dashboard. No connection to Telegram or production Docker stack.
+# Start only AFTER local owner-of-publications and NAS access checks.
+services:
+  gatus:
+    image: ghcr.io/twin/gatus:v5.37.0
+    container_name: rg-nas-gatus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    environment:
+      GATUS_CONFIG_PATH: /config/config.yaml
+      GATUS_MONITOR_TOKEN: ${GATUS_MONITOR_TOKEN:?Set a private local token}
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/data
+    security_opt:
+      - no-new-privileges:true
+  observer:
+    image: python:3.11-alpine
+    container_name: rg-nas-gatus-observer
+    restart: unless-stopped
+    depends_on:
+      - gatus
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /volume1/docker/RG_NAS_STATE:/nas/RG_NAS_STATE:ro
+      - ./rg_nas_gatus_observer_v1.py:/app/observer.py:ro
+      - ./token:/run/monitor-token:ro
+    command:
+      - /bin/sh
+      - -c
+      - 'while true; do python3 -B /app/observer.py --root /nas --push --token-file /run/monitor-token --url http://gatus:8080 || true; sleep 300; done'
