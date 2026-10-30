@@ -769,16 +769,22 @@ def _deterministic_evidence_description(
     if not labels:
         raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
+    # Topic labels are verified against transcript quotations above.
+    # Keep the public description focused on those subjects rather than
+    # padding it with stock claims about what every interviewee supposedly did.
+    first = labels[0]
+    rest = labels[1:]
     lead = (
-        "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють такі теми: " + "; ".join(labels) + ". "
+        "У випуску «РАША ГУДБАЙ» центральна тема розмови — "
+        + first + ". "
     )
+    if rest:
+        lead += "Також порушуються питання: " + "; ".join(rest) + ". "
     body = (
-        "Учасники чат-рулетки висловлюють власні думки та припущення "
-        "щодо причин і наслідків обговорюваних подій. Це їхні оцінки, "
-        "а не підтверджені редакцією факти чи мотиви посадовців. "
-        "Дивіться повну розмову, щоб почути аргументи співрозмовників "
-        "і оцінити їх у контексті."
+        "Ці теми згадуються у розмові з росіянами в чат-рулетці. "
+        "Окремі твердження учасників є їхніми оцінками, "
+        "а не незалежно перевіреними фактами. "
+        "Перегляньте обговорення та зіставте позиції співрозмовників."
     )
     result = lead + body
     if len(result) > 950:
