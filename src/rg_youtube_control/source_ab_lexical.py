@@ -118,23 +118,42 @@ def source_grounded_ukrainian_ab(
         if candidate[1] not in seen_subjects:
             seen_subjects.add(candidate[1])
             distinct.append(candidate)
-    if len(distinct) < 3:
+    if len(distinct) < 2:
+        # Never manufacture a second event from three phrasings of one quote.
         return []
 
-    # Trial triples must each have a unique topic, distinct lexical wording,
-    # and strictly pass the *existing* full transcript evidence gate.
-    for triple in sorted(
-        combinations(distinct[:18], 3),
-        key=lambda row: (
-            sum(item[1] in _GENERIC for item in row),
-            -len({item[0] for item in row}),
-            -(max(item[0] for item in row) - min(item[0] for item in row)),
-        ),
-    ):
-        titles = [
-            _FRAMES[i].format(subject=triple[i][1])
-            for i in range(3)
+    # Trial triples must each have a unique, source-proven topic and strictly
+    # pass the existing full-transcript evidence gate.
+    if len(distinct) >= 3:
+        for triple in sorted(
+            combinations(distinct[:18], 3),
+            key=lambda row: (
+                sum(item[1] in _GENERIC for item in row),
+                -len({item[0] for item in row}),
+                -(max(item[0] for item in row) - min(item[0] for item in row)),
+            ),
+        ):
+            titles = [
+                _FRAMES[i].format(subject=triple[i][1])
+                for i in range(3)
+            ]
+            if not ab_title_issues(titles, report):
+                return titles
+
+    # Two *different verified quotations* can make three useful A/B angles:
+    # A = topic one, B = topic two, C = an explicitly attributed overview
+    # identifying both topics as discussed. C NEVER implies that the topics
+    # caused each other or describes an extra event.
+    # This is NOT permitted for only one verified subject/quotation.
+    for left, right in combinations(distinct[:18], 2):
+        if left[1] == right[1]:
+            continue
+        first, second = left[1], right[1]
+        angles = [
+            _FRAMES[0].format(subject=first),
+            _FRAMES[1].format(subject=second),
+            f"{first} та {second}: про що говорили учасники?",
         ]
-        if not ab_title_issues(titles, report):
-            return titles
+        if not ab_title_issues(angles, report):
+            return angles
     return []
