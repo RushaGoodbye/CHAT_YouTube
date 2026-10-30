@@ -243,9 +243,9 @@ def test_preflight_skips_unplayable_and_incomplete_video_sources(
             "scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
         )
         conn.executemany("INSERT INTO videos VALUES(?,?,?,?,?,?)", [
-            ("11111111111", "live", "PT10M", None, "public", 100),
-            ("22222222222", "live", "PT10M", None, "public", 90),
-            ("33333333333", "live", "PT10M", None, "public", 80),
+            ("11111111111", "main", "PT10M", None, "public", 100),
+            ("22222222222", "main", "PT10M", None, "public", 90),
+            ("33333333333", "main", "PT10M", None, "public", 80),
         ])
     def fake_fetch(video_id):
         if video_id == "11111111111":
@@ -256,7 +256,7 @@ def test_preflight_skips_unplayable_and_incomplete_video_sources(
         ]
     monkeypatch.setattr(qa, "fetch_transcript", fake_fetch)
     assert qa.select_existing_srt_videos(
-        db, "live", 2, allow_public_captions=True,
+        db, "main", 2, allow_public_captions=True,
         preflight_captions=True,
     ) == ["22222222222", "33333333333"]
 
