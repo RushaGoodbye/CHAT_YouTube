@@ -80,75 +80,97 @@ def source_grounded_ukrainian_ab(
     """
     from .dialogue_seo import ab_title_issues
 
-    options: list[tuple[int, str, str]] = []
+    # Collect every safely recognized root but attach each to its original
+    # distinct literal quotation. One quotation may propose alternatives,
+    # yet it can substantiate at most ONE selected A/B subject.
+    # Previous greedy "first root in each quote" discarded legitimate second
+    # topics in short real videos when all quotations mentioned the same name.
+    subject_quotes: dict[str, list[tuple[int, int]]] = {}
     seen_quotes: set[str] = set()
-    for index, block in enumerate(report.get("blocks") or []):
+    quote_id = 0
+    for block_index, block in enumerate(report.get("blocks") or []):
         if not isinstance(block, dict) or block.get("verified") is False:
             continue
         for item in block.get("topics") or []:
             if not isinstance(item, dict):
                 continue
             evidence = " ".join(str(item.get("evidence") or "").split())
-            if len(evidence) < 16 or len(evidence) > 240:
+            if not (16 <= len(evidence) <= 240):
                 continue
             key = evidence.casefold()
             if key in seen_quotes:
                 continue
             seen_quotes.add(key)
             labels = _grounded_labels(evidence)
-            # Multiple mentions inside ONE utterance are not proof of three
-            # different stories (e.g. "Шойгу коррупция оборона"). Select
-            # just one concrete anchor per verbatim quotation.
-            labels.sort(key=lambda label: label in _GENERIC)
-            if labels:
-                subject = labels[0]
-                title = _FRAMES[0].format(subject=subject)
-                if title.casefold() != current_title.strip().casefold():
-                    options.append((index, subject, title))
-        if len(options) >= 90:
+            if not labels:
+                continue
+            for subject in set(labels):
+                subject_quotes.setdefault(subject, []).append(
+                    (quote_id, block_index)
+                )
+            quote_id += 1
+            if quote_id >= 90:
+                break
+        if quote_id >= 90:
             break
 
-    if not options:
-        return []
-    # First try three different concrete subjects and widely spread timeline
-    # anchors. A duplicate subject is not a new SEO story.
-    distinct: list[tuple[int, str, str]] = []
-    seen_subjects: set[str] = set()
-    for candidate in sorted(options, key=lambda x: x[1] in _GENERIC):
-        if candidate[1] not in seen_subjects:
-            seen_subjects.add(candidate[1])
-            distinct.append(candidate)
-    if len(distinct) < 2:
-        # Never manufacture a second event from three phrasings of one quote.
+    if len(subject_quotes) < 2:
         return []
 
-    # Trial triples must each have a unique, source-proven topic and strictly
-    # pass the existing full-transcript evidence gate.
-    if len(distinct) >= 3:
-        for triple in sorted(
-            combinations(distinct[:18], 3),
-            key=lambda row: (
-                sum(item[1] in _GENERIC for item in row),
-                -len({item[0] for item in row}),
-                -(max(item[0] for item in row) - min(item[0] for item in row)),
-            ),
-        ):
-            titles = [
-                _FRAMES[i].format(subject=triple[i][1])
-                for i in range(3)
-            ]
-            if not ab_title_issues(titles, report):
-                return titles
+    # Prefer concrete topics; repeated source evidence may increase confidence
+    # but a recurring subject alone is not a second event.
+    subjects = sorted(
+        subject_quotes,
+        key=lambda subject: (
+            subject in _GENERIC, -len(subject_quotes[subject]), subject,
+        ),
+    )[:18]
 
-    # Two *different verified quotations* can make three useful A/B angles:
-    # A = topic one, B = topic two, C = an explicitly attributed overview
-    # identifying both topics as discussed. C NEVER implies that the topics
-    # caused each other or describes an extra event.
-    # This is NOT permitted for only one verified subject/quotation.
-    for left, right in combinations(distinct[:18], 2):
-        if left[1] == right[1]:
+    def anchored_selection(
+        names: tuple[str, ...],
+    ) -> tuple[tuple[int, int], ...] | None:
+        """Pick distinct verbatim excerpts for each subject, or reject."""
+        def choose(
+            position: int, used: set[int], picked: list[tuple[int, int]],
+        ) -> tuple[tuple[int, int], ...] | None:
+            if position == len(names):
+                return tuple(picked)
+            for quote_and_block in subject_quotes[names[position]]:
+                quote, _ = quote_and_block
+                if quote in used:
+                    continue
+                result = choose(
+                    position + 1, used | {quote}, picked + [quote_and_block],
+                )
+                if result is not None:
+                    return result
+            return None
+        return choose(0, set(), [])
+
+    triples = sorted(
+        combinations(subjects, 3),
+        key=lambda names: (
+            sum(name in _GENERIC for name in names),
+            -sum(len(subject_quotes[name]) for name in names),
+        ),
+    )
+    for names in triples:
+        assignment = anchored_selection(names)
+        if assignment is None:
             continue
-        first, second = left[1], right[1]
+        titles = [
+            _FRAMES[i].format(subject=names[i])
+            for i in range(3)
+        ]
+        if not ab_title_issues(titles, report):
+            return titles
+
+    # Two separately supported subjects also support an attributed overview;
+    # it is not a third new story. Require *two distinct* source quotations.
+    for names in combinations(subjects, 2):
+        if anchored_selection(names) is None:
+            continue
+        first, second = names
         angles = [
             _FRAMES[0].format(subject=first),
             _FRAMES[1].format(subject=second),
