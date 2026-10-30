@@ -191,7 +191,12 @@ def analyze_all_timeline_blocks(
             try:
                 saved = json.loads(path.read_text(encoding="utf-8"))
                 item = _validate_topics(saved, block)
-                cache_hits += 1
+                if item["verified"]:
+                    cache_hits += 1
+                else:
+                    # An invalid old cache entry must never suppress a fresh
+                    # source-grounded attempt for a real transcript block.
+                    item = None
             except (ValueError, OSError, TypeError):
                 item = None
 
@@ -254,6 +259,54 @@ def analyze_all_timeline_blocks(
                         item = retried
                 except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                     pass
+            if not item["verified"]:
+                # Final constrained rescue: let the model author a *topic*
+                # but NEVER the quotation. Pin one literal meaningful source
+                # line, and require its unchanged use. This is attempted only
+                # after two unsuccessful responses and never relaxes source
+                # matching or silently approves an unverified block.
+                source_lines = [
+                    _compact(line)
+                    for line in block["text"].splitlines()
+                    if len(_compact(line)) >= 40
+                ]
+                if source_lines:
+                    quote = max(
+                        source_lines,
+                        key=lambda line: (
+                            len(set(re.findall(r"\w+", line.casefold()))),
+                            len(line),
+                        ),
+                    )[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
+                    if len(quote) >= 30:
+                        rescue_prompt = (
+                            "Ти не створюєш цитати. Поверни JSON, "
+                            "topics: [{topic, summary_uk, evidence}]. "
+                            "Тема та коротка теза українською лише про те, "
+                            "що прямо сказано в наведеній дослівній репліці. "
+                            "Значення evidence ОБОВ'ЯЗКОВО скопіюй без "
+                            "змін, пропусків або перекладу. Якщо тема не "
+                            "зрозуміла, topics=[].\n"
+                            f"ДОСЛІВНА РЕПЛІКА: {quote}\n"
+                            f"ДОСЛІВНИЙ evidence: {json.dumps(quote, ensure_ascii=False)}"
+                        )
+                        try:
+                            rescued_raw = chat(
+                                [
+                                    {"role": "system", "content": "JSON. Без доданих фактів."},
+                                    {"role": "user", "content": rescue_prompt},
+                                ],
+                                model=model, timeout=timeout,
+                                temperature=0.0, json_mode=True,
+                            )
+                            rescued = _validate_topics(
+                                json.loads(str(rescued_raw).strip()), block,
+                            )
+                            if rescued["verified"]:
+                                item = rescued
+                        except (ValueError, RuntimeError, TimeoutError,
+                                TypeError, OSError):
+                            pass
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
