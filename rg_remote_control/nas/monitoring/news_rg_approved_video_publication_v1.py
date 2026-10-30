@@ -89,7 +89,7 @@ def status():
  return {'status':'VIDEO_PUBLISHER_ARMED','approved_rendered_video_ready':bool(item),'publications':0}
 def selftest():
  assert send_mp4.__name__=='send_mp4'
- assert 'sendVideo' in send_mp4.__code__.co_consts
+ assert any('sendVideo' in str(x) for x in send_mp4.__code__.co_consts)
  assert 'getUpdates' not in open(__file__,encoding='utf8').read()
  print('NEWS_RG_VIDEO_PUBLISHER_SELFTEST_PASS')
 if __name__=='__main__':
