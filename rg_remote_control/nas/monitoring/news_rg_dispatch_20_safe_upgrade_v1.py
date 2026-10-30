@@ -21,7 +21,8 @@ def check():
  if 'getUpdates(' in n or 'sendPhoto(' in n or 'sendVideo(' in n:err('FORBIDDEN_ACTION')
  if old==new:return {'status':'ALREADY_UPGRADED','telegram_calls':0,'publications':0},None
  if any(x not in o for x in NEEDED):err('LIVE_VERSION_CHANGED')
- test=subprocess.run(['/usr/bin/python3',str(SRC),'selftest'],capture_output=True,text=True,timeout=15)
+ env=dict(os.environ);env['PYTHONPATH']=str(O)+os.pathsep+env.get('PYTHONPATH','')
+ test=subprocess.run(['/usr/bin/python3',str(SRC),'selftest'],capture_output=True,text=True,timeout=15,env=env)
  if test.returncode or 'SELFTEST_PASS' not in test.stdout:err('NEW_SELFTEST_FAILED')
  return {'status':'READY','old_sha256':hashlib.sha256(old).hexdigest()[:16]},(old,new)
 def install():
