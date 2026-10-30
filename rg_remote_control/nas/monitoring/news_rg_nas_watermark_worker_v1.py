@@ -21,7 +21,7 @@ def render(root,relative,outdir,logo):
  if target.exists() or target.is_symlink():return {'status':'ALREADY_EXISTS_NO_OVERWRITE','output':str(target),'published':False}
  fd,tmp=tempfile.mkstemp(prefix='.rgwm_',suffix='.mp4',dir=str(outdir));os.close(fd)
  try:
-  cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-n','-i',str(inp),'-loop','1','-i',str(logo),
+  cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-i',str(inp),'-loop','1','-i',str(logo),
        '-filter_complex','[1:v]format=rgba,colorchannelmixer=aa=0.65[wm];[0:v][wm]overlay=W-w-20:H-h-20:shortest=1[v]',
        '-map','[v]','-map','0:a?','-c:v','libx264','-preset','fast','-crf','21','-c:a','copy','-movflags','+faststart',tmp]
   r=subprocess.run(cmd,timeout=1800,capture_output=True)
