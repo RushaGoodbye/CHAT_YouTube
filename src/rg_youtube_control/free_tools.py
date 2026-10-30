@@ -1785,6 +1785,23 @@ def _chapters_are_generic(chapters: str) -> bool:
     return all(any(token in label for token in generic) for label in labels)
 
 
+_SEO_RUSSIAN_MARKERS = re.compile(
+    r"(?<![\\w])(?:увольнение|коррупция|россия|россии|россияне|"
+    r"война|путин|мобилизация|санкции|говорят|идет|почему|"
+    r"вопросы|ответы|жизнь|мнение|работа|зарплаты|пенсии)(?![\\w])",
+    re.I,
+)
+
+
+def _seo_ukrainian_language_issue(value: str) -> bool:
+    """Conservative flag for Russian output; do not guess translations."""
+    candidate = str(value or "")
+    return bool(
+        re.search(r"[ыэъё]", candidate.casefold())
+        or _SEO_RUSSIAN_MARKERS.search(candidate)
+    )
+
+
 def _preserve_current_title_when_candidate_is_not_stronger(
     current_title: str,
     candidate_title: str,
@@ -2628,6 +2645,18 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short or is_stream:
         chapters = ""
 
+    # Fail closed: preserving a legacy Russian title, or model-produced
+    # Russian metadata, must never be marked as safe for publishing.
+    language_issues = []
+    if _seo_ukrainian_language_issue(title):
+        language_issues.append("назва")
+    if _seo_ukrainian_language_issue(description):
+        language_issues.append("опис")
+    if any(_seo_ukrainian_language_issue(item) for item in variants):
+        language_issues.append("A/B назви")
+    if any(_seo_ukrainian_language_issue(item) for item in tags):
+        language_issues.append("теги")
+
     return {
         "title": title,
         "title_variants": variants[:3],
@@ -2648,6 +2677,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(evidence_report)
             or bool(omitted_topics)
             or bool(title_issues)
+            or bool(language_issues)
             or bool(payload.get("evidence_editorial_review"))
             or bool(payload.get("_description_quality_issue"))
             or bool(payload.get("_tags_review_required"))
@@ -2660,6 +2690,7 @@ chapters: рядок з підтвердженими таймкодами та �
         ),
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
+        "seo_language_issues": language_issues,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
@@ -2670,6 +2701,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(language_issues), "Неукраїнська мова SEO-полів: " + ", ".join(language_issues)),
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
