@@ -153,6 +153,33 @@ jobs:
           if (-not (Test-Path $internal)) { throw "Installed PyInstaller runtime missing" }
           Write-Host "QA installation successful: $app"
 
+      - name: Smoke test installed GUI startup in disposable profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = Join-Path $env:RUNNER_TEMP "RGYouTubeControl_QA"
+          $app = Join-Path $target "RG YouTube Control.exe"
+          if (-not (Test-Path -LiteralPath $app)) { throw "Installed GUI missing" }
+          # Offscreen + disposable APPDATA: never touch an operator's profile.
+          $profile = Join-Path $env:RUNNER_TEMP "RGYouTube_ColdStart_Profile"
+          $env:LOCALAPPDATA = Join-Path $profile "Local"
+          $env:APPDATA = Join-Path $profile "Roaming"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          New-Item -ItemType Directory -Force $env:LOCALAPPDATA,$env:APPDATA | Out-Null
+          $gui = Start-Process -FilePath $app -WorkingDirectory $target -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $gui.Refresh()
+            if ($gui.HasExited) {
+              throw "Installed GUI exited during isolated startup; exit=$($gui.ExitCode)"
+            }
+            Write-Host "Installed GUI cold-start stayed alive for 8 seconds"
+          } finally {
+            if (-not $gui.HasExited) {
+              Stop-Process -Id $gui.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
       - name: Publish GitHub release (optional)
         continue-on-error: true
         if: >-

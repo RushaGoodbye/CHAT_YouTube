@@ -191,7 +191,12 @@ def analyze_all_timeline_blocks(
             try:
                 saved = json.loads(path.read_text(encoding="utf-8"))
                 item = _validate_topics(saved, block)
-                cache_hits += 1
+                if item["verified"]:
+                    cache_hits += 1
+                else:
+                    # An invalid old cache entry must never suppress a fresh
+                    # source-grounded attempt for a real transcript block.
+                    item = None
             except (ValueError, OSError, TypeError):
                 item = None
 
@@ -224,6 +229,84 @@ def analyze_all_timeline_blocks(
                 item = _validate_topics(candidate, block)
             except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
                 item = _validate_topics({}, block)
+            # A single invalid model response must not silently lose an entire
+            # chronological block. Retry once with a shorter, exact-quote
+            # extraction prompt. The same strict source verifier applies.
+            # If the quote still cannot be proven, keep it unverified.
+            if not item["verified"] and len(block["text"].strip()) >= 100:
+                retry_prompt = (
+                    "Віднови ОДНУ тему лише з цього фрагмента. "
+                    "Поверни JSON з topics: [{topic, summary_uk, evidence}]. "
+                    "evidence — ДОСЛІВНА послідовність від 8 до 240 символів "
+                    "з наведеного тексту, НЕ перефразовуй і не перекладай її. "
+                    "topic та summary_uk українською. "
+                    "Якщо немає точної цитати, topics=[].\n\n"
+                    + block["text"][:3600]
+                )
+                try:
+                    raw_retry = chat(
+                        [
+                            {"role": "system", "content": "Лише валідний JSON з точною цитатою."},
+                            {"role": "user", "content": retry_prompt},
+                        ],
+                        model=model, timeout=timeout, temperature=0.0,
+                        json_mode=True,
+                    )
+                    retried = _validate_topics(
+                        json.loads(str(raw_retry).strip()), block,
+                    )
+                    if retried["verified"]:
+                        item = retried
+                except (ValueError, RuntimeError, TimeoutError, TypeError, OSError):
+                    pass
+            if not item["verified"]:
+                # Final constrained rescue: let the model author a *topic*
+                # but NEVER the quotation. Pin one literal meaningful source
+                # line, and require its unchanged use. This is attempted only
+                # after two unsuccessful responses and never relaxes source
+                # matching or silently approves an unverified block.
+                source_lines = [
+                    _compact(line)
+                    for line in block["text"].splitlines()
+                    if len(_compact(line)) >= 40
+                ]
+                if source_lines:
+                    quote = max(
+                        source_lines,
+                        key=lambda line: (
+                            len(set(re.findall(r"\w+", line.casefold()))),
+                            len(line),
+                        ),
+                    )[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
+                    if len(quote) >= 30:
+                        rescue_prompt = (
+                            "Ти не створюєш цитати. Поверни JSON, "
+                            "topics: [{topic, summary_uk, evidence}]. "
+                            "Тема та коротка теза українською лише про те, "
+                            "що прямо сказано в наведеній дослівній репліці. "
+                            "Значення evidence ОБОВ'ЯЗКОВО скопіюй без "
+                            "змін, пропусків або перекладу. Якщо тема не "
+                            "зрозуміла, topics=[].\n"
+                            f"ДОСЛІВНА РЕПЛІКА: {quote}\n"
+                            f"ДОСЛІВНИЙ evidence: {json.dumps(quote, ensure_ascii=False)}"
+                        )
+                        try:
+                            rescued_raw = chat(
+                                [
+                                    {"role": "system", "content": "JSON. Без доданих фактів."},
+                                    {"role": "user", "content": rescue_prompt},
+                                ],
+                                model=model, timeout=timeout,
+                                temperature=0.0, json_mode=True,
+                            )
+                            rescued = _validate_topics(
+                                json.loads(str(rescued_raw).strip()), block,
+                            )
+                            if rescued["verified"]:
+                                item = rescued
+                        except (ValueError, RuntimeError, TimeoutError,
+                                TypeError, OSError):
+                            pass
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
@@ -451,6 +534,74 @@ def preserve_outline_topics(
 
 
 
+def _cross_language_topic_word(word: str) -> str:
+    """Conservative bilingual *topic* normalization for verified quotations.
+
+    A normalized match is only a reason to consider a Ukrainian lexical
+    variant: it NEVER overrides title-language, quote provenance, factual
+    or editorial review gates. No external network, model or API quota.
+    """
+    w = str(word or "").casefold().translate(str.maketrans({
+        "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е",
+        "ы": "и", "э": "е",
+    }))
+    # All matched prefixes in a family share the same canonical five-letter
+    # root; this also tolerates plural/declension in Ukrainian and Russian.
+    families = (
+        (("коруп", "корруп"), "корруп"),
+        (("росі", "росси", "россий", "росия"), "росси"),
+        (("війн", "вийн", "войн"), "война"),
+        (("звільн", "звилн", "увольн", "уволен"), "уволн"),
+        (("посад", "должн", "должност"), "должн"),
+        (("змін", "змин", "смен"), "смена"),
+        (("рішен", "ришен", "решен"), "решен"),
+        (("влад", "власт"), "власт"),
+        (("путін", "путин"), "путин"),
+        (("оборон",), "оборо"),
+        (("пенсі", "пенси"), "пенси"),
+        (("зарплат",), "зарпл"),
+        (("бензин",), "бензи"),
+        (("пальн", "топлив"), "топли"),
+        (("цін", "цин", "цен"), "ценыx"),
+        (("подорожч", "подорожа"), "дорож"),
+        (("мобілі", "мобили"), "мобил"),
+        (("крим", "крым"), "крымx"),
+        (("релігі", "религи"), "религ"),
+        (("пропаганд",), "пропа"),
+        (("армі", "арми", "армия"), "армия"),
+        (("вибух", "взрыв"), "взрив"),
+        (("президент",), "прези"),
+        (("стратег",), "страт"),
+        (("кадров",), "кадро"),
+        (("санкц",), "санкц"),
+    )
+    for variants, canonical in families:
+        if any(w.startswith(alias.translate(str.maketrans({"і": "и", "ї": "и", "є": "е"}))) for alias in variants):
+            return canonical
+    return w
+
+
+# These are *exact, fixed* editorial-question frames, not source facts.
+# Recognize only complete frame matches. A new event, attribution or claim in
+# the subject is still checked against verified quotations word by word.
+_NEUTRAL_SOURCE_AB_FRAMES = (
+    re.compile(r"^(.+?): що говорять співрозмовники\?$", re.I),
+    re.compile(r"^(.+?): про що йдеться у чат-рулетці\?$", re.I),
+    re.compile(r"^(.+?): що прозвучало під час розмови\?$", re.I),
+    re.compile(r"^(.+?): про що говорили учасники\?$", re.I),
+    re.compile(r"^(.+?): що обговорили співрозмовники\?$", re.I),
+)
+
+
+def _neutral_source_ab_subject(title: str) -> str | None:
+    """Extract asserted subject only for recognized nonfactual question text."""
+    for frame in _NEUTRAL_SOURCE_AB_FRAMES:
+        match = frame.fullmatch(str(title or "").strip())
+        if match:
+            return match.group(1)
+    return None
+
+
 def ab_title_issues(
     variants: Iterable[str],
     report: dict[str, Any] | None = None,
@@ -479,6 +630,17 @@ def ab_title_issues(
                     f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
                 )
 
+    # Extra offline evidence-independent duplicate detector (RapidFuzz/MIT).
+    # It only rejects repeated hooks; it cannot turn unsupported text into
+    # grounded metadata or create a missing A/B story.
+    from .seo_free_quality import repeated_ab_event_pairs
+    for left, right in repeated_ab_event_pairs(values):
+        reason = (
+            f"Варіанти {left + 1} і {right + 1} повторюють один сюжетний гачок."
+        )
+        if reason not in issues:
+            issues.append(reason)
+
     # Generic editorial labels are not a useful or factual third A/B hook.
     # They used to pass the offline gate and reach the real GUI preview.
     generic_hook = re.compile(
@@ -495,6 +657,25 @@ def ab_title_issues(
         r"(?i)\bответ\s+на\s+вопрос\b|"
         r"\bпочему\s+не\s+ответил[иа]?\b"
     )
+    # The model may ignore a Ukrainian prompt and return Russian headlines.
+    # Reject such drafts explicitly instead of trusting the prompt wording.
+    for index, value in enumerate(values, 1):
+        folded = value.casefold()
+        russian_grammar = len(re.findall(
+            r"\b(?:почему|что|это|увольнение|уволили|коррупция|"
+            r"россияне|российские|рассказывают|обсуждают|говорят|"
+            r"всё|все|который|которые|вопросы|ответы|и|или|"
+            r"военная|стратегия|происходит|причины|отставка)\b",
+            folded,
+        ))
+        from .seo_free_quality import russian_language_signal
+        if (
+            re.search(r"[ыэъё]", folded)
+            or russian_grammar >= 2
+            or russian_language_signal(value)
+        ):
+            issues.append(f"A/B варіант {index} не українською мовою.")
+
     for index, value in enumerate(values, 1):
         if asr_misspelling.search(value):
             issues.append(
@@ -573,6 +754,7 @@ def ab_title_issues(
         evidence_fragments = [
             _compact(item.get("evidence")).casefold()
             for block in report.get("blocks") or []
+            if isinstance(block, dict) and block.get("verified") is not False
             for item in block.get("topics") or []
             if isinstance(item, dict)
         ]
@@ -580,7 +762,8 @@ def ab_title_issues(
             str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
         )
         stems = {
-            word[:5] for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
+            _cross_language_topic_word(word)[:5]
+            for word in re.findall(r"[a-zа-яё0-9]{5,}", source)
         }
         # A shared supported keyword must not conceal an invented unrelated
         # two-word subject (regression: "family psychology" in political SEO).
@@ -606,9 +789,14 @@ def ab_title_issues(
                 issues.append(
                     f"A/B варіант {index} містить непідтверджену тему сімейної психології."
                 )
+            # Avoid treating the *fixed neutral question* as a new event:
+            # "йдеться", "рулетці", "говорили" are formatting, not claims.
+            # For all other titles the full original strict check remains.
+            neutral_subject = _neutral_source_ab_subject(value)
+            factual_text = neutral_subject if neutral_subject is not None else value
             words = re.findall(
                 r"[a-zа-яё0-9]{5,}",
-                value.casefold().translate(
+                factual_text.casefold().translate(
                     str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
                 ),
             )
@@ -617,10 +805,51 @@ def ab_title_issues(
                 if word not in {
                     "чатрулетка", "рулетка", "рашагудбай",
                     "россияне", "россия", "российск",
+                    "кажуть", "говорять", "учасники", "розмови",
+                    "спиврозмовники", "питання", "думки", "версии",
+                    "обговорюють", "пояснюють", "скільки",
+                    # Non-factual editorial question scaffolding is not a
+                    # claimed subject and must not be counted as an
+                    # unsupported event merely because nobody said the same
+                    # interrogative wording verbatim.
+                    "оцінки", "оцінка", "пролунали", "звучать",
+                    "прозвучали", "співрозмовники", "співрозмовників",
+                    "переглядачі", "глядачі", "називають",
+                    "вважають", "припускають", "відповідають",
+                    "дискусія", "обговорення", "розповідають",
+                    "якими", "насправді", "запитують",
+                    "участники", "собеседники", "обсуждают",
+                    "оценки", "мнения", "рассказывают",
                 }
             ]
-            if meaningful and not any(
-                word[:5] in stems for word in meaningful
+            if neutral_subject is not None:
+                # This exception applies only to subject-only editorial
+                # templates. ALL substantial nouns/names still need source
+                # support; a single matching name must not launder claims.
+                # Allow single short canonical labels only when they appear
+                # verbatim among verified quotations.
+                subject_words = re.findall(
+                    r"[a-zа-яёіїєґ]+", neutral_subject.casefold()
+                )
+                stop = {"та", "і", "й", "про", "щодо", "на", "у", "в", "за", "з"}
+                unsupported = [
+                    word for word in subject_words
+                    if word not in stop and (
+                        _cross_language_topic_word(word)[:5] not in stems
+                        if len(word) >= 5
+                        else not any(
+                            re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)",
+                                      quote, re.I)
+                            for quote in evidence_fragments
+                        )
+                    )
+                ]
+                if unsupported:
+                    issues.append(
+                        f"A/B варіант {index} не має підтверджених тематичних слів."
+                    )
+            elif meaningful and not any(
+                _cross_language_topic_word(word)[:5] in stems for word in meaningful
             ):
                 issues.append(
                     f"A/B варіант {index} не має підтверджених тематичних слів."
@@ -629,9 +858,11 @@ def ab_title_issues(
             # assertion ("война переходит в новую фазу"). This is a
             # conservative editorial warning: lexical differences may be
             # legitimate paraphrases and are never called proven false.
+            # Above, neutral question/attribution words are already excluded:
+            # only factual subjects are checked against the exact quotes.
             source_only = [
                 word for word in meaningful
-                if word[:5] not in stems
+                if _cross_language_topic_word(word)[:5] not in stems
                 and word not in {
                     "почему", "который", "которые", "говорят",
                     "рассказ", "вопросы", "ответы", "выпуск",

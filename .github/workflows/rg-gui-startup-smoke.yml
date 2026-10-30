@@ -1,0 +1,70 @@
+name: RG 0.7.42 installed GUI responsive-window smoke
+
+on:
+  push:
+    branches:
+      - fix/seo-ukrainian-editorial-20261027
+    paths:
+      - .github/workflows/rg-gui-startup-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-gui-start:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Get exact PASS installer artifact without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          name: RG-YouTube-Control-Windows
+          repository: RushaGoodbye/CHAT_YouTube
+          run-id: 41045426685
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/rg-gui-artifact
+      - name: Install and launch isolated GUI, no channel account or persistent database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem "$env:RUNNER_TEMP\rg-gui-artifact" -Recurse -File -Filter 'RG_YouTube_Control_Setup_*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Verified installer artifact missing' }
+          $qaRoot = Join-Path $env:RUNNER_TEMP 'RG_GUI_QA'
+          $target = Join-Path $qaRoot 'installed'
+          $data = Join-Path $qaRoot 'appdata'
+          $scratch = Join-Path $qaRoot 'scratch'
+          New-Item -ItemType Directory -Force $target,$data,$scratch | Out-Null
+          $args = @('/VERYSILENT','/SP-','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target")
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList $args -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+          $exe = Join-Path $target 'RG YouTube Control.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'GUI exe absent after install' }
+          $env:LOCALAPPDATA = $data
+          $env:APPDATA = $data
+          $env:TEMP = $scratch
+          $env:TMP = $scratch
+          $env:QT_QPA_PLATFORM = 'windows'
+          $proc = $null
+          try {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $target -PassThru
+            Start-Sleep -Seconds 10
+            $proc.Refresh()
+            if ($proc.HasExited) { throw "GUI exited during startup: $($proc.ExitCode)" }
+            if ($proc.MainWindowHandle -eq [IntPtr]::Zero) {
+              throw 'No GUI main window appeared during startup'
+            }
+            if (-not $proc.Responding) {
+              throw 'GUI process not responding to Windows messages'
+            }
+            Write-Host 'RG_INSTALLED_GUI_STARTUP_RESPONSIVE_PASS'
+            Write-Host 'PRODUCTION_ACCOUNT_TOUCHES 0'
+          } finally {
+            if ($proc) {
+              $proc.Refresh()
+              if (-not $proc.HasExited) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+              }
+            }
+          }

@@ -675,24 +675,6 @@ def _grounded_description_from_transcript(
     text = str(transcript or "").casefold()
     title_text = clean_title.casefold()
 
-    # High-confidence topic-specific fallback. It uses only facts and opinions
-    # that are directly visible in this transcript family.
-    if "шойгу" in title_text or "шойгу" in text:
-        sentences: list[str] = [
-            "У цьому випуску чат-рулетки росіяни обговорюють зміну посади Шойгу та причини кадрових рішень у Міністерстві оборони РФ.",
-            "У розмові звучать різні версії - від корупційних скандалів і перевірки військових витрат до планової кадрової перестановки.",
-            "Частина співрозмовників вважає, що Шойгу не усунули від влади, а перевели на іншу посаду, тоді як інші пов'язують зміни з проблемами в його команді.",
-        ]
-        if "белоусов" in text:
-            sentences.append(
-                "Також згадують Білоусова та його економічний профіль у контексті управління оборонною сферою."
-            )
-        if "тимур" in text and "иванов" in text:
-            sentences.append(
-                "Окремо порушують тему Тимура Іванова та корупційних звинувачень щодо представників команди Шойгу."
-            )
-        return _polish_generated_description(" ".join(sentences))
-
     topics: list[str] = []
     for needles, label in _GROUNDED_TOPIC_RULES:
         if any(needle in text for needle in needles):
@@ -723,7 +705,8 @@ def _grounded_description_from_transcript(
 
 
 def _deterministic_evidence_description(
-    title: str, evidence_report: dict[str, Any]
+    title: str, evidence_report: dict[str, Any],
+    *, review_unmapped: list[str] | None = None,
 ) -> str:
     """Create public Ukrainian prose only from cited, verified discussion subjects.
 
@@ -750,12 +733,6 @@ def _deterministic_evidence_description(
                 raise ValueError("No verified transcript quotations for SEO description")
             combined = (str(topic.get("topic") or "") + " " + quote).casefold()
             recognized: list[str] = []
-            if "шойгу" in combined and any(
-                word in combined for word in (
-                    "увольнен", "звільнен", "посад", "коррупц", "корупц",
-                )
-            ):
-                recognized.append("версії причин зміни посади Шойгу")
             if any(w in combined for w in ("стратег", "войн", "війн")):
                 recognized.append("війна та стратегічні рішення")
             if any(w in combined for w in (
@@ -780,17 +757,21 @@ def _deterministic_evidence_description(
             for label in recognized:
                 if label not in labels:
                     labels.append(label)
-    if unmapped:
+    # Unknown ASR topics are NOT public claims. Keep the valid supported
+    # subjects, but carry omissions into the manual-review state instead of
+    # failing the whole package and repeatedly calling Ollama.
+    if unmapped and review_unmapped is not None:
+        review_unmapped.extend(unmapped)
+    if unmapped and review_unmapped is None:
         raise ValueError(
             "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
         )
     if not labels:
         raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
-    subject = "Шойгу та " if "шойгу" in str(title or "").casefold() else ""
     lead = (
         "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють " + subject + "такі теми: " + "; ".join(labels) + ". "
+        "обговорюють такі теми: " + "; ".join(labels) + ". "
     )
     body = (
         "Учасники чат-рулетки висловлюють власні думки та припущення "
@@ -1346,22 +1327,165 @@ def _source_quote_ab_titles(
     return []
 
 
+def _verified_source_ab_titles(
+    report: dict[str, Any], current_title: str,
+) -> list[str]:
+    """Generic REVIEW-ONLY A/B proposals from distinct quoted topics.
+
+    No subject-specific names or handcrafted political events. Only topic
+    labels paired with verbatim, verified quotations can be used. This is
+    fallback presentation for editors, NOT a fact-checked publishable result.
+    """
+    # Preserve all candidate labels until the source check is performed.
+    # Deduplicating by quotation first can let a bogus model topic shadow
+    # the legitimate one that shares its source excerpt.
+    from itertools import combinations
+
+    entries = [
+        (block_index, item)
+        for block_index, block in enumerate(report.get("blocks") or [])
+        if isinstance(block, dict) and block.get("verified") is not False
+        for item in block.get("topics") or []
+        if isinstance(item, dict) and str(item.get("evidence") or "").strip()
+    ]
+    if not entries:
+        return []
+
+    # Labels are authored by the evidence model and thus require review.
+    # Reject clearly Russian strings, conversation mechanics and ASR noise.
+    generic = (
+        "дискусія", "розмова", "відповідь на запитання",
+        "реакція на запитання", "обговорення", "питання",
+        "різні погляди", "спілкування",
+    )
+    proposals: list[tuple[int, str]] = []
+    subjects: set[str] = set()
+    used_quotes: set[str] = set()
+    endings = (
+        "що говорять співрозмовники?",
+        "які оцінки пролунали?",
+        "що обговорили учасники?",
+    )
+    for block_index, entry in entries:
+        subject = " ".join(str(entry.get("topic") or "").split())
+        source = str(entry.get("evidence") or "")
+        if not (5 <= len(subject) <= 66 and len(source) >= 16):
+            continue
+        low = subject.casefold()
+        if any(word in low for word in generic) or re.search(r"[ыэъё]", low):
+            continue
+        if re.search(r"(?i)\b(?:шагу|шогу|срашк[аи])\b", low):
+            continue
+
+        # A label must share a recognizable subject with the quotation;
+        # generic function words and model-only named claims are forbidden.
+        from .dialogue_seo import _cross_language_topic_word
+        label_roots = {
+            _cross_language_topic_word(w)[:5]
+            for w in re.findall(r"[а-яіїєґa-z]{5,}", low)
+            if w not in {"через", "після", "версії", "причини", "причина"}
+        }
+        quote_roots = {
+            _cross_language_topic_word(w)[:5]
+            for w in re.findall(r"[а-яіїєґa-z]{5,}", source.casefold())
+        }
+        # ALL substantive label subjects must be visible in the quote.
+        # A single overlapping name may not launder an invented extra claim.
+        if not label_roots or not label_roots.issubset(quote_roots):
+            continue
+        key = re.sub(r"[^а-яіїєґa-z0-9]+", " ", low).strip()
+        quote_key = " ".join(source.casefold().split())
+        if key in subjects or quote_key in used_quotes:
+            continue
+        subjects.add(key)
+        used_quotes.add(quote_key)
+        subject = subject[0].upper() + subject[1:].rstrip(" .?!:;")
+        proposed = f"{subject}: {endings[len(proposals) % len(endings)]}"
+        if len(proposed) > 100:
+            proposed = f"{subject}: що кажуть співрозмовники?"
+        if 20 <= len(proposed) <= 100:
+            proposals.append((block_index, proposed))
+        if len(proposals) >= 24:
+            break
+    if len(proposals) == 2:
+        # Two *separately quoted and root-verified* Ukrainian subjects may
+        # support a third neutral overview angle. This never pretends a third
+        # event happened and never uses an unverified model topic.
+        left = proposals[0][1].split(":", 1)[0]
+        right = proposals[1][1].split(":", 1)[0]
+        angles = [
+            proposals[0][1], proposals[1][1],
+            f"{left} та {right}: що обговорили співрозмовники?",
+        ]
+        if not ab_title_issues(angles, report):
+            return angles
+    if len(proposals) < 3:
+        # With fewer than two supported topics, do not pad or auto-publish.
+        return [title for _, title in proposals]
+
+    # A previous bug returned the *first* three topical labels, even when two
+    # reused a story. Evaluate other verified subjects instead of fabricating
+    # a new one or weakening the editorial gate. Prefer different time blocks.
+    def rank(triple: tuple[tuple[int, str], ...]) -> tuple[int, int, int]:
+        # Distinct *subject roots* outrank three editorial phrasings of one
+        # recurring event. Ignore generic protagonists (e.g. 'Шойгу'), which
+        # can legitimately appear in headlines about different events.
+        roots = []
+        for _, title in triple:
+            subject = title.split(":", 1)[0].casefold()
+            roots.append({
+                _cross_language_topic_word(word)[:5]
+                for word in re.findall(r"[а-яіїєґa-z]{5,}", subject)
+                if _cross_language_topic_word(word)[:5] not in {
+                    "шойгу", "шойг", "росси", "росия", "путин",
+                    "украи", "участ", "розмо",
+                }
+            })
+        repeats = sum(
+            bool(roots[left] & roots[right])
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        )
+        indices = [index for index, _ in triple]
+        return (repeats, -len(set(indices)), -(max(indices) - min(indices)))
+
+    triplets = sorted(combinations(proposals, 3), key=rank)
+    for triple in triplets:
+        titles = [title for _, title in triple]
+        if not ab_title_issues(titles, report):
+            return titles
+    # No fully supported independent triplet: preserve a review-only preview
+    # rather than ever declaring the A/B set safe or inventing events.
+    return [title for _, title in proposals[:3]]
+
+
 def _recover_independent_ab_titles(
     *,
     report: dict[str, Any],
     current_title: str,
     model: str,
 ) -> list[str]:
-    """Generate one verified Russian hook per separate dialogue story."""
+    """Generate one verified Ukrainian hook per separate dialogue story."""
     outline = _ab_distinct_evidence_brief(report)
     anchors = outline.splitlines() if outline else []
-    if len(anchors) != 3:
+    if len(anchors) < 2:
         return []
+    # Two genuinely different verified subjects can support three A/B
+    # angles: the third must reinterpret the FIRST confirmed subject, not
+    # pretend that a third story exists. This fixes 2-block real videos.
+    two_subjects = len(anchors) == 2
+    if two_subjects:
+        anchors.append(anchors[0])
     titles: list[str] = []
-    for index, source_anchor in enumerate(anchors, 1):
+    for index, source_anchor in enumerate(anchors[:3], 1):
+        reuse_note = (
+            "Це третій РАКУРС першої підтвердженої теми, НЕ нова подія. "
+            "Не додавай фактів, яких немає у цитаті. "
+            if two_subjects and index == 3 else ""
+        )
         prompt = (
-            f"Напиши ОДНУ назву російською, 25-95 символів, "
-            f"тільки про сюжет {index}:\n{source_anchor}\n"
+            f"Напиши ОДНУ назву українською, 25-95 символів, "
+            f"тільки про підтверджену тему {index}:\n{source_anchor}\n"
+            + reuse_note + "\n"
             "Без вигаданих фактів, персонажів чи причин. "
             "Сформулюй конкретний гачок за цитатою. "
             "Не повторюй інші сюжети та назви. "
@@ -1404,9 +1528,9 @@ def _recover_title_variants(
     transcript: str,
     model: str,
 ) -> list[str]:
-    """Focused recovery of exactly three distinct Russian title variants."""
+    """Focused recovery of exactly three distinct Ukrainian title variants."""
     prompt = f"""
-Створи РІВНО 3 різні варіанти назви YouTube-відео російською.
+Створи РІВНО 3 різні варіанти назви YouTube-відео українською.
 A: головний конфлікт у розмові; B: конкретне запитання або парадокс;
 C: інша підтверджена тема, якщо вона є; інакше інший кут головної теми.
 Не починай усі три однаково. Назви мають відрізнятися змістом і кутом.
@@ -1805,25 +1929,6 @@ def _grounded_chapters_from_transcript(
     if not available:
         return ""
 
-    if "шойгу" in title_text:
-        preferred = (
-            ("00:00", "Вступ і головне запитання"),
-            ("00:43", "Версії причин зміни Шойгу"),
-            ("02:21", "Корупція та команда Шойгу"),
-            ("03:17", "Військова стратегія і нове керівництво"),
-            ("04:00", "Перехід Шойгу на іншу посаду"),
-            ("06:03", "Корупція чи кадровий план"),
-            ("08:11", "Тимур Іванов і команда Шойгу"),
-        )
-        lines = [
-            f"{stamp} {label}"
-            for stamp, label in preferred
-            if stamp in available or stamp == "00:00"
-        ]
-        value = "\n".join(lines)
-        if not _chapters_quality_error(value, transcript_text):
-            return value
-
     stamps = sorted(
         (
             (_chapter_timestamp_seconds(stamp), stamp)
@@ -1967,6 +2072,13 @@ def generate_seo_package_local(
     evidence_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = public_context or {}
+    live_profile = str(context.get("profile") or "").casefold()
+    live_state = str(context.get("live_broadcast_content") or "").casefold()
+    is_stream = (
+        live_profile in {"live", "livestream", "stream"}
+        or live_state in {"live", "upcoming", "completed"}
+        or bool(context.get("is_livestream"))
+    )
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
@@ -1982,11 +2094,11 @@ def generate_seo_package_local(
 Використовуй ТІЛЬКИ наведений контекст. Якщо факту немає в контексті - не додавай його.
 
 Правила:
-- основна назва та РІВНО 3 A/B формулювання російською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
+- основна назва та РІВНО 3 A/B формулювання українською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
-- не копіюй російську назву відео як перше речення опису; перефразуй тему природною українською;
+- не копіюй назву відео як перше речення опису; перефразуй тему природною українською;
 - головне джерело змісту - ТРАНСКРИПТ; назва лише задає тему, старий опис не є джерелом фактів;
 - перші 1-2 речення мають назвати конкретну тему, людину/подію/питання з відео, якщо це прямо є в транскрипті;
 - не розширюй імена зовнішніми знаннями: «Шойгу» не можна перетворювати на «Сергій Шойгу», якщо ім'я Сергій відсутнє в джерелі;
@@ -2011,6 +2123,7 @@ def generate_seo_package_local(
 - chapters = "" якщо точні таймкоди неможливо підтвердити транскриптом.
 
 SHORTS: {is_short}
+СТРІМ/АРХІВ СТРІМУ: {is_stream}. Для стріму chapters ОБОВ'ЯЗКОВО порожній рядок.
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
 КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
@@ -2051,7 +2164,7 @@ SHORTS: {is_short}
             if attempt:
                 attempt_prompt = f"""
 Поверни ТІЛЬКИ валідний JSON з ключами title, title_variants, description, tags, chapters.
-title: російською, до 100 символів, конкретний і підтверджений транскриптом.
+title: українською, до 100 символів, конкретний і підтверджений транскриптом.
 title_variants: РІВНО 3 різні варіанти, кожен до 100 символів.
 description: українською, 400-900 символів, головна тема і 2-3 важливі деталі з різних частин, без переліку всіх епізодів, шаблонів та ENGLISH SUMMARY.
 tags: масив 8-15 конкретних пошукових фраз без # і без дублікатів; не використовуй загальні одиночні слова на кшталт план/стратегия/политика.
@@ -2129,16 +2242,21 @@ chapters: рядок з підтвердженими таймкодами та �
                     # Strict for unattended batch preparation.
                     raise ValueError("need exactly 3 title variants")
                 try:
-                    variants_candidate = _recover_title_variants(
+                    recovered_variants = _recover_title_variants(
                         current_title=current_title,
                         transcript=transcript,
                         model=model,
                     )
                 except (ValueError, RuntimeError, TimeoutError):
-                    # Allow an incomplete *manual-review* draft instead of
-                    # discarding an otherwise useful transcript-grounded SEO
-                    # description and requiring another full model pass.
-                    variants_candidate = []
+                    # Keep the original grounded draft if recovery fails.
+                    recovered_variants = []
+                # Never discard two existing editorial hooks because an
+                # independent recovery returned zero or one candidate.
+                # Incomplete sets remain NEEDS_REVIEW, never ready to apply.
+                if len(set(map(str.casefold, recovered_variants))) > len(
+                    set(map(str.casefold, variants_candidate))
+                ):
+                    variants_candidate = recovered_variants
                 candidate["title_variants"] = variants_candidate
             variants_candidate = list(dict.fromkeys(
                 item for item in variants_candidate
@@ -2182,6 +2300,14 @@ chapters: рядок з підтвердженими таймкодами та �
                     )
                     if independent and len(ab_title_issues(independent, evidence_report)) < len(remaining):
                         candidate["title_variants"] = independent
+                # Generic zero-network fallback: use quote-anchored topics
+                # (not a model's unsupported paraphrases) before giving up.
+                # This is ALWAYS marked review-only and never auto-applied.
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    sourced = _verified_source_ab_titles(evidence_report, current_title)
+                    if len(sourced) == 3 and not ab_title_issues(sourced, evidence_report):
+                        candidate["title_variants"] = sourced
+                        candidate["_source_topic_fallback_review_only"] = True
                 # Never silently ship an empty A/B panel if three distinct
                 # verified transcript excerpts can be recovered safely.
                 if ab_title_issues(candidate["title_variants"], evidence_report):
@@ -2191,57 +2317,38 @@ chapters: рядок з підтвердженими таймкодами та �
                     if safe_quotes and not ab_title_issues(safe_quotes, evidence_report):
                         candidate["title_variants"] = safe_quotes
                         candidate["ab_source_quote_fallback_used"] = True
-            # When several independent hooks are explicitly quoted, prefer
-            # stable source-grounded angles over random, sometimes malformed
-            # model A/B candidates. Never fabricate a third evidence topic.
-            if evidence_report:
-                quotes = " ".join(
-                    str(t.get("evidence") or "")
-                    for block in evidence_report.get("blocks") or []
-                    if block.get("verified") is not False
-                    for t in block.get("topics") or [] if isinstance(t, dict)
-                ).casefold()
-                if (
-                    "шойгу" in current_title.casefold()
-                    and any(stem in quotes for stem in ("корруп", "коруп"))
-                    and "мчс" in quotes
-                    and "план" in quotes
-                ):
-                    first = (
-                        "Шойгу и коррупция: что сказали об обвинениях?"
-                        if "обвинен" in quotes else
-                        "Шойгу и коррупция: что говорят о причинах?"
+                if ab_title_issues(candidate["title_variants"], evidence_report):
+                    # The model may repeatedly hallucinate a thematic label
+                    # while its verified literal quotations contain several
+                    # concrete source subjects. Extract ONLY those subjects,
+                    # phrased as factual-neutral Ukrainian editorial questions.
+                    # Every title still passes the same strict A/B validator;
+                    # this preview NEVER bypasses manual approval.
+                    from .source_ab_lexical import source_grounded_ukrainian_ab
+                    lexical = source_grounded_ukrainian_ab(
+                        evidence_report, current_title,
                     )
-                    third = ""
-                    if "стратег" in quotes and "война" in quotes:
-                        third = "МЧС и война: кто должен отвечать за стратегию?"
-                    elif "сам захотел" in quotes and "должност" in quotes:
-                        third = "Уход Шойгу: сам захотел на другую должность?"
-                    elif "путин" in quotes and "отношен" in quotes:
-                        third = "Путин и Шойгу: что говорили об отношениях?"
-                    if third:
-                        grounded_angles = [
-                            first,
-                            "Шойгу и МЧС: «Всё идёт по плану»?",
-                            third,
-                        ]
-                        if not ab_title_issues(grounded_angles, evidence_report):
-                            candidate["title_variants"] = grounded_angles
+                    if lexical and not ab_title_issues(lexical, evidence_report):
+                        candidate["title_variants"] = lexical
+                        candidate["_source_lexical_review_only"] = True
             if evidence_report:
                 # One deterministic editorial pass, zero extra Ollama
                 # recovery requests and zero model-authored public claims.
+                unmapped_evidence: list[str] = []
                 description_candidate = _deterministic_evidence_description(
                     current_title, evidence_report,
+                    review_unmapped=unmapped_evidence,
                 )
+                candidate["evidence_editorial_review"] = unmapped_evidence
                 candidate["description"] = description_candidate
                 candidate["_deterministic_editor"] = True
                 description_error = _description_quality_error(
                     description_candidate, transcript, max_chars=950,
                 )
                 if description_error:
-                    raise ValueError(
-                        "grounded description failed final check: " + description_error
-                    )
+                    # Retain the evidence-only text as an explicitly unapproved
+                    # draft. Do not retry deterministic content with the model.
+                    candidate["_description_quality_issue"] = description_error
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2250,45 +2357,6 @@ chapters: рядок з підтвердженими таймкодами та �
                     description_candidate = _remove_unsupported_named_claims(
                         description_candidate, evidence_report, current_title,
                     )
-                # A discussion quote does not establish Putin's intent.
-                # Remove the specific unsupported causal inference while retaining
-                # the verifiable discussion of relationships and reassignment.
-                if evidence_report and "шойгу" in current_title.casefold():
-                    description_candidate = re.sub(
-                        r"(?i)(?:Зокрема, )?згадують, що Путін утримував його поблизу,"
-                        r"\s*щоб контролювати корупцію, але тепер він був переведений"
-                        r" на іншу посаду\.",
-                        "У розмові згадують стосунки Шойгу з Путіним та зміну посади.",
-                        description_candidate,
-                    )
-                    description_candidate = re.sub(
-                        r"(?i)щоб контролювати корупцію",
-                        "за припущенням співрозмовника",
-                        description_candidate,
-                    )
-                if evidence_report and "шойгу" in current_title.casefold():
-                    verified_quotes = " ".join(
-                        str(t.get("evidence") or "")
-                        for b in evidence_report.get("blocks") or []
-                        if b.get("verified") is not False
-                        for t in b.get("topics") or [] if isinstance(t, dict)
-                    ).casefold()
-                    # Statements about charges against unnamed people must not
-                    # become an assertion that Shoigu himself was charged.
-                    if "предъявлены обвинения" in verified_quotes and not re.search(
-                        r"обвинени[яй].{0,25}шойгу", verified_quotes
-                    ):
-                        description_candidate = re.sub(
-                            r"(?i)обвинувачення проти Шойгу(?:, його команди)?",
-                            "обвинувачення щодо окремих осіб",
-                            description_candidate,
-                        )
-                    if "расход" not in verified_quotes and "витрат" not in verified_quotes:
-                        description_candidate = description_candidate.replace(
-                            "військові витрати",
-                            "фінансові питання" if "финанс" in verified_quotes
-                            else "кадрові рішення",
-                        )
                 candidate["description"] = description_candidate
                 description_error = _description_quality_error(
                     description_candidate,
@@ -2384,7 +2452,9 @@ chapters: рядок з підтвердженими таймкодами та �
                         break
 
             if len(merged_tags) < 8:
-                raise ValueError("need at least 8 grounded tags")
+                # Never pad keywords with unsupported claims to reach a quota.
+                # An incomplete tag set can be saved ONLY for human review.
+                candidate["_tags_review_required"] = True
             candidate["tags"] = merged_tags
 
             payload = candidate
@@ -2392,6 +2462,57 @@ chapters: рядок з підтвердженими таймкодами та �
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
+    if not payload and evidence_report and not fast_mode and str(current_title).strip():
+        # A verified transcript is valuable even when the model or editorial
+        # rules cannot finish a complete SEO package. Preserve a review-only
+        # draft, NEVER silently mark it safe and NEVER post to YouTube.
+        verified_topics = [
+            topic for block in evidence_report.get("blocks") or []
+            if isinstance(block, dict) and block.get("verified") is not False
+            for topic in block.get("topics") or []
+            if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+        ]
+        if verified_topics:
+            review_topics: list[str] = []
+            try:
+                safe_description = _deterministic_evidence_description(
+                    current_title, evidence_report,
+                    review_unmapped=review_topics,
+                )
+            except ValueError:
+                # No verified public subject could be mapped, so never
+                # substitute an unchecked LLM narrative for public claims.
+                # This text exists ONLY as an unapproved local draft.
+                safe_description = (
+                    "Це попередній SEO-чернетковий опис для перевірки редактором. "
+                    "У відео є розмови співрозмовників, але автоматична система "
+                    "не змогла надійно підтвердити формулювання ключових тем. "
+                    "Потрібно звірити твердження з оригінальним записом і "
+                    "уточнити зміст перед публікацією. "
+                    "Назву, тематичні акценти та пошукові фрази слід "
+                    "перевірити вручну за наявною картою цитат."
+                )
+                review_topics.append("unmapped_evidence")
+            from .source_ab_lexical import source_grounded_ukrainian_ab
+            payload = {
+                "title": str(current_title).strip(),
+                "title_variants": (
+                    source_grounded_ukrainian_ab(
+                        evidence_report, current_title,
+                    )
+                    or _verified_source_ab_titles(
+                        evidence_report, current_title,
+                    )
+                ),
+                "description": safe_description,
+                "tags": _grounded_tags_from_transcript(current_title, transcript)[:10],
+                "chapters": "",
+                "_deterministic_editor": True,
+                "_fallback_review_only": True,
+                "evidence_editorial_review": review_topics,
+                "_description_quality_issue": "editorial_review_required",
+            }
+            title_fallback_used = True
     if not payload:
         mode_text = "швидкого проходу" if fast_mode else "повторів"
         raise ValueError(
@@ -2454,14 +2575,19 @@ chapters: рядок з підтвердженими таймкодами та �
     else:
         chapters = ""
 
-    if not is_short and transcript.strip():
+    if not is_short and not is_stream and transcript.strip():
         chapter_error = _chapters_quality_error(chapters, transcript)
         if chapter_error and not fast_mode:
-            chapters = _recover_chapters_from_transcript(
-                current_title=current_title,
-                transcript=transcript,
-                model=model,
-            )
+            try:
+                chapters = _recover_chapters_from_transcript(
+                    current_title=current_title,
+                    transcript=transcript,
+                    model=model,
+                )
+            except (RuntimeError, TimeoutError, ValueError):
+                # The chapter model is optional. An outage must not erase
+                # a verified, review-only SEO package for the whole video.
+                chapters = ""
         if not chapters or _chapters_quality_error(chapters, transcript):
             chapters = _grounded_chapters_from_transcript(
                 current_title=current_title,
@@ -2481,7 +2607,7 @@ chapters: рядок з підтвердженими таймкодами та �
         raise ValueError("Локальна модель не створила опис.")
     if len(description) > (3900 if evidence_report else 5000):
         raise ValueError("SEO-опис перевищує безпечний ліміт; збережено карту доказів без втрати тем.")
-    if is_short:
+    if is_short or is_stream:
         chapters = ""
 
     return {
@@ -2504,6 +2630,12 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(evidence_report)
             or bool(omitted_topics)
             or bool(title_issues)
+            or bool(payload.get("evidence_editorial_review"))
+            or bool(payload.get("_description_quality_issue"))
+            or bool(payload.get("_tags_review_required"))
+            or bool(payload.get("_fallback_review_only"))
+            or bool(payload.get("_source_topic_fallback_review_only"))
+            or bool(payload.get("_source_lexical_review_only"))
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
@@ -2520,6 +2652,12 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
+                (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
+                (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
+                (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
+                (bool(payload.get("_source_topic_fallback_review_only")), "A/B із перевірених цитат: обов'язкове редакторське затвердження"),
+                (bool(payload.get("_source_lexical_review_only")), "A/B сформовано лише з дослівних тем: перевірити редакційні формулювання"),
             )
             if condition
         ),

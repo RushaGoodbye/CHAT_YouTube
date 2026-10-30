@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/reconcile-0740-freeze-seo-20261025
+          ref: fix/seo-ukrainian-editorial-20261027
           persist-credentials: false
       - name: Verify source machine and pinned Python
         shell: powershell
@@ -50,6 +50,7 @@ jobs:
           $env:PYTHONPATH = "$deps;$pwd\src;$env:PYTHONPATH"
           $output = Join-Path $env:RUNNER_TEMP 'rg_seo_qa_summary.json'
           $scope = '${{ inputs.scope }}'
+          if (-not $scope) { $scope = 'shoigu' }
           if ($scope -eq 'shoigu') {
             & $py -B rg_remote_control/seo_readonly_acceptance_10.py --video-ids MEitKm687xo --output $output
           } elseif ($scope -eq 'live2') {
