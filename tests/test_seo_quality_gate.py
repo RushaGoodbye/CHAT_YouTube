@@ -55,3 +55,31 @@ def test_generator_and_quality_gate_share_language_decisions():
         "Увольнение Шойгу в России",
     ):
         assert free_tools._seo_ukrainian_language_issue(sample_text) == language_error(sample_text)
+
+
+def test_sanitizer_replaces_russian_variants_with_source_topic_questions():
+    from rg_youtube_control.seo_quality_gate import sanitize_review_variants
+    result, modified = sanitize_review_variants(
+        "Шойгу: кадрові зміни",
+        [
+            "Шойгу и увольнение: почему?",
+            "Шойгу: що кажуть співрозмовники?",
+            "Почему говорят о коррупции?",
+        ],
+        [
+            "Шойгу: про що говорять у чат-рулетці?",
+            "Шойгу: погляди співрозмовників",
+        ],
+    )
+    assert modified
+    assert len(result) == 3
+    assert all(not language_error(value) for value in result)
+
+
+def test_sanitizer_never_fabricates_missing_grounded_alternatives():
+    from rg_youtube_control.seo_quality_gate import sanitize_review_variants
+    result, modified = sanitize_review_variants(
+        "Кадрові зміни", ["Почему уволили?", "Що думають люди?"], []
+    )
+    assert modified
+    assert result == ["Що думають люди?"]
