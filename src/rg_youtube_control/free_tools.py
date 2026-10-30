@@ -2697,6 +2697,22 @@ chapters: рядок з підтвердженими таймкодами та �
             variants = variants[:3]
             payload["_fallback_review_only"] = True
 
+    # Remove Russian A/B candidates before preview approval. Fill missing slots
+    # only from topics explicitly detected in the source. Unproven drafts stay
+    # review-only and may contain fewer than three options.
+    if fast_mode:
+        from .seo_quality_gate import sanitize_review_variants
+
+        variants, variants_changed = sanitize_review_variants(
+            title,
+            variants,
+            _grounded_review_title_variants(current_title, transcript),
+        )
+        if variants_changed:
+            payload["_fallback_review_only"] = True
+        # Recheck the final list, not the discarded model variants.
+        title_issues = ab_title_issues(variants, evidence_report)
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
