@@ -71,6 +71,7 @@ def _grounded_labels(quote: str) -> list[str]:
 
 def source_grounded_ukrainian_ab(
     report: dict[str, Any], current_title: str = "",
+    *, diagnostics: dict[str, Any] | None = None,
 ) -> list[str]:
     """Return 3 individually sourced review titles, or [] if unprovable.
 
@@ -79,6 +80,33 @@ def source_grounded_ukrainian_ab(
     Final title quality is checked by the same public editorial validator.
     """
     from .dialogue_seo import ab_title_issues
+
+    # Diagnostic values are COUNTS/CODES ONLY. No private captions, words,
+    # titles, topic labels, user details or paths are ever included.
+    counters: dict[str, int] = {}
+    def count(reason: str) -> None:
+        counters[reason] = counters.get(reason, 0) + 1
+
+    def failure(issues: list[str]) -> None:
+        for issue in issues:
+            if "підтверджених тематичних" in issue or "дослівні цитати" in issue or "непідтверджен" in issue:
+                count("unsupported_subject")
+            elif "повторюють" in issue or "сюжетну опору" in issue:
+                count("repeated_hook")
+            elif "20-100" in issue or "рівно 3" in issue:
+                count("title_count_or_length")
+            elif "не українською" in issue:
+                count("non_ukrainian")
+            else:
+                count("other_editorial_rejection")
+
+    def publish_diagnostics() -> None:
+        if diagnostics is not None:
+            diagnostics.update({
+                "source_quote_count": quote_id,
+                "distinct_root_count": len(subject_quotes),
+                "failure_counts": dict(sorted(counters.items())),
+            })
 
     # Collect every safely recognized root but attach each to its original
     # distinct literal quotation. One quotation may propose alternatives,
@@ -115,6 +143,8 @@ def source_grounded_ukrainian_ab(
             break
 
     if len(subject_quotes) < 2:
+        count("fewer_than_two_source_roots")
+        publish_diagnostics()
         return []
 
     # Prefer concrete topics; repeated source evidence may increase confidence
@@ -159,18 +189,23 @@ def source_grounded_ukrainian_ab(
     for names in triples:
         assignment = anchored_selection(names)
         if assignment is None:
+            count("no_distinct_quote_assignment")
             continue
         titles = [
             _FRAMES[i].format(subject=names[i])
             for i in range(3)
         ]
-        if not ab_title_issues(titles, report):
+        issues = ab_title_issues(titles, report)
+        if not issues:
+            publish_diagnostics()
             return titles
+        failure(issues)
 
     # Two separately supported subjects also support an attributed overview;
     # it is not a third new story. Require *two distinct* source quotations.
     for names in combinations(subjects, 2):
         if anchored_selection(names) is None:
+            count("no_distinct_quote_assignment")
             continue
         first, second = names
         angles = [
@@ -178,6 +213,10 @@ def source_grounded_ukrainian_ab(
             _FRAMES[1].format(subject=second),
             f"{first} та {second}: про що говорили учасники?",
         ]
-        if not ab_title_issues(angles, report):
+        issues = ab_title_issues(angles, report)
+        if not issues:
+            publish_diagnostics()
             return angles
+        failure(issues)
+    publish_diagnostics()
     return []
