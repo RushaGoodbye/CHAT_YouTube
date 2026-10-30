@@ -181,7 +181,7 @@ def test_grounded_tags_fill_local_seo_package() -> None:
     assert 8 <= len(tags) <= 15
     assert "РАША ГУДБАЙ" in tags
     assert "чат рулетка" in tags
-    assert "цены в России" in tags
+    assert "ціни в Росії" in tags
     assert "зарплаты в России" in tags
     assert "пенсии в России" in tags
     assert "экономика России" in tags
@@ -236,7 +236,7 @@ def test_specific_shoigu_tags_beat_generic_model_words() -> None:
     tags = _grounded_tags_from_transcript(title, transcript)
 
     assert "Шойгу" in tags
-    assert "увольнение Шойгу" in tags
+    assert "звільнення Шойгу" in tags
     assert "Министерство обороны России" in tags
     assert "коррупция в России" in tags
     assert _tag_is_grounded("план", title, transcript) is False
@@ -257,7 +257,7 @@ def test_fast_mode_reuses_current_title_when_model_omits_title(monkeypatch):
             'У розмові звучать різні оцінки причин дефіциту й вартості пального. '
             'Позиції учасників відрізняються, тому відео показує кілька поглядів на тему.",'
             '"tags":["РАША ГУДБАЙ","чат рулетка","Россия","россияне","мнение россиян",'
-            '"вопросы россиянам","бензин в России","цены в России"],"chapters":""}'
+            '"вопросы россиянам","бензин в России","ціни в Росії"],"chapters":""}'
         ),
     )
 
@@ -314,7 +314,7 @@ def test_belarus_grounded_tags_are_specific() -> None:
     )
 
     assert "Лукашенко" in tags
-    assert "Беларусь" in tags
+    assert "Білорусь" in tags
     assert "Украина" in tags
     assert "Беларусь и Украина" in tags
 
