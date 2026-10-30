@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).parent / "fixtures"
-CASES = ("MEitKm687xo", "pUWdQ8k6e4g", "u9y_f4HtEbQ", "GQL6N4jQpI8")
+CASES = ("MEitKm687xo", "pUWdQ8k6e4g", "u9y_f4HtEbQ", "GQL6N4jQpI8", "MClldsur_0s", "ZstT-QQyacA", "LM0vkW9YoKg", "dmDUcD1unbM", "mdPMyIy5A70", "OJD3N7AiQkg")
 
 
 def test_real_video_editorial_benchmark_is_safe_and_complete():
