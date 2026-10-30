@@ -25,3 +25,17 @@ def test_new_topic_proposal_still_allowed():
     assert _preserve_current_title_when_candidate_is_not_stronger(
         before, proposed
     ) == proposed
+
+
+
+def test_grounded_fallback_tags_use_ukrainian():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+
+    tags = _grounded_tags_from_transcript(
+        "Увольнение Шойгу - коррупция или все идет по плану? | РАША ГУДБАЙ",
+        "Шойгу, коррупция в России. Вопросы россиянам о войне и Украине.",
+    )
+    assert "звільнення Шойгу" in tags
+    assert "корупція в Росії" in tags
+    assert "Росія" in tags
+    assert "Россия" not in tags
