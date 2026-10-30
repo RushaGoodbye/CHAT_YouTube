@@ -496,6 +496,7 @@ def _cross_language_topic_word(word: str) -> str:
     # root; this also tolerates plural/declension in Ukrainian and Russian.
     families = (
         (("коруп", "корруп"), "корруп"),
+        (("росі", "росси", "россий", "росия"), "росси"),
         (("війн", "вийн", "войн"), "война"),
         (("звільн", "звилн", "увольн", "уволен"), "уволн"),
         (("посад", "должн", "должност"), "должн"),
@@ -525,6 +526,27 @@ def _cross_language_topic_word(word: str) -> str:
         if any(w.startswith(alias.translate(str.maketrans({"і": "и", "ї": "и", "є": "е"}))) for alias in variants):
             return canonical
     return w
+
+
+# These are *exact, fixed* editorial-question frames, not source facts.
+# Recognize only complete frame matches. A new event, attribution or claim in
+# the subject is still checked against verified quotations word by word.
+_NEUTRAL_SOURCE_AB_FRAMES = (
+    re.compile(r"^(.+?): що говорять співрозмовники\?$", re.I),
+    re.compile(r"^(.+?): про що йдеться у чат-рулетці\?$", re.I),
+    re.compile(r"^(.+?): що прозвучало під час розмови\?$", re.I),
+    re.compile(r"^(.+?): про що говорили учасники\?$", re.I),
+    re.compile(r"^(.+?): що обговорили співрозмовники\?$", re.I),
+)
+
+
+def _neutral_source_ab_subject(title: str) -> str | None:
+    """Extract asserted subject only for recognized nonfactual question text."""
+    for frame in _NEUTRAL_SOURCE_AB_FRAMES:
+        match = frame.fullmatch(str(title or "").strip())
+        if match:
+            return match.group(1)
+    return None
 
 
 def ab_title_issues(
@@ -714,9 +736,14 @@ def ab_title_issues(
                 issues.append(
                     f"A/B варіант {index} містить непідтверджену тему сімейної психології."
                 )
+            # Avoid treating the *fixed neutral question* as a new event:
+            # "йдеться", "рулетці", "говорили" are formatting, not claims.
+            # For all other titles the full original strict check remains.
+            neutral_subject = _neutral_source_ab_subject(value)
+            factual_text = neutral_subject if neutral_subject is not None else value
             words = re.findall(
                 r"[a-zа-яё0-9]{5,}",
-                value.casefold().translate(
+                factual_text.casefold().translate(
                     str.maketrans({"і": "и", "ї": "и", "є": "е", "ґ": "г"})
                 ),
             )
@@ -742,7 +769,33 @@ def ab_title_issues(
                     "оценки", "мнения", "рассказывают",
                 }
             ]
-            if meaningful and not any(
+            if neutral_subject is not None:
+                # This exception applies only to subject-only editorial
+                # templates. ALL substantial nouns/names still need source
+                # support; a single matching name must not launder claims.
+                # Allow single short canonical labels only when they appear
+                # verbatim among verified quotations.
+                subject_words = re.findall(
+                    r"[a-zа-яёіїєґ]+", neutral_subject.casefold()
+                )
+                stop = {"та", "і", "й", "про", "щодо", "на", "у", "в", "за", "з"}
+                unsupported = [
+                    word for word in subject_words
+                    if word not in stop and (
+                        _cross_language_topic_word(word)[:5] not in stems
+                        if len(word) >= 5
+                        else not any(
+                            re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)",
+                                      quote, re.I)
+                            for quote in evidence_fragments
+                        )
+                    )
+                ]
+                if unsupported:
+                    issues.append(
+                        f"A/B варіант {index} не має підтверджених тематичних слів."
+                    )
+            elif meaningful and not any(
                 _cross_language_topic_word(word)[:5] in stems for word in meaningful
             ):
                 issues.append(
