@@ -315,6 +315,29 @@ def run_one(
         )
         if grounded == 0:
             raise RuntimeError("No evidence-backed dialogue blocks")
+        # Diagnostic counts only: never upload private quotations, SRT text,
+        # model titles or topic names into GitHub job logs. Distinguish real
+        # source insufficiency from an A/B fallback integration failure.
+        from rg_youtube_control.source_ab_lexical import (
+            _grounded_labels, source_grounded_ukrainian_ab,
+        )
+        recognized_subjects = set()
+        verified_quote_count = 0
+        for block in report.get("blocks") or []:
+            if not isinstance(block, dict) or block.get("verified") is False:
+                continue
+            for topic in block.get("topics") or []:
+                if not isinstance(topic, dict):
+                    continue
+                quote = str(topic.get("evidence") or "").strip()
+                if not quote:
+                    continue
+                verified_quote_count += 1
+                recognized_subjects.update(_grounded_labels(quote))
+        safe_ab = source_grounded_ukrainian_ab(report, title)
+        result["source_quote_count"] = verified_quote_count
+        result["recognized_source_subject_count"] = len(recognized_subjects)
+        result["deterministic_ab_ready"] = len(safe_ab) == 3
         stage = "seo_generation"
         package = generate_seo_package_local(
             current_title=title,
