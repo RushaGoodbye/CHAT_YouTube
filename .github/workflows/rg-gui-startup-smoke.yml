@@ -1,4 +1,4 @@
-name: RG 0.7.41 isolated installed GUI startup smoke
+name: RG 0.7.42 installed GUI responsive-window smoke
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
         with:
           name: RG-YouTube-Control-Windows
           repository: RushaGoodbye/CHAT_YouTube
-          run-id: 40683018871
+          run-id: 41045426685
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: ${{ runner.temp }}/rg-gui-artifact
       - name: Install and launch isolated GUI, no channel account or persistent database
