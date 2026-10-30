@@ -173,11 +173,18 @@ def run(mode):
   if int(dest.get('id',0))!=chat or dest.get('type')!='private':die('ACK_WRONG_CHAT')
   if item_kind=='video' and not ((message.get('video') or {}).get('file_id')):
    die('VIDEO_ACK_MISSING_FILE_ID')
-  if item_kind=='photo' and not message.get('photo'):
-   die('PHOTO_ACK_MISSING')
+  photo_id=None
+  if item_kind=='photo':
+   photos=message.get('photo') or []
+   if not isinstance(photos,list) or not photos or not isinstance(photos[-1],dict):
+    die('PHOTO_ACK_MISSING')
+   photo_id=photos[-1].get('file_id')
+   if not isinstance(photo_id,str) or not 15<=len(photo_id)<=255 or not all(ch.isalnum() or ch in '_-' for ch in photo_id):
+    die('PHOTO_ACK_FILE_ID_INVALID')
   store(receipt,{'status':'PRIVATE_SENT_CONFIRMED','draft_id':item['draft_id'],
    'message_id':message['message_id'],'confirmed_at':int(time.time()),'public_publication':'OFF',
    'media_type':item_kind,'media_bytes':media_bytes,
+   'telegram_photo_file_id':photo_id,
    'original_video_file_id':(message.get('video') or {}).get('file_id') if item_kind=='video' else None})
   return {'status':'PRIVATE_SENT_CONFIRMED','draft_id':item['draft_id'],
     'message_id':message['message_id'],'buttons':['accept','reject'],'publications':0}
