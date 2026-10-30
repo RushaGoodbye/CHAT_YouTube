@@ -1407,9 +1407,20 @@ def _verified_source_ab_titles(
             proposals.append((block_index, proposed))
         if len(proposals) >= 24:
             break
+    if len(proposals) == 2:
+        # Two *separately quoted and root-verified* Ukrainian subjects may
+        # support a third neutral overview angle. This never pretends a third
+        # event happened and never uses an unverified model topic.
+        left = proposals[0][1].split(":", 1)[0]
+        right = proposals[1][1].split(":", 1)[0]
+        angles = [
+            proposals[0][1], proposals[1][1],
+            f"{left} та {right}: що обговорили співрозмовники?",
+        ]
+        if not ab_title_issues(angles, report):
+            return angles
     if len(proposals) < 3:
-        # The source cannot support three different themes; keep whatever is
-        # verified, visibly incomplete, and ALWAYS subject to review.
+        # With fewer than two supported topics, do not pad or auto-publish.
         return [title for _, title in proposals]
 
     # A previous bug returned the *first* three topical labels, even when two
