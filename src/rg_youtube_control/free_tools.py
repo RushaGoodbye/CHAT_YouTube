@@ -2280,8 +2280,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
                 if fast_mode:
-                    # Strict for unattended batch preparation.
-                    raise ValueError("need exactly 3 title variants")
+                    # Return an explicit review-only draft rather than losing
+                    # the source-grounded title and description.
+                    candidate["_fallback_review_only"] = True
                 try:
                     recovered_variants = _recover_title_variants(
                         current_title=current_title,
@@ -2304,7 +2305,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 if item.casefold() != str(candidate["title"]).casefold()
             ))
             if fast_mode and len(variants_candidate) < 3:
-                raise ValueError("need exactly 3 distinct title variants")
+                candidate["_fallback_review_only"] = True
             candidate["title_variants"] = variants_candidate[:3]
             if evidence_report and not fast_mode:
                 issues = ab_title_issues(
