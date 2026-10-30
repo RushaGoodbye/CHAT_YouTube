@@ -2678,6 +2678,27 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short or is_stream:
         chapters = ""
 
+    # A historical Russian filename is not suitable Ukrainian SEO metadata.
+    # In fast preview mode, prefer an already generated Ukrainian heading.
+    # This is a review-only substitution, never an automatic publication.
+    if fast_mode and _seo_ukrainian_language_issue(title):
+        safe_headings = [
+            item for item in variants
+            if item and len(item) <= 100 and not _seo_ukrainian_language_issue(item)
+        ]
+        if safe_headings:
+            title = safe_headings[0]
+            variants = [item for item in variants if item.casefold() != title.casefold()]
+            for option in _grounded_review_title_variants(current_title, transcript):
+                if (option.casefold() != title.casefold()
+                    and option.casefold() not in {v.casefold() for v in variants}
+                    and not _seo_ukrainian_language_issue(option)):
+                    variants.append(option)
+                if len(variants) >= 3:
+                    break
+            variants = variants[:3]
+            payload["_fallback_review_only"] = True
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
