@@ -1,0 +1,20 @@
+{
+  "video_id": "GQL6N4jQpI8",
+  "published_at": "2026-10-06",
+  "language": "uk",
+  "recommended_title": "БЕНЗИН У РФ Є? ПЕРЕВІРИЛИ АЗС НА КАРТІ — І ПОЧАЛАСЯ СУПЕРЕЧКА | РАША ГУДБАЙ",
+  "verified_subjects": [
+    "співрозмовник із Кубані",
+    "бензин і черги на заправках Краснодара",
+    "перевірка заяв співрозмовника через карту АЗС"
+  ],
+  "must_not_claim": [
+    "усі заправки РФ порожні",
+    "перевірка довела відсутність бензину в усій Росії"
+  ],
+  "editorial_status": "reference_only_not_approved_for_publication",
+  "source": "public video metadata and excerpts of captions reviewed 2026-10-30",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "publication_allowed": false
+}
