@@ -64,9 +64,11 @@ def process(d):
  with open(LOCK,'a+') as lock:
   os.chmod(LOCK,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
   dest=OUT/(d+'.mp4')
-  if dest.exists() or dest.is_symlink():raise ValueError('OUTPUT_EXISTS_MANUAL_REVIEW_REQUIRED')
   receipt=OUT/(d+'.json')
-  if receipt.exists() or receipt.is_symlink():raise ValueError('RECEIPT_EXISTS_MANUAL_REVIEW_REQUIRED')
+  if dest.is_symlink() or receipt.is_symlink():raise ValueError('UNSAFE_OUTPUT_SYMLINK')
+  if dest.exists() and not receipt.exists():raise ValueError('ORPHAN_VIDEO_REQUIRES_RECONCILIATION')
+  if receipt.exists() and not dest.exists():raise ValueError('ORPHAN_RECEIPT_REQUIRES_RECONCILIATION')
+  if dest.exists() or receipt.exists():raise ValueError('OUTPUT_EXISTS_MANUAL_REVIEW_REQUIRED')
   with tempfile.TemporaryDirectory(prefix='.nasvideo_',dir=str(OUT)) as temp:
    incoming=pathlib.Path(temp)/'source.mp4'
    result=pathlib.Path(temp)/'result.mp4'
@@ -80,8 +82,11 @@ def process(d):
    if r.returncode!=0 or result.stat().st_size==0:raise ValueError('RENDER_FAILED')
    # Exclusive link protects against duplicate concurrent publishers. This is NOT publication.
    os.link(result,dest)
+   digest=hashlib.sha256()
+   with dest.open('rb') as video_file:
+    for block in iter(lambda:video_file.read(1024*1024),b''):digest.update(block)
    data={'status':'NAS_WATERMARK_RENDERED','draft_id':d,'output':str(dest),
-         'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),
+         'sha256':digest.hexdigest(),
          'telegram_delivery':'NOT_SENT','publication':'OFF','cloudflare_calls':0}
    fd=os.open(str(receipt),os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
    with os.fdopen(fd,'w',encoding='utf-8') as h:json.dump(data,h);h.flush();os.fsync(h.fileno())
@@ -89,6 +94,7 @@ def process(d):
 def selftest():
  assert eligible.__name__=='eligible'
  assert 'drawtext' in process.__code__.co_consts.__str__()
+ assert hashlib.sha256(b'abc').hexdigest()=='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
  print('NEWS_RG_NAS_VIDEO_PIPELINE_SELFTEST_PASS')
 if __name__=='__main__':
  try:
