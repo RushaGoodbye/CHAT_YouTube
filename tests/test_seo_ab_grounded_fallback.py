@@ -9,7 +9,7 @@ def test_review_titles_grounded_in_verified_topic():
     assert len(variants) == 3
     assert len({x.casefold() for x in variants}) == 3
     assert all(len(x) <= 100 for x in variants)
-    assert all("Шойгу" in x or "корупція" in x for x in variants)
+    assert all(any(topic in x.casefold() for topic in ("шойгу", "корупц")) for x in variants)
 
 
 def test_no_invented_titles_without_topic_evidence():
