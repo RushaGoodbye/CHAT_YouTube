@@ -1810,6 +1810,24 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     current_core = core(current)
     candidate_core = core(candidate)
 
+    # Do not preserve a legacy Russian title over a valid Ukrainian proposal.
+    # Project metadata can retain Russian titles from earlier uploads, while
+    # current editorial output must use Ukrainian. A weak candidate still goes
+    # through the existing evidence/quality review before it can be applied.
+    russian_markers = (
+        "увольнение", "коррупция", "россия", "россии", "война",
+        "говорят", "собеседники", "идет", "вопросы", "почему",
+    )
+    legacy_russian = any(
+        re.search(r"(?<![\\w])" + re.escape(word) + r"(?![\\w])",
+                  current.casefold())
+        for word in russian_markers
+    ) or bool(re.search(r"[ыэъё]", current.casefold()))
+    ukrainian_candidate = bool(re.search(r"[іїєґ]", candidate.casefold()))
+
+    if legacy_russian and ukrainian_candidate:
+        return candidate
+
     # Exact same semantic title with only punctuation/brand removed is a downgrade.
     if current_core == candidate_core:
         return current
