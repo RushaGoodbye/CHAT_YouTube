@@ -1655,7 +1655,7 @@ def _grounded_tags_from_transcript(
     if "шойгу" in haystack:
         add("Шойгу")
         if "уволь" in haystack or "отстав" in haystack:
-            add("увольнение Шойгу")
+            add("звільнення Шойгу")
     if "герасим" in haystack:
         add("Герасимов")
     if "пригож" in haystack:
@@ -1667,74 +1667,74 @@ def _grounded_tags_from_transcript(
     if "лукашенко" in haystack:
         add("Лукашенко")
     if "беларус" in haystack:
-        add("Беларусь")
+        add("Білорусь")
         if "украин" in haystack or "україн" in haystack:
-            add("Беларусь и Украина")
+            add("Білорусь і Україна")
     if "украин" in haystack or "україн" in haystack:
-        add("Украина")
+        add("Україна")
     if "совет" in haystack and "безопас" in haystack:
-        add("Совет безопасности России")
+        add("Рада безпеки РФ")
     if "министерств" in haystack and "оборон" in haystack:
-        add("Министерство обороны России")
+        add("Міністерство оборони РФ")
     if "коррупц" in haystack:
-        add("коррупция в России")
+        add("корупція в Росії")
     if "арм" in haystack and ("росси" in haystack or "рф" in haystack):
-        add("российская армия")
+        add("російська армія")
 
     if "росси" in haystack or "росія" in haystack:
         for value in (
-            "Россия",
-            "россияне",
-            "мнение россиян",
-            "вопросы россиянам",
+            "Росія",
+            "росіяни",
+            "думки росіян",
+            "запитання росіянам",
         ):
             add(value)
 
     if "жизн" in haystack or "житт" in haystack:
-        add("жизнь в России")
+        add("життя в Росії")
     if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
-        add("цены в России")
+        add("ціни в Росії")
     if "зарплат" in haystack or "доход" in haystack:
-        add("зарплаты в России")
+        add("зарплати в Росії")
     if "пенси" in haystack or "соцпакет" in haystack:
-        add("пенсии в России")
+        add("пенсії в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
     if in_title or mentions >= 3:
-        add("экономика России")
+        add("економіка Росії")
     in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
     if in_title or mentions >= 3:
-        add("Путин")
+        add("Путін")
     in_title, mentions = _source_mentions(
         title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
-        add("война России против Украины")
+        add("війна Росії проти України")
     in_title, mentions = _source_mentions(
         title, transcript, ("мобилиз", "мобіліз")
     )
     if in_title or mentions >= 3:
-        add("мобилизация в России")
+        add("мобілізація в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("санкц",))
     if in_title or mentions >= 3:
-        add("санкции против России")
+        add("санкції проти Росії")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
-        add("бензин в России")
+        add("бензин у Росії")
     in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
-        add("работа в России")
+        add("робота в Росії")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
-        add("жилье в России")
+        add("житло в Росії")
     if "медицин" in haystack or "здоров" in haystack or "боляч" in haystack:
-        add("здоровье в России")
+        add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
-        add("Россия 2023")
+        add("Росія 2023")
 
     # Project-format fallbacks are added last, only to reach a useful minimum.
     for value in (
-        "опрос россиян",
-        "реакция россиян",
-        "разговор с россиянами",
-        "русская чат рулетка",
+        "опитування росіян",
+        "реакція росіян",
+        "розмова з росіянами",
+        "чат рулетка з росіянами",
     ):
         if len(tags) >= 8:
             break
