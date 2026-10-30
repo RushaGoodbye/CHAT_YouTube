@@ -490,12 +490,26 @@ def select_existing_srt_videos(
             (profile,),
         ).fetchall()
 
+    # Full livestream QA MUST test long-form recordings, not clips of 94 or
+    # 110 seconds. Filter by authoritative synchronized duration BEFORE
+    # source ranking or any expensive caption fetch. Do not invent duration
+    # for missing metadata.
+    minimum_seconds = 1800 if profile == "live" else 71
+    eligible = []
+    for row in rows:
+        try:
+            duration = _duration_seconds(row["duration"])
+        except (ValueError, TypeError):
+            continue
+        if duration >= minimum_seconds:
+            eligible.append(row)
     preferred_set = {vid: index for index, vid in enumerate(preferred)}
     ordered = sorted(
-        rows,
+        eligible,
         key=lambda row: (
             0 if (root / (str(row["video_id"] or "") + ".srt")).is_file() else 1,
             preferred_set.get(str(row["video_id"] or ""), len(preferred)),
+            -_duration_seconds(row["duration"]),
         ),
     )
     chosen: list[str] = []
@@ -507,7 +521,7 @@ def select_existing_srt_videos(
             duration = _duration_seconds(row["duration"])
         except (ValueError, TypeError):
             continue
-        if 0 < duration <= 70:
+        if duration < minimum_seconds:
             continue
         local = root / (video_id + ".srt")
         if not local.is_file() and not allow_public_captions:
