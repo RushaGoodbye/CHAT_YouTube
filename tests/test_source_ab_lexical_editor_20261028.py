@@ -93,3 +93,35 @@ def test_unverified_second_source_does_not_unlock_three_titles():
         _block("Бензин на заправках подорожал в регионе", verified=False),
     ]}
     assert source_grounded_ukrainian_ab(report) == []
+
+
+def test_quoted_word_diversity_recovers_topics_obscured_by_repeated_lead():
+    report = {"blocks": [
+        _block("Коррупция и мобилизация обсуждались в разговоре"),
+        _block("Коррупция и бензин обсуждались в следующей беседе"),
+        _block("Коррупция и санкции обсуждались в третьем разговоре"),
+    ]}
+    titles = source_grounded_ukrainian_ab(report)
+    assert len(titles) == 3, titles
+    assert not ab_title_issues(titles, report), titles
+    assert len({
+        title.split(":", 1)[0].casefold()
+        for title in titles
+    }) == 3
+
+
+def test_three_subject_words_from_one_quote_are_not_three_evidence_stories():
+    report = {"blocks": [
+        _block("Коррупция, мобилизация и бензин перечислены в одной фразе"),
+    ]}
+    assert source_grounded_ukrainian_ab(report) == []
+
+
+def test_two_independent_quotes_with_overlapping_words_yield_review_angles():
+    report = {"blocks": [
+        _block("Коррупция и мобилизация обсуждались в разговоре"),
+        _block("Коррупция и бензин обсуждались в следующей беседе"),
+    ]}
+    titles = source_grounded_ukrainian_ab(report)
+    assert len(titles) == 3, titles
+    assert not ab_title_issues(titles, report), titles
