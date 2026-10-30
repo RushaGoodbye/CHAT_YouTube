@@ -122,7 +122,9 @@ def source_grounded_ukrainian_ab(
     subjects = sorted(
         subject_quotes,
         key=lambda subject: (
-            subject in _GENERIC, -len(subject_quotes[subject]), subject,
+            subject in _GENERIC,
+            min(index for index, _ in subject_quotes[subject]),
+            -len(subject_quotes[subject]), subject,
         ),
     )[:18]
 
