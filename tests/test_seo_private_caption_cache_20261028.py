@@ -76,14 +76,14 @@ def test_cached_source_reused_by_selection_without_network(tmp_path, monkeypatch
             "scheduled_publish_at TEXT,privacy_status TEXT,views INTEGER)"
         )
         con.execute(
-            "INSERT INTO videos VALUES('12345678901','live','PT10M',NULL,'public',1)"
+            "INSERT INTO videos VALUES('12345678901','main','PT10M',NULL,'public',1)"
         )
     qa._write_private_caption_cache(cache, "12345678901", _cues())
     monkeypatch.setattr(qa, "fetch_transcript",
                         lambda *_: (_ for _ in ()).throw(AssertionError("Network must not be called")))
     original_db = db.read_bytes()
     result = qa.select_existing_srt_videos(
-        db, "live", 1, allow_public_captions=True,
+        db, "main", 1, allow_public_captions=True,
         preflight_captions=True, private_caption_cache=cache,
     )
     assert result == ["12345678901"]
