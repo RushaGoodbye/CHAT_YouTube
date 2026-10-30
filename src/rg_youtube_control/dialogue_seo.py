@@ -307,6 +307,30 @@ def analyze_all_timeline_blocks(
                         except (ValueError, RuntimeError, TimeoutError,
                                 TypeError, OSError):
                             pass
+            if not item["verified"]:
+                # Bounded final fallback, used only after every source-verifying
+                # model retry failed. Name a literal subject, never invent a
+                # causal story or create a claim from the model's summary.
+                # A source word alone is an editorial topic, not a fact check.
+                from .source_ab_lexical import _grounded_labels
+                for line in block["text"].splitlines():
+                    literal = _compact(line)
+                    if not (24 <= len(literal) <= 240):
+                        continue
+                    labels = _grounded_labels(literal)
+                    if not labels:
+                        continue
+                    topic = labels[0]
+                    safe = _validate_topics({
+                        "topics": [{
+                            "topic": topic,
+                            "summary_uk": f"У фрагменті згадується тема: {topic}.",
+                            "evidence": literal,
+                        }]
+                    }, block)
+                    if safe["verified"]:
+                        item = safe
+                        break
             if path is not None and item["verified"]:
                 try:
                     # Cache only already verified evidence, never partial errors.
