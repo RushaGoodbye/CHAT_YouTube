@@ -1,3 +1,4 @@
+from rg_youtube_control import free_tools
 from rg_youtube_control.seo_quality_gate import inspect_package, language_error
 
 
@@ -44,3 +45,13 @@ def test_exact_field_diagnostics_and_duplicate_detection():
 def test_valid_ukrainian_words_are_not_rejected():
     assert not language_error("Росія та корупція: що кажуть росіяни?")
     assert language_error("Россия и коррупция: что говорят россияне?")
+
+
+def test_generator_and_quality_gate_share_language_decisions():
+    for sample_text in (
+        "Росія та корупція: що кажуть росіяни?",
+        "Шойгу: думки співрозмовників",
+        "Россия и коррупция: что говорят россияне?",
+        "Увольнение Шойгу в России",
+    ):
+        assert free_tools._seo_ukrainian_language_issue(sample_text) == language_error(sample_text)
