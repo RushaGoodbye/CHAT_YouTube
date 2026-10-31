@@ -2271,6 +2271,14 @@ chapters: рядок з підтвердженими таймкодами та �
                 # Never fail just because Ollama omitted a new one, and never
                 # promote a speculative A/B variant to the primary title.
                 existing_title = str(current_title or "").strip()
+                if not existing_title and fast_mode and transcript.strip():
+                    # Transcript-only QA has no verified current video title.
+                    # Construct a question about a detected subject, not a claim.
+                    # Never approve this fallback for automatic publication.
+                    topic_options = _grounded_review_title_variants("", transcript)
+                    if topic_options:
+                        existing_title = topic_options[0]
+                        candidate["_fallback_review_only"] = True
                 if not existing_title:
                     raise ValueError(
                         "Немає ані назви від моделі, ані поточної назви відео."
