@@ -1528,12 +1528,17 @@ def _recover_independent_ab_titles(
     return _source_quote_ab_titles(report, current_title)
 
 
-def _grounded_review_title_variants(current_title: str, transcript: str) -> list[str]:
-    """Review-only A/B alternatives from actual transcript matches, not old titles.
+def _grounded_review_title_variants(
+    current_title: str,
+    transcript: str,
+    *,
+    pool_size: int = 3,
+) -> list[str]:
+    """Review-only question angles for topics actually mentioned in captions.
 
-    Sort by frequency in the transcript to avoid prioritizing a passing
-    mention of a politician over the dominant topic. These are suggestions,
-    not proof of editorial accuracy or permission to publish.
+    Extra pool option exists because the first candidate can become the
+    primary title, leaving three separate A/B slots to fill. Never invent an
+    additional event to fill those slots.
     """
     source = str(transcript or "").casefold()
     if not source.strip():
@@ -1541,26 +1546,29 @@ def _grounded_review_title_variants(current_title: str, transcript: str) -> list
     weak_stems = {"цен", "сво", "президент", "министерств", "оборон"}
     matched: list[tuple[int, int, str]] = []
     for order, (needles, label) in enumerate(_GROUNDED_TOPIC_RULES):
-        count = sum(source.count(needle) for needle in needles if needle not in weak_stems)
+        # One subject containing two synonyms is not mentioned twice.
+        count = max(
+            (source.count(needle) for needle in needles if needle not in weak_stems),
+            default=0,
+        )
         if count:
             matched.append((-count, order, label))
     matched.sort()
     labels = [label for _, _, label in matched]
     if not labels:
         return []
-    # Prefer independent, source-mentioned subjects instead of three generic
-    # paraphrases of the same hook. A single observed subject does not justify
-    # inventing two more events: retain a short review-only fallback set.
-    prompts = (
-        ": про що говорять у чат-рулетці?",
-        ": що кажуть співрозмовники?",
-        ": які думки звучать у розмові?",
-    )
+
     suggestions = [
-        f"{label}{prompts[i]}"
-        for i, label in enumerate(labels[:3])
+        f"{labels[0]}: про що говорять у чат-рулетці?",
     ]
-    return [title for title in suggestions if len(title) <= 100]
+    if len(labels) > 1:
+        suggestions.append(f"{labels[1]}: що кажуть співрозмовники?")
+        if len(labels) > 2:
+            suggestions.append(f"{labels[2]}: які думки звучать у розмові?")
+        else:
+            suggestions.append(f"{labels[0]}: які запитання ставлять у розмові?")
+        suggestions.append(f"{labels[1]}: які погляди звучать у діалозі?")
+    return [title for title in suggestions[:pool_size] if len(title) <= 100]
 
 
 def _recover_title_variants(
@@ -2731,7 +2739,7 @@ chapters: рядок з підтвердженими таймкодами та �
         variants, variants_changed = sanitize_review_variants(
             title,
             variants,
-            _grounded_review_title_variants(current_title, transcript),
+            _grounded_review_title_variants(current_title, transcript, pool_size=4),
         )
         if variants_changed:
             payload["_fallback_review_only"] = True
