@@ -1,0 +1,37 @@
+name: RG895 detector exact source audit read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-detector-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Print bounded popup silence minute code excerpts
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          from pathlib import Path
+          r=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          ranges={
+           'rg_fullstream_detectors_v2.py':[(1,110),(110,238),(286,365),(390,464)],
+           'rg_fullstream_auto_v2.py':[(340,367),(405,480),(487,510)],
+           'rg_fullstream_policy_v70.py':[(1,58)],
+          }
+          for name,sections in ranges.items():
+           p=r/name
+           a=p.read_text(encoding='utf-8-sig').splitlines()
+           for first,last in sections:
+            print('RG_SOURCE_BEGIN|'+name+'|'+str(first)+'-'+str(last))
+            for i in range(first-1,min(last,len(a))):
+             print('RG_SOURCE|'+str(i+1)+'|'+a[i])
+            print('RG_SOURCE_END|'+name+'|'+str(first)+'-'+str(last))
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'CODE_READ_FAILED'}
