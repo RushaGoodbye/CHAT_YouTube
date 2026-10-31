@@ -586,6 +586,13 @@ def ollama_chat(
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Ollama /api/tags may work even while model inference returns HTTP
+        # 500. Preserve the status without logging response bodies or SRT.
+        raise RuntimeError(
+            f"Локальна Ollama не виконала запит до моделі (HTTP {exc.code}). "
+            "Перевірте стан моделі, GPU та доступну пам'ять."
+        ) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Ollama недоступна: {exc}") from exc
     message = payload.get("message") or {}
@@ -2709,6 +2716,11 @@ chapters: рядок з підтвердженими таймкодами та �
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
+            # Model outage is not an SEO formatting defect. Stop retries
+            # immediately instead of requesting the same broken endpoint.
+            cause = getattr(exc, "__cause__", None)
+            if isinstance(cause, urllib.error.HTTPError) and cause.code >= 500:
+                break
     if not payload and evidence_report and not fast_mode and str(current_title).strip():
         # A verified transcript is valuable even when the model or editorial
         # rules cannot finish a complete SEO package. Preserve a review-only
