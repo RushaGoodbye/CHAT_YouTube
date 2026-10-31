@@ -1,0 +1,56 @@
+name: RG895 confirm small popup candidate temporal V711
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-small-popup-temporal.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  temporal:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Compare relaxed ROI popup across 0.5s adjacent frames, no media edits
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,subprocess,inspect
+          from pathlib import Path
+          import numpy as np
+          sys.path.insert(0,str(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')))
+          from rg_fullstream_detectors_v2 import popup_candidates,popup_search_area,verified_host,verified_single_host,HOST_INNER
+          from rg_fullstream_export_v1 import ffbin
+          code=inspect.getsource(popup_candidates)
+          for a,b in [
+           ('150<=bw<=760 and 33<=bh<=205 and bw>=bh*2.1','110<=bw<=760 and 25<=bh<=205 and bw>=bh*1.7'),
+           ('(.016<edge_density<.26)','(.012<edge_density<.28)'),
+           ('np.mean(ig>195)>.008 and np.mean(ig<85)>.08','np.mean(ig>185)>.007 and np.mean(ig<105)>.045'),
+          ]:
+           if code.count(a)!=1:raise RuntimeError('CODE_DRIFT')
+           code=code.replace(a,b)
+          ns={'HOST_INNER':HOST_INNER};exec(code,ns);shadow=ns['popup_candidates']
+          j=json.loads(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json').read_text(encoding='utf-8-sig'))
+          src=j['video']
+          points=[round(7402.0+0.5*i,2) for i in range(29)]+[7308,7358,7378,7428,7478,7528]
+          target=(790,391,123,49)
+          seq=[];ex=0
+          for t in sorted(set(points)):
+           cmd=[ffbin('ffmpeg'),'-v','error','-nostdin','-ss',str(t),'-i',src,'-map','0:v:0','-frames:v','1','-pix_fmt','bgr24','-f','rawvideo','pipe:1']
+           try:r=subprocess.run(cmd,capture_output=True,timeout=8)
+           except subprocess.TimeoutExpired:ex+=1;continue
+           if r.returncode or len(r.stdout)!=1920*1080*3:ex+=1;continue
+           f=np.frombuffer(r.stdout,dtype=np.uint8).reshape(1080,1920,3)
+           layout='dual' if verified_host(f) else ('solo' if verified_single_host(f) else None)
+           if not layout:seq.append({'t':t,'layout':None});continue
+           a=popup_candidates(f,popup_search_area(layout));b=shadow(f,popup_search_area(layout))
+           matches=[k for k in b if abs(k[0]-target[0])<70 and abs(k[1]-target[1])<60 and abs(k[2]-target[2])<75]
+           seq.append({'t':t,'strict':len(a),'relaxed':len(b),'target':matches[:2]})
+          print('RGSMALL|RESULT|'+json.dumps({'samples':len(points),'errors':ex,'timeline':seq},ensure_ascii=True),flush=True)
+          if ex:raise RuntimeError('FRAME_ERRORS_REFUSE_RELEASE')
+          print('RGSMALL|END|SHADOW_ONLY',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_TEMPORAL_FAILED'}
