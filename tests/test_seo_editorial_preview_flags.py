@@ -49,3 +49,34 @@ def test_allows_narrow_source_topic_without_fake_event():
             "Що росіяни думають про кадрові рішення у керівництві РФ?",
         ],
     ) == []
+
+
+def test_flags_repeated_sentences_and_duplicate_tags_even_if_format_valid():
+    description = (
+        "У розмові росіяни сперечаються про рішення влади і причини війни. "
+        "Ведучий запитує, як співрозмовники пояснюють власну позицію. "
+        "У розмові росіяни сперечаються про рішення влади і причини війни."
+    )
+    flags = _seo_editorial_preview_flags(
+        "Росіяни про рішення влади",
+        description,
+        ["Питання до влади", "Розмова про війну", "Причини вибору президента"],
+        ["Росія", "чат рулетка", "Росія"],
+    )
+    assert "DUPLICATED_TAGS" in flags
+    assert "REPEATED_DESCRIPTION_SENTENCES" in flags
+
+
+def test_flags_near_identical_ab_and_mixed_language():
+    flags = _seo_editorial_preview_flags(
+        "Коллективна відповідальність за війну",
+        "Розмова про відповідальність громадян за державні рішення та війну.",
+        [
+            "Шойгу звільнили через корупцію?",
+            "Шойгу звільнили через корупцію!",
+            "Чому змінили Шойгу?",
+        ],
+        ["війна", "Раша Гудбай"],
+    )
+    assert "SIMILAR_AB_ANGLES" in flags
+    assert "MIXED_LANGUAGE_WORDS" in flags
