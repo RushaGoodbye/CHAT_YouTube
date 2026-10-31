@@ -1,0 +1,22 @@
+name: RG895 popup visual safety gate regression V711
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-popup-visual-regression.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gate-tests:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Run 10 safety tests on local Python
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 tests\test_rg_fullstream_popup_visual_gate_v711.py -v
+          if($LASTEXITCODE -ne 0){throw 'POPUP_VISUAL_GATE_REGRESSION_FAILED'}
