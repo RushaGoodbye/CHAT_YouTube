@@ -121,5 +121,6 @@ def test_fallback_ab_uses_three_distinct_transcript_topics():
 
 def test_fallback_does_not_invent_extra_subjects():
     titles = free_tools._grounded_review_title_variants("", "Шойгу " * 10)
-    assert len(titles) == 1
-    assert "Шойгу" in titles[0]
+    assert len(titles) == 3
+    assert len(set(titles)) == 3
+    assert all("Шойгу" in title for title in titles)
