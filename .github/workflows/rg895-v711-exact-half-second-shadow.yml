@@ -1,0 +1,53 @@
+name: RG895 V711 exact 0.5 sec full popup shadow (NO INSTALL)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-exact-half-second-shadow.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Full 0.5-second frame scanning matching production, no media changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,types,hashlib,time,collections
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path[:0]=[str(root),str(Path('scripts').resolve())]
+          from rg_v711_small_popup_patch import patch_source,verify_sources
+          p=root/'rg_fullstream_detectors_v2.py'
+          raw=p.read_bytes();patched=patch_source(raw);verify_sources(raw,patched)
+          m=types.ModuleType('rg_fullstream_detectors_v711_halfsec')
+          m.__file__=str(p);sys.modules[m.__name__]=m
+          exec(compile(patched,str(p),'exec'),m.__dict__)
+          plan=json.loads(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json').read_text(encoding='utf-8-sig'))
+          started=time.monotonic(); last=-1
+          print('RGHALF|START|'+json.dumps({'patch_sha':hashlib.sha256(patched).hexdigest(),'step':0.5,'no_media_changes':True}),flush=True)
+          def cb(n,total,seconds):
+           global last
+           b=n//2500
+           if b>last:
+            last=b
+            print('RGHALF|PROGRESS|'+json.dumps({'frames':n,'total':total,'source_s':round(seconds,2),'elapsed_s':round(time.monotonic()-started)}),flush=True)
+          masks,flags=m.scan_popups(plan['video'],11480.17,step=0.5,progress_callback=cb)
+          o=[{'x':v['x'],'y':v['y'],'w':v['width'],'h':v['height'],'intervals':v['intervals']} for v in masks]
+          print('RGHALF|RESULT|'+json.dumps({'mask_count':len(masks),'masks':o[:110],'flags':flags,'elapsed_s':round(time.monotonic()-started,1)},separators=(',',':')),flush=True)
+          known=plan['popup_masks']
+          recovered=[]
+          for v in known:
+           for a,b in v['intervals']:
+            recovered.append({'old':[a,b],'new_overlaps':sum(any(min(b,bb)-max(a,aa)>0 for aa,bb in w['intervals']) for w in masks)})
+          print('RGHALF|OLD_MASK_RECALL|'+json.dumps(recovered),flush=True)
+          print('RGHALF|END|READ_ONLY_NO_INSTALL',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_HALF_SECOND_SHADOW_FAILED'}
