@@ -1,0 +1,44 @@
+name: RG895 minute-of-silence cue audit V711 (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-minute-cue-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cues:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Audit timeline evidence for minute of silence without exposing transcript
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import json,re
+          from pathlib import Path
+          p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json')
+          a=json.loads(p.read_text(encoding='utf-8-sig'))
+          w=sorted((float(v.get('start',-1)),str(v.get('word','')).lower()) for v in a['transcribed_words'] if isinstance(v,dict) and isinstance(v.get('start'),(int,float)) and isinstance(v.get('word'),str))
+          minu=[t for t,x in w if re.search('хвилин|минут|хвылын',x)]
+          silenc=[t for t,x in w if re.search('мовчан|молч|тишин|тиши',x)]
+          groups=[]
+          for t in minu:
+           closest=min((abs(t-s),s) for s in silenc) if silenc else (999999,None)
+           if closest[0]<35:
+            if not groups or abs(groups[-1]['t']-t)>45:groups.append({'t':round(t,2),'cue_count':0,'silence_cue_offset':round(closest[1]-t,2),'next_60s_words':0})
+            groups[-1]['cue_count']+=1
+          for g in groups:
+           g['next_60s_words']=sum(g['t']+5 <= t <= g['t']+75 for t,x in w)
+          # report only numerical evidence; ASR transcripts stay on PC.
+          gaps=[]
+          ts=sorted(set(round(t,2) for t,x in w if t>=0))
+          for a,b in zip(ts,ts[1:]):
+           if b-a>=35:gaps.append([round(a,2),round(b,2),round(b-a,2)])
+          print('RGMN|EVIDENCE|'+json.dumps({'total_words':len(w),'minute_mentions':len(minu),'silence_mentions':len(silenc),'paired_cues':groups[:20],'asr_gaps_35s_plus':gaps[:20]}),flush=True)
+          print('RGMN|POLICY|NO_AUTOMATIC_PROTECTION_WITHOUT_INDEPENDENT_EVIDENCE',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RGMN_READ_ONLY_FAILED'}
