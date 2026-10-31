@@ -1,0 +1,61 @@
+name: RG895 popup detector wide-threshold shadow V711 (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-popup-threshold-shadow.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shadow:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 9
+    steps:
+      - name: Compare production and relaxed popup candidates on source frames without installing
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,subprocess,inspect
+          from pathlib import Path
+          import numpy as np
+          sys.path.insert(0,str(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')))
+          from rg_fullstream_detectors_v2 import popup_candidates,popup_search_area,verified_host,verified_single_host
+          from rg_fullstream_export_v1 import ffbin
+          code=inspect.getsource(popup_candidates)
+          replace=[
+           ('150<=bw<=760 and 33<=bh<=205 and bw>=bh*2.1','110<=bw<=760 and 25<=bh<=205 and bw>=bh*1.7'),
+           ('(.016<edge_density<.26)','(.012<edge_density<.28)'),
+           ('np.mean(ig>195)>.008 and np.mean(ig<85)>.08','np.mean(ig>185)>.007 and np.mean(ig<105)>.045'),
+          ]
+          for a,b in replace:
+           if code.count(a)!=1:raise RuntimeError('SOURCE_DRIFT_VARIANT_MATCH_'+a[:12])
+           code=code.replace(a,b)
+          ns={};exec(code,ns);shadow=ns['popup_candidates']
+          p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json')
+          plan=json.loads(p.read_text(encoding='utf-8-sig'))
+          source=plan['video']
+          times=[7789.25,7894.25]+[round(x,2) for x in np.linspace(916,11360,75)]
+          extra=[];base_count=wide_count=dual_count=0;valid=0;errors=0
+          for i,t in enumerate(times):
+           cmd=[ffbin('ffmpeg'),'-hide_banner','-nostdin','-v','error','-ss',str(t),'-i',source,'-map','0:v:0','-frames:v','1','-pix_fmt','bgr24','-f','rawvideo','pipe:1']
+           try:r=subprocess.run(cmd,capture_output=True,timeout=9)
+           except subprocess.TimeoutExpired:errors+=1;continue
+           if r.returncode or len(r.stdout)!=1920*1080*3:errors+=1;continue
+           frame=np.frombuffer(r.stdout,dtype=np.uint8).reshape(1080,1920,3)
+           mode='dual' if verified_host(frame) else ('solo' if verified_single_host(frame) else None)
+           if mode is None:continue
+           valid+=1
+           region=popup_search_area(mode)
+           a=popup_candidates(frame,region);b=shadow(frame,region)
+           base_count+=bool(a);wide_count+=bool(b)
+           if len(b)>len(a):
+            extra.append({'t':round(t,2),'baseline':len(a),'relaxed':len(b),'candidate_boxes':b[:2]})
+           if i<2:print('RGPOPTEST|CONTROL|'+json.dumps({'t':t,'baseline':a,'relaxed':b}),flush=True)
+          print('RGPOPTEST|SUMMARY|'+json.dumps({'total':len(times),'valid_host':valid,'errors':errors,'baseline_frames_with_candidates':base_count,'relaxed_frames_with_candidates':wide_count,'new_candidate_times':extra[:25]}),flush=True)
+          if errors>0:raise RuntimeError('SHADOW_FRAME_ERRORS_NO_RELEASE')
+          print('RGPOPTEST|END|SHADOW_ONLY_NO_MEDIA_WRITES',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_POPUP_SHADOW_FAILED'}
