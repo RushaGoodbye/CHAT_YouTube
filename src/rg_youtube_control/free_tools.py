@@ -2724,6 +2724,14 @@ chapters: рядок з підтвердженими таймкодами та �
         # Recheck the final list, not the discarded model variants.
         title_issues = ab_title_issues(variants, evidence_report)
 
+    from .seo_quality_gate import inspect_package
+    format_gate = inspect_package({
+        "title": title,
+        "title_variants": variants[:3],
+        "description": description,
+        "tags": tags[:15],
+    })
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
@@ -2770,6 +2778,9 @@ chapters: рядок з підтвердженими таймкодами та �
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
         "seo_language_issues": language_issues,
+        "seo_format_pass": bool(format_gate["format_pass"]),
+        "seo_format_problems": format_gate["problems"],
+        "seo_editorial_review_required": True,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
