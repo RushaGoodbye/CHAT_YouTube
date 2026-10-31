@@ -1,0 +1,58 @@
+name: RG895 remaining popup 6000 contact and real-plan gate (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-tenth-popup-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tenth-visual:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Make one 6000 sec local contact and verify real existing 895 masks rejected
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $src=@'
+          import json,cv2,subprocess,sys,hashlib
+          from pathlib import Path
+          import numpy as np
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path[:0]=[str(root),str(Path('scripts').resolve())]
+          from rg_fullstream_export_v1 import ffbin
+          from rg_fullstream_popup_visual_gate_v711 import classify
+          base=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895')
+          pl=json.loads((base/'processing_plan.json').read_text(encoding='utf-8-sig'))
+          old=pl.get('popup_masks',[])
+          if len(old)!=2:raise RuntimeError('REAL_PLAN_POPUP_COUNT_DRIFT')
+          reviews=[dict(m,source='editor_visual',status='rejected') for m in old]
+          g=classify(old,reviews)
+          print('RG895GATE|ACTUAL_PLAN|'+json.dumps({'original_masks':len(old),'accepted':g['approved_count'],'rejected':len(g['rejected_indices']),'blocked':not g['coverage_verified']}),flush=True)
+          if g['approved_count'] or len(g['rejected_indices'])!=2:raise RuntimeError('FALSE_POSITIVE_GATE_FAILED')
+          source=pl['video']; x,y,w,h=668,513,175,45
+          times=[5996.3,5999.3,6001.3,6005.3,6012.3]
+          tiles=[];w0=490;h0=350
+          for t in times:
+           cmd=[ffbin('ffmpeg'),'-v','error','-nostdin','-ss',str(t),'-i',source,'-map','0:v:0','-frames:v','1','-pix_fmt','bgr24','-f','rawvideo','pipe:1']
+           r=subprocess.run(cmd,capture_output=True,timeout=18)
+           if r.returncode or len(r.stdout)!=1920*1080*3:raise RuntimeError('FRAME_READ_FAILED')
+           im=np.frombuffer(r.stdout,dtype=np.uint8).reshape(1080,1920,3)
+           X,Y=460,350
+           crop=im[Y:Y+350,X:X+490].copy()
+           if 6000<=t<=6005:
+            cv2.rectangle(crop,(x-X,y-Y),(x+w-X,y+h-Y),(0,230,255),2)
+           cv2.putText(crop,'TIME '+str(t)+'s',(8,25),cv2.FONT_HERSHEY_SIMPLEX,.75,(250,250,250),2)
+           tiles.append(crop)
+          out=np.concatenate(tiles,axis=1)
+          path=base/'QA_V711'/'RG895_POPUP_10_6000s_CONTACT.png'
+          path.parent.mkdir(parents=True,exist_ok=True)
+          if not cv2.imwrite(str(path),out):raise RuntimeError('WRITE_CONTACT_FAILED')
+          print('RG895GATE|TENTH_CONTACT|'+json.dumps({'path':str(path),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'user_media_not_uploaded':True}),flush=True)
+          '@
+          & $py -X utf8 -c $src
+          if($LASTEXITCODE -ne 0){throw 'RG895_TENTH_CONTACT_FAILED'}
