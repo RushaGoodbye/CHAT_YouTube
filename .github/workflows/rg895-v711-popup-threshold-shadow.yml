@@ -21,7 +21,7 @@ jobs:
           from pathlib import Path
           import numpy as np
           sys.path.insert(0,str(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')))
-          from rg_fullstream_detectors_v2 import popup_candidates,popup_search_area,verified_host,verified_single_host
+          from rg_fullstream_detectors_v2 import popup_candidates,popup_search_area,verified_host,verified_single_host,HOST_INNER
           from rg_fullstream_export_v1 import ffbin
           code=inspect.getsource(popup_candidates)
           replace=[
@@ -32,7 +32,7 @@ jobs:
           for a,b in replace:
            if code.count(a)!=1:raise RuntimeError('SOURCE_DRIFT_VARIANT_MATCH_'+a[:12])
            code=code.replace(a,b)
-          ns={};exec(code,ns);shadow=ns['popup_candidates']
+          ns={'HOST_INNER':HOST_INNER};exec(code,ns);shadow=ns['popup_candidates']
           p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json')
           plan=json.loads(p.read_text(encoding='utf-8-sig'))
           source=plan['video']
