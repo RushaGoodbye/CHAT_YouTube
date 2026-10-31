@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/rg-895-physical-qa-readonly.yml'
+      - 'scripts/rg_895_physical_readonly_probe.py'
   workflow_dispatch:
 permissions:
   contents: read
