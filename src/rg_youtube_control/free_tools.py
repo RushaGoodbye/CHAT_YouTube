@@ -738,7 +738,7 @@ def _seo_editorial_preview_flags(
     if len(tag_keys) != len(set(tag_keys)):
         flags.append("DUPLICATED_TAGS")
     sentences = [
-        item.strip() for item in re.split(r"(?<=[.!?…])\\s+", desc)
+        item.strip() for item in re.split(r"(?<=[.!?…])\s+", desc)
         if item.strip()
     ]
     if any(
@@ -758,8 +758,8 @@ def _seo_editorial_preview_flags(
         flags.append("SIMILAR_AB_ANGLES")
     # A few recurring mixed-language errors from actual Qwen captions QA.
     russian_calques = re.compile(
-        r"(?<!\\w)(?:коллективна|уволили|коррупцию|подмосковье|"
-        r"война|киевці|михаил|сдано|виноваты)(?!\\w)", flags=re.I
+        r"(?<!\w)(?:коллективна|уволили|коррупцию|подмосковье|"
+        r"война|киевці|михаил|сдано|виноваты)(?!\w)", flags=re.I
     )
     if any(russian_calques.search(value) for value in (
         title, description, *variants, *tags
