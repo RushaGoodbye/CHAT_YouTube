@@ -14,7 +14,7 @@ cap=cv2.VideoCapture(plan['video'])
 if not cap.isOpened():raise SystemExit('SOURCE_OPEN_FAILED')
 checks=[]
 try:
- for t in [0,.3,.6,1,2,3,4,5,6,7,8,9,10,12,15,18,20,25,30,40,50,60,90,120,180,240,300,420,600,750,890]:
+ for t in [0,.3,.6,1,2,3,4,5,6,7,8,9,10,12,15,18,20,25,30,40,50,60,90,120,180,240,300,420,600,750,890,905,910,911,912,913,914,915,916,918,920,930,945,1000,1100,1150,1200,1300,1500]:
   cap.set(cv2.CAP_PROP_POS_MSEC,t*1000)
   ok,im=cap.read()
   if not ok or im is None:continue
