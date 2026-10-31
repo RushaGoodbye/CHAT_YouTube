@@ -1,0 +1,64 @@
+name: RG895 popup and silence evidence V711 shadow
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-popup-silence-evidence.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - name: Profile physical popup detection and silence candidates without changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,collections,math
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(root))
+          import cv2
+          from rg_fullstream_detectors_v2 import popup_candidates,verified_host,verified_single_host,popup_search_area,ff_silence
+          from rg_fullstream_policy_v70 import popup_followup_cuts
+          plan=json.loads(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json').read_text(encoding='utf-8-sig'))
+          src=plan['video'];audio=plan['audio']
+          pop=plan['popup_masks'];words=plan['transcribed_words']
+          print('RGEVID|POPUP_MASKS|'+json.dumps(pop[:6]),flush=True)
+          # Sequential audio silencedetect once, metadata only, never modify media.
+          sil,flags=ff_silence(audio,threshold='-42dB',duration=2.7)
+          lens=[b-a for a,b in sil]
+          by_len={k:sum(lo<=x<hi for x in lens) for k,lo,hi in [('2.7-5',2.7,5),('5-15',5,15),('15-40',15,40),('40-52',40,52),('52-85',52,85),('85+',85,99999)]}
+          long=[[round(a,2),round(b,2)] for a,b in sil if b-a>=35][:20]
+          print('RGEVID|SILENCE|'+json.dumps({'count':len(sil),'distribution':by_len,'long':long,'flags':flags}),flush=True)
+          cuts,ff=popup_followup_cuts(pop,sil,words,plan['minute_of_silence'],11480.17)
+          print('RGEVID|POST_POPUP_CUTS|'+json.dumps({'count':len(cuts),'flags':ff}),flush=True)
+          for i,p in enumerate(pop[:6]):
+           for a,b in p.get('intervals',[]):
+            near=[[round(x,2),round(y,2)] for x,y in sil if -4<=x-b<=10 or -4<=a-y<=10][:12]
+            print('RGEVID|POPUP_AUDIO_NEAR|'+json.dumps({'i':i,'popup':[a,b],'silences':near}),flush=True)
+          cap=cv2.VideoCapture(str(src))
+          if not cap.isOpened():raise RuntimeError('NO_VIDEO')
+          fps=cap.get(cv2.CAP_PROP_FPS)
+          frames=cap.get(cv2.CAP_PROP_FRAME_COUNT)
+          print('RGEVID|VIDEO|'+json.dumps({'fps':fps,'frames':frames}),flush=True)
+          for i,p in enumerate(pop[:6]):
+           a,b=p['intervals'][0]
+           times=[max(0,a-2),a, (a+b)*.5,b,min(11480,b+2)]
+           vals=[]
+           for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC,float(t)*1000)
+            ok,f=cap.read()
+            if not ok: vals.append({'t':round(t,2),'read':False});continue
+            layout='dual' if verified_host(f) else ('solo' if verified_single_host(f) else None)
+            boxes=popup_candidates(f,popup_search_area(layout)) if layout else []
+            vals.append({'t':round(t,2),'layout':layout,'boxes':len(boxes),'proposals':boxes[:3]})
+           print('RGEVID|POPUP_FRAMES|'+json.dumps({'i':i,'samples':vals}),flush=True)
+          cap.release()
+          print('RGEVID|END|READ_ONLY',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_SHADOW_PROBE_FAILED'}
