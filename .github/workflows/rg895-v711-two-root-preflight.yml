@@ -1,0 +1,30 @@
+name: RG 895 V711 two-install-root SHA preflight (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-two-root-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Compare installed RG full stream policy files without changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $paths=@(
+            'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_policy_v70.py',
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_fullstream_policy_v70.py'
+          )
+          foreach($p in $paths){
+            $exists=Test-Path -LiteralPath $p
+            Write-Output ('RGV711ROOT|present='+$exists+'|role='+$(if($p.StartsWith('F:')){'CANONICAL'}else{'LOCAL_GUI'}))
+            if($exists){
+              $hash=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+              $code=Get-Content -LiteralPath $p -Raw -Encoding UTF8
+              Write-Output ('RGV711ROOT|sha='+$hash+'|max900='+($code.Contains('max_search=900, sample_step=.5')))
+            }
+          }
