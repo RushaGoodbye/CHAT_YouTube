@@ -699,15 +699,18 @@ def _seo_editorial_preview_flags(
     title: str,
     description: str,
     variants: Iterable[str] = (),
+    tags: Iterable[str] = (),
 ) -> list[str]:
-    """Flag low-information SEO even when all format checks pass.
+    """Reject low-information SEO even when formatting itself passes.
 
-    These conservative indicators do not establish or refute any factual
-    claims. They prevent generic review drafts from appearing editor-approved.
+    These are conservative editorial warnings, NOT automatic fact checks.
     """
+    from difflib import SequenceMatcher
+
     primary = " ".join(str(title or "").casefold().split())
     desc = " ".join(str(description or "").casefold().split())
     alternatives = [" ".join(str(x).casefold().split()) for x in variants]
+    tag_keys = [" ".join(str(x).casefold().split()) for x in tags]
     flags: list[str] = []
     generic_primary = (
         "про що говорять у чат-рулетці?",
@@ -731,8 +734,38 @@ def _seo_editorial_preview_flags(
         "обговорюють робота та зайнятість",
     )):
         flags.append("UNGRAMMATICAL_DESCRIPTION")
+    # Format PASS must not hide copy-paste or excessively similar metadata.
+    if len(tag_keys) != len(set(tag_keys)):
+        flags.append("DUPLICATED_TAGS")
+    sentences = [
+        item.strip() for item in re.split(r"(?<=[.!?…])\\s+", desc)
+        if item.strip()
+    ]
+    if any(
+        (a == b or (
+            len(a) >= 32 and len(b) >= 32
+            and SequenceMatcher(None, a, b).ratio() >= .87
+        ))
+        for index, a in enumerate(sentences)
+        for b in sentences[index + 1:]
+    ):
+        flags.append("REPEATED_DESCRIPTION_SENTENCES")
+    if any(
+        SequenceMatcher(None, a, b).ratio() >= .78
+        for index, a in enumerate(alternatives)
+        for b in alternatives[index + 1:]
+    ):
+        flags.append("SIMILAR_AB_ANGLES")
+    # A few recurring mixed-language errors from actual Qwen captions QA.
+    russian_calques = re.compile(
+        r"(?<!\\w)(?:коллективна|уволили|коррупцию|подмосковье|"
+        r"война|киевці|михаил|сдано|виноваты)(?!\\w)", flags=re.I
+    )
+    if any(russian_calques.search(value) for value in (
+        title, description, *variants, *tags
+    )):
+        flags.append("MIXED_LANGUAGE_WORDS")
     return flags
-
 
 def _grounded_description_from_transcript(
     title: str,
@@ -2882,7 +2915,7 @@ chapters: рядок з підтвердженими таймкодами та �
         title_issues = ab_title_issues(variants, evidence_report)
 
     editorial_quality_flags = _seo_editorial_preview_flags(
-        title, description, variants,
+        title, description, variants, tags,
     )
     # Only the verified current title is eligible for this warning: a
     # generated proposal itself may contain a hallucinated person/place.
