@@ -1,0 +1,23 @@
+name: RG 895 intro shadow V711 read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-intro-shadow-v711.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare historical face and host layout detection (read only)
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py scripts\rg_895_intro_shadow_v711.py
+          if($LASTEXITCODE -ne 0){throw 'INTRO_SHADOW_FAILED'}
