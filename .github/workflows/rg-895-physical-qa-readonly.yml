@@ -1,0 +1,28 @@
+name: RG 895 physical content spot QA (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rg-895-physical-qa-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physical-probe:
+    if: github.repository == 'RushaGoodbye/CHAT_YouTube' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only source-versus-output audio/video spot sampling
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if(-not (Test-Path -LiteralPath $py)){throw 'RG895_RUNTIME_NOT_FOUND'}
+          & $py scripts\rg_895_physical_readonly_probe.py
+          if($LASTEXITCODE -ne 0){throw 'RG895_PHYSICAL_QA_FAILED'}
