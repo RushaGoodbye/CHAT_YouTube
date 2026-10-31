@@ -1558,16 +1558,15 @@ def _grounded_review_title_variants(
     if not labels:
         return []
 
+    # All four are neutral angles on observed subjects, not extra events.
+    # The QA preview may use the first for a missing primary title, leaving
+    # three alternatives. For one subject, questions vary without new facts.
     suggestions = [
         f"{labels[0]}: про що говорять у чат-рулетці?",
+        f"{labels[1] if len(labels) > 1 else labels[0]}: що кажуть співрозмовники?",
+        f"{labels[2] if len(labels) > 2 else labels[0]}: які запитання виникають?",
+        f"{labels[3] if len(labels) > 3 else labels[0]}: думки учасників розмови",
     ]
-    if len(labels) > 1:
-        suggestions.append(f"{labels[1]}: що кажуть співрозмовники?")
-        if len(labels) > 2:
-            suggestions.append(f"{labels[2]}: які думки звучать у розмові?")
-        else:
-            suggestions.append(f"{labels[0]}: які запитання ставлять у розмові?")
-        suggestions.append(f"{labels[1]}: які погляди звучать у діалозі?")
     return [title for title in suggestions[:pool_size] if len(title) <= 100]
 
 
