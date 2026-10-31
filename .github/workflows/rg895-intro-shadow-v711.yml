@@ -2,7 +2,7 @@ name: RG 895 intro shadow V711 read only
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/rg895-intro-shadow-v711.yml']
+    paths: ['.github/workflows/rg895-intro-shadow-v711.yml', 'scripts/rg_895_intro_shadow_v711.py']
   workflow_dispatch:
 permissions:
   contents: read
