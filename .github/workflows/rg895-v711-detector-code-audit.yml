@@ -1,0 +1,55 @@
+name: RG 895 diagnose popup silence minute V711 (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-detector-code-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-inspection:
+    if: github.repository == 'RushaGoodbye/CHAT_YouTube' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect installed detectors and plan metadata without edits
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pys = @'
+          import ast,json,re,hashlib
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          base=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895')
+          keys=('popup','silence','minute','cut','underlay','intro','layout','mute','censor','dialogue','gap','pause','notification','scene')
+          modules=['rg_fullstream_detectors_v2.py','rg_fullstream_policy_v70.py','rg_fullstream_auto_v2.py','rg_fullstream_export_v1.py','rg_fullstream_qa_v65.py']
+          for name in modules:
+              p=root/name
+              if not p.is_file():
+                  print('RGDIAG|MISSING|'+name);continue
+              lines=p.read_text(encoding='utf-8-sig').splitlines()
+              tree=ast.parse('\n'.join(lines))
+              fs=[(n.name,n.lineno,n.end_lineno) for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))]
+              selected=[x for x in fs if any(k in x[0].lower() for k in keys)]
+              print('RGDIAG|MODULE|'+name+'|'+str(len(lines))+'|'+hashlib.sha256(p.read_bytes()).hexdigest())
+              print('RGDIAG|FUNCTIONS|'+name+'|'+json.dumps(selected[:90]))
+              locations=[(i+1,x.strip()[:140]) for i,x in enumerate(lines) if any(q in x.lower() for q in ('scan_popups(', 'intro_color_host_start(', 'notification_followup', 'silence_cuts', 'minute_of_silence', 'dialogue_gap_cuts', 'popups =', 'popup_masks', 'pre_export', 'content_qa'))]
+              print('RGDIAG|CALLS|'+name+'|'+json.dumps(locations[:55],ensure_ascii=True))
+          p=base/'processing_plan.json'
+          o=json.loads(p.read_text(encoding='utf-8-sig'))
+          print('RGDIAG|PLAN_TOP_KEYS|'+json.dumps(sorted(o.keys())))
+          for k,v in o.items():
+              if any(s in k.lower() for s in keys):
+                  if isinstance(v,list):
+                      types=[str(type(x).__name__) for x in v[:2]]
+                      sample=[sorted(x.keys()) if isinstance(x,dict) else type(x).__name__ for x in v[:2]]
+                      print('RGDIAG|PLAN_LIST|'+k+'|'+json.dumps({'count':len(v),'types':types,'sample_shapes':sample},ensure_ascii=True))
+                  elif isinstance(v,dict):
+                      print('RGDIAG|PLAN_DICT|'+k+'|'+json.dumps(sorted(v.keys())[:50]))
+                  elif isinstance(v,(str,int,float,bool,type(None))):
+                      print('RGDIAG|PLAN_SCALAR|'+k+'|'+str(v)[:120] if 'path' not in k.lower() and 'source' not in k.lower() else 'RGDIAG|PLAN_SCALAR_REDACTED|'+k)
+          print('RGDIAG|END|READ_ONLY')
+          '@
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 -c $pys
+          if($LASTEXITCODE -ne 0){throw 'RG895_DIAGNOSTIC_FAILED'}
