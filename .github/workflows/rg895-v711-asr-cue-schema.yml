@@ -1,0 +1,39 @@
+name: RG895 ASR cue schema and time-only audit V711
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-asr-cue-schema.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Confirm actual ASR word field and safely search minute cues
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import json,re
+          from pathlib import Path
+          p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json')
+          a=json.loads(p.read_text(encoding='utf-8-sig'))
+          words=a.get('transcribed_words',[])
+          print('RGASR|FIELDS|'+json.dumps({'count':len(words),'shape':list(words[0].keys()) if words and isinstance(words[0],dict) else None}),flush=True)
+          textfields=[k for k in ('word','text','token','value') if words and isinstance(words[0],dict) and k in words[0]]
+          cues={'minute':[],'silence':[]}
+          for v in words:
+           if not isinstance(v,dict):continue
+           t=v.get('start')
+           if not isinstance(t,(int,float)):continue
+           val=' '.join(str(v.get(k) or '') for k in textfields).lower()
+           if re.search('хвилин|минут|хвылын',val):cues['minute'].append(round(float(t),2))
+           if re.search('мовчан|молч|тишин|тиши',val):cues['silence'].append(round(float(t),2))
+          print('RGASR|CUES|'+json.dumps({k:{'count':len(v),'times':v[:30]} for k,v in cues.items()}),flush=True)
+          print('RGASR|END|NO_TRANSCRIPT_UPLOADED',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG_ASR_SCHEMA_AUDIT_FAILED'}
