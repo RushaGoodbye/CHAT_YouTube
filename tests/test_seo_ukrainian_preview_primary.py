@@ -57,6 +57,7 @@ def test_transcript_only_qa_gets_review_title_without_verified_metadata(monkeypa
         current_title="",
         transcript=("[00:05] Шойгу коррупция Путин смена должности. " * 50),
         fast_mode=True,
+        transcript_only_preview=True,
         timeout=1,
     )
     assert result["title"]
