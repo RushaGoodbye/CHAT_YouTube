@@ -103,3 +103,23 @@ def test_source_topic_fallback_prioritizes_frequently_discussed_subject():
     assert titles
     assert "Путін" in titles[0]
     assert "Шойгу" not in titles[0]
+
+
+def test_fallback_ab_uses_three_distinct_transcript_topics():
+    transcript = (
+        ("Путін та його рішення. " * 8)
+        + ("Зарплати та доходи людей. " * 6)
+        + ("Пенсії та соціальні виплати. " * 5)
+    )
+    titles = free_tools._grounded_review_title_variants("", transcript)
+    assert len(titles) == 3
+    assert "Путін" in titles[0]
+    assert "зарплати" in titles[1]
+    assert "пенсії" in titles[2]
+    assert len(set(titles)) == 3
+
+
+def test_fallback_does_not_invent_extra_subjects():
+    titles = free_tools._grounded_review_title_variants("", "Шойгу " * 10)
+    assert len(titles) == 1
+    assert "Шойгу" in titles[0]
