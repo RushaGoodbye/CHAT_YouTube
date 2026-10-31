@@ -1,0 +1,52 @@
+name: RG895 popup sample FFmpeg fast seek V711 (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-popup-fast-sample.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sample:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 7
+    steps:
+      - name: Frame evidence by bounded input-seek FFmpeg, no VideoCapture source scans
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,subprocess
+          from pathlib import Path
+          sys.path.insert(0,str(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')))
+          import numpy as np
+          from rg_fullstream_detectors_v2 import popup_candidates,popup_search_area,verified_host,verified_single_host
+          from rg_fullstream_export_v1 import ffbin
+          p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json')
+          plan=json.loads(p.read_text(encoding='utf-8-sig'))
+          masks=plan.get('popup_masks',[])
+          print('RGPFAST|MASKS|'+json.dumps(masks[:10]),flush=True)
+          source=plan['video']
+          def one(t):
+           cmd=[ffbin('ffmpeg'),'-hide_banner','-nostdin','-v','error','-ss',str(max(0,t)),'-i',source,'-map','0:v:0','-frames:v','1','-pix_fmt','bgr24','-f','rawvideo','pipe:1']
+           try:
+            v=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35)
+           except subprocess.TimeoutExpired:
+            return {'t':round(t,2),'status':'TIMEOUT_35S'}
+           if v.returncode or len(v.stdout)!=1920*1080*3:return {'t':round(t,2),'status':'FAILED','rc':v.returncode,'bytes':len(v.stdout)}
+           f=np.frombuffer(v.stdout,dtype=np.uint8).reshape(1080,1920,3)
+           layout='dual' if verified_host(f) else ('solo' if verified_single_host(f) else None)
+           cand=popup_candidates(f,popup_search_area(layout)) if layout else []
+           return {'t':round(t,2),'layout':layout,'boxes':len(cand),'geometry':cand[:3]}
+          times=[]
+          for m in masks[:5]:
+           a,b=m['intervals'][0]
+           times.extend([max(0,a-1),a,(a+b)/2,b,b+1])
+          times.extend([400.0,916.0,5500.0,6500.0,7000.0,8500.0,11000.0])
+          for t in sorted(set(round(t,2) for t in times)):
+           print('RGPFAST|FRAME|'+json.dumps(one(t)),flush=True)
+          print('RGPFAST|END|READ_ONLY',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'FAST_SAMPLE_FAILED'}
