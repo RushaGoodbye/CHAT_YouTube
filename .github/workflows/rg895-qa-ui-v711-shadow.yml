@@ -1,0 +1,22 @@
+name: RG 895 QA blocked UI V711 shadow (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-qa-ui-v711-shadow.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Verify real 895 QA blocked UI status without installing
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py scripts\rg895_v711_ui_qa_shadow.py
+          if($LASTEXITCODE -ne 0){throw 'QA_BLOCKED_UI_SHADOW_FAILED'}
