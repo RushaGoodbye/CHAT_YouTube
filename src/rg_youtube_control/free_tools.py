@@ -1548,12 +1548,17 @@ def _grounded_review_title_variants(current_title: str, transcript: str) -> list
     labels = [label for _, _, label in matched]
     if not labels:
         return []
-    primary = labels[0]
+    # Prefer independent, source-mentioned subjects instead of three generic
+    # paraphrases of the same hook. A single observed subject does not justify
+    # inventing two more events: retain a short review-only fallback set.
+    prompts = (
+        ": про що говорять у чат-рулетці?",
+        ": що кажуть співрозмовники?",
+        ": які думки звучать у розмові?",
+    )
     suggestions = [
-        f"{primary}: про що говорять у чат-рулетці?",
-        f"Розмова про {primary[0].lower() + primary[1:]} | РАША ГУДБАЙ",
-        f"{labels[1]}: думки співрозмовників" if len(labels) > 1
-        else f"{primary}: погляди співрозмовників",
+        f"{label}{prompts[i]}"
+        for i, label in enumerate(labels[:3])
     ]
     return [title for title in suggestions if len(title) <= 100]
 
