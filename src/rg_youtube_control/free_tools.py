@@ -661,6 +661,40 @@ _GROUNDED_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 
 
 
+
+# Conservative title/SRT subject check: important named subjects in the
+# existing public title must be mentioned somewhere in the source captions.
+# This is a *review warning*, NOT a proof of mismatched files or false speech.
+_TITLE_SOURCE_SUBJECT_ROOTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("чечен", ("чечен",)),
+    ("дагестан", ("дагестан",)),
+    ("шойгу", ("шойгу",)),
+    ("бєлоусов", ("белоусов", "бєлоусов")),
+    ("саратов", ("саратов",)),
+    ("краснодар", ("краснодар",)),
+    ("лукашенк", ("лукашенк",)),
+    ("путін", ("путин", "путін")),
+    ("трамп", ("трамп",)),
+    ("польщ", ("польск", "польщ")),
+    ("бандер", ("бандер",)),
+    ("новосибірськ", ("новосибирск", "новосибірськ")),
+    ("петербург", ("петербург",)),
+)
+
+
+def _seo_title_source_conflicts(title: str, transcript: str) -> list[str]:
+    """Warn when a named title subject cannot be found in the supplied SRT."""
+    if not str(title or "").strip() or not str(transcript or "").strip():
+        return []
+    name = str(title).casefold()
+    caption = str(transcript).casefold()
+    conflicts = []
+    for title_root, caption_roots in _TITLE_SOURCE_SUBJECT_ROOTS:
+        if title_root in name and not any(root in caption for root in caption_roots):
+            conflicts.append("TITLE_SUBJECT_NOT_IN_SRT:" + title_root.upper())
+    return conflicts
+
+
 def _seo_editorial_preview_flags(
     title: str,
     description: str,
@@ -2850,6 +2884,14 @@ chapters: рядок з підтвердженими таймкодами та �
     editorial_quality_flags = _seo_editorial_preview_flags(
         title, description, variants,
     )
+    # Only the verified current title is eligible for this warning: a
+    # generated proposal itself may contain a hallucinated person/place.
+    editorial_quality_flags.extend(
+        _seo_title_source_conflicts(
+            str(current_title or "").strip(), transcript
+        )
+    )
+    editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
     from .seo_quality_gate import inspect_package
     format_gate = inspect_package({
         "title": title,
