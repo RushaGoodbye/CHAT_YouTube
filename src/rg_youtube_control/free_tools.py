@@ -1570,6 +1570,48 @@ def _grounded_review_title_variants(
     return [title for title in suggestions[:pool_size] if len(title) <= 100]
 
 
+
+def _improve_review_ab_distinctness(
+    title: str,
+    variants: list[str],
+    transcript: str,
+    evidence_report: dict[str, Any] | None = None,
+) -> tuple[list[str], bool]:
+    """Improve repeated A/B hooks using only topics detected in transcript.
+
+    This is a review-only fallback. Editorial approval requires verifying the
+    actual transcript and cannot be inferred from three well-formed titles.
+    """
+    from itertools import combinations
+
+    if len(variants) != 3 or not transcript.strip():
+        return variants, False
+    initial_issues = ab_title_issues(variants, evidence_report)
+    if not initial_issues:
+        return variants, False
+    grounded = [
+        item for item in _grounded_review_title_variants("", transcript, pool_size=4)
+        if item.casefold() != title.casefold()
+        and not _seo_ukrainian_language_issue(item)
+    ]
+    if len(grounded) < 3:
+        return variants, False
+    pool = list(dict.fromkeys([*variants, *grounded]))
+    best = variants
+    best_score = len(initial_issues)
+    for option in combinations(pool, 3):
+        # Replacing a single word in an unchecked model headline does not
+        # establish grounding; favor multiple transcript-topic candidates.
+        if sum(item in grounded for item in option) < 2:
+            continue
+        issues = ab_title_issues(option, evidence_report)
+        if len(issues) < best_score:
+            best, best_score = list(option), len(issues)
+            if best_score == 0:
+                break
+    return best, best != variants
+
+
 def _recover_title_variants(
     *,
     current_title: str,
@@ -2756,6 +2798,11 @@ chapters: рядок з підтвердженими таймкодами та �
             _grounded_review_title_variants(current_title, transcript, pool_size=4),
         )
         if variants_changed:
+            payload["_fallback_review_only"] = True
+        variants, overlap_improved = _improve_review_ab_distinctness(
+            title, variants, transcript, evidence_report,
+        )
+        if overlap_improved:
             payload["_fallback_review_only"] = True
         # Recheck the final list, not the discarded model variants.
         title_issues = ab_title_issues(variants, evidence_report)
