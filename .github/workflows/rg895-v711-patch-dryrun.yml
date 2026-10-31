@@ -1,0 +1,27 @@
+name: RG V711 intro patch package preflight (NO INSTALL)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-patch-dryrun.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Download pinned candidate script, verify SHA and dry run both Studio roots
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='https://raw.githubusercontent.com/RushaGoodbye/RG_Auto_Edit_Agent/1a890da337316e5c4e034a15300d94b6906c8567/scripts/rg_v711_intro_candidate.py'
+          $f=Join-Path $env:TEMP 'rg_v711_intro_readonly_pinned.py'
+          Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $f
+          $h=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($h -ne '7138a17a118fe5a0471acd7cde59c993495aaee3e1b981ddb69edd6d70cc3a74'){throw 'CANDIDATE_HASH_MISMATCH'}
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 $f
+          if($LASTEXITCODE -ne 0){throw 'V711_PREFLIGHT_FAILED'}
