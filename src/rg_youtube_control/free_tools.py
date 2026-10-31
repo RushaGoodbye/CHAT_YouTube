@@ -2612,6 +2612,21 @@ chapters: рядок з підтвердженими таймкодами та �
                 "_description_quality_issue": "editorial_review_required",
             }
             title_fallback_used = True
+    if not payload and fast_mode and transcript_only_preview and transcript.strip():
+        # Isolated QA only: an invalid model reply must not stop collecting
+        # technical diagnostics. Generate neutral source-topic review prompts.
+        # These are never verified titles and are never publication-ready.
+        qa_titles = _grounded_review_title_variants("", transcript, pool_size=4)
+        if qa_titles:
+            payload = {
+                "title": qa_titles[0],
+                "title_variants": qa_titles[1:],
+                "description": _grounded_description_from_transcript("", transcript),
+                "tags": _grounded_tags_from_transcript("", transcript)[:10],
+                "chapters": "",
+                "_fallback_review_only": True,
+            }
+            title_fallback_used = True
     if not payload:
         mode_text = "швидкого проходу" if fast_mode else "повторів"
         raise ValueError(
