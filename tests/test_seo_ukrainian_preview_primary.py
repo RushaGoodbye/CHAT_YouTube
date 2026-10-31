@@ -1,6 +1,7 @@
 import json
 
 from rg_youtube_control import free_tools
+from rg_youtube_control.seo_quality_gate import inspect_package
 
 
 def test_fast_seo_uses_ukrainian_preview_instead_of_legacy_russian_title(monkeypatch):
@@ -27,3 +28,8 @@ def test_fast_seo_uses_ukrainian_preview_instead_of_legacy_russian_title(monkeyp
     assert result["needs_review"] is True
     assert len(result["title_variants"]) == 3
     assert "назва" not in result["seo_language_issues"]
+
+    expected = inspect_package(result)
+    assert result["seo_format_pass"] == expected["format_pass"]
+    assert result["seo_format_problems"] == expected["problems"]
+    assert result["seo_editorial_review_required"] is True
