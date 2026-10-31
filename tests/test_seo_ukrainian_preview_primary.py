@@ -65,3 +65,22 @@ def test_transcript_only_qa_gets_review_title_without_verified_metadata(monkeypa
     assert result["title_fallback_used"] is True
     assert result["needs_review"] is True
     assert result["seo_editorial_review_required"] is True
+
+
+def test_transcript_only_preview_returns_draft_on_model_runtime_error(monkeypatch):
+    def model_failure(*_args, **_kwargs):
+        raise RuntimeError("local model unavailable")
+
+    monkeypatch.setattr(free_tools, "ollama_chat", model_failure)
+    result = free_tools.generate_seo_package_local(
+        current_title="",
+        transcript=("[00:01] Шойгу та корупція в Росії. " * 80),
+        fast_mode=True,
+        transcript_only_preview=True,
+        timeout=1,
+    )
+    assert result["title"]
+    assert len(result["title_variants"]) == 3
+    assert result["needs_review"] is True
+    assert result["seo_editorial_review_required"] is True
+    assert result["title_fallback_used"] is True
