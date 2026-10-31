@@ -1,0 +1,25 @@
+{
+  "video_id": "MEitKm687xo",
+  "published_at": "2024-06-30",
+  "language": "uk",
+  "scope": "historical_video",
+  "verified_subjects": [
+    "переведення Шойгу з посади міністра оборони РФ",
+    "реакції російських співрозмовників",
+    "припущення про корупцію та справи щодо заступників",
+    "аргумент співрозмовників «усе йде за планом»",
+    "згадка про Бєлоусова та іншу посаду Шойгу"
+  ],
+  "must_not_claim": [
+    "корупцію Шойгу доведено",
+    "росіяни в шоці",
+    "це події 2026 року",
+    "Шойгу посадили у в’язницю"
+  ],
+  "recommended_title": "ЗВІЛЬНЕННЯ ШОЙГУ: КОРУПЦІЯ ЧИ «ВСЕ ЗА ПЛАНОМ»? ЩО КАЖУТЬ РОСІЯНИ | РАША ГУДБАЙ",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "shorts": false,
+  "source": "public YouTube video metadata and original captions; manually reviewed 2026-10-30",
+  "publication_allowed": false
+}

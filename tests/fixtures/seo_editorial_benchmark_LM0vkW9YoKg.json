@@ -1,0 +1,21 @@
+{
+  "video_id": "LM0vkW9YoKg",
+  "published_at": "2026-10-08",
+  "language": "uk",
+  "recommended_title": "ПОХОВАВ ДРУЗІВ І ГОВОРИТЬ ПРО ВІЙНУ: РОЗМОВА З РОСІЯНИНОМ | РАША ГУДБАЙ",
+  "verified_subjects": [
+    "Співрозмовник з Приморського краю згадує загиблих друзів",
+    "Розмова про мобілізацію та війну проти України",
+    "Обговорюють дрони й проблеми з пальним"
+  ],
+  "must_not_claim": [
+    "співрозмовник сам воював, якщо цього не підтверджено",
+    "загибель конкретних осіб незалежно перевірена"
+  ],
+  "editorial_status": "reference_only_not_approved_for_publication",
+  "source": "public video metadata and partial original-caption excerpts reviewed 2026-10-30; automatically translated caption language en",
+  "source_limitations": "Speech-recognition and translation errors possible; verify factual specifics before publication",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "publication_allowed": false
+}
