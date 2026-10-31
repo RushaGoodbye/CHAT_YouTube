@@ -1,0 +1,48 @@
+name: RG895 V711 full timeline small-popup shadow (NO INSTALL)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-full-popup-shadow.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shadow:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Scan RG895 at 1s sampling with patched in-memory detector, no output writes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,types,time,hashlib
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path[:0]=[str(root),str(Path('scripts').resolve())]
+          from rg_v711_small_popup_patch import patch_source,verify_sources
+          p=root/'rg_fullstream_detectors_v2.py'
+          old=p.read_bytes();new=patch_source(old);verify_sources(old,new)
+          m=types.ModuleType('rg_fullstream_detectors_v711_shadow')
+          m.__file__=str(p);sys.modules[m.__name__]=m
+          exec(compile(new,str(p),'exec'),m.__dict__)
+          plan=json.loads(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json').read_text(encoding='utf-8-sig'))
+          duration=11480.17
+          begin=time.monotonic()
+          last=[-1]
+          def progress(n,total,t):
+           step=n//2000
+           if step>last[0]:
+            last[0]=step
+            print('RGFULLSHADOW|PROGRESS|'+json.dumps({'frames':n,'total':total,'source_sec':round(t),'elapsed_s':round(time.monotonic()-begin)}),flush=True)
+          print('RGFULLSHADOW|START|'+hashlib.sha256(new).hexdigest(),flush=True)
+          masks,flags=m.scan_popups(plan['video'],duration,step=1.0,progress_callback=progress)
+          samples=[{'x':a['x'],'y':a['y'],'w':a['width'],'h':a['height'],'time':a['intervals'][:2]} for a in masks[:80]]
+          print('RGFULLSHADOW|RESULT|'+json.dumps({'masks':len(masks),'sample_masks':samples,'flags':flags,'elapsed_seconds':round(time.monotonic()-begin,1)}),flush=True)
+          print('RGFULLSHADOW|END|SHADOW_ONLY_NO_VIDEO_OR_APP_FILES_WRITTEN',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_FULL_SHADOW_FAILED'}
