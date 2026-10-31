@@ -1,0 +1,22 @@
+name: RG895 V711 popup contact sheet local only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-popup-contact-sheet.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  create-local-review-sheet:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Generate local contact sheet no media uploaded
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 scripts\rg895_v711_popup_contact_sheet.py
+          if($LASTEXITCODE -ne 0){throw 'LOCAL_CONTACT_SHEET_FAILED'}
