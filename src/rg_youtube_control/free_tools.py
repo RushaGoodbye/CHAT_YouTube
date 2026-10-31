@@ -1529,12 +1529,23 @@ def _recover_independent_ab_titles(
 
 
 def _grounded_review_title_variants(current_title: str, transcript: str) -> list[str]:
-    """Review-only alternatives from explicit source-topic matches, never asserted facts."""
-    source = f"{current_title}\n{transcript}".casefold()
-    labels: list[str] = []
-    for needles, label in _GROUNDED_TOPIC_RULES:
-        if any(needle in source for needle in needles) and label.casefold() not in {x.casefold() for x in labels}:
-            labels.append(label)
+    """Review-only A/B alternatives from actual transcript matches, not old titles.
+
+    Sort by frequency in the transcript to avoid prioritizing a passing
+    mention of a politician over the dominant topic. These are suggestions,
+    not proof of editorial accuracy or permission to publish.
+    """
+    source = str(transcript or "").casefold()
+    if not source.strip():
+        return []
+    weak_stems = {"цен", "сво", "президент", "министерств", "оборон"}
+    matched: list[tuple[int, int, str]] = []
+    for order, (needles, label) in enumerate(_GROUNDED_TOPIC_RULES):
+        count = sum(source.count(needle) for needle in needles if needle not in weak_stems)
+        if count:
+            matched.append((-count, order, label))
+    matched.sort()
+    labels = [label for _, _, label in matched]
     if not labels:
         return []
     primary = labels[0]
