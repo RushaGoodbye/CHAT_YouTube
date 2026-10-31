@@ -83,3 +83,23 @@ def test_sanitizer_never_fabricates_missing_grounded_alternatives():
     )
     assert modified
     assert result == ["Що думають люди?"]
+
+
+def test_source_topic_fallback_ignores_unsupported_legacy_title():
+    assert free_tools._grounded_review_title_variants(
+        "Увольнение Шойгу в России", ""
+    ) == []
+    assert free_tools._grounded_review_title_variants(
+        "Увольнение Шойгу в России", "Оценка своей жизни."
+    ) == []
+
+
+def test_source_topic_fallback_prioritizes_frequently_discussed_subject():
+    titles = free_tools._grounded_review_title_variants(
+        "Шойгу: що сталося?",
+        ("Ми говоримо про Путіна та його рішення. " * 8)
+        + "Також один раз згадали Шойгу.",
+    )
+    assert titles
+    assert "Путін" in titles[0]
+    assert "Шойгу" not in titles[0]
