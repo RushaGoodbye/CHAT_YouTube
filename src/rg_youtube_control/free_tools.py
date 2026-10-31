@@ -2139,6 +2139,7 @@ def generate_seo_package_local(
     fast_mode: bool = False,
     timeout: float = 300.0,
     evidence_report: dict[str, Any] | None = None,
+    transcript_only_preview: bool = False,
 ) -> dict[str, Any]:
     context = public_context or {}
     live_profile = str(context.get("profile") or "").casefold()
@@ -2271,7 +2272,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 # Never fail just because Ollama omitted a new one, and never
                 # promote a speculative A/B variant to the primary title.
                 existing_title = str(current_title or "").strip()
-                if not existing_title and fast_mode and transcript.strip():
+                if not existing_title and fast_mode and transcript_only_preview and transcript.strip():
                     # Transcript-only QA has no verified current video title.
                     # Construct a question about a detected subject, not a claim.
                     # Never approve this fallback for automatic publication.
