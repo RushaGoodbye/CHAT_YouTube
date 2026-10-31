@@ -1,0 +1,62 @@
+name: RG895 small popup V711 shadow source QA (NO INSTALL)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-small-popup-patch-shadow.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shadow:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Test SHA-pinned popup fallback in memory on real RG895 frames
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,subprocess,hashlib,types
+          from pathlib import Path
+          import numpy as np
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(root))
+          sys.path.insert(0,str(Path('scripts').resolve()))
+          from rg_v711_small_popup_patch import patch_source,verify_sources
+          import rg_fullstream_detectors_v2 as production
+          from rg_fullstream_export_v1 import ffbin
+          old=(root/'rg_fullstream_detectors_v2.py').read_bytes()
+          new=patch_source(old)
+          verify_sources(old,new)
+          virtual=types.ModuleType('rg_fullstream_detectors_v711_shadow')
+          virtual.__file__=str(root/'rg_fullstream_detectors_v2.py')
+          sys.modules[virtual.__name__]=virtual
+          exec(compile(new,virtual.__file__,'exec'),virtual.__dict__)
+          plan=json.loads(Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\processing_plan.json').read_text(encoding='utf-8-sig'))
+          source=plan['video']
+          report=[]
+          for t in [6500,7000,7404.5,7405,7405.5,7406,7407.5,7408,7789.25,7894.25,8500]:
+           cmd=[ffbin('ffmpeg'),'-v','error','-nostdin','-ss',str(t),'-i',source,'-map','0:v:0','-frames:v','1','-pix_fmt','bgr24','-f','rawvideo','pipe:1']
+           p=subprocess.run(cmd,capture_output=True,timeout=12)
+           if p.returncode or len(p.stdout)!=1920*1080*3:raise RuntimeError('FRAME_READ_FAILED')
+           f=np.frombuffer(p.stdout,dtype=np.uint8).reshape(1080,1920,3)
+           layout='dual' if production.verified_host(f) else ('solo' if production.verified_single_host(f) else None)
+           roi=production.popup_search_area(layout) if layout else None
+           strict=production.popup_candidates(f,roi) if roi else []
+           shadow=virtual.popup_candidates(f,roi) if roi else []
+           report.append({'t':t,'strict':strict,'patched':shadow})
+          print('RGV711PATCH|SOURCE_SHA|'+hashlib.sha256(new).hexdigest(),flush=True)
+          print('RGV711PATCH|RESULT|'+json.dumps(report),flush=True)
+          lookup={row['t']:row for row in report}
+          if not lookup[7405]['patched'] or lookup[7405]['strict']:raise RuntimeError('SMALL_POPUP_RECALL_FAILED')
+          for t in [7789.25,7894.25]:
+           if lookup[t]['patched']!=lookup[t]['strict']:raise RuntimeError('LARGE_POPUP_REGRESSION')
+          for t in [6500,7000,8500]:
+           if lookup[t]['patched'] and not lookup[t]['strict']:raise RuntimeError('NEGATIVE_CONTROL_FALSE_POSITIVE')
+          print('RGV711PATCH|PASS|IN_MEMORY_NO_INSTALLED_FILE_WRITES',flush=True)
+          '@
+          & $py -X utf8 -c $script
+          if($LASTEXITCODE -ne 0){throw 'RG895_SMALL_POPUP_PATCH_QA_FAILED'}
