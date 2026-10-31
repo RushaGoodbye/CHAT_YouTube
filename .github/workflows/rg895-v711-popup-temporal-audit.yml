@@ -1,0 +1,22 @@
+name: RG895 popup candidates temporal adjudication V711 (READ ONLY)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v711-popup-temporal-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Temporal evidence for nine popup masks, no media writes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 scripts\rg895_v711_popup_temporal_audit.py
+          if($LASTEXITCODE -ne 0){throw 'RG895_POPUP_TEMPORAL_QA_FAILED'}
