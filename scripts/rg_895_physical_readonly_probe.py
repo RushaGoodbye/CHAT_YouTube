@@ -1,13 +1,29 @@
 """Read-only physical spot audit for RG895. No writes, uploads, transcription, or full video scan."""
 from pathlib import Path
-import json, os, subprocess, math, statistics, sys, array
+import json, os, subprocess, math, statistics, sys, array, shutil
 
 APP=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
 DATA=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data')
 ROOT=DATA/'fullstream_v2'/'895'
 REPORT=APP/'895'/'FULLSTREAM_YOUTUBE'/'RG_895_FULL_YOUTUBE_REVIEW.json'
 PROBE='RG895PHYSICAL'
-BIN=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\ffmpeg\bin\ffmpeg.exe')
+RUNTIME=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Runtime')
+def locate_ffmpeg():
+    roots=[Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App'),RUNTIME]
+    for p in [
+        os.getenv('RG_FFMPEG_BIN',''),shutil.which('ffmpeg') or '',
+        str(RUNTIME/'ffmpeg'/'bin'/'ffmpeg.exe'),
+        str(RUNTIME/'venv'/'Scripts'/'ffmpeg.exe'),
+        str(RUNTIME/'bin'/'ffmpeg.exe'),
+        str(APP/'bin'/'ffmpeg.exe')]:
+        if p and Path(p).is_file():return Path(p)
+    for root in roots:
+        try:
+            for p in root.rglob('ffmpeg.exe'):
+                if p.is_file():return p
+        except OSError:pass
+    return None
+BIN=locate_ffmpeg()
 
 def log(k,v):
     print(PROBE+'|'+k+'|'+json.dumps(v,ensure_ascii=True,separators=(',',':')),flush=True)
@@ -96,13 +112,16 @@ def midpoint(l):
 
 def main():
     log('START','READ_ONLY_PHYSICAL_SPOT_CHECK')
-    if not BIN.is_file():return log('ERROR','FFMPEG_NOT_FOUND')
+    if BIN is None:
+        log('ERROR','FFMPEG_NOT_FOUND');return 2
     report=get_json(REPORT)
     plan=get_json(ROOT/'processing_plan.json')
     out=Path(report['output']);video=Path(report['source_video']);audio=Path(report['separate_audio'])
+    log('FFMPEG_BIN',{'name':BIN.name,'parent':BIN.parent.name})
     log('INPUTS_PRESENT',{'output':out.is_file(),'source_video':video.is_file(),
                           'source_audio':audio.is_file(),'plan':True,'ffmpeg':True})
-    if not all(x.is_file() for x in (out,video,audio)):return log('STOP','SOURCE_UNAVAILABLE')
+    if not all(x.is_file() for x in (out,video,audio)):
+        log('STOP','SOURCE_UNAVAILABLE');return 3
     sys.path.insert(0,str(APP))
     try:
         from rg_fullstream_quality_v3 import classify_words_v3
@@ -133,6 +152,6 @@ def main():
     log('PHYSICAL_UNDERLAY_SAMPLE',checks)
     log('INTRO',{'trim':report.get('intro_trim_seconds'),
                  'verified':report.get('intro_host_color_verified')})
-    log('END','READ_ONLY_COMPLETE')
+    log('END','READ_ONLY_COMPLETE');return 0
 
-if __name__=='__main__':main()
+if __name__=='__main__':raise SystemExit(main())
