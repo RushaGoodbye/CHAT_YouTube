@@ -660,6 +660,46 @@ _GROUNDED_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+
+def _seo_editorial_preview_flags(
+    title: str,
+    description: str,
+    variants: Iterable[str] = (),
+) -> list[str]:
+    """Flag low-information SEO even when all format checks pass.
+
+    These conservative indicators do not establish or refute any factual
+    claims. They prevent generic review drafts from appearing editor-approved.
+    """
+    primary = " ".join(str(title or "").casefold().split())
+    desc = " ".join(str(description or "").casefold().split())
+    alternatives = [" ".join(str(x).casefold().split()) for x in variants]
+    flags: list[str] = []
+    generic_primary = (
+        "про що говорять у чат-рулетці?",
+        "що кажуть співрозмовники?",
+        "думки учасників розмови",
+        "які запитання виникають?",
+    )
+    if any(primary.endswith(value) for value in generic_primary):
+        flags.append("GENERIC_PRIMARY_TITLE")
+    if sum(any(value in x for value in generic_primary) for x in alternatives) >= 2:
+        flags.append("GENERIC_AB_VARIANTS")
+    if (
+        "співрозмовники висловлюють різні версії, особисті оцінки" in desc
+        or "дивіться повну розмову та оцініть аргументи" in desc
+        or "розмова показує кілька різних поглядів без" in desc
+    ):
+        flags.append("TEMPLATE_DESCRIPTION")
+    if any(value in desc for value in (
+        "обговорюють війна проти україни",
+        "обговорюють економіка росії",
+        "обговорюють робота та зайнятість",
+    )):
+        flags.append("UNGRAMMATICAL_DESCRIPTION")
+    return flags
+
+
 def _grounded_description_from_transcript(
     title: str,
     transcript: str,
@@ -2807,6 +2847,9 @@ chapters: рядок з підтвердженими таймкодами та �
         # Recheck the final list, not the discarded model variants.
         title_issues = ab_title_issues(variants, evidence_report)
 
+    editorial_quality_flags = _seo_editorial_preview_flags(
+        title, description, variants,
+    )
     from .seo_quality_gate import inspect_package
     format_gate = inspect_package({
         "title": title,
@@ -2848,6 +2891,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(omitted_topics)
             or bool(title_issues)
             or bool(language_issues)
+            or bool(editorial_quality_flags)
             or bool(payload.get("evidence_editorial_review"))
             or bool(payload.get("_description_quality_issue"))
             or bool(payload.get("_tags_review_required"))
@@ -2861,6 +2905,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
         "seo_language_issues": language_issues,
+        "seo_editorial_quality_flags": editorial_quality_flags,
         "seo_format_pass": bool(format_gate["format_pass"]),
         "seo_format_problems": format_gate["problems"],
         "seo_editorial_review_required": True,
@@ -2874,6 +2919,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(editorial_quality_flags), "Надто шаблонний SEO-текст або заголовок: перевірити вручну"),
                 (bool(language_issues), "Неукраїнська мова SEO-полів: " + ", ".join(language_issues)),
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
