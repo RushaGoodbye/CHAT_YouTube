@@ -61,6 +61,7 @@ class MediaItem:
     name: str
     kind: str
     size: int
+    added_at: float = 0.0  # Windows filesystem creation timestamp; 0 for legacy entries
 
     @property
     def folder(self) -> str:
@@ -117,6 +118,7 @@ def scan_media(roots: Iterable[str], stop: Callable[[], bool] | None = None,
                             entry.path, entry.name,
                             'photo' if suffix in IMAGE_EXTS else 'video',
                             stat.st_size,
+                            getattr(stat, 'st_birthtime', stat.st_ctime),
                         ))
                         if progress and len(found) % 500 == 0:
                             progress(len(found))
