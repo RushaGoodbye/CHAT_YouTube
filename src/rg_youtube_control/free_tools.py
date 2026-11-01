@@ -2506,6 +2506,10 @@ chapters: рядок з підтвердженими таймкодами та �
                 json_mode=True,
                 **({"num_ctx": 16384} if evidence_report else {}),
             )
+            if not isinstance(raw, str) or not raw.strip():
+                # Empty successful HTTP completions are model failures, not SEO drafts.
+                # The existing bounded attempt loop retries with a minimal prompt.
+                raise ValueError("MODEL_EMPTY_RESPONSE_RETRY")
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             proposed_title = candidate.get("title")
             title_missing = (
