@@ -140,3 +140,23 @@ def test_repeated_or_blank_tags_are_rejected():
     assert "DUPLICATE" in result["problems"]["tags"]
     assert "EMPTY" in result["problems"]["tags"]
     assert not result["format_pass"]
+
+
+def test_editorial_gate_blocks_short_generic_but_structurally_valid_package():
+    from rg_youtube_control.seo_quality_gate import inspect_editorial_targets
+    p = sample(title="Співрозмовник обговорює політику")
+    assert inspect_package(p)["format_pass"]
+    result = inspect_editorial_targets(p)
+    assert result["editorial_gate_pass"] is False
+    assert "GENERIC_TITLE_REVIEW" in result["issues"]["title"]
+    assert "DESCRIPTION_UNDER_EDITORIAL_TARGET" in result["issues"]["description"]
+    assert result["publication_allowed"] is False
+
+
+def test_editorial_gate_still_never_auto_approves_strong_structural_input():
+    from rg_youtube_control.seo_quality_gate import inspect_editorial_targets
+    p = sample(description=sample()["description"] * 2)
+    result = inspect_editorial_targets(p)
+    assert result["editorial_gate_pass"] is True
+    assert result["editorial_approved"] is False
+    assert result["publication_allowed"] is False
