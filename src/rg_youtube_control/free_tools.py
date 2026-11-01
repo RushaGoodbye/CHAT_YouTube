@@ -2522,7 +2522,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     if topic_options:
                         existing_title = topic_options[0]
                 if not existing_title:
-                    raise ValueError("MODEL_TITLE_MISSING_NO_SAFE_FALLBACK")
+                    raise ValueError("Немає ані назви від моделі, ані поточної назви відео. MODEL_TITLE_MISSING_NO_SAFE_FALLBACK")
                 candidate["title"] = existing_title
                 candidate["_fallback_review_only"] = True
                 candidate["_title_generation_failure"] = "MODEL_TITLE_MISSING"
