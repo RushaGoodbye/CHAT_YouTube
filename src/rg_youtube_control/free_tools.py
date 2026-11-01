@@ -723,6 +723,19 @@ _TITLE_SOURCE_SUBJECT_ROOTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("бандер", ("бандер",)),
     ("новосибірськ", ("новосибирск", "новосибірськ")),
     ("петербург", ("петербург",)),
+    ("хамас", ("хамас",)),
+    ("израил", ("израил", "израиль", "ізраїл", "ізраїль")),
+    ("ізраїл", ("израил", "израиль", "ізраїл", "ізраїль")),
+    ("осужден", ("осужден", "засуджен", "засудж")),
+    ("засуджен", ("осужден", "засуджен", "засудж")),
+    ("преступлен", ("преступл", "злочин")),
+    ("злочин", ("преступл", "злочин")),
+    ("школ", ("школ",)),
+    ("центробанк", ("центробанк", "центральн банк")),
+    ("подмосков", ("подмосков", "підмосков")),
+    ("підмосков", ("подмосков", "підмосков")),
+    ("27 лет", ("27 лет", "27 років")),
+    ("27 років", ("27 лет", "27 років")),
 )
 
 
@@ -2985,11 +2998,12 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     # Only the verified current title is eligible for this warning: a
     # generated proposal itself may contain a hallucinated person/place.
-    editorial_quality_flags.extend(
-        _seo_title_source_conflicts(
-            str(current_title or "").strip(), transcript
-        )
+    source_alignment_conflicts = _seo_title_source_conflicts(
+        str(current_title or "").strip(), transcript
     )
+    editorial_quality_flags.extend(source_alignment_conflicts)
+    if not str(current_title or "").strip() or not transcript.strip():
+        editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
     editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
     from .seo_quality_gate import inspect_package
     format_gate = inspect_package({
@@ -3035,6 +3049,12 @@ chapters: рядок з підтвердженими таймкодами та �
         "needs_review": True,
         "editorial_approved": False,
         "publication_allowed": False,
+        "source_alignment_status": (
+            "BLOCKED_TOPIC_MISMATCH" if source_alignment_conflicts else
+            "TITLE_OR_SRT_UNVERIFIED" if (
+                not str(current_title or "").strip() or not transcript.strip()
+            ) else "SUBJECT_ROOTS_PRESENT_REVIEW"
+        ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
