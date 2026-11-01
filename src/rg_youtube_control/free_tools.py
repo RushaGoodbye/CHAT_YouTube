@@ -2385,6 +2385,15 @@ def generate_seo_package_local(
         or bool(context.get("is_livestream"))
     )
     verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    # A transcript sample is not a full-topic ranking. Explicitly tell the
+    # model to avoid promoting a late isolated segment into the primary hook.
+    coverage_instruction = (
+        "Це лише вибірка субтитрів з різних частин відео, не повна карта тем. "
+        "Не вважай останній фрагмент найважливішим. "
+        "Якщо частоту чи вагу тем неможливо перевірити, не заявляй, що "
+        "випадкова тема є головною; залиш редакторський перегляд. "
+        "Описуй лише наявні слова співрозмовників, без висновків про результати подій."
+    ) if transcript and not evidence_report else ""
     evidence_instruction = (
         "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
         "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
@@ -2431,6 +2440,7 @@ SHORTS: {is_short}
 СТРІМ/АРХІВ СТРІМУ: {is_stream}. Для стріму chapters ОБОВ'ЯЗКОВО порожній рядок.
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
+{coverage_instruction}
 КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
 {verified_evidence}
 
