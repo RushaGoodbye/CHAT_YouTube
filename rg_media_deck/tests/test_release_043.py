@@ -28,7 +28,7 @@ class MediaHotkeyTests(unittest.TestCase):
         self.assertTrue(required.issubset(set(ACTIONS)))
         self.assertTrue(all(action in DEFAULT_BINDINGS for action in required))
         self.assertEqual(len(set(DEFAULT_BINDINGS.values())), len(DEFAULT_BINDINGS) - 1)
-        self.assertEqual(len(ACTIONS), 15)
+        self.assertEqual(len(ACTIONS), 16)
 
     def test_assign_letter_digit_and_function_combos(self):
         self.assertEqual(parse_hotkey("ctrl+shift+p"), ("Ctrl+Shift+P", 0x4006, ord("P")))

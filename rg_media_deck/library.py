@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import math
 import os
+import sqlite3
+import time
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
@@ -61,6 +63,7 @@ class MediaItem:
     name: str
     kind: str
     size: int
+    added_at: float = 0.0  # Windows filesystem creation timestamp; 0 for legacy entries
 
     @property
     def folder(self) -> str:
@@ -117,6 +120,7 @@ def scan_media(roots: Iterable[str], stop: Callable[[], bool] | None = None,
                             entry.path, entry.name,
                             'photo' if suffix in IMAGE_EXTS else 'video',
                             stat.st_size,
+                            getattr(stat, 'st_birthtime', stat.st_ctime),
                         ))
                         if progress and len(found) % 500 == 0:
                             progress(len(found))
@@ -159,6 +163,37 @@ def settings_path() -> Path:
     return Path(base) / 'RGMediaDeck' / 'settings.json'
 
 
+
+def persist_first_seen(items: list[MediaItem], database: Path | None = None) -> list[MediaItem]:
+    """First discovery time, persisted independently from filesystem creation time.
+
+    Never delete temporarily offline files; a NAS reconnect must retain their
+    original library-added timestamps. Existing installations begin tracking
+    on their first scan after upgrading.
+    """
+    if not items:
+        return items
+    db = database or settings_path().with_name('first_seen.sqlite3')
+    db.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.time()
+    keys = [normalize_path(item.path) for item in items]
+    conn = sqlite3.connect(str(db), timeout=5)
+    try:
+        conn.execute('CREATE TABLE IF NOT EXISTS first_seen (path TEXT PRIMARY KEY, added REAL NOT NULL)')
+        conn.executemany('INSERT OR IGNORE INTO first_seen(path, added) VALUES (?, ?)',
+                         ((key, stamp) for key in keys))
+        timestamps = {}
+        for pos in range(0, len(keys), 500):
+            chunk = keys[pos:pos + 500]
+            marks = ','.join('?' for _ in chunk)
+            timestamps.update(conn.execute(
+                f'SELECT path, added FROM first_seen WHERE path IN ({marks})', chunk))
+        conn.commit()
+    finally:
+        conn.close()
+    return [replace(item, added_at=timestamps.get(key, stamp))
+            for item, key in zip(items, keys)]
+
 def normalize_playback_rate(value) -> float:
     """Snap legacy or malformed user settings to a safe, supported preset."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -187,7 +222,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}, 'quick_slots': [], 'play_history': [], 'media_sort': 'name_asc', 'media_kind': 'all', 'media_favorites_only': False, 'media_queries': ['', '']}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -205,6 +240,10 @@ def load_settings(path: Path | None = None) -> dict:
         if not isinstance(volume, (int, float)):
             volume = 80
         return {
+            'media_sort': data.get('media_sort') if data.get('media_sort') in ('name_asc', 'name_desc', 'date_desc', 'date_asc') else 'name_asc',
+            'media_kind': data.get('media_kind') if data.get('media_kind') in ('all', 'video', 'photo') else 'all',
+            'media_favorites_only': data.get('media_favorites_only') is True,
+            'media_queries': [(x[:180] if isinstance(x, str) else '') for x in (data.get('media_queries', ['', '']) if isinstance(data.get('media_queries'), list) and len(data.get('media_queries')) == 2 else ['', ''])],
             'roots': [x for x in roots if isinstance(x, str)],
             'favorites': [x for x in favs if isinstance(x, str)],
             'volume': max(0, min(100, int(volume))),
@@ -234,6 +273,8 @@ def load_settings(path: Path | None = None) -> dict:
                 data.get('global_query', '')[:180]
                 if isinstance(data.get('global_query', ''), str) else ''),
             'collections': clean_collections(data.get('collections', {})),
+            'quick_slots': [x[:2048] for x in data.get('quick_slots', [])[:8] if isinstance(x, str)] if isinstance(data.get('quick_slots'), list) else [],
+            'play_history': [x[:2048] for x in data.get('play_history', [])[:30] if isinstance(x, str)] if isinstance(data.get('play_history'), list) else [],
             'streamdeck_bindings': clean_saved_hotkeys(migrate_hotkeys_for_screenshot(
                 data.get('streamdeck_bindings', {}), data.get('hotkeys_layout_version', 1))),
             'hotkeys_layout_version': 4,
