@@ -43,6 +43,7 @@ def test_local_inference_json_and_selected_model(monkeypatch):
     sent = requests[-1][1]["payload"]
     assert sent["model"] == "gemma-3-12b-q4"
     assert sent["response_format"]["type"] == "json_schema"
+    assert sent["reasoning_effort"] == "none"
     assert sent["messages"][0]["content"] == "Приватні субтитри"
     assert requests[-1][0] == "chat/completions"
 
@@ -120,3 +121,26 @@ def test_native_models_api_url_is_still_local_only():
     assert lm._local_api_url("http://127.0.0.1:1234", "api/v1/models") == (
         "http://127.0.0.1:1234/api/v1/models"
     )
+
+def test_reasoning_auto_omits_field_for_non_reasoning_models(monkeypatch):
+    calls = []
+    monkeypatch.setenv("RG_LMSTUDIO_REASONING_EFFORT", "auto")
+    monkeypatch.setenv("RG_LMSTUDIO_MODEL", "local-test-model")
+    def fake_request(endpoint, **kwargs):
+        calls.append(kwargs)
+        return {"choices":[{"message":{"content":"done"},"finish_reason":"stop"}]}
+    monkeypatch.setattr(lm, "_local_json", fake_request)
+    assert lm.lm_studio_chat([{"role":"user","content":"test"}]) == "done"
+    assert "reasoning_effort" not in calls[-1]["payload"]
+
+
+def test_reasoning_only_exhausted_response_fails_with_actionable_error(monkeypatch):
+    monkeypatch.setenv("RG_LMSTUDIO_MODEL", "rg-gemma4-12b")
+    monkeypatch.setattr(lm,"_local_json",lambda _endpoint, **_kwargs: {
+        "choices":[{"finish_reason":"length","message":{"content":""}}],
+        "usage":{"completion_tokens_details":{"reasoning_tokens":2297}},
+    })
+    with pytest.raises(RuntimeError,match="consumed output budget on reasoning"):
+        lm.lm_studio_chat(
+            [{"role":"user","content":"test"}], max_tokens=2300
+        )
