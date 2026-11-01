@@ -124,3 +124,19 @@ def test_fallback_does_not_invent_extra_subjects():
     assert len(titles) == 3
     assert len(set(titles)) == 3
     assert all("Шойгу" in title for title in titles)
+
+
+def test_ab_cannot_repeat_primary_title():
+    package = sample()
+    package["title_variants"][0] = package["title"]
+    result = inspect_package(package)
+    assert "DUPLICATE" in result["problems"]["title_variants"]
+    assert not result["format_pass"]
+
+
+def test_repeated_or_blank_tags_are_rejected():
+    package = sample(tags=["Шойгу", " чат   рулетка ", "ЧАТ РУЛЕТКА", "", "росіяни", "думки", "розмова", "Україна"])
+    result = inspect_package(package)
+    assert "DUPLICATE" in result["problems"]["tags"]
+    assert "EMPTY" in result["problems"]["tags"]
+    assert not result["format_pass"]
