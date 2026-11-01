@@ -42,8 +42,11 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
         add("title", "NON_UKRAINIAN")
     if len(variants) != 3:
         add("title_variants", "COUNT_NOT_THREE")
-    if len(set(x.casefold() for x in variants)) != len(variants):
+    variant_keys = [x.casefold() for x in variants]
+    if len(set(variant_keys)) != len(variant_keys) or title.casefold() in variant_keys:
         add("title_variants", "DUPLICATE")
+    if any(not x for x in variants):
+        add("title_variants", "EMPTY")
     for value in variants:
         if len(value) > 100:
             add("title_variants", "OVER_100_CHARS")
@@ -55,6 +58,11 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
         add("description", "NON_UKRAINIAN")
     if len(tags) < 8:
         add("tags", "FEWER_THAN_EIGHT")
+    tag_keys = [re.sub(r"\\s+", " ", x).casefold() for x in tags]
+    if any(not x for x in tags):
+        add("tags", "EMPTY")
+    if len(set(tag_keys)) != len(tag_keys):
+        add("tags", "DUPLICATE")
     if any(language_error(x) for x in tags):
         add("tags", "NON_UKRAINIAN")
 
