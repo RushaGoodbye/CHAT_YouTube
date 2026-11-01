@@ -809,6 +809,21 @@ def _seo_editorial_preview_flags(
         title, description, *variants, *tags
     )):
         flags.append("MIXED_LANGUAGE_WORDS")
+    if any(re.search(r"(?<!\\w)диалог(?!\\w)", value, flags=re.I) for value in (
+        title, description, *variants, *tags
+    )):
+        flags.append("RUSSIAN_WORD_DIALOG")
+    # Annexation/occupation must not be presented as a verified neutral
+    # event merely because a participant said it. Flag for human review.
+    sensitive = re.compile(
+        r"після\\s+входу.{0,40}(?:до\\s+рф|до\\s+складу\\s+росі)"
+        r"|(?:входження|приєднання).{0,30}до\\s+(?:рф|росі)",
+        flags=re.I,
+    )
+    if any(sensitive.search(str(value)) for value in (
+        title, description, *variants
+    )):
+        flags.append("OCCUPATION_FRAMING_REVIEW")
     return flags
 
 def _grounded_description_from_transcript(
@@ -3013,25 +3028,11 @@ chapters: рядок з підтвердженими таймкодами та �
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
-        "needs_review": (
-            source_quote_fallback
-            or
-            title_fallback_used
-            or unchanged_title
-            or len(variants) < 3
-            or not transcript.strip()
-            or bool(evidence_report)
-            or bool(omitted_topics)
-            or bool(title_issues)
-            or bool(language_issues)
-            or bool(editorial_quality_flags)
-            or bool(payload.get("evidence_editorial_review"))
-            or bool(payload.get("_description_quality_issue"))
-            or bool(payload.get("_tags_review_required"))
-            or bool(payload.get("_fallback_review_only"))
-            or bool(payload.get("_source_topic_fallback_review_only"))
-            or bool(payload.get("_source_lexical_review_only"))
-        ),
+        # All AI-proposed SEO is draft-only until someone checks full SRT
+        # evidence and explicitly approves each video.
+        "needs_review": True,
+        "editorial_approved": False,
+        "publication_allowed": False,
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
@@ -3042,7 +3043,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "seo_format_pass": bool(format_gate["format_pass"]),
         "seo_format_problems": format_gate["problems"],
         "seo_editorial_review_required": True,
-        "review_reason": "; ".join(
+        "review_reason": "Обов'язкова редакторська перевірка SEO. " + "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
                 (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
