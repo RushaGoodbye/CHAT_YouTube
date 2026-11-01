@@ -6,6 +6,7 @@ import time
 import os
 import sys
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt, QThread, QTimer, QUrl, Signal, QSize
@@ -455,11 +456,18 @@ class MediaModel(QAbstractTableModel):
         item = self.rows[index.row()]
         if role == Qt.ItemDataRole.DisplayRole:
             return [
-                '📷' if item.kind == 'photo' else '▶',
+                '▣ ФОТО' if item.kind == 'photo' else '▶ ВІДЕО',
                 display_media_name(item.name),
             ][index.column()]
         if role == Qt.ItemDataRole.ToolTipRole:
-            return item.path
+            when = datetime.fromtimestamp(item.added_at).strftime('%d.%m.%Y %H:%M') if item.added_at else 'невідомо'
+            return f'{item.path}\nСтворено у файловій системі: {when}'
+        if role == Qt.ItemDataRole.ForegroundRole and index.column() == 0:
+            return QColor('#69c6ff' if item.kind == 'photo' else '#ff717a')
+        if role == Qt.ItemDataRole.FontRole and index.column() == 0:
+            font = QFont('Segoe UI', 9)
+            font.setBold(True)
+            return font
         if role == Qt.ItemDataRole.TextAlignmentRole and index.column() == 0:
             return Qt.AlignmentFlag.AlignCenter
         return None
@@ -1544,6 +1552,13 @@ class MainWindow(QMainWindow):
         self.kind.addItem('Відео / аудіо', 'video')
         self.kind.addItem('Фото', 'photo')
         controls.addWidget(self.kind)
+        self.sort_order = QComboBox()
+        self.sort_order.setToolTip('Сортування результатів пошуку')
+        self.sort_order.addItem('Назва: А–Я', 'name_asc')
+        self.sort_order.addItem('Назва: Я–А', 'name_desc')
+        self.sort_order.addItem('Додані: нові', 'date_desc')
+        self.sort_order.addItem('Додані: старі', 'date_asc')
+        controls.addWidget(self.sort_order)
         self.only_favorites = QCheckBox('★ Обране')
         controls.addWidget(self.only_favorites)
         self.collection_filter = QComboBox()
@@ -1569,7 +1584,7 @@ class MainWindow(QMainWindow):
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.horizontalHeader().resizeSection(0, 52)
+        self.table.horizontalHeader().resizeSection(0, 94)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         local_v.addWidget(self.table, 1)
         self.count = QLabel('Файлів: 0')
@@ -1697,6 +1712,7 @@ class MainWindow(QMainWindow):
         self.search.textChanged.connect(self.filter_timer.start)
         self.library_tabs.currentChanged.connect(self.switch_library_tab)
         self.kind.currentIndexChanged.connect(self.apply_filter)
+        self.sort_order.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
         self.collection_filter.currentIndexChanged.connect(self.apply_filter)
         self.collection_filter.setVisible(self._current_library_tab == 0)
@@ -1936,6 +1952,13 @@ class MainWindow(QMainWindow):
         if collection:
             members = set(self.collections.get(collection, []))
             filtered = [item for item in filtered if normalize_path(item.path) in members]
+        order = self.sort_order.currentData()
+        if order == 'name_desc':
+            filtered.sort(key=lambda item: (item.name.casefold(), item.path.casefold()), reverse=True)
+        elif order in ('date_desc', 'date_asc'):
+            filtered.sort(key=lambda item: (item.added_at, item.name.casefold()), reverse=(order == 'date_desc'))
+        else:
+            filtered.sort(key=lambda item: (item.name.casefold(), item.path.casefold()))
         # Block selection signals BEFORE model reset. No user selection should
         # start another video just because the filter changed.
         from PySide6.QtCore import QSignalBlocker
