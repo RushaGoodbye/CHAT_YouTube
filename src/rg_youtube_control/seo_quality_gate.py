@@ -54,8 +54,6 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
             add("title_variants", "NON_UKRAINIAN")
     if len(description) < 260:
         add("description", "SHORT")
-    if 260 <= len(description) < 400:
-        add("description", "DESCRIPTION_UNDER_EDITORIAL_TARGET")
     if language_error(description):
         add("description", "NON_UKRAINIAN")
     if len(tags) < 8:
@@ -100,3 +98,26 @@ def sanitize_review_variants(
         if len(accepted) >= 3:
             break
     return accepted, accepted != original[:3]
+
+
+def inspect_editorial_targets(package: dict[str, Any]) -> dict[str, Any]:
+    """Stricter editorial QA; never grants publishing approval.
+
+    A syntactically valid SEO package may still fail editorial requirements.
+    All claims and ranking of topics require human source checking.
+    """
+    result = inspect_package(package)
+    issues = dict(result["problems"])
+    description = str(package.get("description") or "").strip()
+    if 260 <= len(description) < 400:
+        issues.setdefault("description", []).append("DESCRIPTION_UNDER_EDITORIAL_TARGET")
+    title = str(package.get("title") or "").strip()
+    weak_title = re.search(
+        r"(?i)^(?:співрозмовник|учасники|міркування|питання про|бажання|розмова про|аналіз)\\b",
+        title,
+    )
+    if weak_title:
+        issues.setdefault("title", []).append("GENERIC_TITLE_REVIEW")
+    return {"editorial_gate_pass": not issues,
+            "editorial_approved": False, "publication_allowed": False,
+            "issues": issues}
