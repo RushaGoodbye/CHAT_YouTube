@@ -2513,26 +2513,19 @@ chapters: рядок з підтвердженими таймкодами та �
                 or not proposed_title.strip()
             )
             if title_missing:
-                # The existing YouTube title is known and verified metadata.
-                # Never fail just because Ollama omitted a new one, and never
-                # promote a speculative A/B variant to the primary title.
+                # Missing model output is not a successful SEO title generation.
+                # Preserve the original metadata only for explicitly marked
+                # review-only drafts; never silently treat it as approved SEO.
                 existing_title = str(current_title or "").strip()
                 if not existing_title and fast_mode and transcript_only_preview and transcript.strip():
-                    # Transcript-only QA has no verified current video title.
-                    # Construct a question about a detected subject, not a claim.
-                    # Never approve this fallback for automatic publication.
                     topic_options = _grounded_review_title_variants("", transcript)
                     if topic_options:
                         existing_title = topic_options[0]
-                        candidate["_fallback_review_only"] = True
                 if not existing_title:
-                    raise ValueError(
-                        "Немає ані назви від моделі, ані поточної назви відео."
-                    )
-                candidate["title"] = (
-                    _clean_project_title_for_seo(existing_title)
-                    if fast_mode else existing_title
-                )
+                    raise ValueError("MODEL_TITLE_MISSING_NO_SAFE_FALLBACK")
+                candidate["title"] = existing_title
+                candidate["_fallback_review_only"] = True
+                candidate["_title_generation_failure"] = "MODEL_TITLE_MISSING"
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
             if not str(candidate.get("description") or "").strip():
