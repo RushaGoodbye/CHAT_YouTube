@@ -80,3 +80,21 @@ def test_flags_near_identical_ab_and_mixed_language():
     )
     assert "SIMILAR_AB_ANGLES" in flags
     assert "MIXED_LANGUAGE_WORDS" in flags
+
+
+def test_unattributed_occupation_framing_gets_editorial_warning():
+    flags = _seo_editorial_preview_flags(
+        "Луганськ після входу до РФ: зміни і санкції",
+        "У відео обговорюється ситуація та слова місцевого співрозмовника.",
+        ["Луганськ і окупація", "Санкції проти РФ", "Розмова про Луганськ"],
+    )
+    assert "OCCUPATION_FRAMING_REVIEW" in flags
+
+
+def test_russian_dialog_word_is_detected_in_ukrainian_ab():
+    flags = _seo_editorial_preview_flags(
+        "Луганськ: дискусія про зміни",
+        "Співрозмовники розмовляють про події та наслідки для мешканців.",
+        ["Диалог про Луганськ", "Мешканці і зміни", "Про що розповідають жителі"],
+    )
+    assert "RUSSIAN_WORD_DIALOG" in flags
