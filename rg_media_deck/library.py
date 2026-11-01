@@ -177,7 +177,8 @@ def persist_first_seen(items: list[MediaItem], database: Path | None = None) -> 
     db.parent.mkdir(parents=True, exist_ok=True)
     stamp = time.time()
     keys = [normalize_path(item.path) for item in items]
-    with sqlite3.connect(str(db), timeout=5) as conn:
+    conn = sqlite3.connect(str(db), timeout=5)
+    try:
         conn.execute('CREATE TABLE IF NOT EXISTS first_seen (path TEXT PRIMARY KEY, added REAL NOT NULL)')
         conn.executemany('INSERT OR IGNORE INTO first_seen(path, added) VALUES (?, ?)',
                          ((key, stamp) for key in keys))
@@ -187,6 +188,8 @@ def persist_first_seen(items: list[MediaItem], database: Path | None = None) -> 
             marks = ','.join('?' for _ in chunk)
             timestamps.update(conn.execute(
                 f'SELECT path, added FROM first_seen WHERE path IN ({marks})', chunk))
+    finally:
+        conn.close()
     return [replace(item, added_at=timestamps.get(key, stamp))
             for item, key in zip(items, keys)]
 
