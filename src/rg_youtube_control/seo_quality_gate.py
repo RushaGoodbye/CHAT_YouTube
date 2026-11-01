@@ -113,7 +113,7 @@ def inspect_editorial_targets(package: dict[str, Any]) -> dict[str, Any]:
         issues.setdefault("description", []).append("DESCRIPTION_UNDER_EDITORIAL_TARGET")
     title = str(package.get("title") or "").strip()
     weak_title = re.search(
-        r"(?i)^(?:співрозмовник|учасники|міркування|питання про|бажання|розмова про|аналіз)\\b",
+        r"(?i)^(?:співрозмовник|учасники|міркування|питання про|бажання|розмова про|аналіз)\b",
         title,
     )
     if weak_title:
