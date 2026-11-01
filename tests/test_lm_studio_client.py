@@ -30,8 +30,8 @@ def test_local_inference_json_and_selected_model(monkeypatch):
 
     def fake_request(endpoint, **kwargs):
         requests.append((endpoint, kwargs))
-        if endpoint == "models":
-            return {"data": [{"id": "gemma-3-12b-q4"}]}
+        if endpoint == "api/v1/models":
+            return {"models": [{"key": "gemma-3-12b-q4", "type": "llm"}]}
         return {"choices": [{"message": {"content": '{"title":"Тест","tags":[]}'}}]}
 
     monkeypatch.setattr(lm, "_local_json", fake_request)
@@ -91,3 +91,32 @@ def test_unreachable_server_safely_reports_local_failure(monkeypatch):
     result = lm.probe_lm_studio()
     assert result["status"] == "LOCAL_SERVER_UNAVAILABLE"
     assert not result["model_selected"]
+
+def test_native_model_listing_excludes_embedding_only(monkeypatch):
+    monkeypatch.delenv("RG_LMSTUDIO_MODEL", raising=False)
+    monkeypatch.setattr(lm, "_local_json", lambda endpoint, **_k: {
+        "models": [
+            {"key":"text-embedding-nomic-embed-text-v1.5", "type":"embedding"},
+            {"key":"gemma-4-12b-q4", "type":"llm"},
+        ]
+    })
+    assert lm.list_models() == ["gemma-4-12b-q4"]
+    assert lm.probe_lm_studio()["status"] == "READY"
+
+
+def test_embedding_only_is_not_a_ready_chat_model(monkeypatch):
+    monkeypatch.delenv("RG_LMSTUDIO_MODEL", raising=False)
+    monkeypatch.setattr(lm, "_local_json", lambda endpoint, **_k: {
+        "models": [{"key":"text-embedding-nomic-embed-text-v1.5", "type":"embedding"}]
+    })
+    assert lm.list_models() == []
+    report=lm.probe_lm_studio()
+    assert report["available"] is True
+    assert report["model_selected"] is False
+    assert report["status"] == "SELECT_OR_LOAD_MODEL"
+
+
+def test_native_models_api_url_is_still_local_only():
+    assert lm._local_api_url("http://127.0.0.1:1234", "api/v1/models") == (
+        "http://127.0.0.1:1234/api/v1/models"
+    )
