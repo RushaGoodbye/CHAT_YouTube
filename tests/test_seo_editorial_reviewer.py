@@ -29,3 +29,15 @@ def test_reviewer_never_grants_publish_even_if_model_claims_approval(monkeypatch
     result = reviewer.review_seo_candidate(draft={}, source_notes=[])
     assert result["review_status"] == "NEEDS_HUMAN_REVIEW"
     assert result["publication_allowed"] is False
+
+
+def test_main_seo_pipeline_wires_independent_reviewer_without_publish():
+    from pathlib import Path
+    source = Path("src/rg_youtube_control/free_tools.py").read_text(encoding="utf-8")
+    start = source.index("def generate_seo_package_local(")
+    stop = source.index("\\ndef ", start + 10)
+    section = source[start:stop]
+    assert "review_seo_candidate(" in section
+    assert '"seo_independent_review": reviewer_report' in section
+    assert '"publication_allowed": False' in section
+    assert '"editorial_approved": False' in section
