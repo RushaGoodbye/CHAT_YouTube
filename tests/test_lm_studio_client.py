@@ -159,3 +159,18 @@ def test_select_only_loaded_llm_from_multiple_installed(monkeypatch):
         {"key":"google/gemma-4-12b","loaded_instances":[{"id":"rg-gemma4-12b"}]},
         {"key":"google/gemma-4-e4b","loaded_instances":[]},
     ]) == "google/gemma-4-12b"
+
+
+def test_lmstudio_seo_defaults_to_no_reasoning(monkeypatch):
+    monkeypatch.delenv("RG_LMSTUDIO_REASONING_EFFORT", raising=False)
+    monkeypatch.setenv("RG_LMSTUDIO_MODEL", "rg-gemma4-12b")
+    seen = []
+    def request(_endpoint, **kwargs):
+        seen.append(kwargs["payload"])
+        return {"choices":[{"finish_reason":"stop","message":{"content":'{"title":"Страх доносів"}'}}],
+                "usage":{"completion_tokens_details":{"reasoning_tokens":0}}}
+    monkeypatch.setattr(lm, "_local_json", request)
+    answer = lm.lm_studio_chat([{"role":"user","content":"Generate SEO"}], json_mode=True)
+    assert answer.startswith('{"title"')
+    assert seen[0]["reasoning_effort"] == "none"
+    assert seen[0]["response_format"]["type"] == "json_schema"
