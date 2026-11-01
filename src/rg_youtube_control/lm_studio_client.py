@@ -87,13 +87,7 @@ def _local_json(
     return parsed
 
 
-def list_models(
-    *,
-    base_url: str | None = None,
-    timeout: float = 4.0,
-) -> list[str]:
-    # /v1/models may include embedding-only models. The native endpoint
-    # identifies llm, embedding and decision models explicitly.
+def _native_llm_models(*, base_url: str | None = None, timeout: float = 4.0) -> list[dict[str, Any]]:
     result = _local_json(
         "api/v1/models",
         base_url=base_url or os.getenv("RG_LMSTUDIO_URL", DEFAULT_BASE_URL),
@@ -104,30 +98,39 @@ def list_models(
     if not isinstance(data, list):
         raise RuntimeError("LM Studio native model list is malformed")
     return [
-        str(item["key"])
-        for item in data
-        if isinstance(item, dict)
-        and item.get("type") == "llm"
-        and isinstance(item.get("key"), str)
-        and item["key"].strip()
+        item for item in data
+        if isinstance(item, dict) and item.get("type") == "llm"
+        and isinstance(item.get("key"), str) and item["key"].strip()
     ]
+
+
+def list_models(*, base_url: str | None = None, timeout: float = 4.0) -> list[str]:
+    return [str(item["key"]) for item in _native_llm_models(base_url=base_url, timeout=timeout)]
+
+
+def _choose_model(models: list[dict[str, Any]], preferred: str = "") -> str:
+    ids = [str(m["key"]) for m in models]
+    if preferred:
+        return preferred if preferred in ids else ""
+    loaded = [str(m["key"]) for m in models if m.get("loaded_instances")]
+    if len(loaded) == 1:
+        return loaded[0]
+    if len(models) == 1:
+        return ids[0]
+    return ""
+
 
 def probe_lm_studio(*, base_url: str | None = None) -> dict[str, Any]:
     try:
-        models = list_models(base_url=base_url)
+        models = _native_llm_models(base_url=base_url)
         preferred = os.getenv("RG_LMSTUDIO_MODEL", "").strip()
+        selected = _choose_model(models, preferred)
         return {
             "available": True,
             "model_count": len(models),
-            "model_selected": bool(
-                preferred in models or (not preferred and len(models) == 1)
-            ),
-            "selected_model": preferred if preferred in models else (
-                models[0] if not preferred and len(models) == 1 else ""
-            ),
-            "status": "READY" if (
-                preferred in models or (not preferred and len(models) == 1)
-            ) else "SELECT_OR_LOAD_MODEL",
+            "model_selected": bool(selected),
+            "selected_model": selected,
+            "status": "READY" if selected else "SELECT_OR_LOAD_MODEL",
         }
     except (RuntimeError, ValueError) as exc:
         return {
@@ -152,12 +155,12 @@ def lm_studio_chat(
     endpoint = base_url or os.getenv("RG_LMSTUDIO_URL", DEFAULT_BASE_URL)
     configured = (model or os.getenv("RG_LMSTUDIO_MODEL", "")).strip()
     if not configured:
-        models = list_models(base_url=endpoint, timeout=5.0)
-        if len(models) != 1:
+        models = _native_llm_models(base_url=endpoint, timeout=5.0)
+        configured = _choose_model(models)
+        if not configured:
             raise RuntimeError(
-                "LM Studio: load exactly one model or configure RG_LMSTUDIO_MODEL"
+                "LM Studio: load one language model or configure RG_LMSTUDIO_MODEL"
             )
-        configured = models[0]
     data: dict[str, Any] = {
         "model": configured,
         "messages": messages,
