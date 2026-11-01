@@ -35,8 +35,7 @@ def test_main_seo_pipeline_wires_independent_reviewer_without_publish():
     from pathlib import Path
     source = Path("src/rg_youtube_control/free_tools.py").read_text(encoding="utf-8")
     start = source.index("def generate_seo_package_local(")
-    stop = source.index("\\ndef ", start + 10)
-    section = source[start:stop]
+    section = source[start:]
     assert "review_seo_candidate(" in section
     assert '"seo_independent_review": reviewer_report' in section
     assert '"publication_allowed": False' in section
