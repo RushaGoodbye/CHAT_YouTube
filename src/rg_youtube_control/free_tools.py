@@ -3000,7 +3000,16 @@ chapters: рядок з підтвердженими таймкодами та �
         "description": description,
         "tags": tags[:15],
         "chapters": chapters,
-        "provider": f"ollama:{model}",
+        # Report the provider actually used. The legacy function name stays
+        # for compatibility, but an LM Studio draft must never say Ollama.
+        "provider": (
+            f"ollama:{model}"
+            if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "ollama"
+            else "lmstudio:" + (
+                os.getenv("RG_LMSTUDIO_MODEL", "").strip() or "auto"
+            )
+        ),
+
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
