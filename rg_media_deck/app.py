@@ -44,7 +44,7 @@ from hotkey_dialog import HotkeyEditor
 from mini_keyboard_diagnostics import MiniKeyboardDiagnostics
 from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
-from library import MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
+from library import persist_first_seen, MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
 VERSION = '0.6.2'
 
@@ -456,14 +456,20 @@ class MediaModel(QAbstractTableModel):
         item = self.rows[index.row()]
         if role == Qt.ItemDataRole.DisplayRole:
             return [
-                '▣ ФОТО' if item.kind == 'photo' else '▶ ВІДЕО',
+                ('▣ ФОТО' if item.kind == 'photo' else
+                 '♫ АУДІО' if os.path.splitext(item.name)[1].casefold() in
+                 {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.wma', '.opus'}
+                 else '▶ ВІДЕО'),
                 display_media_name(item.name),
             ][index.column()]
         if role == Qt.ItemDataRole.ToolTipRole:
             when = datetime.fromtimestamp(item.added_at).strftime('%d.%m.%Y %H:%M') if item.added_at else 'невідомо'
-            return f'{item.path}\nСтворено у файловій системі: {when}'
+            return f'{item.path}\nДодано до бібліотеки: {when}'
         if role == Qt.ItemDataRole.ForegroundRole and index.column() == 0:
-            return QColor('#69c6ff' if item.kind == 'photo' else '#ff717a')
+            return QColor('#69c6ff' if item.kind == 'photo' else
+                          '#f3c465' if os.path.splitext(item.name)[1].casefold() in
+                          {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.wma', '.opus'}
+                          else '#ff717a')
         if role == Qt.ItemDataRole.FontRole and index.column() == 0:
             font = QFont('Segoe UI', 9)
             font.setBold(True)
@@ -865,7 +871,7 @@ class MainWindow(QMainWindow):
         self.news_folder = self.settings['news_folder']
         self.player_side = self.settings['player_side']
         self._current_library_tab = self.settings['workspace_tab'] if self.settings['workspace_tab'] in (0, 1) else 0
-        self._library_queries = ['', '']
+        self._library_queries = list(self.settings['media_queries'])
         self._global_query = self.settings['global_query']
         self.favorites = set(normalize_path(x) for x in self.settings['favorites'])
         self.all_media: list[MediaItem] = []
@@ -1545,12 +1551,14 @@ class MainWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText('🔎 Пошук у ФАКТАЖІ...')
         self.search.setClearButtonEnabled(True)
+        self.search.setText(self._library_queries[self._current_library_tab])
         local_v.addWidget(self.search)
         controls = QHBoxLayout()
         self.kind = QComboBox()
         self.kind.addItem('Усі файли', 'all')
         self.kind.addItem('Відео / аудіо', 'video')
         self.kind.addItem('Фото', 'photo')
+        self.kind.setCurrentIndex(max(0, self.kind.findData(self.settings['media_kind'])))
         controls.addWidget(self.kind)
         self.sort_order = QComboBox()
         self.sort_order.setToolTip('Сортування результатів пошуку')
@@ -1558,8 +1566,10 @@ class MainWindow(QMainWindow):
         self.sort_order.addItem('Назва: Я–А', 'name_desc')
         self.sort_order.addItem('Додані: нові', 'date_desc')
         self.sort_order.addItem('Додані: старі', 'date_asc')
+        self.sort_order.setCurrentIndex(max(0, self.sort_order.findData(self.settings['media_sort'])))
         controls.addWidget(self.sort_order)
         self.only_favorites = QCheckBox('★ Обране')
+        self.only_favorites.setChecked(self.settings['media_favorites_only'])
         controls.addWidget(self.only_favorites)
         self.collection_filter = QComboBox()
         self.collection_filter.setMinimumWidth(110)
@@ -1584,7 +1594,7 @@ class MainWindow(QMainWindow):
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.horizontalHeader().resizeSection(0, 94)
+        self.table.horizontalHeader().resizeSection(0, 104)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         local_v.addWidget(self.table, 1)
         self.count = QLabel('Файлів: 0')
@@ -1844,6 +1854,10 @@ class MainWindow(QMainWindow):
     def _save(self):
         try:
             save_settings({
+                'media_sort': self.sort_order.currentData(),
+                'media_kind': self.kind.currentData(),
+                'media_favorites_only': self.only_favorites.isChecked(),
+                'media_queries': self._library_queries,
                 'roots': self.roots,
                 'news_folder': self.news_folder,
                 'news_tab_active': self._current_library_tab == 1,
@@ -1922,6 +1936,10 @@ class MainWindow(QMainWindow):
 
     def scan_complete(self, items: list[MediaItem]):
         self.all_media = keep_offline_entries(items, self.all_media, self._scan_roots())
+        try:
+            self.all_media = persist_first_seen(self.all_media)
+        except (OSError, ValueError) as exc:
+            logging.warning('First-seen database unavailable: %s', exc)
         worker = self.scanner
         for old, new in (worker.moved_files if worker is not None else []):
             self._migrate_metadata(old, new)
