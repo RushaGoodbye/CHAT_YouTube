@@ -58,7 +58,7 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
         add("description", "NON_UKRAINIAN")
     if len(tags) < 8:
         add("tags", "FEWER_THAN_EIGHT")
-    tag_keys = [re.sub(r"\\s+", " ", x).strip().casefold() for x in tags]
+    tag_keys = [re.sub(r"\s+", " ", x).strip().casefold() for x in tags]
     if any(not x for x in tags):
         add("tags", "EMPTY")
     if len(set(tag_keys)) != len(tag_keys):
