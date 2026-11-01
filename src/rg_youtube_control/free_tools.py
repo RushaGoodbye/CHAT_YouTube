@@ -809,15 +809,15 @@ def _seo_editorial_preview_flags(
         title, description, *variants, *tags
     )):
         flags.append("MIXED_LANGUAGE_WORDS")
-    if any(re.search(r"(?<!\\w)диалог(?!\\w)", value, flags=re.I) for value in (
+    if any(re.search(r"(?<!\w)диалог(?!\w)", value, flags=re.I) for value in (
         title, description, *variants, *tags
     )):
         flags.append("RUSSIAN_WORD_DIALOG")
     # Annexation/occupation must not be presented as a verified neutral
     # event merely because a participant said it. Flag for human review.
     sensitive = re.compile(
-        r"після\\s+входу.{0,40}(?:до\\s+рф|до\\s+складу\\s+росі)"
-        r"|(?:входження|приєднання).{0,30}до\\s+(?:рф|росі)",
+        r"після\s+входу.{0,40}(?:до\s+рф|до\s+складу\s+росі)"
+        r"|(?:входження|приєднання).{0,30}до\s+(?:рф|росі)",
         flags=re.I,
     )
     if any(sensitive.search(str(value)) for value in (
