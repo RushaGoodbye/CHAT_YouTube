@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import math
 import os
+import sqlite3
+import time
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable
 from media_intelligence import search_match, clean_tags, clean_bookmarks
@@ -160,6 +162,33 @@ def settings_path() -> Path:
         base = str(Path.home() / '.config')
     return Path(base) / 'RGMediaDeck' / 'settings.json'
 
+
+
+def persist_first_seen(items: list[MediaItem], database: Path | None = None) -> list[MediaItem]:
+    """First discovery time, persisted independently from filesystem creation time.
+
+    Never delete temporarily offline files; a NAS reconnect must retain their
+    original library-added timestamps. Existing installations begin tracking
+    on their first scan after upgrading.
+    """
+    if not items:
+        return items
+    db = database or settings_path().with_name('first_seen.sqlite3')
+    db.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.time()
+    keys = [normalize_path(item.path) for item in items]
+    with sqlite3.connect(str(db), timeout=5) as conn:
+        conn.execute('CREATE TABLE IF NOT EXISTS first_seen (path TEXT PRIMARY KEY, added REAL NOT NULL)')
+        conn.executemany('INSERT OR IGNORE INTO first_seen(path, added) VALUES (?, ?)',
+                         ((key, stamp) for key in keys))
+        timestamps = {}
+        for pos in range(0, len(keys), 500):
+            chunk = keys[pos:pos + 500]
+            marks = ','.join('?' for _ in chunk)
+            timestamps.update(conn.execute(
+                f'SELECT path, added FROM first_seen WHERE path IN ({marks})', chunk))
+    return [replace(item, added_at=timestamps.get(key, stamp))
+            for item, key in zip(items, keys)]
 
 def normalize_playback_rate(value) -> float:
     """Snap legacy or malformed user settings to a safe, supported preset."""
