@@ -15,6 +15,8 @@ def test_ollama_http_500_is_safe_and_preserves_http_cause(monkeypatch):
             500, "Internal Server Error", hdrs=None, fp=io.BytesIO(b"secret"),
         )
 
+    # Explicit legacy-only contract test, not the default runtime provider.
+    monkeypatch.setenv("RG_LOCAL_AI_PROVIDER", "ollama")
     monkeypatch.setattr("urllib.request.urlopen", failing_request)
     with pytest.raises(RuntimeError, match=r"HTTP 500") as caught:
         ollama_chat(
