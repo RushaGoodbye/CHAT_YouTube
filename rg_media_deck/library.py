@@ -188,6 +188,7 @@ def persist_first_seen(items: list[MediaItem], database: Path | None = None) -> 
             marks = ','.join('?' for _ in chunk)
             timestamps.update(conn.execute(
                 f'SELECT path, added FROM first_seen WHERE path IN ({marks})', chunk))
+        conn.commit()
     finally:
         conn.close()
     return [replace(item, added_at=timestamps.get(key, stamp))
