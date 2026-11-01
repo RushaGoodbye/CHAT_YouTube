@@ -193,5 +193,5 @@ def test_fallback_is_review_only_even_with_three_grounded_titles(monkeypatch):
     )
     assert package["needs_review"] is True
     assert package["youtube_data_api_quota"] == 0
-    assert package["provider"].startswith("ollama:")
+    assert package["provider"].startswith("lmstudio:")
     assert len(package["title_variants"]) == 3
