@@ -52,3 +52,28 @@ def test_language_gate_rejects_russian_seo_phrases():
         "Звільнення Шойгу: корупція та відповідальність чиновників"
     )
     assert not _seo_ukrainian_language_issue("РАША ГУДБАЙ")
+
+
+def test_missing_model_title_never_counts_as_approved(monkeypatch):
+    import json
+    from rg_youtube_control import free_tools
+
+    def empty_title(*args, **kwargs):
+        return json.dumps({
+            "title": "",
+            "title_variants": ["Шойгу: що сталося?", "Чому говорять про Шойгу?", "Що кажуть співрозмовники?"],
+            "description": "Розмова про Шойгу та кадрові зміни. " * 12,
+            "tags": ["Шойгу", "кадрові зміни", "чат рулетка", "росіяни", "обговорення", "корупція", "думки", "РАША ГУДБАЙ"],
+            "chapters": "",
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(free_tools, "ollama_chat", empty_title)
+    result = free_tools.generate_seo_package_local(
+        current_title="Увольнение Шойгу - коррупция или все идет по плану? | РАША ГУДБАЙ",
+        transcript="Шойгу та кадрові зміни. " * 15,
+        fast_mode=True,
+        transcript_only_preview=True,
+    )
+    assert result["needs_review"] is True
+    assert result["publication_allowed"] is False
+    assert result["title_fallback_used"] is True
