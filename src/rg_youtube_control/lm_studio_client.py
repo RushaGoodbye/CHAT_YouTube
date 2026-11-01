@@ -37,6 +37,12 @@ def _local_api_url(base_url: str, endpoint: str) -> str:
     return f"http://{host}:{parsed.port or 1234}/v1/{endpoint}"
 
 
+class _RejectRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        # Never follow a redirect which might carry private SRT to a remote URL.
+        raise RuntimeError("LM Studio API redirect rejected")
+
+
 def _local_json(
     endpoint: str,
     *,
@@ -58,7 +64,10 @@ def _local_json(
         method="POST" if body is not None else "GET",
     )
     # Never forward private SRT via HTTP_PROXY/HTTPS_PROXY environment values.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _RejectRedirect(),
+    )
     try:
         with opener.open(req, timeout=max(1.0, float(timeout))) as reply:
             parsed = json.loads(reply.read().decode("utf-8"))
