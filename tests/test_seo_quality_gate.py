@@ -160,3 +160,24 @@ def test_editorial_gate_still_never_auto_approves_strong_structural_input():
     assert result["editorial_gate_pass"] is True
     assert result["editorial_approved"] is False
     assert result["publication_allowed"] is False
+
+
+def test_mixed_language_terms_from_full_srt_draft_are_rejected():
+    from rg_youtube_control.seo_quality_gate import language_error, inspect_package
+    for term in ("доносов", "гордость", "контрактники"):
+        assert language_error(term), term
+    p = sample(
+        title="Страх доносов та свобода слова в Росії",
+        title_variants=[
+            "Де гордость і мужність?",
+            "Чому бояться доносів?",
+            "Хто захищає свободу слова?",
+        ],
+        tags=["РАША ГУДБАЙ", "чат рулетка", "контрактники", "свобода слова",
+              "доноси", "репресії", "війна", "Україна"],
+    )
+    result = inspect_package(p)
+    assert "NON_UKRAINIAN" in result["problems"]["title"]
+    assert "NON_UKRAINIAN" in result["problems"]["title_variants"]
+    assert "NON_UKRAINIAN" in result["problems"]["tags"]
+    assert not result["format_pass"]
