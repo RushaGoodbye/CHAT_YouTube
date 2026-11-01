@@ -3024,6 +3024,31 @@ chapters: рядок з підтвердженими таймкодами та �
     format_gate = inspect_package(qa_inputs)
     editorial_gate = inspect_editorial_targets(qa_inputs)
 
+    # A second, independent local model pass checks facts against source notes.
+    # Never allow this pass to grant publication approval.
+    reviewer_report = {
+        "review_status": "SOURCE_NOT_AVAILABLE", "issues": [],
+        "editorial_approved": False, "publication_allowed": False,
+    }
+    if evidence_report and isinstance(evidence_report.get("blocks"), list):
+        from .seo_editorial_reviewer import review_seo_candidate
+        notes = []
+        for block in evidence_report["blocks"][:24]:
+            if not isinstance(block, dict):
+                continue
+            for topic in (block.get("topics") or [])[:4]:
+                if isinstance(topic, dict) and topic.get("evidence"):
+                    notes.append({
+                        "time": str(block.get("start") or block.get("start_s") or ""),
+                        "topic": str(topic.get("label") or "")[:140],
+                        "quote": str(topic["evidence"])[:350],
+                    })
+        if notes:
+            reviewer_report = review_seo_candidate(
+                draft=qa_inputs, source_notes=notes[:40],
+                model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
+            )
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
@@ -3073,6 +3098,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "ab_quality_issues": title_issues,
         "seo_language_issues": language_issues,
         "seo_editorial_quality_flags": editorial_quality_flags,
+        "seo_independent_review": reviewer_report,
         "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
         "seo_editorial_gate_issues": editorial_gate["issues"],
         "seo_format_pass": bool(format_gate["format_pass"]),
