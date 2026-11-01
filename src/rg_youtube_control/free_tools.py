@@ -3008,13 +3008,15 @@ chapters: рядок з підтвердженими таймкодами та �
     if not str(current_title or "").strip() or not transcript.strip():
         editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
     editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
-    from .seo_quality_gate import inspect_package
-    format_gate = inspect_package({
+    from .seo_quality_gate import inspect_package, inspect_editorial_targets
+    qa_inputs = {
         "title": title,
         "title_variants": variants[:3],
         "description": description,
         "tags": tags[:15],
-    })
+    }
+    format_gate = inspect_package(qa_inputs)
+    editorial_gate = inspect_editorial_targets(qa_inputs)
 
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
@@ -3065,6 +3067,8 @@ chapters: рядок з підтвердженими таймкодами та �
         "ab_quality_issues": title_issues,
         "seo_language_issues": language_issues,
         "seo_editorial_quality_flags": editorial_quality_flags,
+        "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
+        "seo_editorial_gate_issues": editorial_gate["issues"],
         "seo_format_pass": bool(format_gate["format_pass"]),
         "seo_format_problems": format_gate["problems"],
         "seo_editorial_review_required": True,
