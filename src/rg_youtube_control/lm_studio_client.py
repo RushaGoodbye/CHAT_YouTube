@@ -34,7 +34,10 @@ def _local_api_url(base_url: str, endpoint: str) -> str:
         host = "[::1]"
     else:
         host = "127.0.0.1"
-    return f"http://{host}:{parsed.port or 1234}/v1/{endpoint}"
+    # Native v1 model listing includes model type, so we can reject
+    # embeddings before attempting chat completions.
+    prefix = "" if endpoint.startswith("api/v1/") else "v1/"
+    return f"http://{host}:{parsed.port or 1234}/{prefix}{endpoint}"
 
 
 class _RejectRedirect(urllib.request.HTTPRedirectHandler):
@@ -89,22 +92,25 @@ def list_models(
     base_url: str | None = None,
     timeout: float = 4.0,
 ) -> list[str]:
+    # /v1/models may include embedding-only models. The native endpoint
+    # identifies llm, embedding and decision models explicitly.
     result = _local_json(
-        "models",
+        "api/v1/models",
         base_url=base_url or os.getenv("RG_LMSTUDIO_URL", DEFAULT_BASE_URL),
         timeout=timeout,
         token=os.getenv("RG_LMSTUDIO_TOKEN", ""),
     )
-    data = result.get("data")
+    data = result.get("models")
     if not isinstance(data, list):
-        raise RuntimeError("LM Studio model list is malformed")
+        raise RuntimeError("LM Studio native model list is malformed")
     return [
-        str(item["id"])
+        str(item["key"])
         for item in data
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-        and item["id"].strip()
+        if isinstance(item, dict)
+        and item.get("type") == "llm"
+        and isinstance(item.get("key"), str)
+        and item["key"].strip()
     ]
-
 
 def probe_lm_studio(*, base_url: str | None = None) -> dict[str, Any]:
     try:
