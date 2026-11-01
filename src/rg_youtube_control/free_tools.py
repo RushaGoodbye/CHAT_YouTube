@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -98,35 +99,55 @@ def probe_free_tools(
             "youtube-transcript-api", False, "не встановлено"
         )
 
-    try:
-        req = urllib.request.Request(
-            f"{ollama_url.rstrip('/')}/api/tags",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        models = [
-            str(item.get("name") or item.get("model") or "")
-            for item in payload.get("models", [])
-            if isinstance(item, dict)
-        ]
-        normalized = {item.split(":latest")[0] for item in models}
-        model_ready = (
-            ollama_model in models
-            or ollama_model.split(":latest")[0] in normalized
-        )
+    if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "lmstudio":
+        from .lm_studio_client import probe_lm_studio
+        local = probe_lm_studio()
+        ready = bool(local["available"] and local["model_selected"])
         detail = (
-            f"{ollama_model} готова"
-            if model_ready
-            else "Ollama працює, модель ще не завантажена"
+            "LM Studio локально готова"
+            if ready else "LM Studio: запустіть сервер і завантажте одну модель"
         )
-        probes["ollama"] = ToolProbe("Ollama", True, detail)
-        probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
-    except Exception as exc:
-        probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
-        probes["ollama_model"] = ToolProbe(
-            ollama_model, False, "сервер Ollama недоступний"
+        probes["lmstudio"] = ToolProbe(
+            "LM Studio", bool(local["available"]), detail
         )
+        probes["lmstudio_model"] = ToolProbe(
+            str(local.get("selected_model") or "LM Studio model"), ready, detail
+        )
+        # Legacy keys preserved for existing UI callers, but identify
+        # LM Studio rather than claim that the removed Ollama is installed.
+        probes["ollama"] = ToolProbe("LM Studio (local)", bool(local["available"]), detail)
+        probes["ollama_model"] = ToolProbe("LM Studio model", ready, detail)
+    else:
+        try:
+            req = urllib.request.Request(
+                f"{ollama_url.rstrip('/')}/api/tags",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            models = [
+                str(item.get("name") or item.get("model") or "")
+                for item in payload.get("models", [])
+                if isinstance(item, dict)
+            ]
+            normalized = {item.split(":latest")[0] for item in models}
+            model_ready = (
+                ollama_model in models
+                or ollama_model.split(":latest")[0] in normalized
+            )
+            detail = (
+                f"{ollama_model} готова"
+                if model_ready
+                else "Ollama працює, модель ще не завантажена"
+            )
+            probes["ollama"] = ToolProbe("Ollama", True, detail)
+            probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
+        except Exception as exc:
+            probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
+            probes["ollama_model"] = ToolProbe(
+                ollama_model, False, "сервер Ollama недоступний"
+            )
+
 
     return {key: value.to_dict() for key, value in probes.items()}
 
@@ -562,6 +583,22 @@ def ollama_chat(
     json_mode: bool = False,
     num_ctx: int | None = None,
 ) -> str:
+    # Backward-compatible function name for older callers. The DEFAULT
+    # production provider is LM Studio, not Ollama; the latter is available
+    # only by explicit legacy opt-in for tests/migrations.
+    provider = os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower()
+    if provider == "lmstudio":
+        from .lm_studio_client import lm_studio_chat
+        selected_model = "" if model == DEFAULT_OLLAMA_MODEL else model
+        return lm_studio_chat(
+            messages,
+            model=selected_model,
+            timeout=timeout,
+            temperature=temperature,
+            json_mode=json_mode,
+        )
+    if provider != "ollama":
+        raise RuntimeError("Unknown local AI provider; use lmstudio")
     request_payload = {
         "model": model,
         "messages": messages,
