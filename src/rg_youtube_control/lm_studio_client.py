@@ -147,6 +147,7 @@ def lm_studio_chat(
     temperature: float = 0.15,
     json_mode: bool = False,
     max_tokens: int = 2500,
+    reasoning_effort: str | None = None,
 ) -> str:
     endpoint = base_url or os.getenv("RG_LMSTUDIO_URL", DEFAULT_BASE_URL)
     configured = (model or os.getenv("RG_LMSTUDIO_MODEL", "")).strip()
@@ -164,6 +165,18 @@ def lm_studio_chat(
         "stream": False,
         "max_tokens": max(128, min(int(max_tokens), 8192)),
     }
+    # Gemma 4 reasoning mode can consume the ENTIRE output-token budget,
+    # leaving message.content empty. Disable thinking by default for concise
+    # SEO JSON; an explicit 'auto' setting omits this field for other models.
+    effort = (
+        reasoning_effort
+        if reasoning_effort is not None
+        else os.getenv("RG_LMSTUDIO_REASONING_EFFORT", "none")
+    ).strip().lower()
+    if effort not in ("none", "auto", "low", "medium", "high"):
+        raise ValueError("Unsupported local reasoning setting")
+    if effort != "auto":
+        data["reasoning_effort"] = effort
     if json_mode:
         # Official OpenAI-compatible structured output format for LM Studio.
         # A generic object schema supports both SEO and comment JSON payloads.
@@ -192,5 +205,14 @@ def lm_studio_chat(
         )
     answer = str(content or "").strip()
     if not answer:
+        completion = (result.get("usage") or {}).get("completion_tokens_details") or {}
+        if (
+            choices[0].get("finish_reason") == "length"
+            and int(completion.get("reasoning_tokens") or 0) >= data["max_tokens"] - 4
+        ):
+            raise RuntimeError(
+                "LM Studio consumed output budget on reasoning; "
+                "set RG_LMSTUDIO_REASONING_EFFORT=none"
+            )
         raise RuntimeError("LM Studio returned empty assistant content")
     return answer
