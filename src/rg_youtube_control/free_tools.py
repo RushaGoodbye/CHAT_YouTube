@@ -781,6 +781,8 @@ def _seo_editorial_preview_flags(
     # Format PASS must not hide copy-paste or excessively similar metadata.
     if len(tag_keys) != len(set(tag_keys)):
         flags.append("DUPLICATED_TAGS")
+    if sum(len(item.split()) == 1 for item in tag_keys) >= 5:
+        flags.append("GENERIC_ONE_WORD_TAGS")
     sentences = [
         item.strip() for item in re.split(r"(?<=[.!?…])\s+", desc)
         if item.strip()
