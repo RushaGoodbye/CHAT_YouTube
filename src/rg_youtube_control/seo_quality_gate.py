@@ -54,6 +54,8 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
             add("title_variants", "NON_UKRAINIAN")
     if len(description) < 260:
         add("description", "SHORT")
+    if 260 <= len(description) < 400:
+        add("description", "DESCRIPTION_UNDER_EDITORIAL_TARGET")
     if language_error(description):
         add("description", "NON_UKRAINIAN")
     if len(tags) < 8:
