@@ -50,8 +50,8 @@ def test_local_inference_json_and_selected_model(monkeypatch):
 
 def test_ambiguous_models_fail_closed(monkeypatch):
     monkeypatch.delenv("RG_LMSTUDIO_MODEL",raising=False)
-    monkeypatch.setattr(lm,"list_models",lambda **_k:["model-A","model-B"])
-    with pytest.raises(RuntimeError,match="exactly one model"):
+    monkeypatch.setattr(lm,"_native_llm_models",lambda **_k:[{"key":"model-A"},{"key":"model-B"}])
+    with pytest.raises(RuntimeError,match="load one language model"):
         lm.lm_studio_chat([{"role":"user","content":"test"}])
 
 
@@ -144,3 +144,18 @@ def test_reasoning_only_exhausted_response_fails_with_actionable_error(monkeypat
         lm.lm_studio_chat(
             [{"role":"user","content":"test"}], max_tokens=2300
         )
+
+
+def test_select_only_loaded_llm_from_multiple_installed(monkeypatch):
+    monkeypatch.delenv("RG_LMSTUDIO_MODEL", raising=False)
+    monkeypatch.setattr(lm, "_native_llm_models", lambda **_k: [
+        {"key":"google/gemma-4-12b","loaded_instances":[{"id":"rg-gemma4-12b"}]},
+        {"key":"google/gemma-4-e4b","loaded_instances":[]},
+    ])
+    report = lm.probe_lm_studio()
+    assert report["status"] == "READY"
+    assert report["selected_model"] == "google/gemma-4-12b"
+    assert lm._choose_model([
+        {"key":"google/gemma-4-12b","loaded_instances":[{"id":"rg-gemma4-12b"}]},
+        {"key":"google/gemma-4-e4b","loaded_instances":[]},
+    ]) == "google/gemma-4-12b"
