@@ -218,7 +218,7 @@ def valid_manual_crops(value) -> dict[str, list[float]]:
 
 def load_settings(path: Path | None = None) -> dict:
     p = path or settings_path()
-    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}, 'quick_slots': [], 'play_history': []}
+    defaults = {'roots': [], 'favorites': [], 'volume': 80, 'muted': False, 'playback_rate': 1.0, 'auto_crop': True, 'safe_selection': True, 'file_fit_modes': {}, 'file_manual_crops': {}, 'tags': {}, 'bookmarks': {}, 'hover_thumbnails': True, 'collections': {}, 'auto_library_updates': True, 'news_folder': '', 'news_tab_active': False, 'workspace_tab': 0, 'player_side': 'right', 'global_query': '', 'streamdeck_bindings': clean_saved_hotkeys({}), 'hotkeys_layout_version': 4, 'deck_collections': {}, 'quick_slots': [], 'play_history': [], 'media_sort': 'name_asc', 'media_kind': 'all', 'media_favorites_only': False, 'media_queries': ['', '']}
     try:
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
@@ -236,6 +236,10 @@ def load_settings(path: Path | None = None) -> dict:
         if not isinstance(volume, (int, float)):
             volume = 80
         return {
+            'media_sort': data.get('media_sort') if data.get('media_sort') in ('name_asc', 'name_desc', 'date_desc', 'date_asc') else 'name_asc',
+            'media_kind': data.get('media_kind') if data.get('media_kind') in ('all', 'video', 'photo') else 'all',
+            'media_favorites_only': data.get('media_favorites_only') is True,
+            'media_queries': [(x[:180] if isinstance(x, str) else '') for x in (data.get('media_queries', ['', '']) if isinstance(data.get('media_queries'), list) and len(data.get('media_queries')) == 2 else ['', ''])],
             'roots': [x for x in roots if isinstance(x, str)],
             'favorites': [x for x in favs if isinstance(x, str)],
             'volume': max(0, min(100, int(volume))),
