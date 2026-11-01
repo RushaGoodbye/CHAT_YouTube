@@ -98,3 +98,14 @@ def test_russian_dialog_word_is_detected_in_ukrainian_ab():
         ["Диалог про Луганськ", "Мешканці і зміни", "Про що розповідають жителі"],
     )
     assert "RUSSIAN_WORD_DIALOG" in flags
+
+
+def test_generic_one_word_tags_are_not_editorial_pass():
+    flags = _seo_editorial_preview_flags(
+        "Саратов: питання про місцеві події",
+        "Співрозмовник обговорює стан міста і відповідає на запитання.",
+        ["Що сталося в Саратові?", "Саратов і місцева влада", "Діалог про Саратов"],
+        ["Росія", "Саратов", "Озон", "інтерв'ю", "думки",
+         "чат рулетка", "події Саратова", "російські співрозмовники"],
+    )
+    assert "GENERIC_ONE_WORD_TAGS" in flags
