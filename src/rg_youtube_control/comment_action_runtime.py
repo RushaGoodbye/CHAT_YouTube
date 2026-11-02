@@ -156,3 +156,33 @@ def propose_diverse_safe_replies(
     return {"checked": len(rows), "proposed": len(proposals),
             "withheld": withheld, "distinct_replies": len({x["reply"] for x in proposals}),
             "proposals": proposals, "published": 0}
+
+
+def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> dict[str, str]:
+    """Generate one local Ukrainian draft. Never store it or send to YouTube."""
+    import json
+    from .lm_studio_client import lm_studio_chat
+    source = " ".join(str(comment_text or "").split())
+    if not source or len(source) > 160:
+        return {"status": "REVIEW_REQUIRED", "reply": ""}
+    prompt = (
+        "Напиши персональну коротку відповідь українською на коментар глядача "
+        "каналу РАША ГУДБАЙ. Без вигаданих фактів, обіцянок, посилань, "
+        "закликів або політичних тверджень. Не повторюй слово в слово коментар. "
+        "Поверни JSON з одним полем reply. Коментар: "
+        + json.dumps(source, ensure_ascii=False)
+    )
+    try:
+        raw = lm_studio_chat(
+            [{"role": "system", "content": "Редактор коротких українських відповідей. Лише JSON."},
+             {"role": "user", "content": prompt}],
+            model=model, json_mode=True, max_tokens=160,
+            reasoning_effort="none", timeout=60,
+        )
+        candidate = json.loads(raw)
+        answer = str(candidate.get("reply", "")).strip()
+        if not answer or len(answer) > 280:
+            return {"status": "REVIEW_REQUIRED", "reply": ""}
+        return {"status": "DRAFT_REVIEW_REQUIRED", "reply": answer}
+    except (RuntimeError, ValueError, TypeError, KeyError):
+        return {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
