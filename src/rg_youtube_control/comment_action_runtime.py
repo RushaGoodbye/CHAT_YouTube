@@ -161,6 +161,28 @@ def propose_diverse_safe_replies(
             "proposals": proposals, "published": 0}
 
 
+def _reply_quality_issue(source: str, answer: str) -> str:
+    """Reject generic, echoed, unsupported or malformed AI replies."""
+    import re
+    clean = " ".join(answer.split()).strip()
+    if len(clean) < 28 or len(clean) > 280 or len(clean.split()) < 5:
+        return "too_short_or_long"
+    low = clean.casefold().strip(" .!")
+    if low in {
+        "дякую за ваш коментар", "дякуємо за ваш коментар",
+        "дякую за коментар", "дякуємо за коментар",
+        "дякую за підтримку", "дякуємо за підтримку",
+        "дякуємо за вашу думку", "цікава думка",
+    }:
+        return "generic_reply"
+    if clean.casefold() == source.casefold():
+        return "echo"
+    # Reject links, promises and invented quotations in automatically drafted texts.
+    if re.search(r"https?://|www\\.|(?:обіцяємо|гарантуємо|точно буде)", low):
+        return "unsupported_claim"
+    return ""
+
+
 def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> dict[str, str]:
     """Generate one local Ukrainian draft. Never store it or send to YouTube."""
     import json
@@ -170,9 +192,11 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
     if not source or len(source) > 160:
         return {"status": "REVIEW_REQUIRED", "reply": ""}
     prompt = (
-        "Напиши персональну коротку відповідь українською на коментар глядача "
+        "Напиши конкретну коротку відповідь українською на коментар глядача "
         "каналу РАША ГУДБАЙ. Без вигаданих фактів, обіцянок, посилань, "
-        "закликів або політичних тверджень. Не повторюй слово в слово коментар. "
+        "закликів або політичних тверджень. Посилайся на конкретну думку "
+        "автора; не пиши шаблонне Дякуємо за коментар. Якщо бракує "
+        "контексту, так і скажи. Не повторюй слово в слово коментар. "
         "Поверни JSON з одним полем reply. Коментар: "
         + json.dumps(source, ensure_ascii=False)
     )
@@ -185,8 +209,9 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         )
         candidate = json.loads(raw)
         answer = str(candidate.get("reply", "")).strip()
-        if not answer or len(answer) > 280:
-            return {"status": "REVIEW_REQUIRED", "reply": ""}
+        problem = _reply_quality_issue(source, answer)
+        if problem:
+            return {"status": "QUALITY_REJECTED", "reply": "", "reason": problem}
         combined = (source + " " + answer).casefold()
         date_tokens = re.findall("[0-9]+", combined)
         sensitive = (
