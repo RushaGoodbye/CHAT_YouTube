@@ -5,6 +5,7 @@ import sqlite3
 from .config import SAFE_AUTO_CATEGORIES
 from .db import save_comment_draft
 from .service import _reply_template_for
+from .comment_autopilot_guard import unattended_reply_allowed
 
 
 def prepare_action_reply_drafts(
@@ -14,7 +15,7 @@ def prepare_action_reply_drafts(
     limit: int = 20,
 ) -> dict[str, int]:
     rows = conn.execute(
-        """SELECT c.comment_id,c.author,c.category,c.action
+        """SELECT c.comment_id,c.author,c.category,c.action,c.text
            FROM comments c
            JOIN videos v ON v.video_id=c.video_id
            WHERE v.profile=?
@@ -48,6 +49,16 @@ def prepare_action_reply_drafts(
                 comment_id,
                 str(row["author"] or ""),
             )
+            allowed, reason = unattended_reply_allowed(
+                category=category,
+                comment_text=str(row["text"] or ""),
+                reply_text=reply,
+                explicitly_enabled=True,
+            )
+            if not allowed:
+                save_comment_draft(conn, comment_id, reply, state="review", reason=f"needs_human_review:{reason}")
+                skipped += 1
+                continue
             if save_comment_draft(
                 conn,
                 comment_id,
