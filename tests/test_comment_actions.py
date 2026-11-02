@@ -288,3 +288,21 @@ def test_new_duplicate_is_skipped_immediately(tmp_path):
         assert row["category"] == "duplicate"
     finally:
         conn.close()
+
+
+def test_auto_reply_ui_uses_scanner_setting_and_independent_guard():
+    from pathlib import Path
+    ui = Path("src/rg_youtube_control/comment_action_ui.py").read_text(encoding="utf-8")
+    service = Path("src/rg_youtube_control/service.py").read_text(encoding="utf-8")
+    assert 'f"auto_reply_enabled_{window.current_profile}"' in ui
+    assert 'f"comment_auto_reply_enabled_{window.current_profile}"' in ui
+    assert 'f"auto_reply_enabled_{profile}"' in service or 'f"auto_reply_enabled_{profile_name}"' in service
+    assert "_unattended_reply_gate(" in service
+
+
+def test_unattended_safe_ack_only_after_explicit_enable():
+    from rg_youtube_control.comment_autopilot_guard import unattended_reply_allowed
+    kwargs = dict(category="thanks", comment_text="Дякую!", reply_text="Дякуємо за підтримку!")
+    assert unattended_reply_allowed(**kwargs, explicitly_enabled=False)[0] is False
+    assert unattended_reply_allowed(**kwargs, explicitly_enabled=True)[0] is True
+    assert unattended_reply_allowed(category="question", comment_text="Що робити?", reply_text="Так", explicitly_enabled=True)[0] is False
