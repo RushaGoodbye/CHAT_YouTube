@@ -369,3 +369,23 @@ def test_diverse_reply_preview_does_not_mutate_database(tmp_path):
         assert before == after
     finally:
         conn.close()
+
+
+def test_local_personalized_reply_preview_is_review_only(monkeypatch):
+    from rg_youtube_control import lm_studio_client, comment_action_runtime
+    monkeypatch.setattr(
+        lm_studio_client, "lm_studio_chat",
+        lambda *_args, **_kwargs: '{"reply":"Дякуємо за ваш коментар! Цінуємо підтримку."}',
+    )
+    draft = comment_action_runtime.generate_personal_reply_preview("Дякую за випуск!")
+    assert draft["status"] == "DRAFT_REVIEW_REQUIRED"
+    assert "Дякуємо" in draft["reply"]
+
+
+def test_local_personalized_reply_failure_stays_unsent(monkeypatch):
+    from rg_youtube_control import lm_studio_client, comment_action_runtime
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(lm_studio_client, "lm_studio_chat", fail)
+    draft = comment_action_runtime.generate_personal_reply_preview("Дякую!")
+    assert draft == {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
