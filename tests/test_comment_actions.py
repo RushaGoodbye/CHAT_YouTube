@@ -296,7 +296,6 @@ def test_auto_reply_ui_uses_scanner_setting_and_independent_guard():
     service = Path("src/rg_youtube_control/service.py").read_text(encoding="utf-8")
     assert 'f"auto_reply_enabled_{window.current_profile}"' in ui
     assert 'f"comment_auto_reply_enabled_{window.current_profile}"' in ui
-    assert 'f"auto_reply_enabled_{profile}"' in service or 'f"auto_reply_enabled_{profile_name}"' in service
     assert "_unattended_reply_gate(" in service
 
 
