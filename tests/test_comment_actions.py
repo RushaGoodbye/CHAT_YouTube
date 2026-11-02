@@ -452,3 +452,17 @@ def test_local_reply_retries_empty_json_only_once(monkeypatch):
     result = comment_action_runtime.generate_personal_reply_preview("Дякую за цей випуск!")
     assert result["status"] == "DRAFT_REVIEW_REQUIRED"
     assert seen == [(512, True), (768, False)]
+
+
+def test_ai_retries_generic_reply_with_corrective_instruction(monkeypatch):
+    from rg_youtube_control import lm_studio_client, comment_action_runtime
+    calls = []
+    answers = iter(['{"reply":"Дякую за ваш коментар."}', '{"reply":"Раді, що вам сподобалися розмови у випуску. Дякуємо за підтримку стрімів!"}'])
+    def generate(messages, **kwargs):
+        calls.append(messages)
+        return next(answers)
+    monkeypatch.setattr(lm_studio_client, "lm_studio_chat", generate)
+    result = comment_action_runtime.generate_personal_reply_preview("Дякую за цікаві розмови у випуску!")
+    assert result["status"] == "DRAFT_REVIEW_REQUIRED"
+    assert len(calls) == 2
+    assert "редакторську перевірку" in calls[1][-1]["content"]
