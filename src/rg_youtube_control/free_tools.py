@@ -3030,9 +3030,9 @@ chapters: рядок з підтвердженими таймкодами та �
         "review_status": "SOURCE_NOT_AVAILABLE", "issues": [],
         "editorial_approved": False, "publication_allowed": False,
     }
+    notes = []
     if evidence_report and isinstance(evidence_report.get("blocks"), list):
         from .seo_editorial_reviewer import review_seo_candidate
-        notes = []
         for block in evidence_report["blocks"][:24]:
             if not isinstance(block, dict):
                 continue
@@ -3050,7 +3050,7 @@ chapters: рядок з підтвердженими таймкодами та �
             )
 
     revision_report = None
-    if notes if evidence_report and isinstance(evidence_report.get("blocks"), list) else False:
+    if notes:
         if reviewer_report.get("review_status") == "NEEDS_REVISION":
             from .seo_editorial_reviewer import revise_seo_candidate
             revision_report = revise_seo_candidate(
