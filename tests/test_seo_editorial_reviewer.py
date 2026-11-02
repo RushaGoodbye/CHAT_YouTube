@@ -40,3 +40,14 @@ def test_main_seo_pipeline_wires_independent_reviewer_without_publish():
     assert '"seo_independent_review": reviewer_report' in section
     assert '"publication_allowed": False' in section
     assert '"editorial_approved": False' in section
+
+
+def test_reviewer_warns_on_russianisms_in_suggested_metadata(monkeypatch):
+    monkeypatch.setattr(reviewer, "lm_studio_chat", lambda *_a, **_k: (
+        '{"verdict":"revise","issues":[],"recommended_changes":'
+        '{"title":"Страх доносов у Росії"}}'
+    ))
+    result = reviewer.review_seo_candidate(draft={}, source_notes=[])
+    assert result["reviewer_language_warning"] is True
+    assert result["editorial_approved"] is False
+    assert result["publication_allowed"] is False
