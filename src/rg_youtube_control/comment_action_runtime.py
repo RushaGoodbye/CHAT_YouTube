@@ -187,9 +187,11 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         answer = str(candidate.get("reply", "")).strip()
         if not answer or len(answer) > 280:
             return {"status": "REVIEW_REQUIRED", "reply": ""}
+        combined = (source + " " + answer).casefold()
+        date_tokens = re.findall("[0-9]+", combined)
         sensitive = (
-            bool(re.search(r"\b(?:1[5-9][0-9]{2}|20[0-9]{2})\b", source + " " + answer))
-            or any(word in (source + " " + answer).casefold() for word in
+            any(len(token) == 4 and 1500 <= int(token) <= 2099 for token in date_tokens)
+            or any(word in combined for word in
                    ("війна", "война", "зсу", "всу", "росія", "россия",
                     "україна", "украина", "фінлянді", "финлянд",
                     "срср", "ссср", "історі", "истори", "втрат", "потер"))
