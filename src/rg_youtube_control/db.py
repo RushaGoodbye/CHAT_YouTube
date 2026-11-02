@@ -461,7 +461,7 @@ def save_comment_draft(
     state: str,
     reason: str = "",
 ) -> bool:
-    if state not in {"ready", "skipped", "error", ""}:
+    if state not in {"ready", "skipped", "error", "review", ""}:
         raise ValueError(f"Unsupported draft state: {state}")
     row = conn.execute(
         "SELECT status FROM comments WHERE comment_id=?",
@@ -471,9 +471,9 @@ def save_comment_draft(
         return False
     reply = str(reply_text or "").strip()
     reply = reply.replace("—", "-").replace("–", "-")
-    if state == "ready" and not reply:
+    if state in {"ready", "review"} and not reply:
         raise ValueError("Ready draft must contain text")
-    if state != "ready":
+    if state not in {"ready", "review"}:
         reply = ""
     conn.execute(
         """UPDATE comments
