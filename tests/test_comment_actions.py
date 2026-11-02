@@ -327,3 +327,23 @@ def test_auto_reply_preview_is_read_only_and_never_posts(tmp_path):
         assert tuple(before) == tuple(after)
     finally:
         conn.close()
+
+
+def test_prepare_action_drafts_never_marks_risky_question_as_ready(tmp_path):
+    from rg_youtube_control.comment_action_runtime import prepare_action_reply_drafts
+    conn = connect(tmp_path / "drafts.db")
+    try:
+        _video(conn)
+        upsert_comment(conn, {
+            "comment_id": "risk1", "video_id": "v1", "author": "viewer",
+            "text": "Де збір?", "published_at": "2026-11-02T10:00:00Z",
+            "status": "new", "raw": {},
+        })
+        conn.execute("UPDATE comments SET action='reply', category='donate', draft_state='' WHERE comment_id='risk1'")
+        conn.commit()
+        stats = prepare_action_reply_drafts(conn, "main")
+        row = conn.execute("SELECT draft_state FROM comments WHERE comment_id='risk1'").fetchone()
+        assert stats["ready"] == 0
+        assert row["draft_state"] != "ready"
+    finally:
+        conn.close()
