@@ -3049,6 +3049,16 @@ chapters: рядок з підтвердженими таймкодами та �
                 model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
             )
 
+    revision_report = None
+    if notes if evidence_report and isinstance(evidence_report.get("blocks"), list) else False:
+        if reviewer_report.get("review_status") == "NEEDS_REVISION":
+            from .seo_editorial_reviewer import revise_seo_candidate
+            revision_report = revise_seo_candidate(
+                draft=qa_inputs, source_notes=notes[:40],
+                first_review=reviewer_report,
+                model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
+            )
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
@@ -3099,6 +3109,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "seo_language_issues": language_issues,
         "seo_editorial_quality_flags": editorial_quality_flags,
         "seo_independent_review": reviewer_report,
+        "seo_revision_candidate": revision_report,
         "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
         "seo_editorial_gate_issues": editorial_gate["issues"],
         "seo_format_pass": bool(format_gate["format_pass"]),
