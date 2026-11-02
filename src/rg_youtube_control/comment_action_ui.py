@@ -1,13 +1,24 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
 from .comment_action_ai import review_comment_actions_local
-from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies
+from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies, generate_personal_reply_preview
 from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
+
+
+class _PersonalReplyWorker(QThread):
+    completed = Signal(dict)
+
+    def __init__(self, comment_text: str, parent=None):
+        super().__init__(parent)
+        self.comment_text = comment_text
+
+    def run(self):
+        self.completed.emit(generate_personal_reply_preview(self.comment_text))
 
 
 ACTION_LABELS = {
@@ -109,6 +120,9 @@ def install_comment_action_ui(window) -> None:
 
     diverse_preview = QPushButton("Варіанти відповідей · без публікації")
     bar.addWidget(diverse_preview)
+
+    personalized = QPushButton("AI відповідь на вибраний · LM Studio")
+    bar.addWidget(personalized)
 
     ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
     bar.addWidget(ai_review)
@@ -322,6 +336,35 @@ def install_comment_action_ui(window) -> None:
         )
 
     diverse_preview.clicked.connect(diverse_preview_action)
+
+    def personal_reply_action() -> None:
+        selection = table.selectedItems()
+        if not selection:
+            QMessageBox.information(window, "AI відповідь", "Спочатку виберіть коментар у таблиці.")
+            return
+        row_index = selection[0].row()
+        key = table.item(row_index, 0)
+        comment_id = str(key.data(Qt.ItemDataRole.UserRole) or "") if key else ""
+        record = window.conn.execute(
+            "SELECT text,status FROM comments WHERE comment_id=?", (comment_id,)
+        ).fetchone()
+        if not record or record["status"] != "new":
+            QMessageBox.information(window, "AI відповідь", "Цей коментар недоступний для чернетки.")
+            return
+        personalized.setEnabled(False)
+        worker = _PersonalReplyWorker(str(record["text"] or ""), window)
+        window._personal_reply_worker = worker
+        def finished(result):
+            personalized.setEnabled(True)
+            if result["reply"]:
+                QMessageBox.information(window, "AI чернетка · потребує перевірки", result["reply"]
+                    + "\\n\\nЦе лише попередній перегляд. Відповідь не опублікована.")
+            else:
+                QMessageBox.warning(window, "AI відповідь", "LM Studio недоступна або чернетка не пройшла перевірку.")
+        worker.completed.connect(finished)
+        worker.start()
+
+    personalized.clicked.connect(personal_reply_action)
 
     ai_review.clicked.connect(ai_review_action)
 
