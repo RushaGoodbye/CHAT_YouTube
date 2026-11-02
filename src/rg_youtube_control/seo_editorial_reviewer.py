@@ -48,7 +48,7 @@ def review_seo_candidate(
         return {
             "review_status": "NEEDS_REVISION" if issues or value.get("verdict") == "revise" else "NEEDS_HUMAN_REVIEW",
             "issues": issues,
-            "recommended_changes": value.get("recommended_changes") if isinstance(value.get("recommended_changes"), list) else [],
+            "recommended_changes": value.get("recommended_changes") if isinstance(value.get("recommended_changes"), (list, dict)) else [],
             "editorial_approved": False,
             "publication_allowed": False,
         }
