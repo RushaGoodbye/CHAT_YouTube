@@ -833,6 +833,7 @@ def scan_channel_comments(
             auto_reply
             and decision.auto_allowed
             and decision.category in SAFE_AUTO_CATEGORIES
+            and not _comment_requires_manual_review(conn, comment_id)
             and _unattended_reply_gate(conn, profile, decision.category, text, reply_text)
             and bool(reply_text)
             and recent_for_auto
@@ -894,6 +895,13 @@ def scan_channel_comments(
         ),
     )
     return stats
+
+
+def _comment_requires_manual_review(conn: sqlite3.Connection, comment_id: str) -> bool:
+    row = conn.execute(
+        "SELECT draft_state FROM comments WHERE comment_id=?", (comment_id,)
+    ).fetchone()
+    return bool(row and str(row["draft_state"] or "") == "review")
 
 
 def _unattended_reply_gate(conn, profile: str, category: str, text: str, reply: str) -> bool:
@@ -1063,6 +1071,7 @@ def scan_comments(
                 auto_reply
                 and decision.auto_allowed
                 and decision.category in SAFE_AUTO_CATEGORIES
+                and not _comment_requires_manual_review(conn, str(top['id']))
                 and _unattended_reply_gate(conn, profile_name, decision.category, text, reply_text)
                 and reply_text
                 and recent_for_auto
@@ -1187,6 +1196,8 @@ def reply_one_queued_safe_comment(
             continue
 
         comment_id = str(row["comment_id"])
+        if _comment_requires_manual_review(conn, comment_id):
+            continue
         category = str(row["category"] or "")
         reply_text = str(row["reply_text"] or "").strip()
         if not reply_text:
