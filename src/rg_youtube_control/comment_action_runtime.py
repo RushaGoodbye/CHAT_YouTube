@@ -175,7 +175,7 @@ def _reply_quality_issue(source: str, answer: str) -> str:
         "дякуємо за вашу думку", "цікава думка",
     }:
         return "generic_reply"
-    if any(phrase in low for phrase in ("недостатньо контексту", "немає достатньо контексту", "бракує контексту", "не вистачає контексту")):
+    if any(phrase in low for phrase in ("недостатньо контексту", "немає достатньо контексту", "бракує контексту", "не вистачає контексту", "у коментарі немає", "в коментарі немає", "не можу відповісти")):
         return "needless_context_deflection"
     if clean.casefold() == source.casefold():
         return "echo"
