@@ -305,3 +305,25 @@ def test_unattended_safe_ack_only_after_explicit_enable():
     assert unattended_reply_allowed(**kwargs, explicitly_enabled=False)[0] is False
     assert unattended_reply_allowed(**kwargs, explicitly_enabled=True)[0] is True
     assert unattended_reply_allowed(category="question", comment_text="Що робити?", reply_text="Так", explicitly_enabled=True)[0] is False
+
+
+def test_auto_reply_preview_is_read_only_and_never_posts(tmp_path):
+    from rg_youtube_control.comment_action_runtime import preview_safe_auto_replies
+    conn = connect(tmp_path / "preview.db")
+    try:
+        _video(conn)
+        upsert_comment(conn, {
+            "comment_id": "preview-1", "video_id": "v1", "author": "viewer",
+            "text": "Дякую!", "published_at": "2026-11-02T10:00:00Z",
+            "status": "new", "raw": {},
+        })
+        conn.execute("UPDATE comments SET category='thanks', reply_text='Дякуємо за підтримку!' WHERE comment_id='preview-1'")
+        conn.commit()
+        before = conn.execute("SELECT status,reply_text FROM comments WHERE comment_id='preview-1'").fetchone()
+        stats = preview_safe_auto_replies(conn, "main")
+        after = conn.execute("SELECT status,reply_text FROM comments WHERE comment_id='preview-1'").fetchone()
+        assert stats["checked"] == 1
+        assert stats["eligible"] == 1
+        assert tuple(before) == tuple(after)
+    finally:
+        conn.close()
