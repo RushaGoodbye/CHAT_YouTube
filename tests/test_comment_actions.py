@@ -347,3 +347,25 @@ def test_prepare_action_drafts_never_marks_risky_question_as_ready(tmp_path):
         assert row["draft_state"] != "ready"
     finally:
         conn.close()
+
+
+def test_diverse_reply_preview_does_not_mutate_database(tmp_path):
+    from rg_youtube_control.comment_action_runtime import propose_diverse_safe_replies
+    conn = connect(tmp_path / "diverse.db")
+    try:
+        _video(conn)
+        for i in range(12):
+            upsert_comment(conn, {
+                "comment_id": f"thanks-{i}", "video_id": "v1", "author": "viewer",
+                "text": "Дякую!", "published_at": "2026-11-02T10:00:00Z",
+                "status": "new", "raw": {},
+            })
+        before = conn.execute("SELECT count(*) FROM comments WHERE draft_state='ready'").fetchone()[0]
+        result = propose_diverse_safe_replies(conn, "main")
+        after = conn.execute("SELECT count(*) FROM comments WHERE draft_state='ready'").fetchone()[0]
+        assert result["proposed"] == 12
+        assert result["distinct_replies"] >= 2
+        assert result["published"] == 0
+        assert before == after
+    finally:
+        conn.close()
