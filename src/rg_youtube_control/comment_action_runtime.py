@@ -187,9 +187,12 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         answer = str(candidate.get("reply", "")).strip()
         if not answer or len(answer) > 280:
             return {"status": "REVIEW_REQUIRED", "reply": ""}
-        sensitive = re.search(
-            r"(?i)(?:\\b(?:1[5-9]\\d{2}|20\\d{2})\\b|\\b(?:війна|война|зсу|всу|росія|россия|україна|украина|фінляндія|финляндия|срср|ссср|історія|история|втрати|потери)\\b)",
-            source + " " + answer,
+        sensitive = (
+            bool(re.search(r"\b(?:1[5-9][0-9]{2}|20[0-9]{2})\b", source + " " + answer))
+            or any(word in (source + " " + answer).casefold() for word in
+                   ("війна", "война", "зсу", "всу", "росія", "россия",
+                    "україна", "украина", "фінлянді", "финлянд",
+                    "срср", "ссср", "історі", "истори", "втрат", "потер"))
         )
         return {"status": "FACT_CHECK_REQUIRED" if sensitive else "DRAFT_REVIEW_REQUIRED", "reply": answer}
     except (RuntimeError, ValueError, TypeError, KeyError):
