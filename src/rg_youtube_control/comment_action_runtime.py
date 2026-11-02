@@ -56,7 +56,7 @@ def prepare_action_reply_drafts(
                 explicitly_enabled=True,
             )
             if not allowed:
-                save_comment_draft(conn, comment_id, reply, state="review", reason=f"needs_human_review:{reason}")
+                save_comment_draft(conn, comment_id, "", state="skipped", reason=f"needs_human_review:{reason}")
                 skipped += 1
                 continue
             if save_comment_draft(
