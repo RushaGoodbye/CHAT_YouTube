@@ -68,3 +68,60 @@ def review_seo_candidate(
             "editorial_approved": False,
             "publication_allowed": False,
         }
+
+
+def revise_seo_candidate(
+    *,
+    draft: dict[str, Any],
+    source_notes: list[dict[str, Any]],
+    first_review: dict[str, Any],
+    model: str = "",
+) -> dict[str, Any]:
+    """One bounded revision, then a fresh independent review. Never publish."""
+    if first_review.get("review_status") != "NEEDS_REVISION" or not source_notes:
+        return {"candidate": draft, "review": first_review, "revised": False,
+                "editorial_approved": False, "publication_allowed": False}
+    instruction = (
+        "Ти редактор SEO для українського каналу. Перепиши ВЕСЬ пакет JSON "
+        "із title, title_variants (рівно 3), description (від 400 символів), "
+        "tags (8-12). Усунь кожне зауваження. Не вигадуй факти. "
+        "Покладайся ЛИШЕ на цитати. Пиши нормативною українською, "
+        "конкретно, без абстрактних назв чи шаблонних фраз. "
+        "Не включай слова review_status чи publication_allowed. "
+        "Чернетка: " + json.dumps(draft, ensure_ascii=False) +
+        "\\nЗауваження: " + json.dumps(first_review.get("issues", []), ensure_ascii=False) +
+        "\\nДжерела: " + json.dumps(source_notes, ensure_ascii=False)
+    )
+    try:
+        raw = lm_studio_chat(
+            [{"role": "system", "content": "SEO-редактор. Лише JSON."},
+             {"role": "user", "content": instruction}],
+            model=model, json_mode=True, max_tokens=2500,
+            reasoning_effort="none", timeout=180,
+        )
+        candidate = json.loads(raw)
+        if not isinstance(candidate, dict):
+            raise ValueError("invalid revised candidate")
+        required = ("title", "description", "title_variants", "tags")
+        if not all(candidate.get(key) for key in required):
+            raise ValueError("incomplete revised candidate")
+        from .seo_quality_gate import inspect_editorial_targets
+        gate = inspect_editorial_targets(candidate)
+        second_review = review_seo_candidate(
+            draft=candidate, source_notes=source_notes, model=model,
+        )
+        # A model passing its own structural tests is never human approval.
+        return {
+            "candidate": candidate,
+            "review": second_review,
+            "format_and_editorial_gate": gate,
+            "revised": True,
+            "editorial_approved": False,
+            "publication_allowed": False,
+        }
+    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+        return {
+            "candidate": draft, "review": first_review,
+            "revision_error": type(exc).__name__, "revised": False,
+            "editorial_approved": False, "publication_allowed": False,
+        }
