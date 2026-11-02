@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessag
 
 from .comment_action_ai import review_comment_actions_local
 from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies
-from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting, get_setting, set_setting
+from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
 
 
@@ -309,16 +309,16 @@ def install_comment_action_ui(window) -> None:
 
     def diverse_preview_action() -> None:
         result = propose_diverse_safe_replies(window.conn, window.current_profile)
-        examples = "\\n".join(
+        examples = "\n".join(
             entry["reply"] for entry in result["proposals"][:8]
         )
         QMessageBox.information(
             window, "Варіанти безпечних відповідей",
-            f"Перевірено: {result['checked']}\\n"
-            f"Підготовлено: {result['proposed']}\\n"
-            f"Відкладено: {result['withheld']}\\n"
-            f"Різних формулювань: {result['distinct_replies']}\\n\\n"
-            + examples + "\\n\\nНічого не надіслано на YouTube.",
+            f"Перевірено: {result['checked']}\n"
+            f"Підготовлено: {result['proposed']}\n"
+            f"Відкладено: {result['withheld']}\n"
+            f"Різних формулювань: {result['distinct_replies']}\n\n"
+            + examples + "\n\nНічого не надіслано на YouTube.",
         )
 
     diverse_preview.clicked.connect(diverse_preview_action)
