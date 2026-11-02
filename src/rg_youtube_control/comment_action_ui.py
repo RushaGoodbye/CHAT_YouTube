@@ -18,7 +18,11 @@ class _PersonalReplyWorker(QThread):
         self.comment_text = comment_text
 
     def run(self):
-        self.completed.emit(generate_personal_reply_preview(self.comment_text))
+        try:
+            result = generate_personal_reply_preview(self.comment_text)
+        except Exception:
+            result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
+        self.completed.emit(result)
 
 
 ACTION_LABELS = {
@@ -80,37 +84,6 @@ def install_comment_action_ui(window) -> None:
     summary = QLabel("")
     summary.setProperty("role", "success")
     bar.addWidget(summary)
-    auto_enabled = QCheckBox("Автовідповіді: лише безпечні категорії")
-    auto_enabled.setToolTip(
-        "Увімкнути автоматичну публікацію тільки коротких відповідей "
-        "на однозначні подяки та привітання. Запитання й спірні коментарі "
-        "залишаться на перевірці. Ліміти та перевірка YouTube діють."
-    )
-    auto_enabled.setChecked(
-        get_setting(window.conn, f"auto_reply_enabled_{window.current_profile}", "0") == "1"
-    )
-    def save_auto_enabled(checked: bool) -> None:
-        if checked:
-            answer = QMessageBox.question(
-                window, "Увімкнути автовідповіді?",
-                "Програма публікуватиме короткі шаблонні відповіді "
-                "на безпечні коментарі під час сканування. "
-                "Спірні коментарі залишаться для перевірки. Увімкнути?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                auto_enabled.blockSignals(True)
-                auto_enabled.setChecked(False)
-                auto_enabled.blockSignals(False)
-                return
-        value = "1" if checked else "0"
-        set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}", value)
-        set_setting(window.conn, f"auto_reply_enabled_{window.current_profile}", value)
-    auto_enabled.toggled.connect(save_auto_enabled)
-    bar.addWidget(auto_enabled)
-    bar.addStretch()
-
     prepare_replies = QPushButton("Підготувати ВІДПОВІДІ x20 · 0 квоти")
     prepare_replies.setProperty("role", "success")
     bar.addWidget(prepare_replies)
@@ -370,7 +343,7 @@ def install_comment_action_ui(window) -> None:
 
     recalc.clicked.connect(recalc_actions)
 
-    window._comment_auto_enabled = auto_enabled
+    window._comment_auto_enabled = auto_replies
     window._comment_action_filter = action_filter
     window._comment_action_summary = summary
     window._comment_action_prepare_replies = prepare_replies
