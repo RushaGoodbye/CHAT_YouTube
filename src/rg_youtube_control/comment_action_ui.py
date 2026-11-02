@@ -325,11 +325,13 @@ def install_comment_action_ui(window) -> None:
             QMessageBox.information(window, "AI відповідь", "Цей коментар недоступний для чернетки.")
             return
         personalized.setEnabled(False)
+        personalized.setText("AI генерує відповідь…")
         worker = _PersonalReplyWorker(str(record["text"] or ""), window)
         window._personal_reply_worker = worker
         def finished(result):
             personalized.setEnabled(True)
-            if result["reply"]:
+            personalized.setText("AI відповідь на вибраний · LM Studio")
+            if result.get("reply"):
                 saved = save_comment_draft(window.conn, comment_id, result["reply"], state="review", reason=("lm_studio_fact_check_required" if result["status"] == "FACT_CHECK_REQUIRED" else "lm_studio_manual_review_required"))
                 window.reload_comments()
                 QMessageBox.information(window, "AI чернетка · перевірка фактів" if result["status"] == "FACT_CHECK_REQUIRED" else "AI чернетка · потребує перевірки", result["reply"]
@@ -338,6 +340,7 @@ def install_comment_action_ui(window) -> None:
             else:
                 QMessageBox.warning(window, "AI відповідь", "LM Studio недоступна або чернетка не пройшла перевірку.")
         worker.completed.connect(finished)
+        worker.finished.connect(worker.deleteLater)
         worker.start()
 
     personalized.clicked.connect(personal_reply_action)
