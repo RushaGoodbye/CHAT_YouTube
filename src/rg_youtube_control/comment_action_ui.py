@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
 from .comment_action_ai import review_comment_actions_local
 from .comment_action_runtime import prepare_action_reply_drafts
-from .db import comment_action_counts, reclassify_comment_actions
+from .db import comment_action_counts, reclassify_comment_actions, get_setting, set_setting
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
 
 
@@ -77,6 +77,35 @@ def install_comment_action_ui(window) -> None:
 
     ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
     bar.addWidget(ai_review)
+
+    auto_replies = QCheckBox("Автовідповіді: лише короткі подяки / вітання")
+    def sync_auto_replies():
+        key = f"comment_auto_reply_enabled_{window.current_profile}"
+        auto_replies.blockSignals(True)
+        auto_replies.setChecked(get_setting(window.conn, key, "0") == "1")
+        auto_replies.blockSignals(False)
+
+    def toggle_auto_replies(checked):
+        if checked:
+            choice = QMessageBox.question(
+                window, "Увімкнути автовідповіді?",
+                "Це дозволяє автоматично публікувати короткі відповіді на "
+                "однозначні подяки та привітання під час сканування. "
+                "Питання, донати, політика і спірні коментарі лишаться на перевірці. "
+                "Увімкнути для поточного каналу?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                sync_auto_replies()
+                return
+        set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}",
+                    "1" if checked else "0")
+        sync_auto_replies()
+
+    auto_replies.toggled.connect(toggle_auto_replies)
+    sync_auto_replies()
+    bar.addWidget(auto_replies)
 
     recalc = QPushButton("Перерахувати рішення · 0 квоти")
     bar.addWidget(recalc)
@@ -153,6 +182,7 @@ def install_comment_action_ui(window) -> None:
 
     def reload_with_actions(*args, **kwargs):
         result = original_reload(*args, **kwargs)
+        sync_auto_replies()
         decorate_table()
         return result
 
