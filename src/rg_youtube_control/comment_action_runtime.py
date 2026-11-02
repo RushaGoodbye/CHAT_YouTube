@@ -208,9 +208,16 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         messages = [{"role": "system", "content": "Редактор коротких українських відповідей. Лише JSON з непорожнім полем reply."},
                     {"role": "user", "content": prompt}]
         answer = ""
+        problem = "empty_model_reply"
         for attempt in range(2):
+            current_messages = list(messages)
+            if attempt:
+                current_messages.append({"role": "user", "content":
+                    "Попередня відповідь не пройшла редакторську перевірку. "
+                    "Напиши іншу, конкретну та доречну відповідь на зміст коментаря. "
+                    "Не відмовляйся через брак контексту. Лише JSON з полем reply."})
             raw = lm_studio_chat(
-                messages, model=model, json_mode=attempt == 0,
+                current_messages, model=model, json_mode=attempt == 0,
                 max_tokens=512 if attempt == 0 else 768,
                 reasoning_effort="none", timeout=90,
             )
@@ -218,13 +225,10 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
                 candidate = json.loads(raw)
             except (ValueError, TypeError):
                 candidate = None
-            if isinstance(candidate, dict):
-                answer = str(candidate.get("reply") or "").strip()
-            if answer:
+            answer = str(candidate.get("reply") or "").strip() if isinstance(candidate, dict) else ""
+            problem = _reply_quality_issue(source, answer) if answer else "empty_model_reply"
+            if not problem:
                 break
-        if not answer:
-            return {"status": "QUALITY_REJECTED", "reply": "", "reason": "empty_model_reply"}
-        problem = _reply_quality_issue(source, answer)
         if problem:
             return {"status": "QUALITY_REJECTED", "reply": "", "reason": problem}
         combined = (source + " " + answer).casefold()
