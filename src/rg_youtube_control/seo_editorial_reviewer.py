@@ -7,6 +7,20 @@ from typing import Any
 from .lm_studio_client import lm_studio_chat
 
 
+def _normalized_issues(raw: Any) -> list[dict[str, str]]:
+    """Normalize reviewer list/dict output; reject unrecognized shapes."""
+    if isinstance(raw, list):
+        return [item if isinstance(item, dict) else {"reason": str(item)} for item in raw if item]
+    if isinstance(raw, dict):
+        result = []
+        for category, items in raw.items():
+            for item in items if isinstance(items, list) else [items]:
+                if item:
+                    result.append({"field": str(category), "reason": str(item)})
+        return result
+    raise ValueError("invalid reviewer issues format")
+
+
 def review_seo_candidate(
     *,
     draft: dict[str, Any],
@@ -50,8 +64,7 @@ def review_seo_candidate(
         suggestion_text = json.dumps(suggestions, ensure_ascii=False) if suggestions is not None else ""
         if language_error(suggestion_text):
             value["reviewer_language_warning"] = True
-        if not isinstance(issues, list):
-            raise ValueError("missing issues")
+        issues = _normalized_issues(issues)
         return {
             "review_status": "NEEDS_REVISION" if issues or value.get("verdict") == "revise" else "NEEDS_HUMAN_REVIEW",
             "issues": issues,
@@ -89,8 +102,8 @@ def revise_seo_candidate(
         "конкретно, без абстрактних назв чи шаблонних фраз. "
         "Не включай слова review_status чи publication_allowed. "
         "Чернетка: " + json.dumps(draft, ensure_ascii=False) +
-        "\\nЗауваження: " + json.dumps(first_review.get("issues", []), ensure_ascii=False) +
-        "\\nДжерела: " + json.dumps(source_notes, ensure_ascii=False)
+        "\nЗауваження: " + json.dumps(first_review.get("issues", []), ensure_ascii=False) +
+        "\nДжерела: " + json.dumps(source_notes, ensure_ascii=False)
     )
     try:
         raw = lm_studio_chat(
@@ -110,6 +123,11 @@ def revise_seo_candidate(
         second_review = review_seo_candidate(
             draft=candidate, source_notes=source_notes, model=model,
         )
+        # Reject ineffective rewrites and never treat model verdict as approval.
+        if candidate.get("title") == draft.get("title") and candidate.get("description") == draft.get("description"):
+            raise ValueError("unchanged seo after revision")
+        if second_review.get("review_status") == "REVIEWER_FAILED":
+            raise ValueError("second review invalid")
         # A model passing its own structural tests is never human approval.
         return {
             "candidate": candidate,
