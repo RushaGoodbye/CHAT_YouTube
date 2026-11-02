@@ -128,6 +128,12 @@ def install_comment_action_ui(window) -> None:
                 return
         set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}",
                     "1" if checked else "0")
+        set_setting(window.conn, f"auto_reply_enabled_{window.current_profile}",
+                    "1" if checked else "0")
+        if hasattr(window, "auto_box"):
+            window.auto_box.blockSignals(True)
+            window.auto_box.setChecked(bool(checked))
+            window.auto_box.blockSignals(False)
         sync_auto_replies()
 
     auto_replies.toggled.connect(toggle_auto_replies)
