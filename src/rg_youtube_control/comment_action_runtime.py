@@ -114,3 +114,45 @@ def preview_safe_auto_replies(
         )
         result["eligible" if eligible else "manual_review"] += 1
     return result
+
+
+def propose_diverse_safe_replies(
+    conn: sqlite3.Connection, profile: str, *, limit: int = 100,
+) -> dict:
+    """Preview diverse reply texts without DB writes or YouTube calls."""
+    from hashlib import sha256
+    templates = {
+        "thanks": ("Дякуємо, що підтримуєте канал!", "Щиро вдячні за ваші слова!", "Ваша підтримка дуже цінна для нас."),
+        "support": ("Дякуємо за підтримку!", "Цінуємо, що ви з нами!", "Дякуємо за добрі слова та підтримку!"),
+        "greeting": ("Вітаємо! Раді бачити вас на каналі.", "Привіт! Дякуємо, що завітали.", "Вітаємо і дякуємо за увагу до каналу!"),
+        "wishes": ("Щиро дякуємо за побажання!", "Дякуємо за теплі слова!", "Навзаєм! Дякуємо за добрі побажання."),
+    }
+    rows = conn.execute(
+        """SELECT c.comment_id,c.text,c.category FROM comments c
+           JOIN videos v ON v.video_id=c.video_id
+           WHERE v.profile=? AND c.status='new' AND c.action='reply'
+           ORDER BY c.published_at DESC LIMIT ?""",
+        (profile, max(1, min(int(limit), 500))),
+    ).fetchall()
+    proposals = []
+    withheld = 0
+    for row in rows:
+        cat = str(row["category"] or "")
+        if cat not in templates:
+            withheld += 1
+            continue
+        cid = str(row["comment_id"])
+        choices = templates[cat]
+        index = int.from_bytes(sha256(cid.encode("utf-8")).digest()[:4], "big") % len(choices)
+        answer = choices[index]
+        allowed, _reason = unattended_reply_allowed(
+            category=cat, comment_text=str(row["text"] or ""),
+            reply_text=answer, explicitly_enabled=True,
+        )
+        if allowed:
+            proposals.append({"comment_id": cid, "category": cat, "reply": answer})
+        else:
+            withheld += 1
+    return {"checked": len(rows), "proposed": len(proposals),
+            "withheld": withheld, "distinct_replies": len({x["reply"] for x in proposals}),
+            "proposals": proposals, "published": 0}
