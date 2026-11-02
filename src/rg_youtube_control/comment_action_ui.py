@@ -373,7 +373,7 @@ def install_comment_action_ui(window) -> None:
         rows = window.conn.execute(
             """SELECT c.comment_id,c.text FROM comments c
                JOIN videos v ON v.video_id=c.video_id
-               WHERE v.profile=? AND c.status='new'
+               WHERE v.profile=? AND c.status='new' AND c.action='reply'
                  AND COALESCE(c.draft_state,'')=''
                  AND LENGTH(TRIM(c.text)) BETWEEN 1 AND 160
                ORDER BY c.published_at DESC LIMIT 20""",
