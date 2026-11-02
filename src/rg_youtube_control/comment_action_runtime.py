@@ -175,6 +175,8 @@ def _reply_quality_issue(source: str, answer: str) -> str:
         "дякуємо за вашу думку", "цікава думка",
     }:
         return "generic_reply"
+    if any(phrase in low for phrase in ("недостатньо контексту", "немає достатньо контексту", "бракує контексту", "не вистачає контексту")):
+        return "needless_context_deflection"
     if clean.casefold() == source.casefold():
         return "echo"
     # Reject links, promises and invented quotations in automatically drafted texts.
@@ -195,8 +197,10 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         "Напиши конкретну коротку відповідь українською на коментар глядача "
         "каналу РАША ГУДБАЙ. Без вигаданих фактів, обіцянок, посилань, "
         "закликів або політичних тверджень. Посилайся на конкретну думку "
-        "автора; не пиши шаблонне Дякуємо за коментар. Якщо бракує "
-        "контексту, так і скажи. Не повторюй слово в слово коментар. "
+        "автора; не пиши шаблонне Дякуємо за коментар. "
+        "На подяку, побажання чи похвалу відповідай дружньо та по суті, "
+        "не вимагай додаткового контексту. "
+        "Не повторюй слово в слово коментар. "
         "Поверни JSON з одним полем reply. Коментар: "
         + json.dumps(source, ensure_ascii=False)
     )
