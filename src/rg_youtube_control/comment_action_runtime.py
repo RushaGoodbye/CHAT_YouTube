@@ -164,6 +164,7 @@ def propose_diverse_safe_replies(
 def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> dict[str, str]:
     """Generate one local Ukrainian draft. Never store it or send to YouTube."""
     import json
+    import re
     from .lm_studio_client import lm_studio_chat
     source = " ".join(str(comment_text or "").split())
     if not source or len(source) > 160:
@@ -186,6 +187,10 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         answer = str(candidate.get("reply", "")).strip()
         if not answer or len(answer) > 280:
             return {"status": "REVIEW_REQUIRED", "reply": ""}
-        return {"status": "DRAFT_REVIEW_REQUIRED", "reply": answer}
+        sensitive = re.search(
+            r"(?i)(?:\\b(?:1[5-9]\\d{2}|20\\d{2})\\b|\\b(?:війна|война|зсу|всу|росія|россия|україна|украина|фінляндія|финляндия|срср|ссср|історія|история|втрати|потери)\\b)",
+            source + " " + answer,
+        )
+        return {"status": "FACT_CHECK_REQUIRED" if sensitive else "DRAFT_REVIEW_REQUIRED", "reply": answer}
     except (RuntimeError, ValueError, TypeError, KeyError):
         return {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
