@@ -201,19 +201,21 @@ def generate_personal_reply_preview(comment_text: str, *, model: str = "") -> di
         + json.dumps(source, ensure_ascii=False)
     )
     try:
-        messages = [{"role": "system", "content": "Редактор коротких українських відповідей. Лише JSON."},
+        messages = [{"role": "system", "content": "Редактор коротких українських відповідей. Лише JSON з непорожнім полем reply."},
                     {"role": "user", "content": prompt}]
         answer = ""
         for attempt in range(2):
             raw = lm_studio_chat(
-                messages, model=model, json_mode=True,
+                messages, model=model, json_mode=attempt == 0,
                 max_tokens=512 if attempt == 0 else 768,
                 reasoning_effort="none", timeout=90,
             )
-            candidate = json.loads(raw)
-            if not isinstance(candidate, dict):
-                raise ValueError("unexpected AI reply format")
-            answer = str(candidate.get("reply") or "").strip()
+            try:
+                candidate = json.loads(raw)
+            except (ValueError, TypeError):
+                candidate = None
+            if isinstance(candidate, dict):
+                answer = str(candidate.get("reply") or "").strip()
             if answer:
                 break
         if not answer:
