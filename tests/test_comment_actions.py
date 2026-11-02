@@ -446,9 +446,9 @@ def test_local_reply_retries_empty_json_only_once(monkeypatch):
     responses = iter(['{"reply":""}', '{"reply":"Цінуємо вашу підтримку цього випуску та увагу до конкретних розмов на каналі."}'])
     seen = []
     def generate(*_args, **kwargs):
-        seen.append(kwargs["max_tokens"])
+        seen.append((kwargs["max_tokens"], kwargs["json_mode"]))
         return next(responses)
     monkeypatch.setattr(lm_studio_client, "lm_studio_chat", generate)
     result = comment_action_runtime.generate_personal_reply_preview("Дякую за цей випуск!")
     assert result["status"] == "DRAFT_REVIEW_REQUIRED"
-    assert seen == [512, 768]
+    assert seen == [(512, True), (768, False)]
