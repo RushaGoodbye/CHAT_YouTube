@@ -330,9 +330,9 @@ def install_comment_action_ui(window) -> None:
         def finished(result):
             personalized.setEnabled(True)
             if result["reply"]:
-                saved = save_comment_draft(window.conn, comment_id, result["reply"], state="review", reason="lm_studio_manual_review_required")
+                saved = save_comment_draft(window.conn, comment_id, result["reply"], state="review", reason=("lm_studio_fact_check_required" if result["status"] == "FACT_CHECK_REQUIRED" else "lm_studio_manual_review_required"))
                 window.reload_comments()
-                QMessageBox.information(window, "AI чернетка · потребує перевірки", result["reply"]
+                QMessageBox.information(window, "AI чернетка · перевірка фактів" if result["status"] == "FACT_CHECK_REQUIRED" else "AI чернетка · потребує перевірки", result["reply"]
                     + "\n\n" + ("Збережено для ручної перевірки." if saved else "Не збережено: статус коментаря змінився.")
                     + "\nНічого не опубліковано.")
             else:
