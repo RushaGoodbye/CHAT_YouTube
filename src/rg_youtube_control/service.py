@@ -833,6 +833,7 @@ def scan_channel_comments(
             auto_reply
             and decision.auto_allowed
             and decision.category in SAFE_AUTO_CATEGORIES
+            and _unattended_reply_gate(conn, profile, decision.category, text, reply_text)
             and bool(reply_text)
             and recent_for_auto
             and auto_count < max_auto_replies
@@ -893,6 +894,17 @@ def scan_channel_comments(
         ),
     )
     return stats
+
+
+def _unattended_reply_gate(conn, profile: str, category: str, text: str, reply: str) -> bool:
+    from .comment_autopilot_guard import unattended_reply_allowed
+
+    enabled = get_setting(conn, f"comment_auto_reply_enabled_{profile}", "0") == "1"
+    allowed, _reason = unattended_reply_allowed(
+        category=category, comment_text=text, reply_text=reply,
+        explicitly_enabled=enabled,
+    )
+    return allowed
 
 
 def scan_comments(
@@ -1051,6 +1063,7 @@ def scan_comments(
                 auto_reply
                 and decision.auto_allowed
                 and decision.category in SAFE_AUTO_CATEGORIES
+                and _unattended_reply_gate(conn, profile_name, decision.category, text, reply_text)
                 and reply_text
                 and recent_for_auto
                 and auto_count < max_auto_replies
