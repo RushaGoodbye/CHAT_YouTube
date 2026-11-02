@@ -356,7 +356,7 @@ def test_diverse_reply_preview_does_not_mutate_database(tmp_path):
         _video(conn)
         for i in range(12):
             upsert_comment(conn, {
-                "comment_id": f"thanks-{i}", "video_id": "v1", "author": "viewer",
+                "comment_id": f"thanks-{i}", "video_id": "v1", "author": f"viewer-{i}",
                 "text": "Дякую!", "published_at": "2026-11-02T10:00:00Z",
                 "status": "new", "raw": {},
             })
