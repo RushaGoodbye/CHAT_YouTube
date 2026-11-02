@@ -417,3 +417,14 @@ def test_ai_review_draft_is_persisted_but_never_auto_ready(tmp_path):
         assert check["eligible"] == 0
     finally:
         conn.close()
+
+
+def test_ai_historical_claim_requires_fact_check(monkeypatch):
+    from rg_youtube_control import lm_studio_client, comment_action_runtime
+    monkeypatch.setattr(
+        lm_studio_client, "lm_studio_chat",
+        lambda *_a, **_k: '{"reply":"У 1939 році відбувалася Зимова війна."}',
+    )
+    draft = comment_action_runtime.generate_personal_reply_preview("А що було з Фінляндією у 1939 році?")
+    assert draft["status"] == "FACT_CHECK_REQUIRED"
+    assert "1939" in draft["reply"]
