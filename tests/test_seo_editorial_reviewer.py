@@ -51,3 +51,35 @@ def test_reviewer_warns_on_russianisms_in_suggested_metadata(monkeypatch):
     assert result["reviewer_language_warning"] is True
     assert result["editorial_approved"] is False
     assert result["publication_allowed"] is False
+
+
+def test_revision_roundtrip_preserves_manual_publication_gate(monkeypatch):
+    answers = iter([
+        '{"title":"Росіяни бояться доносів: чому мовчать про війну?",'
+        '"title_variants":["Страх доносів у РФ","Чому росіяни мовчать?","Свобода слова в Росії"],'
+        '"description":"' + "Текст про страх доносів та реальні слова співрозмовника. " * 10 + '",'
+        '"tags":["Росія","доноси","свобода слова","чат рулетка","розмова","страх","росіяни","війна"]}',
+        '{"verdict":"review","issues":[],"recommended_changes":[]}',
+    ])
+    monkeypatch.setattr(reviewer, "lm_studio_chat", lambda *_a, **_k: next(answers))
+    result = reviewer.revise_seo_candidate(
+        draft={"title": "Generic"},
+        source_notes=[{"time": "01:23", "quote": "Боюсь доносов"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "title"}]},
+    )
+    assert result["revised"] is True
+    assert result["review"]["review_status"] == "NEEDS_HUMAN_REVIEW"
+    assert result["publication_allowed"] is False
+    assert result["editorial_approved"] is False
+
+
+def test_revision_failure_preserves_original(monkeypatch):
+    monkeypatch.setattr(reviewer, "lm_studio_chat", lambda *_a, **_k: "")
+    draft = {"title": "Original"}
+    result = reviewer.revise_seo_candidate(
+        draft=draft, source_notes=[{"quote": "source"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": []},
+    )
+    assert result["candidate"] == draft
+    assert result["revised"] is False
+    assert result["publication_allowed"] is False
