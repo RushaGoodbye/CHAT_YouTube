@@ -375,7 +375,7 @@ def test_local_personalized_reply_preview_is_review_only(monkeypatch):
     from rg_youtube_control import lm_studio_client, comment_action_runtime
     monkeypatch.setattr(
         lm_studio_client, "lm_studio_chat",
-        lambda *_args, **_kwargs: '{"reply":"Дякуємо за ваш коментар! Цінуємо підтримку."}',
+        lambda *_args, **_kwargs: '{"reply":"Дякуємо за вашу увагу до випуску! Цінуємо, що ви дивитесь та підтримуєте нашу роботу."}',
     )
     draft = comment_action_runtime.generate_personal_reply_preview("Дякую за випуск!")
     assert draft["status"] == "DRAFT_REVIEW_REQUIRED"
@@ -428,3 +428,14 @@ def test_ai_historical_claim_requires_fact_check(monkeypatch):
     draft = comment_action_runtime.generate_personal_reply_preview("А що було з Фінляндією у 1939 році?")
     assert draft["status"] == "FACT_CHECK_REQUIRED"
     assert "1939" in draft["reply"]
+
+
+def test_ai_rejects_generic_reply(monkeypatch):
+    from rg_youtube_control import lm_studio_client, comment_action_runtime
+    monkeypatch.setattr(lm_studio_client, "lm_studio_chat",
+                        lambda *_a, **_k: '{"reply":"Дякую за ваш коментар."}')
+    result = comment_action_runtime.generate_personal_reply_preview(
+        "Фінляндія теж хотіла залишитися незалежною в 1939 році"
+    )
+    assert result["status"] == "QUALITY_REJECTED"
+    assert result["reply"] == ""
