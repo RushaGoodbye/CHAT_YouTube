@@ -1,3 +1,4 @@
+import json
 from rg_youtube_control import seo_editorial_reviewer as reviewer
 
 
@@ -83,3 +84,28 @@ def test_revision_failure_preserves_original(monkeypatch):
     assert result["candidate"] == draft
     assert result["revised"] is False
     assert result["publication_allowed"] is False
+
+
+def test_review_normalizes_nested_issue_groups(monkeypatch):
+    monkeypatch.setattr(reviewer, "lm_studio_chat", lambda *_a, **_k: (
+        '{"verdict":"Не схвалено до публікації",'
+        '"issues":{"language_errors":["Русизм"],"factual_inconsistencies":["Неточная тема"]}}'
+    ))
+    result = reviewer.review_seo_candidate(draft={}, source_notes=[])
+    assert result["review_status"] == "NEEDS_REVISION"
+    assert len(result["issues"]) == 2
+    assert result["publication_allowed"] is False
+
+
+def test_revision_rejects_unchanged_text(monkeypatch):
+    unchanged = {
+        "title": "Same", "description": "Same description",
+        "title_variants": ["A", "B", "C"], "tags": ["A"] * 8,
+    }
+    monkeypatch.setattr(reviewer, "lm_studio_chat", lambda *_a, **_k: json.dumps(unchanged))
+    result = reviewer.revise_seo_candidate(
+        draft=unchanged, source_notes=[{"quote": "Quote"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"reason": "Generic"}]},
+    )
+    assert result["revised"] is False
+    assert result["revision_error"] == "ValueError"
