@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
 from .comment_action_ai import review_comment_actions_local
-from .comment_action_runtime import prepare_action_reply_drafts
+from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies
 from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting, get_setting, set_setting
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
 
@@ -103,6 +103,9 @@ def install_comment_action_ui(window) -> None:
     prepare_replies = QPushButton("Підготувати ВІДПОВІДІ x20 · 0 квоти")
     prepare_replies.setProperty("role", "success")
     bar.addWidget(prepare_replies)
+
+    preview_replies = QPushButton("Перевірити автовідповіді · без публікації")
+    bar.addWidget(preview_replies)
 
     ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
     bar.addWidget(ai_review)
@@ -269,6 +272,19 @@ def install_comment_action_ui(window) -> None:
         )
 
     prepare_replies.clicked.connect(prepare_replies_action)
+
+    def preview_replies_action() -> None:
+        stats = preview_safe_auto_replies(window.conn, window.current_profile)
+        QMessageBox.information(
+            window, "Безпечні автовідповіді: попередній перегляд",
+            f"Перевірено: {stats['checked']}\\n"
+            f"Безпечні кандидати: {stats['eligible']}\\n"
+            f"Потрібна ручна перевірка: {stats['manual_review']}\\n"
+            f"Без готової відповіді: {stats['no_reply']}\\n\\n"
+            "Це лише локальна перевірка. YouTube не змінювався.",
+        )
+
+    preview_replies.clicked.connect(preview_replies_action)
 
     def ai_review_action() -> None:
         stats = review_comment_actions_local(
