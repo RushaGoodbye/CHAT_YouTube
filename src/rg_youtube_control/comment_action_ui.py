@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessag
 
 from .comment_action_ai import review_comment_actions_local
 from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies, generate_personal_reply_preview
-from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting
+from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting, save_comment_draft
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
 
 
@@ -330,8 +330,11 @@ def install_comment_action_ui(window) -> None:
         def finished(result):
             personalized.setEnabled(True)
             if result["reply"]:
+                saved = save_comment_draft(window.conn, comment_id, result["reply"], state="review", reason="lm_studio_manual_review_required")
+                window.reload_comments()
                 QMessageBox.information(window, "AI чернетка · потребує перевірки", result["reply"]
-                    + "\\n\\nЦе лише попередній перегляд. Відповідь не опублікована.")
+                    + "\n\n" + ("Збережено для ручної перевірки." if saved else "Не збережено: статус коментаря змінився.")
+                    + "\nНічого не опубліковано.")
             else:
                 QMessageBox.warning(window, "AI відповідь", "LM Studio недоступна або чернетка не пройшла перевірку.")
         worker.completed.connect(finished)
