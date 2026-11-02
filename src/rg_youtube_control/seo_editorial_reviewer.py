@@ -43,11 +43,19 @@ def review_seo_candidate(
         if not isinstance(value, dict):
             raise ValueError("invalid reviewer object")
         issues = value.get("issues")
+        # Reviewer prose and suggestions are untrusted and must not be
+        # interpreted as editorial approval or applied as metadata.
+        from .seo_quality_gate import language_error
+        suggestions = value.get("recommended_changes")
+        suggestion_text = json.dumps(suggestions, ensure_ascii=False) if suggestions is not None else ""
+        if language_error(suggestion_text):
+            value["reviewer_language_warning"] = True
         if not isinstance(issues, list):
             raise ValueError("missing issues")
         return {
             "review_status": "NEEDS_REVISION" if issues or value.get("verdict") == "revise" else "NEEDS_HUMAN_REVIEW",
             "issues": issues,
+            "reviewer_language_warning": bool(value.get("reviewer_language_warning")),
             "recommended_changes": value.get("recommended_changes") if isinstance(value.get("recommended_changes"), (list, dict)) else [],
             "editorial_approved": False,
             "publication_allowed": False,
