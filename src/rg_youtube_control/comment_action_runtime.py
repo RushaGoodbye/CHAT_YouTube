@@ -72,3 +72,34 @@ def prepare_action_reply_drafts(
         "skipped": skipped,
         "errors": errors,
     }
+
+
+def preview_safe_auto_replies(
+    conn: sqlite3.Connection,
+    profile: str,
+    *,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Read-only preflight. Never contacts YouTube or changes saved comments."""
+    from .comment_autopilot_guard import unattended_reply_allowed
+    rows = conn.execute(
+        """SELECT c.comment_id,c.text,c.category,c.reply_text,c.status
+           FROM comments c JOIN videos v ON v.video_id=c.video_id
+           WHERE v.profile=? AND c.status='new'
+           ORDER BY c.published_at DESC LIMIT ?""",
+        (profile, max(1, min(int(limit), 500))),
+    ).fetchall()
+    result = {"checked": len(rows), "eligible": 0, "manual_review": 0, "no_reply": 0}
+    for row in rows:
+        reply = str(row["reply_text"] or "").strip()
+        if not reply:
+            result["no_reply"] += 1
+            continue
+        eligible, _reason = unattended_reply_allowed(
+            category=str(row["category"] or ""),
+            comment_text=str(row["text"] or ""),
+            reply_text=reply,
+            explicitly_enabled=True,
+        )
+        result["eligible" if eligible else "manual_review"] += 1
+    return result
