@@ -76,7 +76,7 @@ def install_comment_action_ui(window) -> None:
         "залишаться на перевірці. Ліміти та перевірка YouTube діють."
     )
     auto_enabled.setChecked(
-        get_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}", "0") == "1"
+        get_setting(window.conn, f"auto_reply_enabled_{window.current_profile}", "0") == "1"
     )
     def save_auto_enabled(checked: bool) -> None:
         if checked:
@@ -93,7 +93,9 @@ def install_comment_action_ui(window) -> None:
                 auto_enabled.setChecked(False)
                 auto_enabled.blockSignals(False)
                 return
-        set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}", "1" if checked else "0")
+        value = "1" if checked else "0"
+        set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}", value)
+        set_setting(window.conn, f"auto_reply_enabled_{window.current_profile}", value)
     auto_enabled.toggled.connect(save_auto_enabled)
     bar.addWidget(auto_enabled)
     bar.addStretch()
