@@ -338,7 +338,10 @@ def install_comment_action_ui(window) -> None:
                     + "\n\n" + ("Збережено для ручної перевірки." if saved else "Не збережено: статус коментаря змінився.")
                     + "\nНічого не опубліковано.")
             else:
-                QMessageBox.warning(window, "AI відповідь", "LM Studio недоступна або чернетка не пройшла перевірку.")
+                reasons = {"generic_reply": "Шаблонна відповідь", "too_short_or_long": "Відповідь надто коротка або довга", "needless_context_deflection": "Модель ухилилась від відповіді", "empty_model_reply": "Модель повернула порожню відповідь", "echo": "Модель повторила коментар", "unsupported_claim": "Неперевірене твердження"}
+                status = str(result.get("status") or "UNKNOWN")
+                reason = reasons.get(str(result.get("reason") or ""), status)
+                QMessageBox.warning(window, "AI відповідь", "Чернетку не збережено: " + reason + ".\nНічого не опубліковано.")
         worker.completed.connect(finished)
         worker.finished.connect(worker.deleteLater)
         worker.start()
