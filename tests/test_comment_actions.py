@@ -389,3 +389,31 @@ def test_local_personalized_reply_failure_stays_unsent(monkeypatch):
     monkeypatch.setattr(lm_studio_client, "lm_studio_chat", fail)
     draft = comment_action_runtime.generate_personal_reply_preview("Дякую!")
     assert draft == {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
+
+
+def test_ai_review_draft_is_persisted_but_never_auto_ready(tmp_path):
+    from rg_youtube_control.db import save_comment_draft
+    from rg_youtube_control.comment_action_runtime import preview_safe_auto_replies
+    conn = connect(tmp_path / "ai-review.sqlite")
+    try:
+        _video(conn)
+        upsert_comment(conn, {
+            "comment_id": "historical-comment", "video_id": "v1",
+            "author": "viewer", "text": "Фінляндія у 1939 році?",
+            "published_at": "2026-11-02T10:00:00Z", "status": "new", "raw": {},
+        })
+        assert save_comment_draft(
+            conn, "historical-comment", "Це питання потребує перевірки джерел.",
+            state="review", reason="lm_studio_manual_review_required",
+        )
+        row = conn.execute(
+            "SELECT draft_state,reply_text,status FROM comments WHERE comment_id=?",
+            ("historical-comment",),
+        ).fetchone()
+        assert row["draft_state"] == "review"
+        assert row["reply_text"] == "Це питання потребує перевірки джерел."
+        assert row["status"] == "new"
+        check = preview_safe_auto_replies(conn, "main")
+        assert check["eligible"] == 0
+    finally:
+        conn.close()
