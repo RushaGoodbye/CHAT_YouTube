@@ -25,6 +25,26 @@ class _PersonalReplyWorker(QThread):
         self.completed.emit(result)
 
 
+class _BatchPersonalRepliesWorker(QThread):
+    progress = Signal(int, int)
+    completed = Signal(list)
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.rows = rows
+
+    def run(self):
+        results = []
+        for index, (comment_id, comment_text) in enumerate(self.rows, 1):
+            try:
+                result = generate_personal_reply_preview(comment_text)
+            except Exception:
+                result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
+            results.append((comment_id, result))
+            self.progress.emit(index, len(self.rows))
+        self.completed.emit(results)
+
+
 ACTION_LABELS = {
     "reply": "ВІДПОВІСТИ",
     "like": "ЛАЙК",
@@ -96,6 +116,9 @@ def install_comment_action_ui(window) -> None:
 
     personalized = QPushButton("AI відповідь на вибраний · LM Studio")
     bar.addWidget(personalized)
+
+    batch_personalized = QPushButton("AI чернетки x20 · LM Studio")
+    bar.addWidget(batch_personalized)
 
     ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
     bar.addWidget(ai_review)
@@ -345,6 +368,55 @@ def install_comment_action_ui(window) -> None:
         worker.completed.connect(finished)
         worker.finished.connect(worker.deleteLater)
         worker.start()
+
+    def batch_personal_reply_action() -> None:
+        rows = window.conn.execute(
+            """SELECT c.comment_id,c.text FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=? AND c.status='new'
+                 AND COALESCE(c.draft_state,'')=''
+                 AND LENGTH(TRIM(c.text)) BETWEEN 1 AND 160
+               ORDER BY c.published_at DESC LIMIT 20""",
+            (window.current_profile,),
+        ).fetchall()
+        if not rows:
+            QMessageBox.information(window, "AI чернетки", "Немає нових коментарів без чернеток.")
+            return
+        batch_personalized.setEnabled(False)
+        entries = [(str(row["comment_id"]), str(row["text"])) for row in rows]
+        worker = _BatchPersonalRepliesWorker(entries, window)
+        window._batch_personal_reply_worker = worker
+
+        def update_progress(done, total):
+            batch_personalized.setText(f"AI чернетки {done}/{total}…")
+
+        def finished(results):
+            batch_personalized.setEnabled(True)
+            batch_personalized.setText("AI чернетки x20 · LM Studio")
+            saved = rejected = 0
+            for comment_id, result in results:
+                reply = str(result.get("reply") or "").strip()
+                if not reply:
+                    rejected += 1
+                    continue
+                reason = ("lm_studio_fact_check_required"
+                          if result.get("status") == "FACT_CHECK_REQUIRED"
+                          else "lm_studio_manual_review_required")
+                if save_comment_draft(window.conn, comment_id, reply,
+                                      state="review", reason=reason):
+                    saved += 1
+                else:
+                    rejected += 1
+            window.reload_comments()
+            QMessageBox.information(window, "AI чернетки",
+                f"Збережено для REVIEW: {saved}\\nВідхилено: {rejected}\\nОпубліковано: 0")
+
+        worker.progress.connect(update_progress)
+        worker.completed.connect(finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    batch_personalized.clicked.connect(batch_personal_reply_action)
 
     personalized.clicked.connect(personal_reply_action)
 
