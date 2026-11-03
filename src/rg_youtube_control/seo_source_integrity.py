@@ -59,7 +59,7 @@ def caption_language_signals(cues: list[CaptionCue]) -> list[str]:
     letters = [c for c in text if c.isalpha()]
     if not letters:
         return ["NO_SPEECH_LETTERS"]
-    cyrillic = sum("\\u0400" <= c <= "\\u052f" for c in letters)
+    cyrillic = sum(0x0400 <= ord(c) <= 0x052F for c in letters)
     latin = sum(("A" <= c <= "Z") or ("a" <= c <= "z") for c in letters)
     if (cyrillic + latin) / len(letters) < 0.5:
         return ["LANGUAGE_SCRIPT_UNCLEAR"]
