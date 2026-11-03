@@ -72,7 +72,7 @@ def caption_repetition_signals(cues: list[CaptionCue]) -> list[str]:
     """Spot repeated placeholder captions without rejecting legitimate quotes."""
     if len(cues) < 10:
         return []
-    normal = [re.sub(r"\\W+", " ", cue.text.casefold()).strip() for cue in cues]
+    normal = [re.sub("[^\\w]+", " ", cue.text.casefold()).strip() for cue in cues]
     distinct = len(set(normal))
     if distinct <= max(2, len(normal) // 8):
         return ["REPEATED_CAPTION_CONTENT"]
