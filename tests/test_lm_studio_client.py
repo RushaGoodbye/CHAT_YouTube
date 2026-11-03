@@ -201,4 +201,26 @@ def test_ensure_local_server_starts_windows_server_when_missing(monkeypatch, tmp
     invoked = []
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: invoked.append(cmd))
     assert lm.ensure_local_server()["status"] == "READY"
-    assert invoked == [[str(binary), "server", "start"]]
+    assert invoked == [[str(binary), "server", "start", "--bind", "127.0.0.1", "--port", "1234"]]
+
+
+def test_local_server_recovers_stale_running_without_loopback(monkeypatch, tmp_path):
+    import pathlib
+    import subprocess
+    if lm.os.name != "nt":
+        pytest.skip("Windows-only CLI recovery")
+    binary = tmp_path / ".lmstudio" / "bin" / "lms.exe"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"placeholder")
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+    states = iter([
+        {"available": False, "model_selected": False},
+        {"available": False, "model_selected": False},
+        {"available": True, "model_selected": True, "status": "READY"},
+    ])
+    monkeypatch.setattr(lm, "probe_lm_studio", lambda: next(states))
+    commands = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: commands.append(cmd))
+    assert lm.ensure_local_server()["status"] == "READY"
+    assert [x[2] for x in commands] == ["start", "stop", "start"]
+    assert commands[-1][-2:] == ["--port", "1234"]
