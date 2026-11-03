@@ -68,7 +68,7 @@ def audit_source(
         issues.append("INVALID_VIDEO_ID")
     if not transcript_video_id or requested_video_id != transcript_video_id:
         issues.append("SOURCE_ID_MISMATCH_OR_UNVERIFIED")
-    if transcript_provenance not in {"youtube_original", "youtube_auto", "verified_local"}:
+    if transcript_provenance not in {"youtube_original", "youtube_auto", "youtube_direct", "verified_local"}:
         issues.append("UNKNOWN_CAPTION_PROVENANCE")
     if not isinstance(video_duration_s, (int, float)) or not 0 < video_duration_s < 172800:
         issues.append("INVALID_VIDEO_DURATION")
