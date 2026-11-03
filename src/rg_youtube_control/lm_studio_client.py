@@ -141,6 +141,30 @@ def probe_lm_studio(*, base_url: str | None = None) -> dict[str, Any]:
         }
 
 
+def ensure_local_server() -> dict[str, Any]:
+    """Start a stopped local LM Studio server without opening a console window."""
+    import subprocess
+    from pathlib import Path
+
+    status = probe_lm_studio()
+    if status.get("available"):
+        return status
+    if os.name != "nt":
+        return status
+    executable = Path.home() / ".lmstudio" / "bin" / "lms.exe"
+    if not executable.is_file():
+        return status
+    try:
+        subprocess.run(
+            [str(executable), "server", "start"],
+            timeout=25, check=False, capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return status
+    return probe_lm_studio()
+
+
 def lm_studio_chat(
     messages: list[dict[str, str]],
     *,
