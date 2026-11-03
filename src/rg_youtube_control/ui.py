@@ -12886,6 +12886,26 @@ class MainWindow(QMainWindow):
                 except Exception:
                     transcript_rows = []
 
+        # Direct YouTube captions are recorded on acquisition, never relabeled
+        # from NAS filenames. A failed preflight blocks SEO rather than
+        # silently approving a mismatched transcript.
+        if transcript_rows and transcript_source in {
+            "youtube-transcript-api", "yt-dlp-captions",
+        }:
+            from .seo_caption_acquisition import acquire_caption_rows
+
+            source_audit = acquire_caption_rows(
+                video_id=video_id,
+                rows=transcript_rows,
+                duration_s=duration_seconds,
+                cache_dir=self.data_dir / "verified_seo_captions",
+            )
+            if source_audit["status"] == "BLOCKED_SOURCE":
+                raise RuntimeError(
+                    "Субтитри YouTube не пройшли G1 перевірку джерела: "
+                    + ", ".join(source_audit.get("issues", []))
+                )
+
         transcript = transcript_sample_text(
             transcript_rows,
             max_chars=12000,
