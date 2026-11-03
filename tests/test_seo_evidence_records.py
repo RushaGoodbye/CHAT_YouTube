@@ -84,3 +84,29 @@ def test_quote_spanning_rows_requires_block_text():
     assert len(result["evidence_records"]) == 1
     assert result["evidence_records"][0]["timestamp_precision"] == "timeline_block"
     assert result["evidence_records"][0]["factual_truth_verified"] is False
+
+
+def test_quote_repeated_elsewhere_must_not_shift_evidence_to_wrong_block():
+    quote = "We should discuss the city transport budget."
+    early = row(quote, 10.0)
+    other = row("This is a completely unrelated exchange.", 80.0)
+    result = build_evidence_records(video_id=VID,
+        timeline_report=report(quote, start=75.0, end=85.0),
+        transcript_rows=[early, other])
+    assert result["evidence_records"] == []
+    assert result["rejected_evidence"][0]["reason"] == "QUOTE_NOT_IN_SOURCE"
+
+
+@pytest.mark.parametrize("quote,kind", [
+    ("Я думаю, що транспорт треба покращити.", "opinion"),
+    ("Мне кажется, это слишком дорого.", "opinion"),
+    ("Кажуть, нібито його звільнили.", "allegation"),
+    ("По слухам будет новое решение.", "allegation"),
+    ("Вчера здесь открыли новый мост.", "attributed_speech"),
+    ("Почему никто не проверяет эту информацию?", "question"),
+])
+def test_speech_attribution_never_becomes_verified_fact(quote, kind):
+    result = build_evidence_records(video_id=VID,
+        timeline_report=report(quote), transcript_rows=[row(quote)])
+    assert result["evidence_records"][0]["statement_kind"] == kind
+    assert result["evidence_records"][0]["factual_truth_verified"] is False
