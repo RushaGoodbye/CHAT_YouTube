@@ -12826,13 +12826,29 @@ class MainWindow(QMainWindow):
         )
         nas_transcript = transcript_dir / f"{video_id}.srt"
 
+        # G1: never trust a NAS caption file by filename alone. Require the
+        # original acquisition record and a matching byte hash before use.
+        nas_source_audit = None
         if nas_transcript.exists():
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except Exception:
-                transcript_rows = []
+            from .seo_caption_manifest import audit_caption_file
+
+            nas_source_audit = audit_caption_file(
+                video_id=video_id,
+                path=nas_transcript,
+                duration_s=duration_seconds,
+            )
+            if nas_source_audit["status"] != "BLOCKED_SOURCE":
+                try:
+                    transcript_rows = load_srt_transcript(nas_transcript)
+                    if transcript_rows:
+                        transcript_source = "nas-srt-verified"
+                except Exception:
+                    transcript_rows = []
+            elif on_progress is not None:
+                on_progress(
+                    "NAS SRT без підтвердженого джерела: "
+                    "перевіряємо субтитри безпосередньо через YouTube"
+                )
 
         if not transcript_rows:
             try:
@@ -12869,6 +12885,56 @@ class MainWindow(QMainWindow):
                         transcript_source = "yt-dlp-captions"
                 except Exception:
                     transcript_rows = []
+
+        # Direct YouTube captions are recorded on acquisition, never relabeled
+        # from NAS filenames. A failed preflight blocks SEO rather than
+        # silently approving a mismatched transcript.
+        if transcript_rows and transcript_source in {
+            "youtube-transcript-api", "yt-dlp-captions",
+        }:
+            from .seo_caption_acquisition import acquire_caption_rows
+
+            source_audit = acquire_caption_rows(
+                video_id=video_id,
+                rows=transcript_rows,
+                duration_s=duration_seconds,
+                cache_dir=self.data_dir / "verified_seo_captions",
+            )
+            if source_audit["status"] == "BLOCKED_SOURCE":
+                raise RuntimeError(
+                    "Субтитри YouTube не пройшли G1 перевірку джерела: "
+                    + ", ".join(source_audit.get("issues", []))
+                )
+
+        # Cross-transport comparison is independent of the SRT filename and
+        # remains review-only. An explicit conflict blocks SEO generation.
+        # Without a second caption transport, never claim content corroboration.
+        caption_comparison = None
+        if transcript_rows:
+            from .seo_caption_corroboration import compare_caption_rows
+
+            reference_rows = []
+            try:
+                if transcript_source == "youtube-transcript-api" and context.get("_caption_tracks"):
+                    reference_rows = fetch_transcript_from_public_metadata(
+                        context, timeout=15.0 if fast_mode else 25.0,
+                    )
+                elif transcript_source in {"yt-dlp-captions", "nas-srt-verified"}:
+                    reference_rows = fetch_transcript(video_id)
+            except Exception:
+                reference_rows = []
+            caption_comparison = compare_caption_rows(transcript_rows, reference_rows)
+            if caption_comparison["status"] == "BLOCKED_SOURCE":
+                raise RuntimeError(
+                    "G1: субтитри з різних джерел суперечать один одному: "
+                    + str(caption_comparison.get("reason", "CAPTION_CONTENT_CONFLICT"))
+                )
+            context["caption_corroboration"] = caption_comparison.get("reason")
+            if on_progress is not None:
+                on_progress(
+                    "G1 перевірка субтитрів: "
+                    + str(caption_comparison.get("reason", "NEEDS_REVIEW"))
+                )
 
         transcript = transcript_sample_text(
             transcript_rows,
