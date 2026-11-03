@@ -80,6 +80,7 @@ def test_quote_spanning_rows_requires_block_text():
     r1 = row("The city council voted today",0)
     r2 = row("about new bus lanes",4)
     result = build_evidence_records(video_id=VID,
-        timeline_report=report(q),transcript_rows=[r1,r2])
-    assert result["evidence_records"] == []
-    assert result["rejected_evidence"][0]["reason"] == "QUOTE_NOT_IN_SOURCE"
+        timeline_report=report(q, end=8.0),transcript_rows=[r1,r2])
+    assert len(result["evidence_records"]) == 1
+    assert result["evidence_records"][0]["timestamp_precision"] == "timeline_block"
+    assert result["evidence_records"][0]["factual_truth_verified"] is False
