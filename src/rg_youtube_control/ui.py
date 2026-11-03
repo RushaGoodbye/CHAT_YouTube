@@ -13011,7 +13011,8 @@ class MainWindow(QMainWindow):
                     f"(непідтверджені блоки: {missing}). "
                     "SEO-пакет не створено, потрібна редакторська перевірка."
                 )
-            transcript = evidence_outline_text(evidence_report)
+            from .seo_evidence_records import grounded_evidence_outline
+            transcript = grounded_evidence_outline(source_records)
             # Persist the complete topic/evidence map independently of the
             # published description, so no overlooked dialogue disappears.
             report_dir = self.data_dir / "seo_evidence"
