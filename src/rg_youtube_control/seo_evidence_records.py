@@ -83,9 +83,9 @@ def build_evidence_records(
                     str(row.get("text") or "") for row in rows
                     if start <= float(row.get("start") or 0) <= end
                 ))
-                if quote.casefold() not in block_text.casefold() and (
-                    quote.casefold() not in window.casefold()
-                ):
+                # Never trust model-authored block text as source evidence:
+                # only the original timestamped caption rows establish quotes.
+                if quote.casefold() not in window.casefold():
                     rejected.append({"block": block.get("index"), "reason": "QUOTE_NOT_IN_SOURCE"})
                     continue
                 duration = max(0.0, end - start)
