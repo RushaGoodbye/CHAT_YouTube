@@ -110,3 +110,17 @@ def test_speech_attribution_never_becomes_verified_fact(quote, kind):
         timeline_report=report(quote), transcript_rows=[row(quote)])
     assert result["evidence_records"][0]["statement_kind"] == kind
     assert result["evidence_records"][0]["factual_truth_verified"] is False
+
+
+def test_partial_block_grounding_is_not_reported_as_complete():
+    supported = "A city resident discusses public bus transport."
+    unsupported = "A completely invented claim about an unknown event."
+    blocks = [report(supported)["blocks"][0],
+              report(unsupported, index=2, start=20.0, end=24.0)["blocks"][0]]
+    batch = {"blocks_analyzed": 2, "blocks_with_evidence": 2, "blocks": blocks}
+    result = build_evidence_records(video_id=VID, timeline_report=batch,
+                                    transcript_rows=[row(supported, 0.0),
+                                                     row("Some other topic is discussed.", 20.0)])
+    assert result["blocks_without_grounded_quotes"] == [2]
+    assert result["complete_evidence_coverage"] is False
+    assert len(result["evidence_records"]) == 1
