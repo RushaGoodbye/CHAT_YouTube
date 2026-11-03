@@ -60,3 +60,12 @@ Add source provenance manifests with ID, URL and verification evidence to acquis
 - AlexPC: **44/44 isolated unit tests PASS** and modified `ui.py` syntax compile PASS at commit a8b08b46a7926ff5f614bb99a9defad9d0b6779f. No release installation.
 - Remaining G1: full GUI runtime smoke, caption translation/locale mismatch safety, mixed-video independent-content results, and runtime launch with installed app. Avoid changing published video metadata.
 - Plan audit: G0 PASS, G1 IN DEVELOPMENT, G2–G6 NOT STARTED.
+
+
+## G1 checkpoint 6 — cross-transport verification and staged GUI import
+- New `seo_caption_corroboration.py` compares independently requested caption tracks by multiple timeline windows, shared cue text, distinct word evidence, and timestamp offsets. Script-language mismatch is explicitly review-only, not a false content-conflict block.
+- Real read-only tests (AlexPC): MEitKm687xo Transcript API vs yt-dlp 4/4 corroborated; its historical wrong NAS SRT backup BLOCKED_SOURCE, 0/4 windows; pUWdQ8k6e4g 8/8 corroborated; GQL6N4jQpI8 8/8 corroborated. This is cross-transport corroboration, **not** direct audio verification.
+- Integrated compare gate into `ui.py` before the SEO generator call. Explicit content/timeline conflicts block; missing alternate track remains NEEDS_REVIEW. All read-only.
+- Staged application UI import in isolated copy of 33 Python modules succeeded with `QT_QPA_PLATFORM=offscreen` and `MainWindow` class available; the installed GUI was NOT started, so live click-through is still unverified.
+- **45/45 tests PASS** on AlexPC at commit 35f460d76eae37c8195f11ad1ba160e6c5dcbdba, staged UI import PASS.
+- Control: G0 PASS, G1 IN DEVELOPMENT until GUI workflow + caption language/translation false-positive review and failure paths are accepted; G2–G6 NOT STARTED. No app replacement, no YouTube mutations.
