@@ -41,3 +41,12 @@ Add source provenance manifests with ID, URL and verification evidence to acquis
 - Live read-only trials from YouTube with recorded metadata: `MEitKm687xo` 593 seconds/165 cues, `pUWdQ8k6e4g` 2634 seconds/1248 cues, `GQL6N4jQpI8` 2285 seconds/1073 cues. All returned `NEEDS_REVIEW` and `TOPIC_MATCH_UNVERIFIED`, not editorial approval. Video ID and duration were used from direct YouTube retrieval, never from legacy filename.
 - Known remaining G1 blockers: independent topic/audio match validation, language plausibility checks, full installed GUI smoke/integration tests; acquiring captions only by requested video ID cannot guarantee transcript accuracy. These tests do not approve an installer.
 - Audit against G0–G6: **G0 PASS; G1 IN DEVELOPMENT; G2–G6 NOT STARTED.** No external YouTube metadata write. No working app replacement.
+
+
+## G1 checkpoint 4 — language plausibility, heterogeneous real inputs
+- Added conservative script plausibility and repeated/empty transcript signals in `seo_source_integrity.py`. Signals never serve as language identification, factual proof, or automatic editorial approval.
+- Added 6 regression tests for Ukrainian/Russian mixed dialogue, English speech, sparse input, repeated captions and normal varied transcripts.
+- At commit 07a1160c4f1aa4c7818407f737cfdfe855fd8117, AlexPC isolated QA: **36/36 PASS** (0.26 seconds).
+- Live verification of persisted direct YouTube captions: MEitKm687xo (165 cues), pUWdQ8k6e4g (1248), GQL6N4jQpI8 (1073). All **NEEDS_REVIEW**, topic evidence **TOPIC_MATCH_UNVERIFIED**, no anomalous script or repeated-caption signals. This does NOT independently compare audio to captions.
+- Checkpoint result: G0 PASS, G1 IN DEVELOPMENT, G2–G6 NOT STARTED. Remaining G1: validate real GUI workflow and independently ground content match rather than treating source ID alone as semantic proof.
+- Release gate CLOSED. No installed application update or YouTube changes.
