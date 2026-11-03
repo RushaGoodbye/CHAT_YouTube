@@ -59,8 +59,11 @@ def build_editorial_review_packet(
 def independent_llm_critique(
     *, packet: dict[str, Any], chat: Callable[..., str], model: str,
     max_records: int = 30, timeout: float = 75.0,
+    generator_model: str | None = None,
 ) -> dict[str, Any]:
     """Return reviewer suggestions only; never set a pass/approval state."""
+    if generator_model and generator_model.casefold() == model.casefold():
+        raise ValueError("CRITIC_MUST_DIFFER_FROM_GENERATOR")
     findings = []
     for item in packet.get("records", [])[:max_records]:
         request = {
