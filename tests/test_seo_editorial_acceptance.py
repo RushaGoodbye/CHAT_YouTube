@@ -78,3 +78,17 @@ def test_same_generator_and_critic_cannot_be_called_independent():
     with pytest.raises(ValueError,match="CRITIC_MUST_DIFFER_FROM_GENERATOR"):
         independent_llm_critique(packet=packet,chat=lambda *a,**k:'{}',
             model="rg-gemma4-12b",generator_model="RG-GEMMA4-12B")
+
+
+def test_long_editorial_context_preserves_quote_near_middle():
+    data=sample()
+    q=data["evidence_records"][0]["verbatim_quote"]
+    rows=[{"text":"an unrelated preceding discussion with many details "+str(i),
+           "start":i*0.15,"duration":0.1} for i in range(90)]
+    rows.append({"text":q,"start":10,"duration":4})
+    rows.extend({"text":"some later speech "+str(i),"start":15+i*0.1,"duration":0.1}
+                for i in range(100))
+    packet=build_editorial_review_packet(video_id=VID,source_records=data,transcript_rows=rows)
+    context=packet["records"][0]["source_context"]
+    assert q in context
+    assert len(context) <= 2500
