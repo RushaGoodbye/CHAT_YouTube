@@ -46,6 +46,16 @@ def compare_caption_rows(
         r_cues = all_cues(reference)
         global_exact = len(p_cues & r_cues) / max(1, min(len(p_cues), len(r_cues)))
         require_timeline_agreement = global_exact >= 0.60
+        if require_timeline_agreement:
+            def cue_times(rows: list[dict[str, Any]]) -> dict[str, float]:
+                return {" ".join(_words(str(row["text"]))): float(row["start"])
+                        for row in rows if row.get("text")}
+            p_times = cue_times(primary)
+            r_times = cue_times(reference)
+            shifts = sorted(abs(p_times[k] - r_times[k]) for k in p_times.keys() & r_times.keys())
+            if len(shifts) >= 8 and shifts[len(shifts)//2] > 15:
+                return {"status": "BLOCKED_SOURCE", "reason": "CAPTION_TIMELINE_CONFLICT",
+                        "publication_allowed": False}
         outcomes: list[float] = []
         total_tokens = 0
         for window in range(window_count):
