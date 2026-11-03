@@ -81,3 +81,30 @@ def test_different_subject_same_generic_gate(tmp_path):
     p = set_up(tmp_path)
     assert audit_caption_file(video_id=VID, path=p, duration_s=62,
                               verified_topic_anchors=("unrelated",))["status"] == "BLOCKED_SOURCE"
+
+
+def test_url_spoofing_cannot_fake_provenance(tmp_path):
+    p = set_up(tmp_path)
+    record = p.with_suffix(".source.json")
+    value = json.loads(record.read_text())
+    value["source_url"] = f"https://evil.example.com/redirect?v={VID}"
+    record.write_text(json.dumps(value))
+    assert audit(p)["status"] == "BLOCKED_SOURCE"
+
+
+def test_url_id_mismatch_does_not_accept_id_elsewhere(tmp_path):
+    p = set_up(tmp_path)
+    record = p.with_suffix(".source.json")
+    value = json.loads(record.read_text())
+    value["source_url"] = f"https://www.youtube.com/watch?v={OTHER}&note={VID}"
+    record.write_text(json.dumps(value))
+    assert audit(p)["status"] == "BLOCKED_SOURCE"
+
+
+def test_invalid_acquisition_time_blocks(tmp_path):
+    p = set_up(tmp_path)
+    record = p.with_suffix(".source.json")
+    value = json.loads(record.read_text())
+    value["acquired_at"] = "2026-11-03"
+    record.write_text(json.dumps(value))
+    assert audit(p)["status"] == "BLOCKED_SOURCE"
