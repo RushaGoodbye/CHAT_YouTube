@@ -14196,6 +14196,8 @@ class MainWindow(QMainWindow):
         elif draft_filter:
             query += " AND c.draft_state=?"
             params.append(str(draft_filter))
+            if draft_filter == "review":
+                query += " AND c.status='new'"
         query += " ORDER BY c.published_at DESC LIMIT 500"
 
         rows = self.conn.execute(query, tuple(params)).fetchall()
@@ -14219,6 +14221,7 @@ class MainWindow(QMainWindow):
             draft_text = str(row["reply_text"] or "")
             state_label = {
                 "ready": "ГОТОВО",
+                "review": "REVIEW",
                 "skipped": "SKIP",
                 "error": "ПОМИЛКА",
                 "": "",
@@ -14265,6 +14268,7 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.ItemDataRole.UserRole, draft_state)
                     state_color = {
                         "ready": SUCCESS,
+                        "review": WARNING,
                         "skipped": WARNING,
                         "error": YOUTUBE_RED,
                     }.get(draft_state, MUTED)
