@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .lm_studio_client import ensure_local_server
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -6479,9 +6480,9 @@ class MainWindow(QMainWindow):
             f"Шлях транскриптів: {nas_path}",
             f"yt-dlp: {'OK' if yt.get('available') else '—'}",
             f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"LM Studio: {'OK' if ol.get('available') else '—'}",
             f"PowerShell (вбудований): {ps_label}",
-            f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
+            f"Локальна модель: {'OK' if model.get('available') else '—'}",
             (
                 "YouTube API: "
                 f"залишилось {int(budget['remaining']):,}; "
@@ -12675,7 +12676,7 @@ class MainWindow(QMainWindow):
                 + ("OK" if yt.get("available") else "—")
                 + " · transcript: "
                 + ("OK" if tr.get("available") else "—")
-                + " · Ollama: "
+                + " · LM Studio: "
                 + ("OK" if ol.get("available") else "—")
                 + " · "
                 + DEFAULT_OLLAMA_MODEL
@@ -12904,6 +12905,19 @@ class MainWindow(QMainWindow):
                 f"з ім'ям {video_id}.srt. "
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
+
+        # Recover the local model server once before multi-block SEO work.
+        # This does not touch YouTube or spend API quota.
+        if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "lmstudio":
+            if on_progress is not None:
+                on_progress("Перевірка LM Studio · локальна Qwen · API 0")
+            local_model = ensure_local_server()
+            if not (local_model.get("available") and local_model.get("model_selected")):
+                raise RuntimeError(
+                    "LM Studio недоступна або модель не завантажена. "
+                    "Запустіть LM Studio та завантажте Qwen3 14B. "
+                    "SEO-чернетку не створено, YouTube не змінено."
+                )
 
         # Complete timeline analysis runs only in manual single-video mode.
         # Batch remains lightweight and review-only until the full workflow
