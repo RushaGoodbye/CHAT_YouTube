@@ -56,8 +56,10 @@ def test_malformed_metadata_blocks():
 
 
 def test_translated_subtitles_are_review_not_false_conflict():
-    a = make_rows("міський транспорт і його тарифи")
-    b = make_rows("municipal fares and bus tickets for residents")
+    a = [{"text": f"Міський транспорт та вартість поїздки для мешканців {i}",
+          "start": i * 4.0, "duration": 3.5} for i in range(160)]
+    b = [{"text": f"Municipal fares and bus tickets for residents {i}",
+          "start": i * 4.0, "duration": 3.5} for i in range(160)]
     outcome = compare_caption_rows(a, b)
     assert outcome["status"] == "NEEDS_REVIEW"
     assert outcome["reason"] == "CAPTION_LANGUAGE_MISMATCH"
