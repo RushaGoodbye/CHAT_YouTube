@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
+from .lm_studio_client import ensure_local_server
 from .comment_action_ai import review_comment_actions_local
 from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies, generate_personal_reply_preview
 from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting, save_comment_draft
@@ -19,6 +20,9 @@ class _PersonalReplyWorker(QThread):
 
     def run(self):
         try:
+            if not ensure_local_server().get('available'):
+                self.completed.emit({'status': 'LOCAL_MODEL_UNAVAILABLE', 'reply': ''})
+                return
             result = generate_personal_reply_preview(self.comment_text)
         except Exception:
             result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
@@ -27,13 +31,17 @@ class _PersonalReplyWorker(QThread):
 
 class _BatchPersonalRepliesWorker(QThread):
     progress = Signal(int, int)
-    completed = Signal(list)
+    completed = Signal(dict)
 
     def __init__(self, rows, parent=None):
         super().__init__(parent)
         self.rows = rows
 
     def run(self):
+        status = ensure_local_server()
+        if not status.get('available') or not status.get('model_selected'):
+            self.completed.emit({'results': [], 'error': 'LM Studio недоступна або модель не обрана.'})
+            return
         results = []
         for index, (comment_id, comment_text) in enumerate(self.rows, 1):
             try:
@@ -42,7 +50,7 @@ class _BatchPersonalRepliesWorker(QThread):
                 result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
             results.append((comment_id, result))
             self.progress.emit(index, len(self.rows))
-        self.completed.emit(results)
+        self.completed.emit({'results': results, 'error': ''})
 
 
 ACTION_LABELS = {
@@ -390,14 +398,20 @@ def install_comment_action_ui(window) -> None:
         def update_progress(done, total):
             batch_personalized.setText(f"AI чернетки {done}/{total}…")
 
-        def finished(results):
+        def finished(payload):
             batch_personalized.setEnabled(True)
             batch_personalized.setText("AI чернетки x20 · LM Studio")
+            if payload.get('error'):
+                QMessageBox.warning(window, 'AI чернетки', payload['error'] + '\nЖоден коментар не змінено.')
+                return
             saved = rejected = 0
-            for comment_id, result in results:
+            reasons = {}
+            for comment_id, result in payload['results']:
                 reply = str(result.get("reply") or "").strip()
                 if not reply:
                     rejected += 1
+                    label = str(result.get('reason') or result.get('status') or 'unknown')
+                    reasons[label] = reasons.get(label, 0) + 1
                     continue
                 reason = ("lm_studio_fact_check_required"
                           if result.get("status") == "FACT_CHECK_REQUIRED"
@@ -409,7 +423,7 @@ def install_comment_action_ui(window) -> None:
                     rejected += 1
             window.reload_comments()
             QMessageBox.information(window, "AI чернетки",
-                f"Збережено для REVIEW: {saved}\\nВідхилено: {rejected}\\nОпубліковано: 0")
+                f"Збережено для REVIEW: {saved}\nВідхилено: {rejected}\nОпубліковано: 0\nПричини: {reasons}")
 
         worker.progress.connect(update_progress)
         worker.completed.connect(finished)
