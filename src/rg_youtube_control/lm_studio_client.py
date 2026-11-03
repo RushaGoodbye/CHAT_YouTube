@@ -154,12 +154,21 @@ def ensure_local_server() -> dict[str, Any]:
     executable = Path.home() / ".lmstudio" / "bin" / "lms.exe"
     if not executable.is_file():
         return status
-    try:
+    def run_local(*args: str) -> None:
         subprocess.run(
-            [str(executable), "server", "start"],
+            [str(executable), "server", *args],
             timeout=25, check=False, capture_output=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+
+    try:
+        run_local("start", "--bind", "127.0.0.1", "--port", "1234")
+        status = probe_lm_studio()
+        if status.get("available"):
+            return status
+        # The CLI may report 'running' while the API is not bound to loopback.
+        run_local("stop")
+        run_local("start", "--bind", "127.0.0.1", "--port", "1234")
     except (OSError, subprocess.TimeoutExpired):
         return status
     return probe_lm_studio()
