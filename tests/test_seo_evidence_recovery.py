@@ -79,3 +79,22 @@ def test_retry_cap_rejects_unbounded_attempts():
     with pytest.raises(ValueError,match="INVALID_RECOVERY_ATTEMPTS"):
         recover_missing_source_blocks(video_id=VID,timeline_report=report,
             transcript_rows=rows,chat=chat,model="local",max_attempts=5)
+
+
+def test_second_attempt_uses_different_source_quote():
+    rows, report = fixture()
+    rows.append({"text": "People in our schools also request additional safety measures this year.",
+                 "start": 31.0, "duration": 2.0})
+    prompts = []
+    def conditional_chat(messages, **kw):
+        prompts.append(messages[-1]["content"])
+        if len(prompts) == 1:
+            return '{"topic":"","summary_uk":""}'
+        return json.dumps({"topic":"Безпека шкіл",
+                           "summary_uk":"Співрозмовник розмірковує про заходи безпеки у школах."})
+    outcome = recover_missing_source_blocks(video_id=VID,timeline_report=report,
+        transcript_rows=rows,chat=conditional_chat,model="local",max_attempts=2)
+    assert outcome["complete_evidence_coverage"]
+    assert outcome["recovery"]["model_calls"] == 2
+    assert prompts[0] != prompts[1]
+    assert outcome["publication_allowed"] is False
