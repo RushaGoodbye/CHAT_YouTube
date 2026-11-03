@@ -41,3 +41,11 @@ Plan audit: G0 PASS; G1 staging PASS; G2 technical source-evidence PASS on 3 exa
   - Overall **14 low / 6 medium / 3 high**. Each JSON critique stored beside its corresponding editorial card as `<video_id>.critic.json`. No item was approved, and no publication flag changed.
 - An AI reviewer, even a separate model, is NOT a human editorial score. **G2 editor sign-off is still missing**. Investigate 9 medium/high items first, then sample low-risk items. Do not promote G3 or approve installer based on this risk scan.
 - No installed app changes, YouTube metadata changes or publications.
+
+
+## G2 checkpoint 5 — risk review triage on real contested cases
+- Reviewed all **9 medium/high Qwen review cards** with their original verbatim quote, local source context, candidate topic/summary and critic objections. Found common failure categories: unsupported geographic specificity, name transcription mismatch, invented causes/motives, excessive generalization, insufficient qualification, and missing dialogue context. Some critic complaints contradict the quoted speech; risk flags are **unverified reviewer suggestions**, not editorial facts.
+- New universal module `seo_editorial_triage.py` assembles a per-video decision queue prioritizing high then medium then low, preserving context and all critic objections. It rejects incomplete or duplicate critic results and wrong video IDs. Does NOT approve any item, change topics, or publish anything.
+- Generated 3 read-only triage reports and one consolidated `G2_PRIORITY_REVIEW_9.json` on AlexPC under `C:/RG_YT_AGENT_RUNNER/SEO_G1_CHECK/g2_editorial_review` (MEit 1 priority, pUW 4, GQL 4). The queue is review-ready, all decisions unset.
+- Added 5 triage regression tests and included them in dedicated CI workflow. **90/90 combined G1+G2 tests PASS** on AlexPC in 1.59 s.
+- Control: G0 PASS; G1 STAGING PASS; G2 evidence and technical regression PASS but human subject-fidelity review remains **NOT ACCEPTED**, G3–G6 not started. No changes to installed app or YouTube.
