@@ -60,3 +60,10 @@ Plan audit: G0 PASS; G1 staging PASS; G2 technical source-evidence PASS on 3 exa
 - Independently checked all seven Qwen revision proposals with distinct loaded Gemma-4-12B. Risk-only critic labels **7 low**, no auto-approvals. These seven were not promoted into published metadata and require human content checks. Stored in `G2_REVISION_SECOND_MODEL_REVIEW.json` beside the original SRT reviewer cards.
 - **96/96 combined G1+G2 tests PASS** on AlexPC (1.60 seconds), including five new revision tests and source-centered context regression. GitHub workflow updated to cover revision.
 - G2 editorial acceptance STILL OPEN: no verified human scoring, two blocked proposals, and human reference set of 30–50 diverse videos plus 10 holdout not completed. G3–G6 NOT STARTED. No installed app changes, YouTube mutations or publication.
+
+
+## G2 checkpoint 7 — bounded repair retry corrected and verified
+- Fixed an accidental stale exception handler left after editing `seo_editorial_revision.py` (commit `573f302`). Added exactly one corrective model retry for malformed JSON, invalid title/summary lengths, or ungrounded numeric claims. No content is accepted from a failed attempt.
+- Initial live AlexPC regression exposed an over-escaped regex that failed to recognize novel numbers. Corrected it (commit `a0a8a5f`). Confirmed two new regression cases: invalid JSON recovers on second attempt, and generated number 999 is removed instead of being accepted.
+- All **98/98 staged G1+G2 tests PASS on AlexPC** (1.58 seconds), including the retry tests. The original installed application and YouTube were not changed.
+- **Important distinction:** test PASS is not G2 editorial acceptance. The two historically blocked live-model cards have not yet passed a fresh real-model retry; continue recording them as unresolved until a successful new live test demonstrates otherwise.
