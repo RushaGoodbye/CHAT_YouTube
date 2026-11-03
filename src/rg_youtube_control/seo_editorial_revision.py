@@ -106,10 +106,3 @@ def propose_editorial_revision(
         "editorial_approved": False,
         "publication_allowed": False,
     }
-        return {"status": "REVIEW_REQUIRED",
-                "proposal": {"topic": topic, "summary_uk": summary},
-                "verbatim_quote_unchanged": quote,
-                "editorial_approved": False, "publication_allowed": False}
-    except (ValueError, TypeError, KeyError, RuntimeError, TimeoutError, OSError):
-        return {"status": "BLOCKED_REPAIR_FAILURE", "proposal": None,
-                "editorial_approved": False, "publication_allowed": False}
