@@ -19,7 +19,7 @@ def compare_caption_rows(
     reference: list[dict[str, Any]],
     *,
     min_tokens: int = 70,
-    min_coverage: float = 0.58,
+    min_coverage: float = 0.80,
     min_windows: int = 3,
 ) -> dict[str, Any]:
     """Fail closed on clearly incompatible caption content.
@@ -55,9 +55,23 @@ def compare_caption_rows(
             total_tokens += min(len(a), len(b))
             if min(len(a), len(b)) < 8:
                 continue
+            # Exact cue correspondence is the strongest transport signal.
+            def cue_texts(rows: list[dict[str, Any]]) -> set[str]:
+                return {" ".join(_words(str(r["text"]))) for r in rows
+                        if lo <= float(r["start"]) < hi and r.get("text")}
+            a_cues = cue_texts(primary)
+            b_cues = cue_texts(reference)
+            exact = len(a_cues & b_cues) / max(1, min(len(a_cues), len(b_cues)))
+            # A high lexical match can corroborate different segmentation, but
+            # shared filler must not hide different subjects.
             ac, bc = Counter(a), Counter(b)
-            overlap = sum((ac & bc).values())
-            outcomes.append(overlap / min(len(a), len(b)))
+            overlap = sum((ac & bc).values()) / min(len(a), len(b))
+            a_content = {w for w in a if len(w) >= 5 and not w.isdecimal()}
+            b_content = {w for w in b if len(w) >= 5 and not w.isdecimal()}
+            unique_match = (len(a_content & b_content) /
+                            max(1, min(len(a_content), len(b_content))))
+            score = max(exact, min(overlap, unique_match))
+            outcomes.append(score)
         if total_tokens < min_tokens or len(outcomes) < min_windows:
             return {"status": "NEEDS_REVIEW", "reason": "INSUFFICIENT_COMPARISON_EVIDENCE",
                     "matched_windows": len(outcomes), "publication_allowed": False}
