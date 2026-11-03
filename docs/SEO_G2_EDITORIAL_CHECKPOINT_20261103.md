@@ -21,3 +21,10 @@ Master plan: docs/SEO_UNIVERSAL_WORK_PLAN.md; issue #169. Development PR #171.
 4. Only close G2 with documented manual accuracy, coverage, error categories, and rollback conditions.
 
 Plan audit: G0 PASS; G1 staging PASS; G2 technical source-evidence PASS on 3 examples, editorial review **NOT ACCEPTED**; G3–G6 NOT STARTED.
+
+
+## Recovery verification after Runner restart (2026-11-03)
+- AlexPC remote execution is functioning again. Self-hosted YouTube runner is online: `C:/RG_YT_AGENT_RUNNER/actions-runner/bin/Runner.Listener.exe` (PID 19544). Local LM Studio server running on port 1234 with `rg-gemma4-12b` loaded.
+- Synced editorial acceptance module and tests to isolated AlexPC staging. **85/85 G1+G2 tests PASS** in 2.11 seconds. This specifically supersedes the previous checkpoint's 'new tests unverified' issue.
+- Exported 23 editor review items from the three real source-grounded video records: `MEitKm687xo` 3, `pUWdQ8k6e4g` 10, `GQL6N4jQpI8` 10. Files stay locally on AlexPC under `C:/RG_YT_AGENT_RUNNER/SEO_G1_CHECK/g2_editorial_review/<video_id>.editorial.json`. Each includes original quote, local SRT context, topic and summary, empty human scores. All editorial_approved=false, publication_allowed=false.
+- G2 editorial correctness is NOT yet accepted; 23 cards exist but no human editorial labels have been entered. Second-model review not yet run. Next stage: independent critic and human-scored representative set; G3–G6 remain closed.
