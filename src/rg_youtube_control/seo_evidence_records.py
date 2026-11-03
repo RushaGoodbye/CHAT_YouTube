@@ -110,6 +110,14 @@ def build_evidence_records(
             })
     covered = int(timeline_report.get("blocks_analyzed") or 0)
     verified = int(timeline_report.get("blocks_with_evidence") or 0)
+    # A model may mark a block as 'verified' even though no quotation survives
+    # the original-caption check. Preserve the missing block IDs explicitly.
+    expected_ids = {
+        b.get("index") for b in (timeline_report.get("blocks") or [])
+        if isinstance(b, dict) and b.get("index") is not None
+    }
+    grounded_ids = {r["block_index"] for r in records}
+    missing_ids = sorted(expected_ids - grounded_ids, key=str)
     return {
         "schema": "RG_UNIVERSAL_EVIDENCE_V1",
         "video_id": video_id,
@@ -117,6 +125,8 @@ def build_evidence_records(
         "blocks_with_evidence": verified,
         "evidence_records": records,
         "rejected_evidence": rejected,
+        "blocks_without_grounded_quotes": missing_ids,
+        "complete_evidence_coverage": bool(expected_ids) and not missing_ids,
         "needs_review": True,
         "publication_allowed": False,
     }
