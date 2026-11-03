@@ -43,3 +43,42 @@ def test_critic_objections_never_override_source():
     result=propose_editorial_revision(card=card(),model="local",chat=model)
     assert result["status"]=="REVIEW_REQUIRED"
     assert result["publication_allowed"] is False
+
+
+def test_second_attempt_repairs_invalid_json():
+    calls = []
+    def chat(messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return "not json"
+        return json.dumps({
+            "topic": "Закриття деяких магазинів",
+            "summary_uk": "Співрозмовник каже, що деякі магазини закрилися."
+        })
+    outcome = propose_editorial_revision(card=card(), chat=chat, model="local")
+    assert outcome["status"] == "REVIEW_REQUIRED"
+    assert outcome["attempts"] == 2
+    assert len(calls) == 2
+    assert outcome["editorial_approved"] is False
+
+
+def test_second_attempt_removes_unsupported_number():
+    calls = []
+    def chat(messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps({
+                "topic": "Закриття 999 магазинів",
+                "summary_uk": "Співрозмовник повідомляє про закриття 999 магазинів."
+            })
+        assert "UNSUPPORTED_NUMBERS" in messages[-1]["content"]
+        return json.dumps({
+            "topic": "Закриття деяких магазинів",
+            "summary_uk": "Співрозмовник каже про закриття кількох магазинів одягу."
+        })
+    outcome = propose_editorial_revision(card=card(), chat=chat, model="local")
+    assert outcome["status"] == "REVIEW_REQUIRED"
+    assert outcome["attempts"] == 2
+    assert "999" not in str(outcome["proposal"])
+    assert len(calls) == 2
+    assert outcome["publication_allowed"] is False
