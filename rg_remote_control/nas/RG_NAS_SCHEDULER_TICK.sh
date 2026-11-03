@@ -3,7 +3,6 @@ set -eu
 
 ROOT="/volume1/docker"
 STATE="$ROOT/RG_NAS_STATE"
-EXECUTOR="rg-nas-autodeploy"
 LOG="$STATE/auto-deploy.log"
 
 mkdir -p "$STATE"
@@ -20,26 +19,62 @@ if docker inspect rg-nas-autodeploy >/dev/null 2>&1; then
   printf '%s\n' "$NOW" > "$STATE/obsolete_autodeploy_removed_at"
 fi
 
+TELEGRAM_CHECK_FAILED=0
+# Unique temporary path prevents concurrent task runs from mixing failure lists.
+FAILED_TMP="$STATE/telegram_scheduler_components_failed.$$"
+trap 'rm -f "$FAILED_TMP"' EXIT
+trap 'exit 1' HUP INT TERM
+: > "$FAILED_TMP"
 if [ -f "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" ]; then
-  sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || true
+  sh "$ROOT/RG_TELEGRAM_CONTROL_AGENT.sh" >> "$STATE/rg-telegram-control-agent.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_agent >> "$FAILED_TMP"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo control_agent_missing >> "$FAILED_TMP"
 fi
 
 if [ -f "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" ]; then
-  sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1 || true
+  sh "$ROOT/RG_NAS_TELEGRAM_WATCHDOG.sh" >> "$STATE/telegram-watchdog.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo watchdog >> "$FAILED_TMP"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo watchdog_missing >> "$FAILED_TMP"
 fi
 if [ -f "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" ]; then
-  sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || true
+  sh "$ROOT/RG_NAS_TELEGRAM_CONTROL_PLANE.sh" >> "$STATE/telegram-control-plane.log" 2>&1 || { TELEGRAM_CHECK_FAILED=1; echo control_plane >> "$FAILED_TMP"; }
+else
+  TELEGRAM_CHECK_FAILED=1
+  echo control_plane_missing >> "$FAILED_TMP"
 fi
 
 if [ -f "$ROOT/RG_NAS_COMMAND_BUS.sh" ]; then
   if sh -n "$ROOT/RG_NAS_COMMAND_BUS.sh" >/dev/null 2>&1; then
-    sh "$ROOT/RG_NAS_COMMAND_BUS.sh" >> "$STATE/nas-command-bus.log" 2>&1 || true
-    rm -f "$STATE/nas_command_bus_error" 2>/dev/null || true
+    if sh "$ROOT/RG_NAS_COMMAND_BUS.sh" >> "$STATE/nas-command-bus.log" 2>&1; then
+      rm -f "$STATE/nas_command_bus_error" 2>/dev/null || true
+    else
+      printf '%s\n' "command_bus_runtime_error" > "$STATE/nas_command_bus_error"
+      TELEGRAM_CHECK_FAILED=1
+      echo command_bus_runtime >> "$FAILED_TMP"
+    fi
   else
     printf '%s\n' "command_bus_syntax_error" > "$STATE/nas_command_bus_error"
+    TELEGRAM_CHECK_FAILED=1
+    echo command_bus_syntax >> "$FAILED_TMP"
   fi
+else
+  printf '%s\n' "command_bus_missing" > "$STATE/nas_command_bus_error"
+  TELEGRAM_CHECK_FAILED=1
+  echo command_bus_missing >> "$FAILED_TMP"
 fi
 
+# Publish a separate, durable component result: deploy success does not imply Telegram health.
+printf "%s\n" "$NOW" > "$STATE/telegram_scheduler_components_checked_at"
+if [ "$TELEGRAM_CHECK_FAILED" -eq 0 ]; then
+  printf "%s\n" "OK" > "$STATE/telegram_scheduler_components_status"
+  rm -f "$STATE/telegram_scheduler_components_failed"
+else
+  printf "%s\n" "ERROR" > "$STATE/telegram_scheduler_components_status"
+  mv -f "$FAILED_TMP" "$STATE/telegram_scheduler_components_failed"
+fi
+# Remaining per-process temp file is cleaned by EXIT trap.
 # RG_KYIV_SHADOW_POLL_BEGIN
 # Read-only Kyiv alert sampler. It never sends Telegram messages.
 # Ubilling cache and 429 cooldown are enforced inside the Python adapter.
