@@ -70,3 +70,32 @@ def test_ui_malformed_direct_captions_block_generation(ui_runner, monkeypatch):
     with pytest.raises(RuntimeError, match="G1"):
         ui.MainWindow._generate_local_seo_result(worker, VIDEO, fast_mode=True)
     assert calls == []
+
+
+def test_ui_ignores_unverified_nas_file_then_refetches(ui_runner, monkeypatch, tmp_path):
+    worker, calls = ui_runner
+    from rg_youtube_control.db import set_setting
+    connection = connect(worker.data_dir / "rg_youtube_control.db")
+    set_setting(connection, "nas_transcripts_path", str(tmp_path / "nas"))
+    connection.close()
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / (VIDEO + ".srt")).write_text(
+        "1\\n00:00:00,000 --> 00:00:05,000\\nCompletely wrong captions",
+        encoding="utf-8",
+    )
+    result = ui.MainWindow._generate_local_seo_result(worker, VIDEO, fast_mode=True)
+    assert len(calls) == 1
+    assert result["context"]["transcript_source"] == "youtube-transcript-api"
+    assert result["context"]["caption_corroboration"] == "CAPTION_TRANSPORTS_CORROBORATE"
+
+
+def test_ui_blocks_wrong_alternative_timestamps(ui_runner, monkeypatch):
+    worker, calls = ui_runner
+    shifted = [dict(row, start=row["start"] + 320.0)
+               for row in captions("bus fares and rail tickets")]
+    monkeypatch.setattr(ui, "fetch_transcript_from_public_metadata",
+                        lambda *args, **kwargs: shifted)
+    with pytest.raises(RuntimeError, match="суперечать"):
+        ui.MainWindow._generate_local_seo_result(worker, VIDEO, fast_mode=True)
+    assert not calls
