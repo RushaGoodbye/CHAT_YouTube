@@ -60,3 +60,20 @@ def test_wrong_block_quote_blocks_generation(setup):
     with pytest.raises(RuntimeError,match="G2"):
         ui.MainWindow._generate_local_seo_result(worker,VIDEO,fast_mode=False)
     assert generated==[]
+
+
+def test_partial_grounding_blocks_optimistic_draft(setup):
+    worker, generated, monkeypatch = setup
+    valid = report(rows()[2]["text"])
+    valid["blocks_total"] = 2
+    valid["blocks_analyzed"] = 2
+    valid["blocks_with_evidence"] = 2
+    second = {"index": 2, "start": 50.0, "end": 60.0, "verified": True,
+              "topics": [{"topic": "Інша розмова",
+                          "summary_uk": "Учасник стверджує непідтверджені факти.",
+                          "evidence": "Invented statement never present in captions."}]}
+    valid["blocks"].append(second)
+    monkeypatch.setattr(ui, "analyze_all_timeline_blocks", lambda *a, **k: valid)
+    with pytest.raises(RuntimeError, match="G2"):
+        ui.MainWindow._generate_local_seo_result(worker, VIDEO, fast_mode=False)
+    assert not generated
