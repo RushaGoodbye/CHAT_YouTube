@@ -12979,9 +12979,20 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
-            if evidence_report["blocks_with_evidence"] == 0:
+            # G2: every model-proposed claim must carry a quotation found in
+            # this video's original timestamped captions. A quote from another
+            # block or an unsupported model summary never becomes evidence.
+            from .seo_evidence_records import build_evidence_records
+
+            source_records = build_evidence_records(
+                video_id=video_id,
+                timeline_report=evidence_report,
+                transcript_rows=transcript_rows,
+            )
+            evidence_report["source_evidence"] = source_records
+            if not source_records["evidence_records"]:
                 raise RuntimeError(
-                    "Модель не підтвердила жодної теми цитатами з транскрипту. "
+                    "G2: жодної цитати не підтверджено початковими субтитрами. "
                     "SEO-пакет не створено, оригінальні дані збережено."
                 )
             transcript = evidence_outline_text(evidence_report)
