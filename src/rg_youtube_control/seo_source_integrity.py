@@ -47,6 +47,38 @@ def parse_srt(content: str) -> list[CaptionCue]:
     return cues
 
 
+def caption_language_signals(cues: list[CaptionCue]) -> list[str]:
+    """Language *plausibility*, not language identification or proof of origin.
+
+    A dialogue may legitimately switch languages. Never reject its source on
+    weak alphabet heuristics; flag it for human review instead.
+    """
+    if not cues:
+        return []
+    text = " ".join(cue.text for cue in cues)
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return ["NO_SPEECH_LETTERS"]
+    cyrillic = sum("\\u0400" <= c <= "\\u052f" for c in letters)
+    latin = sum(("A" <= c <= "Z") or ("a" <= c <= "z") for c in letters)
+    if (cyrillic + latin) / len(letters) < 0.5:
+        return ["LANGUAGE_SCRIPT_UNCLEAR"]
+    if len(text.strip()) < 100:
+        return ["SPARSE_SPEECH_CONTENT"]
+    return []
+
+
+def caption_repetition_signals(cues: list[CaptionCue]) -> list[str]:
+    """Spot repeated placeholder captions without rejecting legitimate quotes."""
+    if len(cues) < 10:
+        return []
+    normal = [re.sub(r"\\W+", " ", cue.text.casefold()).strip() for cue in cues]
+    distinct = len(set(normal))
+    if distinct <= max(2, len(normal) // 8):
+        return ["REPEATED_CAPTION_CONTENT"]
+    return []
+
+
 def audit_source(
     *,
     requested_video_id: str,
@@ -86,6 +118,9 @@ def audit_source(
             issues.append("NON_MONOTONIC_TIMESTAMPS")
         if cues[-1].end_s / video_duration_s < min_duration_coverage:
             issues.append("INSUFFICIENT_TIMELINE_COVERAGE")
+    # Weak language and repetition anomalies are review flags, never identity
+    # evidence and never an automatic rejection of multilingual dialogues.
+    review_signals = caption_language_signals(cues) + caption_repetition_signals(cues)
     text = " ".join(cue.text for cue in cues).casefold()
     anchors = [str(anchor).strip().casefold() for anchor in verified_topic_anchors
                if len(str(anchor).strip()) >= 4]
@@ -98,6 +133,7 @@ def audit_source(
     return {
         "status": "BLOCKED_SOURCE" if hard else "NEEDS_REVIEW",
         "issues": issues,
+        "review_signals": review_signals,
         "cue_count": len(cues),
         "captions_duration_s": round(cues[-1].end_s, 3) if cues else 0,
         "editorial_approved": False,
