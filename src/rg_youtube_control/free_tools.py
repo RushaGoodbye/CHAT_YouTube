@@ -777,7 +777,16 @@ def _seo_editorial_preview_flags(
     )
     if any(primary.endswith(value) for value in generic_primary):
         flags.append("GENERIC_PRIMARY_TITLE")
-    if sum(any(value in x for value in generic_primary) for x in alternatives) >= 2:
+    vague_ab_question = re.compile(
+        r"(?:про що (?:йдеться|говорили|говорять|кажуть)|"
+        r"що (?:говорять|кажуть) (?:співрозмовники|учасники)|"
+        r"думки учасників розмови|які запитання виникають)"
+    )
+    if sum(
+        any(value in item for value in generic_primary)
+        or bool(vague_ab_question.search(item))
+        for item in alternatives
+    ) >= 2:
         flags.append("GENERIC_AB_VARIANTS")
     if (
         "співрозмовники висловлюють різні версії, особисті оцінки" in desc
