@@ -4317,6 +4317,9 @@ class MainWindow(QMainWindow):
         next_draft_btn = QPushButton("Наступна чернетка")
         next_draft_btn.clicked.connect(self.select_next_ready_comment_draft)
 
+        review_ai_btn = QPushButton("Перевірити AI чернетки")
+        review_ai_btn.clicked.connect(self.show_ai_review_queue)
+
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
 
@@ -4337,6 +4340,7 @@ class MainWindow(QMainWindow):
             reply_btn,
             local_reply_btn,
             next_draft_btn,
+            review_ai_btn,
             ignore_btn,
             queue_btn,
             test_auto_btn,
@@ -14112,6 +14116,22 @@ class MainWindow(QMainWindow):
             f"Стан: {state_label} · статус коментаря: {status}"
             + (f" · причина: {reason}" if reason else "")
         )
+
+    def show_ai_review_queue(self) -> None:
+        """Open only unpublished AI drafts and select the first for manual review."""
+        self.comment_status_filter.setCurrentIndex(0)
+        self.comment_category_filter.setCurrentIndex(0)
+        index = self.comment_draft_filter.findData("review")
+        if index >= 0:
+            self.comment_draft_filter.setCurrentIndex(index)
+        self.reload_comments()
+        for row in range(self.comment_table.rowCount()):
+            state = self.comment_table.item(row, 6)
+            if state and state.data(Qt.ItemDataRole.UserRole) == "review":
+                self.comment_table.selectRow(row)
+                self.comment_table.scrollToItem(state)
+                return
+        self._toast("Немає нових AI чернеток для перевірки")
 
     def select_next_ready_comment_draft(self) -> None:
         rows = self.comment_table.rowCount()
