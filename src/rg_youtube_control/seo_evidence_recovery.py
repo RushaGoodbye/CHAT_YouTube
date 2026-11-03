@@ -54,11 +54,12 @@ def recover_missing_source_blocks(
             continue
         # Prefer a caption with varied words over repeated filler. Never
         # synthesize a quotation from text the model generated.
-        quote = max(candidates, key=lambda x: (
+        ranked = sorted(set(candidates), key=lambda x: (
             len(set(re.findall(r"\w+", x.casefold()))), len(x),
-        ))
+        ), reverse=True)
         accepted = False
-        for _ in range(max_attempts):
+        for attempt in range(min(max_attempts, len(ranked))):
+            quote = ranked[attempt]
             attempts += 1
             prompt = (
                 "Поверни тільки JSON-об'єкт із полями topic і summary_uk. "
