@@ -22,7 +22,7 @@ def report(quote, verified=True, **extra):
 def test_grounded_speech_preserves_quote_and_timestamp():
     q = "Our town is discussing bus and rail transport."
     result = build_evidence_records(video_id=VID,
-        timeline_report=report(q), transcript_rows=[row(q, 64.0)])
+        timeline_report=report(q, start=64.0, end=68.0), transcript_rows=[row(q, 64.0)])
     assert len(result["evidence_records"]) == 1
     item = result["evidence_records"][0]
     assert item["start_s"] == 64.0
