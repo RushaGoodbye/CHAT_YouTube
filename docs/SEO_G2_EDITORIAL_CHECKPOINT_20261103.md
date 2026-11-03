@@ -28,3 +28,16 @@ Plan audit: G0 PASS; G1 staging PASS; G2 technical source-evidence PASS on 3 exa
 - Synced editorial acceptance module and tests to isolated AlexPC staging. **85/85 G1+G2 tests PASS** in 2.11 seconds. This specifically supersedes the previous checkpoint's 'new tests unverified' issue.
 - Exported 23 editor review items from the three real source-grounded video records: `MEitKm687xo` 3, `pUWdQ8k6e4g` 10, `GQL6N4jQpI8` 10. Files stay locally on AlexPC under `C:/RG_YT_AGENT_RUNNER/SEO_G1_CHECK/g2_editorial_review/<video_id>.editorial.json`. Each includes original quote, local SRT context, topic and summary, empty human scores. All editorial_approved=false, publication_allowed=false.
 - G2 editorial correctness is NOT yet accepted; 23 cards exist but no human editorial labels have been entered. Second-model review not yet run. Next stage: independent critic and human-scored representative set; G3–G6 remain closed.
+
+
+## Verified AlexPC independent-model risk scan, same day
+- Restored AlexPC command access. `Runner.Listener.exe` PID 19544 on the expected `C:/RG_YT_AGENT_RUNNER/actions-runner` path. `rg-gemma4-12b` LM Studio generation model was unloaded and distinct `rg-qwen3-14b` loaded for critique on local server port 1234.
+- Actual combined G1+G2 QA: **85/85 PASS** on AlexPC. This includes the new editorial review/critic regression tests.
+- Exported 23 reviewer cards from three independently checked source SRTs into `C:/RG_YT_AGENT_RUNNER/SEO_G1_CHECK/g2_editorial_review` (3 + 10 + 10 cards). Human score fields blank.
+- Executed distinct-model `independent_llm_critique` on all 23 cards, locally and read-only. Qwen risk-only distribution:
+  - `MEitKm687xo`: 2 low, 1 medium, 0 high.
+  - `pUWdQ8k6e4g`: 6 low, 2 medium, 2 high.
+  - `GQL6N4jQpI8`: 6 low, 3 medium, 1 high.
+  - Overall **14 low / 6 medium / 3 high**. Each JSON critique stored beside its corresponding editorial card as `<video_id>.critic.json`. No item was approved, and no publication flag changed.
+- An AI reviewer, even a separate model, is NOT a human editorial score. **G2 editor sign-off is still missing**. Investigate 9 medium/high items first, then sample low-risk items. Do not promote G3 or approve installer based on this risk scan.
+- No installed app changes, YouTube metadata changes or publications.
