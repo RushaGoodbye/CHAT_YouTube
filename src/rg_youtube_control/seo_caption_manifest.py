@@ -12,7 +12,7 @@ from typing import Any
 
 from .seo_source_integrity import audit_source
 
-ACQUISITION_METHODS = {"youtube_original", "youtube_auto", "verified_local"}
+ACQUISITION_METHODS = {"youtube_original", "youtube_auto", "youtube_direct", "verified_local"}
 
 
 def make_source_manifest(
