@@ -70,3 +70,11 @@ def test_critic_cannot_return_auto_approval():
     assert result["findings"][0]["risk"] == "low"
     assert result["editorial_approved"] is False
     assert result["publication_allowed"] is False
+
+
+def test_same_generator_and_critic_cannot_be_called_independent():
+    packet=build_editorial_review_packet(video_id=VID,
+        source_records=sample(),transcript_rows=rows())
+    with pytest.raises(ValueError,match="CRITIC_MUST_DIFFER_FROM_GENERATOR"):
+        independent_llm_critique(packet=packet,chat=lambda *a,**k:'{}',
+            model="rg-gemma4-12b",generator_model="RG-GEMMA4-12B")
