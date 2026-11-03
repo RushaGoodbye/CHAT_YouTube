@@ -13,6 +13,19 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
+def classify_attributed_statement(quote: str) -> str:
+    """Conservative labels, not an LLM judgment or independent fact check."""
+    text = _clean(quote).casefold()
+    if "?" in text or "？" in text:
+        return "question"
+    # Require a syntactic speech marker; otherwise stay unclassified.
+    if re.search(r"(?<!\\w)(?:кажется|здається|думаю|считаю|вважаю|по-моему|на мою думку|я думаю|мне кажется)(?!\\w)", text):
+        return "opinion"
+    if re.search(r"(?<!\\w)(?:говорят|кажуть|нібито|якобы|по слухам|за чутками)(?!\\w)", text):
+        return "allegation"
+    return "attributed_speech"
+
+
 def build_evidence_records(
     *, video_id: str, timeline_report: dict[str, Any],
     transcript_rows: Iterable[dict[str, Any]],
@@ -43,10 +56,18 @@ def build_evidence_records(
             if not (8 <= len(quote) <= 240 and topic and summary):
                 rejected.append({"block": block.get("index"), "reason": "INCOMPLETE_EVIDENCE"})
                 continue
+            if block.get("start") is None or block.get("end") is None:
+                rejected.append({"block": block.get("index"), "reason": "MISSING_BLOCK_WINDOW"})
+                continue
+            block_start, block_end = float(block["start"]), float(block["end"])
+            if block_start < 0 or block_end < block_start:
+                rejected.append({"block": block.get("index"), "reason": "INVALID_BLOCK_WINDOW"})
+                continue
             candidates = []
             for row in rows:
+                row_start = float(row.get("start") or 0)
                 row_text = _clean(row.get("text"))
-                if quote.casefold() in row_text.casefold():
+                if block_start <= row_start <= block_end and quote.casefold() in row_text.casefold():
                     candidates.append(row)
             if candidates:
                 source = min(candidates, key=lambda row: float(row.get("start") or 0))
@@ -84,7 +105,7 @@ def build_evidence_records(
                 "start_s": start,
                 "end_s": start + duration,
                 "timestamp_precision": precision,
-                "statement_kind": "question" if "?" in quote or "？" in quote else "attributed_speech",
+                "statement_kind": classify_attributed_statement(quote),
                 "factual_truth_verified": False,
             })
     covered = int(timeline_report.get("blocks_analyzed") or 0)
