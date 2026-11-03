@@ -67,3 +67,10 @@ Plan audit: G0 PASS; G1 staging PASS; G2 technical source-evidence PASS on 3 exa
 - Initial live AlexPC regression exposed an over-escaped regex that failed to recognize novel numbers. Corrected it (commit `a0a8a5f`). Confirmed two new regression cases: invalid JSON recovers on second attempt, and generated number 999 is removed instead of being accepted.
 - All **98/98 staged G1+G2 tests PASS on AlexPC** (1.58 seconds), including the retry tests. The original installed application and YouTube were not changed.
 - **Important distinction:** test PASS is not G2 editorial acceptance. The two historically blocked live-model cards have not yet passed a fresh real-model retry; continue recording them as unresolved until a successful new live test demonstrates otherwise.
+
+
+## G2 checkpoint 8 — fix stale handler, live rerun blocked by local model latency
+- Corrected syntax-invalid stale handler and rewrote the bounded second model attempt in `seo_editorial_revision.py`. Added two new regression tests covering successful retry after malformed JSON and rejection/revision of ungrounded number 999. Initially uncovered an overescaped numeric-regex defect; fixed it before sign-off. Commits: `573f302`, `3665856`, `a0a8a5f`.
+- **98/98 combined G1+G2 isolated tests PASS on AlexPC** (1.58s). No installer or YouTube changes.
+- Reloaded the local Qwen3-14B inference model and attempted a real all-nine rerun. Local LM Studio inference became extremely slow; first item returned `BLOCKED_REPAIR_FAILURE` after timeout/retry. The targeted read-only test session PID 34332 was terminated without changing installed app or YouTube. No new real-model acceptance result was obtained for the other items. Previous seven review proposals and two blocked cases remain the last completed baseline, and all are still unapproved.
+- G2 editorial acceptance remains **BLOCKED** until reliable model execution and human semantic ratings are documented. The tests verify code behavior, not the truth of individual SEO claims.
