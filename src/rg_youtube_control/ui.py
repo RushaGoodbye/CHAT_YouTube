@@ -12989,6 +12989,20 @@ class MainWindow(QMainWindow):
                 timeline_report=evidence_report,
                 transcript_rows=transcript_rows,
             )
+            if not source_records["complete_evidence_coverage"]:
+                # One bounded rescue per unsupported timeline block, grounded
+                # in a literal original caption. No unbounded retry loops.
+                from .seo_evidence_recovery import recover_missing_source_blocks
+
+                source_records = recover_missing_source_blocks(
+                    video_id=video_id,
+                    timeline_report=evidence_report,
+                    transcript_rows=transcript_rows,
+                    chat=ollama_chat,
+                    model=DEFAULT_OLLAMA_MODEL,
+                    timeout=90.0,
+                    max_attempts=1,
+                )
             evidence_report["source_evidence"] = source_records
             if not source_records["complete_evidence_coverage"]:
                 missing = source_records["blocks_without_grounded_quotes"]
