@@ -124,3 +124,28 @@ def test_partial_block_grounding_is_not_reported_as_complete():
     assert result["blocks_without_grounded_quotes"] == [2]
     assert result["complete_evidence_coverage"] is False
     assert len(result["evidence_records"]) == 1
+
+
+def test_generator_outline_cannot_include_rejected_model_assertion():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    quote = "Residents discussed several alternatives for regional train services."
+    false_claim = "THE SECRET MINISTER RESIGNED TODAY"
+    batch = report(quote, start=5.0, end=9.0)
+    batch["blocks"][0]["topics"].append({
+        "topic": false_claim, "summary_uk": false_claim,
+        "evidence": "This quotation does not occur in the actual captions."})
+    result = build_evidence_records(video_id=VID,
+        timeline_report=batch, transcript_rows=[row(quote, 5.0)])
+    outline = grounded_evidence_outline(result)
+    assert quote in outline
+    assert false_claim not in outline
+    assert len(result["rejected_evidence"]) == 1
+
+
+def test_generator_outline_refuses_partial_evidence():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    with pytest.raises(ValueError, match="INCOMPLETE_GROUNDED_EVIDENCE"):
+        grounded_evidence_outline({
+            "evidence_records": [{"start_s":0, "topic":"test",
+                "verbatim_quote":"source", "statement_kind":"attributed_speech"}],
+            "blocks_without_grounded_quotes": [2]})
