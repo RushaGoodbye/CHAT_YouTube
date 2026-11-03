@@ -30,6 +30,19 @@ def build_editorial_review_packet(
             str(row.get("text") or "").strip() for row in transcript_rows
             if start - 30 <= float(row.get("start") or -1) <= end + 30
         )
+        # A long 60-second context may exceed the display budget. The
+        # original implementation cut the first 2500 characters and silently
+        # discarded the source quotation at the center/end.
+        quote = str(rec["verbatim_quote"])
+        position = neighborhood.casefold().find(quote.casefold())
+        if position >= 0:
+            lo = max(0, position - 750)
+            hi = min(len(neighborhood), position + len(quote) + 750)
+            neighborhood = neighborhood[lo:hi]
+        else:
+            # Some ASR passages bridge cue boundaries. Preserve the already
+            # verified quotation explicitly while retaining local context.
+            neighborhood = (quote + " | КОНТЕКСТ: " + neighborhood[:1600])
         items.append({
             "id": number,
             "block_index": rec["block_index"],
