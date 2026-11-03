@@ -53,3 +53,11 @@ def test_malformed_metadata_blocks():
     b = make_rows()
     b[0] = {"text":"hi"}
     assert compare_caption_rows(make_rows(),b)["status"] == "BLOCKED_SOURCE"
+
+
+def test_translated_subtitles_are_review_not_false_conflict():
+    a = make_rows("міський транспорт і його тарифи")
+    b = make_rows("municipal fares and bus tickets for residents")
+    outcome = compare_caption_rows(a, b)
+    assert outcome["status"] == "NEEDS_REVIEW"
+    assert outcome["reason"] == "CAPTION_LANGUAGE_MISMATCH"
