@@ -53,9 +53,21 @@ def build_evidence_records(
                 start = float(source.get("start") or 0)
                 duration = float(source.get("duration") or 0)
                 precision = "caption"
-            elif quote.casefold() in block_text.casefold() and block.get("start") is not None:
+            elif block.get("start") is not None and block.get("end") is not None:
                 start = float(block["start"])
-                duration = max(0.0, float(block.get("end", start)) - start)
+                end = float(block["end"])
+                # Quotations sometimes span adjacent subtitle cues. Reconstruct
+                # only this block's original captions, never the whole video.
+                window = _clean(" ".join(
+                    str(row.get("text") or "") for row in rows
+                    if start <= float(row.get("start") or 0) <= end
+                ))
+                if quote.casefold() not in block_text.casefold() and (
+                    quote.casefold() not in window.casefold()
+                ):
+                    rejected.append({"block": block.get("index"), "reason": "QUOTE_NOT_IN_SOURCE"})
+                    continue
+                duration = max(0.0, end - start)
                 precision = "timeline_block"
             else:
                 rejected.append({"block": block.get("index"), "reason": "QUOTE_NOT_IN_SOURCE"})
