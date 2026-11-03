@@ -1,0 +1,21 @@
+{
+  "video_id": "mdPMyIy5A70",
+  "published_at": "2026-09-24",
+  "language": "uk",
+  "recommended_title": "«ХРАМ-П'ЯТІРОЧКА»: НЕСПОДІВАНА РОЗМОВА З РОСІЯНИНОМ | РАША ГУДБАЙ",
+  "verified_subjects": [
+    "Розмова з чоловіком на ім'я Сергій про церковне життя",
+    "Згадка про церкву на місці магазину «П'ятірочка»",
+    "Розмова про Сімферополь і географічні питання"
+  ],
+  "must_not_claim": [
+    "усі російські священники поводяться так само",
+    "згадана адреса й історія будівлі незалежно доведені"
+  ],
+  "editorial_status": "reference_only_not_approved_for_publication",
+  "source": "public video metadata and partial original-caption excerpts reviewed 2026-10-30; automatically translated caption language en",
+  "source_limitations": "Speech-recognition and translation errors possible; verify factual specifics before publication",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "publication_allowed": false
+}

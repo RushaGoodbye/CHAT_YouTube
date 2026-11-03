@@ -1,13 +1,56 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
 
+from .lm_studio_client import ensure_local_server
 from .comment_action_ai import review_comment_actions_local
-from .comment_action_runtime import prepare_action_reply_drafts
-from .db import comment_action_counts, reclassify_comment_actions
+from .comment_action_runtime import prepare_action_reply_drafts, preview_safe_auto_replies, propose_diverse_safe_replies, generate_personal_reply_preview
+from .db import comment_action_counts, get_setting, reclassify_comment_actions, set_setting, save_comment_draft
 from .style import MUTED, SUCCESS, WARNING, YOUTUBE_RED
+
+
+class _PersonalReplyWorker(QThread):
+    completed = Signal(dict)
+
+    def __init__(self, comment_text: str, parent=None):
+        super().__init__(parent)
+        self.comment_text = comment_text
+
+    def run(self):
+        try:
+            if not ensure_local_server().get('available'):
+                self.completed.emit({'status': 'LOCAL_MODEL_UNAVAILABLE', 'reply': ''})
+                return
+            result = generate_personal_reply_preview(self.comment_text)
+        except Exception:
+            result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
+        self.completed.emit(result)
+
+
+class _BatchPersonalRepliesWorker(QThread):
+    progress = Signal(int, int)
+    completed = Signal(dict)
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.rows = rows
+
+    def run(self):
+        status = ensure_local_server()
+        if not status.get('available') or not status.get('model_selected'):
+            self.completed.emit({'results': [], 'error': 'LM Studio недоступна або модель не обрана.'})
+            return
+        results = []
+        for index, (comment_id, comment_text) in enumerate(self.rows, 1):
+            try:
+                result = generate_personal_reply_preview(comment_text)
+            except Exception:
+                result = {"status": "LOCAL_MODEL_UNAVAILABLE", "reply": ""}
+            results.append((comment_id, result))
+            self.progress.emit(index, len(self.rows))
+        self.completed.emit({'results': results, 'error': ''})
 
 
 ACTION_LABELS = {
@@ -69,14 +112,59 @@ def install_comment_action_ui(window) -> None:
     summary = QLabel("")
     summary.setProperty("role", "success")
     bar.addWidget(summary)
-    bar.addStretch()
-
     prepare_replies = QPushButton("Підготувати ВІДПОВІДІ x20 · 0 квоти")
     prepare_replies.setProperty("role", "success")
     bar.addWidget(prepare_replies)
 
+    preview_replies = QPushButton("Перевірити автовідповіді · без публікації")
+    bar.addWidget(preview_replies)
+
+    diverse_preview = QPushButton("Варіанти відповідей · без публікації")
+    bar.addWidget(diverse_preview)
+
+    personalized = QPushButton("AI відповідь на вибраний · LM Studio")
+    bar.addWidget(personalized)
+
+    batch_personalized = QPushButton("AI чернетки x20 · LM Studio")
+    bar.addWidget(batch_personalized)
+
     ai_review = QPushButton("AI REVIEW x20 · 0 квоти")
     bar.addWidget(ai_review)
+
+    auto_replies = QCheckBox("Автовідповіді: лише короткі подяки / вітання")
+    def sync_auto_replies():
+        key = f"comment_auto_reply_enabled_{window.current_profile}"
+        auto_replies.blockSignals(True)
+        auto_replies.setChecked(get_setting(window.conn, key, "0") == "1")
+        auto_replies.blockSignals(False)
+
+    def toggle_auto_replies(checked):
+        if checked:
+            choice = QMessageBox.question(
+                window, "Увімкнути автовідповіді?",
+                "Це дозволяє автоматично публікувати короткі відповіді на "
+                "однозначні подяки та привітання під час сканування. "
+                "Питання, донати, політика і спірні коментарі лишаться на перевірці. "
+                "Увімкнути для поточного каналу?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                sync_auto_replies()
+                return
+        set_setting(window.conn, f"comment_auto_reply_enabled_{window.current_profile}",
+                    "1" if checked else "0")
+        set_setting(window.conn, f"auto_reply_enabled_{window.current_profile}",
+                    "1" if checked else "0")
+        if hasattr(window, "auto_box"):
+            window.auto_box.blockSignals(True)
+            window.auto_box.setChecked(bool(checked))
+            window.auto_box.blockSignals(False)
+        sync_auto_replies()
+
+    auto_replies.toggled.connect(toggle_auto_replies)
+    sync_auto_replies()
+    bar.addWidget(auto_replies)
 
     recalc = QPushButton("Перерахувати рішення · 0 квоти")
     bar.addWidget(recalc)
@@ -153,6 +241,7 @@ def install_comment_action_ui(window) -> None:
 
     def reload_with_actions(*args, **kwargs):
         result = original_reload(*args, **kwargs)
+        sync_auto_replies()
         decorate_table()
         return result
 
@@ -205,6 +294,19 @@ def install_comment_action_ui(window) -> None:
 
     prepare_replies.clicked.connect(prepare_replies_action)
 
+    def preview_replies_action() -> None:
+        stats = preview_safe_auto_replies(window.conn, window.current_profile)
+        QMessageBox.information(
+            window, "Безпечні автовідповіді: попередній перегляд",
+            f"Перевірено: {stats['checked']}\\n"
+            f"Безпечні кандидати: {stats['eligible']}\\n"
+            f"Потрібна ручна перевірка: {stats['manual_review']}\\n"
+            f"Без готової відповіді: {stats['no_reply']}\\n\\n"
+            "Це лише локальна перевірка. YouTube не змінювався.",
+        )
+
+    preview_replies.clicked.connect(preview_replies_action)
+
     def ai_review_action() -> None:
         stats = review_comment_actions_local(
             window.conn,
@@ -223,10 +325,120 @@ def install_comment_action_ui(window) -> None:
             "YouTube API: 0 квоти. Нічого не відправлено.",
         )
 
+    def diverse_preview_action() -> None:
+        result = propose_diverse_safe_replies(window.conn, window.current_profile)
+        examples = "\n".join(
+            entry["reply"] for entry in result["proposals"][:8]
+        )
+        QMessageBox.information(
+            window, "Варіанти безпечних відповідей",
+            f"Перевірено: {result['checked']}\n"
+            f"Підготовлено: {result['proposed']}\n"
+            f"Відкладено: {result['withheld']}\n"
+            f"Різних формулювань: {result['distinct_replies']}\n\n"
+            + examples + "\n\nНічого не надіслано на YouTube.",
+        )
+
+    diverse_preview.clicked.connect(diverse_preview_action)
+
+    def personal_reply_action() -> None:
+        selection = table.selectedItems()
+        if not selection:
+            QMessageBox.information(window, "AI відповідь", "Спочатку виберіть коментар у таблиці.")
+            return
+        row_index = selection[0].row()
+        key = table.item(row_index, 0)
+        comment_id = str(key.data(Qt.ItemDataRole.UserRole) or "") if key else ""
+        record = window.conn.execute(
+            "SELECT text,status FROM comments WHERE comment_id=?", (comment_id,)
+        ).fetchone()
+        if not record or record["status"] != "new":
+            QMessageBox.information(window, "AI відповідь", "Цей коментар недоступний для чернетки.")
+            return
+        personalized.setEnabled(False)
+        personalized.setText("AI генерує відповідь…")
+        worker = _PersonalReplyWorker(str(record["text"] or ""), window)
+        window._personal_reply_worker = worker
+        def finished(result):
+            personalized.setEnabled(True)
+            personalized.setText("AI відповідь на вибраний · LM Studio")
+            if result.get("reply"):
+                saved = save_comment_draft(window.conn, comment_id, result["reply"], state="review", reason=("lm_studio_fact_check_required" if result["status"] == "FACT_CHECK_REQUIRED" else "lm_studio_manual_review_required"))
+                window.reload_comments()
+                QMessageBox.information(window, "AI чернетка · перевірка фактів" if result["status"] == "FACT_CHECK_REQUIRED" else "AI чернетка · потребує перевірки", result["reply"]
+                    + "\n\n" + ("Збережено для ручної перевірки." if saved else "Не збережено: статус коментаря змінився.")
+                    + "\nНічого не опубліковано.")
+            else:
+                reasons = {"generic_reply": "Шаблонна відповідь", "too_short_or_long": "Відповідь надто коротка або довга", "needless_context_deflection": "Модель ухилилась від відповіді", "empty_model_reply": "Модель повернула порожню відповідь", "echo": "Модель повторила коментар", "unsupported_claim": "Неперевірене твердження"}
+                status = str(result.get("status") or "UNKNOWN")
+                reason = reasons.get(str(result.get("reason") or ""), status)
+                QMessageBox.warning(window, "AI відповідь", "Чернетку не збережено: " + reason + ".\nНічого не опубліковано.")
+        worker.completed.connect(finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def batch_personal_reply_action() -> None:
+        rows = window.conn.execute(
+            """SELECT c.comment_id,c.text FROM comments c
+               JOIN videos v ON v.video_id=c.video_id
+               WHERE v.profile=? AND c.status='new' AND c.action='reply'
+                 AND COALESCE(c.draft_state,'')=''
+                 AND LENGTH(TRIM(c.text)) BETWEEN 1 AND 160
+               ORDER BY c.published_at DESC LIMIT 20""",
+            (window.current_profile,),
+        ).fetchall()
+        if not rows:
+            QMessageBox.information(window, "AI чернетки", "Немає нових коментарів без чернеток.")
+            return
+        batch_personalized.setEnabled(False)
+        entries = [(str(row["comment_id"]), str(row["text"])) for row in rows]
+        worker = _BatchPersonalRepliesWorker(entries, window)
+        window._batch_personal_reply_worker = worker
+
+        def update_progress(done, total):
+            batch_personalized.setText(f"AI чернетки {done}/{total}…")
+
+        def finished(payload):
+            batch_personalized.setEnabled(True)
+            batch_personalized.setText("AI чернетки x20 · LM Studio")
+            if payload.get('error'):
+                QMessageBox.warning(window, 'AI чернетки', payload['error'] + '\nЖоден коментар не змінено.')
+                return
+            saved = rejected = 0
+            reasons = {}
+            for comment_id, result in payload['results']:
+                reply = str(result.get("reply") or "").strip()
+                if not reply:
+                    rejected += 1
+                    label = str(result.get('reason') or result.get('status') or 'unknown')
+                    reasons[label] = reasons.get(label, 0) + 1
+                    continue
+                reason = ("lm_studio_fact_check_required"
+                          if result.get("status") == "FACT_CHECK_REQUIRED"
+                          else "lm_studio_manual_review_required")
+                if save_comment_draft(window.conn, comment_id, reply,
+                                      state="review", reason=reason):
+                    saved += 1
+                else:
+                    rejected += 1
+            window.reload_comments()
+            QMessageBox.information(window, "AI чернетки",
+                f"Збережено для REVIEW: {saved}\nВідхилено: {rejected}\nОпубліковано: 0\nПричини: {reasons}")
+
+        worker.progress.connect(update_progress)
+        worker.completed.connect(finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    batch_personalized.clicked.connect(batch_personal_reply_action)
+
+    personalized.clicked.connect(personal_reply_action)
+
     ai_review.clicked.connect(ai_review_action)
 
     recalc.clicked.connect(recalc_actions)
 
+    window._comment_auto_enabled = auto_replies
     window._comment_action_filter = action_filter
     window._comment_action_summary = summary
     window._comment_action_prepare_replies = prepare_replies

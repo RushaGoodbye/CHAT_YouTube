@@ -154,6 +154,8 @@ def test_auto_reply_respects_age_and_per_scan_limit(tmp_path):
     old = (now - timedelta(days=10)).isoformat().replace("+00:00", "Z")
 
     conn = connect(tmp_path / "rg.db")
+    from rg_youtube_control.db import set_setting
+    set_setting(conn, "comment_auto_reply_enabled_default", "1")
     client = FakeClient([recent, recent, old])
     stats = scan_comments(
         client,
@@ -1813,6 +1815,8 @@ def test_incremental_channel_scan_replies_once(tmp_path):
             return {}
 
     conn = connect(tmp_path / "incremental.sqlite")
+    from rg_youtube_control.db import set_setting
+    set_setting(conn, "comment_auto_reply_enabled_main", "1")
     client = FakeClient()
 
     first = scan_channel_comments(

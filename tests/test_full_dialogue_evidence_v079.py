@@ -211,7 +211,8 @@ def test_final_generator_prompt_no_longer_starts_only_with_first_12k():
     assert "preserve_outline_topics(" in block
     assert "ab_title_issues(" in block
     assert "evidence_report: dict[str, Any] | None = None" in block
-    assert 'or bool(evidence_report)' in block
+    assert '"needs_review": True' in block
+    assert '"editorial_approved": False' in block
 
 
 def test_family_psychology_regression_rejects_shared_keyword_camouflage():

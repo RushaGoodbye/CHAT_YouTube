@@ -112,6 +112,7 @@ from .metadata_audit import (
 )
 from .package_bridge import bridge_health, fetch_package, upload_transcript
 from .dialogue_seo import analyze_all_timeline_blocks, evidence_outline_text
+from .lm_studio_client import ensure_local_server
 from .cached_metadata import cached_public_metadata, yt_dlp_auth_blocked
 from .free_tools import (
     DEFAULT_OLLAMA_MODEL,
@@ -4314,8 +4315,11 @@ class MainWindow(QMainWindow):
         local_reply_btn = QPushButton("Чернетка для вибраного · 0 квоти")
         local_reply_btn.clicked.connect(self.local_comment_reply_selected)
 
-        next_draft_btn = QPushButton("Наступна готова")
+        next_draft_btn = QPushButton("Наступна чернетка")
         next_draft_btn.clicked.connect(self.select_next_ready_comment_draft)
+
+        review_ai_btn = QPushButton("Перевірити AI чернетки")
+        review_ai_btn.clicked.connect(self.show_ai_review_queue)
 
         ignore_btn = QPushButton("Ігнорувати")
         ignore_btn.clicked.connect(lambda: self.set_selected_comment_status("ignored"))
@@ -4337,6 +4341,7 @@ class MainWindow(QMainWindow):
             reply_btn,
             local_reply_btn,
             next_draft_btn,
+            review_ai_btn,
             ignore_btn,
             queue_btn,
             test_auto_btn,
@@ -4379,6 +4384,7 @@ class MainWindow(QMainWindow):
         self.comment_draft_filter = QComboBox()
         self.comment_draft_filter.addItem("Усі чернетки", "")
         self.comment_draft_filter.addItem("Готові", "ready")
+        self.comment_draft_filter.addItem("AI · на перевірку", "review")
         self.comment_draft_filter.addItem("Пропущені quality-gate", "skipped")
         self.comment_draft_filter.addItem("Помилки генерації", "error")
         self.comment_draft_filter.addItem("Без чернетки", "none")
@@ -6474,9 +6480,9 @@ class MainWindow(QMainWindow):
             f"Шлях транскриптів: {nas_path}",
             f"yt-dlp: {'OK' if yt.get('available') else '—'}",
             f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"LM Studio: {'OK' if ol.get('available') else '—'}",
             f"PowerShell (вбудований): {ps_label}",
-            f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
+            f"Локальна модель: {'OK' if model.get('available') else '—'}",
             (
                 "YouTube API: "
                 f"залишилось {int(budget['remaining']):,}; "
@@ -12670,7 +12676,7 @@ class MainWindow(QMainWindow):
                 + ("OK" if yt.get("available") else "—")
                 + " · transcript: "
                 + ("OK" if tr.get("available") else "—")
-                + " · Ollama: "
+                + " · LM Studio: "
                 + ("OK" if ol.get("available") else "—")
                 + " · "
                 + DEFAULT_OLLAMA_MODEL
@@ -12899,6 +12905,19 @@ class MainWindow(QMainWindow):
                 f"з ім'ям {video_id}.srt. "
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
+
+        # Recover the local model server once before multi-block SEO work.
+        # This does not touch YouTube or spend API quota.
+        if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "lmstudio":
+            if on_progress is not None:
+                on_progress("Перевірка LM Studio · локальна Qwen · API 0")
+            local_model = ensure_local_server()
+            if not (local_model.get("available") and local_model.get("model_selected")):
+                raise RuntimeError(
+                    "LM Studio недоступна або модель не завантажена. "
+                    "Запустіть LM Studio та завантажте Qwen3 14B. "
+                    "SEO-чернетку не створено, YouTube не змінено."
+                )
 
         # Complete timeline analysis runs only in manual single-video mode.
         # Batch remains lightweight and review-only until the full workflow
@@ -14112,6 +14131,22 @@ class MainWindow(QMainWindow):
             + (f" · причина: {reason}" if reason else "")
         )
 
+    def show_ai_review_queue(self) -> None:
+        """Open only unpublished AI drafts and select the first for manual review."""
+        self.comment_status_filter.setCurrentIndex(0)
+        self.comment_category_filter.setCurrentIndex(0)
+        index = self.comment_draft_filter.findData("review")
+        if index >= 0:
+            self.comment_draft_filter.setCurrentIndex(index)
+        self.reload_comments()
+        for row in range(self.comment_table.rowCount()):
+            state = self.comment_table.item(row, 6)
+            if state and state.data(Qt.ItemDataRole.UserRole) == "review":
+                self.comment_table.selectRow(row)
+                self.comment_table.scrollToItem(state)
+                return
+        self._toast("Немає нових AI чернеток для перевірки")
+
     def select_next_ready_comment_draft(self) -> None:
         rows = self.comment_table.rowCount()
         if rows <= 0:
@@ -14120,11 +14155,11 @@ class MainWindow(QMainWindow):
         for offset in range(1, rows + 1):
             row = (start + offset) % rows
             state_item = self.comment_table.item(row, 6)
-            if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") == "ready":
+            if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") in {"ready", "review"}:
                 self.comment_table.selectRow(row)
                 self.comment_table.scrollToItem(state_item)
                 return
-        self._toast("У поточному фільтрі немає готових чернеток")
+        self._toast("У поточному фільтрі немає чернеток для перевірки")
 
     def clear_local_comment_drafts(self) -> None:
         stats = comment_draft_counts(self.conn, self.current_profile)
@@ -14195,6 +14230,8 @@ class MainWindow(QMainWindow):
         elif draft_filter:
             query += " AND c.draft_state=?"
             params.append(str(draft_filter))
+            if draft_filter == "review":
+                query += " AND c.status='new'"
         query += " ORDER BY c.published_at DESC LIMIT 500"
 
         rows = self.conn.execute(query, tuple(params)).fetchall()
@@ -14218,6 +14255,7 @@ class MainWindow(QMainWindow):
             draft_text = str(row["reply_text"] or "")
             state_label = {
                 "ready": "ГОТОВО",
+                "review": "REVIEW",
                 "skipped": "SKIP",
                 "error": "ПОМИЛКА",
                 "": "",
@@ -14264,6 +14302,7 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.ItemDataRole.UserRole, draft_state)
                     state_color = {
                         "ready": SUCCESS,
+                        "review": WARNING,
                         "skipped": WARNING,
                         "error": YOUTUBE_RED,
                     }.get(draft_state, MUTED)
@@ -14326,6 +14365,13 @@ class MainWindow(QMainWindow):
         try:
             manual_reply(self.client, self.conn, str(comment_id), text.strip())
             self.reload_comments()
+            if str(self.comment_draft_filter.currentData() or "") == "review":
+                for next_row in range(self.comment_table.rowCount()):
+                    state_item = self.comment_table.item(next_row, 6)
+                    if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") == "review":
+                        self.comment_table.selectRow(next_row)
+                        self.comment_table.scrollToItem(state_item)
+                        break
             self.statusBar().showMessage("Відповідь опубліковано")
         except Exception as exc:
             self._error("Помилка відповіді", exc)

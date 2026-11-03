@@ -1,0 +1,20 @@
+{
+  "video_id": "pUWdQ8k6e4g",
+  "published_at": "2026-10-29",
+  "language": "uk",
+  "recommended_title": "«МИ ПРОТИ, АЛЕ НІЧОГО НЕ МОЖЕМО»? РОЗМОВИ З РОСІЯНАМИ | РАША ГУДБАЙ",
+  "verified_subjects": [
+    "Саратов та стан міської інфраструктури",
+    "ставлення співрозмовників до російської влади",
+    "розмова про правління Путіна"
+  ],
+  "must_not_claim": [
+    "усі росіяни підтримують війну",
+    "співрозмовник із Тюмені без підтвердження"
+  ],
+  "editorial_status": "reference_only_not_approved_for_publication",
+  "source": "public video metadata and excerpts of captions reviewed 2026-10-30",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "publication_allowed": false
+}
