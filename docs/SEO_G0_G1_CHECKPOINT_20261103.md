@@ -69,3 +69,13 @@ Add source provenance manifests with ID, URL and verification evidence to acquis
 - Staged application UI import in isolated copy of 33 Python modules succeeded with `QT_QPA_PLATFORM=offscreen` and `MainWindow` class available; the installed GUI was NOT started, so live click-through is still unverified.
 - **45/45 tests PASS** on AlexPC at commit 35f460d76eae37c8195f11ad1ba160e6c5dcbdba, staged UI import PASS.
 - Control: G0 PASS, G1 IN DEVELOPMENT until GUI workflow + caption language/translation false-positive review and failure paths are accepted; G2–G6 NOT STARTED. No app replacement, no YouTube mutations.
+
+
+## G1 stage acceptance — UI execution and general source tests
+- Tested the real `MainWindow._generate_local_seo_result` path using an isolated SQLite DB and mocked network/SEO generator: genuine matching captions produce draft; unrelated captions block BEFORE generation; missing second transport is not misreported as corroboration; insufficient cues block; NAS SRT without manifest is skipped in favor of direct YouTube; alternate caption timestamp shift blocks. **6/6 GUI-path integration tests PASS**.
+- Instantiated actual staged Qt `MainWindow` with `QT_QPA_PLATFORM=offscreen` and a temporary independent DB: **9 tabs constructed**, window closed, SQLite handle closed and temp data cleaned successfully. No main/installed database or YouTube write.
+- Combined **51/51 G1 tests PASS** in 1.47s, including parser/provenance/language/corroboration/UI-path. Real cross-transport result remains 4/4, 8/8, 8/8 windows matched, and legacy wrong transcript rejected.
+- Decision: **G1 ACCEPTED for isolated source-integrity staging**, meeting its reproducible cross-video fixture and application-code path test. It does NOT certify audio-to-caption fidelity, perfect semantic title match, GUI packaged installer readiness or SEO editorial quality. Where independent source evidence is missing, status remains NEEDS_REVIEW rather than approval.
+- Remaining at G6: packaging and installed-user GUI acceptance, merge after CI; at G2/G4: evidence-backed content/claim verification and unresolved spoken audio mismatches.
+- Next plan stage: G2 universal full-transcript topic/claim extraction. Strictly no per-video exceptions. PR remains DRAFT until integrated CI.
+- Plan audit: **G0 PASS; G1 STAGING PASS; G2 NEXT; G3–G6 NOT STARTED**.
