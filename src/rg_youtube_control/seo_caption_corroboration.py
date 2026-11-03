@@ -38,6 +38,14 @@ def compare_caption_rows(
         if max_end <= 0:
             raise ValueError("INVALID_CAPTION_DURATION")
         window_count = max(min_windows, min(8, round(max_end / 160)))
+        # If both transports expose largely the same cue text, demand that
+        # those captions also occur in the same part of the timeline.
+        def all_cues(rows: list[dict[str, Any]]) -> set[str]:
+            return {" ".join(_words(str(row["text"]))) for row in rows if row.get("text")}
+        p_cues = all_cues(primary)
+        r_cues = all_cues(reference)
+        global_exact = len(p_cues & r_cues) / max(1, min(len(p_cues), len(r_cues)))
+        require_timeline_agreement = global_exact >= 0.60
         outcomes: list[float] = []
         total_tokens = 0
         for window in range(window_count):
@@ -70,7 +78,7 @@ def compare_caption_rows(
             b_content = {w for w in b if len(w) >= 5 and not w.isdecimal()}
             unique_match = (len(a_content & b_content) /
                             max(1, min(len(a_content), len(b_content))))
-            score = max(exact, min(overlap, unique_match))
+            score = exact if require_timeline_agreement else max(exact, min(overlap, unique_match))
             outcomes.append(score)
         if total_tokens < min_tokens or len(outcomes) < min_windows:
             return {"status": "NEEDS_REVIEW", "reason": "INSUFFICIENT_COMPARISON_EVIDENCE",
