@@ -12826,13 +12826,29 @@ class MainWindow(QMainWindow):
         )
         nas_transcript = transcript_dir / f"{video_id}.srt"
 
+        # G1: never trust a NAS caption file by filename alone. Require the
+        # original acquisition record and a matching byte hash before use.
+        nas_source_audit = None
         if nas_transcript.exists():
-            try:
-                transcript_rows = load_srt_transcript(nas_transcript)
-                if transcript_rows:
-                    transcript_source = "nas-srt"
-            except Exception:
-                transcript_rows = []
+            from .seo_caption_manifest import audit_caption_file
+
+            nas_source_audit = audit_caption_file(
+                video_id=video_id,
+                path=nas_transcript,
+                duration_s=duration_seconds,
+            )
+            if nas_source_audit["status"] != "BLOCKED_SOURCE":
+                try:
+                    transcript_rows = load_srt_transcript(nas_transcript)
+                    if transcript_rows:
+                        transcript_source = "nas-srt-verified"
+                except Exception:
+                    transcript_rows = []
+            elif on_progress is not None:
+                on_progress(
+                    "NAS SRT без підтвердженого джерела: "
+                    "перевіряємо субтитри безпосередньо через YouTube"
+                )
 
         if not transcript_rows:
             try:
