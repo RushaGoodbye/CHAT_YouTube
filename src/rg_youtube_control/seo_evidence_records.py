@@ -130,3 +130,28 @@ def build_evidence_records(
         "needs_review": True,
         "publication_allowed": False,
     }
+
+
+def grounded_evidence_outline(source_records: dict[str, Any]) -> str:
+    """Only vetted source quotes may enter SEO model context.
+
+    Model-derived topic labels are suggestions, not independent facts.
+    Unvetted original model claims and failed quotations are deliberately
+    excluded from this context.
+    """
+    items = source_records.get("evidence_records") or []
+    if not items or source_records.get("blocks_without_grounded_quotes"):
+        raise ValueError("INCOMPLETE_GROUNDED_EVIDENCE")
+    lines = [
+        "Це лише репліки учасників відео, а не перевірені факти. "
+        "Не перетворюй твердження, припущення чи запитання на доведені події."
+    ]
+    for rec in items:
+        lines.append(
+            f"[{int(float(rec['start_s']) // 60):02d}:"
+            f"{int(float(rec['start_s']) % 60):02d}] "
+            f"Тема-кандидат: {rec['topic']} "
+            f"| Тип: {rec['statement_kind']} "
+            f"| Дослівна репліка: «{rec['verbatim_quote']}»"
+        )
+    return "\n".join(lines)
