@@ -50,3 +50,13 @@ Add source provenance manifests with ID, URL and verification evidence to acquis
 - Live verification of persisted direct YouTube captions: MEitKm687xo (165 cues), pUWdQ8k6e4g (1248), GQL6N4jQpI8 (1073). All **NEEDS_REVIEW**, topic evidence **TOPIC_MATCH_UNVERIFIED**, no anomalous script or repeated-caption signals. This does NOT independently compare audio to captions.
 - Checkpoint result: G0 PASS, G1 IN DEVELOPMENT, G2–G6 NOT STARTED. Remaining G1: validate real GUI workflow and independently ground content match rather than treating source ID alone as semantic proof.
 - Release gate CLOSED. No installed application update or YouTube changes.
+
+
+## G1 checkpoint 5 — cross-transport content corroboration (2026-11-03)
+- Added `seo_caption_corroboration.py`: multiple timeline windows, cue-text agreement, distinctive-token agreement, and explicit large timestamp-drift detection. Results distinguish `CAPTION_TRANSPORTS_CORROBORATE`, `CAPTION_CONTENT_CONFLICT`, `CAPTION_TIMELINE_CONFLICT` and insufficient evidence. NEVER editorial approval.
+- Regression tests `test_seo_caption_corroboration.py` include unrelated subjects, shifted captions, Cyrillic dialogue, missing counterpart and malformed inputs. Initial attempts exposed false negatives; fixed matcher before acceptance.
+- Real paired retrieval: YouTube Transcript API vs independent yt-dlp SRT for MEitKm687xo: **4/4 time windows corroborated**; old mislabeled NAS SRT backup: **BLOCKED_SOURCE/CAPTION_CONTENT_CONFLICT, 0/4 windows matched**.
+- Draft UI source path now calls cross-transport comparison before SEO creation. A second transcript unavailable -> NEEDS_REVIEW; explicit conflict -> block. This is an integration CODE change, not GUI runtime acceptance.
+- AlexPC: **44/44 isolated unit tests PASS** and modified `ui.py` syntax compile PASS at commit a8b08b46a7926ff5f614bb99a9defad9d0b6779f. No release installation.
+- Remaining G1: full GUI runtime smoke, caption translation/locale mismatch safety, mixed-video independent-content results, and runtime launch with installed app. Avoid changing published video metadata.
+- Plan audit: G0 PASS, G1 IN DEVELOPMENT, G2–G6 NOT STARTED.
