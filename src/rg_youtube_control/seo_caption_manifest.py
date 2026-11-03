@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +25,29 @@ def make_source_manifest(
     verification: str,
 ) -> dict[str, Any]:
     """Record evidence at acquisition. Validity is rechecked before use."""
-    if not source_url.startswith(("https://www.youtube.com/watch?v=",
-                                  "https://youtu.be/")):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        raise ValueError("INVALID_VIDEO_ID")
+    address = urlparse(source_url)
+    allowed_domains = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+    if address.scheme != "https" or address.hostname not in allowed_domains or (
+        address.username is not None or address.password is not None
+    ):
         raise ValueError("SOURCE_URL_NOT_YOUTUBE")
-    if video_id not in source_url:
+    source_video_id = (
+        parse_qs(address.query).get("v", [""])[0]
+        if address.hostname != "youtu.be" and address.path == "/watch"
+        else address.path.lstrip("/") if address.hostname == "youtu.be" else ""
+    )
+    if source_video_id != video_id:
         raise ValueError("SOURCE_URL_ID_MISMATCH")
+    if not isinstance(duration_s, (int, float)) or not math.isfinite(duration_s) or duration_s <= 0:
+        raise ValueError("INVALID_SOURCE_DURATION")
+    try:
+        timestamp = datetime.fromisoformat(acquired_at.replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            raise ValueError("NAIVE_ACQUISITION_TIME")
+    except (TypeError, AttributeError) as exc:
+        raise ValueError("INVALID_ACQUISITION_TIME") from exc
     if acquisition_method not in ACQUISITION_METHODS:
         raise ValueError("UNKNOWN_ACQUISITION_METHOD")
     if verification not in {"youtube_caption_response", "manual_audio_match"}:
