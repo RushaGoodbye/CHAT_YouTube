@@ -174,3 +174,31 @@ def test_lmstudio_seo_defaults_to_no_reasoning(monkeypatch):
     assert answer.startswith('{"title"')
     assert seen[0]["reasoning_effort"] == "none"
     assert seen[0]["response_format"]["type"] == "json_schema"
+
+
+def test_ensure_local_server_leaves_working_server_untouched(monkeypatch):
+    monkeypatch.setattr(lm, "probe_lm_studio", lambda: {
+        "available": True, "model_selected": True, "status": "READY"
+    })
+    assert lm.ensure_local_server()["status"] == "READY"
+
+
+def test_ensure_local_server_starts_windows_server_when_missing(monkeypatch, tmp_path):
+    import pathlib
+    import subprocess
+
+    if lm.os.name != "nt":
+        pytest.skip("Windows-only LM Studio CLI startup")
+    binary = tmp_path / ".lmstudio" / "bin" / "lms.exe"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"placeholder")
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+    states = iter([
+        {"available": False, "model_selected": False},
+        {"available": True, "model_selected": True, "status": "READY"},
+    ])
+    monkeypatch.setattr(lm, "probe_lm_studio", lambda: next(states))
+    invoked = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: invoked.append(cmd))
+    assert lm.ensure_local_server()["status"] == "READY"
+    assert invoked == [[str(binary), "server", "start"]]
