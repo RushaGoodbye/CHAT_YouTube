@@ -30,6 +30,23 @@ def compare_caption_rows(
     if not primary or not reference:
         return {"status": "NEEDS_REVIEW", "reason": "INDEPENDENT_CAPTIONS_UNAVAILABLE",
                 "publication_allowed": False}
+    # A translated transcript may use an entirely different writing system.
+    # Do not classify that as a source conflict without comparable-language
+    # evidence. Different-language subtitles still require editorial review.
+    def script_fraction(rows: list[dict[str, Any]]) -> tuple[float, float]:
+        chars = [c for row in rows for c in str(row.get("text") or "") if c.isalpha()]
+        if not chars:
+            return 0.0, 0.0
+        return (
+            sum(0x0400 <= ord(c) <= 0x052F for c in chars) / len(chars),
+            sum(("A" <= c <= "Z") or ("a" <= c <= "z") for c in chars) / len(chars),
+        )
+    primary_cyr, primary_lat = script_fraction(primary)
+    reference_cyr, reference_lat = script_fraction(reference)
+    if ((primary_cyr > 0.80 and reference_lat > 0.80) or
+            (primary_lat > 0.80 and reference_cyr > 0.80)):
+        return {"status": "NEEDS_REVIEW", "reason": "CAPTION_LANGUAGE_MISMATCH",
+                "publication_allowed": False}
     try:
         max_end = max(
             max(float(r["start"]) + float(r["duration"]) for r in primary),
