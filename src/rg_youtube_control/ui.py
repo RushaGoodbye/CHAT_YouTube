@@ -12990,10 +12990,12 @@ class MainWindow(QMainWindow):
                 transcript_rows=transcript_rows,
             )
             evidence_report["source_evidence"] = source_records
-            if not source_records["evidence_records"]:
+            if not source_records["complete_evidence_coverage"]:
+                missing = source_records["blocks_without_grounded_quotes"]
                 raise RuntimeError(
-                    "G2: жодної цитати не підтверджено початковими субтитрами. "
-                    "SEO-пакет не створено, оригінальні дані збережено."
+                    "G2: не всі фрагменти підтверджені початковими субтитрами "
+                    f"(непідтверджені блоки: {missing}). "
+                    "SEO-пакет не створено, потрібна редакторська перевірка."
                 )
             transcript = evidence_outline_text(evidence_report)
             # Persist the complete topic/evidence map independently of the
