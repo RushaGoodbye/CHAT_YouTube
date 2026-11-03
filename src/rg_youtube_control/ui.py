@@ -4314,7 +4314,7 @@ class MainWindow(QMainWindow):
         local_reply_btn = QPushButton("Чернетка для вибраного · 0 квоти")
         local_reply_btn.clicked.connect(self.local_comment_reply_selected)
 
-        next_draft_btn = QPushButton("Наступна готова")
+        next_draft_btn = QPushButton("Наступна чернетка")
         next_draft_btn.clicked.connect(self.select_next_ready_comment_draft)
 
         ignore_btn = QPushButton("Ігнорувати")
@@ -4379,6 +4379,7 @@ class MainWindow(QMainWindow):
         self.comment_draft_filter = QComboBox()
         self.comment_draft_filter.addItem("Усі чернетки", "")
         self.comment_draft_filter.addItem("Готові", "ready")
+        self.comment_draft_filter.addItem("AI · на перевірку", "review")
         self.comment_draft_filter.addItem("Пропущені quality-gate", "skipped")
         self.comment_draft_filter.addItem("Помилки генерації", "error")
         self.comment_draft_filter.addItem("Без чернетки", "none")
@@ -14120,11 +14121,11 @@ class MainWindow(QMainWindow):
         for offset in range(1, rows + 1):
             row = (start + offset) % rows
             state_item = self.comment_table.item(row, 6)
-            if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") == "ready":
+            if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") in {"ready", "review"}:
                 self.comment_table.selectRow(row)
                 self.comment_table.scrollToItem(state_item)
                 return
-        self._toast("У поточному фільтрі немає готових чернеток")
+        self._toast("У поточному фільтрі немає чернеток для перевірки")
 
     def clear_local_comment_drafts(self) -> None:
         stats = comment_draft_counts(self.conn, self.current_profile)
@@ -14326,6 +14327,13 @@ class MainWindow(QMainWindow):
         try:
             manual_reply(self.client, self.conn, str(comment_id), text.strip())
             self.reload_comments()
+            if str(self.comment_draft_filter.currentData() or "") == "review":
+                for next_row in range(self.comment_table.rowCount()):
+                    state_item = self.comment_table.item(next_row, 6)
+                    if state_item and str(state_item.data(Qt.ItemDataRole.UserRole) or "") == "review":
+                        self.comment_table.selectRow(next_row)
+                        self.comment_table.scrollToItem(state_item)
+                        break
             self.statusBar().showMessage("Відповідь опубліковано")
         except Exception as exc:
             self._error("Помилка відповіді", exc)
