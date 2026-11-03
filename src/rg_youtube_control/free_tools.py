@@ -3005,12 +3005,17 @@ chapters: рядок з підтвердженими таймкодами та �
     editorial_quality_flags = _seo_editorial_preview_flags(
         title, description, variants, tags,
     )
-    # Only the verified current title is eligible for this warning: a
-    # generated proposal itself may contain a hallucinated person/place.
+    # Validate the PROPOSED title as well as the existing one. Only checking
+    # the existing title hid unsupported names newly invented by the model.
+    # These are review warnings, never grounds for auto-publishing.
     source_alignment_conflicts = _seo_title_source_conflicts(
         str(current_title or "").strip(), transcript
     )
+    generated_conflicts = _seo_title_source_conflicts(title, transcript)
     editorial_quality_flags.extend(source_alignment_conflicts)
+    editorial_quality_flags.extend(
+        "GENERATED_" + issue for issue in generated_conflicts
+    )
     if not str(current_title or "").strip() or not transcript.strip():
         editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
     editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
@@ -3096,7 +3101,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "editorial_approved": False,
         "publication_allowed": False,
         "source_alignment_status": (
-            "BLOCKED_TOPIC_MISMATCH" if source_alignment_conflicts else
+            "BLOCKED_TOPIC_MISMATCH" if (source_alignment_conflicts or generated_conflicts) else
             "TITLE_OR_SRT_UNVERIFIED" if (
                 not str(current_title or "").strip() or not transcript.strip()
             ) else "SUBJECT_ROOTS_PRESENT_REVIEW"
