@@ -109,3 +109,16 @@ def test_generic_one_word_tags_are_not_editorial_pass():
          "чат рулетка", "події Саратова", "російські співрозмовники"],
     )
     assert "GENERIC_ONE_WORD_TAGS" in flags
+
+
+def test_rejects_generic_ab_questions_from_real_seo_draft():
+    flags = _seo_editorial_preview_flags(
+        "Контрактники замість добровольців та поведінка в Дагестані",
+        "У розмові з жителями Дагестану обговорюють військову службу.",
+        [
+            "Війна: що говорять співрозмовники?",
+            "Росія: про що йдеться у чат-рулетці?",
+            "Війна та Росія: про що говорили учасники?",
+        ],
+    )
+    assert "GENERIC_AB_VARIANTS" in flags
