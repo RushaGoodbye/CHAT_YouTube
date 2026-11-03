@@ -24,3 +24,12 @@ G0 PARTIAL, G1 IN DEVELOPMENT, G2–G6 NOT STARTED. No release approval. PR #168
 
 ## Next action
 Add source provenance manifests with ID, URL and verification evidence to acquisition pipeline, wire gate ahead of generator; repeat mixed video tests. Do not manufacture provenance from filenames.
+
+
+## G1 checkpoint 2 — after three changes
+- Added `seo_caption_manifest.py`: acquisition-time source URL, verified acquisition type, ISO acquisition time, duration and byte SHA-256; validation refuses absent, tampered, unknown or contradictory manifests.
+- Added 8 generic manifest tests (ID mismatch, tampering, missing JSON, duration conflict, missing provenance). Combined **18/18 PASS** on AlexPC in isolated `C:\RG_YT_AGENT_RUNNER\SEO_G1_CHECK`.
+- Wired NAS SRT screening in `ui.py` before loading local captions. Unverified NAS file no longer accepted merely because it is named after the video ID. Falls back to existing direct YouTube transcript routes.
+- UI syntax compilation PASS. Production GUI integration and mixed-video live source retrieval NOT YET VERIFIED.
+- IMPORTANT: No old manifests were fabricated for legacy captions. Acquisition pipeline still needs to write a manifest when caption bytes are actually downloaded. This is G1's remaining blocker.
+- Audit after three changes: G0 PARTIAL, G1 IN DEVELOPMENT, G2–G6 NOT STARTED. No release approval or YouTube edits.
