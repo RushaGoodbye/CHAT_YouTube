@@ -19,9 +19,9 @@ def classify_attributed_statement(quote: str) -> str:
     if "?" in text or "？" in text:
         return "question"
     # Require a syntactic speech marker; otherwise stay unclassified.
-    if re.search(r"(?<!\\w)(?:кажется|здається|думаю|считаю|вважаю|по-моему|на мою думку|я думаю|мне кажется)(?!\\w)", text):
+    if re.search(r"(?<!\w)(?:кажется|здається|думаю|считаю|вважаю|по-моему|на мою думку|я думаю|мне кажется)(?!\w)", text):
         return "opinion"
-    if re.search(r"(?<!\\w)(?:говорят|кажуть|нібито|якобы|по слухам|за чутками)(?!\\w)", text):
+    if re.search(r"(?<!\w)(?:говорят|кажуть|нібито|якобы|по слухам|за чутками)(?!\w)", text):
         return "allegation"
     return "attributed_speech"
 
