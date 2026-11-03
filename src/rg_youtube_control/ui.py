@@ -13001,7 +13001,7 @@ class MainWindow(QMainWindow):
                     chat=ollama_chat,
                     model=DEFAULT_OLLAMA_MODEL,
                     timeout=90.0,
-                    max_attempts=1,
+                    max_attempts=2,
                 )
             evidence_report["source_evidence"] = source_records
             if not source_records["complete_evidence_coverage"]:
