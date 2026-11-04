@@ -4,6 +4,7 @@ def test_russian_fuel_grades_written_as_spoken_ordinals():
     source = "сотый, девяносто пятый, девяносто второй"
     grounded = grounded_number_values(source)
     assert {"100", "95", "92"}.issubset(grounded)
+    assert "90" not in grounded
     assert "999" not in grounded
 
 def test_ukrainian_compound_cardinal_and_ordinals():
@@ -39,3 +40,22 @@ def test_unspoken_number_still_blocked():
     outcome=propose_editorial_revision(card=card,chat=lambda *a,**kw:json.dumps({
         "topic":"Марки бензину 999", "summary_uk":"Співрозмовник називає марку бензину 999."}),model="local")
     assert outcome["status"] == "BLOCKED_UNSUPPORTED_NUMBER"
+
+
+def test_standalone_tens_still_supported():
+    values = grounded_number_values("Девяносто. А потом девяносто пятый.")
+    assert "90" in values and "95" in values
+
+
+def test_compound_number_does_not_license_partial_grade_in_editorial_summary():
+    import json
+    from rg_youtube_control.seo_editorial_revision import propose_editorial_revision
+    quote = "сотый, девяносто пятый, девяносто второй"
+    card={"verbatim_quote":quote,"source_context":"В Краснодаре "+quote,
+          "proposed_topic":"Марки бензину","proposed_summary":"Обговорення пального."}
+    def chat(*args, **kwargs):
+        return json.dumps({"topic":"Бензин марок 90, 95 та 92",
+            "summary_uk":"Співрозмовник називає бензин 90, 95 і 92 марок."})
+    result=propose_editorial_revision(card=card,chat=chat,model="local")
+    assert result["status"]=="BLOCKED_UNSUPPORTED_NUMBER"
+    assert "90" in result["unsupported_numbers"]
