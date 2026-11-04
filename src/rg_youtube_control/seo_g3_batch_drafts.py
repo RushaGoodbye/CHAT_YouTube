@@ -99,10 +99,13 @@ def draft_seo_package(*, source: dict[str, Any], chat: Chat) -> dict[str, Any]:
             for r in records
         ]},
     }
-    response = chat([
+    messages = [
         {"role": "system", "content": "Професійний український SEO-редактор. Лише JSON. Не вигадуй факти."},
         {"role": "user", "content": json.dumps(task, ensure_ascii=False)},
-    ])
+    ]
+    response = chat(messages)
+    if not str(response or "").strip():
+        response = chat(messages + [{"role": "user", "content": "Відповідь була порожня. Поверни лише повний JSON за вихідним завданням."}])
     package = _json(response)
     try:
         from .seo_quality_gate import inspect_package
@@ -145,6 +148,20 @@ def evaluate_independent_draft(
         raise ValueError("SOURCE_DRAFT_MISMATCH")
     # Independent model must see ORIGINAL source, not previous model's
     # unsupported rationalization or self-reported risk.
+    if any(r["literal_quote"] not in r["source_context"] for r in source["records"]):
+        raise ValueError("CRITIC_SOURCE_QUOTE_MISMATCH")
+    compact_source = []
+    for r in source["records"]:
+        quote = r["literal_quote"]
+        context = r["source_context"]
+        start = max(0, context.find(quote) - 320)
+        end = context.find(quote) + len(quote) + 320
+        compact_source.append({
+            "start_s": r["start_s"],
+            "literal_quote": quote,
+            "source_context": context[start:end],
+            "topic_candidate_not_fact": r["topic_candidate_not_fact"],
+        })
     prompt = {
         "task": "Critically check factual entailment of ALL SEO claims against ORIGINAL provided captions.",
         "response": "JSON object with risk (low, medium, high) and issues (array of short strings).",
@@ -155,7 +172,7 @@ def evaluate_independent_draft(
             "Compare full description and every title to each exact source quote.",
             "A low risk opinion is NOT human approval or factual verification."
         ],
-        "source": source["records"],
+        "source": compact_source,
         "seo_candidate": draft["seo"],
     }
     result = _json(chat([
@@ -168,7 +185,9 @@ def evaluate_independent_draft(
             not isinstance(i, str) for i in issues):
         raise ValueError("INVALID_INDEPENDENT_CRITIQUE")
     requires_manual = (
-        risk != "low" or draft["status"] != "READY_FOR_INDEPENDENT_AI_REVIEW")
+        risk != "low" or bool(issues) or
+        draft["status"] != "READY_FOR_INDEPENDENT_AI_REVIEW" or
+        source.get("contains_provisional_sources", True))
     return {
         "schema": "RG_G3_INDEPENDENT_REVIEW_V1",
         "video_id": source["video_id"],
@@ -200,8 +219,10 @@ def repair_seo_package(
             critique.get("source_packet_sha256") != source.get("source_packet_sha256")
             or critique.get("video_id") != source.get("video_id")):
         raise ValueError("SOURCE_CRITIQUE_MISMATCH")
-    if previous.get("status") == "READY_FOR_INDEPENDENT_AI_REVIEW" and (
-            critique.get("risk_ai") == "low"):
+    if (previous.get("status") == "READY_FOR_INDEPENDENT_AI_REVIEW"
+            and critique.get("risk_ai") == "low"
+            and not critique.get("issues")
+            and not source.get("contains_provisional_sources")):
         raise ValueError("ALREADY_AI_SCREENED_DO_NOT_REWRITE")
     issues = {
         "structure": previous.get("quality_checks", {}).get("problems", {}),
