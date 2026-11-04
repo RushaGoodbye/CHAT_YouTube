@@ -21,7 +21,10 @@ def vague_topic_warning(topic: str) -> bool:
         "щось", "дещо", "якийсь", "якась", "якісь", "невідоме",
         "неизвестное", "что-то", "кое-что", "something",
     }
-    return bool(tokens & placeholders) or len(tokens) < 2
+    return (bool(tokens & placeholders)
+            or any(hyphenated in str(topic or "").casefold()
+                   for hyphenated in ("что-то", "кое-что"))
+            or len(tokens) < 2)
 
 
 def triage_editorial_reviews(
