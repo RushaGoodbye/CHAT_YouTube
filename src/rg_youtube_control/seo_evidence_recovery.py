@@ -57,7 +57,9 @@ def recover_missing_source_blocks(
         # Completed utterances are safer for editorial evidence than ASR
         # fragments with more distinct words. Keep original text verbatim.
         ranked = sorted(set(candidates), key=lambda x: (
-            bool(re.search(r'[.!?…]["»]?
+            x[0].rstrip().endswith((".", "!", "?", "…")),
+            len(set(re.findall(r"\w+", x[0].casefold()))), len(x[0]),
+        ), reverse=True)
         accepted = False
         for attempt in range(min(max_attempts, len(ranked))):
             quote, quote_time = ranked[attempt]
