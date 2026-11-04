@@ -16,7 +16,7 @@ def vague_topic_warning(topic: str) -> bool:
     """
     import re
 
-    tokens = set(re.findall(r"[^\\W_]+", str(topic or "").casefold()))
+    tokens = set(re.findall(r"[^\W_]+", str(topic or "").casefold()))
     placeholders = {
         "щось", "дещо", "якийсь", "якась", "якісь", "невідоме",
         "неизвестное", "что-то", "кое-что", "something",
