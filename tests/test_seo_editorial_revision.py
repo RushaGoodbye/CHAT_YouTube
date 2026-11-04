@@ -82,3 +82,26 @@ def test_second_attempt_removes_unsupported_number():
     assert "999" not in str(outcome["proposal"])
     assert len(calls) == 2
     assert outcome["publication_allowed"] is False
+
+
+def test_clean_retry_discards_poisoned_old_topic_after_empty_model_answer():
+    bad_card = card()
+    bad_card["proposed_topic"] = "Вигадана подія у невідомому місці"
+    bad_card["proposed_summary"] = "Модель стверджує те, чого не було."
+    bad_card["critic_issues_unverified"] = ["False claim from another context"]
+    prompts = []
+    def chat(messages, **kwargs):
+        data = json.loads(messages[-1]["content"])
+        prompts.append(data)
+        if len(prompts) == 1:
+            return json.dumps({"topic":"","summary_uk":""})
+        assert "original_topic" not in data
+        assert "original_summary" not in data
+        assert "unverified_critic_objections" not in data
+        assert "В городе закрыли несколько магазинов" in data["original_quote"]
+        return json.dumps({"topic":"Закриття деяких магазинів",
+            "summary_uk":"Співрозмовник розповідає про закриття частини магазинів одягу."})
+    result = propose_editorial_revision(card=bad_card, chat=chat, model="local")
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["attempts"] == 2
+    assert result["editorial_approved"] is False
