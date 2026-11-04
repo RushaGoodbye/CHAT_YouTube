@@ -61,9 +61,12 @@ def grounded_number_values(source: str) -> set[str]:
         val = _WORDS.get(word)
         if val is None:
             continue
-        values.add(str(val))
         if val in range(20, 100, 10) and i + 1 < len(words):
             unit = _WORDS.get(words[i + 1])
             if unit is not None and 1 <= unit <= 9:
+                # "девяносто пятый" supports 95, NOT an
+                # independent 90. Avoid partial-number hallucinations.
                 values.add(str(val + unit))
+                continue
+        values.add(str(val))
     return values
