@@ -10,8 +10,10 @@ on:
       - "tests/test_seo_editorial_triage.py"
       - "src/rg_youtube_control/seo_editorial_revision.py"
       - "tests/test_seo_editorial_revision.py"
+      - "src/rg_youtube_control/seo_spoken_numbers.py"
+      - "tests/test_seo_spoken_numbers.py"
       - "tests/test_seo_evidence_records.py"
-      - "tests/test_seo_evidence_recovery.py"
+      - "tests/test_seo_evidence_recovery.py tests/test_seo_spoken_numbers.py"
   workflow_dispatch:
 jobs:
   editorial-source-qa:
