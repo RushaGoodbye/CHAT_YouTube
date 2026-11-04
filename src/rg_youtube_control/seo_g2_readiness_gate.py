@@ -39,7 +39,7 @@ def assess_g2_holdout_readiness(
     incomplete = sorted(vid for vid, ok in source_coverage.items() if not ok)
     blocked_cards = [
         (c["video_id"], c["record_id"]) for c in cards
-        if c["status"] in {"BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW"}
+        if c["status"] in {"BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW", "PROVISIONAL_SOURCE_REVIEW"}
     ]
     total_decisions = 0
     pending = len(cards)
