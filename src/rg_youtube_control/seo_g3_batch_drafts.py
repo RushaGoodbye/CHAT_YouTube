@@ -237,3 +237,51 @@ def repair_seo_package(
     revised["previous_critic_risk"] = critique.get("risk_ai")
     revised["independent_recheck_required"] = True
     return revised
+
+
+def complete_missing_source_variants(
+    *, source: dict[str, Any], draft: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete absent A/B alternatives only using original G2 source topics.
+
+    Preserve all other SEO fields verbatim. No fabricated filler headlines,
+    and never convert a repaired package into final editorial approval.
+    """
+    from .seo_quality_gate import inspect_package, sanitize_review_variants
+
+    if (draft.get("schema") != "RG_G3_SEO_DRAFT_V1" or
+            draft.get("source_packet_sha256") != source.get("source_packet_sha256") or
+            draft.get("video_id") != source.get("video_id")):
+        raise ValueError("SOURCE_DRAFT_MISMATCH")
+    package = draft.get("seo")
+    if not isinstance(package, dict):
+        raise ValueError("INVALID_SEO_PACKAGE")
+    existing = package.get("title_variants")
+    if (not isinstance(existing, list) or len(existing) != 2 or
+            not all(isinstance(item, str) for item in existing) or
+            any(k != "title_variants" for k in draft.get("quality_checks", {}).get("problems", {}))):
+        raise ValueError("NOT_SOLELY_MISSING_ONE_TITLE_VARIANT")
+    proposals = [r["topic_candidate_not_fact"] for r in source.get("records", [])]
+    accepted, changed = sanitize_review_variants(
+        str(package.get("title") or ""), existing, proposals)
+    if not changed or len(accepted) != 3:
+        raise ValueError("NO_GROUNDED_THIRD_AB_TITLE")
+    corrected_package = dict(package)
+    corrected_package["title_variants"] = accepted
+    result = inspect_package(corrected_package)
+    if not result["format_pass"]:
+        raise ValueError("REPAIRED_SEO_FORMAT_INVALID")
+    output = dict(draft)
+    output["seo"] = corrected_package
+    output["quality_checks"] = {**result,
+        "unsupported_numbers": draft.get("quality_checks", {}).get("unsupported_numbers", [])}
+    if output["quality_checks"]["unsupported_numbers"]:
+        raise ValueError("REPAIRED_SEO_UNSUPPORTED_NUMBERS")
+    output["blockers"] = ["SOURCE_VARIANT_REQUIRES_INDEPENDENT_CHECK"]
+    output["status"] = "READY_FOR_INDEPENDENT_AI_REVIEW"
+    output["repair_method"] = "exact_source_topic_title_only"
+    output["independent_recheck_required"] = True
+    output["human_approved"] = False
+    output["g3_accepted"] = False
+    output["publication_allowed"] = False
+    return output
