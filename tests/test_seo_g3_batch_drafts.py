@@ -132,3 +132,75 @@ def test_source_variant_repair_never_rewrites_other_bad_fields():
     draft=draft_seo_package(source=source,chat=lambda _:json.dumps(pkg,ensure_ascii=False))
     with pytest.raises(ValueError,match="NOT_SOLELY_MISSING_ONE_TITLE_VARIANT"):
         complete_missing_source_variants(source=source,draft=draft)
+
+
+
+def test_low_risk_with_substantive_issues_is_not_screened():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    checked=evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":["Unsupported statement"]}))
+    assert checked["status"]=="NEEDS_ATTENTION"
+    assert not checked["publication_allowed"]
+
+def test_provisional_source_low_risk_requires_attention():
+    p=prepare_source_packet(video_id=VID,cards=cards(provisional=True))
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    checked=evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":[]}))
+    assert checked["status"]=="NEEDS_ATTENTION"
+
+def test_empty_model_reply_retries_once_then_checks():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    calls=[]
+    def chat(messages):
+        calls.append(messages)
+        return "" if len(calls)==1 else json.dumps(good_package(),ensure_ascii=False)
+    draft=draft_seo_package(source=p,chat=chat)
+    assert len(calls)==2 and len(calls[1])==3
+    assert not draft["publication_allowed"]
+
+def test_double_empty_model_reply_fails_closed():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    calls=[]
+    def chat(messages):
+        calls.append(1)
+        return ""
+    with pytest.raises(ValueError,match="MODEL_DID_NOT_RETURN_JSON"):
+        draft_seo_package(source=p,chat=chat)
+    assert len(calls)==2
+
+def test_low_risk_with_issues_allows_bounded_repair():
+    from rg_youtube_control.seo_g3_batch_drafts import repair_seo_package
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    review=evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":["Unsupported detail"]}))
+    repaired=repair_seo_package(source=p,previous=draft,critique=review,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    assert repaired["repair_attempt"]==1 and repaired["independent_recheck_required"]
+    assert not repaired["publication_allowed"]
+
+def test_low_risk_no_issues_does_not_rewrite():
+    from rg_youtube_control.seo_g3_batch_drafts import repair_seo_package
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    review=evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":[]}))
+    with pytest.raises(ValueError,match="ALREADY_AI_SCREENED_DO_NOT_REWRITE"):
+        repair_seo_package(source=p,previous=draft,critique=review,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+
+def test_independent_critic_bounded_quote_centered_context():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    original=p["records"][0]["source_context"]
+    p["records"][0]["source_context"]="x"*5000+original+"y"*5000
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    observed=[]
+    def critic(messages):
+        observed.append(json.loads(messages[-1]["content"])["source"][0])
+        return json.dumps({"risk":"low","issues":[]})
+    evaluate_independent_draft(draft=draft,source=p,chat=critic)
+    assert p["records"][0]["literal_quote"] in observed[0]["source_context"]
+    assert len(observed[0]["source_context"])<=len(p["records"][0]["literal_quote"])+640
+
+def test_independent_critic_rejects_missing_quote():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=p,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    p["records"][0]["literal_quote"]="Fake quote absent from original context"
+    with pytest.raises(ValueError,match="CRITIC_SOURCE_QUOTE_MISMATCH"):
+        evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":[]}))
