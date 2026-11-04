@@ -48,26 +48,36 @@ def recover_missing_source_blocks(
             quote = " ".join(str(row.get("text") or "").split())
             if (start <= row_time <= end and 28 <= len(quote) <= 220
                     and len(re.findall(r"\w+", quote)) >= 6):
-                candidates.append(quote)
+                candidates.append((quote, row_time))
         if not candidates:
             failed.append({"block_index": index, "reason": "NO_USABLE_SOURCE_QUOTE"})
             continue
         # Prefer a caption with varied words over repeated filler. Never
         # synthesize a quotation from text the model generated.
         ranked = sorted(set(candidates), key=lambda x: (
-            len(set(re.findall(r"\w+", x.casefold()))), len(x),
+            len(set(re.findall(r"\w+", x[0].casefold()))), len(x[0]),
         ), reverse=True)
         accepted = False
         for attempt in range(min(max_attempts, len(ranked))):
-            quote = ranked[attempt]
+            quote, quote_time = ranked[attempt]
             attempts += 1
+            # Many isolated captions are fragments of a longer sentence.
+            # Nearby ORIGINAL captions explain the utterance while the
+            # evidence quote remains an exact, unmodified source passage.
+            neighbor = " ".join(
+                " ".join(str(row.get("text") or "").split())
+                for row in transcript_rows
+                if start <= float(row.get("start", -1)) <= end
+                and abs(float(row.get("start", -1)) - quote_time) <= 25
+            )
             prompt = (
-                "Поверни тільки JSON-об'єкт із полями topic і summary_uk. "
-                "Визнач коротку тему та опис українською ТІЛЬКИ за однією "
-                "дослівною реплікою. Це висловлювання людини, НЕ доведений факт. "
-                "Не вигадуй імен, чисел, посад, мотивів чи подій. "
-                "Якщо зміст незрозумілий, поверни порожні рядки.\n"
-                + quote
+                "Поверни JSON із topic і summary_uk українською. "
+                "Сформулюй коротку конкретну тему за КОНТЕКСТОМ розмови. "
+                "Не повторюй старі непідтверджені теми. "
+                "Це слова співрозмовників, а не доведені факти. "
+                "Збережи питання і припущення як питання і припущення. "
+                "Не вигадуй деталей. Якщо зміст неясний, поверни порожні рядки.\n"
+                "ДОСЛІВНА ЦИТАТА:\n" + quote + "\nКОНТЕКСТ СУБТИТРІВ:\n" + neighbor[:1800]
             )
             try:
                 raw = chat(
