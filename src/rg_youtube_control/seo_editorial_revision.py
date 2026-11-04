@@ -86,6 +86,18 @@ def propose_editorial_revision(
             summary = _compact(answer.get("summary_uk"))
             if not (5 <= len(topic) <= 110 and 15 <= len(summary) <= 350):
                 raise ValueError("INVALID_REPAIR_LENGTH")
+            from .seo_editorial_triage import vague_topic_warning
+            if vague_topic_warning(topic):
+                prior_failure = "VAGUE_TOPIC: no concrete referent, action or event"
+                if attempt == 1:
+                    return {
+                        "status": "BLOCKED_VAGUE_TOPIC",
+                        "attempts": 2,
+                        "proposal": None,
+                        "editorial_approved": False,
+                        "publication_allowed": False,
+                    }
+                continue
             from .seo_spoken_numbers import grounded_number_values
             context_numbers = grounded_number_values(context)
             new_numbers = sorted(
