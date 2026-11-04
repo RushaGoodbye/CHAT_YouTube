@@ -19,6 +19,7 @@ MIN_HOLDOUT_VIDEOS = 10
 def build_g2_cohort(
     *, caption_dir: Path, review_size: int = 30,
     holdout_size: int = 10,
+    previously_used_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if review_size < MIN_REVIEW_VIDEOS or holdout_size < MIN_HOLDOUT_VIDEOS:
         raise ValueError("G2_ACCEPTANCE_COHORT_TOO_SMALL")
@@ -44,27 +45,31 @@ def build_g2_cohort(
             })
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             excluded.append({"file": file.name, "reason": str(exc)[:150]})
-    # Deterministic, length-stratified selection. Stable IDs and exact hashes
-    # prevent accidentally moving a previously observed source into holdout.
+    # Only new-to-editorial sources are eligible for the closed holdout.
     ordered = sorted(eligible, key=lambda x: (x["duration_s"], x["video_id"]))
+    previously_used_ids = set(previously_used_ids or ())
+    unseen = [x for x in ordered if x["video_id"] not in previously_used_ids]
     needed = review_size + holdout_size
-    ready = len(ordered) >= needed
+    ready = len(ordered) >= needed and len(unseen) >= holdout_size
     review, holdout = [], []
     if ready:
-        selected = ordered[:needed]
-        # Alternate among duration bands so review and unseen holdout both
-        # contain short and long recordings rather than a length bias.
-        review = [x for i, x in enumerate(selected) if i % needed < review_size]
-        holdout = [x for i, x in enumerate(selected) if i % needed >= review_size]
-        # keep deterministic but length-distributed holdout at spaced ranks
-        positions = {round(i * (needed-1) / (holdout_size-1)) for i in range(holdout_size)}
-        holdout = [x for i, x in enumerate(selected) if i in positions]
-        review = [x for i, x in enumerate(selected) if i not in positions]
+        # Pick the closed holdout across the entire duration spectrum of
+        # previously unseen videos; preserve source IDs and hashes unchanged.
+        indices = {
+            round(i * (len(unseen) - 1) / (holdout_size - 1))
+            for i in range(holdout_size)
+        }
+        holdout = [x for i, x in enumerate(unseen) if i in indices]
+        holdout_ids = {x["video_id"] for x in holdout}
+        review = [x for x in ordered if x["video_id"] not in holdout_ids][:review_size]
         if len(holdout) != holdout_size or len(review) != review_size:
             raise ValueError("COHORT_SPLIT_MISMATCH")
+        assert not (holdout_ids & previously_used_ids)
     return {
         "schema": "RG_G2_SOURCE_COHORT_V1",
         "available_real_verified_sources": len(eligible),
+        "unseen_eligible_sources": len(unseen),
+        "previously_used_ids": sorted(previously_used_ids),
         "required_review_sources": review_size,
         "required_holdout_sources": holdout_size,
         "missing_for_acceptance": max(0, needed - len(eligible)),
