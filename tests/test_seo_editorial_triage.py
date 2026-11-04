@@ -49,3 +49,17 @@ def test_invalid_risk_blocked():
     c["findings"][1]["risk"]="approved"
     with pytest.raises(ValueError,match="INVALID_CRITIC_FINDING"):
         triage_editorial_reviews(packet=packet(),critique=c)
+
+
+def test_vague_topic_warning_is_not_auto_rejection():
+    from rg_youtube_control.seo_editorial_triage import vague_topic_warning
+    assert vague_topic_warning("Спроби щось зробити")
+    assert vague_topic_warning("Попытки что-то сделать")
+    assert not vague_topic_warning("Ситуація з бензином у Тюмені")
+    assert not vague_topic_warning("Закриття магазинів одягу")
+    p=packet()
+    p["records"][0]["proposed_topic"]="Спроби щось зробити"
+    out=triage_editorial_reviews(packet=p,critique=critique())
+    assert out["queue"][1]["vague_topic_warning"] is True
+    assert out["queue"][1]["requires_human_review"] is True
+    assert out["editorial_approved"] is False
