@@ -125,3 +125,23 @@ def test_third_caption_is_final_bounded_source_retry():
     assert out["recovery"]["model_calls"]==3
     assert len(set(calls))==3
     assert out["publication_allowed"] is False
+
+
+def test_recovery_uses_neighboring_real_captions_without_model_quotes():
+    rows, report = fixture()
+    rows.append({"text": "The discussion continues with a concrete school budget concern from parents.",
+                 "start": 31.0, "duration": 3.0})
+    def local_context_chat(messages, **kwargs):
+        prompt = messages[-1]["content"]
+        assert "The discussion continues with a concrete school budget concern" in prompt
+        assert "ДОСЛІВНА ЦИТАТА:" in prompt
+        assert "КОНТЕКСТ СУБТИТРІВ:" in prompt
+        return json.dumps({"topic":"Освіта та бюджет",
+            "summary_uk":"Учасник розповідає про обговорення шкільного бюджету."})
+    out=recover_missing_source_blocks(
+        video_id=VID,timeline_report=report,transcript_rows=rows,
+        chat=local_context_chat,model="local")
+    assert out["complete_evidence_coverage"]
+    assert out["publication_allowed"] is False
+    assert report["blocks"][1]["topics"][-1]["evidence"] in (
+        Q2, "The discussion continues with a concrete school budget concern from parents.")
