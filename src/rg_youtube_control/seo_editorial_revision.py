@@ -48,13 +48,28 @@ def propose_editorial_revision(
         else:
             # Repair the format or remove unsupported numeric details. Never
             # change the source text and never accept the earlier bad draft.
-            repair_request = dict(request)
-            repair_request["previous_error"] = prior_failure
-            repair_request["requirements"] = list(request["requirements"]) + [
-                "Поверни лише об'єкт JSON: {topic: рядок, summary_uk: рядок}.",
-                "Не вводь жодних нових чисел. Коли число не підтверджене "
-                "контекстом, прибери його без заміни чи припущення.",
-            ]
+            # Start clean rather than repeating the rejected topic, summary
+            # or critic assertions. They can anchor the LLM to a false claim.
+            location = context.casefold().find(quote.casefold())
+            if location >= 0:
+                local_context = context[
+                    max(0, location - 350):location + len(quote) + 350
+                ]
+            else:
+                local_context = quote
+            repair_request = {
+                "original_quote": quote,
+                "local_context": local_context,
+                "previous_error": prior_failure,
+                "task": (
+                    "Стисло опиши українською, про що йдеться у репліці. "
+                    "Збережи питання як питання, не стверджуй правдивість сказаного. "
+                    "Поверни тільки JSON з topic (5-110 символів) та "
+                    "summary_uk (15-350 символів). Якщо немає підтвердження "
+                    "місця, числа або причин у контексті, не додавай їх. "
+                    "Не додавай нових чисел або фактів."
+                ),
+            }
             messages = [
                 {"role": "system", "content": "Виправ JSON та необґрунтовані числа. Тільки JSON."},
                 {"role": "user", "content": json.dumps(repair_request, ensure_ascii=False)},
