@@ -95,3 +95,13 @@ def test_vague_topic_requires_actual_rewrite_or_rejection():
     s["decisions"] = [entry(p, 0)]
     with pytest.raises(ValueError, match="FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION"):
         validate_editorial_decisions(packet=p, submission=s)
+
+
+def test_context_change_invalidates_existing_editor_decisions():
+    p = packet()
+    p["records"][0]["source_context"] = "Initial extended source context."
+    s = submission(p)
+    s["decisions"] = [entry(p, 0)]
+    p["records"][0]["source_context"] = "A different extended context."
+    with pytest.raises(ValueError, match="SOURCE_MANIFEST_MISMATCH"):
+        validate_editorial_decisions(packet=p, submission=s)
