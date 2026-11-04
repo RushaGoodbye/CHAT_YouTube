@@ -24,6 +24,8 @@ def setup(tmp_path,monkeypatch):
     generated=[]
     monkeypatch.setattr(ui,"generate_seo_package_local",lambda **kw: generated.append(kw) or {"title":"draft","tags":[]})
     monkeypatch.setattr(ui,"evidence_outline_text",lambda report:"evidence draft")
+    # Offline tests must never call a running LM Studio local server.
+    monkeypatch.setattr(ui, "ollama_chat", lambda *args, **kwargs: "{}")
     return worker,generated,monkeypatch
 
 def report(quote):
