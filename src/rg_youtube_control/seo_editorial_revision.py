@@ -86,7 +86,8 @@ def propose_editorial_revision(
             summary = _compact(answer.get("summary_uk"))
             if not (5 <= len(topic) <= 110 and 15 <= len(summary) <= 350):
                 raise ValueError("INVALID_REPAIR_LENGTH")
-            context_numbers = set(re.findall(r"(?<!\w)\d+(?!\w)", context))
+            from .seo_spoken_numbers import grounded_number_values
+            context_numbers = grounded_number_values(context)
             new_numbers = sorted(
                 set(re.findall(r"(?<!\w)\d+(?!\w)", topic + " " + summary))
                 - context_numbers
