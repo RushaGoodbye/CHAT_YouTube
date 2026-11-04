@@ -101,8 +101,10 @@ def validate_editorial_decisions(
         note = str(d.get("note") or "").strip()
         topic = str(d.get("corrected_topic") or "").strip()
         summary = str(d.get("corrected_summary") or "").strip()
-        if decision == "approve" and cards[key].get("status") == "BLOCKED":
-            raise ValueError("BLOCKED_CARD_CANNOT_BE_APPROVED")
+        if decision == "approve" and cards[key].get("status") in {
+            "BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW",
+        }:
+            raise ValueError("FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION")
         if decision == "approve" and (topic or summary):
             raise ValueError("APPROVAL_CANNOT_SILENTLY_REWRITE")
         if decision == "revise" and (not (5 <= len(topic) <= 110) or
