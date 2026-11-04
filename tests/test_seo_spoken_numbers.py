@@ -5,6 +5,7 @@ def test_russian_fuel_grades_written_as_spoken_ordinals():
     grounded = grounded_number_values(source)
     assert {"100", "95", "92"}.issubset(grounded)
     assert "90" not in grounded
+    assert "5" not in grounded and "2" not in grounded
     assert "999" not in grounded
 
 def test_ukrainian_compound_cardinal_and_ordinals():
