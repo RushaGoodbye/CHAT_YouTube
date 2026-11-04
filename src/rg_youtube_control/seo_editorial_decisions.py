@@ -104,7 +104,7 @@ def validate_editorial_decisions(
         topic = str(d.get("corrected_topic") or "").strip()
         summary = str(d.get("corrected_summary") or "").strip()
         if decision == "approve" and cards[key].get("status") in {
-            "BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW",
+            "BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW", "PROVISIONAL_SOURCE_REVIEW",
         }:
             raise ValueError("FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION")
         if decision == "approve" and (topic or summary):
