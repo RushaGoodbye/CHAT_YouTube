@@ -1378,7 +1378,7 @@ class MainWindow(QMainWindow):
         for key, label in (
             ("youtube", "YouTube"),
             ("nas", "NAS"),
-            ("ollama", "Ollama"),
+            ("ollama", "LM Studio"),
             ("transcript", "Transcript"),
             ("vidiq", "vidIQ"),
             ("api", "API"),
@@ -2119,7 +2119,7 @@ class MainWindow(QMainWindow):
         self._set_health_state(
             "ollama",
             bool(probes.get("ollama", {}).get("available")),
-            "Ollama",
+            "LM Studio",
         )
         self._set_health_state(
             "transcript",
@@ -5655,7 +5655,7 @@ class MainWindow(QMainWindow):
             ("403", "YouTube 403"),
             ("timeout", "Timeout"),
             ("timed out", "Timeout"),
-            ("ollama", "Ollama"),
+            ("ollama", "LM Studio"),
         ):
             if token in text:
                 return family
@@ -6474,7 +6474,7 @@ class MainWindow(QMainWindow):
             f"Шлях транскриптів: {nas_path}",
             f"yt-dlp: {'OK' if yt.get('available') else '—'}",
             f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"LM Studio: {'OK' if ol.get('available') else '—'}",
             f"PowerShell (вбудований): {ps_label}",
             f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
             (
@@ -12670,7 +12670,7 @@ class MainWindow(QMainWindow):
                 + ("OK" if yt.get("available") else "—")
                 + " · transcript: "
                 + ("OK" if tr.get("available") else "—")
-                + " · Ollama: "
+                + " · LM Studio: "
                 + ("OK" if ol.get("available") else "—")
                 + " · "
                 + DEFAULT_OLLAMA_MODEL
@@ -12682,7 +12682,7 @@ class MainWindow(QMainWindow):
             self._set_health_state(
                 "ollama",
                 bool(ol.get("available") and model.get("available")),
-                "Ollama",
+                "LM Studio",
             )
             self._set_health_state(
                 "transcript",
@@ -12698,7 +12698,7 @@ class MainWindow(QMainWindow):
             self._free_tools_last_probe = {}
             if hasattr(self, "free_tools_status_label"):
                 self.free_tools_status_label.setText(f"0-quota: {exc}")
-            self._set_health_state("ollama", False, "Ollama")
+            self._set_health_state("ollama", False, "LM Studio")
             self._set_health_state("transcript", False, "Transcript")
 
 
