@@ -41,7 +41,7 @@ def test_source_change_blocks_import():
 def test_blocked_card_cannot_be_approved():
     p=packet();s=submission(p)
     s["decisions"]=[entry(p,1)]
-    with pytest.raises(ValueError,match="BLOCKED_CARD_CANNOT_BE_APPROVED"):
+    with pytest.raises(ValueError,match="FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION"):
         validate_editorial_decisions(packet=p,submission=s)
 
 def test_explicit_reject_requires_reason():
@@ -86,3 +86,12 @@ def test_missing_reviewer_is_invalid():
     s=submission(p);s["reviewer"]=" "
     with pytest.raises(ValueError,match="MISSING_REVIEWER"):
         validate_editorial_decisions(packet=p,submission=s)
+
+
+def test_vague_topic_requires_actual_rewrite_or_rejection():
+    p = packet()
+    p["records"][0]["status"] = "VAGUE_TOPIC_NEEDS_REVIEW"
+    s = submission(p)
+    s["decisions"] = [entry(p, 0)]
+    with pytest.raises(ValueError, match="FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION"):
+        validate_editorial_decisions(packet=p, submission=s)
