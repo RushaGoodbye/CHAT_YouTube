@@ -46,6 +46,7 @@ def create_review_manifest(packet: dict[str, Any]) -> dict[str, Any]:
             "video_id": video_id,
             "record_id": record_id,
             "source_quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+            "source_context_sha256": _sha(item.get("source_context") or ""),
             "candidate_sha256": _sha({
                 "topic": item.get("revised_topic") or item.get("initial_topic") or "",
                 "summary": item.get("revised_summary") or item.get("initial_summary") or "",
@@ -93,6 +94,7 @@ def validate_editorial_decisions(
         seen.add(key)
         original = allowed[key]
         if (d.get("source_quote_sha256") != original["source_quote_sha256"] or
+                d.get("source_context_sha256") != original["source_context_sha256"] or
                 d.get("candidate_sha256") != original["candidate_sha256"]):
             raise ValueError("DECISION_SOURCE_CHANGED")
         decision = d.get("decision")
