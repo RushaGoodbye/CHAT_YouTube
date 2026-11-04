@@ -105,3 +105,12 @@ def test_context_change_invalidates_existing_editor_decisions():
     p["records"][0]["source_context"] = "A different extended context."
     with pytest.raises(ValueError, match="SOURCE_MANIFEST_MISMATCH"):
         validate_editorial_decisions(packet=p, submission=s)
+
+
+def test_provisional_source_cannot_be_approved_without_full_coverage():
+    p = packet()
+    p["records"][0]["status"] = "PROVISIONAL_SOURCE_REVIEW"
+    s = submission(p)
+    s["decisions"] = [entry(p, 0)]
+    with pytest.raises(ValueError, match="FLAGGED_CARD_REQUIRES_REVISION_OR_REJECTION"):
+        validate_editorial_decisions(packet=p, submission=s)
