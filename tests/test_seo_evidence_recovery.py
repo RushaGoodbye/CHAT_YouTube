@@ -98,3 +98,30 @@ def test_second_attempt_uses_different_source_quote():
     assert outcome["recovery"]["model_calls"] == 2
     assert prompts[0] != prompts[1]
     assert outcome["publication_allowed"] is False
+
+
+def test_third_caption_is_final_bounded_source_retry():
+    rows, report = fixture()
+    rows.extend([
+        {"text":"Local residents discuss new school routes for their children every day.",
+         "start":31.0,"duration":1.0},
+        {"text":"Several families are requesting more classrooms in the nearby community.",
+         "start":32.0,"duration":1.0},
+    ])
+    calls=[]
+    def delayed_model(messages, **kwargs):
+        calls.append(messages[-1]["content"])
+        if len(calls)<3:
+            return '{"topic":"","summary_uk":""}'
+        return json.dumps({
+            "topic":"Шкільні потреби громади",
+            "summary_uk":"Співрозмовник обговорює потреби місцевих шкіл та учнів."
+        })
+    out=recover_missing_source_blocks(
+        video_id=VID,timeline_report=report,transcript_rows=rows,
+        chat=delayed_model,model="local",max_attempts=3,
+    )
+    assert out["complete_evidence_coverage"]
+    assert out["recovery"]["model_calls"]==3
+    assert len(set(calls))==3
+    assert out["publication_allowed"] is False
