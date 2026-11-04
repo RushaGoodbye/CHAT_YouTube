@@ -68,3 +68,32 @@ def test_model_failure_does_not_fabricate_output():
     p=prepare_source_packet(video_id=VID,cards=cards())
     with pytest.raises(ValueError,match="MODEL_DID_NOT_RETURN_JSON"):
         draft_seo_package(source=p,chat=lambda _: "")
+
+
+def test_bounded_repair_inherits_source_and_requires_new_independent_critic():
+    from rg_youtube_control.seo_g3_batch_drafts import repair_seo_package
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    broken=good_package()
+    broken["title_variants"]=["Дубль","Дубль","Дубль"]
+    prior=draft_seo_package(source=source,chat=lambda _:json.dumps(broken,ensure_ascii=False))
+    critique=evaluate_independent_draft(draft=prior,source=source,
+        chat=lambda _:json.dumps({"risk":"medium","issues":["Duplicated alternatives"]}))
+    repaired=repair_seo_package(source=source,previous=prior,critique=critique,
+        chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    assert repaired["status"]=="READY_FOR_INDEPENDENT_AI_REVIEW"
+    assert repaired["repair_attempt"]==1
+    assert repaired["independent_recheck_required"]
+    assert repaired["source_packet_sha256"]==source["source_packet_sha256"]
+    assert not repaired["publication_allowed"] and not repaired["g3_accepted"]
+
+def test_repair_refuses_source_swap():
+    from rg_youtube_control.seo_g3_batch_drafts import repair_seo_package
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    broken=good_package()
+    broken["title_variants"]=["Дубль","Дубль","Дубль"]
+    prior=draft_seo_package(source=source,chat=lambda _:json.dumps(broken,ensure_ascii=False))
+    critique=evaluate_independent_draft(draft=prior,source=source,
+        chat=lambda _:json.dumps({"risk":"high","issues":["Unsupported"]}))
+    critique["source_packet_sha256"]="forged"
+    with pytest.raises(ValueError,match="SOURCE_CRITIQUE_MISMATCH"):
+        repair_seo_package(source=source,previous=prior,critique=critique,chat=lambda _: "{}")
