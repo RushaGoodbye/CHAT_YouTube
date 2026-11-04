@@ -1,0 +1,96 @@
+import json
+import urllib.error
+from types import SimpleNamespace
+
+import pytest
+
+from rg_youtube_control import free_tools
+from rg_youtube_control import lm_studio_backend as backend
+
+
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self.payload
+
+
+def test_uses_only_local_openai_compatible_endpoint(monkeypatch):
+    calls = []
+    def handle(req, timeout):
+        calls.append((req.full_url, json.loads(req.data.decode("utf-8"))))
+        return FakeResponse({"choices": [{"message": {"content": '{"title":"Тест"}'}}]})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    result = backend.lm_studio_chat(
+        [{"role": "user", "content": "Напиши SEO"}], json_mode=True,
+        num_ctx=16384,
+    )
+    assert result == '{"title":"Тест"}'
+    assert calls[0][0] == "http://127.0.0.1:1234/v1/chat/completions"
+    assert calls[0][1]["model"] == "rg-qwen3-14b"
+    assert calls[0][1]["reasoning_effort"] == "none"
+    assert calls[0][1]["response_format"]["type"] == "json_schema"
+    assert len(calls) == 1
+
+
+def test_single_retry_on_empty_response_without_hidden_content(monkeypatch):
+    calls = []
+    def handle(req, timeout):
+        calls.append(json.loads(req.data.decode("utf-8")))
+        content = "" if len(calls) == 1 else '{"ok":true}'
+        return FakeResponse({"choices": [{"message": {
+            "content": content, "reasoning_content": "ignore this reasoning",
+        }}]})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    response = backend.lm_studio_chat(
+        [{"role": "user", "content": "Check"}], json_mode=True,
+    )
+    assert response == '{"ok":true}'
+    assert len(calls) == 2
+    assert len(calls[1]["messages"]) == 2
+
+
+def test_double_empty_reply_fails_closed(monkeypatch):
+    calls = []
+    def handle(req, timeout):
+        calls.append(1)
+        return FakeResponse({"choices": [{"message": {"content": ""}}]})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    with pytest.raises(RuntimeError, match="двічі"):
+        backend.lm_studio_chat([{"role": "user", "content": "Check"}])
+    assert len(calls) == 2
+
+
+def test_local_transport_failure_never_falls_back_to_cloud(monkeypatch):
+    def fail(*args, **kwargs):
+        raise urllib.error.URLError("offline")
+    monkeypatch.setattr(backend.urllib.request, "urlopen", fail)
+    with pytest.raises(RuntimeError, match="LM Studio недоступна"):
+        backend.lm_studio_chat([{"role": "user", "content": "Check"}])
+
+
+def test_existing_seo_call_sites_use_lm_studio_without_ollama(monkeypatch):
+    calls = []
+    def fake(messages, **kwargs):
+        calls.append(kwargs)
+        return '{"ok":true}'
+    monkeypatch.setattr(free_tools, "lm_studio_chat", fake)
+    assert free_tools.ollama_chat([{"role": "user", "content": "Check"}],json_mode=True) == '{"ok":true}'
+    assert calls[0]["model"] == "rg-qwen3-14b"
+    assert calls[0]["json_mode"] is True
+
+
+def test_probe_reports_lm_studio_server_and_model(monkeypatch):
+    monkeypatch.setattr(free_tools, "list_lm_studio_models",
+                        lambda **kwargs: ["rg-qwen3-14b"])
+    status = free_tools.probe_free_tools()
+    assert status["lm_studio"]["available"]
+    assert status["lm_studio_model"]["available"]
+    assert status["ollama"]["name"] == "LM Studio"
