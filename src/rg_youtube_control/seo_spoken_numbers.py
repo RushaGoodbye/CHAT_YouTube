@@ -61,6 +61,10 @@ def grounded_number_values(source: str) -> set[str]:
         val = _WORDS.get(word)
         if val is None:
             continue
+        if i > 0 and 1 <= val <= 9 and _WORDS.get(words[i - 1]) in range(20, 100, 10):
+            # An ordinal unit from a compound does not establish a separate
+            # fuel grade: ninety-fifth is 95, not an independent fifth.
+            continue
         if val in range(20, 100, 10) and i + 1 < len(words):
             unit = _WORDS.get(words[i + 1])
             if unit is not None and 1 <= unit <= 9:
