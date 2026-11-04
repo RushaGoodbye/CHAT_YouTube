@@ -27,7 +27,7 @@ def recover_missing_source_blocks(
     Never repair a model quote by guessing. A literal caption is pinned into
     the final record and is still checked against the original captions.
     """
-    if not (1 <= max_attempts <= 2):
+    if not (1 <= max_attempts <= 3):
         raise ValueError("INVALID_RECOVERY_ATTEMPTS")
     report = build_evidence_records(
         video_id=video_id, timeline_report=timeline_report,
