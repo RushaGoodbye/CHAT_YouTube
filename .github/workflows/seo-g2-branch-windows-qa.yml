@@ -1,0 +1,81 @@
+name: SEO G2 isolated Windows candidate QA
+on:
+  push:
+    branches:
+      - feature/seo-universal-g2-evidence-schema
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pyinstaller
+      - name: Full tests
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "src"
+          python -m pytest -q tests --disable-warnings
+          if ($LASTEXITCODE -ne 0) { throw "Unit/regression suite failed" }
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name "RG YouTube Control" --paths src run_app.py
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+      - name: Build private review installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Inno setup dependency failed" }
+          New-Item -ItemType Directory -Force installer | Out-Null
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" "packaging\installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+      - name: SHA256 and disposable silent install
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = Get-ChildItem "installer\RG_YouTube_Control_Setup_*.exe" | Select-Object -First 1
+          if (-not $setup) { throw "Missing setup" }
+          $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup.Name)" | Set-Content -Encoding ascii "$($setup.FullName).sha256"
+          $target = Join-Path $env:RUNNER_TEMP "RG_YouTube_Control_QA"
+          $proc = Start-Process $setup.FullName -ArgumentList @("/VERYSILENT","/SP-","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$target") -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Inno installation failed" }
+          $exe = Join-Path $target "RG YouTube Control.exe"
+          if (-not (Test-Path $exe)) { throw "Executable not installed" }
+          if (-not (Test-Path (Join-Path $target "_internal"))) { throw "Runtime missing" }
+          $profile = Join-Path $env:RUNNER_TEMP "RG_Offline_QA_Profile"
+          $env:APPDATA = Join-Path $profile "Roaming"
+          $env:LOCALAPPDATA = Join-Path $profile "Local"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+          $gui = Start-Process -FilePath $exe -WorkingDirectory $target -PassThru
+          try {
+            Start-Sleep -Seconds 10
+            $gui.Refresh()
+            if ($gui.HasExited) { throw "GUI exited during cold start" }
+            Write-Host "QA_GUI_INSTALL_PASS"
+          } finally {
+            if (-not $gui.HasExited) { Stop-Process -Id $gui.Id -Force }
+          }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: RG-YouTube-Control-SEO-G2-Candidate
+          path: |
+            installer/*.exe
+            installer/*.sha256
+          retention-days: 7
