@@ -84,3 +84,12 @@ def test_review_revision_not_approval():
         source_coverage=coverage,validated_decisions=checked)
     assert report["holdout_ready"] is False
     assert report["blockers"]["human_revisions_pending_new_review"] == 1
+
+
+def test_provisional_source_record_blocks_holdout_even_if_present():
+    cohort, packet, coverage = fixture()
+    packet["records"][0]["status"] = "PROVISIONAL_SOURCE_REVIEW"
+    status = assess_g2_holdout_readiness(
+        cohort=cohort, handoff=packet, source_coverage=coverage)
+    assert status["blockers"]["blocked_or_vague_cards"] == 1
+    assert not status["holdout_ready"]
