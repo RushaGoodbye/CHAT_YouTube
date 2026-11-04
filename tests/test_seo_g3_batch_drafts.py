@@ -97,3 +97,38 @@ def test_repair_refuses_source_swap():
     critique["source_packet_sha256"]="forged"
     with pytest.raises(ValueError,match="SOURCE_CRITIQUE_MISMATCH"):
         repair_seo_package(source=source,previous=prior,critique=critique,chat=lambda _: "{}")
+
+
+def test_complete_missing_third_ab_only_from_source():
+    from rg_youtube_control.seo_g3_batch_drafts import complete_missing_source_variants
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    source["records"][0]["topic_candidate_not_fact"]="Розмова про суспільство та громадянську позицію"
+    pkg=good_package()
+    pkg["title_variants"]=pkg["title_variants"][:2]
+    broken=draft_seo_package(source=source,chat=lambda _:json.dumps(pkg,ensure_ascii=False))
+    assert broken["blockers"]==["title_variants"]
+    repaired=complete_missing_source_variants(source=source,draft=broken)
+    assert len(repaired["seo"]["title_variants"])==3
+    assert repaired["seo"]["title_variants"][-1] == source["records"][0]["topic_candidate_not_fact"]
+    assert repaired["seo"]["description"] == pkg["description"]
+    assert repaired["independent_recheck_required"] is True
+    assert not repaired["publication_allowed"] and not repaired["human_approved"]
+
+
+def test_no_ungrounded_source_ab_fallback():
+    from rg_youtube_control.seo_g3_batch_drafts import complete_missing_source_variants
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    source["records"][0]["topic_candidate_not_fact"] = "Я это русский заголовок"
+    pkg=good_package();pkg["title_variants"]=pkg["title_variants"][:2]
+    draft=draft_seo_package(source=source,chat=lambda _:json.dumps(pkg,ensure_ascii=False))
+    with pytest.raises(ValueError,match="NO_GROUNDED_THIRD_AB_TITLE"):
+        complete_missing_source_variants(source=source,draft=draft)
+
+
+def test_source_variant_repair_never_rewrites_other_bad_fields():
+    from rg_youtube_control.seo_g3_batch_drafts import complete_missing_source_variants
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    pkg=good_package();pkg["title_variants"]=pkg["title_variants"][:2];pkg["description"]="Коротко"
+    draft=draft_seo_package(source=source,chat=lambda _:json.dumps(pkg,ensure_ascii=False))
+    with pytest.raises(ValueError,match="NOT_SOLELY_MISSING_ONE_TITLE_VARIANT"):
+        complete_missing_source_variants(source=source,draft=draft)
