@@ -181,3 +181,59 @@ def evaluate_independent_draft(
         "g3_accepted": False,
         "publication_allowed": False,
     }
+
+
+def repair_seo_package(
+    *, source: dict[str, Any], previous: dict[str, Any],
+    critique: dict[str, Any], chat: Chat,
+) -> dict[str, Any]:
+    """One bounded source-aware rewrite. Recheck structure and numbers as new.
+
+    Never count a rewrite as independent AI review. That requires a different
+    model afterward and a separate explicit human decision for publication.
+    """
+    if (previous.get("schema") != "RG_G3_SEO_DRAFT_V1" or
+            previous.get("source_packet_sha256") != source.get("source_packet_sha256")
+            or previous.get("video_id") != source.get("video_id")):
+        raise ValueError("SOURCE_DRAFT_MISMATCH")
+    if (critique.get("schema") != "RG_G3_INDEPENDENT_REVIEW_V1" or
+            critique.get("source_packet_sha256") != source.get("source_packet_sha256")
+            or critique.get("video_id") != source.get("video_id")):
+        raise ValueError("SOURCE_CRITIQUE_MISMATCH")
+    if previous.get("status") == "READY_FOR_INDEPENDENT_AI_REVIEW" and (
+            critique.get("risk_ai") == "low"):
+        raise ValueError("ALREADY_AI_SCREENED_DO_NOT_REWRITE")
+    issues = {
+        "structure": previous.get("quality_checks", {}).get("problems", {}),
+        "unsupported_numbers": previous.get("quality_checks", {}).get("unsupported_numbers", []),
+        "critic_issues": critique.get("issues", []),
+    }
+    def rewrite(_original_messages: list[dict[str, str]]) -> str:
+        return chat([
+            {"role": "system", "content": "Редагуй українське SEO за джерелом. Поверни лише JSON."},
+            {"role": "user", "content": json.dumps({
+                "task": "Rewrite one flawed YouTube SEO package with minimal changes to truthful source-grounded content.",
+                "required": {
+                    "title": "string <= 100 characters",
+                    "title_variants": "array of EXACTLY three DISTINCT strings, each <=100 characters",
+                    "description": "single coherent Ukrainian text 300-1400 characters",
+                    "tags": "array 8-16 concrete Ukrainian keywords",
+                },
+                "source_records_not_external_facts": source["records"],
+                "previous_draft": previous["seo"],
+                "defects_to_fix": issues,
+                "rules": [
+                    "No unsupported numeric values, names, dates or locations.",
+                    "No invented claims, filler or keyword repetition.",
+                    "Reflect direct speaker claims as opinions, not facts.",
+                    "Do not alter video ID or source quotes.",
+                    "Keep 3 genuinely distinct Ukrainian A/B angles.",
+                ],
+            }, ensure_ascii=False)},
+        ])
+    revised = draft_seo_package(source=source, chat=rewrite)
+    revised["repair_attempt"] = 1
+    revised["previous_draft_sha256"] = _fingerprint(previous.get("seo"))
+    revised["previous_critic_risk"] = critique.get("risk_ai")
+    revised["independent_recheck_required"] = True
+    return revised
