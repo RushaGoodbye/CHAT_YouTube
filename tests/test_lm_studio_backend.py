@@ -28,13 +28,14 @@ def test_uses_only_local_openai_compatible_endpoint(monkeypatch):
         calls.append((req.full_url, json.loads(req.data.decode("utf-8"))))
         return FakeResponse({"choices": [{"message": {"content": '{"title":"Тест"}'}}]})
     monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    monkeypatch.setattr(backend, "ensure_model_loaded", lambda **kwargs: "qwen3-14b")
     result = backend.lm_studio_chat(
         [{"role": "user", "content": "Напиши SEO"}], json_mode=True,
         num_ctx=16384,
     )
     assert result == '{"title":"Тест"}'
     assert calls[0][0] == "http://127.0.0.1:1234/v1/chat/completions"
-    assert calls[0][1]["model"] == "rg-qwen3-14b"
+    assert calls[0][1]["model"] == "qwen3-14b"
     assert calls[0][1]["reasoning_effort"] == "none"
     assert calls[0][1]["response_format"]["type"] == "json_schema"
     assert len(calls) == 1
@@ -49,6 +50,7 @@ def test_single_retry_on_empty_response_without_hidden_content(monkeypatch):
             "content": content, "reasoning_content": "ignore this reasoning",
         }}]})
     monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    monkeypatch.setattr(backend, "ensure_model_loaded", lambda **kwargs: "qwen3-14b")
     response = backend.lm_studio_chat(
         [{"role": "user", "content": "Check"}], json_mode=True,
     )
@@ -63,6 +65,7 @@ def test_double_empty_reply_fails_closed(monkeypatch):
         calls.append(1)
         return FakeResponse({"choices": [{"message": {"content": ""}}]})
     monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    monkeypatch.setattr(backend, "ensure_model_loaded", lambda **kwargs: "qwen3-14b")
     with pytest.raises(RuntimeError, match="двічі"):
         backend.lm_studio_chat([{"role": "user", "content": "Check"}])
     assert len(calls) == 2
@@ -72,6 +75,7 @@ def test_local_transport_failure_never_falls_back_to_cloud(monkeypatch):
     def fail(*args, **kwargs):
         raise urllib.error.URLError("offline")
     monkeypatch.setattr(backend.urllib.request, "urlopen", fail)
+    monkeypatch.setattr(backend, "ensure_model_loaded", lambda **kwargs: "qwen3-14b")
     with pytest.raises(RuntimeError, match="LM Studio недоступна"):
         backend.lm_studio_chat([{"role": "user", "content": "Check"}])
 
@@ -83,14 +87,54 @@ def test_existing_seo_call_sites_use_lm_studio_without_ollama(monkeypatch):
         return '{"ok":true}'
     monkeypatch.setattr(free_tools, "lm_studio_chat", fake)
     assert free_tools.ollama_chat([{"role": "user", "content": "Check"}],json_mode=True) == '{"ok":true}'
-    assert calls[0]["model"] == "rg-qwen3-14b"
+    assert calls[0]["model"] == "qwen3-14b"
     assert calls[0]["json_mode"] is True
 
 
 def test_probe_reports_lm_studio_server_and_model(monkeypatch):
     monkeypatch.setattr(free_tools, "list_lm_studio_models",
-                        lambda **kwargs: ["rg-qwen3-14b"])
+                        lambda **kwargs: ["qwen3-14b"])
     status = free_tools.probe_free_tools()
     assert status["lm_studio"]["available"]
     assert status["lm_studio_model"]["available"]
     assert status["ollama"]["name"] == "LM Studio"
+
+
+def test_ensure_model_loads_downloaded_qwen_on_demand(monkeypatch):
+    calls = []
+    def handle(request, timeout):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/api/v1/models"):
+            return FakeResponse({"models": [{"key": "qwen3-14b", "loaded_instances": []}]})
+        assert request.full_url.endswith("/api/v1/models/load")
+        body = json.loads(request.data.decode("utf-8"))
+        assert body["model"] == "qwen3-14b"
+        assert body["context_length"] == 16384
+        return FakeResponse({"status": "loaded", "instance_id": "qwen3-14b"})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    result = backend.ensure_model_loaded(num_ctx=16384)
+    assert result == "qwen3-14b"
+    assert len(calls) == 2
+
+
+def test_ensure_model_reuses_existing_alias_no_duplicate_load(monkeypatch):
+    calls = []
+    def handle(request, timeout):
+        calls.append(request.full_url)
+        return FakeResponse({"models": [
+            {"key": "qwen3-14b", "loaded_instances": [{"id": "rg-qwen3-14b"}]}
+        ]})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    assert backend.ensure_model_loaded() == "rg-qwen3-14b"
+    assert len(calls) == 1
+
+
+def test_ensure_model_never_downloads_missing_model(monkeypatch):
+    calls = []
+    def handle(request, timeout):
+        calls.append(request.full_url)
+        return FakeResponse({"models": []})
+    monkeypatch.setattr(backend.urllib.request, "urlopen", handle)
+    with pytest.raises(RuntimeError, match="не встановлена"):
+        backend.ensure_model_loaded()
+    assert len(calls) == 1

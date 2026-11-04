@@ -5,6 +5,10 @@ on:
       - feature/seo-universal-g2-evidence-schema
   workflow_dispatch:
 
+concurrency:
+  group: seo-g2-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
