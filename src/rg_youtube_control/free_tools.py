@@ -11,10 +11,13 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
+from .lm_studio_backend import (
+    DEFAULT_LM_STUDIO_MODEL, lm_studio_chat, list_models as list_lm_studio_models,
+)
 
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
-DEFAULT_OLLAMA_MODEL = "qwen3:8b"
+DEFAULT_OLLAMA_MODEL = DEFAULT_LM_STUDIO_MODEL  # legacy call-site alias
 
 
 @dataclass(frozen=True)
@@ -98,35 +101,25 @@ def probe_free_tools(
             "youtube-transcript-api", False, "не встановлено"
         )
 
+    # Preserve legacy probe keys for existing UI/tests but query LM Studio.
     try:
-        req = urllib.request.Request(
-            f"{ollama_url.rstrip('/')}/api/tags",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        models = [
-            str(item.get("name") or item.get("model") or "")
-            for item in payload.get("models", [])
-            if isinstance(item, dict)
-        ]
-        normalized = {item.split(":latest")[0] for item in models}
-        model_ready = (
-            ollama_model in models
-            or ollama_model.split(":latest")[0] in normalized
-        )
+        models = list_lm_studio_models(timeout=timeout)
+        model_ready = DEFAULT_LM_STUDIO_MODEL in models
         detail = (
-            f"{ollama_model} готова"
-            if model_ready
-            else "Ollama працює, модель ще не завантажена"
+            f"{DEFAULT_LM_STUDIO_MODEL} доступна"
+            if model_ready else "Запустіть модель у LM Studio"
         )
-        probes["ollama"] = ToolProbe("Ollama", True, detail)
-        probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
+        probes["lm_studio"] = ToolProbe("LM Studio", True, detail)
+        probes["lm_studio_model"] = ToolProbe(
+            DEFAULT_LM_STUDIO_MODEL, model_ready, detail,
+        )
     except Exception as exc:
-        probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
-        probes["ollama_model"] = ToolProbe(
-            ollama_model, False, "сервер Ollama недоступний"
+        probes["lm_studio"] = ToolProbe("LM Studio", False, str(exc)[:160])
+        probes["lm_studio_model"] = ToolProbe(
+            DEFAULT_LM_STUDIO_MODEL, False, "Сервер LM Studio недоступний",
         )
+    probes["ollama"] = probes["lm_studio"]
+    probes["ollama_model"] = probes["lm_studio_model"]
 
     return {key: value.to_dict() for key, value in probes.items()}
 
@@ -562,6 +555,11 @@ def ollama_chat(
     json_mode: bool = False,
     num_ctx: int | None = None,
 ) -> str:
+    if ollama_url == DEFAULT_OLLAMA_URL:
+        return lm_studio_chat(
+            messages, model=model, timeout=timeout,
+            temperature=temperature, json_mode=json_mode, num_ctx=num_ctx,
+        )
     request_payload = {
         "model": model,
         "messages": messages,
@@ -2616,7 +2614,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "description": description,
         "tags": tags[:15],
         "chapters": chapters,
-        "provider": f"ollama:{model}",
+        "provider": f"lmstudio:{model}",
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
