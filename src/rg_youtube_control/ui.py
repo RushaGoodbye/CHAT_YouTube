@@ -12979,12 +12979,40 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
-            if evidence_report["blocks_with_evidence"] == 0:
-                raise RuntimeError(
-                    "Модель не підтвердила жодної теми цитатами з транскрипту. "
-                    "SEO-пакет не створено, оригінальні дані збережено."
+            # G2: every model-proposed claim must carry a quotation found in
+            # this video's original timestamped captions. A quote from another
+            # block or an unsupported model summary never becomes evidence.
+            from .seo_evidence_records import build_evidence_records
+
+            source_records = build_evidence_records(
+                video_id=video_id,
+                timeline_report=evidence_report,
+                transcript_rows=transcript_rows,
+            )
+            if not source_records["complete_evidence_coverage"]:
+                # One bounded rescue per unsupported timeline block, grounded
+                # in a literal original caption. No unbounded retry loops.
+                from .seo_evidence_recovery import recover_missing_source_blocks
+
+                source_records = recover_missing_source_blocks(
+                    video_id=video_id,
+                    timeline_report=evidence_report,
+                    transcript_rows=transcript_rows,
+                    chat=ollama_chat,
+                    model=DEFAULT_OLLAMA_MODEL,
+                    timeout=90.0,
+                    max_attempts=2,
                 )
-            transcript = evidence_outline_text(evidence_report)
+            evidence_report["source_evidence"] = source_records
+            if not source_records["complete_evidence_coverage"]:
+                missing = source_records["blocks_without_grounded_quotes"]
+                raise RuntimeError(
+                    "G2: не всі фрагменти підтверджені початковими субтитрами "
+                    f"(непідтверджені блоки: {missing}). "
+                    "SEO-пакет не створено, потрібна редакторська перевірка."
+                )
+            from .seo_evidence_records import grounded_evidence_outline
+            transcript = grounded_evidence_outline(source_records)
             # Persist the complete topic/evidence map independently of the
             # published description, so no overlooked dialogue disappears.
             report_dir = self.data_dir / "seo_evidence"
