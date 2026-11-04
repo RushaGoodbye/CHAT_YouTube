@@ -8,6 +8,22 @@ from __future__ import annotations
 from typing import Any
 
 
+def vague_topic_warning(topic: str) -> bool:
+    """Warn on low-information topics; only human review determines meaning.
+
+    This is a conservative editorial warning, not an automatic rejection.
+    Avoids publishing nonspecific phrases without silently excluding clips.
+    """
+    import re
+
+    tokens = set(re.findall(r"[^\\W_]+", str(topic or "").casefold()))
+    placeholders = {
+        "щось", "дещо", "якийсь", "якась", "якісь", "невідоме",
+        "неизвестное", "что-то", "кое-что", "something",
+    }
+    return bool(tokens & placeholders) or len(tokens) < 2
+
+
 def triage_editorial_reviews(
     *, packet: dict[str, Any], critique: dict[str, Any],
 ) -> dict[str, Any]:
@@ -38,6 +54,7 @@ def triage_editorial_reviews(
             "source_context": item["source_context"],
             "critic_issues_unverified": finding.get("issues") or [],
             "critic_reason_unverified": finding.get("reason") or "",
+            "vague_topic_warning": vague_topic_warning(item["proposed_topic"]),
             "reviewer_decision": None,
             "reviewer_notes": "",
             "requires_human_review": True,
