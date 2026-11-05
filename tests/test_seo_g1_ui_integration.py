@@ -36,6 +36,39 @@ def ui_runner(tmp_path, monkeypatch):
         return {"title": "Draft", "title_variants": ["A", "B", "C"],
                 "description": "Draft only", "tags": []}
     monkeypatch.setattr(ui, "generate_seo_package_local", fake_generate)
+    # This file tests caption acquisition, not the LLM. Supply strictly
+    # source-grounded G2 analysis of EVERY real input block. The production
+    # G2 source-record verifier remains active and checks literal quotations.
+    from rg_youtube_control.dialogue_seo import split_timeline
+    def deterministic_source_analysis(rows, **_kwargs):
+        blocks = split_timeline(rows)
+        for block in blocks:
+            quote = next(
+                (str(row["text"]).strip()[:120]
+                 for row in rows
+                 if block["start"] <= float(row["start"]) <= block["end"]
+                 and len(str(row["text"]).strip()) >= 15),
+                "",
+            )
+            block["topics"] = [{
+                "topic": "Тема розмови про транспорт",
+                "summary_uk": "У розмові учасники обговорюють різні питання про транспорт.",
+                "evidence": quote,
+            }] if quote else []
+            block["verified"] = bool(quote)
+            block["excerpt"] = ""
+        return {
+            "schema": "RG_DIALOGUE_EVIDENCE_V1",
+            "blocks_total": len(blocks),
+            "blocks_analyzed": len(blocks),
+            "blocks_with_evidence": sum(bool(b["verified"]) for b in blocks),
+            "unverified_blocks": [b["index"] for b in blocks if not b["verified"]],
+            "cache_hits": 0,
+            "rows_covered": sum(b["pieces"] for b in blocks),
+            "blocks": blocks,
+            "needs_review": any(not b["verified"] for b in blocks),
+        }
+    monkeypatch.setattr(ui, "analyze_all_timeline_blocks", deterministic_source_analysis)
     return worker, calls
 
 
