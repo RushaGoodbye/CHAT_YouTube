@@ -35,7 +35,7 @@ jobs:
       - name: Build Windows application
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --onedir --name "RG YouTube Control" --paths src run_app.py
+          pyinstaller --noconfirm --clean --windowed --onedir --name "RG YouTube Control" --paths src --collect-data faster_whisper run_app.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
       - name: Build private review installer
         shell: pwsh
@@ -61,6 +61,9 @@ jobs:
           $exe = Join-Path $target "RG YouTube Control.exe"
           if (-not (Test-Path $exe)) { throw "Executable not installed" }
           if (-not (Test-Path (Join-Path $target "_internal"))) { throw "Runtime missing" }
+          $vad = Join-Path $target "_internal\\faster_whisper\\assets\\silero_vad_v6.onnx"
+          if (-not (Test-Path $vad)) { throw "FROZEN_ASR_SILERO_ASSET_MISSING" }
+          Write-Host "FROZEN_ASR_SILERO_ASSET_PASS"
           $profile = Join-Path $env:RUNNER_TEMP "RG_Offline_QA_Profile"
           $env:APPDATA = Join-Path $profile "Roaming"
           $env:LOCALAPPDATA = Join-Path $profile "Local"
