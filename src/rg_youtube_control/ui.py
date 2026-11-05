@@ -12886,6 +12886,31 @@ class MainWindow(QMainWindow):
                 except Exception:
                     transcript_rows = []
 
+        # G4: when the requested video has NO accessible captions, acquire
+        # its original audio and transcribe the ENTIRE duration locally.
+        # The source is still an unapproved ASR transcript, never an editorial
+        # fact or permission to publish. Runs only while this app is running.
+        if not transcript_rows:
+            if on_progress is not None:
+                on_progress("Субтитрів немає · повне аудіо → Whisper Large-v3 · API 0")
+            try:
+                from .seo_audio_fallback import acquire_full_srt_from_public_youtube_audio
+
+                recovered_asr = acquire_full_srt_from_public_youtube_audio(
+                    video_id=video_id,
+                    cache_dir=self.data_dir / "seo_audio_asr_cache",
+                    duration_s=duration_seconds,
+                )
+                transcript_rows = load_srt_transcript(recovered_asr["srt_path"])
+                if transcript_rows:
+                    transcript_source = "youtube-audio-whisper-unreviewed"
+                    context["audio_asr_unreviewed"] = True
+                    context["audio_asr_manifest_path"] = recovered_asr.get("manifest_path")
+            except Exception as exc:
+                context["audio_asr_failure"] = type(exc).__name__ + ": " + str(exc)[:220]
+                if on_progress is not None:
+                    on_progress("ASR недоступний: " + str(exc)[:150])
+
         # Direct YouTube captions are recorded on acquisition, never relabeled
         # from NAS filenames. A failed preflight blocks SEO rather than
         # silently approving a mismatched transcript.
@@ -12966,11 +12991,12 @@ class MainWindow(QMainWindow):
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
 
-        # Complete timeline analysis runs only in manual single-video mode.
-        # Batch remains lightweight and review-only until the full workflow
-        # has been independently validated on archive videos.
+        # G4: both manual and batch SEO consume the COMPLETE caption timeline.
+        # The old fast path sampled only 12,000 characters, silently dropping
+        # most of long streams. Cached per-block source evidence keeps repeat
+        # runs efficient without skipping the end of any video.
         evidence_report = None
-        if transcript_rows and not fast_mode:
+        if transcript_rows:
             evidence_report = analyze_all_timeline_blocks(
                 transcript_rows,
                 model=DEFAULT_OLLAMA_MODEL,

@@ -15,6 +15,7 @@ dependencies = [
   "google-auth-httplib2>=0.2",
   "keyring>=25.4",
   "yt-dlp>=2026.8.19",
+  "faster-whisper>=1.2,<2",
   "youtube-transcript-api>=1.2.4",
   "rapidfuzz>=3.12,<4",
   "youtube-comment-downloader==0.1.83",
