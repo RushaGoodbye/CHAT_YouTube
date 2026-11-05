@@ -2619,7 +2619,8 @@ chapters: рядок з підтвердженими таймкодами та �
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
         "needs_review": (
-            source_quote_fallback
+            fast_mode  # Batch SEO is never editorially approved by generation alone.
+            or source_quote_fallback
             or
             title_fallback_used
             or unchanged_title
