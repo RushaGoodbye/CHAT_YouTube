@@ -51,6 +51,12 @@ def inspect_package(package: dict[str, Any]) -> dict[str, Any]:
             add("title_variants", "NON_UKRAINIAN")
     if len(description) < 260:
         add("description", "SHORT")
+    if package.get("description_source_quote_preview_only"):
+        add("description", "SOURCE_QUOTES_PREVIEW_NOT_FINISHED_SEO")
+    if package.get("ab_quality_issues"):
+        add("title_variants", "EVIDENCE_OR_DISTINCTNESS_REVIEW_REQUIRED")
+    if package.get("source_editorial_risk_flags"):
+        add("description", "EDITORIAL_RISK_REVIEW_REQUIRED")
     if language_error(description):
         add("description", "NON_UKRAINIAN")
     if len(tags) < 8:

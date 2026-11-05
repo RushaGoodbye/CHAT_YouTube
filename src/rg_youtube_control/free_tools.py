@@ -2677,6 +2677,18 @@ chapters: рядок з підтвердженими таймкодами та �
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
+        "description_source_quote_preview_only": bool(
+            payload.get("_source_quote_description_review_only")
+        ),
+        "automated_content_gate_pass_not_editorial_approval": bool(
+            evidence_report
+            and not payload.get("_source_quote_description_review_only")
+            and not payload.get("_fallback_review_only")
+            and not title_issues and not editorial_flags
+            and not payload.get("_description_quality_issue")
+            and not payload.get("_tags_review_required")
+            and len(variants) == 3
+        ),
         "needs_review": (
             fast_mode  # Batch SEO is never editorially approved by generation alone.
             or source_quote_fallback

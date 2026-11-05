@@ -71,4 +71,27 @@ def test_source_quote_preview_three_distinct_spoken_passages():
  assert "зарплата стала меньше" in desc
  assert "обговорюють такі теми" not in desc
  assert 290<=len(desc)<=920
- assert grounded_description_issue(desc,report)==""
+ assert grounded_description_issue(desc,report)=="SOURCE_QUOTES_ARE_NOT_UKRAINIAN_DESCRIPTION"
+
+
+def test_quote_preview_must_not_be_considered_finished_seo():
+ from rg_youtube_control.seo_quality_gate import inspect_package
+ package={"title":"Питання росіянам про бензин та пенсії",
+          "title_variants":["Чому подорожчав бензин у Росії?",
+                            "Які пенсії обговорюють росіяни?",
+                            "Як змінилися витрати у регіоні?"],
+          "description":literal_quote_description_preview_source(),
+          "tags":["бензин","ціни","пенсії","соціальні виплати","росіяни","РАША ГУДБАЙ","чат рулетка","Україна"],
+          "description_source_quote_preview_only":True}
+ verdict=inspect_package(package)
+ assert not verdict["format_pass"]
+ assert "SOURCE_QUOTES_PREVIEW_NOT_FINISHED_SEO" in verdict["problems"]["description"]
+
+def literal_quote_description_preview_source():
+ from rg_youtube_control.seo_content_editor import literal_quote_description_preview
+ report={"blocks":[
+ {"verified":True,"start_stamp":"00:00:03","topics":[{"evidence":"Цены на бензин выросли, и люди на заправках об этом говорят постоянно"}]},
+ {"verified":True,"start_stamp":"00:05:22","topics":[{"evidence":"Пенсии и социальные выплаты отличаются, об этом спорят в регионе каждый день"}]},
+ {"verified":True,"start_stamp":"00:10:04","topics":[{"evidence":"На работе говорят, что зарплата стала меньше, а расходы каждый месяц растут"}]}
+ ]}
+ return literal_quote_description_preview(report)
