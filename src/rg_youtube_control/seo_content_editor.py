@@ -42,7 +42,7 @@ def grounded_description_issue(value: str, evidence: dict[str, Any]) -> str:
     quoted_characters = sum(len(q) for q in re.findall(r"«([^»]*)»", description))
     if quoted_characters > len(description) * 0.32:
         return "SOURCE_QUOTES_ARE_NOT_UKRAINIAN_DESCRIPTION"
-    if re.search(r"(?i)\\b(?:співрозмовник каже|далі у відео звучить|в іншому фрагменті учасник)\\s*:", description):
+    if re.search(r"(?i)\b(?:співрозмовник каже|далі у відео звучить|в іншому фрагменті учасник)\s*:", description):
         return "SOURCE_QUOTE_PREVIEW_NOT_SEO"
     if re.search(r"[ыэъё]", outside_quotes.casefold()):
         return "DESCRIPTION_MIXED_RUSSIAN"

@@ -2384,6 +2384,24 @@ chapters: рядок з підтвердженими таймкодами та �
                         description_error = ""
                     else:
                         description_error = repair_error or description_error
+                if description_error and timeout > 10:
+                    # G7: ask the local model for individually quote-ID-linked
+                    # Ukrainian sentences. Reject the whole SEO synopsis when
+                    # even one new assertion lacks its own source quotation.
+                    from .seo_grounded_claims import generate_attributed_claim_description
+                    grounded_text, claim_error, claim_report = (
+                        generate_attributed_claim_description(
+                            report=evidence_report,
+                            current_title=current_title, model=model,
+                            chat=ollama_chat, timeout=min(90.0, timeout),
+                        )
+                    )
+                    if grounded_text:
+                        original_desc = grounded_text
+                        description_error = ""
+                        candidate["_source_claim_provenance"] = claim_report
+                    else:
+                        candidate["_source_claim_failure"] = claim_error
                 if description_error:
                     # Preserve concrete original speech as a local review
                     # preview; never replace it with generic marketing prose.
@@ -2680,6 +2698,8 @@ chapters: рядок з підтвердженими таймкодами та �
         "description_source_quote_preview_only": bool(
             payload.get("_source_quote_description_review_only")
         ),
+        "source_claim_provenance": payload.get("_source_claim_provenance"),
+        "source_claim_failure": payload.get("_source_claim_failure"),
         "automated_content_gate_pass_not_editorial_approval": bool(
             evidence_report
             and not payload.get("_source_quote_description_review_only")
