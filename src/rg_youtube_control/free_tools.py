@@ -1653,86 +1653,86 @@ def _grounded_tags_from_transcript(
     if "шойгу" in haystack:
         add("Шойгу")
         if "уволь" in haystack or "отстав" in haystack:
-            add("увольнение Шойгу")
+            add("звільнення Шойгу")
     if "герасим" in haystack:
         add("Герасимов")
     if "пригож" in haystack:
         add("Пригожин")
     if "белоусов" in haystack:
-        add("Белоусов")
+        add("Бєлоусов")
     if "тимур" in haystack and "иванов" in haystack:
         add("Тимур Иванов")
     if "лукашенко" in haystack:
         add("Лукашенко")
     if "беларус" in haystack:
-        add("Беларусь")
+        add("Білорусь")
         if "украин" in haystack or "україн" in haystack:
-            add("Беларусь и Украина")
+            add("Білорусь та Україна")
     if "украин" in haystack or "україн" in haystack:
-        add("Украина")
+        add("Україна")
     if "совет" in haystack and "безопас" in haystack:
-        add("Совет безопасности России")
+        add("Рада безпеки Росії")
     if "министерств" in haystack and "оборон" in haystack:
-        add("Министерство обороны России")
+        add("Міністерство оборони Росії")
     if "коррупц" in haystack:
-        add("коррупция в России")
+        add("корупція в Росії")
     if "арм" in haystack and ("росси" in haystack or "рф" in haystack):
-        add("российская армия")
+        add("російська армія")
 
     if "росси" in haystack or "росія" in haystack:
         for value in (
-            "Россия",
-            "россияне",
-            "мнение россиян",
-            "вопросы россиянам",
+            "Росія",
+            "росіяни",
+            "думки росіян",
+            "запитання росіянам",
         ):
             add(value)
 
     if "жизн" in haystack or "житт" in haystack:
-        add("жизнь в России")
+        add("життя в Росії")
     if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
-        add("цены в России")
+        add("ціни в Росії")
     if "зарплат" in haystack or "доход" in haystack:
-        add("зарплаты в России")
+        add("зарплати в Росії")
     if "пенси" in haystack or "соцпакет" in haystack:
-        add("пенсии в России")
+        add("пенсії в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
     if in_title or mentions >= 3:
-        add("экономика России")
+        add("економіка Росії")
     in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
     if in_title or mentions >= 3:
-        add("Путин")
+        add("Путін")
     in_title, mentions = _source_mentions(
         title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
-        add("война России против Украины")
+        add("війна Росії проти України")
     in_title, mentions = _source_mentions(
         title, transcript, ("мобилиз", "мобіліз")
     )
     if in_title or mentions >= 3:
-        add("мобилизация в России")
+        add("мобілізація в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("санкц",))
     if in_title or mentions >= 3:
-        add("санкции против России")
+        add("санкції проти Росії")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
-        add("бензин в России")
+        add("бензин у Росії")
     in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
-        add("работа в России")
+        add("робота в Росії")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
-        add("жилье в России")
+        add("житло в Росії")
     if "медицин" in haystack or "здоров" in haystack or "боляч" in haystack:
-        add("здоровье в России")
+        add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
-        add("Россия 2023")
+        add("Росія 2023")
 
-    # Project-format fallbacks are added last, only to reach a useful minimum.
+    # Channel-format fallbacks stay generic and do not invent source facts.
     for value in (
-        "опрос россиян",
-        "реакция россиян",
-        "разговор с россиянами",
-        "русская чат рулетка",
+        "опитування росіян",
+        "реакція росіян",
+        "розмова з росіянами",
+        "чат-рулетка з росіянами",
     ):
         if len(tags) >= 8:
             break
@@ -2054,6 +2054,7 @@ def _recover_chapters_from_transcript(
 
 
 from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
+from .seo_editorial_gate import editorial_risk_flags
 
 
 def generate_seo_package_local(
@@ -2146,7 +2147,7 @@ SHORTS: {is_short}
     payload: dict[str, Any] = {}
     title_fallback_used = False
     last_error: Exception | None = None
-    for attempt in range(1 if fast_mode else 3):
+    for attempt in range(2 if fast_mode else 3):  # One bounded retry for incomplete A/B JSON.
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -2608,6 +2609,11 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short or is_stream:
         chapters = ""
 
+    editorial_flags = editorial_risk_flags(
+        {"title": title, "title_variants": variants[:3], "description": description},
+        transcript,
+    )
+
     return {
         "title": title,
         "title_variants": variants[:3],
@@ -2635,12 +2641,14 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("_fallback_review_only"))
             or bool(payload.get("_source_topic_fallback_review_only"))
             or bool(payload.get("_source_lexical_review_only"))
+            or bool(editorial_flags)
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
+        "source_editorial_risk_flags": editorial_flags,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
@@ -2651,6 +2659,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(editorial_flags), "Перевірити редакторські ризики: " + ", ".join(editorial_flags)),
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),

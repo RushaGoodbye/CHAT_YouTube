@@ -181,10 +181,10 @@ def test_grounded_tags_fill_local_seo_package() -> None:
     assert 8 <= len(tags) <= 15
     assert "РАША ГУДБАЙ" in tags
     assert "чат рулетка" in tags
-    assert "цены в России" in tags
-    assert "зарплаты в России" in tags
-    assert "пенсии в России" in tags
-    assert "экономика России" in tags
+    assert "ціни в Росії" in tags
+    assert "зарплати в Росії" in tags
+    assert "пенсії в Росії" in tags
+    assert "економіка Росії" in tags
 
 
 def test_preserve_current_title_when_candidate_only_strips_brand() -> None:
@@ -236,9 +236,9 @@ def test_specific_shoigu_tags_beat_generic_model_words() -> None:
     tags = _grounded_tags_from_transcript(title, transcript)
 
     assert "Шойгу" in tags
-    assert "увольнение Шойгу" in tags
-    assert "Министерство обороны России" in tags
-    assert "коррупция в России" in tags
+    assert "звільнення Шойгу" in tags
+    assert "Міністерство оборони Росії" in tags
+    assert "корупція в Росії" in tags
     assert _tag_is_grounded("план", title, transcript) is False
     assert _tag_is_grounded("стратегия", title, transcript) is False
     assert _tag_is_grounded("Шойгу", title, transcript) is True
@@ -314,9 +314,9 @@ def test_belarus_grounded_tags_are_specific() -> None:
     )
 
     assert "Лукашенко" in tags
-    assert "Беларусь" in tags
-    assert "Украина" in tags
-    assert "Беларусь и Украина" in tags
+    assert "Білорусь" in tags
+    assert "Україна" in tags
+    assert "Білорусь та Україна" in tags
 
 
 def test_generic_fast_chapters_are_removed(monkeypatch):
