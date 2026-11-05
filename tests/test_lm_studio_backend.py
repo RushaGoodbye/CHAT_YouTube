@@ -138,3 +138,29 @@ def test_ensure_model_never_downloads_missing_model(monkeypatch):
     with pytest.raises(RuntimeError, match="не встановлена"):
         backend.ensure_model_loaded()
     assert len(calls) == 1
+
+
+def test_fast_seo_draft_is_never_marked_editorially_approved(monkeypatch):
+    from rg_youtube_control import free_tools
+    import json
+    response = {
+        "title": "Звільнення Шойгу: питання та позиції учасників",
+        "title_variants": [
+            "Що говорять про звільнення Шойгу?",
+            "Розмова про кадрові рішення в Росії",
+            "Як співрозмовники пояснюють зміни в уряді?",
+        ],
+        "description": "У чат-рулетці учасники обговорюють кадрові зміни, рішення щодо Шойгу та позиції співрозмовників. Вони висловлюють різні оцінки політичних подій, а ведучий ставить уточнювальні запитання. Твердження учасників потребують незалежної перевірки перед публікацією.",
+        "tags": ["Шойгу", "чат рулетка", "Раша Гудбай", "кадрові рішення",
+                 "Росія", "політика РФ", "розмова", "російська влада"],
+        "chapters": "",
+    }
+    monkeypatch.setattr(free_tools, "ollama_chat",
+                        lambda *args, **kwargs: json.dumps(response, ensure_ascii=False))
+    result = free_tools.generate_seo_package_local(
+        current_title="Увольнение Шойгу: що відомо?",
+        transcript="Учасники обговорюють звільнення Шойгу і російську владу.",
+        fast_mode=True,
+    )
+    assert result["needs_review"] is True
+    assert result["provider"].startswith("lmstudio:")
