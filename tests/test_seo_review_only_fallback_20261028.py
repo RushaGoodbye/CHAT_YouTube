@@ -126,16 +126,14 @@ def test_two_verified_topics_generate_three_distinct_angles(monkeypatch):
     assert len(set(title.casefold() for title in titles)) == 3
 
 
-def test_source_verified_ukrainian_titles_are_generic_review_proposals():
+def test_source_verified_generic_ukrainian_titles_are_rejected():
     report = {"blocks": [{"verified": True, "topics": [
         {"topic": "корупція", "evidence": "Шойгу коррупция в министерстве"},
         {"topic": "посада", "evidence": "Шойгу поменял должность после кадрового решения"},
         {"topic": "Путін", "evidence": "Шойгу Путин обсудили положение"},
     ]}]}
     titles = ft._verified_source_ab_titles(report, "Шойгу")
-    assert len(titles) == 3
-    assert all(20 <= len(title) <= 100 for title in titles)
-    assert all(not any(c in title for c in "ыэъё") for title in titles)
+    assert titles == []
     assert not ft._verified_source_ab_titles({"blocks": []}, "Шойгу")
 
 
@@ -146,10 +144,7 @@ def test_source_fallback_works_for_entirely_different_video_topics():
         {"topic": "пенсії", "evidence": "Какие сейчас пенсии у жителей региона"},
     ]}]}
     titles = ft._verified_source_ab_titles(report, "Ціни на пальне")
-    assert len(titles) == 3
-    assert "бензин" in titles[0].casefold()
-    assert "зарплати" in titles[1].casefold()
-    assert "пенсії" in titles[2].casefold()
+    assert titles == []
 
 
 def test_fallback_never_uses_unverified_or_unrelated_model_labels():
@@ -194,4 +189,4 @@ def test_fallback_is_review_only_even_with_three_grounded_titles(monkeypatch):
     assert package["needs_review"] is True
     assert package["youtube_data_api_quota"] == 0
     assert package["provider"].startswith("lmstudio:")
-    assert len(package["title_variants"]) == 3
+    assert package["title_variants"] == []

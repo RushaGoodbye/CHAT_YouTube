@@ -1451,9 +1451,9 @@ def _verified_source_ab_titles(
         titles = [title for _, title in triple]
         if not ab_title_issues(titles, report):
             return titles
-    # No fully supported independent triplet: preserve a review-only preview
-    # rather than ever declaring the A/B set safe or inventing events.
-    return [title for _, title in proposals[:3]]
+    # Generic source-label frames failed the editorial gate.
+    # Do not return them as if a complete A/B set existed.
+    return []
 
 
 def _recover_independent_ab_titles(
@@ -2147,7 +2147,7 @@ SHORTS: {is_short}
     payload: dict[str, Any] = {}
     title_fallback_used = False
     last_error: Exception | None = None
-    for attempt in range(2 if fast_mode else 3):  # One bounded retry for incomplete A/B JSON.
+    for attempt in range(1 if timeout <= 10 else (2 if fast_mode else 3)):  # bounded time budget
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -2237,8 +2237,21 @@ chapters: рядок з підтвердженими таймкодами та �
                 len(variants_candidate) < 3
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
-                if fast_mode:
-                    # Strict for unattended batch preparation.
+                if fast_mode and evidence_report:
+                    # One bounded repair of missing variants, not a third
+                    # unsupported story. The final A/B gate still applies.
+                    try:
+                        repaired = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=_ab_distinct_evidence_brief(evidence_report)
+                            + "\n" + transcript,
+                            model=model,
+                        )
+                        if len(repaired) >= 3:
+                            variants_candidate = repaired[:3]
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
+                elif fast_mode:
                     raise ValueError("need exactly 3 title variants")
                 try:
                     recovered_variants = _recover_title_variants(
@@ -2264,11 +2277,27 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
-            if evidence_report and not fast_mode:
+            if evidence_report:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
                 )
-                if issues:
+                if issues and fast_mode:
+                    # One bounded source-grounded A/B repair in batch mode.
+                    # Do not accept generic question templates as hooks.
+                    try:
+                        improved = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=_ab_distinct_evidence_brief(evidence_report)
+                            + "\n" + transcript,
+                            model=model,
+                        )
+                        if len(improved) == 3 and len(ab_title_issues(
+                            improved, evidence_report,
+                        )) < len(issues):
+                            candidate["title_variants"] = improved
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
+                if issues and not fast_mode:
                     # One focused recovery using the full grounded outline.
                     # Keep the original candidates if the retry is worse.
                     try:
@@ -2291,7 +2320,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
                 remaining = ab_title_issues(candidate["title_variants"], evidence_report)
-                if remaining:
+                if remaining and not fast_mode:
                     independent = _recover_independent_ab_titles(
                         report=evidence_report,
                         current_title=current_title,
@@ -2331,23 +2360,46 @@ chapters: рядок з підтвердженими таймкодами та �
                         candidate["title_variants"] = lexical
                         candidate["_source_lexical_review_only"] = True
             if evidence_report:
-                # One deterministic editorial pass, zero extra Ollama
-                # recovery requests and zero model-authored public claims.
-                unmapped_evidence: list[str] = []
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                    review_unmapped=unmapped_evidence,
+                # Never replace real video content with a generic SEO template.
+                # Validate the first candidate against the literal source
+                # quotes, then perform ONE focused source-only model repair.
+                # Any unsupported output remains BLOCKED, never published.
+                from .seo_content_editor import (
+                    grounded_description_issue, recover_source_description,
                 )
-                candidate["evidence_editorial_review"] = unmapped_evidence
-                candidate["description"] = description_candidate
-                candidate["_deterministic_editor"] = True
-                description_error = _description_quality_error(
-                    description_candidate, transcript, max_chars=950,
+                original_desc = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
                 )
+                description_error = grounded_description_issue(
+                    original_desc, evidence_report,
+                )
+                if description_error and timeout > 10:
+                    repaired, repair_error = recover_source_description(
+                        report=evidence_report, current_title=current_title,
+                        model=model, chat=ollama_chat,
+                        timeout=min(90.0, timeout),
+                    )
+                    if repaired:
+                        original_desc = repaired
+                        description_error = ""
+                    else:
+                        description_error = repair_error or description_error
                 if description_error:
-                    # Retain the evidence-only text as an explicitly unapproved
-                    # draft. Do not retry deterministic content with the model.
-                    candidate["_description_quality_issue"] = description_error
+                    # Preserve concrete original speech as a local review
+                    # preview; never replace it with generic marketing prose.
+                    from .seo_content_editor import literal_quote_description_preview
+                    preview = literal_quote_description_preview(evidence_report)
+                    if preview:
+                        original_desc = preview
+                        description_error = ""
+                        candidate["_source_quote_description_review_only"] = True
+                if description_error:
+                    raise ValueError(
+                        "source-grounded SEO description rejected: "
+                        + description_error
+                    )
+                candidate["description"] = original_desc
+                candidate["_source_model_description_review_only"] = True
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2541,7 +2593,8 @@ chapters: рядок з підтвердженими таймкодами та �
         str(payload.get("description") or "").strip()
     )
     omitted_topics: list[str] = []
-    if evidence_report and not payload.get("_deterministic_editor"):
+    if (evidence_report and not payload.get("_deterministic_editor")
+            and not payload.get("_source_quote_description_review_only")):
         # Legacy evidence packages keep their topic appendix.
         # Keep the concise lead, then append every distinct supported subject
         # while respecting the platform description budget. The evidence map
@@ -2641,6 +2694,7 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("_fallback_review_only"))
             or bool(payload.get("_source_topic_fallback_review_only"))
             or bool(payload.get("_source_lexical_review_only"))
+            or bool(payload.get("_source_quote_description_review_only"))
             or bool(editorial_flags)
         ),
         "timeline_blocks": (
@@ -2666,6 +2720,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
                 (bool(payload.get("_source_topic_fallback_review_only")), "A/B із перевірених цитат: обов'язкове редакторське затвердження"),
                 (bool(payload.get("_source_lexical_review_only")), "A/B сформовано лише з дослівних тем: перевірити редакційні формулювання"),
+                (bool(payload.get("_source_quote_description_review_only")), "Опис містить дослівні репліки замість авторського викладу: потрібна редакторська перевірка"),
             )
             if condition
         ),

@@ -17,7 +17,7 @@ def _report(*quotes):
     ]}
 
 
-def test_neutral_frames_ignore_only_editorial_words_not_subjects():
+def test_neutral_frames_are_now_blocked_as_generic_seo_hooks():
     report = _report(
         "Шойгу и коррупция чиновников обсуждались сегодня",
         "Россия и война были главными темами разговора",
@@ -28,7 +28,7 @@ def test_neutral_frames_ignore_only_editorial_words_not_subjects():
         "Росія: про що йдеться у чат-рулетці?",
         "Корупція та Росія: про що говорили учасники?",
     ]
-    assert ab_title_issues(titles, report) == []
+    assert any("надто загальний" in issue for issue in ab_title_issues(titles, report))
 
 
 def test_exact_frames_still_reject_invented_subject_with_one_true_word():
@@ -69,7 +69,7 @@ def test_not_all_questions_count_as_fixed_editorial_frames():
     assert _neutral_source_ab_subject("Бензин: що говорять співрозмовники?") == "Бензин"
 
 
-def test_russian_ukrainian_country_inflections_have_same_bilingual_root():
+def test_bilingual_roots_do_not_override_generic_ab_block():
     report = _report("Россияне спорили о России и санкциях",
                      "Бензин на заправке подорожал")
     titles = [
@@ -77,4 +77,4 @@ def test_russian_ukrainian_country_inflections_have_same_bilingual_root():
         "Бензин: про що йдеться у чат-рулетці?",
         "Росія та Бензин: про що говорили учасники?",
     ]
-    assert ab_title_issues(titles, report) == []
+    assert any("надто загальний" in issue for issue in ab_title_issues(titles, report))

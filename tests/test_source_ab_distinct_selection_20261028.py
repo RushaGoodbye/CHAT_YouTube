@@ -22,11 +22,8 @@ def test_select_three_distinct_verified_subjects_instead_of_first_three():
         _block("Мобілізація", "Мобилизация продолжается в регионе, об этом говорили"),
     ]}
     proposals = _verified_source_ab_titles(report, "Заголовок відео")
-    assert len(proposals) == 3, proposals
-    assert sum("Корупція" in title for title in proposals) == 1, proposals
-    assert any("Бензин" in title for title in proposals), proposals
-    assert any("Мобілізація" in title for title in proposals), proposals
-    assert ab_title_issues(proposals, report) == []
+    # All fixed editorial frames were rejected as generic; no fake PASS.
+    assert proposals == []
 
 
 def test_unverified_sources_cannot_fill_missing_third_hook():
@@ -36,10 +33,9 @@ def test_unverified_sources_cannot_fill_missing_third_hook():
         _block("Мобілізація", "Мобилизация продолжается в регионе", verified=False),
     ]}
     proposals = _verified_source_ab_titles(report, "Заголовок відео")
-    assert len(proposals) == 3
-    assert "Корупція та Бензин" in proposals[2]
+    assert len(proposals) == 2
     assert all("Мобілізація" not in title for title in proposals)
-    assert not ab_title_issues(proposals, report)
+    assert ab_title_issues(proposals, report)
 
 
 def test_model_only_subject_does_not_become_verified_source():
@@ -58,9 +54,8 @@ def test_two_non_dictionary_topics_still_allow_source_verified_third_angle():
         _block("Бюджет", "Бюджет региона обсуждали в другой беседе"),
     ]}
     titles = _verified_source_ab_titles(report, "Стара назва")
-    assert len(titles) == 3, titles
-    assert "Культура та Бюджет" in titles[2], titles
-    assert ab_title_issues(titles, report) == []
+    assert len(titles) == 2, titles
+    assert ab_title_issues(titles, report)
 
 
 def test_single_quoted_story_never_claims_three_independent_topics():

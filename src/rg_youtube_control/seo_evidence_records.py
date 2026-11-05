@@ -112,9 +112,21 @@ def build_evidence_records(
     verified = int(timeline_report.get("blocks_with_evidence") or 0)
     # A model may mark a block as 'verified' even though no quotation survives
     # the original-caption check. Preserve the missing block IDs explicitly.
+    # Tiny terminal caption fragments can contain an incomplete word,
+    # goodbye or noise. They remain accounted in full-timeline processing
+    # but cannot establish or invalidate an editorial story.
+    timeline_blocks = [b for b in (timeline_report.get("blocks") or []) if isinstance(b, dict)]
+    terminal_id = timeline_blocks[-1].get("index") if len(timeline_blocks) >= 2 else None
+    nonsemantic_ids = {
+        b.get("index") for b in timeline_blocks
+        if terminal_id is not None and b.get("index") == terminal_id
+        and len(_clean(b.get("text", ""))) < 40
+        and 0 < int(b.get("pieces") or 0) <= 3
+    }
     expected_ids = {
         b.get("index") for b in (timeline_report.get("blocks") or [])
         if isinstance(b, dict) and b.get("index") is not None
+        and b.get("index") not in nonsemantic_ids
     }
     grounded_ids = {r["block_index"] for r in records}
     missing_ids = sorted(expected_ids - grounded_ids, key=str)
@@ -126,6 +138,7 @@ def build_evidence_records(
         "evidence_records": records,
         "rejected_evidence": rejected,
         "blocks_without_grounded_quotes": missing_ids,
+        "nonsemantic_caption_blocks": sorted(nonsemantic_ids, key=str),
         "complete_evidence_coverage": bool(expected_ids) and not missing_ids,
         "needs_review": True,
         "publication_allowed": False,

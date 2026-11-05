@@ -31,7 +31,9 @@ def test_three_subjects_work_without_any_shoigu_reference(monkeypatch):
         transcript="Бензин на АЗС, зарплаты и пенсии в регионе",
         evidence_report=report, is_short=True, timeout=1,
     )
-    assert len(package["title_variants"]) == 3
+    # With the local model unavailable, generic A/B shells cannot count as
+    # three publishable headlines even when the source has three topics.
+    assert package["title_variants"] == []
     assert package["needs_review"] is True
     assert package["youtube_data_api_quota"] == 0
     assert "непублікаційний" in package["review_reason"]
