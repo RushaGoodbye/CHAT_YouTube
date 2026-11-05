@@ -116,13 +116,22 @@ def build_evidence_records(
     # goodbye or noise. They remain accounted in full-timeline processing
     # but cannot establish or invalidate an editorial story.
     timeline_blocks = [b for b in (timeline_report.get("blocks") or []) if isinstance(b, dict)]
-    terminal_id = timeline_blocks[-1].get("index") if len(timeline_blocks) >= 2 else None
-    nonsemantic_ids = {
-        b.get("index") for b in timeline_blocks
-        if terminal_id is not None and b.get("index") == terminal_id
-        and len(_clean(b.get("text", ""))) < 40
-        and 0 < int(b.get("pieces") or 0) <= 3
-    }
+    terminal = timeline_blocks[-1] if len(timeline_blocks) >= 2 else None
+    nonsemantic_ids: set[Any] = set()
+    if (terminal is not None and terminal.get("index") is not None
+            and terminal.get("verified") is False):
+        start = float(terminal.get("start") or 0)
+        end = float(terminal.get("end") or 0)
+        # The timeline report may not retain the original text/pieces.
+        # Reconstruct only from ORIGINAL SRT rows, never model excerpts.
+        actual = [
+            _clean(row.get("text"))
+            for row in rows
+            if start <= float(row.get("start") or 0) <= end
+            and _clean(row.get("text"))
+        ]
+        if 0 < len(actual) <= 3 and len(" ".join(actual)) < 40:
+            nonsemantic_ids.add(terminal["index"])
     expected_ids = {
         b.get("index") for b in (timeline_report.get("blocks") or [])
         if isinstance(b, dict) and b.get("index") is not None
