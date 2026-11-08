@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from .seo_source_cue_expansion import expand_source_cue_candidates
+
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").split())
@@ -41,6 +43,11 @@ def build_evidence_records(
     rows = list(transcript_rows)
     if not rows or not isinstance(timeline_report, dict):
         raise ValueError("MISSING_EVIDENCE_INPUT")
+    # Supplement model-selected topics with original, timestamped SRT cues.
+    # These are only source candidates, not validated SEO or verified facts.
+    expanded_cues = expand_source_cue_candidates(
+        rows, timeline_report, limit=12, per_window=3,
+    )
     records: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for block in timeline_report.get("blocks") or []:
@@ -146,6 +153,10 @@ def build_evidence_records(
         "blocks_with_evidence": verified,
         "evidence_records": records,
         "rejected_evidence": rejected,
+        "source_cue_candidates": expanded_cues["evidence_candidates"],
+        "source_cue_selection_schema": expanded_cues["schema"],
+        "source_cue_candidates_review_only": True,
+        "source_cue_candidate_windows": expanded_cues["candidate_windows"],
         "blocks_without_grounded_quotes": missing_ids,
         "nonsemantic_caption_blocks": sorted(nonsemantic_ids, key=str),
         "complete_evidence_coverage": bool(expected_ids) and not missing_ids,
