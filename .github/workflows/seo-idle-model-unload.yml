@@ -1,8 +1,5 @@
 name: SEO idle LM Studio unload on AlexPC
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/seo-idle-model-unload.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   safely-unload-idle-models:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'RushaGoodbye' }}
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 4
     steps:
