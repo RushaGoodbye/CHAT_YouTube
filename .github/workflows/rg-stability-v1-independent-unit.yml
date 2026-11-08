@@ -11,6 +11,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify recovery decision and QA gate
+      - name: Verify recovery, QA and XML evidence
         run: |
           python -m unittest discover -s rg_stability_v1 -p "test_*.py" -v
