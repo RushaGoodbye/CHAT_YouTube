@@ -71,6 +71,13 @@ def run() -> int:
                 x.get("reason", "UNKNOWN") for x in proof.get("rejected_evidence") or []
             ))
             item["selected_cue_block_ids"] = proof["source_cue_candidate_windows"]
+            item["literal_srt_blocks_missing"] = proof["blocks_without_literal_srt_cues"]
+            item["literal_srt_coverage_complete"] = bool(
+                proof["complete_literal_source_coverage"]
+            )
+            item["provisional_unverified_cues"] = len(
+                proof["source_cue_provisional_unverified_ids"]
+            )
             item["complete_evidence_coverage"] = bool(
                 proof["complete_evidence_coverage"]
             )
@@ -92,6 +99,9 @@ def run() -> int:
         "schema": "RG_SEO_REAL_10_SOURCE_READONLY_QA_V1",
         "total": len(IDS),
         "source_ready": sum(row["source_ready"] is True for row in output),
+        "literal_srt_ready": sum(
+            row.get("literal_srt_coverage_complete") is True for row in output
+        ),
         "approved_seo_packages": 0,
         "full_seo_acceptance_performed": False,
         "publication_allowed": False,
