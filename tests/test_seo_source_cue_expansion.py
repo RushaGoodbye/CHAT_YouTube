@@ -120,3 +120,18 @@ def test_context_keeps_neighbor_cues_separate_and_within_verified_window():
     assert by_source[central]["context_is_not_speaker_proof"]
     assert by_source[central]["speaker_identified"] is False
     assert by_source[central]["source_quote"] == central
+
+
+def test_unverified_windows_only_supply_explicitly_provisional_raw_cues():
+    rows = [row("The first person talks about the city's transportation.", 10),
+            row("The other person talks about the price of food and housing.", 310)]
+    timeline = {"blocks": [block(1, 0, 30), block(2, 300, 330, False)]}
+    default = expand_source_cue_candidates(rows, timeline)
+    assert all(x["model_block_verified"] is True for x in default["evidence_candidates"])
+    raw_only = expand_source_cue_candidates(
+        rows, timeline, include_unverified_for_review=True)
+    assert raw_only["candidate_windows"] == [1, 2]
+    assert raw_only["unverified_candidate_ids"]
+    assert any(x["model_block_verified"] is False for x in raw_only["evidence_candidates"])
+    assert not raw_only["complete_timeline_verified"]
+    assert not raw_only["publication_allowed"]
