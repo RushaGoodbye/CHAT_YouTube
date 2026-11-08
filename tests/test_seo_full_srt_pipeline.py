@@ -62,3 +62,23 @@ def test_source_coverage_falsification_rejected():
     with pytest.raises(ValueError,match="FULL_SOURCE_COVERAGE_REQUIRED"):
         source_packet_from_complete_map(
             video_id=VID,original_rows=original,full_map=full,max_chars=600)
+
+
+def test_secondary_source_topics_are_included_without_losing_later_windows():
+    original=rows(24)
+    def two_topics(messages):
+        inp=json.loads(messages[-1]["content"])
+        candidates=inp["cues"]
+        return json.dumps({"topics":[{
+            "source_index":cue["source_index"], "quote":cue["text"],
+            "label_uk":"Розмова про перевірку контексту", "kind":"speech"
+        } for cue in candidates[:2]]},ensure_ascii=False)
+    full=analyze_full_original_transcript(original,chat=two_topics,max_chars=600)
+    packet=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,max_chars=600)
+    assert packet["source_topics_selected"] > full["window_count"]
+    assert packet["source_topics_selected"] <= 12
+    assert packet["source_topic_candidates_total"] >= packet["source_topics_selected"]
+    assert packet["source_topics_omitted_from_synthesis"] >= 0
+    assert packet["records"][-1]["start_s"] >= full["windows"][-1]["start_s"]
+    assert packet["publication_allowed"] is False
