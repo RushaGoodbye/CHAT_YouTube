@@ -256,3 +256,14 @@ def test_g3_never_exceeds_source_card_limit_with_cue_candidates():
     assert len(packet["records"]) == 2
     assert packet["contains_provisional_sources"]
     assert not packet["publication_allowed"]
+
+
+def test_provisional_g3_cue_context_preserves_quote_and_no_speaker_claim():
+    source = prepare_source_packet(
+        video_id=VID, cards=cards(), expanded_evidence=_expanded_source_for_g3())
+    extras = [r for r in source["records"] if r.get("context_is_not_speaker_proof")]
+    assert extras
+    assert all(r["literal_quote"] in r["source_context"] for r in extras)
+    assert all(r["provisional"] for r in extras)
+    assert any(len(r["source_context"]) > len(r["literal_quote"]) for r in extras)
+    assert not source["publication_allowed"]
