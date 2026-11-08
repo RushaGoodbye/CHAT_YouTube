@@ -46,7 +46,10 @@ def build_evidence_records(
     # Supplement model-selected topics with original, timestamped SRT cues.
     # These are only source candidates, not validated SEO or verified facts.
     expanded_cues = expand_source_cue_candidates(
-        rows, timeline_report, limit=12, per_window=3,
+        rows, timeline_report,
+        limit=min(100, max(12, len(timeline_report.get("blocks") or []) + 4)),
+        per_window=3,
+        include_unverified_for_review=True,
     )
     records: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
@@ -146,6 +149,13 @@ def build_evidence_records(
     }
     grounded_ids = {r["block_index"] for r in records}
     missing_ids = sorted(expected_ids - grounded_ids, key=str)
+    literal_cue_ids = {
+        r["block_index"] for r in expanded_cues["evidence_candidates"]
+    }
+    # Literal SRT coverage differs from model topic coverage. Missing model
+    # quotes remain BLOCKED, while verified literal cues are available only
+    # for provisional, independently reviewed SEO drafts.
+    literal_missing_ids = sorted(expected_ids - literal_cue_ids, key=str)
     return {
         "schema": "RG_UNIVERSAL_EVIDENCE_V1",
         "video_id": video_id,
@@ -160,6 +170,9 @@ def build_evidence_records(
         "source_cue_complete_timeline_verified": expanded_cues["complete_timeline_verified"],
         "source_cue_invalid_block_count": expanded_cues["invalid_block_count"],
         "source_cue_unverified_block_ids": expanded_cues["unverified_block_ids"],
+        "source_cue_provisional_unverified_ids": expanded_cues["unverified_candidate_ids"],
+        "blocks_without_literal_srt_cues": literal_missing_ids,
+        "complete_literal_source_coverage": bool(expected_ids) and not literal_missing_ids,
         "blocks_without_grounded_quotes": missing_ids,
         "nonsemantic_caption_blocks": sorted(nonsemantic_ids, key=str),
         "complete_evidence_coverage": bool(expected_ids) and not missing_ids,
