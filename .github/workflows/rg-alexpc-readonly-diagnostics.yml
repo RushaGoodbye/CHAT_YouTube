@@ -1,0 +1,84 @@
+name: RG Auto Edit - AlexPC read-only diagnostics
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rg-alexpc-readonly-diagnostics.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-alexpc-readonly-diagnostics
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Studio, active jobs and XML QA without changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = 'F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data = 'F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          Write-Output ('RG_DIAG|START|'+(Get-Date -Format o))
+          Write-Output ('RG_DIAG|COMPUTER|'+$env:COMPUTERNAME)
+          $studio = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_studio_main\.py' })
+          Write-Output ('RG_DIAG|STUDIO_PROCESSES|'+$studio.Count)
+          $workers = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue\.py|rg_production_wrapper\.py' })
+          Write-Output ('RG_DIAG|PRODUCTION_PROCESSES|'+$workers.Count)
+          if (Test-Path (Join-Path $data 'studio_batch_queue.json')) {
+            $queue = Get-Content (Join-Path $data 'studio_batch_queue.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            Write-Output ('RG_DIAG|QUEUE_RUNNING|'+$queue.running)
+            Write-Output ('RG_DIAG|QUEUE_ITEMS|'+(@($queue.queue) -join ','))
+            foreach ($row in @($queue.rows)) {
+              Write-Output ('RG_DIAG|ROW|'+$row.stream+'|'+$row.progress+'|'+$row.stage)
+            }
+          } else {
+            Write-Output 'RG_DIAG|QUEUE|NOT_FOUND'
+          }
+          foreach ($name in @('rg_cigarette_blur.py','rg_final_release_gate.py','rg_final_qa_preview.py','rg_release_health_gate.py')) {
+            $src = Join-Path $app $name
+            $dst = Join-Path $installed $name
+            if ((Test-Path $src) -and (Test-Path $dst)) {
+              $same = (Get-FileHash $src -Algorithm SHA256).Hash -eq (Get-FileHash $dst -Algorithm SHA256).Hash
+              Write-Output ('RG_DIAG|MODULE_MATCH|'+$name+'|'+$same)
+            } else {
+              Write-Output ('RG_DIAG|MODULE_MISSING|'+$name)
+            }
+          }
+          foreach ($stream in @('910','911','912','913','914','915')) {
+            $manifestPath = Join-Path $app ('RG_EDITED_'+$stream+'_MULTI_DIALOGUE.json')
+            if (Test-Path $manifestPath) {
+              try {
+                $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                Write-Output ('RG_DIAG|MANIFEST|'+$stream+'|'+$manifest.status+'|'+$manifest.completed_dialogues+'/'+$manifest.dialogue_count)
+              } catch {
+                Write-Output ('RG_DIAG|MANIFEST_INVALID|'+$stream)
+              }
+            } else {
+              Write-Output ('RG_DIAG|MANIFEST_MISSING|'+$stream)
+            }
+            $gates = @(Get-ChildItem $app -Filter ('RG_EDITED_'+$stream+'_*_FINAL_RELEASE_GATE.json') -File -ErrorAction SilentlyContinue)
+            $pass = 0
+            foreach ($gatePath in $gates) {
+              try {
+                $gate = Get-Content $gatePath.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($gate.passed -eq $true -and $gate.status -eq 'READY_FOR_PREMIERE') { $pass++ }
+              } catch {}
+            }
+            Write-Output ('RG_DIAG|GATES|'+$stream+'|'+$pass+'/'+$gates.Count)
+            $statePath = Join-Path $data ('run_state\'+$stream+'\RUN_STATE.json')
+            if (Test-Path $statePath) {
+              try {
+                $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                Write-Output ('RG_DIAG|RUNSTATE|'+$stream+'|'+$state.status+'|'+$state.last_stage+'|'+$state.progress)
+              } catch { Write-Output ('RG_DIAG|RUNSTATE_INVALID|'+$stream) }
+            }
+          }
+          if (Test-Path 'F:\') {
+            $drive = Get-PSDrive F -ErrorAction SilentlyContinue
+            if ($drive) { Write-Output ('RG_DIAG|F_FREE_GIB|'+[math]::Round($drive.Free / 1GB,1)) }
+          }
+          Write-Output 'RG_DIAG|FINISHED|READ_ONLY'
