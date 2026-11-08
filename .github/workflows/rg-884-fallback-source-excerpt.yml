@@ -1,0 +1,34 @@
+name: RG Auto Edit - 884 fallback source excerpt
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-fallback-source-excerpt.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read precise preflight and embedded audio fallback implementations
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $items=@(
+            @('rg_studio_ui.py',2460,2560),
+            @('rg_studio_preflight.py',1,230),
+            @('rg_embedded_audio_source_v1.py',1,225),
+            @('rg_multi_dialogue.py',507,544),
+            @('rg_server_resolver.py',50,86)
+          )
+          foreach($item in $items){
+            $name=$item[0];$start=[int]$item[1];$end=[int]$item[2]
+            $p=Join-Path $root $name
+            if(!(Test-Path $p)){Write-Output ('A884|MISSING|'+$name);continue}
+            Write-Output ('A884|FILE|'+$name)
+            $lines=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            for($i=$start-1;$i -lt [Math]::Min($end,$lines.Count);$i++){
+              Write-Output ('A884|'+($i+1)+'|'+$lines[$i])
+            }
+          }
+          Write-Output 'A884|DONE'
