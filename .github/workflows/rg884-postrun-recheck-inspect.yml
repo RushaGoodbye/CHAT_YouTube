@@ -1,0 +1,27 @@
+name: RG884 inspect postrun rerun invocation and current manifest
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg884-postrun-recheck-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect manifest and QA-only entrypoint
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $p=Join-Path $root 'rg_studio_postrun.py';$l=@(Get-Content $p -Encoding UTF8)
+          foreach($range in @(@(1,85),@(192,240))){
+            for($i=$range[0]-1;$i -lt [Math]::Min($l.Count,$range[1]);$i++){Write-Output ('QAINSP|POST|'+($i+1)+'|'+$l[$i])}
+          }
+          $m=Join-Path $root 'RG_EDITED_884_MULTI_DIALOGUE.json'
+          if(Test-Path $m){
+            $j=Get-Content $m -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('QAINSP|MANIFEST_KEYS|'+(@($j.PSObject.Properties.Name) -join ','))
+            foreach($field in @('status','outputs','dialogues','jobs','dialogue_count','completed_dialogues')){Write-Output ('QAINSP|MANIFEST|'+$field+'|'+($j.$field|ConvertTo-Json -Depth 6 -Compress))}
+          }
+          Write-Output 'QAINSP|DONE'
