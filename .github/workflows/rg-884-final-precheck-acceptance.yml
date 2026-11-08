@@ -1,0 +1,48 @@
+name: RG Auto Edit - 884 final precheck acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-final-precheck-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify installed source and 884 audio in fresh Python process
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $installed=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          foreach($f in @('rg_embedded_audio_source_v1.py','rg_stability_ux25.py','rg_studio_ui.py')){
+            $same=((Get-FileHash (Join-Path $root $f)).Hash -eq (Get-FileHash (Join-Path $installed $f)).Hash)
+            Write-Output ('RG884_ACCEPT|SOURCE_MATCH|'+$f+'|'+$same)
+            if(!$same){throw 'SOURCE_INSTALLED_MISMATCH'}
+          }
+          $work=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          Write-Output ('RG884_ACCEPT|ACTIVE_MONTAGE_WORKERS|'+$work.Count)
+          $py=Join-Path $env:RUNNER_TEMP 'rg884_accept.py'
+          @'
+          import json,sys,ast
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(root))
+          from rg_embedded_audio_source_v1 import verify_source_audio
+          cfg=json.loads((root/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
+          for f in ['rg_embedded_audio_source_v1.py','rg_stability_ux25.py','rg_studio_ui.py']:
+              ast.parse((root/f).read_text(encoding='utf-8'),filename=f)
+          u=(root/'rg_stability_ux25.py').read_text(encoding='utf-8')
+          ui=(root/'rg_studio_ui.py').read_text(encoding='utf-8')
+          assert 'verify_source_audio(host.video_root' in u
+          assert 'verify_source_audio(self.video_root' in ui
+          audio=verify_source_audio(cfg['video_root'],cfg['audio_root'],'884')
+          assert audio['source']=='embedded',audio
+          print('RG884_ACCEPT|REAL_AUDIO_SOURCE|'+audio['source'])
+          print('RG884_ACCEPT|UX25_PRECHECK|PASS')
+          print('RG884_ACCEPT|BATCH_PRECHECK|PASS')
+          print('RG884_ACCEPT|SYNTAX|PASS')
+          '@ | Set-Content -LiteralPath $py -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $py
+          if($LASTEXITCODE -ne 0){throw 'RG884_FINAL_ACCEPTANCE_FAILED'}
