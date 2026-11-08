@@ -207,6 +207,15 @@ def test_independent_critic_rejects_missing_quote():
 
 
 
+def _original_rows_for_g3():
+    first = "Люди обговорюють ставлення до Росії і своє суспільство."
+    second = "Співрозмовники говорять про ціни на транспорт і проїзд."
+    third = "Учасник розповідає про свій досвід роботи у великому місті."
+    return [{"text": first, "start": 0.0, "duration": 4.0},
+            {"text": second, "start": 4.0, "duration": 4.0},
+            {"text": third, "start": 8.0, "duration": 4.0}]
+
+
 def _expanded_source_for_g3():
     from rg_youtube_control.seo_evidence_records import build_evidence_records
     first = "Люди обговорюють ставлення до Росії і своє суспільство."
@@ -216,9 +225,7 @@ def _expanded_source_for_g3():
              "topics": [{"topic": "Ставлення до суспільства",
                          "summary_uk": "Люди говорять про особисті оцінки ситуації.",
                          "evidence": first}]}
-    rows = [{"text": first, "start": 0.0, "duration": 4.0},
-            {"text": second, "start": 4.0, "duration": 4.0},
-            {"text": third, "start": 8.0, "duration": 4.0}]
+    rows = _original_rows_for_g3()
     return build_evidence_records(
         video_id=VID, timeline_report={"blocks": [block], "blocks_analyzed": 1,
                     "blocks_with_evidence": 1}, transcript_rows=rows)
@@ -226,7 +233,7 @@ def _expanded_source_for_g3():
 
 def test_g3_can_supplement_source_cards_with_literal_srt_cues():
     evidence = _expanded_source_for_g3()
-    source = prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence)
+    source = prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence, transcript_rows=_original_rows_for_g3())
     assert len(source["records"]) == 4
     assert source["contains_provisional_sources"]
     assert not source["publication_allowed"] and not source["editorial_approved"]
@@ -246,13 +253,13 @@ def test_g3_rejects_unverified_expanded_source():
     evidence = _expanded_source_for_g3()
     evidence["complete_evidence_coverage"] = False
     with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
-        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence)
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence, transcript_rows=_original_rows_for_g3())
 
 
 def test_g3_never_exceeds_source_card_limit_with_cue_candidates():
     evidence = _expanded_source_for_g3()
     packet = prepare_source_packet(video_id=VID, cards=cards(),
-                                   max_cards=2, expanded_evidence=evidence)
+                                   max_cards=2, expanded_evidence=evidence, transcript_rows=_original_rows_for_g3())
     assert len(packet["records"]) == 2
     assert packet["contains_provisional_sources"]
     assert not packet["publication_allowed"]
@@ -260,10 +267,48 @@ def test_g3_never_exceeds_source_card_limit_with_cue_candidates():
 
 def test_provisional_g3_cue_context_preserves_quote_and_no_speaker_claim():
     source = prepare_source_packet(
-        video_id=VID, cards=cards(), expanded_evidence=_expanded_source_for_g3())
+        video_id=VID, cards=cards(), expanded_evidence=_expanded_source_for_g3(), transcript_rows=_original_rows_for_g3())
     extras = [r for r in source["records"] if r.get("context_is_not_speaker_proof")]
     assert extras
     assert all(r["literal_quote"] in r["source_context"] for r in extras)
     assert all(r["provisional"] for r in extras)
     assert any(len(r["source_context"]) > len(r["literal_quote"]) for r in extras)
     assert not source["publication_allowed"]
+
+
+def test_g3_rejects_invented_original_cue_even_with_fake_verification_flags():
+    evidence = _expanded_source_for_g3()
+    evidence["source_cue_candidates"][0]["source_quote"] = (
+        "Вигадана репліка про подію, якої не було в субтитрах.")
+    with pytest.raises(ValueError, match="EXPANDED_CUE_NOT_IN_ORIGINAL_SRT"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
+                              transcript_rows=_original_rows_for_g3())
+
+
+def test_g3_rejects_shifted_timestamp_for_valid_quote():
+    evidence = _expanded_source_for_g3()
+    evidence["source_cue_candidates"][0]["start_s"] += 0.5
+    with pytest.raises(ValueError, match="EXPANDED_CUE_NOT_IN_ORIGINAL_SRT"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
+                              transcript_rows=_original_rows_for_g3())
+
+
+def test_g3_requires_original_caption_rows_not_self_reported_model_claims():
+    evidence = _expanded_source_for_g3()
+    with pytest.raises(ValueError, match="ORIGINAL_SRT_REQUIRED_FOR_EXPANDED_EVIDENCE"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence)
+
+
+def test_g3_prompt_keeps_source_fragment_and_unknown_speaker_warnings():
+    evidence = _expanded_source_for_g3()
+    source = prepare_source_packet(
+        video_id=VID, cards=cards(), expanded_evidence=evidence,
+        transcript_rows=_original_rows_for_g3())
+    prompts = []
+    def writer(messages):
+        prompts.append(json.loads(messages[-1]["content"]))
+        return json.dumps(good_package(), ensure_ascii=False)
+    draft_seo_package(source=source, chat=writer)
+    assert any(r["speaker_unknown"] for r in prompts[0]["source"]["records"])
+    assert all("may_be_incomplete" in r for r in prompts[0]["source"]["records"])
+    assert "Never infer speaker identity" in " ".join(prompts[0]["instructions"])
