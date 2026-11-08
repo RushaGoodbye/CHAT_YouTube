@@ -1,0 +1,23 @@
+name: RG UI visual panel full source inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-visual-panel-source-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect visual panel implementation
+        shell: powershell
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_pack170_visual.py'
+          if(!(Test-Path $p)){throw 'MISSING_VISUAL_PANEL'}
+          $l=@(Get-Content -LiteralPath $p -Encoding UTF8)
+          Write-Output ('V170|COUNT|'+$l.Count)
+          for($i=0;$i -lt $l.Count;$i++){
+            if($i -lt 380){Write-Output ('V170|'+($i+1)+'|'+$l[$i])}
+          }
+          Write-Output 'V170|DONE'
