@@ -16,7 +16,7 @@ jobs:
           $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
           $l=@(Get-Content $p -Encoding UTF8)
           for($i=0;$i -lt $l.Count;$i++){
-            if($l[$i] -match 'batch_full_recalc|full_recalc|FULL_RECALC|ПЕРЕРАХУВАТИ ПОВН|def batch_recalculate|recalculate'){
+            if($l[$i] -match 'batch_full_recalc|full_recalc|FULL_RECALC|def batch_recalculate|recalculate'){
               Write-Output ('RECALC|MATCH|'+($i+1)+'|'+$l[$i])
               for($j=$i+1;$j -lt [Math]::Min($l.Count,$i+35);$j++){if($l[$j] -match '^    def '){break};Write-Output ('RECALC|'+($j+1)+'|'+$l[$j])}
             }
