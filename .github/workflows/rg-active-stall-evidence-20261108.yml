@@ -1,0 +1,52 @@
+name: RG active montage stall evidence 20261108
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-active-stall-evidence-20261108.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Check workers and progress without interfering
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RGSTALL|TIME|'+(Get-Date -Format o))
+          if(Test-Path $q){
+            $s=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGSTALL|QUEUE_LAST_WRITE|'+(Get-Item $q).LastWriteTime.ToString('o'))
+            Write-Output ('RGSTALL|QUEUE_RUNNING|'+$s.running)
+            foreach($row in @($s.rows)|Select-Object -First 5){Write-Output ('RGSTALL|ROW|'+$row.stream+'|'+$row.status+'|'+$row.stage+'|'+$row.progress+'|'+$row.detail)}
+          }
+          $all=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_studio_main.py|rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          $ids=@($all|ForEach-Object{$_.ProcessId})
+          Write-Output ('RGSTALL|WORKER_COUNT|'+$all.Count)
+          foreach($p in $all){
+            $pr=Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+            if($pr){Write-Output ('RGSTALL|PROCESS|'+$p.ProcessId+'|PARENT='+$p.ParentProcessId+'|CPU_SEC='+[math]::Round($pr.CPU,2)+'|RAM_MB='+[math]::Round($pr.WorkingSet64/1MB,1)+'|START='+$pr.StartTime.ToString('o')+'|'+([string]$p.CommandLine).Substring(0,[Math]::Min(130,([string]$p.CommandLine).Length)))}
+          }
+          $fs=@()
+          foreach($dir in @((Join-Path $root '885'),(Join-Path $data 'run_state\885'),(Join-Path $root 'run_manifests\885'))){
+            if(Test-Path $dir){$fs+=Get-ChildItem $dir -File -Recurse -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 5}
+          }
+          foreach($f in $fs|Sort-Object LastWriteTime -Descending|Select-Object -First 14){Write-Output ('RGSTALL|FILE|'+$f.LastWriteTime.ToString('o')+'|'+$f.Length+'|'+$f.FullName)}
+          $rs=Join-Path $data 'run_state\885\RUN_STATE.json'
+          if(Test-Path $rs){
+            $j=Get-Content $rs -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGSTALL|STATE|'+$j.status+'|'+$j.last_stage+'|'+$j.progress+'|'+$j.last_message)
+          }
+          Start-Sleep -Seconds 12
+          Write-Output ('RGSTALL|SECOND_SAMPLE|'+(Get-Date -Format o))
+          foreach($id in $ids){
+            $pr=Get-Process -Id $id -ErrorAction SilentlyContinue
+            if($pr){Write-Output ('RGSTALL|SAMPLE2|'+$id+'|CPU_SEC='+[math]::Round($pr.CPU,2)+'|RAM_MB='+[math]::Round($pr.WorkingSet64/1MB,1))}
+            else{Write-Output ('RGSTALL|SAMPLE2|'+$id+'|EXITED')}
+          }
+          if(Test-Path $q){$s=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json;foreach($row in @($s.rows)|Select-Object -First 2){Write-Output ('RGSTALL|ROW2|'+$row.stream+'|'+$row.status+'|'+$row.stage+'|'+$row.progress)}}
+          Write-Output 'RGSTALL|DONE'
