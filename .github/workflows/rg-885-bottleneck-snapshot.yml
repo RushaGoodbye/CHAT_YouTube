@@ -1,0 +1,29 @@
+name: RG 885 bottleneck snapshot read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-bottleneck-snapshot.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Gather current stage and performance bottlenecks without montage changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $state='F:\RG_AUTO_EDIT\RG Auto Edit Data\run_state\885\RUN_STATE.json'
+          $log=Join-Path $root 'run_manifests\885\LATEST.log'
+          Write-Output ('RGSPEED|TIME|'+(Get-Date -Format o))
+          if(Test-Path $state){$x=Get-Content $state -Encoding UTF8 -Raw|ConvertFrom-Json;Write-Output ('RGSPEED|STATE|'+$x.status+'|'+$x.last_stage+'|'+$x.progress+'|'+$x.last_message)}
+          if(Test-Path $log){Get-Content $log -Tail 35 -Encoding UTF8|ForEach-Object{Write-Output ('RGSPEED|LOG|'+$_)}}
+          $samples=Join-Path $root 'run_manifests\885\RG_PERFORMANCE_SAMPLES.jsonl'
+          if(Test-Path $samples){Get-Content $samples -Tail 4 -Encoding UTF8|ForEach-Object{Write-Output ('RGSPEED|PERF|'+$_)}}
+          $events=Join-Path $root 'run_manifests\885\RG_PERFORMANCE_EVENTS.jsonl'
+          if(Test-Path $events){Get-Content $events -Tail 16 -Encoding UTF8|ForEach-Object{Write-Output ('RGSPEED|EVENT|'+$_)}}
+          $workers=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button.py|rg_multi_dialogue.py'})
+          foreach($p in $workers){$process=Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue;if($process){Write-Output ('RGSPEED|WORKER|'+$p.ProcessId+'|'+([math]::Round($process.CPU,2))+'|'+([math]::Round($process.WorkingSet64/1MB)))}}
+          Write-Output 'RGSPEED|DONE'
