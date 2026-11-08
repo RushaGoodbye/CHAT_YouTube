@@ -165,7 +165,7 @@ def build_evidence_records(
     }
 
 
-def grounded_evidence_outline(source_records: dict[str, Any]) -> str:
+def grounded_evidence_outline(source_records: dict[str, Any], *, include_source_cues: bool = True) -> str:
     """Only vetted source quotes may enter SEO model context.
 
     Model-derived topic labels are suggestions, not independent facts.
@@ -187,4 +187,28 @@ def grounded_evidence_outline(source_records: dict[str, Any]) -> str:
             f"| Тип: {rec['statement_kind']} "
             f"| Дослівна репліка: «{rec['verbatim_quote']}»"
         )
+    # Additional raw SRT statements enrich the editor's context. They do not
+    # establish truth, author a new topic, or bypass the existing quality gate.
+    if (include_source_cues
+            and source_records.get("source_cue_selection_schema") == "RG_SOURCE_CUE_EXPANSION_V1"
+            and source_records.get("source_cue_candidates_review_only") is True):
+        known = {_clean(item.get("verbatim_quote")).casefold() for item in items}
+        for cue in source_records.get("source_cue_candidates") or []:
+            if not isinstance(cue, dict):
+                continue
+            quote = _clean(cue.get("source_quote"))
+            if (not quote or quote.casefold() in known
+                    or cue.get("source_precision") != "single_original_cue"
+                    or cue.get("factual_truth_verified") is not False
+                    or not isinstance(cue.get("start_s"), (int, float))):
+                continue
+            known.add(quote.casefold())
+            total = max(0, int(cue["start_s"]))
+            incomplete = (" НЕПОВНИЙ ФРАГМЕНТ, не роби окремого висновку."
+                          if cue.get("may_be_incomplete") else "")
+            lines.append(
+                f"[{total // 60:02d}:{total % 60:02d}] "
+                f"Додаткова дослівна репліка з SRT (НЕ доведений факт): "
+                f"«{quote}».{incomplete}"
+            )
     return "\n".join(lines)
