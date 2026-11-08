@@ -1,0 +1,39 @@
+name: RG stability architecture read-only audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-architecture-audit.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing repair, QA and queue hooks
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $terms=@('def postrun_qa','def run_postrun','def _postrun','def _batch_next','def batch_start','def _batch_set','def _rg_','def repair','def resume','def prepare_full_recalculation','RG_POSTRUN_QA','RG_AUDIO_INTEGRITY')
+          foreach($name in @('rg_studio_ui.py','rg_studio_postrun.py','rg_full_recalculate.py','rg_final_release_gate.py','rg_qa_current_result.py')){
+            $p=Join-Path $root $name
+            if(!(Test-Path $p)){continue}
+            $l=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RGAUDIT|FILE|'+$name+'|'+$l.Count)
+            for($i=0;$i -lt $l.Count;$i++){
+              $hits=$false
+              foreach($t in $terms){if($l[$i].Contains($t)){$hits=$true;break}}
+              if($hits){Write-Output ('RGAUDIT|HOOK|'+($i+1)+'|'+$l[$i].Trim())}
+            }
+          }
+          $p=Join-Path $root '885\RG_POSTRUN_QA.json'
+          if(Test-Path $p){Write-Output 'RGAUDIT|885_POSTRUN|PRESENT'}
+          $queue='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $queue){
+            $j=Get-Content $queue -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGAUDIT|QUEUE|'+(@($j.queue) -join ','))
+            Write-Output ('RGAUDIT|MODE|'+(@($j.full_recalc_targets) -join ','))
+          }
+          Write-Output 'RGAUDIT|DONE'
