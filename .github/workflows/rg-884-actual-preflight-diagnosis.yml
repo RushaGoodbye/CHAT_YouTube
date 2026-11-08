@@ -1,0 +1,44 @@
+name: RG Auto Edit - 884 actual preflight diagnosis
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-actual-preflight-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect current preflight evidence and run same readiness check
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $installed=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          $conf=Get-Content (Join-Path $app 'rg_server_paths.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          Write-Output ('RG884ACT|TIME|'+(Get-Date -Format o))
+          $ps=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$'})
+          foreach($p in $ps|Where-Object{$_.CommandLine -match 'rg_studio_main.py|rg_studio_preflight.py|rg_multi_dialogue.py|rg_production_wrapper.py'}){
+            Write-Output ('RG884ACT|PROCESS|'+$p.ProcessId+'|'+$p.CreationDate+'|'+$p.CommandLine.Substring(0,[Math]::Min(440,$p.CommandLine.Length)))
+          }
+          foreach($f in @('rg_studio_preflight.py','rg_embedded_audio_source_v1.py')){
+            Write-Output ('RG884ACT|INSTALLED_MATCH|'+$f+'|'+((Get-FileHash (Join-Path $app $f)).Hash -eq (Get-FileHash (Join-Path $installed $f)).Hash))
+          }
+          $file=Join-Path $app 'rg_studio_preflight.py'
+          $env:PYTHONPATH=$app
+          $out=& $py -u $file --stream 884 --video-root $conf.video_root --audio-root $conf.audio_root --screen-root $conf.screen_root --app $app --runtime $py 2>&1
+          $code=$LASTEXITCODE
+          Write-Output ('RG884ACT|EXIT|'+$code)
+          foreach($line in $out){
+            $txt=[string]$line
+            if($txt -match '^RGPREFLIGHTITEM\|'){
+              try{$j=$txt.Split('|',2)[1]|ConvertFrom-Json;Write-Output ('RG884ACT|ITEM|'+$j.name+'|'+$j.ok+'|'+$j.critical+'|'+$j.detail.Substring(0,[Math]::Min(230,$j.detail.Length)))}catch{}
+            }elseif($txt -match '^RGPREFLIGHT\|'){
+              try{$j=$txt.Split('|',2)[1]|ConvertFrom-Json;Write-Output ('RG884ACT|RESULT|'+$j.ok+'|'+$j.stream+'|'+$j.mode)}catch{}
+            }elseif($txt -match 'Traceback|Error|Exception|ModuleNotFound|ImportError|TypeError'){
+              Write-Output ('RG884ACT|ERROR|'+$txt.Substring(0,[Math]::Min(400,$txt.Length)))
+            }
+          }
+          Write-Output 'RG884ACT|DONE'
