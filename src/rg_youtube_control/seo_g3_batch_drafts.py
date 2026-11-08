@@ -72,12 +72,16 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
     # precedence. New cues remain provisional, even when their literal origin
     # is verified: a quote does not establish meaning, speaker or factual truth.
     if expanded_evidence is not None:
+        # A literal-only transcript proof is eligible for a REVIEW-ONLY draft
+        # even when the model misquotes a topic or a timeline block is
+        # semantically unverified. It is NEVER an editorial approval.
+        literal_only = expanded_evidence.get("complete_evidence_coverage") is not True
         if (expanded_evidence.get("video_id") != video_id
                 or expanded_evidence.get("source_cue_selection_schema") != "RG_SOURCE_CUE_EXPANSION_V1"
                 or expanded_evidence.get("source_cue_candidates_review_only") is not True
-                or expanded_evidence.get("complete_evidence_coverage") is not True
-                or expanded_evidence.get("source_cue_complete_timeline_verified") is not True
-                or expanded_evidence.get("source_cue_invalid_block_count") != 0):
+                or expanded_evidence.get("complete_literal_source_coverage") is not True
+                or expanded_evidence.get("source_cue_invalid_block_count") != 0
+                or not isinstance(expanded_evidence.get("source_cue_candidates"), list)):
             raise ValueError("UNTRUSTED_EXPANDED_SOURCE_EVIDENCE")
         # Re-check every candidate against ORIGINAL timestamped captions.
         # A self-reported "source verified" field cannot establish provenance.
@@ -135,14 +139,17 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
                 "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
                 "source_context": cue_context,
                 "context_is_not_speaker_proof": True,
+                "model_block_verified": cue.get("model_block_verified") is True,
                 "provisional": True,
                 "incomplete_source_fragment": bool(cue.get("may_be_incomplete")),
             })
             next_id += 1
         selected.sort(key=lambda item: (item["start_s"], item["id"]))
-    provisional = any(c["provisional"] for c in selected)
+    provisional = any(c["provisional"] for c in selected) or expanded_evidence is not None
     return {
         "video_id": video_id,
+        "expanded_literal_only": bool(expanded_evidence is not None and literal_only),
+        "source_material_requires_editorial_review": expanded_evidence is not None,
         "records": selected,
         "source_packet_sha256": _fingerprint(selected),
         "contains_provisional_sources": provisional,
@@ -175,7 +182,9 @@ def draft_seo_package(*, source: dict[str, Any], chat: Chat) -> dict[str, Any]:
              "quote": r["literal_quote"],"context": r["source_context"][:900],
              "provisional": bool(r.get("provisional")),
              "may_be_incomplete": bool(r.get("incomplete_source_fragment")),
-             "speaker_unknown": bool(r.get("context_is_not_speaker_proof"))}
+             "speaker_unknown": bool(r.get("context_is_not_speaker_proof")),
+             "model_block_verified": r.get("model_block_verified") is True
+                 if r.get("context_is_not_speaker_proof") else None}
             for r in records
         ]},
     }
