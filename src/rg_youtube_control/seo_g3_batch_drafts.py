@@ -285,6 +285,8 @@ def evaluate_independent_draft(
             "Reject question-to-assertion swaps, false participant identities, inferred state policies or definitive external facts from quoted dialogue.",
             "Reject invented causal links, 'other sources', dates, consequences and topic drift not supported by exact caption context.",
             "Compare main title, ALL THREE A/B titles, every substantive description claim and tags to exact source quotes. Report absent A/B variants.",
+            "The issues array MUST contain only concrete defects requiring corrections, never compliments, positive observations, or evidence that a candidate is accurate.",
+            "If everything you checked is correct, return risk=low and issues=[]. Do not add positive comments to issues.",
             "A low risk opinion is NOT human approval or factual verification."
         ],
         "source": compact_source,
@@ -303,6 +305,35 @@ def evaluate_independent_draft(
     if risk not in {"low", "medium", "high"} or not isinstance(issues, list) or any(
             not isinstance(i, str) for i in issues):
         raise ValueError("INVALID_INDEPENDENT_CRITIQUE")
+    # A critic claiming 'low' while providing a list of compliments is not
+    # a reliable approval. Do NOT discard those strings and silently pass;
+    # record the inconsistent verdict as requiring editorial review.
+    if risk == "low" and issues:
+        positive_openings = (
+            "title variants are factually consistent",
+            "description accurately reflects",
+            "no unsupported dates",
+            "tags align with",
+            "the seo is accurate",
+            "accurate translation",
+        )
+        positive_count = sum(
+            str(issue).strip().casefold().startswith(positive_openings)
+            for issue in issues
+        )
+        if positive_count == len(issues):
+            return {
+                "schema": "RG_G3_INDEPENDENT_REVIEW_V1",
+                "video_id": source["video_id"],
+                "source_packet_sha256": source["source_packet_sha256"],
+                "risk_ai": "medium",
+                "issues": ["INVALID_CRITIC_SCHEMA_POSITIVE_NOTES_IN_ISSUES"],
+                "status": "NEEDS_ATTENTION",
+                "editorial_review_required": True,
+                "human_approved": False,
+                "g3_accepted": False,
+                "publication_allowed": False,
+            }
     requires_manual = (
         risk != "low" or bool(issues) or
         draft["status"] != "READY_FOR_INDEPENDENT_AI_REVIEW" or
