@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any, Callable
 
@@ -38,7 +39,8 @@ def _json(response: str) -> dict[str, Any]:
 
 def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
                           max_cards: int = 12,
-                          expanded_evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+                          expanded_evidence: dict[str, Any] | None = None,
+                          transcript_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if not VIDEO_ID_RE.fullmatch(video_id or ""):
         raise ValueError("INVALID_VIDEO_ID")
     if not cards or len(cards) > max_cards:
@@ -75,6 +77,34 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
                 or expanded_evidence.get("source_cue_candidates_review_only") is not True
                 or expanded_evidence.get("complete_evidence_coverage") is not True):
             raise ValueError("UNTRUSTED_EXPANDED_SOURCE_EVIDENCE")
+        # Re-check every candidate against ORIGINAL timestamped captions.
+        # A self-reported "source verified" field cannot establish provenance.
+        if not isinstance(transcript_rows, list) or not transcript_rows:
+            raise ValueError("ORIGINAL_SRT_REQUIRED_FOR_EXPANDED_EVIDENCE")
+        actual_rows = set()
+        for row in transcript_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                stamp = float(row["start"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if not (math.isfinite(stamp) and stamp >= 0):
+                continue
+            actual_rows.add((round(stamp, 3), " ".join(str(row.get("text") or "").split())))
+        expected = []
+        for cue in expanded_evidence.get("source_cue_candidates") or []:
+            if not isinstance(cue, dict):
+                raise ValueError("INVALID_EXPANDED_CUE")
+            try:
+                candidate_start = float(cue["start_s"])
+            except (KeyError, ValueError, TypeError):
+                raise ValueError("INVALID_EXPANDED_CUE_TIME") from None
+            candidate_quote = " ".join(str(cue.get("source_quote") or "").split())
+            if (not math.isfinite(candidate_start)
+                    or (round(candidate_start, 3), candidate_quote) not in actual_rows):
+                raise ValueError("EXPANDED_CUE_NOT_IN_ORIGINAL_SRT")
+            expected.append(candidate_quote)
         known_quotes = {r["literal_quote"].casefold() for r in selected}
         next_id = max(ids, default=0) + 1
         for cue in sorted(expanded_evidence.get("source_cue_candidates") or [],
@@ -134,11 +164,16 @@ def draft_seo_package(*, source: dict[str, Any], chat: Chat) -> dict[str, Any]:
             "Attribute controversial claims to speakers; do not turn them into established facts.",
             "Keep video ID out of SEO text and never imply an unverified factual event happened.",
             "No Russian grammar, fabricated hooks or irrelevant generic keywords.",
+            "A subtitle cue, especially a fragment, may be incomplete or spoken by another person.",
+            "Never infer speaker identity or link adjacent source cues as one person's statement.",
             "No publishing instructions. This is an unapproved local draft."
         ],
         "source": {"video_id": source["video_id"], "records": [
             {"start_s": r["start_s"],"topic_not_fact": r["topic_candidate_not_fact"],
-             "quote": r["literal_quote"],"context": r["source_context"][:900]}
+             "quote": r["literal_quote"],"context": r["source_context"][:900],
+             "provisional": bool(r.get("provisional")),
+             "may_be_incomplete": bool(r.get("incomplete_source_fragment")),
+             "speaker_unknown": bool(r.get("context_is_not_speaker_proof"))}
             for r in records
         ]},
     }
