@@ -1,0 +1,22 @@
+name: RG UI exact progress widget excerpt
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-ui-exact-progress-widget-excerpt.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect precise code for redesigned progress widget
+        shell: powershell
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          foreach($r in @(@(1,90),@(370,464),@(2700,2750),@(2820,2860),@(3330,3425))){
+            Write-Output ('RGUXI|RANGE|'+$r[0]+'|'+$r[1])
+            for($i=$r[0]-1;$i -lt [Math]::Min($l.Count,$r[1]);$i++){Write-Output ('RGUXI|'+($i+1)+'|'+$l[$i])}
+          }
+          Write-Output 'RGUXI|DONE'
