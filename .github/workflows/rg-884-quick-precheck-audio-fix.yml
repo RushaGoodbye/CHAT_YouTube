@@ -1,0 +1,120 @@
+name: RG Auto Edit - 884 quick precheck audio fallback fix
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-quick-precheck-audio-fix.yml']
+permissions:
+  contents: read
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Backup and patch single and batch audio prechecks safely
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          if($busy.Count -gt 0){throw 'VIDEO_PROCESS_ACTIVE_NO_PATCH'}
+          $s=Join-Path $env:RUNNER_TEMP 'rg884_second_precheck_fix.py'
+          @'
+          from pathlib import Path
+          import os,shutil,datetime,ast,py_compile,sys,json
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          inst=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          names=['rg_embedded_audio_source_v1.py','rg_stability_ux25.py','rg_studio_ui.py']
+          sources={}
+          for name in names:
+              s=(root/name).read_text(encoding='utf-8')
+              if s!=(inst/name).read_text(encoding='utf-8'):raise RuntimeError('SOURCE_INSTALLED_DIFFER_'+name)
+              sources[name]=s
+          helper='''
+          def verify_source_audio(video_root, audio_root, stream):
+              """Precheck only: external recording preferred; otherwise verified MP4 track.
+          
+              Does not extract audio or launch montage. Blocks truly silent media.
+              """
+              from rg_server_resolver import resolve_audio, resolve_video
+              video, _, _ = resolve_video(video_root, stream)
+              try:
+                  audio, _, _ = resolve_audio(audio_root, stream)
+                  return {"source": "external", "audio": str(audio), "video": str(video)}
+              except FileNotFoundError:
+                  info = _probe(video)
+                  if not _good_embedded(info, _duration(info)):
+                      raise FileNotFoundError(
+                          "Neither external audio nor valid synchronized embedded MP4 audio for stream "
+                          + str(stream))
+                  return {"source": "embedded", "video": str(video)}
+          '''
+          audio=sources['rg_embedded_audio_source_v1.py']
+          if 'def verify_source_audio(' in audio:raise RuntimeError('HELPER_ALREADY_PRESENT')
+          audio=audio.rstrip()+'\n'+helper
+          ux=sources['rg_stability_ux25.py']
+          old='''    from rg_server_resolver import resolve_video,resolve_audio,resolve_screenshots
+              resolve_video(host.video_root.text().strip(),stream)
+              resolve_audio(host.audio_root.text().strip(),stream)
+              shots=resolve_screenshots(host.screen_root.text().strip(),stream)
+          '''
+          new='''    from rg_server_resolver import resolve_screenshots
+              from rg_embedded_audio_source_v1 import verify_source_audio
+              verify_source_audio(host.video_root.text().strip(),host.audio_root.text().strip(),stream)
+              shots=resolve_screenshots(host.screen_root.text().strip(),stream)
+          '''
+          if ux.count(old)!=1:raise RuntimeError('UX25_ANCHOR_MISMATCH_'+str(ux.count(old)))
+          ux=ux.replace(old,new,1)
+          ui=sources['rg_studio_ui.py']
+          old_ui='''            resolve_video(self.video_root.text().strip(),stream)
+                      resolve_audio(self.audio_root.text().strip(),stream)
+                      resolve_screenshots(self.screen_root.text().strip(),stream)
+          '''
+          new_ui='''            from rg_embedded_audio_source_v1 import verify_source_audio
+                      verify_source_audio(self.video_root.text().strip(),self.audio_root.text().strip(),stream)
+                      resolve_screenshots(self.screen_root.text().strip(),stream)
+          '''
+          if ui.count(old_ui)!=1:raise RuntimeError('BATCH_INPUT_ANCHOR_MISMATCH_'+str(ui.count(old_ui)))
+          ui=ui.replace(old_ui,new_ui,1)
+          updates={'rg_embedded_audio_source_v1.py':audio,'rg_stability_ux25.py':ux,'rg_studio_ui.py':ui}
+          for n,s in updates.items():ast.parse(s,n)
+          sys.path.insert(0,str(root))
+          import rg_embedded_audio_source_v1 as m
+          cfg=json.loads((root/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
+          from rg_server_resolver import resolve_audio,resolve_video
+          video,*_=resolve_video(cfg['video_root'],'884')
+          try:
+              resolve_audio(cfg['audio_root'],'884')
+          except FileNotFoundError:
+              pass
+          else:raise RuntimeError('EXTERNAL_AUDIO_UNEXPECTED_884')
+          info=m._probe(video)
+          if not m._good_embedded(info,m._duration(info)):raise RuntimeError('884_MP4_AUDIO_INVALID')
+          if 'verify_source_audio(' not in ux or 'verify_source_audio(' not in ui:raise RuntimeError('CALLSITE_NOT_UPDATED')
+          backup=root/('_BACKUP_UX25_AUDIO_PRECHECK_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+          backup.mkdir()
+          for n in names:
+              shutil.copy2(root/n,backup/('SOURCE_'+n))
+              shutil.copy2(inst/n,backup/('INSTALLED_'+n))
+          for n,s in updates.items():
+              for base in (root,inst):
+                  file=base/n
+                  temp=file.with_suffix(file.suffix+'.new884')
+                  temp.write_text(s,encoding='utf-8')
+                  os.replace(temp,file)
+          for n in names:
+              py_compile.compile(str(root/n),doraise=True)
+              py_compile.compile(str(inst/n),doraise=True)
+              if (root/n).read_bytes()!=(inst/n).read_bytes():raise RuntimeError('MISMATCH_'+n)
+          from rg_embedded_audio_source_v1 import verify_source_audio
+          result=verify_source_audio(cfg['video_root'],cfg['audio_root'],'884')
+          if result['source']!='embedded':raise RuntimeError('884_NOT_EMBEDDED')
+          print('RG884_PRECHECK|BACKUP|'+str(backup))
+          print('RG884_PRECHECK|EXTERNAL_MISSING_EMBEDDED_VERIFIED|PASS')
+          print('RG884_PRECHECK|UX25_SINGLE_START|PATCHED')
+          print('RG884_PRECHECK|BATCH_START|PATCHED')
+          print('RG884_PRECHECK|SYNTAX|PASS')
+          print('RG884_PRECHECK|SOURCE_INSTALLED|MATCH')
+          print('RG884_PRECHECK|NO_VIDEO_PROCESSING_STARTED|TRUE')
+          
+          '@ | Set-Content -LiteralPath $s -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $s
+          if($LASTEXITCODE -ne 0){throw 'RG884_PRECHECK_PATCH_FAILED'}
