@@ -1,0 +1,30 @@
+name: SEO local Qwen Gemma real SRT smoke (review only)
+on:
+  pull_request:
+    paths:
+      - "tools/qa_seo_real_local_llm.py"
+      - ".github/workflows/seo-local-llm-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-seo-local-llm-smoke
+  cancel-in-progress: false
+jobs:
+  alexpc-local-seo-smoke:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Review one real SRT with serial local Qwen and independent Gemma
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = Join-Path $PWD 'src'
+          $python = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if (-not (Test-Path -LiteralPath $python)) { throw 'ALEXPC_PYTHON_NOT_FOUND' }
+          & $python -u tools\qa_seo_real_local_llm.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
