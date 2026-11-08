@@ -17,6 +17,7 @@ from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
 from rg_youtube_control.seo_evidence_records import build_evidence_records
 from rg_youtube_control.seo_g3_batch_drafts import (
     prepare_source_packet, draft_seo_package, evaluate_independent_draft,
+    repair_seo_package,
 )
 from rg_youtube_control.lm_studio_backend import lm_studio_chat
 
@@ -189,6 +190,41 @@ def main() -> int:
             review["publication_allowed"] is False
             and draft["publication_allowed"] is False
             and review["human_approved"] is False)
+        # A single constrained repair must address both missing A/B variants
+        # and original-source critic flags, followed by a NEW independent check.
+        # Do not make the entire smoke fail if only the optional repair fails:
+        # the initial source and model-stage evidence remains valuable.
+        if draft["status"] != "READY_FOR_INDEPENDENT_AI_REVIEW" or review["issues"]:
+            try:
+                repaired = repair_seo_package(
+                    source=source, previous=draft, critique=review,
+                    chat=_chat_for(WRITER),
+                )
+                second = evaluate_independent_draft(
+                    draft=repaired, source=source, chat=_chat_for(CRITIC))
+                audit["repair_attempt"] = 1
+                audit["repair_format_pass"] = bool(
+                    repaired["quality_checks"].get("format_pass"))
+                audit["repair_blockers"] = repaired["blockers"]
+                audit["repair_ab_count"] = len(
+                    repaired["seo"].get("title_variants") or [])
+                audit["repair_description_chars"] = len(
+                    str(repaired["seo"].get("description") or ""))
+                audit["repair_independent_risk"] = second["risk_ai"]
+                audit["repair_independent_issues"] = second["issues"]
+                audit["repair_unapproved"] = (
+                    repaired["publication_allowed"] is False
+                    and second["publication_allowed"] is False
+                    and not second["human_approved"])
+                audit["repair_acceptance"] = bool(
+                    audit["repair_format_pass"]
+                    and not second["issues"]
+                    and second["risk_ai"] == "low"
+                    and audit["repair_unapproved"])
+            except (ValueError, RuntimeError, OSError, TimeoutError) as repair_error:
+                audit["repair_issue"] = (
+                    type(repair_error).__name__ + ": " + str(repair_error)[:170])
+                audit["repair_acceptance"] = False
     except Exception as exc:
         audit["issue"] = type(exc).__name__
         audit["error_detail"] = str(exc)[:230]
