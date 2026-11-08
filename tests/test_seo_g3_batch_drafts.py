@@ -399,3 +399,29 @@ def test_g3_card_limit_keeps_beginning_and_end_of_long_real_source():
     assert captions[-1]["text"] in used
     assert packet["contains_provisional_sources"] is True
     assert packet["publication_allowed"] is False
+
+
+def test_independent_critic_single_string_issue_is_a_real_veto():
+    source = prepare_source_packet(video_id=VID, cards=cards())
+    draft = draft_seo_package(
+        source=source, chat=lambda _m: json.dumps(good_package(), ensure_ascii=False))
+    checked = evaluate_independent_draft(
+        draft=draft, source=source,
+        chat=lambda _m: json.dumps({"risk": "low", "issues":
+                                    "Додані імена, яких немає в оригіналі"},
+                                   ensure_ascii=False))
+    assert checked["issues"] == ["Додані імена, яких немає в оригіналі"]
+    assert checked["status"] == "NEEDS_ATTENTION"
+    assert not checked["publication_allowed"]
+
+
+def test_independent_critic_empty_string_issues_do_not_approve_provisional_source():
+    source = prepare_source_packet(video_id=VID, cards=cards(provisional=True))
+    draft = draft_seo_package(
+        source=source, chat=lambda _m: json.dumps(good_package(), ensure_ascii=False))
+    checked = evaluate_independent_draft(
+        draft=draft, source=source,
+        chat=lambda _m: json.dumps({"risk": "low", "issues": ""}))
+    assert checked["issues"] == []
+    assert checked["status"] == "NEEDS_ATTENTION"
+    assert not checked["human_approved"] and not checked["publication_allowed"]
