@@ -1,0 +1,20 @@
+name: RG queue last source inspection
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-queue-last-source-inspection.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect queue ui state and launch handoff
+        shell: powershell
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          foreach($r in @(@(3480,3504),@(3560,3585),@(3665,3675),@(3943,3964))){
+            for($i=$r[0]-1;$i -lt [Math]::Min($l.Count,$r[1]);$i++){Write-Output ('RQL|'+($i+1)+'|'+$l[$i])}
+          }
