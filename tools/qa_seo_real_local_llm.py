@@ -6,7 +6,9 @@ one loaded managed model at a time before Qwen writer / Gemma critic.
 from __future__ import annotations
 import json
 import os
+import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -25,6 +27,60 @@ WRITER = "qwen3-14b"
 CRITIC = "google/gemma-4-12b"
 API = "http://127.0.0.1:1234"
 MANAGED = (WRITER, CRITIC)
+LMS_BIN = Path(r"C:\Users\fauto\.lmstudio\bin\lms.exe")
+MIN_FREE_GPU_MIB = 8800
+
+
+def _gpu_preflight() -> dict:
+    """Refuse to load Qwen while an unrelated job uses RTX 4080 memory."""
+    try:
+        output = subprocess.run(
+            [r"C:\Windows\System32\nvidia-smi.exe",
+             "--query-gpu=memory.free,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True, timeout=8,
+        ).stdout.strip().splitlines()
+        if not output:
+            raise RuntimeError("NVIDIA_GPU_NOT_DETECTED")
+        free, total = [int(part.strip()) for part in output[0].split(",")[:2]]
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise RuntimeError("GPU_PREFLIGHT_UNAVAILABLE") from exc
+    if free < MIN_FREE_GPU_MIB:
+        raise RuntimeError(f"GPU_BUSY_FOR_SAFE_LOCAL_SEO free_mib={free}")
+    return {"free_mib": free, "total_mib": total}
+
+
+def _ensure_server() -> bool:
+    """Start LM Studio only for this job when the user did not start it."""
+    try:
+        _api("/api/v1/models", timeout=3)
+        return False
+    except (urllib.error.URLError, TimeoutError):
+        pass
+    if not LMS_BIN.is_file():
+        raise RuntimeError("LMS_CLI_NOT_INSTALLED")
+    try:
+        subprocess.run([str(LMS_BIN), "server", "start"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=35)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("LMS_SERVER_START_FAILED") from exc
+    for _ in range(12):
+        try:
+            _api("/api/v1/models", timeout=3)
+            return True
+        except (urllib.error.URLError, TimeoutError):
+            time.sleep(1)
+    raise RuntimeError("LMS_SERVER_NOT_READY_AFTER_START")
+
+
+def _stop_own_server() -> None:
+    """Do not stop a server that already belonged to the user."""
+    try:
+        subprocess.run([str(LMS_BIN), "server", "stop"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def _api(path: str, payload: dict | None = None, timeout: float = 20) -> dict:
@@ -87,7 +143,12 @@ def main() -> int:
     audit = {"video_id": VID, "publication_allowed": False,
              "human_approved": False, "full_10_video_acceptance": False}
     started = time.monotonic()
+    server_started_by_job = False
     try:
+        gpu = _gpu_preflight()
+        audit["gpu_preflight"] = gpu
+        server_started_by_job = _ensure_server()
+        audit["server_started_by_job"] = server_started_by_job
         file = ROOT / "source_captions" / (VID + ".srt")
         if not file.is_file() or not CACHE.is_dir():
             raise RuntimeError("ORIGINAL_SOURCE_OR_CACHE_MISSING")
@@ -131,6 +192,9 @@ def main() -> int:
     except Exception as exc:
         audit["issue"] = type(exc).__name__
         audit["error_detail"] = str(exc)[:230]
+    finally:
+        if server_started_by_job:
+            _stop_own_server()
     audit["elapsed_seconds"] = round(time.monotonic() - started, 1)
     print("RG_SEO_LIVE_LLM_AUDIT=" + json.dumps(audit, ensure_ascii=False))
     if audit.get("independent_ai_risk") is None:
