@@ -46,13 +46,23 @@ def source_packet_from_complete_map(
     documented_empty = set(full_map.get("windows_without_substantive_topics") or [])
     if unaddressed != documented_empty:
         raise ValueError("UNDOCUMENTED_TOPICAL_WINDOW")
-    for i, window in enumerate(windows):
-        candidates = per_window.get(i) or []
-        if not candidates:
-            continue
-        # Only one representative theme per window reaches the synthesis
-        # stage; every original cue was analyzed in stage 1.
-        chosen = candidates[0]
+    # Keep one source-backed theme from EVERY substantive window first,
+    # then spend spare prompt capacity on a second theme per window.
+    # A first-topic-only selection misses distinct subjects in real dialogues.
+    present = [i for i in range(len(windows)) if per_window.get(i)]
+    if len(present) > 12:
+        raise ValueError("SOURCE_MAP_TOO_LONG_FOR_ONE_SEO_SYNTHESIS")
+    selected_topics: list[tuple[int, dict[str, Any]]] = [
+        (i, per_window[i][0]) for i in present
+    ]
+    for i in present:
+        if len(selected_topics) >= 12:
+            break
+        if len(per_window[i]) > 1:
+            selected_topics.append((i, per_window[i][1]))
+    selected_topics.sort(key=lambda part: (part[0], part[1]["start_s"]))
+    for i, chosen in selected_topics:
+        window = windows[i]
         ix = chosen.get("source_index")
         cue_items = window["cues"]
         index = next((j for j, c in enumerate(cue_items)
@@ -78,6 +88,9 @@ def source_packet_from_complete_map(
         raise ValueError("SOURCE_MAP_TOO_LONG_FOR_ONE_SEO_SYNTHESIS")
     packet = prepare_source_packet(video_id=video_id, cards=cards, max_cards=12)
     packet["full_srt_cues_processed"] = full_map["source_cues_processed"]
+    packet["source_topics_selected"] = len(cards)
+    packet["source_topic_candidates_total"] = len(proposals)
+    packet["source_topics_omitted_from_synthesis"] = len(proposals) - len(cards)
     packet["full_srt_windows_processed"] = len(windows)
     packet["windows_without_substantive_topics"] = sorted(documented_empty)
     packet["full_srt_coverage"] = True
