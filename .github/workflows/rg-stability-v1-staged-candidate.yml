@@ -1,0 +1,35 @@
+name: RG Stability V1 isolated Studio candidate integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-v1-staged-candidate.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and syntax-check isolated candidate, never edit installed application
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $out=Join-Path $env:RUNNER_TEMP 'rg_stability_v1_candidate'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py (Join-Path $env:GITHUB_WORKSPACE 'rg_stability_v1\stage_studio_patch.py') --source $src --out-dir $out
+          if($LASTEXITCODE -ne 0){throw 'STAGING_FAILED'}
+          & $py -m py_compile (Join-Path $out 'rg_studio_ui.py')
+          if($LASTEXITCODE -ne 0){throw 'STAGED_SYNTAX_FAIL'}
+          $manifest=Get-Content (Join-Path $out 'RG_STABILITY_V1_PATCH_MANIFEST.json') -Raw | ConvertFrom-Json
+          if($manifest.install_state -ne 'NOT_INSTALLED'){throw 'INSTALL_GUARD_FAILED'}
+          $live=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit\rg_studio_ui.py'
+          if((Get-FileHash -Algorithm SHA256 $src).Hash -ne (Get-FileHash -Algorithm SHA256 $live).Hash){throw 'LIVE_SOURCE_DIFFERENCE'}
+          Write-Output 'RG_STAGE|ISOLATED_PATCH|PASS'
+          Write-Output 'RG_STAGE|SYNTAX|PASS'
+          Write-Output 'RG_STAGE|RUNNING_STUDIO_UNCHANGED|TRUE'
+          Write-Output ('RG_STAGE|CANDIDATE|'+$out)
