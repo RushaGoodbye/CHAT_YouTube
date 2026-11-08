@@ -137,9 +137,13 @@ jobs:
           _h_start=s.index('        self._batch_current_index=r',s.index('    def _batch_next('))
           _h_end=s.index('    def verify_xml(',_h_start)
           _handoff_region=s[_h_start:_h_end]
-          if old_handoff not in _handoff_region:
-              raise RuntimeError('BATCH_HANDOFF_ANCHOR_MISMATCH: '+repr(_handoff_region[:500]))
-          s=s[:_h_start]+_handoff_region.replace(old_handoff,new_handoff,1)+s[_h_end:]
+          # Match the three launch statements structurally to avoid runner text encoding.
+          _lines=_handoff_region.splitlines(keepends=True)
+          if not (_lines[0].strip()=='self._batch_current_index=r'
+                  and 'self._batch_set(r,status=' in _lines[1]
+                  and 'self._start_stream(stream)' in _lines[2]):
+              raise RuntimeError('HANDOFF_STRUCTURE_MISMATCH')
+          s=s[:_h_start]+new_handoff+'\n\n'+s[_h_end:]
           # Prevent an in-session edit to the armed list from silently adding streams.
           old_add='''    def batch_add(self):
                   vals=[x.strip() for x in re.split(r"[,;\\s]+",self.batch_input.text()) if x.strip()]'''
