@@ -11,6 +11,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify watchdog, QA recovery, resources and XML contracts
+      - name: Verify staged watchdog, QA, XML and nightly report suite
         run: |
           python -m unittest discover -s rg_stability_v1 -p "test_*.py" -v
