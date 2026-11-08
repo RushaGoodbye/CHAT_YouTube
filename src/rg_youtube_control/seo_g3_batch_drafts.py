@@ -113,8 +113,28 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
             expected.append(candidate_quote)
         known_quotes = {r["literal_quote"].casefold() for r in selected}
         next_id = max(ids, default=0) + 1
-        for cue in sorted(expanded_evidence.get("source_cue_candidates") or [],
-                          key=lambda x: float(x.get("start_s") or 0)):
+        # Preserve both the beginning and end of long transcripts. Truncating
+        # the first N chronologically sorted cues silently drops later topics.
+        remaining = max_cards - len(selected)
+        all_cues = sorted(
+            expanded_evidence.get("source_cue_candidates") or [],
+            key=lambda x: float(x.get("start_s") or 0)
+        )
+        all_cues = [
+            cue for cue in all_cues
+            if isinstance(cue, dict)
+            and str(cue.get("source_quote") or "").strip().casefold() not in known_quotes
+        ]
+        if remaining > 0 and len(all_cues) > remaining:
+            if remaining == 1:
+                all_cues = [all_cues[len(all_cues) // 2]]
+            else:
+                indexes = [
+                    round(i * (len(all_cues) - 1) / (remaining - 1))
+                    for i in range(remaining)
+                ]
+                all_cues = [all_cues[index] for index in indexes]
+        for cue in all_cues:
             if len(selected) >= max_cards:
                 break
             if not isinstance(cue, dict):
