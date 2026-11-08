@@ -84,8 +84,10 @@ jobs:
           changed[name]=replace_once(s,old,"    # RG_OBJECT_BLUR_REMOVED_20261108: object/cigarette QA is not a release prerequisite.\n","RELEASE_CIG")
           name="rg_studio_ui.py"
           s=original[name]
-          s=replace_once(s,"        cig_review=_button('▶ ПЕРЕВІРИТИ КУРІННЯ');cig_review.clicked.connect(self.open_cigarette_review);row.addWidget(cig_review)\n","","CIG_UI_BUTTON")
-          s=replace_once(s,"        obj_review=_button('СИГАРЕТИ / ДИМ / ПЛЯШКИ');obj_review.clicked.connect(self.open_object_review_status);row.addWidget(obj_review)\n","","OBJECT_UI_BUTTON")
+          ui_lines=s.splitlines(keepends=True)
+          assert sum("cig_review=_button(" in x for x in ui_lines)==1
+          assert sum("obj_review=_button(" in x for x in ui_lines)==1
+          s="".join(x for x in ui_lines if "cig_review=_button(" not in x and "obj_review=_button(" not in x)
           s=replace_once(s,"        manual_pending=bool(passed and not review_state.get('safe_to_label_complete',False))\n","        manual_pending=False  # RG_OBJECT_BLUR_REMOVED_20261108\n","CIG_MANUAL_GATE")
           changed[name]=s
           config_name="rg_auto_edit_config.json"
@@ -110,8 +112,8 @@ jobs:
           assert "inject_privacy_blur(" in changed["rg_auto_edit_one_button.py"]
           assert "from rg_fullstream_launcher_v2 import launch_after_montage" in changed["rg_multi_dialogue.py"]
           assert "CIGARETTE_QA_MISSING" not in changed["rg_final_release_gate.py"]
-          assert "▶ ПЕРЕВІРИТИ КУРІННЯ" not in changed["rg_studio_ui.py"]
-          assert "СИГАРЕТИ / ДИМ / ПЛЯШКИ" not in changed["rg_studio_ui.py"]
+          assert "cig_review=_button(" not in changed["rg_studio_ui.py"]
+          assert "obj_review=_button(" not in changed["rg_studio_ui.py"]
           all_changes={**changed,config_name:cfg_new}
           backup=root/("_BACKUP_REMOVE_OBJECT_BLUR_"+datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
           backup.mkdir()
