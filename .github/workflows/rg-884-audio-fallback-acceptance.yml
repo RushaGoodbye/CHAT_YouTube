@@ -1,0 +1,48 @@
+name: RG Auto Edit - 884 audio fallback acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-audio-fallback-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Check verified fallback path without extracting or editing media
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=Join-Path $env:RUNNER_TEMP 'rg884_audio_acceptance.py'
+          @'
+          import sys,json,unittest.mock as mock
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(app))
+          import rg_embedded_audio_source_v1 as m
+          import rg_studio_preflight as p
+          cfg=json.loads((app/"rg_server_paths.json").read_text(encoding="utf-8-sig"))
+          vr,ar=cfg["video_root"],cfg["audio_root"]
+          v=p.files_for(Path(vr),"884",p.VIDEO_EXT)
+          a=p.files_for(Path(ar),"884",p.AUDIO_EXT)
+          assert v and not a,("UNEXPECTED_SOURCES",v,a)
+          probe=m._probe(v[0])
+          assert m._good_embedded(probe,m._duration(probe))
+          with mock.patch.object(m,"_probe",side_effect=RuntimeError("RG_EXPECTED_MP4_FALLBACK_REACHED")):
+              try:
+                  m.choose_audio_root(vr,"884",ar,"884")
+              except RuntimeError as e:
+                  assert str(e)=="RG_EXPECTED_MP4_FALLBACK_REACHED",str(e)
+              else:
+                  raise AssertionError("FALLBACK_NOT_REACHED")
+          print("RG884_AUDIO_ACCEPTANCE|MP4_PRESENT|PASS")
+          print("RG884_AUDIO_ACCEPTANCE|EMBEDDED_SYNC|PASS")
+          print("RG884_AUDIO_ACCEPTANCE|MISSING_EXTERNAL_FALLBACK_ROUTE|PASS")
+          s=(app/"rg_studio_preflight.py").read_text(encoding="utf-8")
+          assert 'audio_ok=bool(_good_embedded(probe,_duration(probe)))' in s
+          print("RG884_AUDIO_ACCEPTANCE|PREFLIGHT_FALLBACK|PASS")
+          
+          '@ | Set-Content -LiteralPath $s -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $s
+          if($LASTEXITCODE -ne 0){throw 'RG884_AUDIO_ACCEPTANCE_FAILED'}
