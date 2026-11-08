@@ -1,0 +1,24 @@
+name: RG batch full recalc implementation inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-batch-full-recalc-implementation-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect batch and archive implementation read only
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($seg in @(@('rg_studio_ui.py',3790,3948),@('rg_studio_ui.py',3625,3715),@('rg_studio_ui.py',3490,3555),@('rg_full_recalculate.py',1,270))){
+            $p=Join-Path $root $seg[0]
+            if(!(Test-Path $p)){continue}
+            $l=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RBATCH|FILE|'+$seg[0]+'|'+$seg[1]+'|'+$seg[2])
+            for($i=$seg[1]-1;$i -lt [Math]::Min($l.Count,$seg[2]);$i++){Write-Output ('RBATCH|CODE|'+($i+1)+'|'+$l[$i])}
+          }
+          Write-Output 'RBATCH|DONE'
