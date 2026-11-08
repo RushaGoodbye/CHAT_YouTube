@@ -43,6 +43,7 @@ jobs:
           assert adapter.inspect_watchdog(WorkerObservation(True,1000,900,900,900))["status"]=="ACTIVE"
           assert adapter.inspect_resources(Resources(150,16,4,True,True))["status"]=="READY"
           assert adapter.inspect_error("OUTPUT_ARCHIVE_FAILED",xml_verified=True,manifest_complete=True)["status"]=="STOP_QUEUE"
+          parent.show()
           adapter.show_compact()
           app.processEvents()
           assert adapter.compact.isVisible()
