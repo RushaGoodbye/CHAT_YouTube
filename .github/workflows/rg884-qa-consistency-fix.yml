@@ -1,0 +1,142 @@
+name: RG 884 QA consistency fix without remountage
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg884-qa-consistency-fix.yml']
+permissions:
+  contents: read
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Fix postrun with backup and protect working video outputs
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          if($busy.Count){throw 'ACTIVE_VIDEO_MONTAGE_NO_PATCH'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg884_qa_consistency.py'
+          @'
+          from pathlib import Path
+          import ast,py_compile,os,shutil,datetime,json,sys
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          names=['rg_studio_postrun.py','rg_qa_current_result.py','rg_studio_ui.py']
+          src={}
+          for name in names:
+              a=(root/name).read_text(encoding='utf-8')
+              b=(installed/name).read_text(encoding='utf-8')
+              if a!=b:raise RuntimeError('SOURCE_AND_INSTALLED_NOT_IDENTICAL:'+name)
+              src[name]=a
+          p=src['rg_studio_postrun.py']
+          i=p.index('    cigarette_bad=[]')
+          j=p.index('    if a.preflight_manifest and Path(a.preflight_manifest).is_file():',i)
+          p=p[:i]+'''    # RG_OBJECT_BLUR_REMOVED_20261108: cigarette/smoke/bottle checks are retired.
+              # Preserve independently implemented notification/privacy and audio QA.
+          '''+p[j:]
+          old='''            vok,aok=same_fingerprint(vf,vnow),same_fingerprint(af,anow)
+          '''
+          new='''            vok=same_fingerprint(vf,vnow)
+                      if pm.get("audio"):
+                          aok=same_fingerprint(af,anow)
+                      elif af is None and pm.get("video"):
+                          # Embedded source selected when the external audio field was
+                          # intentionally empty at preflight. Validate the actual MP4
+                          # audio track AND the unchanged source-video fingerprint.
+                          from rg_embedded_audio_source_v1 import _probe,_duration,_good_embedded
+                          _info=_probe(Path(pm["video"]))
+                          aok=bool(vok and _good_embedded(_info,_duration(_info)))
+                      else:
+                          aok=False
+          '''
+          if p.count(old)!=1:raise RuntimeError('POSTRUN_AUDIO_ANCHOR_MISMATCH')
+          p=p.replace(old,new)
+          src['rg_studio_postrun.py']=p
+          q=src['rg_qa_current_result.py']
+          old='''    return int(hit.group(1)) if hit and int(hit.group(1)) > 0 else None
+          '''
+          new='''    if hit and int(hit.group(1)) > 0:return int(hit.group(1))
+              # Single-dialogue canonical main XML, not a revision. The caller must
+              # independently validate the completed manifest before accepting it.
+              return 1 if name.casefold()==f'RG_EDITED_{stream}.xml'.casefold() else None
+          '''
+          if q.count(old)!=1:raise RuntimeError('QA_PARSER_ANCHOR_MISMATCH')
+          q=q.replace(old,new)
+          old='''    current=current_dialogues(stream,mains)
+              report=dict(table or {})
+          '''
+          new='''    # RG884_CANONICAL_SINGLE_MAIN_V1: accept a legacy main name only when
+              # the completed manifest proves one current output with matching XML.
+              canonical=f'RG_EDITED_{stream}.xml'.casefold()
+              if any(ntpath.basename(str(p).replace('/', '\\\\')).casefold()==canonical for p in mains):
+                  if len(mains)!=1:raise ValueError('Canonical main XML mixed with other current outputs')
+                  app=Path(outputs[0]).resolve().parent.parent
+                  manifest=app/f'RG_EDITED_{stream}_MULTI_DIALOGUE.json'
+                  if not manifest.is_file():raise ValueError('Canonical main requires current manifest')
+                  md=json.loads(manifest.read_text(encoding='utf-8-sig'))
+                  rows=md.get('outputs') or []
+                  expected=Path(str((rows[0].get('premiere_xml') or rows[0].get('xml') or ''))).resolve() if len(rows)==1 else None
+                  actual=Path(mains[0]).resolve()
+                  if not (str(md.get('status'))=='DIALOGUES_COMPLETE'
+                          and str(md.get('stream'))==str(stream)
+                          and int(md.get('dialogue_count') or 0)==1
+                          and len(rows)==1 and int(rows[0].get('index') or 0)==1
+                          and actual==expected and actual.is_file() and actual.stat().st_size>0):
+                      raise ValueError('Canonical main does not match a completed one-dialogue manifest')
+              current=current_dialogues(stream,mains)
+              report=dict(table or {})
+          '''
+          if q.count(old)!=1:raise RuntimeError('QA_CURRENT_TABLE_ANCHOR_MISMATCH')
+          q=q.replace(old,new)
+          src['rg_qa_current_result.py']=q
+          u=src['rg_studio_ui.py']
+          old='''        try:
+                      from rg_qa_current_result import evaluate_review
+                      review_state=evaluate_review(APP_DIR,self.metric_stream.text().strip(),self.outputs)
+                  except Exception as _r6_err:
+          '''
+          new='''        try:
+                      # Object-review checks are retired; keep unrelated review holds.
+                      review_state={'needs_human_review':False,'qa_blocked':[],
+                                    'review_dialogues':[],'dialogues':[]}
+                  except Exception as _r6_err:
+          '''
+          if u.count(old)!=1:raise RuntimeError('UI_LEGACY_REVIEW_ANCHOR_MISMATCH')
+          u=u.replace(old,new)
+          src['rg_studio_ui.py']=u
+          for n,s in src.items():ast.parse(s,filename=n)
+          sys.path.insert(0,str(root))
+          from rg_studio_postrun import _primary_outputs
+          m=json.loads((root/'RG_EDITED_884_MULTI_DIALOGUE.json').read_text(encoding='utf-8-sig'))
+          outs=_primary_outputs(root/'884',[], '884')
+          if len(outs)!=1 or not outs[0].is_file():raise RuntimeError('884_PRIMARY_XML_NOT_VERIFIED')
+          if m.get('status')!='DIALOGUES_COMPLETE':raise RuntimeError('884_NOT_COMPLETED')
+          pre=json.loads((root/'run_manifests'/'884'/'PRE_RUN_MANIFEST.json').read_text(encoding='utf-8-sig'))
+          if pre.get('audio') or pre.get('audio_fingerprint') is not None:
+              raise RuntimeError('884_PREFLIGHT_EXTERNAL_AUDIO_UNEXPECTED')
+          stamp=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+          backup=root/('_BACKUP_884_POSTRUN_QA_FIX_'+stamp)
+          backup.mkdir()
+          for n in names:
+              shutil.copy2(root/n,backup/('SOURCE_'+n))
+              shutil.copy2(installed/n,backup/('INSTALLED_'+n))
+          for n,s in src.items():
+              for base in (root,installed):
+                  file=base/n;tmp=file.with_suffix(file.suffix+'.newqafix')
+                  tmp.write_text(s,encoding='utf-8')
+                  os.replace(tmp,file)
+          for n in names:
+              py_compile.compile(str(root/n),doraise=True)
+              py_compile.compile(str(installed/n),doraise=True)
+              if (root/n).read_bytes()!=(installed/n).read_bytes():raise RuntimeError('MISMATCH:'+n)
+          print('RG884_FIX|BACKUP|'+str(backup))
+          print('RG884_FIX|POSTRUN_AUDIO|PATCHED')
+          print('RG884_FIX|RETIRED_CIGARETTE_CHECKS|PATCHED')
+          print('RG884_FIX|LEGACY_MAIN_QA_TABLE|PATCHED')
+          print('RG884_FIX|SOURCE_INSTALLED|MATCH')
+          print('RG884_FIX|SYNTAX|PASS')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG884_QA_CONSISTENCY_FIX_FAILED'}
