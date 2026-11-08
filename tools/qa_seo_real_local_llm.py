@@ -168,8 +168,11 @@ def _model_ready(name: str) -> None:
             raise RuntimeError("MODEL_INSTANCE_OWNERSHIP_UNPROVEN")
         instance_id = next(iter(new_ids))
     instance_id = str(instance_id)
-    if instance_id in _PREEXISTING_INSTANCES:
-        raise RuntimeError("MODEL_INSTANCE_OWNERSHIP_COLLISION")
+    # Verify the new instance actually exists and was not present before load.
+    after = _loaded_instance_ids()
+    if (instance_id in _PREEXISTING_INSTANCES
+            or instance_id not in (after.get(name) or [])):
+        raise RuntimeError("MODEL_INSTANCE_OWNERSHIP_UNPROVEN")
     _OWNED_INSTANCES.add(instance_id)
 
 
@@ -299,7 +302,22 @@ def main() -> int:
         audit["seo_owned_models_remaining"] = len(_OWNED_INSTANCES)
         audit["preexisting_models_were_unloaded"] = False
         if server_started_by_job:
-            _stop_own_server()
+            try:
+                # Do not stop a server that another app started using meanwhile.
+                all_inventory = _api("/api/v1/models")
+                any_models_loaded = any(
+                    isinstance(x, dict) and bool(x.get("loaded_instances"))
+                    for x in all_inventory.get("models") or []
+                )
+                if not any_models_loaded and not _OWNED_INSTANCES:
+                    _stop_own_server()
+                    audit["seo_owned_server_stopped"] = True
+                else:
+                    audit["seo_owned_server_stopped"] = False
+                    audit["server_preserved_for_other_models"] = True
+            except (OSError, RuntimeError, ValueError, urllib.error.URLError,
+                    TimeoutError) as stop_exc:
+                audit["server_stop_skipped"] = type(stop_exc).__name__
     audit["elapsed_seconds"] = round(time.monotonic() - started, 1)
     print("RG_SEO_LIVE_LLM_AUDIT=" + json.dumps(audit, ensure_ascii=False))
     if audit.get("independent_ai_risk") is None:
