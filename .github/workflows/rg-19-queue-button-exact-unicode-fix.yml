@@ -1,0 +1,95 @@
+name: RG 19 queue button exact Unicode repair
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-19-queue-button-exact-unicode-fix.yml']
+permissions:
+  contents: read
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Repair all three button state assignments and test displayed Qt text
+        shell: powershell
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $running=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          if($running.Count){throw 'MONTAGE_RUNNING_NO_UPDATE'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg19_exact_unicode_fix.py'
+          @'
+          from pathlib import Path
+          import ast,os,py_compile,shutil,datetime
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          inst=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          name='rg_studio_ui.py'
+          src=(root/name).read_text(encoding='utf-8')
+          assert src==(inst/name).read_text(encoding='utf-8')
+          label_off="\u21bb \u0412\u0421\u042e \u0427\u0415\u0420\u0413\u0423 \u0417 \u041d\u0423\u041b\u042f"
+          label_on="\u2713 \u041f\u041e\u0412\u041d\u0418\u0419 \u041f\u0415\u0420\u0415\u0420\u0410\u0425\u0423\u041d\u041e\u041a \u0423\u0412\u0406\u041c\u041a\u041d\u0415\u041d\u041e"
+          # Literal escape-based code is robust against Windows PowerShell codepage.
+          def lit(text):
+              return ascii(text)
+          lines=src.splitlines(keepends=True)
+          count=0
+          for i,line in enumerate(lines):
+              if 'self.full_recalc_btn.setText(' not in line:continue
+              if 'if self._batch_full_recalc_targets else' in line:
+                  lines[i]='            self.full_recalc_btn.setText('+lit(label_on)+' if self._batch_full_recalc_targets else '+lit(label_off)+')\n'
+                  count+=1
+              elif 'self.full_recalc_btn.setText(' in line and 'full_recalc_targets' not in line:
+                  if i>3500:
+                      lines[i]='        self.full_recalc_btn.setText('+lit(label_on)+')\n'
+                  else:
+                      lines[i]='        self.full_recalc_btn.setText('+lit(label_off)+')\n'
+                  count+=1
+          if count!=3:raise RuntimeError('BUTTON_LABEL_LOCATIONS_CHANGED:'+str(count))
+          src=''.join(lines)
+          ast.parse(src)
+          # QA the extracted displayed strings from actual source syntax, not a source marker.
+          tree=ast.parse(src)
+          button_values=[]
+          for node in ast.walk(tree):
+              if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='setText' and isinstance(node.func.value,ast.Attribute) and node.func.value.attr=='full_recalc_btn':
+                  button_values.append(node.args[0])
+          assert len(button_values)==3
+          def eval_ui_string(n,active):
+              if isinstance(n,ast.Constant):return n.value
+              if isinstance(n,ast.IfExp):return eval_ui_string(n.body if active else n.orelse,active)
+              raise ValueError('UNEXPECTED_BUTTON_EXPRESSION')
+          assert eval_ui_string(button_values[0],False)==label_off
+          assert eval_ui_string(button_values[1],False)==label_off
+          assert eval_ui_string(button_values[1],True)==label_on
+          assert eval_ui_string(button_values[2],True)==label_on
+          # Actual Qt button checks in offscreen mode
+          from PySide6.QtWidgets import QApplication,QPushButton
+          app=QApplication.instance() or QApplication([])
+          b=QPushButton()
+          for value in [label_off,label_on]:
+              b.setText(value)
+              assert b.text()==value
+              assert '\ufffd' not in b.text()
+          backup=root/('_BACKUP_R19_BUTTON_TEXT_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+          backup.mkdir()
+          for base,tag in ((root,'SOURCE'),(inst,'INSTALLED')):
+              shutil.copy2(base/name,backup/(tag+'_'+name))
+          for base in (root,inst):
+              p=base/name;tmp=p.with_suffix('.r19textfix')
+              tmp.write_text(src,encoding='utf-8')
+              os.replace(tmp,p)
+              py_compile.compile(str(p),doraise=True)
+          assert (root/name).read_bytes()==(inst/name).read_bytes()
+          print('R19TEXT|BACKUP|'+str(backup))
+          print('R19TEXT|LOCATIONS|'+str(count))
+          print('R19TEXT|INITIAL_LABEL|PASS')
+          print('R19TEXT|RESTORED_QUEUE_LABEL|PASS')
+          print('R19TEXT|ARMED_LABEL|PASS')
+          print('R19TEXT|QT_RENDERED_TEXT|PASS')
+          print('R19TEXT|SOURCE_MATCH|PASS')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'R19_BUTTON_TEXT_FIX_FAILED'}
