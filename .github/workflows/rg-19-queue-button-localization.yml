@@ -1,0 +1,75 @@
+name: RG 19 queue button localization fix
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-19-queue-button-localization.yml']
+permissions:
+  contents: read
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Repair Windows UTF-8 mojibake safely
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          if($busy.Count){throw 'VIDEO_ACTIVE_NO_UPDATE'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg19_ui_encoding_fix.py'
+          @'
+          from pathlib import Path
+          import os,shutil,datetime,py_compile,ast
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          name='rg_studio_ui.py'
+          s=(root/name).read_text(encoding='utf-8')
+          assert s==(installed/name).read_text(encoding='utf-8')
+          start=s.index('    def batch_arm_full_recalculate(self):')
+          end=s.index('    def batch_start(self):',start)
+          block=s[start:end]
+          def repair_line(line):
+              if not any(ord(c)>127 for c in line):return line
+              # PowerShell 5.1 misinterpreted UTF-8 source bytes as CP1251.
+              try:return line.encode('cp1251').decode('utf-8')
+              except (UnicodeEncodeError,UnicodeDecodeError):return line
+          newblock=''.join(repair_line(x) for x in block.splitlines(keepends=True))
+          # Reject if localized labels cannot be reliably restored.
+          good=''.join(chr(x) for x in [0x0412,0x0421,0x042e,0x0020,0x0427,0x0415,0x0420,0x0413,0x0423,0x0020,0x0417,0x0020,0x041d,0x0423,0x041b,0x042f])
+          src=s[:start]+newblock+s[end:]
+          # For new button and restored persisted status button, decode only those lines.
+          lines=src.splitlines(keepends=True)
+          for i,line in enumerate(lines):
+              if 'self.full_recalc_btn.setText(' in line and ('batch_arm_' not in line):
+                  lines[i]=repair_line(line)
+              elif 'self.full_recalc_btn.setText(' in line:
+                  lines[i]=repair_line(line)
+          src=''.join(lines)
+          # Also normalize recently added per-stream archive stage display only.
+          start=src.index('        # RG_BATCH_RECALC_V1: only the Studio-owned launch path')
+          end=src.index('    def verify_xml(self):',start)
+          src=src[:start]+''.join(repair_line(x) for x in src[start:end].splitlines(keepends=True))+src[end:]
+          if good not in src:raise RuntimeError('UKRAINIAN_LABEL_NOT_RESTORED')
+          if 'batch_arm_full_recalculate' not in src:raise RuntimeError('METHOD_MISSING')
+          ast.parse(src)
+          if src==s:raise RuntimeError('NO_TEXT_TO_REPAIR')
+          backup=root/('_BACKUP_BATCH_RECALC_LOCALIZATION_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+          backup.mkdir()
+          for base,label in ((root,'SOURCE'),(installed,'INSTALLED')):
+              shutil.copy2(base/name,backup/(label+'_'+name))
+          for base in (root,installed):
+              file=base/name;tmp=file.with_suffix('.fixedlabel')
+              tmp.write_text(src,encoding='utf-8')
+              os.replace(tmp,file)
+          for base in (root,installed):py_compile.compile(str(base/name),doraise=True)
+          assert (root/name).read_bytes()==(installed/name).read_bytes()
+          print('R19LABEL|BACKUP|'+str(backup))
+          print('R19LABEL|UTF8_UA_LABEL|PASS')
+          print('R19LABEL|SYNTAX|PASS')
+          print('R19LABEL|SOURCE_INSTALLED|MATCH')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'R19_LABEL_REPAIR_FAILED'}
