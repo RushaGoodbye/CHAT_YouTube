@@ -296,10 +296,11 @@ def evaluate_independent_draft(
         "source": compact_source,
         "seo_candidate": draft["seo"],
     }
-    result = _json(chat([
+    critic_messages = [
         {"role": "system", "content": "Independent adversarial Ukrainian editorial critic. Only JSON."},
         {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-    ]))
+    ]
+    result = _json(chat(critic_messages))
     risk = result.get("risk")
     issues = result.get("issues")
     # Some local critics emit a single issue as a JSON string rather than
@@ -326,18 +327,31 @@ def evaluate_independent_draft(
             for issue in issues
         )
         if positive_count == len(issues):
-            return {
-                "schema": "RG_G3_INDEPENDENT_REVIEW_V1",
-                "video_id": source["video_id"],
-                "source_packet_sha256": source["source_packet_sha256"],
-                "risk_ai": "medium",
-                "issues": ["INVALID_CRITIC_SCHEMA_POSITIVE_NOTES_IN_ISSUES"],
-                "status": "NEEDS_ATTENTION",
-                "editorial_review_required": True,
-                "human_approved": False,
-                "g3_accepted": False,
-                "publication_allowed": False,
-            }
+            # Never silently reinterpret compliments as a clean audit.
+            # Request one independent clarification with the ORIGINAL
+            # evidence, and accept the revised schema only if genuinely valid.
+            clarification = _json(chat(critic_messages + [
+                {"role": "assistant", "content": json.dumps(result, ensure_ascii=False)},
+                {"role": "user", "content":
+                    "You put positive observations inside issues. Independently "
+                    "RECHECK all claims against the original quotes. Return only "
+                    "JSON {risk,issues}. Issues must be factual, language, SEO "
+                    "or source errors needing correction. If there are truly "
+                    "no issues, return risk=low and issues=[]. Never copy "
+                    "positive observations into issues."}
+            ]))
+            revised_risk = clarification.get("risk")
+            revised_issues = clarification.get("issues")
+            if (revised_risk in {"low", "medium", "high"}
+                    and isinstance(revised_issues, list)
+                    and all(isinstance(i, str) for i in revised_issues)
+                    and not any(str(i).strip().casefold().startswith(
+                        positive_openings) for i in revised_issues)):
+                risk, issues = revised_risk, revised_issues
+            else:
+                risk = "medium"
+                issues = ["INVALID_CRITIC_SCHEMA_POSITIVE_NOTES_IN_ISSUES"]
+            result = {"risk": risk, "issues": issues}
     requires_manual = (
         risk != "low" or bool(issues) or
         draft["status"] != "READY_FOR_INDEPENDENT_AI_REVIEW" or
