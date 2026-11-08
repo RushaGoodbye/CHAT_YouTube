@@ -82,3 +82,27 @@ def test_secondary_source_topics_are_included_without_losing_later_windows():
     assert packet["source_topics_omitted_from_synthesis"] >= 0
     assert packet["records"][-1]["start_s"] >= full["windows"][-1]["start_s"]
     assert packet["publication_allowed"] is False
+
+
+def test_long_stream_synthesis_samples_full_timeline_without_falsely_passing():
+    original=rows(160)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    assert full["window_count"]>12
+    packet=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,max_chars=600)
+    assert packet["full_srt_cues_processed"]==160
+    assert len(packet["records"])==12
+    assert packet["source_windows_in_synthesis"][0]==0
+    assert packet["source_windows_in_synthesis"][-1]==full["window_count"]-1
+    assert packet["source_windows_omitted_from_synthesis"]
+    assert packet["topical_synthesis_complete"] is False
+    assert packet["publication_allowed"] is False
+
+
+def test_short_stream_topic_selection_is_complete():
+    original=rows(18)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    packet=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,max_chars=600)
+    assert packet["topical_synthesis_complete"] is True
+    assert packet["source_windows_omitted_from_synthesis"]==[]
