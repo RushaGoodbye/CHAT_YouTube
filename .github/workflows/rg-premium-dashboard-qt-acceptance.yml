@@ -30,13 +30,13 @@ jobs:
           app=QApplication([])
           host=QWidget()
           host.progress=QProgressBar();host.progress.setRange(0,1000);host.progress.setValue(404)
-          host.stage=QLabel('Обробка діалогів')
+          host.stage=QLabel('\u041e\u0431\u0440\u043e\u0431\u043a\u0430 \u0434\u0456\u0430\u043b\u043e\u0433\u0456\u0432')
           host.metric_stream=QLabel('884')
           host.metric_elapsed=QLabel('00:08:14')
           host.metric_dialogues=QLabel('1/1')
-          host.proc_eta_value=QLabel('—')
-          host.detail=QLabel('Обробка діалогів • original audio source')
-          host.heartbeat_text=QLabel('ПРАЦЮЄ')
+          host.proc_eta_value=QLabel('\u2014')
+          host.detail=QLabel('\u041e\u0431\u0440\u043e\u0431\u043a\u0430 \u0434\u0456\u0430\u043b\u043e\u0433\u0456\u0432 \u2022 original audio source')
+          host.heartbeat_text=QLabel('\u041f\u0420\u0410\u0426\u042e\u0404')
           host._live_stage_code='MULTI_DIALOGUE'
           host._last_gpu_pct=4.0
           host._last_cpu_pct=9.0
@@ -57,7 +57,8 @@ jobs:
           assert panel.cpu_value.text()=='9%'
           assert panel.dialogue.text().endswith('1/1')
           assert panel.pct_caption.text().endswith('40.4%')
-          assert 'ДІАЛОГ' in panel.step_labels[3].text()
+          assert panel.pct_caption.text().startswith('\u0417\u0410\u0413\u0410\u041b\u042c\u041d\u0418\u0419')
+          assert '\u0414\u0406\u0410\u041b\u041e\u0413' in panel.step_labels[3].text()
           assert panel.progress.value()==404
           for widget in [panel.ring,panel.human_stage,panel.gpu_box,panel.cpu_box,panel.step_labels[3]]:
               assert widget.isVisible(), type(widget).__name__
