@@ -1,0 +1,49 @@
+name: RG Auto Edit - 884 audio fallback diagnosis
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-audio-fallback-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Diagnose separate audio and embedded video fallback read only
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RG884_AUDIO|TIME|'+(Get-Date -Format o))
+          $q=Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button.py|rg_multi_dialogue.py|rg_production_wrapper.py'}
+          Write-Output ('RG884_AUDIO|ACTIVE_WORKERS|'+@($q).Count)
+          foreach($f in @('rg_studio_ui.py','rg_server_resolver.py','rg_multi_dialogue.py','rg_auto_edit_one_button.py','rg_studio_preflight.py','rg_audio_integrity_guard_v1.py')){
+            $p=Join-Path $app $f
+            if(!(Test-Path $p)){continue}
+            Write-Output ('RG884_AUDIO|FILE|'+$f)
+            $lines=@(Get-Content $p -Encoding UTF8)
+            $count=0
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'AUDIO_FILE_MISSING|AUDIO_NOT_FOUND|audio.*missing|missing.*audio|audio.*not.found|audio.*is_file|def resolve_audio|def resolve_video|audio.*fallback|fallback.*audio|embedded.audio|source.audio|def .*preflight|def .*readiness'){
+                if($count -lt 48){
+                  Write-Output ('RG884_AUDIO|MATCH|'+$f+'|'+($i+1)+'|'+$lines[$i].Trim().Substring(0,[Math]::Min(250,$lines[$i].Trim().Length)))
+                  $count++
+                }
+              }
+            }
+          }
+          $cfgPath=Join-Path $app 'rg_server_paths.json'
+          if(Test-Path $cfgPath){
+            $cfg=Get-Content $cfgPath -Raw -Encoding UTF8|ConvertFrom-Json
+            foreach($k in @('video_root','audio_root','screen_root')){
+              $v=[string]$cfg.$k
+              Write-Output ('RG884_AUDIO|ROOT|'+$k+'|'+$v)
+              if($k -ne 'screen_root' -and $v -and (Test-Path -LiteralPath $v)){
+                $files=@(Get-ChildItem -LiteralPath $v -File -ErrorAction SilentlyContinue|Where-Object {$_.BaseName -match '^884(?:[-_].*)?$'})
+                foreach($item in $files|Select-Object -First 10){Write-Output ('RG884_AUDIO|FOUND|'+$k+'|'+$item.Name+'|'+$item.Length)}
+              }
+            }
+          }
+          Write-Output 'RG884_AUDIO|DONE|READ_ONLY'
