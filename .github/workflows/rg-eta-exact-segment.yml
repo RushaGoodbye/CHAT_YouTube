@@ -1,0 +1,17 @@
+name: RG ETA exact source segment
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-eta-exact-segment.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Capture ETA update block
+        shell: powershell
+        run: |
+          $s=@(Get-Content 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py' -Encoding UTF8)
+          for($i=2710;$i -le 2810;$i++){Write-Output ('ETAEX|'+($i+1)+'|'+$s[$i])}
