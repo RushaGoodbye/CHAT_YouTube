@@ -1,0 +1,29 @@
+name: RG Auto Edit - object references final preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-object-blur-final-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Read remaining dependencies and UI manual gate
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($file in @('rg_auto_edit_one_button.py','rg_studio_ui.py','rg_multi_dialogue.py')){
+            $lines=@(Get-Content (Join-Path $root $file) -Encoding UTF8)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'cigarette_detection|cigarette_qa|_rg_cig_uncertain_review|manual_pending|_rg_manual_review_pending|rg_full_object_blur_v2|open_object_review_status|open_cigarette_review'){
+                Write-Output ('OFR|'+$file+'|'+($i+1)+'|'+$lines[$i].Trim().Substring(0,[Math]::Min(180,$lines[$i].Trim().Length)))
+              }
+            }
+          }
+          $lines=@(Get-Content (Join-Path $root 'rg_studio_ui.py') -Encoding UTF8)
+          for($i=3090;$i -le 3128;$i++){Write-Output ('OFR|UI|'+($i+1)+'|'+$lines[$i])}
+          $queue='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $queue){$q=Get-Content $queue -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('OFR|QUEUE_RUNNING|'+$q.running)}
+          Write-Output 'OFR|DONE'
