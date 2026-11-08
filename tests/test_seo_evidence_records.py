@@ -201,7 +201,10 @@ def test_unverified_timeline_window_never_enters_expanded_context():
         transcript_rows=[row(first, 0), row(unsupported, 50)],
     )
     assert all(x["block_index"] == 1 for x in result["source_cue_candidates"])
-    assert unsupported not in grounded_evidence_outline(result)
+    # Existing fail-closed gate must reject the entire outline when any
+    # meaningful timeline block lacks grounded evidence.
+    with pytest.raises(ValueError, match="INCOMPLETE_GROUNDED_EVIDENCE"):
+        grounded_evidence_outline(result)
     assert not result["source_cue_candidates"][0]["factual_truth_verified"]
 
 
