@@ -200,7 +200,13 @@ def test_unverified_timeline_window_never_enters_expanded_context():
         video_id=VID, timeline_report=batch,
         transcript_rows=[row(first, 0), row(unsupported, 50)],
     )
-    assert all(x["block_index"] == 1 for x in result["source_cue_candidates"])
+    # A raw SRT cue from an unverified window is explicitly provisional.
+    # It must never become a model-grounded SEO claim.
+    assert any(x["block_index"] == 2 and
+               x["model_block_verified"] is False
+               for x in result["source_cue_candidates"])
+    assert result["complete_literal_source_coverage"] is True
+    assert result["complete_evidence_coverage"] is False
     # Existing fail-closed gate must reject the entire outline when any
     # meaningful timeline block lacks grounded evidence.
     with pytest.raises(ValueError, match="INCOMPLETE_GROUNDED_EVIDENCE"):
@@ -220,3 +226,21 @@ def test_source_candidates_safely_ignored_without_integrity_marker():
         }],
     }
     assert "FAKE INJECTED SOURCE" not in grounded_evidence_outline(source)
+
+
+def test_literal_quote_coverage_is_not_model_topic_approval():
+    first = "The meeting participants discussed roads and city buses."
+    second = "They debated the salary of the workers in local factories."
+    blocks = [
+        report(first)["blocks"][0],
+        report("NOT_IN_SRT", index=2, start=50.0, end=58.0)["blocks"][0],
+    ]
+    dataset = build_evidence_records(
+        video_id=VID,
+        timeline_report={"blocks": blocks, "blocks_analyzed": 2, "blocks_with_evidence": 2},
+        transcript_rows=[row(first, 0.0), row(second, 51.0)])
+    assert dataset["complete_literal_source_coverage"] is True
+    assert dataset["blocks_without_literal_srt_cues"] == []
+    assert dataset["blocks_without_grounded_quotes"] == [2]
+    assert dataset["complete_evidence_coverage"] is False
+    assert dataset["needs_review"] and not dataset["publication_allowed"]
