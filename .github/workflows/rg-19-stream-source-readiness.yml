@@ -30,7 +30,7 @@ jobs:
           queue=[int(x) for x in j.get('queue') or []]
           assert queue==expect,(queue,expect)
           cfg=json.loads((app/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
-          free=shutil.disk_usage(r'F:\').free/1024**3
+          free=shutil.disk_usage('F:/').free/1024**3
           print('R19READY|QUEUE|PASS|19',flush=True)
           print('R19READY|FREE_GB|'+str(round(free,2)),flush=True)
           for n in expect:
