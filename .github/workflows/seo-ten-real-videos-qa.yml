@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: rg-seo-ten-real-srt-alexpc
+  group: rg-seo-lmstudio-exclusive-alexpc
   cancel-in-progress: false
 jobs:
   full-cohort:
