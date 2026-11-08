@@ -1,0 +1,55 @@
+name: RG Auto Edit - recalc from 884 safety preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-recalc-884-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify 912 stopped and inspect queue controls only
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RG884|TIME|'+(Get-Date -Format o))
+          $ps=@(Get-CimInstance Win32_Process|Where-Object { $_.Name -match '^pythonw?\.exe$' })
+          $studio=@($ps|Where-Object { $_.CommandLine -match 'rg_studio_main.py' })
+          Write-Output ('RG884|STUDIO|'+$studio.Count)
+          $work=@($ps|Where-Object { $_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py' })
+          Write-Output ('RG884|ACTIVE_WORKERS|'+$work.Count)
+          foreach($p in $work){
+            $stream=if($p.CommandLine -match '(--video-stream|--audio-stream) 912|RG_EDITED_912'){'912'}else{'OTHER'}
+            Write-Output ('RG884|WORKER|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$stream)
+          }
+          $qpath=Join-Path $data 'studio_batch_queue.json'
+          if(Test-Path $qpath){
+            $q=Get-Content $qpath -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG884|QUEUE_RUNNING|'+$q.running)
+            Write-Output ('RG884|QUEUE|'+(@($q.queue) -join ','))
+            foreach($row in @($q.rows)){Write-Output ('RG884|ROW|'+$row.stream+'|'+$row.progress+'|'+$row.stage)}
+          }
+          $state=Join-Path $data 'run_state\912\RUN_STATE.json'
+          if(Test-Path $state){
+            $j=Get-Content $state -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG884|STATE912|'+$j.status+'|'+$j.last_stage+'|'+$j.progress)
+          }
+          foreach($stream in @('884','885','886','912')){
+            $manifest=Join-Path $app ('RG_EDITED_'+$stream+'_MULTI_DIALOGUE.json')
+            if(Test-Path $manifest){
+              $m=Get-Content $manifest -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RG884|MANIFEST|'+$stream+'|'+$m.status+'|'+$m.completed_dialogues+'/'+$m.dialogue_count)
+            }
+          }
+          $src=Join-Path $app 'rg_studio_ui.py'
+          $lines=@(Get-Content $src -Encoding UTF8)
+          for($i=0;$i -lt $lines.Count;$i++){
+            if($lines[$i] -match 'def batch_full_recalculate|def batch_add|def batch_delete_selected|def _batch_start|def _batch_next|def batch_clear_history|def batch_reprocess'){
+              Write-Output ('RG884|UI_FUNCTION|'+($i+1)+'|'+$lines[$i].Trim())
+            }
+          }
+          Write-Output 'RG884|READONLY|COMPLETE'
