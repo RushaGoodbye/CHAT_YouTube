@@ -1,0 +1,32 @@
+name: RG Auto Edit - object blur callsite excerpt
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-object-blur-callsite-excerpt.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Read precise source sections only
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $sections=@(
+            @('rg_auto_edit_one_button.py',1830,1955),
+            @('rg_final_release_gate.py',28,83),
+            @('rg_studio_ui.py',625,730),
+            @('rg_studio_ui.py',3130,3180),
+            @('rg_studio_ui.py',3588,3623),
+            @('rg_multi_dialogue.py',1073,1097)
+          )
+          foreach($section in $sections){
+            $file=$section[0];$start=[int]$section[1];$end=[int]$section[2]
+            $lines=@(Get-Content (Join-Path $root $file) -Encoding UTF8)
+            Write-Output ('OBE|FILE|'+$file+'|'+$start+'-'+$end)
+            for($i=$start-1;$i -lt [Math]::Min($end,$lines.Count);$i++){
+              Write-Output ('OBE|'+($i+1)+'|'+$lines[$i])
+            }
+          }
