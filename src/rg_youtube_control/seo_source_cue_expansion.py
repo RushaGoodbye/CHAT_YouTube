@@ -4,6 +4,7 @@ Candidates are NOT verified facts or approved SEO. The downstream editorial
 critic must check every paraphrase and its attribution independently.
 """
 from __future__ import annotations
+import math
 import re
 from typing import Any, Iterable
 
@@ -55,7 +56,8 @@ def expand_source_cue_candidates(
             duration = float(row.get("duration") or 0)
         except (ValueError, TypeError):
             continue
-        if not (start >= 0 and duration >= 0 and min_chars <= len(quote) <= max_chars):
+        if not (math.isfinite(start) and math.isfinite(duration)
+                and start >= 0 and duration >= 0 and min_chars <= len(quote) <= max_chars):
             continue
         tokens = _tokens(quote)
         if len(tokens) < 4:
@@ -74,7 +76,8 @@ def expand_source_cue_candidates(
             end = float(b["end"])
         except (KeyError, ValueError, TypeError):
             continue
-        if index in seen_block_ids or begin < 0 or end < begin:
+        if (index in seen_block_ids or not math.isfinite(begin)
+            or not math.isfinite(end) or begin < 0 or end < begin):
             continue
         seen_block_ids.add(index)
         if b.get("verified") is not True:
@@ -106,6 +109,9 @@ def expand_source_cue_candidates(
                 "timestamp": _stamp(start),
                 "source_quote": quote,
                 "source_precision": "single_original_cue",
+                # Most ASR cues are fragments. Never imply that a cue lacking
+                # terminal punctuation is a complete assertion.
+                "may_be_incomplete": quote[-1:] not in (".", "!", "?"),
                 "is_possible_question": bool(_QUESTION.search(quote)),
                 "speaker_identified": False,
                 "factual_truth_verified": False,
@@ -138,6 +144,9 @@ def expand_source_cue_candidates(
         "evidence_candidates": selected,
         "candidate_count": len(selected),
         "verified_windows_with_candidates": sum(bool(items) for _, items in window_groups),
+        "candidate_windows": sorted({x["block_index"] for x in selected}),
+        "enough_diverse_candidates": (len(selected) >= 3 and
+            len({x["block_index"] for x in selected}) >= 2),
         "unverified_block_ids": sorted(unverified),
         "complete_timeline_verified": bool(window_groups) and not unverified,
         "needs_independent_semantic_review": True,
