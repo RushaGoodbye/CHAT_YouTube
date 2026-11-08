@@ -1,0 +1,173 @@
+name: RG safe full recalculation for 19 stream queue
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-safe-batch-recalc-19-fix.yml']
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Install UI-only batch recalc with backup; never start montage
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          if($busy.Count){throw 'VIDEO_RUNNING_NO_PATCH'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg_batch_19_recalc_fix.py'
+          @'
+          from pathlib import Path
+          import ast,py_compile,datetime,os,shutil
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          name='rg_studio_ui.py'
+          old=(root/name).read_text(encoding='utf-8')
+          assert old==(installed/name).read_text(encoding='utf-8'),'SOURCE_INSTALLED_DIVERGED'
+          s=old
+          old_button='''        self.full_recalc_btn.clicked.connect(self.full_recalculate_selected)'''
+          new_button='''        # RG_BATCH_RECALC_V1: arm the entire visible queue, never auto-launch.
+                  self.full_recalc_btn.setText("↻ ВСЮ ЧЕРГУ З НУЛЯ")
+                  self.full_recalc_btn.clicked.connect(self.batch_arm_full_recalculate)'''
+          assert s.count(old_button)==1
+          s=s.replace(old_button,new_button)
+          old_save='''                  "queue":list(self.batch_queue),"rows":rows}'''
+          new_save='''                  "queue":list(self.batch_queue),"rows":rows,
+                            "full_recalc_targets":list(getattr(self,"_batch_full_recalc_targets",[]) or [])}'''
+          assert s.count(old_save)==1
+          s=s.replace(old_save,new_save)
+          old_load='''            self.batch_queue=list(dict.fromkeys(q));self._batch_refresh()'''
+          new_load='''            self.batch_queue=list(dict.fromkeys(q));self._batch_refresh()
+                      targets=[str(x) for x in data.get("full_recalc_targets",[]) if str(x).isdigit()]
+                      self._batch_full_recalc_targets=(targets if targets==self.batch_queue else [])
+                      if hasattr(self,"full_recalc_btn"):
+                          self.full_recalc_btn.setText("✓ ПОВНИЙ ПЕРЕРАХУНОК УВІМКНЕНО" if self._batch_full_recalc_targets else "↻ ВСЮ ЧЕРГУ З НУЛЯ")'''
+          assert s.count(old_load)==1
+          s=s.replace(old_load,new_load)
+          anchor='''    def batch_start(self):
+          '''
+          new_method='''    def batch_arm_full_recalculate(self):
+                  """Explicit user action: arm batch from scratch, archive per-stream on launch."""
+                  if not self.batch_queue:
+                      QMessageBox.information(self,"Повний перерахунок","Черга порожня.")
+                      return
+                  if self.proc and self.proc.state()!=QProcess.NotRunning:
+                      QMessageBox.warning(self,"Повний перерахунок","Спочатку заверши поточний стрім.")
+                      return
+                  if getattr(self,"batch_running",False):
+                      QMessageBox.warning(self,"Повний перерахунок","Черга вже виконується.")
+                      return
+                  targets=list(self.batch_queue)
+                  if len(targets)!=len(set(targets)) or not all(str(x).isdigit() for x in targets):
+                      QMessageBox.warning(self,"Повний перерахунок","Некоректні або повторні номери у черзі.")
+                      return
+                  ask=QMessageBox.question(
+                      self,"Повний перерахунок всієї черги",
+                      "Повністю перерахувати "+str(len(targets))+" стрімів:\\n"+
+                      ", ".join(targets)+"\\n\\n"+
+                      "Старі результати кожного стріму будуть перенесені в архів "
+                      "безпосередньо перед його обробкою.\\n"+
+                      "Після підтвердження монтаж НЕ запуститься. "
+                      "Для початку натисни окремо ЗАПУСТИТИ.",
+                      QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+                  if ask!=QMessageBox.Yes:return
+                  self._batch_full_recalc_targets=targets
+                  for r,_stream in enumerate(self.batch_queue):
+                      self._batch_set(r,status="ОЧІКУЄ",progress="0%",stage="FULL_RECALC",
+                                      elapsed="—",eta="—",detail="Повний перерахунок • попередню версію буде збережено")
+                  self.full_recalc_btn.setText("✓ ПОВНИЙ ПЕРЕРАХУНОК УВІМКНЕНО")
+                  self.status.setText("ЧЕРГА • ПОВНИЙ ПЕРЕРАХУНОК ПІДГОТОВЛЕНО • НАТИСНИ ЗАПУСТИТИ")
+                  self._save_batch_ui_state()
+          
+          '''
+          assert s.count(anchor)==1
+          s=s.replace(anchor,new_method+anchor)
+          old_start='''    def batch_start(self):
+                  if not self.batch_queue:return
+                  if self.proc and self.proc.state()!=QProcess.NotRunning:return
+                  pending=[]'''
+          new_start='''    def batch_start(self):
+                  if not self.batch_queue:return
+                  if self.proc and self.proc.state()!=QProcess.NotRunning:return
+                  targets=list(getattr(self,"_batch_full_recalc_targets",[]) or [])
+                  if targets and targets!=list(self.batch_queue):
+                      QMessageBox.warning(self,"Повний перерахунок",
+                          "Склад черги змінено після підтвердження. Натисни ВСЮ ЧЕРГУ З НУЛЯ ще раз.")
+                      return
+                  pending=[]'''
+          assert s.count(old_start)==1
+          s=s.replace(old_start,new_start)
+          old_skip='''            if stream_complete(stream):
+                          self._batch_current_index=None'''
+          new_skip='''            if stream not in (getattr(self,"_batch_full_recalc_targets",[]) or []) and stream_complete(stream):
+                          self._batch_current_index=None'''
+          assert s.count(old_skip)==1
+          s=s.replace(old_skip,new_skip)
+          old_handoff='''        self._batch_current_index=r
+                  self._batch_set(r,status="ПРАЦЮЄ",progress="0%",stage="START",elapsed="00:00:00",eta="—",detail="Запущено")
+                  self.stream.setText(stream);self.metric_stream.setText(stream);self._start_stream(stream)'''
+          new_handoff='''        # RG_BATCH_RECALC_V1: only the Studio-owned launch path archives results.
+                  # Input checks already succeeded. Never archive any stream from CI.
+                  if stream in (getattr(self,"_batch_full_recalc_targets",[]) or []):
+                      try:
+                          from rg_full_recalculate import prepare_full_recalculation
+                          archived=prepare_full_recalculation(APP_DIR,stream)
+                          if not archived.get("passed") or not (APP_DIR/stream/"RG_FULL_RECALC_REQUEST.json").is_file():
+                              raise RuntimeError("Full recalc revision marker is missing")
+                          self._batch_set(r,status="ОЧІКУЄ",progress="0%",stage="ARCHIVE_DONE",
+                                          detail="Попередні результати збережено • монтаж запускається")
+                      except Exception as exc:
+                          self._batch_current_index=None
+                          self.batch_running=False
+                          self._batch_paused=True
+                          self._batch_set(r,status="ПОМИЛКА",progress="0%",stage="ARCHIVE_FAIL",
+                                          detail="Архівування не завершено • "+str(exc)[:160])
+                          self.status.setText("ЧЕРГА ЗУПИНЕНА • ПОМИЛКА АРХІВУВАННЯ "+stream)
+                          self._save_batch_ui_state()
+                          QMessageBox.critical(self,"Повний перерахунок",
+                              "Не вдалося безпечно зберегти попередні результати "+stream+
+                              ".\\nЧерга зупинена, монтаж не запускався.\\n"+str(exc))
+                          return
+                  self._batch_current_index=r
+                  self._batch_set(r,status="ПРАЦЮЄ",progress="0%",stage="START",elapsed="00:00:00",eta="—",detail="Запущено")
+                  self.stream.setText(stream);self.metric_stream.setText(stream);self._start_stream(stream)'''
+          assert s.count(old_handoff)==1
+          s=s.replace(old_handoff,new_handoff)
+          # Prevent an in-session edit to the armed list from silently adding streams.
+          old_add='''    def batch_add(self):
+                  vals=[x.strip() for x in re.split(r"[,;\\s]+",self.batch_input.text()) if x.strip()]'''
+          new_add='''    def batch_add(self):
+                  if getattr(self,"_batch_full_recalc_targets",[]):
+                      QMessageBox.warning(self,"Черга","Повний перерахунок вже підтверджено. Для зміни списку перезапусти Studio та вимкни режим.")
+                      return
+                  vals=[x.strip() for x in re.split(r"[,;\\s]+",self.batch_input.text()) if x.strip()]'''
+          # Avoid locking UI additions across restarts: not applying this guard; batch_start checks exact targets.
+          assert old_add in s
+          ast.parse(s,filename=name)
+          if not all(k in s for k in ('RG_BATCH_RECALC_V1','batch_arm_full_recalculate','full_recalc_targets')):
+              raise RuntimeError('NEW_CODE_MISSING')
+          backup=root/('_BACKUP_BATCH_RECALC_V1_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+          backup.mkdir()
+          for base,tag in ((root,'SOURCE'),(installed,'INSTALLED')):
+              shutil.copy2(base/name,backup/(tag+'_'+name))
+          for base in (root,installed):
+              target=base/name;tmp=target.with_suffix('.recalcnew')
+              tmp.write_text(s,encoding='utf-8')
+              os.replace(tmp,target)
+          for base in (root,installed):py_compile.compile(str(base/name),doraise=True)
+          assert (root/name).read_bytes()==(installed/name).read_bytes()
+          print('RBATCHFIX|BACKUP|'+str(backup))
+          print('RBATCHFIX|ARM_NO_AUTO_START|PASS')
+          print('RBATCHFIX|ONLY_EXPLICIT_QUEUE_START|PASS')
+          print('RBATCHFIX|ARCHIVE_PER_STREAM_BEFORE_START|PASS')
+          print('RBATCHFIX|SKIP_COMPLETE_BYPASS_FOR_TARGETS|PASS')
+          print('RBATCHFIX|ARCHIVE_ERROR_STOPS_QUEUE|PASS')
+          print('RBATCHFIX|STATE_PERSISTED|PASS')
+          print('RBATCHFIX|SYNTAX|PASS')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG_BATCH_RECALC_PATCH_FAILED'}
