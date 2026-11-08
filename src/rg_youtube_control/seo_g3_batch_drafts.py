@@ -75,7 +75,9 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
         if (expanded_evidence.get("video_id") != video_id
                 or expanded_evidence.get("source_cue_selection_schema") != "RG_SOURCE_CUE_EXPANSION_V1"
                 or expanded_evidence.get("source_cue_candidates_review_only") is not True
-                or expanded_evidence.get("complete_evidence_coverage") is not True):
+                or expanded_evidence.get("complete_evidence_coverage") is not True
+                or expanded_evidence.get("source_cue_complete_timeline_verified") is not True
+                or expanded_evidence.get("source_cue_invalid_block_count") != 0):
             raise ValueError("UNTRUSTED_EXPANDED_SOURCE_EVIDENCE")
         # Re-check every candidate against ORIGINAL timestamped captions.
         # A self-reported "source verified" field cannot establish provenance.
