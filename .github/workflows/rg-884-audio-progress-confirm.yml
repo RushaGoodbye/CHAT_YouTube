@@ -1,0 +1,39 @@
+name: RG Auto Edit - 884 audio and progress confirmation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-audio-progress-confirm.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Read stage and embedded audio source from existing logs
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $state=Join-Path $data 'run_state\884\RUN_STATE.json'
+          if(Test-Path $state){
+            $j=Get-Content -LiteralPath $state -Raw -Encoding UTF8|ConvertFrom-Json
+            foreach($key in @('status','last_stage','last_message','progress','updated_at')){
+              Write-Output ('RG884P|STATE|'+$key+'|'+$j.$key)
+            }
+          }
+          $log=Join-Path $app 'run_manifests\884\LATEST.log'
+          if(Test-Path $log){
+            Get-Content -LiteralPath $log -Tail 55 -Encoding UTF8 | ForEach-Object{
+              $l=[string]$_
+              Write-Output ('RG884P|LOG|'+$l.Substring(0,[Math]::Min(340,$l.Length)))
+            }
+          }
+          $cache=Join-Path $data '884_EMBEDDED_MP4_AUDIO'
+          if(Test-Path $cache){
+            Get-ChildItem $cache -File|ForEach-Object{
+              Write-Output ('RG884P|AUDIO_CACHE|'+$_.Name+'|'+$_.Length+'|'+$_.LastWriteTime.ToString('o'))
+            }
+          }
+          Write-Output ('RG884P|TIME|'+(Get-Date -Format o))
