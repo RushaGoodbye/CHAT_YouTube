@@ -527,3 +527,16 @@ def test_critic_compliments_are_not_mistaken_for_issues_or_success():
     assert result["risk_ai"]=="medium"
     assert result["issues"]==["INVALID_CRITIC_SCHEMA_POSITIVE_NOTES_IN_ISSUES"]
     assert result["publication_allowed"] is False
+
+
+def test_description_outside_300_to_650_is_blocked_even_if_generic_gate_allows():
+    p=prepare_source_packet(video_id=VID,cards=cards())
+    too_long=good_package()
+    too_long["description"]=(good_package()["description"]+" ")*3
+    draft=draft_seo_package(source=p,
+        chat=lambda _:json.dumps(too_long,ensure_ascii=False))
+    assert "DESCRIPTION_TARGET_300_650" in draft["blockers"]
+    assert draft["publication_allowed"] is False
+    proper=draft_seo_package(source=p,
+        chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    assert "DESCRIPTION_TARGET_300_650" not in proper["blockers"]
