@@ -1,0 +1,42 @@
+name: RG ETA source and live display read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-eta-source-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect ETA hooks and current active state
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $p=Join-Path $root 'rg_studio_ui.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          $hits=@()
+          for($i=0;$i -lt $l.Count;$i++){
+            if($l[$i] -match 'eta|ETA|smart_eta|proc_eta_value'){
+              $hits+=($i+1)
+            }
+          }
+          Write-Output ('RGETA|MATCH_COUNT|'+$hits.Count)
+          foreach($n in $hits|Select-Object -First 100){
+            Write-Output ('RGETA|HOOK|'+$n+'|'+$l[$n-1].Trim())
+          }
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $q){
+            $j=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGETA|QUEUE_RUNNING|'+$j.running)
+            foreach($r in @($j.rows)|Select-Object -First 5){Write-Output ('RGETA|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress+'|ETA='+$r.eta+'|ELAPSED='+$r.elapsed)}
+          }
+          $p=Join-Path $root 'rg_pack130.py'
+          if(Test-Path $p){
+            $l=@(Get-Content $p -Encoding UTF8)
+            for($i=0;$i -lt $l.Count;$i++){
+              if($l[$i] -match 'def smart_eta'){for($k=[Math]::Max(0,$i-2);$k -lt [Math]::Min($i+65,$l.Count);$k++){Write-Output ('RGETA|SMART|'+($k+1)+'|'+$l[$k])}}
+            }
+          }
+          Write-Output 'RGETA|DONE'
