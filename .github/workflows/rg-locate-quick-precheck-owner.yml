@@ -1,0 +1,25 @@
+name: RG Auto Edit - locate quick precheck owner
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-locate-quick-precheck-owner.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Locate hook definition and import
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $p=Join-Path $root 'rg_studio_ui.py'
+          $lines=@(Get-Content $p -Encoding UTF8)
+          for($i=0;$i -lt [Math]::Min($lines.Count,260);$i++){
+            if($lines[$i] -match 'ux25|rg_studio_.*preflight|quick_preflight'){Write-Output ('RGUX|UI|'+($i+1)+'|'+$lines[$i])}
+          }
+          Get-ChildItem $root -Filter '*.py' -File|Select-String -SimpleMatch 'ux25_quick_preflight'|ForEach-Object {
+            Write-Output ('RGUX|MATCH|'+$_.Path+'|'+$_.LineNumber+'|'+$_.Line.Trim())
+          }
+          Write-Output 'RGUX|DONE'
