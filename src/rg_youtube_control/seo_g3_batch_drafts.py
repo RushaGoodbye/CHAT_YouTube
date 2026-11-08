@@ -91,13 +91,18 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
                     or not isinstance(cue.get("start_s"), (int, float))):
                 continue
             known_quotes.add(quote.casefold())
+            # Context may include adjacent speakers; it is not attribution.
+            cue_context = str(cue.get("context_window") or "").strip()
+            if quote not in cue_context or len(cue_context) > 700:
+                cue_context = quote
             selected.append({
                 "id": next_id,
                 "start_s": round(float(cue["start_s"]), 2),
                 "topic_candidate_not_fact": "Дослівна репліка з SRT: зміст потребує перевірки",
                 "literal_quote": quote,
                 "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
-                "source_context": quote,
+                "source_context": cue_context,
+                "context_is_not_speaker_proof": True,
                 "provisional": True,
                 "incomplete_source_fragment": bool(cue.get("may_be_incomplete")),
             })
