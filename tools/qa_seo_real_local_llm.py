@@ -71,9 +71,15 @@ def _cache_only(*_args: object, **_kwargs: object) -> str:
 
 def _chat_for(model: str):
     def call(messages: list[dict[str, str]]) -> str:
+        print("MODEL_STAGE_START=" + ("writer" if model == WRITER else "critic"), flush=True)
         _model_ready(model)
-        return lm_studio_chat(messages, model=model, timeout=110,
-                              temperature=0, json_mode=True, num_ctx=4096)
+        reply = lm_studio_chat(
+            messages, model=model, timeout=100,
+            temperature=0, json_mode=True, num_ctx=4096,
+            max_tokens=850 if model == WRITER else 650,
+        )
+        print("MODEL_STAGE_DONE=" + ("writer" if model == WRITER else "critic"), flush=True)
+        return reply
     return call
 
 
@@ -103,7 +109,7 @@ def main() -> int:
                 "publication_allowed": False}
         source = prepare_source_packet(
             video_id=VID, cards=[card], expanded_evidence=proof,
-            transcript_rows=cues)
+            transcript_rows=cues, max_cards=5)
         audit["source_cards"] = len(source["records"])
         audit["source_provisional"] = source["contains_provisional_sources"]
         draft = draft_seo_package(source=source, chat=_chat_for(WRITER))
