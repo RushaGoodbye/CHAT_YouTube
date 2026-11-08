@@ -11,6 +11,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify ETA fallback and Stability guard suite
+      - name: Verify ETA UI fallback and Stability guard suite
         run: |
           python -m unittest discover -s rg_stability_v1 -p "test_*.py" -v
