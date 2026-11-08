@@ -1,0 +1,56 @@
+name: RG Auto Edit - 912-915 root cause read only
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rg-912-915-rootcause-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read-only incident evidence from installed studio
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          foreach($id in @('912','913','914','915')){
+            Write-Output ('RG_CAUSE|STREAM|'+$id)
+            $state=Join-Path $data ('run_state\'+$id+'\RUN_STATE.json')
+            if(Test-Path $state){
+              try{
+                $j=Get-Content $state -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach($k in @('status','last_stage','last_message','error_code','last_error','progress')){
+                  $v=$j.$k
+                  if($null -ne $v){Write-Output ('RG_CAUSE|RUNSTATE|'+$id+'|'+$k+'|'+([string]$v -replace '[\r\n|]',' ' ).Substring(0,[Math]::Min(500,([string]$v).Length)))}
+                }
+              }catch{Write-Output ('RG_CAUSE|INVALID_STATE|'+$id)}
+            }
+            $man=Join-Path $app ('RG_EDITED_'+$id+'_MULTI_DIALOGUE.json')
+            if(Test-Path $man){
+              try{
+                $j=Get-Content $man -Raw -Encoding UTF8|ConvertFrom-Json
+                foreach($k in @('status','error','reason','exception','failed_dialogue','completed_dialogues','dialogue_count','review_holds','qa_failures')){
+                  $v=$j.$k
+                  if($null -ne $v){$s=($v|ConvertTo-Json -Depth 4 -Compress);Write-Output ('RG_CAUSE|MANIFEST|'+$id+'|'+$k+'|'+$s.Substring(0,[Math]::Min(600,$s.Length)))}
+                }
+              }catch{Write-Output ('RG_CAUSE|INVALID_MANIFEST|'+$id)}
+            }
+            $files=@(Get-ChildItem $app -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match ('^RG_EDITED_'+$id+'(_\d+)?_(PROCESS_LOG|FINAL_QA_PREVIEW_ERROR|CIGARETTE_BLUR_QA|RELEASE_HEALTH|RESUME)\.(txt|json)$') } |Sort-Object LastWriteTime -Descending|Select-Object -First 14)
+            foreach($file in $files){
+              Write-Output ('RG_CAUSE|FILE|'+$id+'|'+$file.Name+'|'+$file.Length)
+              if($file.Extension -eq '.txt'){
+                $lines=@(Get-Content $file.FullName -Tail 160 -Encoding UTF8 -ErrorAction SilentlyContinue)
+                $hits=@($lines|Where-Object { $_ -match 'ERROR|FAIL|STOP|BLOCK|Exception|Traceback|timeout|RGFULLERROR|RGDIAG|RGPROGRESS\|100|Missing|No such|OSError' }|Select-Object -Last 12)
+                foreach($line in $hits){Write-Output ('RG_CAUSE|LOG|'+$id+'|'+$file.Name+'|'+($line -replace '[\r\n]',' '))}
+              }elseif($file.Name -match 'ERROR|RELEASE_HEALTH'){
+                $val=Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                if($val){Write-Output ('RG_CAUSE|JSON|'+$id+'|'+$file.Name+'|'+($val -replace '[\r\n]',' ').Substring(0,[Math]::Min(700,$val.Length)))}
+              }
+            }
+          }
+          Write-Output 'RG_CAUSE|DONE|READ_ONLY'
