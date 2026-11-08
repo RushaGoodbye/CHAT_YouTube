@@ -54,6 +54,9 @@ def safety_check(*, source:Path, installed:Path, queue_path:Path, active_workers
     if any(isinstance(x,dict) and str(x.get("status") or "").upper() in
            {"ПРАЦЮЄ","RUNNING"} for x in rows):
         problems.append("ACTIVE_QUEUE_ROW")
+    if any(isinstance(x,dict) and str(x.get("status") or "").upper() in
+           {"ОЧІКУЄ","ПРАЦЮЄ","RUNNING","WAITING","PENDING"} for x in rows):
+        problems.append("UNFINISHED_QUEUE_ITEMS")
     if not source.is_file() or not installed.is_file():
         problems.append("STUDIO_SOURCE_MISSING")
     elif sha256(source)!=sha256(installed):
