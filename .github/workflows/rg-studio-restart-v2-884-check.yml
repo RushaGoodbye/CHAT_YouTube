@@ -1,0 +1,36 @@
+name: RG Studio restart UI and 884 QA verification
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-restart-v2-884-check.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Verify Studio restart, visual module and 884 QA
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $installed=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          $p=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_studio_main.py'})
+          Write-Output ('RESTART|STUDIO_PROCESSES|'+$p.Count)
+          foreach($x in $p){Write-Output ('RESTART|PROCESS|'+$x.ProcessId+'|'+$x.CreationDate+'|'+$x.ParentProcessId)}
+          $workers=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          Write-Output ('RESTART|VIDEO_WORKERS|'+$workers.Count)
+          foreach($f in @('rg_pack170_visual.py','rg_studio_postrun.py','rg_studio_ui.py','rg_qa_current_result.py')){
+            $a=Join-Path $app $f;$b=Join-Path $installed $f
+            if((Test-Path $a) -and (Test-Path $b)){Write-Output ('RESTART|MODULE_MATCH|'+$f+'|'+((Get-FileHash $a).Hash -eq (Get-FileHash $b).Hash))}
+          }
+          $vis=Get-Content (Join-Path $installed 'rg_pack170_visual.py') -Raw -Encoding UTF8
+          Write-Output ('RESTART|VISUAL_V2_ON_DISK|'+$vis.Contains('RG premium process dashboard V2'))
+          $qa=Join-Path $app '884\RG_POSTRUN_QA.json'
+          if(Test-Path $qa){
+            $j=Get-Content $qa -Raw -Encoding UTF8|ConvertFrom-Json
+            $checks=@($j.checks)
+            Write-Output ('RESTART|884_QA|'+$j.passed+'|'+@($checks|Where-Object {$_.ok}).Count+'|'+$checks.Count)
+          }
+          Write-Output 'RESTART|DONE'
