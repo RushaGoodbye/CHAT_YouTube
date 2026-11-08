@@ -50,12 +50,20 @@ def source_packet_from_complete_map(
     # then spend spare prompt capacity on a second theme per window.
     # A first-topic-only selection misses distinct subjects in real dialogues.
     present = [i for i in range(len(windows)) if per_window.get(i)]
+    # The full SRT is analyzed before this selection. A 4096-token final
+    # synthesis cannot carry all themes from an arbitrarily long stream.
+    # Select chronologically across the WHOLE video, record omitted windows,
+    # and block any AI quality PASS until all topical windows are covered.
     if len(present) > 12:
-        raise ValueError("SOURCE_MAP_TOO_LONG_FOR_ONE_SEO_SYNTHESIS")
+        indices = [round(i * (len(present) - 1) / 11) for i in range(12)]
+        selected_windows = [present[i] for i in indices]
+    else:
+        selected_windows = present
+    omitted_windows = sorted(set(present) - set(selected_windows))
     selected_topics: list[tuple[int, dict[str, Any]]] = [
-        (i, per_window[i][0]) for i in present
+        (i, per_window[i][0]) for i in selected_windows
     ]
-    for i in present:
+    for i in selected_windows:
         if len(selected_topics) >= 12:
             break
         if len(per_window[i]) > 1:
@@ -92,6 +100,9 @@ def source_packet_from_complete_map(
     packet["source_topic_candidates_total"] = len(proposals)
     packet["source_topics_omitted_from_synthesis"] = len(proposals) - len(cards)
     packet["full_srt_windows_processed"] = len(windows)
+    packet["source_windows_in_synthesis"] = selected_windows
+    packet["source_windows_omitted_from_synthesis"] = omitted_windows
+    packet["topical_synthesis_complete"] = not omitted_windows
     packet["windows_without_substantive_topics"] = sorted(documented_empty)
     packet["full_srt_coverage"] = True
     packet["publication_allowed"] = False
@@ -136,6 +147,7 @@ def generate_review_only_seo_from_full_srt(
         and not selected_review["issues"]
         and selected_review["risk_ai"] == "low"
         and not full_map["windows_without_substantive_topics"]
+        and packet["topical_synthesis_complete"]
     )
     result["editorial_approved"] = False
     result["publication_allowed"] = False
