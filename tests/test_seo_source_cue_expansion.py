@@ -93,3 +93,13 @@ def test_diverse_candidate_gate_is_conservative():
     assert selected["enough_diverse_candidates"]
     only_intro = expand_source_cue_candidates(rows[:2], report)
     assert not only_intro["enough_diverse_candidates"]
+
+
+def test_invalid_timeline_block_prevents_false_completeness():
+    rows = [row("Residents discussed the safety of their public transport routes.", 10)]
+    report = {"blocks": [block(1, 0, 30), {"index": 2, "start": float("nan"), "end": 80, "verified": True}]}
+    result = expand_source_cue_candidates(rows, report)
+    assert result["invalid_block_count"] == 1
+    assert result["candidate_count"] == 1
+    assert not result["complete_timeline_verified"]
+    assert not result["publication_allowed"]
