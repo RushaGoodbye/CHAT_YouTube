@@ -1,0 +1,143 @@
+name: RG Auto Edit - remove smoking bottle blur
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-remove-object-blur-20261108.yml']
+permissions:
+  contents: read
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify Studio is idle and patch source and installed copies with backup
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $workers=@(Get-CimInstance Win32_Process|Where-Object { $_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py' })
+          if($workers.Count -gt 0){throw 'ACTIVE_VIDEO_PROCESSING_NO_PATCH'}
+          $runnerPy='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if(!(Test-Path $runnerPy)){throw 'RUNTIME_NOT_FOUND'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg_remove_object_blur_20261108.py'
+          @'
+          from pathlib import Path
+          import ast, json, datetime, shutil, os, py_compile, sys
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          installed=Path(os.environ["LOCALAPPDATA"])/"Programs"/"RG Auto Edit"
+          files=["rg_auto_edit_one_button.py","rg_multi_dialogue.py","rg_final_release_gate.py","rg_studio_ui.py"]
+          original={}
+          changed={}
+          for name in files:
+              a=(root/name).read_text(encoding="utf-8")
+              b=(installed/name).read_text(encoding="utf-8")
+              if a!=b:
+                  raise RuntimeError("SOURCE_INSTALLED_MISMATCH_BEFORE_EDIT:"+name)
+              original[name]=a
+          def replace_once(s,old,new,name):
+              n=s.count(old)
+              if n!=1:raise RuntimeError(f"UNEXPECTED_ANCHOR:{name}:{n}")
+              return s.replace(old,new,1)
+          name="rg_auto_edit_one_button.py"
+          s=original[name]
+          start="    # RG_TEMP_AUTO_BLUR_OFF_V1"
+          end="    # v0.19.9.38 unified ERROR MARKERS."
+          if s.count(start)!=1 or s.count(end)!=1 or s.index(start)>=s.index(end):
+              raise RuntimeError("MAIN_OBJECT_BLOCK_ANCHOR")
+          s=s[:s.index(start)]+"    # RG_OBJECT_BLUR_REMOVED_20261108: cigarette, smoke and bottle scanning retired.\n    # Message/notification privacy blur above stays active and independently verified.\n\n"+s[s.index(end):]
+          start="    # RG_SMOKING_TIMELINE_MARKERS_IMPORT_R1"
+          end="    marker_count=int(marker_report.get("
+          if s.count(start)!=1 or s.count(end)!=1 or s.index(start)>=s.index(end):
+              raise RuntimeError("SMOKING_MARKERS_ANCHOR")
+          s=s[:s.index(start)]+s[s.index(end):]
+          s=replace_once(s,"+_rg_cig_review_marker_count\n","\n","MARKER_TOTAL")
+          s=replace_once(s,"from rg_cigarette_blur import scan_cigarettes, inject_cigarette_blur, human_text as cigarette_blur_human_text, VERSION as CIGARETTE_BLUR_VERSION\n","","CIG_IMPORT")
+          assert "safe_object_scan(" not in s and "_rg_smoking_prepare" not in s
+          changed[name]=s
+          name="rg_multi_dialogue.py"
+          s=original[name]
+          old="""# RG_FULL_OBJECT_BLUR_AUTO_V2: isolated post-montage GPU blur pass.
+          _rg_object_v2_original_main = main
+          
+          def main(*_rg_args, **_rg_kwargs):
+              _rg_job_result = _rg_object_v2_original_main(*_rg_args, **_rg_kwargs)
+              from rg_full_object_blur_v2 import auto_after_montage as _rg_auto_object_v2
+              _rg_auto_object_v2()
+              return _rg_job_result
+          """
+          new="""# RG_OBJECT_BLUR_REMOVED_20261108: preserve independent full-stream launcher
+          # without importing or executing cigarette, smoke or bottle detection.
+          _rg_pre_fullstream_original_main = main
+          
+          def main(*_rg_args, **_rg_kwargs):
+              _rg_job_result = _rg_pre_fullstream_original_main(*_rg_args, **_rg_kwargs)
+              from rg_fullstream_launcher_v2 import launch_after_montage
+              launch_after_montage()
+              return _rg_job_result
+          """
+          changed[name]=replace_once(s,old,new,"MULTI_POSTRUN")
+          name="rg_final_release_gate.py"
+          s=original[name]
+          old="""    cig=_read(x.with_name(stem+'_CIGARETTE_BLUR_QA.json')); checks['cigarette_blur']=cig
+              if not cig: failures.append('CIGARETTE_QA_MISSING')
+              elif not cig.get('passed',False): failures.append('CIGARETTE_QA')
+          """
+          changed[name]=replace_once(s,old,"    # RG_OBJECT_BLUR_REMOVED_20261108: object/cigarette QA is not a release prerequisite.\n","RELEASE_CIG")
+          name="rg_studio_ui.py"
+          s=original[name]
+          s=replace_once(s,"        cig_review=_button('▶ ПЕРЕВІРИТИ КУРІННЯ');cig_review.clicked.connect(self.open_cigarette_review);row.addWidget(cig_review)\n","","CIG_UI_BUTTON")
+          s=replace_once(s,"        obj_review=_button('СИГАРЕТИ / ДИМ / ПЛЯШКИ');obj_review.clicked.connect(self.open_object_review_status);row.addWidget(obj_review)\n","","OBJECT_UI_BUTTON")
+          s=replace_once(s,"        manual_pending=bool(passed and not review_state.get('safe_to_label_complete',False))\n","        manual_pending=False  # RG_OBJECT_BLUR_REMOVED_20261108\n","CIG_MANUAL_GATE")
+          changed[name]=s
+          config_name="rg_auto_edit_config.json"
+          cfgroot=root/config_name
+          cfginst=installed/config_name
+          a=cfgroot.read_text(encoding="utf-8-sig")
+          b=cfginst.read_text(encoding="utf-8-sig")
+          if a!=b:raise RuntimeError("CONFIG_SOURCE_INSTALLED_MISMATCH")
+          cfg=json.loads(a)
+          assert isinstance(cfg.get("cigarette_blur"),dict)
+          cfg["cigarette_blur"]["enabled"]=False
+          cfg["cigarette_blur"]["mandatory"]=False
+          cfg["cigarette_blur"]["fail_closed"]=False
+          cfg_new=json.dumps(cfg,ensure_ascii=False,indent=2)+"\n"
+          assert cfg["privacy_blur"]["enabled"] is True
+          assert json.loads(cfg_new)["privacy_blur"]==json.loads(a)["privacy_blur"]
+          assert json.loads(cfg_new)["full_stream_youtube"]==json.loads(a)["full_stream_youtube"]
+          for name,content in changed.items():
+              ast.parse(content,filename=name)
+              assert len(content)>1000
+          assert "from rg_privacy_blur import scan_privacy_messages" in changed["rg_auto_edit_one_button.py"]
+          assert "inject_privacy_blur(" in changed["rg_auto_edit_one_button.py"]
+          assert "from rg_fullstream_launcher_v2 import launch_after_montage" in changed["rg_multi_dialogue.py"]
+          assert "CIGARETTE_QA_MISSING" not in changed["rg_final_release_gate.py"]
+          assert "▶ ПЕРЕВІРИТИ КУРІННЯ" not in changed["rg_studio_ui.py"]
+          assert "СИГАРЕТИ / ДИМ / ПЛЯШКИ" not in changed["rg_studio_ui.py"]
+          all_changes={**changed,config_name:cfg_new}
+          backup=root/("_BACKUP_REMOVE_OBJECT_BLUR_"+datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+          backup.mkdir()
+          for name in all_changes:
+              shutil.copy2(root/name,backup/("SOURCE_"+name))
+              shutil.copy2(installed/name,backup/("INSTALLED_"+name))
+          for name,content in all_changes.items():
+              for base in [root,installed]:
+                  path=base/name
+                  tmp=path.with_suffix(path.suffix+".rgnew")
+                  tmp.write_text(content,encoding="utf-8")
+                  os.replace(tmp,path)
+          for name in changed:
+              for base in [root,installed]:
+                  py_compile.compile(str(base/name),doraise=True)
+          for name in all_changes:
+              if (root/name).read_bytes()!=(installed/name).read_bytes():
+                  raise RuntimeError("AFTER_UPDATE_SOURCE_INSTALLED_MISMATCH:"+name)
+          print("RG_REMOVE_OBJECT_BLUR|BACKUP|"+str(backup))
+          print("RG_REMOVE_OBJECT_BLUR|PATCHED|"+",".join(all_changes))
+          print("RG_REMOVE_OBJECT_BLUR|SOURCE_INSTALLED_MATCH|PASS")
+          print("RG_REMOVE_OBJECT_BLUR|SYNTAX|PASS")
+          print("RG_REMOVE_OBJECT_BLUR|NOTIFICATION_PRIVACY|PRESERVED")
+          print("RG_REMOVE_OBJECT_BLUR|FULLSTREAM_LAUNCHER|PRESERVED")
+          print("RG_REMOVE_OBJECT_BLUR|OBJECT_DETECTION_AUTORUN|DISABLED")
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & $runnerPy -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG_REMOVE_OBJECT_BLUR_PATCH_FAILED'}
