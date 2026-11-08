@@ -30,6 +30,49 @@ API = "http://127.0.0.1:1234"
 MANAGED = (WRITER, CRITIC)
 LMS_BIN = Path(r"C:\Users\fauto\.lmstudio\bin\lms.exe")
 MIN_FREE_GPU_MIB = 8800
+# Only instances explicitly loaded by this process may be unloaded.
+_OWNED_INSTANCES: set[str] = set()
+_PREEXISTING_INSTANCES: set[str] = set()
+
+
+def _loaded_instance_ids() -> dict[str, list[str]]:
+    inventory = _api("/api/v1/models")
+    found: dict[str, list[str]] = {}
+    for entry in inventory.get("models") or []:
+        if not isinstance(entry, dict) or entry.get("key") not in MANAGED:
+            continue
+        found[entry["key"]] = [
+            str(instance["id"]) for instance in entry.get("loaded_instances") or []
+            if isinstance(instance, dict) and instance.get("id")
+        ]
+    return found
+
+
+def _record_preexisting_instances() -> None:
+    """Mark all previously loaded models as belonging to the user."""
+    _OWNED_INSTANCES.clear()
+    _PREEXISTING_INSTANCES.clear()
+    for ids in _loaded_instance_ids().values():
+        _PREEXISTING_INSTANCES.update(ids)
+
+
+def _unload_our_instance(instance_id: str) -> None:
+    if instance_id not in _OWNED_INSTANCES:
+        return
+    _api("/api/v1/models/unload", {"instance_id": instance_id}, timeout=75)
+    _OWNED_INSTANCES.discard(instance_id)
+
+
+def _cleanup_our_models() -> list[str]:
+    """Best-effort cleanup after SEO, leaving all preloaded models untouched."""
+    errors: list[str] = []
+    for instance_id in sorted(_OWNED_INSTANCES.copy()):
+        try:
+            _unload_our_instance(instance_id)
+        except (RuntimeError, ValueError, urllib.error.URLError, TimeoutError, OSError) as exc:
+            errors.append(type(exc).__name__ + ":" + instance_id)
+    return errors
+
 
 
 def _gpu_preflight() -> dict:
@@ -98,21 +141,18 @@ def _api(path: str, payload: dict | None = None, timeout: float = 20) -> dict:
 
 
 def _model_ready(name: str) -> None:
-    inventory = _api("/api/v1/models")
-    models = inventory.get("models") or []
-    for entry in models:
-        if not isinstance(entry, dict):
-            continue
-        key = entry.get("key")
-        if key in MANAGED and key != name:
-            for instance in entry.get("loaded_instances") or []:
-                if isinstance(instance, dict) and instance.get("id"):
-                    _api("/api/v1/models/unload",
-                         {"instance_id": instance["id"]}, timeout=75)
-    inventory = _api("/api/v1/models")
-    for entry in inventory.get("models") or []:
-        if entry.get("key") == name and entry.get("loaded_instances"):
-            return
+    # Only release models loaded in THIS SEO run. Do not touch a user's
+    # manually loaded Qwen, Gemma, or models from other applications.
+    current = _loaded_instance_ids()
+    for key, instance_ids in current.items():
+        if key != name:
+            for instance_id in instance_ids:
+                if instance_id not in _OWNED_INSTANCES:
+                    raise RuntimeError("PREEXISTING_MODEL_IN_USE_" + key)
+                _unload_our_instance(instance_id)
+    current = _loaded_instance_ids()
+    if current.get(name):
+        return
     result = _api("/api/v1/models/load", {
         "model": name, "context_length": 4096,
         "flash_attention": True, "parallel": 1,
@@ -120,6 +160,17 @@ def _model_ready(name: str) -> None:
     }, timeout=110)
     if result.get("status") != "loaded":
         raise RuntimeError("MODEL_LOAD_NOT_CONFIRMED")
+    instance_id = result.get("instance_id") or result.get("model_instance_id")
+    if not instance_id:
+        current = _loaded_instance_ids()
+        new_ids = set(current.get(name) or []) - _PREEXISTING_INSTANCES
+        if len(new_ids) != 1:
+            raise RuntimeError("MODEL_INSTANCE_OWNERSHIP_UNPROVEN")
+        instance_id = next(iter(new_ids))
+    instance_id = str(instance_id)
+    if instance_id in _PREEXISTING_INSTANCES:
+        raise RuntimeError("MODEL_INSTANCE_OWNERSHIP_COLLISION")
+    _OWNED_INSTANCES.add(instance_id)
 
 
 def _cache_only(*_args: object, **_kwargs: object) -> str:
@@ -150,6 +201,8 @@ def main() -> int:
         audit["gpu_preflight"] = gpu
         server_started_by_job = _ensure_server()
         audit["server_started_by_job"] = server_started_by_job
+        _record_preexisting_instances()
+        audit["preexisting_managed_instances_preserved"] = len(_PREEXISTING_INSTANCES)
         file = ROOT / "source_captions" / (VID + ".srt")
         if not file.is_file() or not CACHE.is_dir():
             raise RuntimeError("ORIGINAL_SOURCE_OR_CACHE_MISSING")
@@ -242,6 +295,9 @@ def main() -> int:
         audit["issue"] = type(exc).__name__
         audit["error_detail"] = str(exc)[:230]
     finally:
+        audit["model_cleanup_errors"] = _cleanup_our_models()
+        audit["seo_owned_models_remaining"] = len(_OWNED_INSTANCES)
+        audit["preexisting_models_were_unloaded"] = False
         if server_started_by_job:
             _stop_own_server()
     audit["elapsed_seconds"] = round(time.monotonic() - started, 1)
