@@ -1,0 +1,32 @@
+name: RG Auto Edit - 884 second precheck callsite
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-start-precheck-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Studio start guard without modification
+        shell: powershell
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $names=@('rg_studio_ui.py','rg_studio_precheck.py','rg_server_resolver.py','rg_embedded_audio_source_v1.py','rg_multi_dialogue.py','rg_auto_edit_one_button.py')
+          foreach($name in $names){
+            $file=Join-Path $app $name
+            if(!(Test-Path $file)){continue}
+            $lines=@(Get-Content -LiteralPath $file -Encoding UTF8)
+            Write-Output ('SECOND|FILE|'+$name)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'PRECHECK|precheck|[Ff]ile.*not.*found|[Nn]o.*file|[Aa]udio.*[Nn]ot.*[Ff]ound|resolve_audio|start_run|def start\(|audio_root|Audio.*[Mm]issing'){
+                $start=[Math]::Max(0,$i-3);$end=[Math]::Min($lines.Count-1,$i+4)
+                if($name -eq 'rg_studio_ui.py' -and $i -lt 2350){continue}
+                Write-Output ('SECOND|MATCH|'+$name+'|'+($i+1))
+                for($j=$start;$j -le $end;$j++){Write-Output ('SECOND|'+($j+1)+'|'+$lines[$j])}
+              }
+            }
+          }
+          Write-Output 'SECOND|DONE'
