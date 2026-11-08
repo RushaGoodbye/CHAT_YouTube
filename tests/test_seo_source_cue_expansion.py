@@ -103,3 +103,20 @@ def test_invalid_timeline_block_prevents_false_completeness():
     assert result["candidate_count"] == 1
     assert not result["complete_timeline_verified"]
     assert not result["publication_allowed"]
+
+
+def test_context_keeps_neighbor_cues_separate_and_within_verified_window():
+    previous = "На початку розмови люди обговорювали дорожні затори."
+    central = "Після цього учасник запитав про зарплату та умови роботи?"
+    following = "Інший учасник розповів про транспортну систему міста."
+    other = "Ця репліка з іншого блоку не має потрапляти у контекст."
+    rows = [row(previous, 11), row(central, 15), row(following, 19), row(other, 50)]
+    report = {"blocks": [block(1, 10, 22), block(2, 45, 60, False)]}
+    selected = expand_source_cue_candidates(rows, report)
+    by_source = {item["source_quote"]: item for item in selected["evidence_candidates"]}
+    context = by_source[central]["context_window"]
+    assert previous in context and central in context and following in context
+    assert other not in context
+    assert by_source[central]["context_is_not_speaker_proof"]
+    assert by_source[central]["speaker_identified"] is False
+    assert by_source[central]["source_quote"] == central
