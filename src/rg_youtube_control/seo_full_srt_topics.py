@@ -7,6 +7,7 @@ topic identification. Model claims are not external factual verification.
 from __future__ import annotations
 
 import hashlib
+from difflib import SequenceMatcher
 import json
 import math
 import re
@@ -127,9 +128,18 @@ def extract_grounded_window_topics(
         quote = item.get("quote")
         label = _normalized(item.get("label_uk"))
         kind = item.get("kind")
+        # The source index is the authority; a model's quotation is NOT.
+        # Minor punctuation/ASR formatting drift can be normalized, but
+        # substantially different or invented speech is always rejected.
+        exact = (type(index) is int and index in source_by_id
+                 and isinstance(quote, str)
+                 and _normalized(quote) == source_by_id[index]["text"])
+        close = (not exact and type(index) is int and index in source_by_id
+                 and isinstance(quote, str) and len(_normalized(quote)) >= 28
+                 and SequenceMatcher(None, _normalized(quote).casefold(),
+                                     source_by_id[index]["text"].casefold()).ratio() >= 0.94)
         if (type(index) is not int or index not in source_by_id
-                or index in seen or not isinstance(quote, str)
-                or _normalized(quote) != source_by_id[index]["text"]
+                or index in seen or not (exact or close)
                 or not 5 <= len(label) <= 120
                 or kind not in {"question", "opinion", "report", "speech"}):
             rejected.append({"reason": "UNSUPPORTED_WINDOW_TOPIC",
@@ -142,6 +152,7 @@ def extract_grounded_window_topics(
             "source_index": index,
             "start_s": cue["start_s"],
             "source_quote": cue["text"],
+            "source_quote_restored_from_original": bool(close),
             "topic_candidate_not_fact": label,
             "statement_kind_candidate": kind,
             "speaker_verified": False,
