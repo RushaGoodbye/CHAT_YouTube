@@ -189,7 +189,7 @@ def draft_seo_package(*, source: dict[str, Any], chat: Chat) -> dict[str, Any]:
             "Return one JSON object with EXACTLY four keys: title, title_variants, description, tags.",
             "title_variants MUST be an array of EXACTLY THREE nonempty Ukrainian strings: [variant_1, variant_2, variant_3]. Two variants are an invalid response.",
             "Title and each A/B variant must be <=100 characters; three different, source-supported angles. Never pad with unsupported invented hooks.",
-            "Description 300-1400 characters, concrete and fluent Ukrainian.",
+            "Description 300-650 characters, concrete and fluent Ukrainian.",
             "Do not invent dates, casualty numbers, locations, people, quotes, results or certainty.",
             "Treat source lines as fragments of a dialogue, not a news report. Do not claim that a reported statement represents an official policy or verified event.",
             "Do not add 'several sources', motives, consequences or other surrounding topics without literal source support.",
@@ -234,6 +234,10 @@ def draft_seo_package(*, source: dict[str, Any], chat: Chat) -> dict[str, Any]:
                          - grounded_number_values(source_text))
     # A topic/theme is not source truth: this is format+numeric QA only.
     reasons = list(result["problems"].keys())
+    description_length = len(str(package.get("description") or "").strip())
+    # Product specification is stricter than the generic YouTube validator.
+    if not 300 <= description_length <= 650:
+        reasons.append("DESCRIPTION_TARGET_300_650")
     if unsupported:
         reasons.append("UNSUPPORTED_NUMBERS")
     if source.get("contains_provisional_sources"):
@@ -387,7 +391,7 @@ def repair_seo_package(
                 "required": {
                     "title": "string <= 100 characters",
                     "title_variants": "array of EXACTLY three DISTINCT strings, each <=100 characters",
-                    "description": "single coherent Ukrainian text 300-1400 characters",
+                    "description": "single coherent Ukrainian text 300-650 characters",
                     "tags": "array 8-16 concrete Ukrainian keywords",
                 },
                 "source_records_not_external_facts": source["records"],
