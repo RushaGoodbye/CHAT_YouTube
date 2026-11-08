@@ -1,0 +1,23 @@
+name: RG Auto Edit - ux25 source excerpt
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-ux25-source-excerpt.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect quick preflight without video processing
+        shell: powershell
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_stability_ux25.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          for($i=0;$i -lt $l.Count;$i++){
+            if($l[$i] -match '^def quick_preflight'){
+              for($j=$i;$j -lt [Math]::Min($l.Count,$i+105);$j++){Write-Output ('UX25|'+($j+1)+'|'+$l[$j])}
+            }
+          }
+          Write-Output 'UX25|DONE'
