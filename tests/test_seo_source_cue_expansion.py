@@ -62,3 +62,34 @@ def test_invalid_timestamp_is_excluded():
     result = expand_source_cue_candidates(rows, {"blocks": [block(1, 0, 60)]})
     assert result["candidate_count"] == 1
     assert result["evidence_candidates"][0]["start_s"] == 42
+
+
+def test_asr_fragment_is_not_mistaken_for_complete_statement():
+    rows = [row("А сейчас я хочу сказать о результатах голосования", 15),
+            row("Это конкретный факт, который озвучили в разговоре.", 32)]
+    result = expand_source_cue_candidates(rows, {"blocks": [block(1, 0, 40)]})
+    by_text = {x["source_quote"]: x for x in result["evidence_candidates"]}
+    assert by_text[rows[0]["text"]]["may_be_incomplete"] is True
+    assert by_text[rows[1]["text"]]["may_be_incomplete"] is False
+
+
+def test_nonfinite_source_timestamps_not_trusted():
+    rows = [row("Неверное время, фраза не должна быть доказательством.", float("inf")),
+            row("Еще неверное время с бесконечной длительностью.", 20, float("inf")),
+            row("Конкретная содержательная фраза с корректным временем.", 31)]
+    result = expand_source_cue_candidates(rows, {"blocks": [block(1, 0, 100)]})
+    assert result["candidate_count"] == 1
+    assert result["evidence_candidates"][0]["start_s"] == 31
+
+
+def test_diverse_candidate_gate_is_conservative():
+    rows = [row("Ведущий обсуждал условия работы на крупном заводе.", 12),
+            row("Работники затронули вопрос своевременной оплаты труда.", 15),
+            row("Под конец разговор перешел на школьное образование.", 310)]
+    report = {"blocks": [block(1, 0, 30), block(2, 300, 350)]}
+    selected = expand_source_cue_candidates(rows, report)
+    assert selected["candidate_count"] == 3
+    assert selected["candidate_windows"] == [1, 2]
+    assert selected["enough_diverse_candidates"]
+    only_intro = expand_source_cue_candidates(rows[:2], report)
+    assert not only_intro["enough_diverse_candidates"]
