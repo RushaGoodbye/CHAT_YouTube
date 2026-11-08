@@ -1,0 +1,42 @@
+name: RG 884 postrun QA failure read-only diagnosis
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-postrun-qa-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read 884 QA failure, logs and existing results
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RG884QA|TIME|'+(Get-Date -Format o))
+          $workers=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py|rg_studio_postrun.py'})
+          foreach($w in $workers){Write-Output ('RG884QA|WORKER|'+$w.ProcessId+'|'+$w.CommandLine.Substring(0,[Math]::Min(300,$w.CommandLine.Length)))}
+          $run=Join-Path $app 'run_manifests\884'
+          if(Test-Path $run){
+            Get-ChildItem $run -File|Sort-Object LastWriteTime -Descending|Select-Object -First 20|ForEach-Object{Write-Output ('RG884QA|FILE|'+$_.Name+'|'+$_.Length+'|'+$_.LastWriteTime.ToString('o'))}
+            foreach($name in @('LATEST.log','STUDIO_RUN.log')){
+              $p=Join-Path $run $name
+              if(Test-Path $p){Write-Output ('RG884QA|LOG|'+$name);Get-Content $p -Tail 110 -Encoding UTF8|ForEach-Object{Write-Output ('RG884QA|TEXT|'+$_)}}
+            }
+          }
+          $folder=Join-Path $app '884'
+          if(Test-Path $folder){
+            Get-ChildItem $folder -File|Sort-Object LastWriteTime -Descending|Select-Object -First 26|ForEach-Object{Write-Output ('RG884QA|OUTPUT|'+$_.Name+'|'+$_.Length+'|'+$_.LastWriteTime.ToString('o'))}
+            Get-ChildItem $folder -Filter '*QA*.json' -File|Sort-Object LastWriteTime -Descending|Select-Object -First 5|ForEach-Object{Write-Output ('RG884QA|QA_JSON|'+$_.Name);Get-Content $_.FullName -Tail 55 -Encoding UTF8|ForEach-Object{Write-Output ('RG884QA|QA_TEXT|'+$_)}}
+          }
+          $state=Join-Path $data 'run_state\884\RUN_STATE.json'
+          if(Test-Path $state){
+            $j=Get-Content $state -Raw -Encoding UTF8|ConvertFrom-Json
+            foreach($k in @('status','last_stage','last_message','progress')){Write-Output ('RG884QA|STATE|'+$k+'|'+$j.$k)}
+          }
+          $manifest=Join-Path $app 'RG_EDITED_884_MULTI_DIALOGUE.json'
+          if(Test-Path $manifest){$m=Get-Content $manifest -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RG884QA|MANIFEST|'+$m.status+'|'+$m.completed_dialogues+'/'+$m.dialogue_count)}
+          Write-Output 'RG884QA|READONLY_DONE'
