@@ -44,7 +44,7 @@ class StudioStabilityAdapter:
     """A Qt widget and pure decisions, owned by the existing Studio UI."""
     def __init__(self,studio:Any):
         self.studio=studio
-        self.compact=CompactProgressWidget(studio)
+        self.compact=CompactProgressWidget()  # Independent top-level window while Studio is minimized
         self.compact.hide()
 
     def refresh(self)->dict:
