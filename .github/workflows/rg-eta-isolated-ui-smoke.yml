@@ -1,0 +1,38 @@
+name: RG ETA isolated installed UI smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-eta-isolated-ui-smoke.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test ETA patch on an isolated copy of the installed UI
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_eta_staged_smoke.py'
+          @'
+          from pathlib import Path
+          import sys,ast
+          sys.path.insert(0,str(Path.cwd()/'rg_stability_v1'))
+          from stage_eta_ui_patch import stage_eta_candidate
+          src=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py')
+          dst=Path(r'C:\RG_GITHUB_RUNNER\_work\_temp\rg_eta_ui_candidate.py')
+          before=src.read_bytes()
+          result=stage_eta_candidate(src,dst)
+          ast.parse(dst.read_text(encoding='utf-8'))
+          assert src.read_bytes()==before
+          assert result['status']=='STAGED_NOT_INSTALLED'
+          print('RGETA_STAGE|REAL_UI_ANCHOR|PASS')
+          print('RGETA_STAGE|STAGED_SYNTAX|PASS')
+          print('RGETA_STAGE|ACTIVE_UI_UNCHANGED|TRUE')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & $py -u $script
+          if($LASTEXITCODE -ne 0){throw 'RGETA_STAGE_SMOKE_FAILED'}
