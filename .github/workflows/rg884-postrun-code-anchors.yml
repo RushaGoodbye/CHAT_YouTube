@@ -14,7 +14,7 @@ jobs:
         shell: powershell
         run: |
           $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
-          $terms=@('SOURCE CHANGED','RUN INVALID','R6_CIGARETTE','QA output name/duplicate is unsafe','TABLE_CONTRACT_FAILED','Сигарети •','Блюр сигарети','RG_POSTRUN_QA_V1')
+          $terms=@('SOURCE CHANGED','RUN INVALID','R6_CIGARETTE','QA output name/duplicate is unsafe','TABLE_CONTRACT_FAILED','RG_POSTRUN_QA_V1')
           foreach($file in Get-ChildItem $root -Filter '*.py' -File){
             $found=@(Select-String -Path $file.FullName -SimpleMatch -Pattern $terms -ErrorAction SilentlyContinue)
             if(!$found){continue}
