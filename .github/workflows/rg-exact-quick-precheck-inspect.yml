@@ -1,0 +1,28 @@
+name: RG Auto Edit - exact quick precheck inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-exact-quick-precheck-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect quick start guard source
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Get-ChildItem $root -Filter '*.py' -File | Select-String 'def ux25_quick_preflight' | ForEach-Object {
+            Write-Output ('RGQ|LOCATION|'+$_.Path+'|'+$_.LineNumber)
+            $lines=@(Get-Content $_.Path -Encoding UTF8)
+            $start=[Math]::Max(0,$_.LineNumber-2)
+            $end=[Math]::Min($lines.Count-1,$_.LineNumber+95)
+            for($i=$start;$i -le $end;$i++){Write-Output ('RGQ|'+($i+1)+'|'+$lines[$i])}
+          }
+          $p=Join-Path $root 'rg_studio_ui.py';$lines=@(Get-Content $p -Encoding UTF8)
+          foreach($range in @(@(2590,2617),@(3642,3663))){
+            for($i=$range[0]-1;$i -lt $range[1];$i++){Write-Output ('RGQ|UI|'+($i+1)+'|'+$lines[$i])}
+          }
+          Write-Output 'RGQ|DONE'
