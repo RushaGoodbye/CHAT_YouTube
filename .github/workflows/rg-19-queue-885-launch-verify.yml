@@ -1,0 +1,60 @@
+name: RG 19 queue first launch 885 read only verification
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-19-queue-885-launch-verify.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Verify Studio owner, queue, 885 revision and audio read only
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Continue'
+          Write-Output ('RG885|TIME|'+(Get-Date -Format o))
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $ps=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$'})
+          foreach($p in $ps){
+            $c=[string]$p.CommandLine
+            if($c -match 'rg_studio_main.py|rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'){
+              Write-Output ('RG885|PROCESS|'+$p.ProcessId+'|PARENT='+$p.ParentProcessId+'|'+$c.Substring(0,[Math]::Min($c.Length,350)))
+            }
+          }
+          $queue=Join-Path $data 'studio_batch_queue.json'
+          if(Test-Path $queue){
+            $j=Get-Content $queue -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG885|QUEUE|'+(@($j.queue) -join ','))
+            Write-Output ('RG885|RUNNING|'+$j.running)
+            Write-Output ('RG885|RECALC_TARGETS|'+(@($j.full_recalc_targets) -join ','))
+            foreach($row in @($j.rows)|Select-Object -First 4){
+              Write-Output ('RG885|ROW|'+$row.stream+'|'+$row.status+'|'+$row.progress+'|'+$row.stage+'|'+$row.detail)
+            }
+          }
+          $revs=Join-Path $app '.rg_revisions'
+          Get-ChildItem $revs -Directory -Filter 'FULL_RECALC_885_*' -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 3|ForEach-Object{
+            Write-Output ('RG885|REVISION|'+$_.FullName+'|'+$_.LastWriteTime.ToString('o'))
+            Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue|Select-Object -First 5|ForEach-Object{Write-Output ('RG885|ARCHIVED_FILE|'+$_.Name+'|'+$_.Length)}
+          }
+          $request=Join-Path $app '885\RG_FULL_RECALC_REQUEST.json'
+          if(Test-Path $request){
+            $j=Get-Content $request -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG885|REQUEST|'+$j.mode+'|'+$j.revision+'|MOVED='+$j.moved_count)
+          }else{Write-Output 'RG885|REQUEST|NOT_FOUND'}
+          $state=Join-Path $data 'run_state\885\RUN_STATE.json'
+          if(Test-Path $state){
+            $j=Get-Content $state -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG885|STATE|'+$j.status+'|'+$j.last_stage+'|'+$j.progress+'|'+$j.last_message)
+          }
+          $log=Join-Path $app 'run_manifests\885\LATEST.log'
+          if(Test-Path $log){
+            Get-Content -LiteralPath $log -Tail 35 -Encoding UTF8|Where-Object{$_ -match 'AUDIO|EXTRACT|SOURCE|ERROR|RUNNING|STREAM|STEP|STAGE|PREFLIGHT|SYNC'}|Select-Object -Last 12|ForEach-Object{
+              Write-Output ('RG885|LOG|'+([string]$_).Substring(0,[Math]::Min(350,([string]$_).Length)))
+            }
+          }
+          Write-Output 'RG885|READONLY_DONE'
