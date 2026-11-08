@@ -33,6 +33,7 @@ def expand_source_cue_candidates(
     per_window: int = 4,
     min_chars: int = 28,
     max_chars: int = 220,
+    include_unverified_for_review: bool = False,
 ) -> dict[str, Any]:
     """Choose exact source cues evenly across verified timeline windows.
 
@@ -85,9 +86,11 @@ def expand_source_cue_candidates(
             invalid_block_count += 1
             continue
         seen_block_ids.add(index)
-        if b.get("verified") is not True:
+        is_verified = b.get("verified") is True
+        if not is_verified:
             unverified.append(index)
-            continue
+            if not include_unverified_for_review:
+                continue
         eligible = []
         for row_index, start, duration, quote, tokens in source:
             if not begin <= start <= end:
@@ -137,6 +140,9 @@ def expand_source_cue_candidates(
                 "source_precision": "single_original_cue",
                 "context_window": context_window[:700],
                 "context_is_not_speaker_proof": True,
+                # Unverified timeline windows are allowed only as literal
+                # draft evidence, NEVER as validated topics or semantic PASS.
+                "model_block_verified": is_verified,
                 # Most ASR cues are fragments. Never imply that a cue lacking
                 # terminal punctuation is a complete assertion.
                 "may_be_incomplete": quote[-1:] not in (".", "!", "?"),
@@ -173,6 +179,9 @@ def expand_source_cue_candidates(
         "candidate_count": len(selected),
         "verified_windows_with_candidates": sum(bool(items) for _, items in window_groups),
         "candidate_windows": sorted({x["block_index"] for x in selected}),
+        "unverified_candidate_ids": [
+            x["source_id"] for x in selected if not x["model_block_verified"]
+        ],
         "enough_diverse_candidates": (len(selected) >= 3 and
             len({x["block_index"] for x in selected}) >= 2),
         "unverified_block_ids": sorted(unverified),
