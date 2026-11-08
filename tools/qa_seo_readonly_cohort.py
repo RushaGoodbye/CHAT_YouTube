@@ -87,6 +87,7 @@ def run() -> int:
             )
             item["source_ready"] = bool(
                 proof["complete_evidence_coverage"]
+                and proof["complete_literal_source_coverage"]
                 and proof["source_cue_complete_timeline_verified"]
                 and len(proof["source_cue_candidates"]) >= 3
             )
@@ -146,6 +147,14 @@ def run() -> int:
         "source_packets_ready_for_editorial_draft": sum(
             row.get("source_packet_ready") is True for row in output
         ),
+        "source_qa_failed_ids": [
+            row["video_id"] for row in output
+            if row.get("literal_srt_coverage_complete") is not True
+            or row.get("source_packet_ready") is not True
+        ],
+        "model_topic_incomplete_ids": [
+            row["video_id"] for row in output if row.get("source_ready") is not True
+        ],
         "approved_seo_packages": 0,
         "full_seo_acceptance_performed": False,
         "publication_allowed": False,
