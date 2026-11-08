@@ -202,7 +202,7 @@ jobs:
                   else:
                       self.detail.setText(msg.replace("_"," ") if msg else "Очікуємо даних від монтажного модуля")
                   from PySide6.QtCore import QProcess
-        running=bool(getattr(h,"proc",None) and h.proc.state()!=QProcess.NotRunning)
+                  running=bool(getattr(h,"proc",None) and h.proc.state()!=QProcess.NotRunning)
                   if running:
                       hb=self._text("heartbeat_text","ПРАЦЮЄ")
                       if "STALL" in hb.upper():
