@@ -1,0 +1,280 @@
+name: RG Auto Edit - premium progress visualization V2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-progress-visual-v2.yml']
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - name: Stage and install UI-only module, do not touch active montage
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $module=Join-Path $env:RUNNER_TEMP 'rg_dashboard_v2_component.py'
+          $patch=Join-Path $env:RUNNER_TEMP 'rg_dashboard_v2_install.py'
+          @'
+          class VisualProductionPanel(QFrame):
+              """RG premium process dashboard V2; reads host state only, no worker side effects."""
+              STEPS = [
+                  ("PRECHECK", "ПІДГОТОВКА"),
+                  ("AUDIO", "АУДІО"),
+                  ("ANALYSIS", "AI АНАЛІЗ"),
+                  ("DIALOGUES", "ДІАЛОГИ"),
+                  ("XML", "XML"),
+                  ("QA", "КОНТРОЛЬ QA"),
+              ]
+              def __init__(self, host):
+                  super().__init__(host)
+                  self.host = host
+                  self.setObjectName("RGDashboardV2")
+                  self.setStyleSheet("""
+                      QFrame#RGDashboardV2 {background:#12161D; border:1px solid #303945; border-radius:16px;}
+                      QFrame#RGDashboardV2 QFrame#RGStatCard {background:#1B222C;border:1px solid #2C3848;border-radius:12px;}
+                      QFrame#RGDashboardV2 QLabel {border:none;background:transparent;}
+                      QFrame#RGDashboardV2 QProgressBar {background:#252D38;border:0;border-radius:6px;min-height:11px;max-height:11px;}
+                      QFrame#RGDashboardV2 QProgressBar::chunk {background:#F12B4C;border-radius:6px;}
+                  """)
+                  root = QVBoxLayout(self)
+                  root.setContentsMargins(20,18,20,18)
+                  root.setSpacing(18)
+          
+                  header = QHBoxLayout()
+                  self.headline = QLabel("ПЕРЕБІГ МОНТАЖУ")
+                  self.headline.setStyleSheet("color:#AEB8C7;font-size:10pt;font-weight:800;letter-spacing:1px;")
+                  header.addWidget(self.headline)
+                  header.addStretch()
+                  self.health = QLabel("●  ОЧІКУВАННЯ")
+                  self.health.setStyleSheet("color:#9EAAB8;font-size:10pt;font-weight:700;")
+                  header.addWidget(self.health)
+                  root.addLayout(header)
+          
+                  hero = QHBoxLayout()
+                  hero.setSpacing(22)
+                  self.ring = ProgressRing(self)
+                  self.ring.setFixedSize(146,146)
+                  hero.addWidget(self.ring,0,Qt.AlignVCenter)
+                  center = QVBoxLayout()
+                  center.setSpacing(7)
+                  self.stage_caption = QLabel("ПОТОЧНА ОПЕРАЦІЯ")
+                  self.stage_caption.setStyleSheet("color:#929FB1;font-size:9pt;font-weight:800;")
+                  center.addWidget(self.stage_caption)
+                  self.human_stage = QLabel("Очікуємо запуску")
+                  self.human_stage.setWordWrap(True)
+                  self.human_stage.setMinimumHeight(48)
+                  self.human_stage.setStyleSheet("color:#F0F4FA;font-size:17pt;font-weight:800;")
+                  center.addWidget(self.human_stage)
+                  self.detail = QLabel("Виберіть стрім і виконайте перевірку готовності")
+                  self.detail.setWordWrap(True)
+                  self.detail.setMaximumHeight(44)
+                  self.detail.setStyleSheet("color:#AEB8C7;font-size:10pt;")
+                  center.addWidget(self.detail)
+                  center.addStretch()
+                  hero.addLayout(center,3)
+                  side = QVBoxLayout()
+                  side.setSpacing(7)
+                  self.stream = QLabel("СТРІМ —")
+                  self.stream.setStyleSheet("color:#E9EDF4;font-size:12pt;font-weight:800;")
+                  side.addWidget(self.stream)
+                  self.dialogue = QLabel("ДІАЛОГ —")
+                  self.dialogue.setStyleSheet("color:#B4C2D3;font-size:10pt;font-weight:700;")
+                  side.addWidget(self.dialogue)
+                  self.elapsed = QLabel("ЧАС  00:00:00")
+                  self.elapsed.setStyleSheet("color:#B4C2D3;font-size:10pt;")
+                  side.addWidget(self.elapsed)
+                  self.eta = QLabel("ЗАЛИШИЛОСЬ  —")
+                  self.eta.setStyleSheet("color:#B4C2D3;font-size:10pt;")
+                  side.addWidget(self.eta)
+                  side.addStretch()
+                  hero.addLayout(side,2)
+                  root.addLayout(hero)
+          
+                  self.progress = QProgressBar()
+                  self.progress.setRange(0,1000)
+                  self.progress.setTextVisible(False)
+                  self.progress.setFixedHeight(12)
+                  root.addWidget(self.progress)
+          
+                  self.pct_caption = QLabel("ЗАГАЛЬНИЙ ПРОГРЕС  0.0%")
+                  self.pct_caption.setStyleSheet("color:#9DAABD;font-size:9pt;font-weight:700;")
+                  root.addWidget(self.pct_caption)
+          
+                  steps = QHBoxLayout()
+                  steps.setSpacing(8)
+                  self.step_labels = []
+                  for key,label in self.STEPS:
+                      q = QLabel(label)
+                      q.setMinimumHeight(38)
+                      q.setAlignment(Qt.AlignCenter)
+                      q.setWordWrap(False)
+                      q.setStyleSheet("background:#1E2631;border:1px solid #2E3948;border-radius:10px;color:#8996A9;font-size:9pt;font-weight:800;padding:4px;")
+                      steps.addWidget(q,1)
+                      self.step_labels.append(q)
+                  root.addLayout(steps)
+          
+                  section = QHBoxLayout()
+                  section.setSpacing(12)
+                  self.gpu_box,self.gpu_value,self.gpu_bar = self._resource("GPU", "#EF3E5B")
+                  self.cpu_box,self.cpu_value,self.cpu_bar = self._resource("CPU", "#519BEA")
+                  section.addWidget(self.gpu_box,1)
+                  section.addWidget(self.cpu_box,1)
+                  root.addLayout(section)
+          
+                  foot = QHBoxLayout()
+                  self.audio = QLabel("АУДІО  •  ОРИГІНАЛЬНЕ ДЖЕРЕЛО")
+                  self.audio.setStyleSheet("color:#73D49B;font-size:9pt;font-weight:700;")
+                  foot.addWidget(self.audio)
+                  foot.addStretch()
+                  self.qa = QLabel("QA  •  ОЧІКУЄ")
+                  self.qa.setStyleSheet("color:#9EAAB8;font-size:9pt;font-weight:700;")
+                  foot.addWidget(self.qa)
+                  root.addLayout(foot)
+          
+                  self.timer=QTimer(self)
+                  self.timer.timeout.connect(self.refresh)
+                  self.timer.start(900)
+                  self.refresh()
+          
+              def _resource(self, title, accent):
+                  card=QFrame(self)
+                  card.setObjectName("RGStatCard")
+                  v=QVBoxLayout(card)
+                  v.setContentsMargins(13,9,13,11)
+                  v.setSpacing(6)
+                  top=QHBoxLayout()
+                  label=QLabel(title)
+                  label.setStyleSheet("color:#A5B1C2;font-size:9pt;font-weight:800;")
+                  value=QLabel("—")
+                  value.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                  value.setStyleSheet("color:#F4F7FC;font-size:13pt;font-weight:800;")
+                  top.addWidget(label)
+                  top.addStretch()
+                  top.addWidget(value)
+                  v.addLayout(top)
+                  bar=QProgressBar()
+                  bar.setRange(0,100)
+                  bar.setTextVisible(False)
+                  bar.setFixedHeight(9)
+                  bar.setStyleSheet("QProgressBar{background:#2B3442;border:0;border-radius:4px;}QProgressBar::chunk{background:"+accent+";border-radius:4px;}")
+                  v.addWidget(bar)
+                  return card,value,bar
+          
+              def _text(self, name, default="—"):
+                  try:
+                      w=getattr(self.host,name)
+                      return str(w.text()) if hasattr(w,"text") else default
+                  except Exception:
+                      return default
+          
+              def _stage_index(self, code):
+                  c=str(code or "").upper()
+                  if any(t in c for t in ("QA","VERIFY","FINAL_AUDIT","BOUNDARY","POSTRUN","PREMIERE")):return 5
+                  if any(t in c for t in ("XML","EXPORT","INTERCHANGE")):return 4
+                  if any(t in c for t in ("DIALOG","MULTI","SPEAKER","FACE_SCAN","IDENTITY")):return 3
+                  if any(t in c for t in ("ANALYSIS","WHISPER","VISUAL","CLOCK","ASR","TRANSCRIPT")):return 2
+                  if any(t in c for t in ("AUDIO","SYNC","ALIGN","WAV","EXTRACT")):return 1
+                  return 0
+          
+              def refresh(self):
+                  h=self.host
+                  progress=_pct(getattr(h,"progress",None))
+                  code=str(getattr(h,"_live_stage_code","") or "")
+                  stage=self._text("stage","Очікуємо запуску")
+                  self.ring.set_state(progress,"","")
+                  self.progress.setValue(round(progress*1000))
+                  self.pct_caption.setText("ЗАГАЛЬНИЙ ПРОГРЕС  "+f"{progress*100:.1f}%")
+                  stream=self._text("metric_stream","—")
+                  self.stream.setText("СТРІМ  "+stream)
+                  dialogues=self._text("metric_dialogues","—")
+                  self.dialogue.setText("ДІАЛОГ  "+dialogues)
+                  self.elapsed.setText("ЧАС  "+self._text("metric_elapsed","00:00:00"))
+                  eta=self._text("proc_eta_value","—")
+                  self.eta.setText("ЗАЛИШИЛОСЬ  "+eta if eta!="—" else "ЗАЛИШИЛОСЬ  —")
+                  self.human_stage.setText(stage if stage else "Очікуємо запуску")
+                  msg=str(getattr(h,"_live_stage_code","") or "")
+                  detail=self._text("detail","")
+                  if detail and detail!="—":
+                      self.detail.setText(detail[:185])
+                      self.detail.setToolTip(detail)
+                  else:
+                      self.detail.setText(msg.replace("_"," ") if msg else "Очікуємо даних від монтажного модуля")
+                  running=bool(getattr(h,"proc",None) and h.proc.state()!=h.proc.NotRunning)
+                  if running:
+                      hb=self._text("heartbeat_text","ПРАЦЮЄ")
+                      if "STALL" in hb.upper():
+                          self.health.setText("●  ПОТРІБНА УВАГА")
+                          self.health.setStyleSheet("color:#F06A72;font-size:10pt;font-weight:800;")
+                      elif "ОЧІКУЄ" in hb.upper():
+                          self.health.setText("●  ОЧІКУЄ ВІДПОВІДІ")
+                          self.health.setStyleSheet("color:#E8BB60;font-size:10pt;font-weight:800;")
+                      else:
+                          self.health.setText("●  ВИКОНУЄТЬСЯ")
+                          self.health.setStyleSheet("color:#61D898;font-size:10pt;font-weight:800;")
+                  else:
+                      self.health.setText("●  ГОТОВО" if progress>=.999 else "●  ОЧІКУВАННЯ")
+                      self.health.setStyleSheet("color:#9EAAB8;font-size:10pt;font-weight:800;")
+                  active=self._stage_index(code)
+                  for i,q in enumerate(self.step_labels):
+                      if i<active:
+                          style="background:#173329;border:1px solid #2B7654;border-radius:10px;color:#78DDA6;"
+                      elif i==active and running:
+                          style="background:#502534;border:1px solid #DA4966;border-radius:10px;color:#FFFFFF;"
+                      else:
+                          style="background:#1E2631;border:1px solid #2E3948;border-radius:10px;color:#8996A9;"
+                      q.setStyleSheet(style+"font-size:9pt;font-weight:800;padding:4px;")
+                  for key,value,bar in (("gpu",self.gpu_value,self.gpu_bar),("cpu",self.cpu_value,self.cpu_bar)):
+                      v=getattr(h,"_last_"+key+"_pct",None)
+                      try:
+                          n=max(0.,min(100.,float(v)))
+                          value.setText(f"{n:.0f}%")
+                          bar.setValue(int(round(n)))
+                      except (ValueError,TypeError):
+                          value.setText("—")
+                          bar.setValue(0)
+                  # Do not infer QA PASS from entering the QA phase.
+                  if progress>=.999 and not running:
+                      self.qa.setText("QA  •  ПЕРЕВІРЯЙ РЕЗУЛЬТАТ")
+                  else:
+                      self.qa.setText("QA  •  ВИКОНУЄТЬСЯ" if active==5 and running else "QA  •  ОЧІКУЄ")
+          
+          '@ | Set-Content -LiteralPath $module -Encoding UTF8
+          @'
+          from pathlib import Path
+          import os,sys,ast,py_compile,datetime,shutil
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          inst=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          name='rg_pack170_visual.py'
+          p=app/name
+          old=p.read_text(encoding='utf-8')
+          installed=(inst/name).read_text(encoding='utf-8')
+          if old!=installed:raise RuntimeError('SOURCE_INSTALLED_VISUAL_DIFFER')
+          start=old.index('class VisualProductionPanel(QFrame):')
+          end=old.index('class QAMatrix(QTableWidget):',start)
+          replacement=Path(sys.argv[1]).read_text(encoding='utf-8')
+          new=old[:start]+replacement+'\n'+old[end:]
+          ast.parse(new,filename=name)
+          if 'RG premium process dashboard V2' not in new:raise RuntimeError('MARKER_MISSING')
+          stamp=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+          backup=app/('_BACKUP_VISUAL_PANEL_V2_'+stamp)
+          backup.mkdir()
+          shutil.copy2(p,backup/('SOURCE_'+name))
+          shutil.copy2(inst/name,backup/('INSTALLED_'+name))
+          for base in (app,inst):
+              target=base/name
+              tmp=target.with_suffix('.rg_dashboard_v2_new')
+              tmp.write_text(new,encoding='utf-8')
+              os.replace(tmp,target)
+          for base in (app,inst):
+              py_compile.compile(str(base/name),doraise=True)
+          if p.read_bytes()!=(inst/name).read_bytes():raise RuntimeError('SOURCE_MISMATCH')
+          print('RG_DASH_V2|BACKUP|'+str(backup))
+          print('RG_DASH_V2|SOURCE_INSTALLED|MATCH')
+          print('RG_DASH_V2|SYNTAX|PASS')
+          print('RG_DASH_V2|ACTIVE_STUDIO_NOT_RESTARTED|TRUE')
+          
+          '@ | Set-Content -LiteralPath $patch -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $patch $module
+          if($LASTEXITCODE -ne 0){throw 'RG_DASHBOARD_V2_INSTALL_FAIL'}
