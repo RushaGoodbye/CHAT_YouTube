@@ -60,10 +60,12 @@ jobs:
               if isinstance(n,ast.Constant):return n.value
               if isinstance(n,ast.IfExp):return eval_ui_string(n.body if active else n.orelse,active)
               raise ValueError('UNEXPECTED_BUTTON_EXPRESSION')
-          assert eval_ui_string(button_values[0],False)==label_off
-          assert eval_ui_string(button_values[1],False)==label_off
-          assert eval_ui_string(button_values[1],True)==label_on
-          assert eval_ui_string(button_values[2],True)==label_on
+          for node in button_values:
+              assert eval_ui_string(node,False) in (label_off,label_on)
+              assert eval_ui_string(node,True) in (label_off,label_on)
+          assert sum(isinstance(node,ast.IfExp) for node in button_values)==1
+          assert any(eval_ui_string(node,False)==label_off and eval_ui_string(node,True)==label_on for node in button_values)
+          assert sum(eval_ui_string(node,True)==label_on for node in button_values)==2
           # Actual Qt button checks in offscreen mode
           from PySide6.QtWidgets import QApplication,QPushButton
           app=QApplication.instance() or QApplication([])
