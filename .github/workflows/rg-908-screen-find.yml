@@ -1,0 +1,31 @@
+name: RG stream 908 missing screenshots search read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-908-screen-find.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Search nearby and local screenshots without changing files
+        shell: powershell
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $cfg=Get-Content (Join-Path $app 'rg_server_paths.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $root=[string]$cfg.screen_root
+          Write-Output ('R908|SCREEN_ROOT|'+$root)
+          foreach($folder in @($root,(Split-Path $root -Parent),(Join-Path $app '908'),(Join-Path $app '.rg_cache\908'))){
+            if(!(Test-Path -LiteralPath $folder)){continue}
+            $found=@(Get-ChildItem -LiteralPath $folder -File -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '^908(?:[._ -]|$)' -and $_.Extension -match 'jpg|jpeg|png|webp'})
+            foreach($f in $found|Select-Object -First 30){Write-Output ('R908|FOUND|'+$f.FullName+'|'+$f.Length)}
+            Write-Output ('R908|CHECKED|'+$folder+'|'+$found.Count)
+          }
+          $versions=Join-Path $app '.rg_revisions'
+          if(Test-Path $versions){
+            $dirs=@(Get-ChildItem -LiteralPath $versions -Directory -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '908'}|Select-Object -Last 5)
+            foreach($d in $dirs){Write-Output ('R908|REVISION|'+$d.FullName)}
+          }
+          Write-Output 'R908|DONE'
