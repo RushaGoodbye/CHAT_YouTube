@@ -1,0 +1,29 @@
+name: RG884 QA exact context and manifest read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg884-qa-exact-context.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect postrun QA and current result parser
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($r in @(@('rg_studio_postrun.py',255,352),@('rg_qa_current_result.py',1,120),@('rg_studio_ui.py',3070,3100))){
+            $p=Join-Path $root $r[0];$lines=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('QAEX|FILE|'+$r[0])
+            for($i=$r[1]-1;$i -lt [Math]::Min($lines.Count,$r[2]);$i++){
+              Write-Output ('QAEX|'+($i+1)+'|'+$lines[$i])
+            }
+          }
+          $m=Join-Path $root 'run_manifests\884\PRE_RUN_MANIFEST.json'
+          if(Test-Path $m){
+            $data=Get-Content $m -Raw -Encoding UTF8|ConvertFrom-Json
+            foreach($k in @('video','audio','video_fingerprint','audio_fingerprint')){Write-Output ('QAEX|PRE|'+$k+'|'+($data.$k|ConvertTo-Json -Compress -Depth 6))}
+          }
+          Write-Output 'QAEX|DONE'
