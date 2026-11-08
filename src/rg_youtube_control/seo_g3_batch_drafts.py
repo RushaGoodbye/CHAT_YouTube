@@ -37,7 +37,8 @@ def _json(response: str) -> dict[str, Any]:
 
 
 def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
-                          max_cards: int = 12) -> dict[str, Any]:
+                          max_cards: int = 12,
+                          expanded_evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     if not VIDEO_ID_RE.fullmatch(video_id or ""):
         raise ValueError("INVALID_VIDEO_ID")
     if not cards or len(cards) > max_cards:
@@ -65,6 +66,43 @@ def prepare_source_packet(*, video_id: str, cards: list[dict[str, Any]],
             "provisional": card.get("status") in {
                 "BLOCKED", "VAGUE_TOPIC_NEEDS_REVIEW", "PROVISIONAL_SOURCE_REVIEW"},
         })
+    # Optional exact SRT cue supplements. Existing approved source cards take
+    # precedence. New cues remain provisional, even when their literal origin
+    # is verified: a quote does not establish meaning, speaker or factual truth.
+    if expanded_evidence is not None:
+        if (expanded_evidence.get("video_id") != video_id
+                or expanded_evidence.get("source_cue_selection_schema") != "RG_SOURCE_CUE_EXPANSION_V1"
+                or expanded_evidence.get("source_cue_candidates_review_only") is not True
+                or expanded_evidence.get("complete_evidence_coverage") is not True):
+            raise ValueError("UNTRUSTED_EXPANDED_SOURCE_EVIDENCE")
+        known_quotes = {r["literal_quote"].casefold() for r in selected}
+        next_id = max(ids, default=0) + 1
+        for cue in sorted(expanded_evidence.get("source_cue_candidates") or [],
+                          key=lambda x: float(x.get("start_s") or 0)):
+            if len(selected) >= max_cards:
+                break
+            if not isinstance(cue, dict):
+                continue
+            quote = str(cue.get("source_quote") or "").strip()
+            if (not 28 <= len(quote) <= 220
+                    or quote.casefold() in known_quotes
+                    or cue.get("source_precision") != "single_original_cue"
+                    or cue.get("factual_truth_verified") is not False
+                    or not isinstance(cue.get("start_s"), (int, float))):
+                continue
+            known_quotes.add(quote.casefold())
+            selected.append({
+                "id": next_id,
+                "start_s": round(float(cue["start_s"]), 2),
+                "topic_candidate_not_fact": "Дослівна репліка з SRT: зміст потребує перевірки",
+                "literal_quote": quote,
+                "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+                "source_context": quote,
+                "provisional": True,
+                "incomplete_source_fragment": bool(cue.get("may_be_incomplete")),
+            })
+            next_id += 1
+        selected.sort(key=lambda item: (item["start_s"], item["id"]))
     provisional = any(c["provisional"] for c in selected)
     return {
         "video_id": video_id,
