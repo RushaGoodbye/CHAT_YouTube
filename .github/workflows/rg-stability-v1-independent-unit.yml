@@ -11,6 +11,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify staged watchdog, QA, XML and nightly report suite
+      - name: Verify isolated Stability adapter installer and rollback safety
         run: |
           python -m unittest discover -s rg_stability_v1 -p "test_*.py" -v
