@@ -21,6 +21,7 @@ from rg_youtube_control.seo_g3_batch_drafts import (
 )
 from rg_youtube_control.lm_studio_backend import lm_studio_chat
 from rg_youtube_control.seo_full_srt_topics import analyze_full_original_transcript, split_transcript_windows
+from rg_youtube_control.seo_full_srt_pipeline import source_packet_from_complete_map
 
 ROOT = Path(r"C:\RG_YT_AGENT_RUNNER\SEO_G1_CHECK\g2_cohort_20261104")
 CACHE = ROOT / "g4_end_to_end_10_review_only_20261105" / "evidence_cache"
@@ -228,47 +229,15 @@ def main() -> int:
         audit["full_srt_rejected_proposals"] = map_report["rejected_topic_proposals"]
         audit["full_srt_windows_without_topics"] = (
             map_report["windows_without_substantive_topics"])
-        # Stage 2: build a source packet using direct cited quotes from
-        # different windows, not arbitrary five snippets. All remain
-        # provisional until editorial approval.
-        chosen: list[dict] = []
-        seen_windows: set[int] = set()
-        for topic in map_report["topic_records_review_only"]:
-            window_idx = int(topic["window_index"])
-            if window_idx in seen_windows:
-                continue
-            seen_windows.add(window_idx)
-            cue = windows[window_idx]["cues"]
-            ix = int(topic["source_index"])
-            pos = next((i for i, item in enumerate(cue)
-                        if item["source_index"] == ix), -1)
-            if pos < 0:
-                raise RuntimeError("TOPIC_ORIGINAL_WINDOW_INDEX_MISMATCH")
-            original_quote = topic["source_quote"]
-            surrounding = " ".join(x["text"] for x in cue[max(0,pos-2):pos+3])
-            if original_quote not in surrounding:
-                raise RuntimeError("TOPIC_SOURCE_CONTEXT_MISMATCH")
-            chosen.append({
-                "video_id": VID, "record_id": len(chosen)+1,
-                "start_s": topic["start_s"],
-                "status": "PROVISIONAL_SOURCE_REVIEW",
-                "source_quote": original_quote,
-                "source_context": surrounding,
-                "candidate_topic": topic["topic_candidate_not_fact"],
-                "publication_allowed": False,
-            })
-        if len(chosen) < len(windows) - len(map_report["windows_without_substantive_topics"]):
-            raise RuntimeError("MISSING_FULL_SRT_TOPICAL_WINDOW")
-        if not chosen:
-            raise RuntimeError("NO_GROUNDED_SOURCE_TOPICS")
-        # The LM prompt is bounded by its 4096-token context. If an unusually
-        # long transcript has >12 windows, refuse instead of silently dropping
-        # any late topic, or falsely reporting full SEO coverage.
-        if len(chosen) > 12:
-            raise RuntimeError("TOPIC_MAP_EXCEEDS_SINGLE_PROMPT_CAPACITY")
-        source = prepare_source_packet(
-            video_id=VID, cards=chosen, expanded_evidence=proof,
-            transcript_rows=cues, max_cards=12)
+        # Synthesize only from full-window grounded topic cards. Do not
+        # dilute them with random supplemental ASR fragments from an older
+        # cached topic map; those caused unsupported filler and topic drift.
+        source = source_packet_from_complete_map(
+            video_id=VID, original_rows=cues,
+            full_map=map_report, max_chars=3200)
+        audit["source_from_full_map_only"] = True
+        audit["unknown_topic_windows_block_acceptance"] = bool(
+            source["windows_without_substantive_topics"])
         audit["source_cards"] = len(source["records"])
         audit["source_provisional"] = source["contains_provisional_sources"]
         draft = draft_seo_package(source=source, chat=_chat_for(WRITER))
