@@ -1,0 +1,58 @@
+name: RG Stability V1 Qt mini panel and live queue read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-v1-qt-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check compact Qt progress UI without touching Studio
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'rg_stability_v1_qt_check.py'
+          @'
+          from pathlib import Path
+          import sys,json,os
+          sys.path.insert(0,str(Path.cwd()/'rg_stability_v1'))
+          from PySide6.QtWidgets import QApplication
+          from rg_compact_progress import CompactProgressWidget
+          app=QApplication([])
+          panel=CompactProgressWidget()
+          panel.update_snapshot({'stream':'885','progress_percent':42.7,'stage':'MULTI_DIALOGUE',
+                                 'gpu_percent':71,'cpu_percent':38,'eta':'01:25:00'})
+          panel.show()
+          app.processEvents()
+          assert panel.stream_label.text()=='STREAM 885'
+          assert panel.pct_label.text()=='42.7%'
+          assert panel.bar.value()==427
+          assert 'GPU 71%' in panel.resources.text()
+          assert panel.grab().isNull() is False
+          print('RG_STABILITY_QT|COMPACT_RENDER|PASS')
+          print('RG_STABILITY_QT|MONTAGE_NOT_LAUNCHED|TRUE')
+          '@ | Set-Content -LiteralPath $py -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $py
+          if($LASTEXITCODE -ne 0){throw 'RG_STABILITY_QT_FAILED'}
+      - name: Read current montage and queue state
+        shell: powershell
+        run: |
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $data){
+            $q=Get-Content $data -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG_STABILITY_QUEUE|RUNNING|'+$q.running)
+            Write-Output ('RG_STABILITY_QUEUE|QUEUE_COUNT|'+@($q.queue).Count)
+            foreach($r in @($q.rows)|Select-Object -First 19){
+              Write-Output ('RG_STABILITY_QUEUE|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress)
+            }
+          }
+          $workers=@(Get-CimInstance Win32_Process|Where-Object{
+            $_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          Write-Output ('RG_STABILITY_QUEUE|ACTIVE_WORKERS|'+$workers.Count)
