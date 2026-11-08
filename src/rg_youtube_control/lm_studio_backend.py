@@ -81,6 +81,7 @@ def lm_studio_chat(
     url: str = DEFAULT_LM_STUDIO_URL, timeout: float = 300.0,
     temperature: float = 0.2, json_mode: bool = False,
     num_ctx: int | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """One request, with at most one retry for an empty model message."""
     if not messages or any(
@@ -92,6 +93,9 @@ def lm_studio_chat(
     # Set it when loading the model, never silently clip source text here.
     if num_ctx is not None and (not isinstance(num_ctx, int) or num_ctx < 1024):
         raise ValueError("INVALID_LM_STUDIO_CONTEXT")
+    if max_tokens is not None and (
+            type(max_tokens) is not int or not 100 <= max_tokens <= 4096):
+        raise ValueError("INVALID_LOCAL_RESPONSE_TOKEN_LIMIT")
     loaded_id = ensure_model_loaded(
         model=model, url=url, timeout=timeout, num_ctx=num_ctx,
     )
@@ -100,7 +104,8 @@ def lm_studio_chat(
         payload: dict[str, Any] = {
             "model": loaded_id, "messages": current, "stream": False,
             "temperature": temperature, "reasoning_effort": "none",
-            "max_tokens": 1700 if json_mode else 1250,
+            "max_tokens": max_tokens if max_tokens is not None else (
+                1700 if json_mode else 1250),
         }
         if json_mode:
             payload["response_format"] = {
