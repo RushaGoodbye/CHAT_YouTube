@@ -312,3 +312,20 @@ def test_g3_prompt_keeps_source_fragment_and_unknown_speaker_warnings():
     assert any(r["speaker_unknown"] for r in prompts[0]["source"]["records"])
     assert all("may_be_incomplete" in r for r in prompts[0]["source"]["records"])
     assert "Never infer speaker identity" in " ".join(prompts[0]["instructions"])
+
+
+def test_g3_rejects_incomplete_timeline_even_when_topic_coverage_claims_complete():
+    evidence = _expanded_source_for_g3()
+    assert evidence["complete_evidence_coverage"]
+    evidence["source_cue_complete_timeline_verified"] = False
+    with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
+                              transcript_rows=_original_rows_for_g3())
+
+
+def test_g3_rejects_invalid_block_count_even_when_all_topics_have_quotes():
+    evidence = _expanded_source_for_g3()
+    evidence["source_cue_invalid_block_count"] = 1
+    with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
+                              transcript_rows=_original_rows_for_g3())
