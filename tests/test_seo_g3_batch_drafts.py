@@ -252,6 +252,7 @@ def test_g3_can_supplement_source_cards_with_literal_srt_cues():
 def test_g3_rejects_unverified_expanded_source():
     evidence = _expanded_source_for_g3()
     evidence["complete_evidence_coverage"] = False
+    evidence["complete_literal_source_coverage"] = False
     with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
         prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence, transcript_rows=_original_rows_for_g3())
 
@@ -318,6 +319,7 @@ def test_g3_rejects_incomplete_timeline_even_when_topic_coverage_claims_complete
     evidence = _expanded_source_for_g3()
     assert evidence["complete_evidence_coverage"]
     evidence["source_cue_complete_timeline_verified"] = False
+    evidence["complete_literal_source_coverage"] = False
     with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
         prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
                               transcript_rows=_original_rows_for_g3())
@@ -328,4 +330,38 @@ def test_g3_rejects_invalid_block_count_even_when_all_topics_have_quotes():
     evidence["source_cue_invalid_block_count"] = 1
     with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
         prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence,
+                              transcript_rows=_original_rows_for_g3())
+
+
+def test_literal_only_source_packet_is_permitted_as_provisional_not_approved():
+    proof = _expanded_source_for_g3()
+    proof["complete_evidence_coverage"] = False
+    proof["source_cue_complete_timeline_verified"] = False
+    proof["source_cue_candidates"][1]["model_block_verified"] = False
+    packet = prepare_source_packet(video_id=VID, cards=cards(),
+                                   expanded_evidence=proof,
+                                   transcript_rows=_original_rows_for_g3())
+    assert packet["expanded_literal_only"] is True
+    assert packet["contains_provisional_sources"] is True
+    assert packet["source_material_requires_editorial_review"] is True
+    assert not packet["editorial_approved"] and not packet["publication_allowed"]
+    assert any(r.get("model_block_verified") is False for r in packet["records"])
+    draft = draft_seo_package(
+        source=packet, chat=lambda _m: json.dumps(good_package(), ensure_ascii=False))
+    assert "PROVISIONAL_SOURCE_REVIEW" in draft["blockers"]
+    critique = evaluate_independent_draft(
+        draft=draft, source=packet,
+        chat=lambda _m: json.dumps({"risk": "low", "issues": []}))
+    assert critique["status"] == "NEEDS_ATTENTION"
+    assert not critique["human_approved"] and not critique["publication_allowed"]
+
+
+def test_literal_only_proof_without_grounded_original_srt_is_rejected():
+    proof = _expanded_source_for_g3()
+    proof["complete_evidence_coverage"] = False
+    proof["source_cue_candidates"][0]["source_quote"] = (
+        "Подія з неіснуючого фрагмента, якої ніхто не вимовляв.")
+    with pytest.raises(ValueError, match="EXPANDED_CUE_NOT_IN_ORIGINAL_SRT"):
+        prepare_source_packet(video_id=VID, cards=cards(),
+                              expanded_evidence=proof,
                               transcript_rows=_original_rows_for_g3())
