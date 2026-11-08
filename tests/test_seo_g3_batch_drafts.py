@@ -480,3 +480,34 @@ def test_missing_ab_does_not_use_fragment_topic_even_if_not_provisional():
         chat=lambda _:json.dumps(pkg,ensure_ascii=False))
     with pytest.raises(ValueError, match="NO_GROUNDED_THIRD_AB_TITLE"):
         complete_missing_source_variants(source=source,draft=draft)
+
+
+def test_repair_prompt_keeps_reported_speech_and_does_not_invent_policy():
+    from rg_youtube_control.seo_g3_batch_drafts import repair_seo_package
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    broken=good_package()
+    broken["title_variants"]=broken["title_variants"][:2]
+    previous=draft_seo_package(source=source,
+        chat=lambda _:json.dumps(broken,ensure_ascii=False))
+    critique=evaluate_independent_draft(
+        draft=previous, source=source,
+        chat=lambda _:json.dumps({"risk":"high","issues":[
+            "Allegation misrepresented as official policy",
+            "Reported speech translated as a confirmed refusal",
+        ]}))
+    seen=[]
+    def rewrite(messages):
+        prompt=json.loads(messages[-1]["content"])
+        seen.append(prompt)
+        return json.dumps(good_package(),ensure_ascii=False)
+    repaired=repair_seo_package(source=source,previous=previous,
+        critique=critique,chat=rewrite)
+    instructions=" ".join(seen[0]["rules"])
+    assert "reporting somebody else's claim" in instructions
+    assert "source speech-act" in instructions
+    assert "Russian 'кидает'" in instructions
+    assert "future action happened" in instructions
+    assert "3 distinct Ukrainian A/B" in instructions
+    assert len(repaired["seo"]["title_variants"])==3
+    assert repaired["independent_recheck_required"] is True
+    assert repaired["publication_allowed"] is False
