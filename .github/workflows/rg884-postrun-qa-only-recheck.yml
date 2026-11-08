@@ -1,0 +1,71 @@
+name: RG 884 postrun QA-only recheck
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg884-postrun-qa-only-recheck.yml']
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Recheck existing XML and report without montage
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          if($busy.Count){throw 'MONTAGE_ACTIVE_DO_NOT_QA'}
+          $s=Join-Path $env:RUNNER_TEMP 'rg884_postrun_qa_only_recheck.py'
+          @'
+          from pathlib import Path
+          import os,sys,json,shutil,datetime,subprocess,hashlib,ntpath
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          folder=app/'884'
+          manifest=app/'RG_EDITED_884_MULTI_DIALOGUE.json'
+          pre=app/'run_manifests'/'884'/'PRE_RUN_MANIFEST.json'
+          data=json.loads(manifest.read_text(encoding='utf-8-sig'))
+          assert str(data.get('status'))=='DIALOGUES_COMPLETE'
+          assert data.get('dialogue_count')==1 and len(data.get('outputs') or [])==1
+          xml=Path(data['outputs'][0]['premiere_xml'])
+          assert xml.is_file() and xml.parent==folder
+          files=list(folder.glob('*.xml'))
+          hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+          stamp=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+          backup=app/('_BACKUP_884_QA_ONLY_RECHECK_'+stamp)
+          backup.mkdir()
+          for p in folder.glob('*.json'):
+              if p.name.startswith(('RG_POSTRUN','RG_XML_VERIFY','RG_BOUNDARY','RG_PREMIERE','RG_REGRESSION')):
+                  shutil.copy2(p,backup/p.name)
+          print('RG884_RECHECK|BACKUP|'+str(backup),flush=True)
+          env=os.environ.copy()
+          env['RG_POSTRUN_QA_ONLY']='1'
+          env['PYTHONIOENCODING']='utf-8'
+          args=[sys.executable,'-u',str(app/'rg_studio_postrun.py'),
+                '--stream','884','--folder',str(folder),
+                '--outputs-json',json.dumps([str(xml)]),
+                '--started-at','0',
+                '--preflight-manifest',str(pre)]
+          cp=subprocess.run(args,env=env,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=180)
+          print('RG884_RECHECK|EXIT|'+str(cp.returncode),flush=True)
+          print('RG884_RECHECK|STDERR|'+(cp.stderr or '')[-900:],flush=True)
+          assert hashes=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},'XML_MODIFIED_BY_QA'
+          print('RG884_RECHECK|XML_HASHES_UNCHANGED|PASS',flush=True)
+          report=json.loads((folder/'RG_POSTRUN_QA.json').read_text(encoding='utf-8-sig'))
+          for c in report.get('checks') or []:
+              print('RG884_RECHECK|CHECK|'+str(c.get('ok'))+'|'+str(c.get('critical'))+'|'+str(c.get('name'))+'|'+str(c.get('detail'))[:170],flush=True)
+          assert cp.returncode==0 and report.get('passed') is True,'QA_RECHECK_NOT_PASSED'
+          sys.path.insert(0,str(app))
+          from rg_qa_current_result import corrected_table
+          sample={'rows':[{'source_xml':xml.name,'detail':'XML exists','duration_seconds':267.23}]}
+          corrected=corrected_table('884',[str(xml)],sample)
+          assert len(corrected['rows'])==1
+          assert corrected['rows'][0]['source_xml']==xml.name
+          print('RG884_RECHECK|QA_TABLE_CANONICAL|PASS',flush=True)
+          print('RG884_RECHECK|POSTRUN_QA|PASS',flush=True)
+          
+          '@ | Set-Content -LiteralPath $s -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $s
+          if($LASTEXITCODE -ne 0){throw 'RG884_QA_ONLY_RECHECK_FAILED'}
