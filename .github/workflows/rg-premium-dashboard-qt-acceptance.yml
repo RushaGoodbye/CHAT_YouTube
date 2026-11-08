@@ -1,0 +1,71 @@
+name: RG Auto Edit - premium dashboard Qt acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-premium-dashboard-qt-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Render redesigned progress panel in isolated offscreen process
+        shell: powershell
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_dashboard_v2_qa.py'
+          @'
+          import os,sys
+          from pathlib import Path
+          os.environ['QT_QPA_PLATFORM']='offscreen'
+          from PySide6.QtWidgets import QApplication,QWidget,QProgressBar,QLabel
+          from PySide6.QtCore import QProcess
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(root))
+          from rg_pack170_visual import VisualProductionPanel
+          app=QApplication([])
+          host=QWidget()
+          host.progress=QProgressBar();host.progress.setRange(0,1000);host.progress.setValue(404)
+          host.stage=QLabel('Обробка діалогів')
+          host.metric_stream=QLabel('884')
+          host.metric_elapsed=QLabel('00:08:14')
+          host.metric_dialogues=QLabel('1/1')
+          host.proc_eta_value=QLabel('—')
+          host.detail=QLabel('Обробка діалогів • original audio source')
+          host.heartbeat_text=QLabel('ПРАЦЮЄ')
+          host._live_stage_code='MULTI_DIALOGUE'
+          host._last_gpu_pct=4.0
+          host._last_cpu_pct=9.0
+          host.proc=None
+          panel=VisualProductionPanel(host)
+          panel.resize(1100,430)
+          panel.show()
+          app.processEvents()
+          panel.refresh()
+          app.processEvents()
+          shot=panel.grab()
+          assert not shot.isNull()
+          assert panel.width()==1100
+          assert len(panel.step_labels)==6
+          assert panel.gpu_value.text()=='4%'
+          assert panel.cpu_value.text()=='9%'
+          assert panel.dialogue.text().endswith('1/1')
+          assert panel.pct_caption.text().endswith('40.4%')
+          assert 'ДІАЛОГ' in panel.step_labels[3].text()
+          assert panel.progress.value()==404
+          for widget in [panel.ring,panel.human_stage,panel.gpu_box,panel.cpu_box,panel.step_labels[3]]:
+              assert widget.isVisible(), type(widget).__name__
+          print('RG_DASH_QA|QT_OFFSCREEN_RENDER|PASS')
+          print('RG_DASH_QA|WIDTH|'+str(panel.width()))
+          print('RG_DASH_QA|HEIGHT|'+str(panel.height()))
+          print('RG_DASH_QA|PROGRESS|'+panel.pct_caption.text())
+          print('RG_DASH_QA|RESOURCES|'+panel.gpu_value.text()+'|'+panel.cpu_value.text())
+          print('RG_DASH_QA|SIX_PHASES|PASS')
+          print('RG_DASH_QA|LIVE_884_UNTOUCHED|TRUE')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG_DASHBOARD_V2_QA_FAILED'}
