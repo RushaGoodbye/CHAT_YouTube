@@ -41,6 +41,8 @@ jobs:
           host._last_cpu_pct=9.0
           host.proc=None
           panel=VisualProductionPanel(host)
+          host.resize(1120,470)
+          host.show()
           panel.resize(1100,430)
           panel.show()
           app.processEvents()
