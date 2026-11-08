@@ -540,3 +540,25 @@ def test_description_outside_300_to_650_is_blocked_even_if_generic_gate_allows()
     proper=draft_seo_package(source=p,
         chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
     assert "DESCRIPTION_TARGET_300_650" not in proper["blockers"]
+
+
+def test_positive_only_critic_verdict_is_reaudited_once_not_assumed_good():
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=source,
+        chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    responses=iter([
+        {"risk":"low","issues":[
+            "Title variants are factually consistent with the source."
+        ]},
+        {"risk":"low","issues":[]},
+    ])
+    calls=[]
+    def critic(messages):
+        calls.append(messages)
+        return json.dumps(next(responses),ensure_ascii=False)
+    review=evaluate_independent_draft(draft=draft,source=source,chat=critic)
+    assert len(calls)==2
+    assert review["risk_ai"]=="low"
+    assert review["issues"]==[]
+    assert review["human_approved"] is False
+    assert review["publication_allowed"] is False
