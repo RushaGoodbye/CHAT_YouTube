@@ -1,0 +1,56 @@
+name: RG stability v1 QA and recovery unit tests
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-v1-unit-test.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated recovery and queue tests
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_stability_unit_tests.py'
+          @'
+          from pathlib import Path
+          import tempfile,sys
+          sys.path.insert(0,str(Path.cwd()/'rg_stability_v1'))
+          from rg_stability_readonly import review_qa,queue_audit,plan_recovery,TARGETS,report_for_stream
+          import json
+          assert review_qa({})['status']=='NOT_CHECKED'
+          assert review_qa({'passed':True,'checks':[]})['status']=='NOT_CHECKED'
+          assert review_qa({'passed':True,'checks':[{'name':'xml','ok':False}]})['status']=='FAIL'
+          assert review_qa({'passed':True,'checks':[{'name':'xml','ok':True}]})['status']=='PASS'
+          assert queue_audit({'queue':list(TARGETS),'full_recalc_targets':list(TARGETS)})['status']=='READY'
+          assert queue_audit({'queue':list(TARGETS),'full_recalc_targets':[]})['status']=='REVIEW'
+          with tempfile.TemporaryDirectory() as d:
+              app=Path(d)
+              (app/'885').mkdir()
+              xml=app/'885'/'RG_EDITED_885.xml'
+              xml.write_text('<xml/>',encoding='utf-8')
+              m={'status':'DIALOGUES_COMPLETE','dialogue_count':1,'completed_dialogues':1,
+                 'outputs':[{'premiere_xml':str(xml)}]}
+              qa={'passed':False,'checks':[{'name':'audio integrity','ok':False}]}
+              assert plan_recovery(stream='885',manifest=m,qa_report=qa,xml_paths=[xml])['action']=='QA_ONLY_RECHECK'
+              (app/'RG_EDITED_885_MULTI_DIALOGUE.json').write_text(json.dumps(m),encoding='utf-8')
+              (app/'885'/'RG_POSTRUN_QA.json').write_text(json.dumps(qa),encoding='utf-8')
+              assert report_for_stream(app,'885')['action']=='QA_ONLY_RECHECK'
+              qa={'passed':True,'checks':[{'name':'xml','ok':True}]}
+              assert plan_recovery(stream='885',manifest=m,qa_report=qa,xml_paths=[xml])['action']=='NO_ACTION'
+              m['completed_dialogues']=0
+              assert plan_recovery(stream='885',manifest=m,qa_report={},xml_paths=[xml])['action']=='RESUME_IN_STUDIO'
+              xml.unlink()
+              assert plan_recovery(stream='885',manifest=m,qa_report={},xml_paths=[xml])['action']=='INVESTIGATE_INPUTS'
+          print('RG_STABILITY_V1|UNIT_TESTS|PASS')
+          print('RG_STABILITY_V1|QUEUE_TARGETS|19')
+          print('RG_STABILITY_V1|MONTAGE_NOT_STARTED|TRUE')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG_STABILITY_UNIT_TESTS_FAILED'}
