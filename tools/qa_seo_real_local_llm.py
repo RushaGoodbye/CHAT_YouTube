@@ -25,7 +25,7 @@ from rg_youtube_control.seo_full_srt_pipeline import source_packet_from_complete
 
 ROOT = Path(r"C:\RG_YT_AGENT_RUNNER\SEO_G1_CHECK\g2_cohort_20261104")
 CACHE = ROOT / "g4_end_to_end_10_review_only_20261105" / "evidence_cache"
-VID = "Z7AhB4mjvlM"
+VID = os.environ.get("RG_SEO_VIDEO_ID", "Z7AhB4mjvlM")
 WRITER = "qwen3-14b"
 CRITIC = "google/gemma-4-12b"
 API = "http://127.0.0.1:1234"
