@@ -1,0 +1,126 @@
+name: RG Auto Edit - 884 audio fallback fix
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-audio-fallback-fix.yml']
+permissions:
+  contents: read
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Patch preflight and backend fallback with backup while montage idle
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $busy=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          if($busy.Count -gt 0){throw 'VIDEO_PROCESS_ACTIVE_NO_PATCH'}
+          $script=Join-Path $env:RUNNER_TEMP 'rg884_audio_fallback_patch.py'
+          @'
+          from pathlib import Path
+          import os,shutil,datetime,ast,py_compile,sys,json
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          names=['rg_studio_preflight.py','rg_embedded_audio_source_v1.py']
+          original={}
+          for name in names:
+              source=(app/name).read_text(encoding='utf-8')
+              target=(installed/name).read_text(encoding='utf-8')
+              if source!=target:raise RuntimeError('SOURCE_INSTALLED_DIFFER:'+name)
+              original[name]=source
+          p=original['rg_studio_preflight.py']
+          old='''    audios=files_for(ar,stream,AUDIO_EXT)
+              items.append(emit("Аудіо",len(audios)>=1,(str(audios[0])+" • ORIGINAL SOURCE DIRECT") if audios else "файл не знайдено"))
+          '''
+          new='''    audios=files_for(ar,stream,AUDIO_EXT)
+              if audios:
+                  items.append(emit("Аудіо",True,str(audios[0])+" / ORIGINAL SOURCE DIRECT"))
+              else:
+                  # RG884_EMBEDDED_AUDIO_FALLBACK_V2: validate real audio, not filename alone.
+                  # Keep missing-audio blocking when the source MP4 has no usable audio.
+                  audio_ok=False
+                  audio_detail="No separate audio or validated embedded video audio"
+                  if videos:
+                      try:
+                          from rg_embedded_audio_source_v1 import _probe,_good_embedded,_duration
+                          probe=_probe(videos[0])
+                          audio_ok=bool(_good_embedded(probe,_duration(probe)))
+                          audio_detail=("EMBEDDED MP4 AUDIO / ORIGINAL SOURCE" if audio_ok
+                                        else "MP4 audio absent or unsynchronized")
+                      except Exception as exc:
+                          audio_detail="Embedded audio check failed: "+str(exc)[:160]
+                  items.append(emit("Аудіо",audio_ok,audio_detail))
+          '''
+          if p.count(old)!=1:raise RuntimeError('PRECHECK_AUDIO_ANCHOR_MISMATCH:'+str(p.count(old)))
+          p=p.replace(old,new)
+          b=original['rg_embedded_audio_source_v1.py']
+          old2='''    if not separate.is_file() and vno != "907":
+                  return base  # preserve native resolver choices for non-exact filenames
+              info = _probe(video)
+          '''
+          new2='''    # RG884_EMBEDDED_AUDIO_FALLBACK_V2:
+              # Existing separate recordings always take precedence, including non-MP3.
+              # If none exists, select verified embedded MP4 audio instead of returning
+              # a missing external-audio path.
+              missing_separate = not separate.is_file()
+              if missing_separate and vno != "907":
+                  alternatives = [p for p in Path(base).glob(ano+"*")
+                                  if p.is_file() and p.suffix.lower() in
+                                  {".mp3",".wav",".flac",".m4a",".aac",".opus",".ogg"}
+                                  and (p.stem == ano or p.stem.startswith((ano+"_",ano+"-",ano+" ")))]
+                  if alternatives:
+                      return base
+              info = _probe(video)
+          '''
+          if b.count(old2)!=1:raise RuntimeError('BACKEND_SELECTION_ANCHOR_MISMATCH:'+str(b.count(old2)))
+          b=b.replace(old2,new2)
+          old3='''    if vno != "907":
+                  mp3dur = _duration(_probe(separate))
+          '''
+          new3='''    if vno != "907" and not missing_separate:
+                  mp3dur = _duration(_probe(separate))
+          '''
+          if b.count(old3)!=1:raise RuntimeError('BACKEND_MP3_DURATION_ANCHOR_MISMATCH:'+str(b.count(old3)))
+          b=b.replace(old3,new3)
+          updates={'rg_studio_preflight.py':p,'rg_embedded_audio_source_v1.py':b}
+          for name,source in updates.items():
+              ast.parse(source,filename=name)
+              if 'RG884_EMBEDDED_AUDIO_FALLBACK_V2' not in source:raise RuntimeError('MARKER_MISSING')
+          # Real 884 source proof before changing anything.
+          sys.path.insert(0,str(app))
+          import rg_embedded_audio_source_v1 as audio
+          cfg=json.loads((app/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
+          video=Path(cfg['video_root'])/'884.mp4'
+          if not video.is_file():raise RuntimeError('884_VIDEO_MISSING')
+          probe=audio._probe(video)
+          if not audio._good_embedded(probe,audio._duration(probe)):
+              raise RuntimeError('884_EMBEDDED_AUDIO_INVALID')
+          # Prevent patching while Studio is doing video work: runner workflow also guards.
+          stamp=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+          backup=app/('_BACKUP_EMBEDDED_AUDIO_FALLBACK_'+stamp)
+          backup.mkdir()
+          for name in names:
+              shutil.copy2(app/name,backup/('SOURCE_'+name))
+              shutil.copy2(installed/name,backup/('INSTALLED_'+name))
+          for name,source in updates.items():
+              for base in (app,installed):
+                  file=base/name
+                  temp=file.with_suffix(file.suffix+'.rg884new')
+                  temp.write_text(source,encoding='utf-8')
+                  os.replace(temp,file)
+          for name in names:
+              py_compile.compile(str(app/name),doraise=True)
+              py_compile.compile(str(installed/name),doraise=True)
+              if (app/name).read_bytes()!=(installed/name).read_bytes():
+                  raise RuntimeError('INSTALLED_MISMATCH:'+name)
+          print('RG884_AUDIO_FIX|BACKUP|'+str(backup))
+          print('RG884_AUDIO_FIX|STUDIO_PREFLIGHT|PASS')
+          print('RG884_AUDIO_FIX|BACKEND_FALLBACK|PASS')
+          print('RG884_AUDIO_FIX|EMBEDDED_AUDIO_884|VALID')
+          print('RG884_AUDIO_FIX|SOURCE_INSTALLED|MATCH')
+          print('RG884_AUDIO_FIX|SYNTAX|PASS')
+          
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'RG884_AUDIO_FALLBACK_FIX_FAILED'}
