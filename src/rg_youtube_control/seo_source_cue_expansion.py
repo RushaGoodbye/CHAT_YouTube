@@ -46,8 +46,9 @@ def expand_source_cue_candidates(
     blocks = timeline_report.get("blocks") if isinstance(timeline_report, dict) else None
     if not isinstance(blocks, list) or not blocks:
         raise ValueError("MISSING_TIMELINE_BLOCKS")
+    all_rows = list(transcript_rows)
     source = []
-    for ix, row in enumerate(transcript_rows):
+    for ix, row in enumerate(all_rows):
         if not isinstance(row, dict):
             continue
         quote = _clean(row.get("text"))
@@ -105,6 +106,27 @@ def expand_source_cue_candidates(
                    for prior in local_signatures):
                 continue
             local_signatures.append(tokens)
+            # Adjacent captions supply *context*, not a synthetic quotation or
+            # proof of continuous speaker identity. Keep each raw cue exact.
+            context_parts = []
+            for neighbor_index in (row_index - 1, row_index, row_index + 1):
+                if not 0 <= neighbor_index < len(all_rows):
+                    continue
+                neighbor = all_rows[neighbor_index]
+                if not isinstance(neighbor, dict):
+                    continue
+                try:
+                    neighbor_start = float(neighbor.get("start"))
+                except (TypeError, ValueError):
+                    continue
+                neighbor_text = _clean(neighbor.get("text"))
+                if (math.isfinite(neighbor_start) and begin <= neighbor_start <= end
+                        and abs(neighbor_start - start) <= 8
+                        and 0 < len(neighbor_text) <= 220):
+                    context_parts.append(neighbor_text)
+            context_window = _clean(" ".join(context_parts))
+            if quote not in context_window:
+                context_window = quote
             candidates.append({
                 "source_id": f"cue_{row_index + 1}",
                 "block_index": index,
@@ -113,6 +135,8 @@ def expand_source_cue_candidates(
                 "timestamp": _stamp(start),
                 "source_quote": quote,
                 "source_precision": "single_original_cue",
+                "context_window": context_window[:700],
+                "context_is_not_speaker_proof": True,
                 # Most ASR cues are fragments. Never imply that a cue lacking
                 # terminal punctuation is a complete assertion.
                 "may_be_incomplete": quote[-1:] not in (".", "!", "?"),
