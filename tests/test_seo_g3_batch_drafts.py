@@ -204,3 +204,55 @@ def test_independent_critic_rejects_missing_quote():
     p["records"][0]["literal_quote"]="Fake quote absent from original context"
     with pytest.raises(ValueError,match="CRITIC_SOURCE_QUOTE_MISMATCH"):
         evaluate_independent_draft(draft=draft,source=p,chat=lambda _:json.dumps({"risk":"low","issues":[]}))
+
+
+
+def _expanded_source_for_g3():
+    from rg_youtube_control.seo_evidence_records import build_evidence_records
+    first = "Люди обговорюють ставлення до Росії і своє суспільство."
+    second = "Співрозмовники говорять про ціни на транспорт і проїзд."
+    third = "Учасник розповідає про свій досвід роботи у великому місті."
+    block = {"index": 1, "start": 0.0, "end": 15.0, "verified": True,
+             "topics": [{"topic": "Ставлення до суспільства",
+                         "summary_uk": "Люди говорять про особисті оцінки ситуації.",
+                         "evidence": first}]}
+    rows = [{"text": first, "start": 0.0, "duration": 4.0},
+            {"text": second, "start": 4.0, "duration": 4.0},
+            {"text": third, "start": 8.0, "duration": 4.0}]
+    return build_evidence_records(
+        video_id=VID, timeline_report={"blocks": [block], "blocks_analyzed": 1,
+                    "blocks_with_evidence": 1}, transcript_rows=rows)
+
+
+def test_g3_can_supplement_source_cards_with_literal_srt_cues():
+    evidence = _expanded_source_for_g3()
+    source = prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence)
+    assert len(source["records"]) == 4
+    assert source["contains_provisional_sources"]
+    assert not source["publication_allowed"] and not source["editorial_approved"]
+    quoted = [item["literal_quote"] for item in source["records"]]
+    assert len(quoted) == len(set(quoted))
+    assert all(item["quote_sha256"] for item in source["records"])
+    draft = draft_seo_package(source=source, chat=lambda _m: json.dumps(good_package(), ensure_ascii=False))
+    assert "PROVISIONAL_SOURCE_REVIEW" in draft["blockers"]
+    reviewed = evaluate_independent_draft(
+        draft=draft, source=source,
+        chat=lambda _m: json.dumps({"risk": "low", "issues": []}))
+    assert reviewed["status"] == "NEEDS_ATTENTION"
+    assert not reviewed["publication_allowed"]
+
+
+def test_g3_rejects_unverified_expanded_source():
+    evidence = _expanded_source_for_g3()
+    evidence["complete_evidence_coverage"] = False
+    with pytest.raises(ValueError, match="UNTRUSTED_EXPANDED_SOURCE_EVIDENCE"):
+        prepare_source_packet(video_id=VID, cards=cards(), expanded_evidence=evidence)
+
+
+def test_g3_never_exceeds_source_card_limit_with_cue_candidates():
+    evidence = _expanded_source_for_g3()
+    packet = prepare_source_packet(video_id=VID, cards=cards(),
+                                   max_cards=2, expanded_evidence=evidence)
+    assert len(packet["records"]) == 2
+    assert packet["contains_provisional_sources"]
+    assert not packet["publication_allowed"]
