@@ -27,3 +27,15 @@ Release gate not yet met:
 - Whole-queue acceptance and backup/rollback trial.
 
 Do not copy these modules into the live Studio or restart Studio while the current 19-stream queue is active.
+
+## Integration candidate (prepared; not live)
+
+- `rg_studio_adapter.py` binds the existing Studio progress labels to a standalone compact Qt window, without launching external workers.
+- `stage_studio_patch.py` builds an isolated candidate from the installed Studio UI, adding a mini-progress control and fail-closed QA check.
+- `transactional_install.py` is a user-initiated, explicitly gated installer. It refuses installation while Studio runs, any video workers exist, the queue is marked running or paused, or any queue row remains pending. It preserves complete file backups and rolls back on failure.
+- `test_transactional_install.py` validates blocked, dry-run, and sandbox installation with backups.
+- `.github/workflows/rg-stability-v1-staged-candidate.yml` validates a candidate without editing the live Studio.
+- `.github/workflows/rg-stability-adapter-offscreen.yml` verifies compact Qt UI separately.
+
+**No automatic deployment is authorized while the 19-stream queue is running.**
+Full release requires an idle, closed Studio, verification of Premiere XML and media, and explicit installed-app acceptance.
