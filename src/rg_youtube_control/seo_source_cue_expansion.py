@@ -67,17 +67,21 @@ def expand_source_cue_candidates(
     window_groups: list[tuple[int, list[dict[str, Any]]]] = []
     unverified: list[int] = []
     seen_block_ids: set[int] = set()
+    invalid_block_count = 0
     for b in blocks:
         if not isinstance(b, dict):
+            invalid_block_count += 1
             continue
         try:
             index = int(b["index"])
             begin = float(b["start"])
             end = float(b["end"])
         except (KeyError, ValueError, TypeError):
+            invalid_block_count += 1
             continue
         if (index in seen_block_ids or not math.isfinite(begin)
             or not math.isfinite(end) or begin < 0 or end < begin):
+            invalid_block_count += 1
             continue
         seen_block_ids.add(index)
         if b.get("verified") is not True:
@@ -148,7 +152,9 @@ def expand_source_cue_candidates(
         "enough_diverse_candidates": (len(selected) >= 3 and
             len({x["block_index"] for x in selected}) >= 2),
         "unverified_block_ids": sorted(unverified),
-        "complete_timeline_verified": bool(window_groups) and not unverified,
+        "invalid_block_count": invalid_block_count,
+        "complete_timeline_verified": (bool(window_groups) and
+            not unverified and invalid_block_count == 0),
         "needs_independent_semantic_review": True,
         "publication_allowed": False,
         "human_approved": False,
