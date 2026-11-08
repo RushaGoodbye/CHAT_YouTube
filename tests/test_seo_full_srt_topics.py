@@ -70,3 +70,19 @@ def test_no_substantive_topic_is_explicit_not_silent():
     assert len(report["windows_without_substantive_topics"])==report["window_count"]
     assert report["topic_records_review_only"]==[]
     assert report["needs_review"] is True
+
+
+def test_close_quote_resolves_to_original_cue_not_model_rewrite():
+    original=rows(3)
+    window=split_transcript_windows(original,max_chars=600)[0]
+    actual=window["cues"][0]
+    slightly_changed=actual["text"].replace("відео", "відео.")
+    def adjusted(messages):
+        return json.dumps({"topics":[{"source_index":actual["source_index"],
+            "quote":slightly_changed, "label_uk":"Перевірка змісту відео",
+            "kind":"speech"}]},ensure_ascii=False)
+    checked=extract_grounded_window_topics(window,chat=adjusted)
+    assert len(checked["topics"])==1
+    assert checked["topics"][0]["source_quote"]==actual["text"]
+    assert checked["topics"][0]["source_quote_restored_from_original"] is True
+    assert checked["topics"][0]["factual_truth_verified"] is False
