@@ -153,7 +153,8 @@ def test_wiring_uses_full_transcript_rows_not_first_12000_characters():
     assert "analyze_all_timeline_blocks(" in body
     assert "transcript_rows," in body
     assert "evidence_report=evidence_report" in body
-    assert "transcript = evidence_outline_text(evidence_report)" in body
+    assert "transcript = grounded_evidence_outline(source_records)" in body
+    assert "complete_evidence_coverage" in body
     assert "blocks_with_evidence" in body
     assert "cache_dir=self.data_dir" in body
     assert 'report_dir = self.data_dir / "seo_evidence"' in body
@@ -191,7 +192,7 @@ def test_three_ab_titles_must_be_distinct_and_grounded():
     good = [
         "Путін і влада: що обговорили?",
         "Перун і релігія: що говорили учасники?",
-        "Війна та пропаганда: що кажуть співрозмовники?",
+        "Війна та пропаганда: як учасники пояснюють суперечку?",
     ]
     assert ab_title_issues(good, report) == []
     weak = [

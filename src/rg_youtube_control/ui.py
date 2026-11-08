@@ -1378,7 +1378,7 @@ class MainWindow(QMainWindow):
         for key, label in (
             ("youtube", "YouTube"),
             ("nas", "NAS"),
-            ("ollama", "Ollama"),
+            ("ollama", "LM Studio"),
             ("transcript", "Transcript"),
             ("vidiq", "vidIQ"),
             ("api", "API"),
@@ -2119,7 +2119,7 @@ class MainWindow(QMainWindow):
         self._set_health_state(
             "ollama",
             bool(probes.get("ollama", {}).get("available")),
-            "Ollama",
+            "LM Studio",
         )
         self._set_health_state(
             "transcript",
@@ -5655,7 +5655,7 @@ class MainWindow(QMainWindow):
             ("403", "YouTube 403"),
             ("timeout", "Timeout"),
             ("timed out", "Timeout"),
-            ("ollama", "Ollama"),
+            ("ollama", "LM Studio"),
         ):
             if token in text:
                 return family
@@ -6474,7 +6474,7 @@ class MainWindow(QMainWindow):
             f"Шлях транскриптів: {nas_path}",
             f"yt-dlp: {'OK' if yt.get('available') else '—'}",
             f"Transcript: {'OK' if tr.get('available') else '—'}",
-            f"Ollama: {'OK' if ol.get('available') else '—'}",
+            f"LM Studio: {'OK' if ol.get('available') else '—'}",
             f"PowerShell (вбудований): {ps_label}",
             f"{DEFAULT_OLLAMA_MODEL}: {'OK' if model.get('available') else '—'}",
             (
@@ -12670,7 +12670,7 @@ class MainWindow(QMainWindow):
                 + ("OK" if yt.get("available") else "—")
                 + " · transcript: "
                 + ("OK" if tr.get("available") else "—")
-                + " · Ollama: "
+                + " · LM Studio: "
                 + ("OK" if ol.get("available") else "—")
                 + " · "
                 + DEFAULT_OLLAMA_MODEL
@@ -12682,7 +12682,7 @@ class MainWindow(QMainWindow):
             self._set_health_state(
                 "ollama",
                 bool(ol.get("available") and model.get("available")),
-                "Ollama",
+                "LM Studio",
             )
             self._set_health_state(
                 "transcript",
@@ -12698,7 +12698,7 @@ class MainWindow(QMainWindow):
             self._free_tools_last_probe = {}
             if hasattr(self, "free_tools_status_label"):
                 self.free_tools_status_label.setText(f"0-quota: {exc}")
-            self._set_health_state("ollama", False, "Ollama")
+            self._set_health_state("ollama", False, "LM Studio")
             self._set_health_state("transcript", False, "Transcript")
 
 
@@ -12886,6 +12886,31 @@ class MainWindow(QMainWindow):
                 except Exception:
                     transcript_rows = []
 
+        # G4: when the requested video has NO accessible captions, acquire
+        # its original audio and transcribe the ENTIRE duration locally.
+        # The source is still an unapproved ASR transcript, never an editorial
+        # fact or permission to publish. Runs only while this app is running.
+        if not transcript_rows:
+            if on_progress is not None:
+                on_progress("Субтитрів немає · повне аудіо → Whisper Large-v3 · API 0")
+            try:
+                from .seo_audio_fallback import acquire_full_srt_from_public_youtube_audio
+
+                recovered_asr = acquire_full_srt_from_public_youtube_audio(
+                    video_id=video_id,
+                    cache_dir=self.data_dir / "seo_audio_asr_cache",
+                    duration_s=duration_seconds,
+                )
+                transcript_rows = load_srt_transcript(recovered_asr["srt_path"])
+                if transcript_rows:
+                    transcript_source = "youtube-audio-whisper-unreviewed"
+                    context["audio_asr_unreviewed"] = True
+                    context["audio_asr_manifest_path"] = recovered_asr.get("manifest_path")
+            except Exception as exc:
+                context["audio_asr_failure"] = type(exc).__name__ + ": " + str(exc)[:220]
+                if on_progress is not None:
+                    on_progress("ASR недоступний: " + str(exc)[:150])
+
         # Direct YouTube captions are recorded on acquisition, never relabeled
         # from NAS filenames. A failed preflight blocks SEO rather than
         # silently approving a mismatched transcript.
@@ -12966,11 +12991,12 @@ class MainWindow(QMainWindow):
                 "Не потрібно експортувати cookies або повторювати вхід."
             )
 
-        # Complete timeline analysis runs only in manual single-video mode.
-        # Batch remains lightweight and review-only until the full workflow
-        # has been independently validated on archive videos.
+        # G4: both manual and batch SEO consume the COMPLETE caption timeline.
+        # The old fast path sampled only 12,000 characters, silently dropping
+        # most of long streams. Cached per-block source evidence keeps repeat
+        # runs efficient without skipping the end of any video.
         evidence_report = None
-        if transcript_rows and not fast_mode:
+        if transcript_rows:
             evidence_report = analyze_all_timeline_blocks(
                 transcript_rows,
                 model=DEFAULT_OLLAMA_MODEL,
@@ -12979,12 +13005,40 @@ class MainWindow(QMainWindow):
                 progress=on_progress,
                 timeout=180.0,
             )
-            if evidence_report["blocks_with_evidence"] == 0:
-                raise RuntimeError(
-                    "Модель не підтвердила жодної теми цитатами з транскрипту. "
-                    "SEO-пакет не створено, оригінальні дані збережено."
+            # G2: every model-proposed claim must carry a quotation found in
+            # this video's original timestamped captions. A quote from another
+            # block or an unsupported model summary never becomes evidence.
+            from .seo_evidence_records import build_evidence_records
+
+            source_records = build_evidence_records(
+                video_id=video_id,
+                timeline_report=evidence_report,
+                transcript_rows=transcript_rows,
+            )
+            if not source_records["complete_evidence_coverage"]:
+                # One bounded rescue per unsupported timeline block, grounded
+                # in a literal original caption. No unbounded retry loops.
+                from .seo_evidence_recovery import recover_missing_source_blocks
+
+                source_records = recover_missing_source_blocks(
+                    video_id=video_id,
+                    timeline_report=evidence_report,
+                    transcript_rows=transcript_rows,
+                    chat=ollama_chat,
+                    model=DEFAULT_OLLAMA_MODEL,
+                    timeout=90.0,
+                    max_attempts=2,
                 )
-            transcript = evidence_outline_text(evidence_report)
+            evidence_report["source_evidence"] = source_records
+            if not source_records["complete_evidence_coverage"]:
+                missing = source_records["blocks_without_grounded_quotes"]
+                raise RuntimeError(
+                    "G2: не всі фрагменти підтверджені початковими субтитрами "
+                    f"(непідтверджені блоки: {missing}). "
+                    "SEO-пакет не створено, потрібна редакторська перевірка."
+                )
+            from .seo_evidence_records import grounded_evidence_outline
+            transcript = grounded_evidence_outline(source_records)
             # Persist the complete topic/evidence map independently of the
             # published description, so no overlooked dialogue disappears.
             report_dir = self.data_dir / "seo_evidence"

@@ -30,12 +30,15 @@ def test_unverified_block_not_used():
             ]}],
         })
 
-def test_editor_not_model_authored_when_evidence_is_verified():
+def test_source_grounded_description_is_not_replaced_by_generic_editor():
     from pathlib import Path
     source = Path("src/rg_youtube_control/free_tools.py").read_text(encoding="utf-8")
     method = source.split("def generate_seo_package_local(", 1)[1]
-    assert "if evidence_report:\n                # One deterministic editorial pass" in method
-    assert "description_candidate = _deterministic_evidence_description(" in method
+    section = method.split("if evidence_report:\n                # Never replace", 1)[1].split("\n            else:", 1)[0]
+    assert "grounded_description_issue(" in section
+    assert "recover_source_description(" in section
+    assert 'candidate["description"] = original_desc' in section
+    assert "_deterministic_evidence_description(" not in section
 
 
 def test_primary_seo_button_visible():

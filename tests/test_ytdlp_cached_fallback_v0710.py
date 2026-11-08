@@ -16,6 +16,16 @@ from rg_youtube_control.db import connect
 VIDEO = "QCIuLwQm4nU"
 
 
+def _stub_grounded_evidence(monkeypatch):
+    """Isolate the cached-metadata behavior; G2 has dedicated evidence tests."""
+    import rg_youtube_control.seo_evidence_records as evidence
+    monkeypatch.setattr(evidence, "build_evidence_records",
+                        lambda **_kwargs: {"complete_evidence_coverage": True,
+                                           "blocks_without_grounded_quotes": []})
+    monkeypatch.setattr(evidence, "grounded_evidence_outline",
+                        lambda *_args: "Перевірений текст діалогу про Перуна")
+
+
 def _seed(conn, *, video_id=VIDEO, scheduled=None):
     conn.execute(
         """INSERT INTO videos (
@@ -113,6 +123,12 @@ def test_cached_title_nas_srt_does_not_invoke_yt_dlp(monkeypatch, tmp_path):
             AssertionError("yt-dlp must never run when cached metadata and NAS captions exist")
         ),
     )
+    # G1 provenance has dedicated security tests; isolate this legacy metadata
+    # fallback test from acquisition rather than weakening production checks.
+    import rg_youtube_control.seo_caption_manifest as caption_manifest
+    _stub_grounded_evidence(monkeypatch)
+    monkeypatch.setattr(caption_manifest, "audit_caption_file",
+                        lambda **_kwargs: {"status": "VERIFIED_SOURCE", "issues": []})
     monkeypatch.setattr(
         ui, "fetch_transcript",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -143,7 +159,7 @@ def test_cached_title_nas_srt_does_not_invoke_yt_dlp(monkeypatch, tmp_path):
     )
     assert result["context"]["source"] == "sqlite-cache"
     assert result["context"]["description"] != "Не публікувати: AI опис"
-    assert result["context"]["transcript_source"] == "nas-srt"
+    assert result["context"]["transcript_source"] == "nas-srt-verified"
     assert result["evidence_report"]["blocks_total"] == 1
     assert any("yt-dlp не потрібен" in stage for stage in stages)
     assert (tmp_path / "seo_evidence" / f"{VIDEO}.json").exists()
@@ -165,6 +181,10 @@ def test_captions_api_success_still_avoids_ytdlp(monkeypatch, tmp_path):
             {"text": "Обсуждение Перуна.", "start": 0.0, "duration": 4.0}
         ],
     )
+    import rg_youtube_control.seo_caption_acquisition as caption_acquisition
+    _stub_grounded_evidence(monkeypatch)
+    monkeypatch.setattr(caption_acquisition, "acquire_caption_rows",
+                        lambda **_kwargs: {"status": "VERIFIED_SOURCE", "issues": []})
     monkeypatch.setattr(
         ui, "analyze_all_timeline_blocks",
         lambda *_args, **_kwargs: {

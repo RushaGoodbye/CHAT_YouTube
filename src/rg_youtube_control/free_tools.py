@@ -11,10 +11,13 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
+from .lm_studio_backend import (
+    DEFAULT_LM_STUDIO_MODEL, lm_studio_chat, list_models as list_lm_studio_models,
+)
 
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
-DEFAULT_OLLAMA_MODEL = "qwen3:8b"
+DEFAULT_OLLAMA_MODEL = DEFAULT_LM_STUDIO_MODEL  # legacy call-site alias
 
 
 @dataclass(frozen=True)
@@ -98,35 +101,25 @@ def probe_free_tools(
             "youtube-transcript-api", False, "не встановлено"
         )
 
+    # Preserve legacy probe keys for existing UI/tests but query LM Studio.
     try:
-        req = urllib.request.Request(
-            f"{ollama_url.rstrip('/')}/api/tags",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        models = [
-            str(item.get("name") or item.get("model") or "")
-            for item in payload.get("models", [])
-            if isinstance(item, dict)
-        ]
-        normalized = {item.split(":latest")[0] for item in models}
-        model_ready = (
-            ollama_model in models
-            or ollama_model.split(":latest")[0] in normalized
-        )
+        models = list_lm_studio_models(timeout=timeout)
+        model_ready = DEFAULT_LM_STUDIO_MODEL in models
         detail = (
-            f"{ollama_model} готова"
-            if model_ready
-            else "Ollama працює, модель ще не завантажена"
+            f"{DEFAULT_LM_STUDIO_MODEL} доступна"
+            if model_ready else "Запустіть модель у LM Studio"
         )
-        probes["ollama"] = ToolProbe("Ollama", True, detail)
-        probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
+        probes["lm_studio"] = ToolProbe("LM Studio", True, detail)
+        probes["lm_studio_model"] = ToolProbe(
+            DEFAULT_LM_STUDIO_MODEL, model_ready, detail,
+        )
     except Exception as exc:
-        probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
-        probes["ollama_model"] = ToolProbe(
-            ollama_model, False, "сервер Ollama недоступний"
+        probes["lm_studio"] = ToolProbe("LM Studio", False, str(exc)[:160])
+        probes["lm_studio_model"] = ToolProbe(
+            DEFAULT_LM_STUDIO_MODEL, False, "Сервер LM Studio недоступний",
         )
+    probes["ollama"] = probes["lm_studio"]
+    probes["ollama_model"] = probes["lm_studio_model"]
 
     return {key: value.to_dict() for key, value in probes.items()}
 
@@ -562,6 +555,11 @@ def ollama_chat(
     json_mode: bool = False,
     num_ctx: int | None = None,
 ) -> str:
+    if ollama_url == DEFAULT_OLLAMA_URL:
+        return lm_studio_chat(
+            messages, model=model, timeout=timeout,
+            temperature=temperature, json_mode=json_mode, num_ctx=num_ctx,
+        )
     request_payload = {
         "model": model,
         "messages": messages,
@@ -1453,9 +1451,9 @@ def _verified_source_ab_titles(
         titles = [title for _, title in triple]
         if not ab_title_issues(titles, report):
             return titles
-    # No fully supported independent triplet: preserve a review-only preview
-    # rather than ever declaring the A/B set safe or inventing events.
-    return [title for _, title in proposals[:3]]
+    # Generic source-label frames failed the editorial gate.
+    # Do not return them as if a complete A/B set existed.
+    return []
 
 
 def _recover_independent_ab_titles(
@@ -1655,86 +1653,86 @@ def _grounded_tags_from_transcript(
     if "шойгу" in haystack:
         add("Шойгу")
         if "уволь" in haystack or "отстав" in haystack:
-            add("увольнение Шойгу")
+            add("звільнення Шойгу")
     if "герасим" in haystack:
         add("Герасимов")
     if "пригож" in haystack:
         add("Пригожин")
     if "белоусов" in haystack:
-        add("Белоусов")
+        add("Бєлоусов")
     if "тимур" in haystack and "иванов" in haystack:
         add("Тимур Иванов")
     if "лукашенко" in haystack:
         add("Лукашенко")
     if "беларус" in haystack:
-        add("Беларусь")
+        add("Білорусь")
         if "украин" in haystack or "україн" in haystack:
-            add("Беларусь и Украина")
+            add("Білорусь та Україна")
     if "украин" in haystack or "україн" in haystack:
-        add("Украина")
+        add("Україна")
     if "совет" in haystack and "безопас" in haystack:
-        add("Совет безопасности России")
+        add("Рада безпеки Росії")
     if "министерств" in haystack and "оборон" in haystack:
-        add("Министерство обороны России")
+        add("Міністерство оборони Росії")
     if "коррупц" in haystack:
-        add("коррупция в России")
+        add("корупція в Росії")
     if "арм" in haystack and ("росси" in haystack or "рф" in haystack):
-        add("российская армия")
+        add("російська армія")
 
     if "росси" in haystack or "росія" in haystack:
         for value in (
-            "Россия",
-            "россияне",
-            "мнение россиян",
-            "вопросы россиянам",
+            "Росія",
+            "росіяни",
+            "думки росіян",
+            "запитання росіянам",
         ):
             add(value)
 
     if "жизн" in haystack or "житт" in haystack:
-        add("жизнь в России")
+        add("життя в Росії")
     if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
-        add("цены в России")
+        add("ціни в Росії")
     if "зарплат" in haystack or "доход" in haystack:
-        add("зарплаты в России")
+        add("зарплати в Росії")
     if "пенси" in haystack or "соцпакет" in haystack:
-        add("пенсии в России")
+        add("пенсії в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
     if in_title or mentions >= 3:
-        add("экономика России")
+        add("економіка Росії")
     in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
     if in_title or mentions >= 3:
-        add("Путин")
+        add("Путін")
     in_title, mentions = _source_mentions(
         title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
-        add("война России против Украины")
+        add("війна Росії проти України")
     in_title, mentions = _source_mentions(
         title, transcript, ("мобилиз", "мобіліз")
     )
     if in_title or mentions >= 3:
-        add("мобилизация в России")
+        add("мобілізація в Росії")
     in_title, mentions = _source_mentions(title, transcript, ("санкц",))
     if in_title or mentions >= 3:
-        add("санкции против России")
+        add("санкції проти Росії")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
-        add("бензин в России")
+        add("бензин у Росії")
     in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
-        add("работа в России")
+        add("робота в Росії")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
-        add("жилье в России")
+        add("житло в Росії")
     if "медицин" in haystack or "здоров" in haystack or "боляч" in haystack:
-        add("здоровье в России")
+        add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
-        add("Россия 2023")
+        add("Росія 2023")
 
-    # Project-format fallbacks are added last, only to reach a useful minimum.
+    # Channel-format fallbacks stay generic and do not invent source facts.
     for value in (
-        "опрос россиян",
-        "реакция россиян",
-        "разговор с россиянами",
-        "русская чат рулетка",
+        "опитування росіян",
+        "реакція росіян",
+        "розмова з росіянами",
+        "чат-рулетка з росіянами",
     ):
         if len(tags) >= 8:
             break
@@ -2056,6 +2054,7 @@ def _recover_chapters_from_transcript(
 
 
 from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
+from .seo_editorial_gate import editorial_risk_flags
 
 
 def generate_seo_package_local(
@@ -2148,7 +2147,7 @@ SHORTS: {is_short}
     payload: dict[str, Any] = {}
     title_fallback_used = False
     last_error: Exception | None = None
-    for attempt in range(1 if fast_mode else 3):
+    for attempt in range(1 if timeout <= 10 else (2 if fast_mode else 3)):  # bounded time budget
         system_text = (
             "Працюй як точний редактор метаданих. "
             "Не вигадуй подій, людей, цитат або причин. "
@@ -2238,8 +2237,21 @@ chapters: рядок з підтвердженими таймкодами та �
                 len(variants_candidate) < 3
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
-                if fast_mode:
-                    # Strict for unattended batch preparation.
+                if fast_mode and evidence_report:
+                    # One bounded repair of missing variants, not a third
+                    # unsupported story. The final A/B gate still applies.
+                    try:
+                        repaired = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=_ab_distinct_evidence_brief(evidence_report)
+                            + "\n" + transcript,
+                            model=model,
+                        )
+                        if len(repaired) >= 3:
+                            variants_candidate = repaired[:3]
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
+                elif fast_mode:
                     raise ValueError("need exactly 3 title variants")
                 try:
                     recovered_variants = _recover_title_variants(
@@ -2265,11 +2277,27 @@ chapters: рядок з підтвердженими таймкодами та �
             if fast_mode and len(variants_candidate) < 3:
                 raise ValueError("need exactly 3 distinct title variants")
             candidate["title_variants"] = variants_candidate[:3]
-            if evidence_report and not fast_mode:
+            if evidence_report:
                 issues = ab_title_issues(
                     candidate["title_variants"], evidence_report,
                 )
-                if issues:
+                if issues and fast_mode:
+                    # One bounded source-grounded A/B repair in batch mode.
+                    # Do not accept generic question templates as hooks.
+                    try:
+                        improved = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=_ab_distinct_evidence_brief(evidence_report)
+                            + "\n" + transcript,
+                            model=model,
+                        )
+                        if len(improved) == 3 and len(ab_title_issues(
+                            improved, evidence_report,
+                        )) < len(issues):
+                            candidate["title_variants"] = improved
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
+                if issues and not fast_mode:
                     # One focused recovery using the full grounded outline.
                     # Keep the original candidates if the retry is worse.
                     try:
@@ -2292,7 +2320,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
                 remaining = ab_title_issues(candidate["title_variants"], evidence_report)
-                if remaining:
+                if remaining and not fast_mode:
                     independent = _recover_independent_ab_titles(
                         report=evidence_report,
                         current_title=current_title,
@@ -2332,23 +2360,64 @@ chapters: рядок з підтвердженими таймкодами та �
                         candidate["title_variants"] = lexical
                         candidate["_source_lexical_review_only"] = True
             if evidence_report:
-                # One deterministic editorial pass, zero extra Ollama
-                # recovery requests and zero model-authored public claims.
-                unmapped_evidence: list[str] = []
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                    review_unmapped=unmapped_evidence,
+                # Never replace real video content with a generic SEO template.
+                # Validate the first candidate against the literal source
+                # quotes, then perform ONE focused source-only model repair.
+                # Any unsupported output remains BLOCKED, never published.
+                from .seo_content_editor import (
+                    grounded_description_issue, recover_source_description,
                 )
-                candidate["evidence_editorial_review"] = unmapped_evidence
-                candidate["description"] = description_candidate
-                candidate["_deterministic_editor"] = True
-                description_error = _description_quality_error(
-                    description_candidate, transcript, max_chars=950,
+                original_desc = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
                 )
+                description_error = grounded_description_issue(
+                    original_desc, evidence_report,
+                )
+                if description_error and timeout > 10:
+                    repaired, repair_error = recover_source_description(
+                        report=evidence_report, current_title=current_title,
+                        model=model, chat=ollama_chat,
+                        timeout=min(90.0, timeout),
+                    )
+                    if repaired:
+                        original_desc = repaired
+                        description_error = ""
+                    else:
+                        description_error = repair_error or description_error
+                if description_error and timeout > 10:
+                    # G7: ask the local model for individually quote-ID-linked
+                    # Ukrainian sentences. Reject the whole SEO synopsis when
+                    # even one new assertion lacks its own source quotation.
+                    from .seo_grounded_claims import generate_attributed_claim_description
+                    grounded_text, claim_error, claim_report = (
+                        generate_attributed_claim_description(
+                            report=evidence_report,
+                            current_title=current_title, model=model,
+                            chat=ollama_chat, timeout=min(90.0, timeout),
+                        )
+                    )
+                    if grounded_text:
+                        original_desc = grounded_text
+                        description_error = ""
+                        candidate["_source_claim_provenance"] = claim_report
+                    else:
+                        candidate["_source_claim_failure"] = claim_error
                 if description_error:
-                    # Retain the evidence-only text as an explicitly unapproved
-                    # draft. Do not retry deterministic content with the model.
-                    candidate["_description_quality_issue"] = description_error
+                    # Preserve concrete original speech as a local review
+                    # preview; never replace it with generic marketing prose.
+                    from .seo_content_editor import literal_quote_description_preview
+                    preview = literal_quote_description_preview(evidence_report)
+                    if preview:
+                        original_desc = preview
+                        description_error = ""
+                        candidate["_source_quote_description_review_only"] = True
+                if description_error:
+                    raise ValueError(
+                        "source-grounded SEO description rejected: "
+                        + description_error
+                    )
+                candidate["description"] = original_desc
+                candidate["_source_model_description_review_only"] = True
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2542,7 +2611,8 @@ chapters: рядок з підтвердженими таймкодами та �
         str(payload.get("description") or "").strip()
     )
     omitted_topics: list[str] = []
-    if evidence_report and not payload.get("_deterministic_editor"):
+    if (evidence_report and not payload.get("_deterministic_editor")
+            and not payload.get("_source_quote_description_review_only")):
         # Legacy evidence packages keep their topic appendix.
         # Keep the concise lead, then append every distinct supported subject
         # while respecting the platform description budget. The evidence map
@@ -2610,18 +2680,38 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short or is_stream:
         chapters = ""
 
+    editorial_flags = editorial_risk_flags(
+        {"title": title, "title_variants": variants[:3], "description": description},
+        transcript,
+    )
+
     return {
         "title": title,
         "title_variants": variants[:3],
         "description": description,
         "tags": tags[:15],
         "chapters": chapters,
-        "provider": f"ollama:{model}",
+        "provider": f"lmstudio:{model}",
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
+        "description_source_quote_preview_only": bool(
+            payload.get("_source_quote_description_review_only")
+        ),
+        "source_claim_provenance": payload.get("_source_claim_provenance"),
+        "source_claim_failure": payload.get("_source_claim_failure"),
+        "automated_content_gate_pass_not_editorial_approval": bool(
+            evidence_report
+            and not payload.get("_source_quote_description_review_only")
+            and not payload.get("_fallback_review_only")
+            and not title_issues and not editorial_flags
+            and not payload.get("_description_quality_issue")
+            and not payload.get("_tags_review_required")
+            and len(variants) == 3
+        ),
         "needs_review": (
-            source_quote_fallback
+            fast_mode  # Batch SEO is never editorially approved by generation alone.
+            or source_quote_fallback
             or
             title_fallback_used
             or unchanged_title
@@ -2636,12 +2726,15 @@ chapters: рядок з підтвердженими таймкодами та �
             or bool(payload.get("_fallback_review_only"))
             or bool(payload.get("_source_topic_fallback_review_only"))
             or bool(payload.get("_source_lexical_review_only"))
+            or bool(payload.get("_source_quote_description_review_only"))
+            or bool(editorial_flags)
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
+        "source_editorial_risk_flags": editorial_flags,
         "review_reason": "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
@@ -2652,12 +2745,14 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(editorial_flags), "Перевірити редакторські ризики: " + ", ".join(editorial_flags)),
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),
                 (bool(payload.get("_fallback_review_only")), "Модель не завершила SEO; збережено лише непублікаційний чернетковий пакет"),
                 (bool(payload.get("_source_topic_fallback_review_only")), "A/B із перевірених цитат: обов'язкове редакторське затвердження"),
                 (bool(payload.get("_source_lexical_review_only")), "A/B сформовано лише з дослівних тем: перевірити редакційні формулювання"),
+                (bool(payload.get("_source_quote_description_review_only")), "Опис містить дослівні репліки замість авторського викладу: потрібна редакторська перевірка"),
             )
             if condition
         ),

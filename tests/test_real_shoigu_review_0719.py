@@ -29,7 +29,7 @@ def test_shoigu_paraphrases_are_not_three_different_hooks():
 def test_different_real_stories_still_pass():
     assert not ab_title_issues([
         "БІЛОУСОВ У МІНОБОРОНИ: ЧОГО ОЧІКУЮТЬ РОСІЯНИ?",
-        "ТИМУР ІВАНОВ І КОРУПЦІЯ: ЩО КАЖУТЬ СПІВРОЗМОВНИКИ?",
+        "ТИМУР ІВАНОВ І КОРУПЦІЯ: ЗВІДКИ ВЗЯЛИСЯ ЗАПИТАННЯ?",
         "ПЕРЕВЕДЕННЯ ШОЙГУ ДО РАДБЕЗУ: ЯК РЕАГУЮТЬ РОСІЯНИ?",
     ])
 
