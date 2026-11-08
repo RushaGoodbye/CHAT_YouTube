@@ -20,6 +20,7 @@ from rg_youtube_control.seo_g3_batch_drafts import (
     repair_seo_package, complete_missing_source_variants,
 )
 from rg_youtube_control.lm_studio_backend import lm_studio_chat
+from rg_youtube_control.seo_full_srt_topics import analyze_full_original_transcript, split_transcript_windows
 
 ROOT = Path(r"C:\RG_YT_AGENT_RUNNER\SEO_G1_CHECK\g2_cohort_20261104")
 CACHE = ROOT / "g4_end_to_end_10_review_only_20261105" / "evidence_cache"
@@ -216,18 +217,58 @@ def main() -> int:
             video_id=VID, timeline_report=report, transcript_rows=cues)
         if not proof["complete_literal_source_coverage"]:
             raise RuntimeError("ORIGINAL_SRT_LITERAL_COVERAGE_INCOMPLETE")
-        first = (proof.get("evidence_records") or [None])[0]
-        if first is None:
-            raise RuntimeError("NO_QUOTED_SOURCE_CARD")
-        card = {"video_id": VID, "record_id": 1, "start_s": first["start_s"],
+        # Stage 1: read ALL original SRT cues, in order. The model proposes
+        # topics per source window, never SEO directly from five fragments.
+        windows = split_transcript_windows(cues, max_chars=3200)
+        audit["full_srt_window_count"] = len(windows)
+        map_report = analyze_full_original_transcript(
+            cues, chat=_chat_for(WRITER), max_chars=3200)
+        audit["full_srt_cues_processed"] = map_report["source_cues_processed"]
+        audit["full_srt_coverage"] = map_report["all_nonempty_cues_covered"]
+        audit["full_srt_rejected_proposals"] = map_report["rejected_topic_proposals"]
+        audit["full_srt_windows_without_topics"] = (
+            map_report["windows_without_substantive_topics"])
+        # Stage 2: build a source packet using direct cited quotes from
+        # different windows, not arbitrary five snippets. All remain
+        # provisional until editorial approval.
+        chosen: list[dict] = []
+        seen_windows: set[int] = set()
+        for topic in map_report["topic_records_review_only"]:
+            window_idx = int(topic["window_index"])
+            if window_idx in seen_windows:
+                continue
+            seen_windows.add(window_idx)
+            cue = windows[window_idx]["cues"]
+            ix = int(topic["source_index"])
+            pos = next((i for i, item in enumerate(cue)
+                        if item["source_index"] == ix), -1)
+            if pos < 0:
+                raise RuntimeError("TOPIC_ORIGINAL_WINDOW_INDEX_MISMATCH")
+            original_quote = topic["source_quote"]
+            surrounding = " ".join(x["text"] for x in cue[max(0,pos-2):pos+3])
+            if original_quote not in surrounding:
+                raise RuntimeError("TOPIC_SOURCE_CONTEXT_MISMATCH")
+            chosen.append({
+                "video_id": VID, "record_id": len(chosen)+1,
+                "start_s": topic["start_s"],
                 "status": "PROVISIONAL_SOURCE_REVIEW",
-                "source_quote": first["verbatim_quote"],
-                "source_context": first["verbatim_quote"],
-                "candidate_topic": first["topic"],
-                "publication_allowed": False}
+                "source_quote": original_quote,
+                "source_context": surrounding,
+                "candidate_topic": topic["topic_candidate_not_fact"],
+                "publication_allowed": False,
+            })
+        if len(chosen) < len(windows) - len(map_report["windows_without_substantive_topics"]):
+            raise RuntimeError("MISSING_FULL_SRT_TOPICAL_WINDOW")
+        if not chosen:
+            raise RuntimeError("NO_GROUNDED_SOURCE_TOPICS")
+        # The LM prompt is bounded by its 4096-token context. If an unusually
+        # long transcript has >12 windows, refuse instead of silently dropping
+        # any late topic, or falsely reporting full SEO coverage.
+        if len(chosen) > 12:
+            raise RuntimeError("TOPIC_MAP_EXCEEDS_SINGLE_PROMPT_CAPACITY")
         source = prepare_source_packet(
-            video_id=VID, cards=[card], expanded_evidence=proof,
-            transcript_rows=cues, max_cards=5)
+            video_id=VID, cards=chosen, expanded_evidence=proof,
+            transcript_rows=cues, max_cards=12)
         audit["source_cards"] = len(source["records"])
         audit["source_provisional"] = source["contains_provisional_sources"]
         draft = draft_seo_package(source=source, chat=_chat_for(WRITER))
