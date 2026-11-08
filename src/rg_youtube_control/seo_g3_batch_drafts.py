@@ -401,7 +401,15 @@ def complete_missing_source_variants(
             not all(isinstance(item, str) for item in existing) or
             any(k != "title_variants" for k in draft.get("quality_checks", {}).get("problems", {}))):
         raise ValueError("NOT_SOLELY_MISSING_ONE_TITLE_VARIANT")
-    proposals = [r["topic_candidate_not_fact"] for r in source.get("records", [])]
+    # A literal transcript fragment is genuine speech but NOT an approved
+    # SEO topic. Never promote a provisional model/ASR label into a title.
+    proposals = [
+        r["topic_candidate_not_fact"]
+        for r in source.get("records", [])
+        if r.get("provisional") is False
+        and r.get("incomplete_source_fragment") is not True
+        and r.get("context_is_not_speaker_proof") is not True
+    ]
     accepted, changed = sanitize_review_variants(
         str(package.get("title") or ""), existing, proposals)
     if not changed or len(accepted) != 3:
