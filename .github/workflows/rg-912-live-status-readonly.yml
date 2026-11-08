@@ -1,0 +1,58 @@
+name: RG Auto Edit - 912 live status read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-912-live-status-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Check 912 progress without touching Studio
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RG912|TIME|'+(Get-Date -Format o))
+          $processes=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$'})
+          $studio=@($processes|Where-Object{$_.CommandLine -match 'rg_studio_main.py'})
+          Write-Output ('RG912|STUDIO|'+$studio.Count)
+          $workers=@($processes|Where-Object{$_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          foreach($p in $workers){
+            $s=if($p.CommandLine -match '(--video-stream|--audio-stream) 912|RG_EDITED_912'){ '912' }else{'OTHER'}
+            Write-Output ('RG912|WORKER|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$s+'|'+$p.CreationDate)
+          }
+          $queue=Join-Path $data 'studio_batch_queue.json'
+          if(Test-Path $queue){
+            $q=Get-Content $queue -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG912|QUEUE_RUNNING|'+$q.running)
+            Write-Output ('RG912|QUEUE|'+(@($q.queue) -join ','))
+            foreach($r in @($q.rows)){Write-Output ('RG912|ROW|'+$r.stream+'|'+$r.progress+'|'+$r.stage+'|'+$r.detail)}
+          }
+          $state=Join-Path $data 'run_state\912\RUN_STATE.json'
+          if(Test-Path $state){
+            $j=Get-Content $state -Raw -Encoding UTF8|ConvertFrom-Json
+            foreach($key in @('status','last_stage','last_message','progress','updated_at','error_code')){
+              $v=[string]$j.$key
+              if($v.Length -gt 300){$v=$v.Substring(0,300)}
+              Write-Output ('RG912|RUNSTATE|'+$key+'|'+$v)
+            }
+          }
+          $man=Join-Path $app 'RG_EDITED_912_MULTI_DIALOGUE.json'
+          if(Test-Path $man){
+            $m=Get-Content $man -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG912|MANIFEST|'+$m.status+'|'+$m.completed_dialogues+'/'+$m.dialogue_count)
+            if($m.error){Write-Output ('RG912|MANIFEST_ERROR|'+([string]$m.error).Substring(0,[Math]::Min(350,([string]$m.error).Length)))}
+          }
+          foreach($i in 1..2){
+            $p=Join-Path $app ('RG_EDITED_912_'+$i+'.xml')
+            $gate=Join-Path $app ('RG_EDITED_912_'+$i+'_FINAL_RELEASE_GATE.json')
+            $preview=Join-Path $app ('RG_EDITED_912_'+$i+'_FINAL_QA_PREVIEW.mp4')
+            Write-Output ('RG912|OUTPUT|'+$i+'|XML='+[bool](Test-Path $p)+'|PREVIEW='+[bool](Test-Path $preview)+'|GATE='+[bool](Test-Path $gate))
+            if(Test-Path $gate){$g=Get-Content $gate -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RG912|GATE|'+$i+'|'+$g.passed+'|'+$g.status)}
+          }
+          Write-Output 'RG912|DONE|READ_ONLY'
