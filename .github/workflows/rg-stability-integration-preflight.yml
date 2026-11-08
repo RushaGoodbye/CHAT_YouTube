@@ -1,0 +1,33 @@
+name: RG Stability Integration Preflight 20261108
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-integration-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Determine active montage and safe integration points
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          Write-Output ('RGINT|TIME|'+(Get-Date -Format o))
+          if(Test-Path $q){
+            $s=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGINT|RUNNING|'+$s.running)
+            foreach($row in @($s.rows)){Write-Output ('RGINT|ROW|'+$row.stream+'|'+$row.status+'|'+$row.stage+'|'+$row.progress)}
+          }
+          $processes=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py|rg_auto_edit_one_button.py'})
+          Write-Output ('RGINT|VIDEO_WORKERS|'+$processes.Count)
+          foreach($p in $processes){Write-Output ('RGINT|PID|'+$p.ProcessId+'|'+$p.ParentProcessId)}
+          $src=Join-Path $root 'rg_studio_ui.py'
+          $lines=@(Get-Content -LiteralPath $src -Encoding UTF8)
+          foreach($range in @(@(340,390),@(500,570),@(3020,3100),@(3190,3255),@(3620,3700))){
+            Write-Output ('RGINT|RANGE|'+$range[0]+'|'+$range[1])
+            for($i=$range[0]-1;$i -lt [Math]::Min($range[1],$lines.Length);$i++){Write-Output ('RGINT|CODE|'+($i+1)+'|'+$lines[$i])}
+          }
+          Write-Output ('RGINT|DONE')
