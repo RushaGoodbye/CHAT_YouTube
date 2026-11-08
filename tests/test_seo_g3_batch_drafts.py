@@ -456,3 +456,27 @@ def test_independent_critic_is_prompted_to_check_all_three_ab():
     assert "other sources" in rules
     assert "Claim is a reported allegation" in review["issues"][0]
     assert not review["publication_allowed"]
+
+
+def test_missing_ab_cannot_be_recovered_from_provisional_asr_topic():
+    from rg_youtube_control.seo_g3_batch_drafts import complete_missing_source_variants
+    source=prepare_source_packet(video_id=VID,cards=cards(provisional=True))
+    pkg=good_package()
+    pkg["title_variants"]=pkg["title_variants"][:2]
+    draft=draft_seo_package(source=source,
+        chat=lambda _:json.dumps(pkg,ensure_ascii=False))
+    with pytest.raises(ValueError, match="NO_GROUNDED_THIRD_AB_TITLE"):
+        complete_missing_source_variants(source=source,draft=draft)
+    assert draft["publication_allowed"] is False
+
+
+def test_missing_ab_does_not_use_fragment_topic_even_if_not_provisional():
+    from rg_youtube_control.seo_g3_batch_drafts import complete_missing_source_variants
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    source["records"][0]["incomplete_source_fragment"]=True
+    pkg=good_package()
+    pkg["title_variants"]=pkg["title_variants"][:2]
+    draft=draft_seo_package(source=source,
+        chat=lambda _:json.dumps(pkg,ensure_ascii=False))
+    with pytest.raises(ValueError, match="NO_GROUNDED_THIRD_AB_TITLE"):
+        complete_missing_source_variants(source=source,draft=draft)
