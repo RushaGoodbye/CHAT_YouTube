@@ -365,3 +365,37 @@ def test_literal_only_proof_without_grounded_original_srt_is_rejected():
         prepare_source_packet(video_id=VID, cards=cards(),
                               expanded_evidence=proof,
                               transcript_rows=_original_rows_for_g3())
+
+
+def test_g3_card_limit_keeps_beginning_and_end_of_long_real_source():
+    captions = [
+        {"start": float(i * 60), "duration": 4.0,
+         "text": f"Співрозмовники обговорили питання номер {i} та умови роботи в місті."}
+        for i in range(15)
+    ]
+    cues = [
+        {"start_s": row["start"], "source_quote": row["text"],
+         "source_precision": "single_original_cue",
+         "factual_truth_verified": False,
+         "context_window": row["text"], "model_block_verified": True}
+        for row in captions
+    ]
+    proof = {
+        "video_id": VID,
+        "source_cue_selection_schema": "RG_SOURCE_CUE_EXPANSION_V1",
+        "source_cue_candidates_review_only": True,
+        "complete_literal_source_coverage": True,
+        "complete_evidence_coverage": True,
+        "source_cue_invalid_block_count": 0,
+        "source_cue_candidates": cues,
+    }
+    packet = prepare_source_packet(
+        video_id=VID, cards=cards(), max_cards=5,
+        expanded_evidence=proof, transcript_rows=captions,
+    )
+    used = [r["literal_quote"] for r in packet["records"]]
+    assert len(used) == 5
+    assert captions[0]["text"] in used
+    assert captions[-1]["text"] in used
+    assert packet["contains_provisional_sources"] is True
+    assert packet["publication_allowed"] is False
