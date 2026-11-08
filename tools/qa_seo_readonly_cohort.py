@@ -12,6 +12,7 @@ from pathlib import Path
 from rg_youtube_control.free_tools import DEFAULT_OLLAMA_MODEL, load_srt_transcript
 from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
 from rg_youtube_control.seo_evidence_records import build_evidence_records
+from rg_youtube_control.seo_g3_batch_drafts import prepare_source_packet
 
 BASE = Path(r"C:\RG_YT_AGENT_RUNNER\SEO_G1_CHECK\g2_cohort_20261104")
 SOURCE = BASE / "source_captions"
@@ -90,7 +91,47 @@ def run() -> int:
                 and len(proof["source_cue_candidates"]) >= 3
             )
             if not item["source_ready"]:
-                item["issue"] = "SOURCE_QA_BLOCKED"
+                item["issue"] = "MODEL_TOPIC_QA_BLOCKED"
+            # Build a source packet for a REVIEW-ONLY SEO draft from original
+            # SRT. It must be blocked from publishing even if all cues exist.
+            first = (proof.get("evidence_records") or [None])[0]
+            if first is not None:
+                literal = first["verbatim_quote"]
+                topic = first["topic"]
+                start = first["start_s"]
+            else:
+                candidates = proof["source_cue_candidates"]
+                if not candidates:
+                    raise ValueError("NO_ORIGINAL_SOURCE_QUOTES")
+                literal = candidates[0]["source_quote"]
+                topic = "Дослівна репліка, тема потребує редакторської перевірки"
+                start = candidates[0]["start_s"]
+            cards = [{
+                "video_id": video_id,
+                "record_id": 1,
+                "start_s": start,
+                "status": "PROVISIONAL_SOURCE_REVIEW",
+                "source_quote": literal,
+                "source_context": literal,
+                "candidate_topic": topic,
+                "publication_allowed": False,
+            }]
+            packet = prepare_source_packet(
+                video_id=video_id, cards=cards, expanded_evidence=proof,
+                transcript_rows=cues, max_cards=12,
+            )
+            item["source_packet_ready"] = bool(
+                packet["records"] and
+                packet["contains_provisional_sources"] and
+                packet["source_material_requires_editorial_review"] and
+                packet["publication_allowed"] is False
+            )
+            item["source_packet_records"] = len(packet["records"])
+            item["source_packet_literal_only"] = packet["expanded_literal_only"]
+            item["source_packet_time_span"] = [
+                packet["records"][0]["start_s"],
+                packet["records"][-1]["start_s"],
+            ]
         except (OSError, ValueError, RuntimeError, TypeError, KeyError) as exc:
             item["issue"] = "SOURCE_QA_EXCEPTION_" + type(exc).__name__
         output.append(item)
@@ -102,16 +143,21 @@ def run() -> int:
         "literal_srt_ready": sum(
             row.get("literal_srt_coverage_complete") is True for row in output
         ),
+        "source_packets_ready_for_editorial_draft": sum(
+            row.get("source_packet_ready") is True for row in output
+        ),
         "approved_seo_packages": 0,
         "full_seo_acceptance_performed": False,
         "publication_allowed": False,
         "items": output,
     }
     print("RG_SEO_READONLY_COHORT=" + json.dumps(summary, ensure_ascii=False))
-    if summary["source_ready"] != len(IDS):
-        print("FAIL: 10/10 source readiness not proven, no SEO publication allowed")
+    if (summary["literal_srt_ready"] != len(IDS)
+            or summary["source_packets_ready_for_editorial_draft"] != len(IDS)):
+        print("FAIL: 10/10 original SRT or provisional source packets not proven")
         return 1
-    print("PASS: 10/10 source readiness only; language/semantic SEO approval pending")
+    print("PASS: 10/10 original SRT sources and review-only G3 packets; "
+          "independent SEO language/semantic acceptance is NOT done")
     return 0
 
 
