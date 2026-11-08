@@ -1,0 +1,38 @@
+name: RG Auto Edit - 884 MP4 embedded audio check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-884-embedded-audio-check.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Validate 884 MP4 has synchronized embedded audio
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg884_embedded_probe.py'
+          @'
+          import sys,json
+          from pathlib import Path
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(app))
+          from rg_embedded_audio_source_v1 import _probe,_good_embedded,_duration
+          cfg=json.loads((app/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
+          video=Path(cfg['video_root'])/'884.mp4'
+          print('RG884_PROBE|VIDEO_EXISTS|'+str(video.is_file()))
+          if not video.is_file():raise RuntimeError('VIDEO_MISSING')
+          info=_probe(video);duration=_duration(info)
+          streams=info.get('streams') or []
+          print('RG884_PROBE|DURATION_SEC|'+str(duration))
+          for stream in streams:
+              print('RG884_PROBE|STREAM|'+str(stream.get('codec_type'))+'|START|'+str(stream.get('start_time'))+'|DUR|'+str(stream.get('duration')))
+          ok=_good_embedded(info,duration)
+          print('RG884_PROBE|EMBEDDED_VALID|'+str(ok))
+          if not ok:raise RuntimeError('EMBEDDED_AUDIO_NOT_VALID')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'EMBEDDED_AUDIO_PROBE_FAILED'}
