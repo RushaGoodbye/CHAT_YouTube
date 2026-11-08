@@ -6,6 +6,7 @@ This is source-coverage QA, NOT full SEO editorial acceptance.
 from __future__ import annotations
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 from rg_youtube_control.free_tools import DEFAULT_OLLAMA_MODEL, load_srt_transcript
@@ -60,6 +61,16 @@ def run() -> int:
             )
             item["source_candidates"] = len(proof["source_cue_candidates"])
             item["candidate_windows"] = len(proof["source_cue_candidate_windows"])
+            item["missing_model_quote_blocks"] = proof["blocks_without_grounded_quotes"]
+            item["nonsemantic_terminal_blocks"] = proof["nonsemantic_caption_blocks"]
+            item["unverified_timeline_blocks"] = [
+                int(b["index"]) for b in report.get("blocks") or []
+                if b.get("verified") is not True and b.get("index") is not None
+            ]
+            item["rejected_quote_reasons"] = dict(Counter(
+                x.get("reason", "UNKNOWN") for x in proof.get("rejected_evidence") or []
+            ))
+            item["selected_cue_block_ids"] = proof["source_cue_candidate_windows"]
             item["complete_evidence_coverage"] = bool(
                 proof["complete_evidence_coverage"]
             )
