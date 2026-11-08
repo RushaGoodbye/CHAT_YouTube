@@ -86,3 +86,52 @@ def test_close_quote_resolves_to_original_cue_not_model_rewrite():
     assert checked["topics"][0]["source_quote"]==actual["text"]
     assert checked["topics"][0]["source_quote_restored_from_original"] is True
     assert checked["topics"][0]["factual_truth_verified"] is False
+
+
+def test_index_only_retry_recovers_real_original_quote_in_missing_window():
+    import json
+    from rg_youtube_control.seo_full_srt_topics import retry_empty_window_by_index
+    window=split_transcript_windows(rows(4),max_chars=600)[0]
+    source_id=window["cues"][2]["source_index"]
+    def only_index(messages):
+        prompt=json.loads(messages[-1]["content"])
+        assert prompt["window_index"]==0
+        return json.dumps({"topics":[{"source_index":source_id,
+            "label_uk":"Контекст розмови і твердження учасника",
+            "kind":"speech"}]},ensure_ascii=False)
+    recovered=retry_empty_window_by_index(window,chat=only_index)
+    assert recovered["topics"][0]["source_quote"]==window["cues"][2]["text"]
+    assert recovered["topics"][0]["retry_index_only"] is True
+    assert recovered["topics"][0]["factual_truth_verified"] is False
+
+
+def test_full_analysis_only_retries_empty_windows_once():
+    calls=[]
+    def fake(messages):
+        prompt=json.loads(messages[-1]["content"])
+        calls.append(prompt)
+        if prompt.get("task","").startswith("Identify up to three"):
+            return json.dumps({"topics":[]})
+        selected=prompt["cues"][0]
+        return json.dumps({"topics":[{
+            "source_index":selected["source_index"],
+            "label_uk":"Тема і зміст українського відео",
+            "kind":"speech"
+        }]},ensure_ascii=False)
+    report=analyze_full_original_transcript(rows(12),chat=fake,max_chars=600)
+    assert report["windows_without_substantive_topics"]==[]
+    assert report["windows_with_index_only_retry"]==list(range(report["window_count"]))
+    assert report["all_nonempty_cues_covered"] is True
+    assert all(t["retry_index_only"] for t in report["topic_records_review_only"])
+    assert len(calls)==report["window_count"]*2
+
+
+def test_index_only_retry_rejects_unlisted_cue_id():
+    from rg_youtube_control.seo_full_srt_topics import retry_empty_window_by_index
+    window=split_transcript_windows(rows(3),max_chars=600)[0]
+    output=retry_empty_window_by_index(window,
+        chat=lambda _: json.dumps({"topics":[{
+            "source_index":999,"label_uk":"Вигадана подія","kind":"report"
+        }]}))
+    assert output["topics"]==[]
+    assert output["rejected"][0]["reason"]=="INVALID_INDEX_TOPIC"
