@@ -1,0 +1,25 @@
+name: RG ETA targeted UI dataflow audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-eta-dataflow-audit.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect only ETA mutations and runtime hooks
+        shell: powershell
+        run: |
+          $path='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $l=@(Get-Content -LiteralPath $path -Encoding UTF8)
+          for($i=0;$i -lt $l.Count;$i++){
+            if($l[$i] -match 'proc_eta_value|_batch_set\(|_batch_row_data\(' -or $l[$i] -match 'eta_text|remaining_sec|eta_seconds|eta_value|ETA=' -or $l[$i] -match 'def _refresh_system|def _refresh_progress|def _batch_next|def _on_backend_line'){
+              $from=[Math]::Max(0,$i-2);$to=[Math]::Min($l.Count-1,$i+2)
+              Write-Output ('ETAFL|HOOK|'+($i+1))
+              for($k=$from;$k -le $to;$k++){Write-Output ('ETAFL|CODE|'+($k+1)+'|'+$l[$k])}
+            }
+          }
+          Write-Output 'ETAFL|DONE'
