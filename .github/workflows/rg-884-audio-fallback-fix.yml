@@ -36,26 +36,25 @@ jobs:
           i=positions[0]
           if 'items.append(emit(' not in lines[i+1] or 'len(audios)>=1' not in lines[i+1]:
               raise RuntimeError('UNEXPECTED_PREFLIGHT_AUDIO_STATEMENT')
-          replacement='''    audios=files_for(ar,stream,AUDIO_EXT)
-    if audios:
-        items.append(emit("\\u0410\\u0443\\u0434\\u0456\\u043e",True,str(audios[0])+" / ORIGINAL SOURCE DIRECT"))
-    else:
-        # RG884_EMBEDDED_AUDIO_FALLBACK_V2: verify the actual source MP4 audio.
-        audio_ok=False
-        audio_detail="No separate audio or validated embedded video audio"
-        if videos:
-            try:
-                from rg_embedded_audio_source_v1 import _probe,_good_embedded,_duration
-                probe=_probe(videos[0])
-                audio_ok=bool(_good_embedded(probe,_duration(probe)))
-                audio_detail=("EMBEDDED MP4 AUDIO / ORIGINAL SOURCE" if audio_ok
-                              else "MP4 audio absent or unsynchronized")
-            except Exception as exc:
-                audio_detail="Embedded audio check failed: "+str(exc)[:160]
-        items.append(emit("\\u0410\\u0443\\u0434\\u0456\\u043e",audio_ok,audio_detail))
-'''
-          # Convert backslash-u sequences to the existing UI label at runtime.
-          replacement=replacement.replace('\\\\u','\\u')
+          replacement="\n".join([
+              "    audios=files_for(ar,stream,AUDIO_EXT)",
+              "    if audios:",
+              "        items.append(emit(\"\\u0410\\u0443\\u0434\\u0456\\u043e\",True,str(audios[0])+\" / ORIGINAL SOURCE DIRECT\"))",
+              "    else:",
+              "        # RG884_EMBEDDED_AUDIO_FALLBACK_V2: validate MP4 audio stream.",
+              "        audio_ok=False",
+              "        audio_detail=\"No separate audio or validated embedded video audio\"",
+              "        if videos:",
+              "            try:",
+              "                from rg_embedded_audio_source_v1 import _probe,_good_embedded,_duration",
+              "                probe=_probe(videos[0])",
+              "                audio_ok=bool(_good_embedded(probe,_duration(probe)))",
+              "                audio_detail=(\"EMBEDDED MP4 AUDIO / ORIGINAL SOURCE\" if audio_ok",
+              "                              else \"MP4 audio absent or unsynchronized\")",
+              "            except Exception as exc:",
+              "                audio_detail=\"Embedded audio check failed: \"+str(exc)[:160]",
+              "        items.append(emit(\"\\u0410\\u0443\\u0434\\u0456\\u043e\",audio_ok,audio_detail))",
+          ])+"\n"
           lines[i:i+2]=[replacement]
           p=''.join(lines)
           b=original['rg_embedded_audio_source_v1.py']
