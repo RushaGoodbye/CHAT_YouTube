@@ -1,0 +1,29 @@
+name: RG 884 postrun code anchors read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg884-postrun-code-anchors.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Locate QA source change and legacy cigarette R6 code
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $terms=@('SOURCE CHANGED','RUN INVALID','R6_CIGARETTE','QA output name/duplicate is unsafe','TABLE_CONTRACT_FAILED','Сигарети •','Блюр сигарети','RG_POSTRUN_QA_V1')
+          foreach($file in Get-ChildItem $root -Filter '*.py' -File){
+            $found=@(Select-String -Path $file.FullName -SimpleMatch -Pattern $terms -ErrorAction SilentlyContinue)
+            if(!$found){continue}
+            $lines=@(Get-Content $file.FullName -Encoding UTF8)
+            foreach($m in $found|Select-Object -First 18){
+              Write-Output ('QAANCHOR|MATCH|'+$file.Name+'|'+$m.LineNumber)
+              for($i=[Math]::Max(0,$m.LineNumber-6);$i -lt [Math]::Min($lines.Count,$m.LineNumber+9);$i++){
+                Write-Output ('QAANCHOR|CODE|'+$file.Name+'|'+($i+1)+'|'+$lines[$i])
+              }
+            }
+          }
+          Write-Output 'QAANCHOR|DONE'
