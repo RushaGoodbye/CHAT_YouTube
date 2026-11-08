@@ -1,0 +1,37 @@
+name: RG queue localized button bytes inspection
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-queue-label-bytes-check.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect actual unicode escapes and installed process
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'rg_queue_label_inspection.py'
+          @'
+          from pathlib import Path
+          import os,ast
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          inst=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          for base in (root,inst):
+              text=(base/'rg_studio_ui.py').read_text(encoding='utf-8')
+              tree=ast.parse(text)
+              print('RQLABEL|ROOT|'+str(base))
+              for i,line in enumerate(text.splitlines(),1):
+                  if 'full_recalc_btn.setText(' in line or 'full_recalc_btn=_button(' in line or 'def batch_arm_full_recalculate' in line or 'full_recalc_btn.clicked.connect' in line:
+                      print('RQLABEL|LINE|'+str(i)+'|'+ascii(line.strip()))
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='setText' and isinstance(node.func.value,ast.Attribute) and node.func.value.attr=='full_recalc_btn':
+                      if node.args and isinstance(node.args[0],ast.Constant):
+                          print('RQLABEL|RUNTIME_CONSTANT|'+ascii(node.args[0].value))
+          '@ | Set-Content -LiteralPath $p -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $p
+          if($LASTEXITCODE -ne 0){throw 'RG_LABEL_INSPECT_FAILED'}
