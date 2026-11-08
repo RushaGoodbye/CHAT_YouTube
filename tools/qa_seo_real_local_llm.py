@@ -17,7 +17,7 @@ from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
 from rg_youtube_control.seo_evidence_records import build_evidence_records
 from rg_youtube_control.seo_g3_batch_drafts import (
     prepare_source_packet, draft_seo_package, evaluate_independent_draft,
-    repair_seo_package,
+    repair_seo_package, complete_missing_source_variants,
 )
 from rg_youtube_control.lm_studio_backend import lm_studio_chat
 
@@ -175,6 +175,16 @@ def main() -> int:
         audit["source_cards"] = len(source["records"])
         audit["source_provisional"] = source["contains_provisional_sources"]
         draft = draft_seo_package(source=source, chat=_chat_for(WRITER))
+        # One missing A/B title can sometimes be recovered deterministically
+        # from a timestamped source topic. Never rewrite factual content for it.
+        if len(draft["seo"].get("title_variants") or []) == 2:
+            try:
+                draft = complete_missing_source_variants(source=source, draft=draft)
+                audit["source_variant_completion"] = True
+                audit["source_variant_requires_recheck"] = True
+            except (ValueError, KeyError, TypeError) as variant_error:
+                audit["source_variant_completion"] = False
+                audit["source_variant_issue"] = str(variant_error)[:120]
         audit["format_pass"] = bool(draft["quality_checks"].get("format_pass"))
         audit["blockers"] = draft["blockers"]
         audit["title_chars"] = len(str(draft["seo"].get("title") or ""))
@@ -216,15 +226,18 @@ def main() -> int:
                     repaired["publication_allowed"] is False
                     and second["publication_allowed"] is False
                     and not second["human_approved"])
-                audit["repair_acceptance"] = bool(
+                audit["repair_ai_screened"] = bool(
                     audit["repair_format_pass"]
                     and not second["issues"]
                     and second["risk_ai"] == "low"
                     and audit["repair_unapproved"])
+                audit["repair_editorial_approved"] = False
+                audit["repair_full_10_video_acceptance"] = False
             except (ValueError, RuntimeError, OSError, TimeoutError) as repair_error:
                 audit["repair_issue"] = (
                     type(repair_error).__name__ + ": " + str(repair_error)[:170])
-                audit["repair_acceptance"] = False
+                audit["repair_ai_screened"] = False
+                audit["repair_editorial_approved"] = False
     except Exception as exc:
         audit["issue"] = type(exc).__name__
         audit["error_detail"] = str(exc)[:230]
