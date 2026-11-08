@@ -20,12 +20,12 @@ jobs:
           class VisualProductionPanel(QFrame):
               """RG premium process dashboard V2; reads host state only, no worker side effects."""
               STEPS = [
-                  ("PRECHECK", "ПІДГОТОВКА"),
-                  ("AUDIO", "АУДІО"),
-                  ("ANALYSIS", "AI АНАЛІЗ"),
-                  ("DIALOGUES", "ДІАЛОГИ"),
+                  ("PRECHECK", "\u041f\u0406\u0414\u0413\u041e\u0422\u041e\u0412\u041a\u0410"),
+                  ("AUDIO", "\u0410\u0423\u0414\u0406\u041e"),
+                  ("ANALYSIS", "AI \u0410\u041d\u0410\u041b\u0406\u0417"),
+                  ("DIALOGUES", "\u0414\u0406\u0410\u041b\u041e\u0413\u0418"),
                   ("XML", "XML"),
-                  ("QA", "КОНТРОЛЬ QA"),
+                  ("QA", "\u041a\u041e\u041d\u0422\u0420\u041e\u041b\u042c QA"),
               ]
               def __init__(self, host):
                   super().__init__(host)
@@ -43,11 +43,11 @@ jobs:
                   root.setSpacing(18)
           
                   header = QHBoxLayout()
-                  self.headline = QLabel("ПЕРЕБІГ МОНТАЖУ")
+                  self.headline = QLabel("\u041f\u0415\u0420\u0415\u0411\u0406\u0413 \u041c\u041e\u041d\u0422\u0410\u0416\u0423")
                   self.headline.setStyleSheet("color:#AEB8C7;font-size:10pt;font-weight:800;letter-spacing:1px;")
                   header.addWidget(self.headline)
                   header.addStretch()
-                  self.health = QLabel("●  ОЧІКУВАННЯ")
+                  self.health = QLabel("\u25cf  \u041e\u0427\u0406\u041a\u0423\u0412\u0410\u041d\u041d\u042f")
                   self.health.setStyleSheet("color:#9EAAB8;font-size:10pt;font-weight:700;")
                   header.addWidget(self.health)
                   root.addLayout(header)
@@ -59,15 +59,15 @@ jobs:
                   hero.addWidget(self.ring,0,Qt.AlignVCenter)
                   center = QVBoxLayout()
                   center.setSpacing(7)
-                  self.stage_caption = QLabel("ПОТОЧНА ОПЕРАЦІЯ")
+                  self.stage_caption = QLabel("\u041f\u041e\u0422\u041e\u0427\u041d\u0410 \u041e\u041f\u0415\u0420\u0410\u0426\u0406\u042f")
                   self.stage_caption.setStyleSheet("color:#929FB1;font-size:9pt;font-weight:800;")
                   center.addWidget(self.stage_caption)
-                  self.human_stage = QLabel("Очікуємо запуску")
+                  self.human_stage = QLabel("\u041e\u0447\u0456\u043a\u0443\u0454\u043c\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0443")
                   self.human_stage.setWordWrap(True)
                   self.human_stage.setMinimumHeight(48)
                   self.human_stage.setStyleSheet("color:#F0F4FA;font-size:17pt;font-weight:800;")
                   center.addWidget(self.human_stage)
-                  self.detail = QLabel("Виберіть стрім і виконайте перевірку готовності")
+                  self.detail = QLabel("\u0412\u0438\u0431\u0435\u0440\u0456\u0442\u044c \u0441\u0442\u0440\u0456\u043c \u0456 \u0432\u0438\u043a\u043e\u043d\u0430\u0439\u0442\u0435 \u043f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0443 \u0433\u043e\u0442\u043e\u0432\u043d\u043e\u0441\u0442\u0456")
                   self.detail.setWordWrap(True)
                   self.detail.setMaximumHeight(44)
                   self.detail.setStyleSheet("color:#AEB8C7;font-size:10pt;")
@@ -76,16 +76,16 @@ jobs:
                   hero.addLayout(center,3)
                   side = QVBoxLayout()
                   side.setSpacing(7)
-                  self.stream = QLabel("СТРІМ —")
+                  self.stream = QLabel("\u0421\u0422\u0420\u0406\u041c \u2014")
                   self.stream.setStyleSheet("color:#E9EDF4;font-size:12pt;font-weight:800;")
                   side.addWidget(self.stream)
-                  self.dialogue = QLabel("ДІАЛОГ —")
+                  self.dialogue = QLabel("\u0414\u0406\u0410\u041b\u041e\u0413 \u2014")
                   self.dialogue.setStyleSheet("color:#B4C2D3;font-size:10pt;font-weight:700;")
                   side.addWidget(self.dialogue)
-                  self.elapsed = QLabel("ЧАС  00:00:00")
+                  self.elapsed = QLabel("\u0427\u0410\u0421  00:00:00")
                   self.elapsed.setStyleSheet("color:#B4C2D3;font-size:10pt;")
                   side.addWidget(self.elapsed)
-                  self.eta = QLabel("ЗАЛИШИЛОСЬ  —")
+                  self.eta = QLabel("\u0417\u0410\u041b\u0418\u0428\u0418\u041b\u041e\u0421\u042c  \u2014")
                   self.eta.setStyleSheet("color:#B4C2D3;font-size:10pt;")
                   side.addWidget(self.eta)
                   side.addStretch()
@@ -98,7 +98,7 @@ jobs:
                   self.progress.setFixedHeight(12)
                   root.addWidget(self.progress)
           
-                  self.pct_caption = QLabel("ЗАГАЛЬНИЙ ПРОГРЕС  0.0%")
+                  self.pct_caption = QLabel("\u0417\u0410\u0413\u0410\u041b\u042c\u041d\u0418\u0419 \u041f\u0420\u041e\u0413\u0420\u0415\u0421  0.0%")
                   self.pct_caption.setStyleSheet("color:#9DAABD;font-size:9pt;font-weight:700;")
                   root.addWidget(self.pct_caption)
           
@@ -124,11 +124,11 @@ jobs:
                   root.addLayout(section)
           
                   foot = QHBoxLayout()
-                  self.audio = QLabel("АУДІО  •  ОРИГІНАЛЬНЕ ДЖЕРЕЛО")
+                  self.audio = QLabel("\u0410\u0423\u0414\u0406\u041e  \u2022  \u041e\u0420\u0418\u0413\u0406\u041d\u0410\u041b\u042c\u041d\u0415 \u0414\u0416\u0415\u0420\u0415\u041b\u041e")
                   self.audio.setStyleSheet("color:#73D49B;font-size:9pt;font-weight:700;")
                   foot.addWidget(self.audio)
                   foot.addStretch()
-                  self.qa = QLabel("QA  •  ОЧІКУЄ")
+                  self.qa = QLabel("QA  \u2022  \u041e\u0427\u0406\u041a\u0423\u0404")
                   self.qa.setStyleSheet("color:#9EAAB8;font-size:9pt;font-weight:700;")
                   foot.addWidget(self.qa)
                   root.addLayout(foot)
@@ -147,7 +147,7 @@ jobs:
                   top=QHBoxLayout()
                   label=QLabel(title)
                   label.setStyleSheet("color:#A5B1C2;font-size:9pt;font-weight:800;")
-                  value=QLabel("—")
+                  value=QLabel("\u2014")
                   value.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
                   value.setStyleSheet("color:#F4F7FC;font-size:13pt;font-weight:800;")
                   top.addWidget(label)
@@ -162,7 +162,7 @@ jobs:
                   v.addWidget(bar)
                   return card,value,bar
           
-              def _text(self, name, default="—"):
+              def _text(self, name, default="\u2014"):
                   try:
                       w=getattr(self.host,name)
                       return str(w.text()) if hasattr(w,"text") else default
@@ -182,40 +182,40 @@ jobs:
                   h=self.host
                   progress=_pct(getattr(h,"progress",None))
                   code=str(getattr(h,"_live_stage_code","") or "")
-                  stage=self._text("stage","Очікуємо запуску")
+                  stage=self._text("stage","\u041e\u0447\u0456\u043a\u0443\u0454\u043c\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0443")
                   self.ring.set_state(progress,"","")
                   self.progress.setValue(round(progress*1000))
-                  self.pct_caption.setText("ЗАГАЛЬНИЙ ПРОГРЕС  "+f"{progress*100:.1f}%")
-                  stream=self._text("metric_stream","—")
-                  self.stream.setText("СТРІМ  "+stream)
-                  dialogues=self._text("metric_dialogues","—")
-                  self.dialogue.setText("ДІАЛОГ  "+dialogues)
-                  self.elapsed.setText("ЧАС  "+self._text("metric_elapsed","00:00:00"))
-                  eta=self._text("proc_eta_value","—")
-                  self.eta.setText("ЗАЛИШИЛОСЬ  "+eta if eta!="—" else "ЗАЛИШИЛОСЬ  —")
-                  self.human_stage.setText(stage if stage else "Очікуємо запуску")
+                  self.pct_caption.setText("\u0417\u0410\u0413\u0410\u041b\u042c\u041d\u0418\u0419 \u041f\u0420\u041e\u0413\u0420\u0415\u0421  "+f"{progress*100:.1f}%")
+                  stream=self._text("metric_stream","\u2014")
+                  self.stream.setText("\u0421\u0422\u0420\u0406\u041c  "+stream)
+                  dialogues=self._text("metric_dialogues","\u2014")
+                  self.dialogue.setText("\u0414\u0406\u0410\u041b\u041e\u0413  "+dialogues)
+                  self.elapsed.setText("\u0427\u0410\u0421  "+self._text("metric_elapsed","00:00:00"))
+                  eta=self._text("proc_eta_value","\u2014")
+                  self.eta.setText("\u0417\u0410\u041b\u0418\u0428\u0418\u041b\u041e\u0421\u042c  "+eta if eta!="\u2014" else "\u0417\u0410\u041b\u0418\u0428\u0418\u041b\u041e\u0421\u042c  \u2014")
+                  self.human_stage.setText(stage if stage else "\u041e\u0447\u0456\u043a\u0443\u0454\u043c\u043e \u0437\u0430\u043f\u0443\u0441\u043a\u0443")
                   msg=str(getattr(h,"_live_stage_code","") or "")
                   detail=self._text("detail","")
-                  if detail and detail!="—":
+                  if detail and detail!="\u2014":
                       self.detail.setText(detail[:185])
                       self.detail.setToolTip(detail)
                   else:
-                      self.detail.setText(msg.replace("_"," ") if msg else "Очікуємо даних від монтажного модуля")
+                      self.detail.setText(msg.replace("_"," ") if msg else "\u041e\u0447\u0456\u043a\u0443\u0454\u043c\u043e \u0434\u0430\u043d\u0438\u0445 \u0432\u0456\u0434 \u043c\u043e\u043d\u0442\u0430\u0436\u043d\u043e\u0433\u043e \u043c\u043e\u0434\u0443\u043b\u044f")
                   from PySide6.QtCore import QProcess
                   running=bool(getattr(h,"proc",None) and h.proc.state()!=QProcess.NotRunning)
                   if running:
-                      hb=self._text("heartbeat_text","ПРАЦЮЄ")
+                      hb=self._text("heartbeat_text","\u041f\u0420\u0410\u0426\u042e\u0404")
                       if "STALL" in hb.upper():
-                          self.health.setText("●  ПОТРІБНА УВАГА")
+                          self.health.setText("\u25cf  \u041f\u041e\u0422\u0420\u0406\u0411\u041d\u0410 \u0423\u0412\u0410\u0413\u0410")
                           self.health.setStyleSheet("color:#F06A72;font-size:10pt;font-weight:800;")
-                      elif "ОЧІКУЄ" in hb.upper():
-                          self.health.setText("●  ОЧІКУЄ ВІДПОВІДІ")
+                      elif "\u041e\u0427\u0406\u041a\u0423\u0404" in hb.upper():
+                          self.health.setText("\u25cf  \u041e\u0427\u0406\u041a\u0423\u0404 \u0412\u0406\u0414\u041f\u041e\u0412\u0406\u0414\u0406")
                           self.health.setStyleSheet("color:#E8BB60;font-size:10pt;font-weight:800;")
                       else:
-                          self.health.setText("●  ВИКОНУЄТЬСЯ")
+                          self.health.setText("\u25cf  \u0412\u0418\u041a\u041e\u041d\u0423\u0404\u0422\u042c\u0421\u042f")
                           self.health.setStyleSheet("color:#61D898;font-size:10pt;font-weight:800;")
                   else:
-                      self.health.setText("●  ГОТОВО" if progress>=.999 else "●  ОЧІКУВАННЯ")
+                      self.health.setText("\u25cf  \u0413\u041e\u0422\u041e\u0412\u041e" if progress>=.999 else "\u25cf  \u041e\u0427\u0406\u041a\u0423\u0412\u0410\u041d\u041d\u042f")
                       self.health.setStyleSheet("color:#9EAAB8;font-size:10pt;font-weight:800;")
                   active=self._stage_index(code)
                   for i,q in enumerate(self.step_labels):
@@ -233,13 +233,13 @@ jobs:
                           value.setText(f"{n:.0f}%")
                           bar.setValue(int(round(n)))
                       except (ValueError,TypeError):
-                          value.setText("—")
+                          value.setText("\u2014")
                           bar.setValue(0)
                   # Do not infer QA PASS from entering the QA phase.
                   if progress>=.999 and not running:
-                      self.qa.setText("QA  •  ПЕРЕВІРЯЙ РЕЗУЛЬТАТ")
+                      self.qa.setText("QA  \u2022  \u041f\u0415\u0420\u0415\u0412\u0406\u0420\u042f\u0419 \u0420\u0415\u0417\u0423\u041b\u042c\u0422\u0410\u0422")
                   else:
-                      self.qa.setText("QA  •  ВИКОНУЄТЬСЯ" if active==5 and running else "QA  •  ОЧІКУЄ")
+                      self.qa.setText("QA  \u2022  \u0412\u0418\u041a\u041e\u041d\u0423\u0404\u0422\u042c\u0421\u042f" if active==5 and running else "QA  \u2022  \u041e\u0427\u0406\u041a\u0423\u0404")
           
           '@ | Set-Content -LiteralPath $module -Encoding UTF8
           @'
