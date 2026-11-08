@@ -1,0 +1,57 @@
+name: RG Stability Studio adapter offscreen acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stability-adapter-offscreen.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test adapter without running or modifying Studio
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'rg_stability_adapter_smoke.py'
+          @'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,str(Path.cwd()/'rg_stability_v1'))
+          from PySide6.QtWidgets import QApplication,QLabel,QWidget
+          from rg_studio_adapter import StudioStabilityAdapter,snapshot_from_studio
+          from rg_watchdog import WorkerObservation
+          from rg_resources import Resources
+          app=QApplication([])
+          parent=QWidget()
+          parent.metric_stream=QLabel("885")
+          parent.percent=QLabel("70.5%")
+          parent.stage=QLabel("MULTI_DIALOGUE")
+          parent._last_gpu_pct=44
+          parent._last_cpu_pct=27
+          adapter=StudioStabilityAdapter(parent)
+          assert not adapter.compact.isVisible()
+          s=adapter.refresh()
+          assert s["stream"]=="885" and s["progress_percent"]==70.5
+          assert adapter.compact.pct_label.text()=="70.5%"
+          assert adapter.inspect_qa({"passed":True,"checks":[]})["status"]=="NOT_CHECKED"
+          assert adapter.inspect_watchdog(WorkerObservation(True,1000,900,900,900))["status"]=="ACTIVE"
+          assert adapter.inspect_resources(Resources(150,16,4,True,True))["status"]=="READY"
+          assert adapter.inspect_error("OUTPUT_ARCHIVE_FAILED",xml_verified=True,manifest_complete=True)["status"]=="STOP_QUEUE"
+          adapter.show_compact()
+          app.processEvents()
+          assert adapter.compact.isVisible()
+          assert not adapter.compact.grab().isNull()
+          adapter.hide_compact()
+          assert not adapter.compact.isVisible()
+          print("RG_STABILITY_ADAPTER|OFFSCREEN|PASS")
+          print("RG_STABILITY_ADAPTER|INTEGRATION_SIDE_EFFECTS|NONE")
+          print("RG_STABILITY_ADAPTER|ACTIVE_STUDIO_MODIFIED|FALSE")
+          '@ | Set-Content -LiteralPath $py -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $py
+          if($LASTEXITCODE -ne 0){throw 'RG_ADAPTER_OFFSCREEN_FAILED'}
