@@ -511,3 +511,19 @@ def test_repair_prompt_keeps_reported_speech_and_does_not_invent_policy():
     assert len(repaired["seo"]["title_variants"])==3
     assert repaired["independent_recheck_required"] is True
     assert repaired["publication_allowed"] is False
+
+
+def test_critic_compliments_are_not_mistaken_for_issues_or_success():
+    source=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=source,
+        chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    critic=lambda _:json.dumps({"risk":"low","issues":[
+        "Title variants are factually consistent with the source transcript.",
+        "Description accurately reflects the dialogue.",
+        "No unsupported dates were introduced.",
+        "Tags align with the core topics discussed."
+    ]})
+    result=evaluate_independent_draft(draft=draft,source=source,chat=critic)
+    assert result["risk_ai"]=="medium"
+    assert result["issues"]==["INVALID_CRITIC_SCHEMA_POSITIVE_NOTES_IN_ISSUES"]
+    assert result["publication_allowed"] is False
