@@ -201,7 +201,8 @@ jobs:
                       self.detail.setToolTip(detail)
                   else:
                       self.detail.setText(msg.replace("_"," ") if msg else "Очікуємо даних від монтажного модуля")
-                  running=bool(getattr(h,"proc",None) and h.proc.state()!=h.proc.NotRunning)
+                  from PySide6.QtCore import QProcess
+        running=bool(getattr(h,"proc",None) and h.proc.state()!=QProcess.NotRunning)
                   if running:
                       hb=self._text("heartbeat_text","ПРАЦЮЄ")
                       if "STALL" in hb.upper():
@@ -253,7 +254,7 @@ jobs:
           if old!=installed:raise RuntimeError('SOURCE_INSTALLED_VISUAL_DIFFER')
           start=old.index('class VisualProductionPanel(QFrame):')
           end=old.index('class QAMatrix(QTableWidget):',start)
-          replacement=Path(sys.argv[1]).read_text(encoding='utf-8')
+          replacement=Path(sys.argv[1]).read_text(encoding='utf-8-sig').lstrip('\ufeff')
           new=old[:start]+replacement+'\n'+old[end:]
           ast.parse(new,filename=name)
           if 'RG premium process dashboard V2' not in new:raise RuntimeError('MARKER_MISSING')
