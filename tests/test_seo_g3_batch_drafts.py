@@ -425,3 +425,34 @@ def test_independent_critic_empty_string_issues_do_not_approve_provisional_sourc
     assert checked["issues"] == []
     assert checked["status"] == "NEEDS_ATTENTION"
     assert not checked["human_approved"] and not checked["publication_allowed"]
+
+
+def test_writer_prompt_enforces_three_distinct_ab_and_source_attribution():
+    packet=prepare_source_packet(video_id=VID,cards=cards())
+    observed=[]
+    def writer(messages):
+        observed.append(json.loads(messages[-1]["content"]))
+        return json.dumps(good_package(),ensure_ascii=False)
+    draft=draft_seo_package(source=packet,chat=writer)
+    instructions=" ".join(observed[0]["instructions"])
+    assert "EXACTLY THREE" in instructions
+    assert "official policy" in instructions
+    assert "reported statement" in instructions
+    assert "early and late captions" in instructions
+    assert draft["publication_allowed"] is False
+
+
+def test_independent_critic_is_prompted_to_check_all_three_ab():
+    packet=prepare_source_packet(video_id=VID,cards=cards())
+    draft=draft_seo_package(source=packet,chat=lambda _:json.dumps(good_package(),ensure_ascii=False))
+    seen=[]
+    def critic(messages):
+        seen.append(json.loads(messages[-1]["content"]))
+        return json.dumps({"risk":"medium","issues":["Claim is a reported allegation, not verified state policy"]})
+    review=evaluate_independent_draft(draft=draft,source=packet,chat=critic)
+    rules=" ".join(seen[0]["rules"])
+    assert "ALL THREE A/B titles" in rules
+    assert "question-to-assertion swaps" in rules
+    assert "other sources" in rules
+    assert "Claim is a reported allegation" in review["issues"][0]
+    assert not review["publication_allowed"]
