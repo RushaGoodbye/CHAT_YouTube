@@ -290,6 +290,10 @@ def evaluate_independent_draft(
     ]))
     risk = result.get("risk")
     issues = result.get("issues")
+    # Some local critics emit a single issue as a JSON string rather than
+    # a one-item array. Preserve the veto; do not silently discard findings.
+    if isinstance(issues, str):
+        issues = [issues] if issues.strip() else []
     if risk not in {"low", "medium", "high"} or not isinstance(issues, list) or any(
             not isinstance(i, str) for i in issues):
         raise ValueError("INVALID_INDEPENDENT_CRITIQUE")
