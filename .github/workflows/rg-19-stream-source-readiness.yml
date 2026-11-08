@@ -1,0 +1,46 @@
+name: RG 19 stream overnight source readiness read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-19-stream-source-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Validate exact 19 source assets without modifying media
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=Join-Path $env:RUNNER_TEMP 'rg19_source_preflight.py'
+          @'
+          from pathlib import Path
+          import sys,json,shutil
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(app))
+          from rg_server_resolver import resolve_screenshots
+          from rg_embedded_audio_source_v1 import verify_source_audio
+          expect=[885,891,892,893,898,901,902,903,904,905,907,908,909,910,911,912,913,914,915]
+          saved=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json')
+          j=json.loads(saved.read_text(encoding='utf-8-sig'))
+          queue=[int(x) for x in j.get('queue') or []]
+          assert queue==expect,(queue,expect)
+          cfg=json.loads((app/'rg_server_paths.json').read_text(encoding='utf-8-sig'))
+          free=shutil.disk_usage(r'F:\').free/1024**3
+          print('R19READY|QUEUE|PASS|19',flush=True)
+          print('R19READY|FREE_GB|'+str(round(free,2)),flush=True)
+          for n in expect:
+              try:
+                  src=verify_source_audio(cfg['video_root'],cfg['audio_root'],str(n))
+                  shots=resolve_screenshots(cfg['screen_root'],str(n))
+                  print('R19READY|STREAM|'+str(n)+'|PASS|'+str(src['source'])+'|SCREENSHOTS='+str(len(shots) if hasattr(shots,'__len__') else 1),flush=True)
+              except Exception as exc:
+                  print('R19READY|STREAM|'+str(n)+'|MISSING|'+type(exc).__name__+'|'+str(exc)[:190],flush=True)
+          print('R19READY|DONE',flush=True)
+          '@ | Set-Content -LiteralPath $py -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $py
+          if($LASTEXITCODE -ne 0){throw 'R19_SOURCE_READINESS_FAILED'}
