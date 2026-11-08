@@ -1,0 +1,57 @@
+name: RG Auto Edit - post restart verification 20261108
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rg-postrestart-verify-20261108.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify restart, object blur removal, and existing QA
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $installed=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RG_RESTART|HOST|'+$env:COMPUTERNAME)
+          $ui=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_studio_main.py'})
+          Write-Output ('RG_RESTART|STUDIO_COUNT|'+$ui.Count)
+          foreach($p in $ui){Write-Output ('RG_RESTART|STUDIO_START|'+$p.ProcessId+'|'+$p.CreationDate)}
+          $workers=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          Write-Output ('RG_RESTART|ACTIVE_WORKERS|'+$workers.Count)
+          $cfg=Get-Content (Join-Path $installed 'rg_auto_edit_config.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $cig=$cfg.cigarette_blur
+          Write-Output ('RG_RESTART|OBJECT_BLUR_ENABLED|'+$cig.enabled)
+          Write-Output ('RG_RESTART|OBJECT_BLUR_MANDATORY|'+$cig.mandatory)
+          Write-Output ('RG_RESTART|NOTIFICATION_PRIVACY_ENABLED|'+$cfg.privacy_blur.enabled)
+          foreach($file in @('rg_auto_edit_one_button.py','rg_multi_dialogue.py','rg_final_release_gate.py','rg_studio_ui.py','rg_auto_edit_config.json')){
+            $same=((Get-FileHash (Join-Path $app $file)).Hash -eq (Get-FileHash (Join-Path $installed $file)).Hash)
+            Write-Output ('RG_RESTART|SOURCE_INSTALLED|'+$file+'|'+$same)
+            if(!$same){throw ('SOURCE_INSTALLED_MISMATCH_'+$file)}
+          }
+          $one=Get-Content (Join-Path $installed 'rg_auto_edit_one_button.py') -Raw -Encoding UTF8
+          $multi=Get-Content (Join-Path $installed 'rg_multi_dialogue.py') -Raw -Encoding UTF8
+          $gate=Get-Content (Join-Path $installed 'rg_final_release_gate.py') -Raw -Encoding UTF8
+          $uiSource=Get-Content (Join-Path $installed 'rg_studio_ui.py') -Raw -Encoding UTF8
+          if($one.Contains('safe_object_scan(')){throw 'OBJECT_SCAN_STILL_ACTIVE'}
+          if($multi.Contains('from rg_full_object_blur_v2 import auto_after_montage')){throw 'POSTRUN_OBJECT_DETECTOR_STILL_ACTIVE'}
+          if($gate.Contains('CIGARETTE_QA_MISSING')){throw 'RELEASE_GATE_CIGARETTE_DEPENDENCY'}
+          if($uiSource.Contains('cig_review=_button(') -or $uiSource.Contains('obj_review=_button(')){throw 'OBJECT_BLUR_UI_PRESENT'}
+          if(!$one.Contains('inject_privacy_blur(')){throw 'NOTIFICATION_PRIVACY_MISSING'}
+          $queue=Get-Content (Join-Path $data 'studio_batch_queue.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RG_RESTART|QUEUE_RUNNING|'+$queue.running)
+          Write-Output ('RG_RESTART|QUEUE_ITEMS|'+(@($queue.queue) -join ','))
+          foreach($row in @($queue.rows)){Write-Output ('RG_RESTART|QUEUE_ROW|'+$row.stream+'|'+$row.progress+'|'+$row.stage)}
+          foreach($stream in @('910','911','912')){
+            $manifest=Join-Path $app ('RG_EDITED_'+$stream+'_MULTI_DIALOGUE.json')
+            if(Test-Path $manifest){
+              $m=Get-Content $manifest -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RG_RESTART|MANIFEST|'+$stream+'|'+$m.status+'|'+$m.completed_dialogues+'/'+$m.dialogue_count)
+            }else{Write-Output ('RG_RESTART|MANIFEST_MISSING|'+$stream)}
+          }
+          Write-Output 'RG_RESTART|PASS|READ_ONLY'
