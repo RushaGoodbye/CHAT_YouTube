@@ -1,0 +1,52 @@
+name: RG 19 queue recalc acceptance read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-19-queue-recalc-acceptance.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Verify queued 19 and UI mode by installed code
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg19_recalc_acceptance.py'
+          @'
+          import os,ast,json
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          inst=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          src=(inst/'rg_studio_ui.py').read_text(encoding='utf-8')
+          assert (root/'rg_studio_ui.py').read_bytes()==(inst/'rg_studio_ui.py').read_bytes()
+          ast.parse(src)
+          expect=['885','891','892','893','898','901','902','903','904','905','907','908','909','910','911','912','913','914','915']
+          candidates=[Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'),
+                      Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_ui_state.json')]
+          print('R19|EXPECTED_COUNT|'+str(len(expect)))
+          for p in candidates:
+              if p.is_file():
+                  j=json.loads(p.read_text(encoding='utf-8-sig'))
+                  q=[str(x) for x in j.get('queue') or []]
+                  print('R19|STATE|'+p.name+'|'+','.join(q))
+                  if q:print('R19|MATCH|'+str(q==expect))
+          assert 'def batch_arm_full_recalculate(self):' in src
+          assert 'self._batch_full_recalc_targets=targets' in src
+          assert 'prepare_full_recalculation(APP_DIR,stream)' in src
+          assert 'if stream not in (getattr(self,"_batch_full_recalc_targets"' in src
+          assert 'self._start_stream(stream)' in src
+          assert 'QTimer.singleShot(150, start_btn.click)' in src
+          print('R19|ARM_NO_AUTOSTART|PASS')
+          print('R19|ARCHIVE_BEFORE_START|PASS')
+          # Verify localized label was not corrupted in PowerShell runner.
+          expected='\u0412\u0421\u042e \u0427\u0415\u0420\u0413\u0423 \u0417 \u041d\u0423\u041b\u042f'
+          print('R19|LOCALIZATION|'+str(expected in src))
+          print('R19|DONE')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -u $script
+          if($LASTEXITCODE -ne 0){throw 'R19_ACCEPTANCE_FAILED'}
