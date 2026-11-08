@@ -1,0 +1,38 @@
+name: RG Auto Edit - object blur removal preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-object-blur-removal-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect configuration and callsites read only
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $files=@('rg_auto_edit_one_button.py','rg_multi_dialogue.py','rg_full_object_blur_v2.py','rg_cigarette_blur.py','rg_privacy_blur.py','rg_final_release_gate.py','rg_studio_ui.py')
+          foreach($name in $files){
+            $p=Join-Path $root $name
+            if(!(Test-Path $p)){continue}
+            Write-Output ('OBP|FILE|'+$name)
+            $lines=@(Get-Content $p -Encoding UTF8)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'scan_cigarettes\(|cigarette_blur\b|cigarette_review\b|rg_full_object_blur_v2|rg_studio_v43_auto|rg_fullstream_launcher_v2|auto_after_montage|object_blur|bottle_blur|smoking|privacy_blur'){
+                if($name -eq 'rg_auto_edit_one_button.py' -and $i -gt 2300){continue}
+                Write-Output ('OBP|MATCH|'+$name+'|'+($i+1)+'|'+$lines[$i].Trim().Substring(0,[Math]::Min(180,$lines[$i].Trim().Length)))
+              }
+            }
+          }
+          $cfg=Get-Content (Join-Path $root 'rg_auto_edit_config.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $cfg.PSObject.Properties | Where-Object {$_.Name -match 'cig|smok|object|bottle|blur|privacy|full'}|ForEach-Object {
+            $val=$_.Value|ConvertTo-Json -Depth 2 -Compress
+            Write-Output ('OBP|CONFIG|'+$_.Name+'|'+$val.Substring(0,[Math]::Min(500,$val.Length)))
+          }
+          $active=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_multi_dialogue.py|rg_production_wrapper.py'})
+          Write-Output ('OBP|ACTIVE_PROCESS_COUNT|'+$active.Count)
+          Write-Output 'OBP|DONE|READ_ONLY'
