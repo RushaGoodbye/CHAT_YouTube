@@ -1,0 +1,18 @@
+name: RG queue state persistence read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-queue-state-persistence-read.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect queue persistence source
+        shell: powershell
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          for($i=3420;$i -lt 3483;$i++){Write-Output ('PERSIST|'+($i+1)+'|'+$l[$i])}
