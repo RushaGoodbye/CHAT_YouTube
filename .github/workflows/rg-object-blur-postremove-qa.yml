@@ -1,0 +1,62 @@
+name: RG Auto Edit - post removal QA only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-object-blur-postremove-qa.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Validate existing XML gates and preserved features without video processing
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $s=Join-Path $env:RUNNER_TEMP 'rg_object_blur_postremove_qa.py'
+          @'
+          from pathlib import Path
+          import ast, json, os, sys
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ['LOCALAPPDATA'])/'Programs'/'RG Auto Edit'
+          files=['rg_auto_edit_one_button.py','rg_multi_dialogue.py','rg_final_release_gate.py','rg_studio_ui.py','rg_auto_edit_config.json']
+          for name in files:
+              assert (root/name).read_bytes()==(installed/name).read_bytes(), 'MISMATCH '+name
+          cfg=json.loads((root/'rg_auto_edit_config.json').read_text(encoding='utf-8'))
+          cig=cfg['cigarette_blur']
+          assert cig['enabled'] is False and cig['mandatory'] is False and cig['fail_closed'] is False
+          assert cfg['privacy_blur']['enabled'] is True
+          one=(root/'rg_auto_edit_one_button.py').read_text(encoding='utf-8')
+          multi=(root/'rg_multi_dialogue.py').read_text(encoding='utf-8')
+          gate=(root/'rg_final_release_gate.py').read_text(encoding='utf-8')
+          ui=(root/'rg_studio_ui.py').read_text(encoding='utf-8')
+          assert 'safe_object_scan(' not in one
+          assert 'inject_privacy_blur(' in one and 'scan_privacy_messages(' in one
+          assert '_rg_smoking_prepare' not in one
+          assert 'from rg_full_object_blur_v2 import auto_after_montage' not in multi
+          assert 'from rg_fullstream_launcher_v2 import launch_after_montage' in multi
+          assert "CIGARETTE_QA_MISSING" not in gate
+          assert "cig_review=_button(" not in ui and "obj_review=_button(" not in ui
+          assert 'manual_pending=False  # RG_OBJECT_BLUR_REMOVED_20261108' in ui
+          sys.path.insert(0,str(root))
+          import rg_final_release_gate, rg_release_health_gate
+          for stream,n in [('910',8),('911',4)]:
+              xmls=[root/f'RG_EDITED_{stream}_{i}.xml' for i in range(1,n+1)]
+              for x in xmls:
+                  assert x.exists(), 'MISSING_XML '+str(x)
+                  result=rg_final_release_gate.evaluate(x,kind='dialogue',require_privacy=True,require_interchange=True)
+                  if not result['passed']:
+                      raise RuntimeError(f'GATE_FAIL_{x.name}:{result["failures"]}')
+              rh=rg_release_health_gate.compare_outputs(stream,xmls)
+              assert rh['passed'],f'HEALTH_FAIL_{stream}:{rh.get("failures")}'
+              print(f'RG_POSTREMOVE_QA|{stream}|GATES|{n}/{n}|HEALTH|PASS')
+          print('RG_POSTREMOVE_QA|PRIVACY_NOTIFICATIONS|PRESERVED')
+          print('RG_POSTREMOVE_QA|CIGARETTE_SMOKE_BOTTLE_AUTORUN|REMOVED')
+          print('RG_POSTREMOVE_QA|SOURCE_INSTALLED|PASS')
+          print('RG_POSTREMOVE_QA|ALL|PASS')
+          
+          '@ | Set-Content -LiteralPath $s -Encoding UTF8
+          & $p -u $s
+          if($LASTEXITCODE -ne 0){throw 'RG_POSTREMOVE_QA_FAILED'}
