@@ -1,0 +1,34 @@
+name: RG Night 0112 readonly status
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-0112-readonly.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read queue, state, hardware and active stage
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          Write-Output ('RGNIGHT|TIME|'+(Get-Date -Format o))
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $q){
+            Write-Output ('RGNIGHT|QUEUE_MODIFIED|'+(Get-Item $q).LastWriteTime.ToString('o'))
+            $j=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGNIGHT|RUNNING|'+$j.running)
+            foreach($r in @($j.rows)){Write-Output ('RGNIGHT|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress+'|'+$r.message)}
+          }
+          foreach($n in @(885,891,892,893,898,901,902,903,904,905,907,908,909,910,911,912,913,914,915)){
+            $f="F:\RG_AUTO_EDIT\RG Auto Edit Data\run_state\$n\RUN_STATE.json"
+            if(Test-Path $f){$s=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGNIGHT|STATE|'+$n+'|'+$s.status+'|'+$s.last_stage+'|'+$s.progress+'|'+$s.last_message)}
+          }
+          $p=Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button|rg_multi_dialogue|rg_production_wrapper'}
+          foreach($x in $p){$g=Get-Process -Id $x.ProcessId -ErrorAction SilentlyContinue;if($g){Write-Output ('RGNIGHT|PROC|'+$x.ProcessId+'|CPU_SEC='+[math]::Round($g.CPU,1)+'|RAM_MB='+[math]::Round($g.WorkingSet64/1MB)+'|'+$x.CommandLine.Substring(0,[math]::Min(150,$x.CommandLine.Length)))}}
+          foreach($d in @(Get-PSDrive C,F -ErrorAction SilentlyContinue)){Write-Output ('RGNIGHT|DISK|'+$d.Name+'|FREE_GB='+[math]::Round($d.Free/1GB,1))}
+          $g=Get-Command nvidia-smi -ErrorAction SilentlyContinue
+          if($g){& nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader}
+          Write-Output 'RGNIGHT|DONE'
