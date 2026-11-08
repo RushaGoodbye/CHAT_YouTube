@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import wraps
 import urllib.error
 import urllib.request
 from typing import Any
@@ -54,6 +55,16 @@ def seo_model_lifecycle():
                     # Cleanup failure must never mask the actual SEO error.
                     pass
 
+
+
+
+def auto_release_seo_models(func):
+    """Wrap a synchronous SEO job, not every individual LM Studio request."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with seo_model_lifecycle():
+            return func(*args, **kwargs)
+    return wrapped
 
 
 def list_models(*, url: str = DEFAULT_LM_STUDIO_URL, timeout: float = 2.0) -> list[str]:
