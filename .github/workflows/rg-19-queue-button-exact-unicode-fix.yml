@@ -38,7 +38,7 @@ jobs:
           for i,line in enumerate(lines):
               if 'self.full_recalc_btn.setText(' not in line:continue
               if 'if self._batch_full_recalc_targets else' in line:
-                  lines[i]='            self.full_recalc_btn.setText('+lit(label_on)+' if self._batch_full_recalc_targets else '+lit(label_off)+')\n'
+                  lines[i]='                self.full_recalc_btn.setText('+lit(label_on)+' if self._batch_full_recalc_targets else '+lit(label_off)+')\n'
                   count+=1
               elif 'self.full_recalc_btn.setText(' in line and 'full_recalc_targets' not in line:
                   if i>3500:
