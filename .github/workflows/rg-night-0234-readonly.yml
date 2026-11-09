@@ -1,0 +1,53 @@
+name: RG Night 0234 readonly status
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-0234-readonly.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read queue state progress and resource samples
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          Write-Output ('RG0234|TIME|'+(Get-Date -Format o))
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          if(Test-Path $q){
+            Write-Output ('RG0234|QUEUE_MODIFIED|'+(Get-Item $q).LastWriteTime.ToString('o'))
+            $j=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG0234|RUNNING|'+$j.running)
+            foreach($r in @($j.rows)){Write-Output ('RG0234|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress+'|'+$r.message)}
+          }
+          $names=@(885,891,892,893,898,901,902,903,904,905,907,908,909,910,911,912,913,914,915)
+          foreach($n in $names){
+            $f="F:\RG_AUTO_EDIT\RG Auto Edit Data\run_state\$n\RUN_STATE.json"
+            if(Test-Path $f){$s=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RG0234|STATE|'+$n+'|'+$s.status+'|'+$s.last_stage+'|'+$s.progress+'|'+$s.last_message)}
+          }
+          $p=Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button|rg_multi_dialogue|rg_production_wrapper'}
+          $before=@{}
+          foreach($x in $p){$g=Get-Process -Id $x.ProcessId -ErrorAction SilentlyContinue;if($g){$before[$x.ProcessId]=$g.CPU;Write-Output ('RG0234|PROC|'+$x.ProcessId+'|CPU_SEC='+[math]::Round($g.CPU,1)+'|RAM_MB='+[math]::Round($g.WorkingSet64/1MB)+'|'+$x.CommandLine.Substring(0,[math]::Min(120,$x.CommandLine.Length)))}}
+          foreach($d in @(Get-PSDrive C,F -ErrorAction SilentlyContinue)){Write-Output ('RG0234|DISK|'+$d.Name+'|FREE_GB='+[math]::Round($d.Free/1GB,1))}
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Output ('RG0234|RAM|FREE_GB='+[math]::Round($os.FreePhysicalMemory/1MB,1))
+          $g=Get-Command nvidia-smi -ErrorAction SilentlyContinue
+          if($g){& nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader|ForEach-Object{Write-Output ('RG0234|GPU|'+$_)}}
+          $active=@($j.rows|Where-Object {$_.status -match 'ПРАЦ|RUNNING'})
+          foreach($a in $active){
+            $n=$a.stream
+            $root="F:\RG_AUTO_EDIT\RG Auto Edit App\run_manifests\$n"
+            foreach($file in @('LATEST.log','RG_PERFORMANCE_SAMPLES.jsonl','RG_PERFORMANCE_EVENTS.jsonl')){
+              $path=Join-Path $root $file
+              if(Test-Path $path){$item=Get-Item $path;Write-Output ('RG0234|FILE|'+$n+'|'+$file+'|'+$item.LastWriteTime.ToString('o')+'|'+$item.Length)}
+            }
+            $log=Join-Path $root 'LATEST.log'
+            if(Test-Path $log){Get-Content $log -Tail 14 -Encoding UTF8|ForEach-Object{Write-Output ('RG0234|LOG|'+$n+'|'+$_)}}
+            $events=Join-Path $root 'RG_PERFORMANCE_EVENTS.jsonl'
+            if(Test-Path $events){Get-Content $events -Tail 5 -Encoding UTF8|ForEach-Object{Write-Output ('RG0234|EVENT|'+$n+'|'+$_)}}
+          }
+          Start-Sleep -Seconds 12
+          foreach($id in $before.Keys){$p=Get-Process -Id $id -ErrorAction SilentlyContinue;if($p){Write-Output ('RG0234|CPU_DELTA|'+$id+'|'+[math]::Round(($p.CPU-$before[$id]),2))}}
+          Write-Output 'RG0234|DONE'
