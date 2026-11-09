@@ -1,0 +1,35 @@
+name: RG night safe sleep disable with rollback 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-sleep-guard-20261109.yml']
+permissions: {contents: read}
+jobs:
+  guard:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Back up AC sleep timer and disable only AC sleep
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir='F:\RG_AUTO_EDIT\RG Auto Edit Data\safe_config_backups'
+          New-Item -Path $dir -ItemType Directory -Force |Out-Null
+          $values=& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
+          $s=($values |Select-String 'Current AC Power Setting Index|Текущий индекс настройки питания от сети' |Select-Object -First 1).Line
+          if(-not $s){throw 'RGNIGHTSLEEP|CANNOT_READ_AC_SETTING_STOP'}
+          $m=[regex]::Match($s,'0x[0-9a-fA-F]+')
+          if(-not $m.Success){throw 'RGNIGHTSLEEP|CANNOT_PARSE_AC_SETTING_STOP'}
+          $old=[Convert]::ToInt32($m.Value.Substring(2),16)
+          $out=Join-Path $dir 'RG_NIGHT_AC_SLEEP_20261109.json'
+          if(-not (Test-Path $out)){
+            @{previous_ac_seconds=$old;previous_raw=$m.Value;rollback='powercfg /change standby-timeout-ac <previous_ac_seconds / 60>';created=(Get-Date -Format o)} |ConvertTo-Json|Set-Content -LiteralPath $out -Encoding UTF8
+          }
+          Write-Output ('RGNIGHTSLEEP|OLD_AC_SECONDS|'+$old)
+          if($old -ne 0){& powercfg.exe /change standby-timeout-ac 0;if($LASTEXITCODE -ne 0){throw 'RGNIGHTSLEEP|CHANGE_FAILED'}}
+          $check=& powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
+          $line=($check|Select-String 'Current AC Power Setting Index|Текущий индекс настройки питания от сети'|Select-Object -First 1).Line
+          Write-Output ('RGNIGHTSLEEP|AFTER|'+$line)
+          if($line -notmatch '0x00000000'){throw 'RGNIGHTSLEEP|VERIFY_FAILED'}
+          Write-Output ('RGNIGHTSLEEP|BACKUP|'+$out)
+          Write-Output 'RGNIGHTSLEEP|AC_SLEEP_DISABLED|PASS'
