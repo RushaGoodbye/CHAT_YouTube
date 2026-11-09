@@ -1,4 +1,4 @@
-name: RG Repair V1 isolated build and QA fixed hashes
+name: RG Repair V1 final build with 915 synchronized audio
 on:
   push:
     branches: [main]
@@ -58,6 +58,7 @@ jobs:
                   if should_pass:assert result['passed']
                   else:assert any(x['code']=='SOURCE_OVERLAP' for x in result['issues'])
           assert 'RG_AUDALIGN_EMPTY_DECODE' in (candidate/'rg_audalign_worker.py').read_text(encoding='utf-8')
+          assert '915_SPLIT_MISMATCH_USE_SYNCED_VIDEO_AUDIO' in (candidate/'rg_embedded_audio_source_v1.py').read_text(encoding='utf-8')
           assert 'FACE_IDENTITY_RESCUED_DENSE_VERIFIED' in (candidate/'rg_face_anchor_guard_v1.py').read_text(encoding='utf-8')
           print('RGREPAIR_TEST|STAGED_ONLY|PASS')
           '@ | Set-Content -LiteralPath $script -Encoding UTF8
