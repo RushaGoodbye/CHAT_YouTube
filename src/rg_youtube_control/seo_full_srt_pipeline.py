@@ -49,6 +49,22 @@ def source_packet_from_complete_map(
     # Keep one source-backed theme from EVERY substantive window first,
     # then spend spare prompt capacity on a second theme per window.
     # A first-topic-only selection misses distinct subjects in real dialogues.
+    # A source cue shorter than 8 characters cannot form a valid G3 card.
+    # Fall back to another independently extracted literal theme from the
+    # same window instead of failing the whole video on a one-word fragment.
+    unusable_windows: list[int] = []
+    eligible: dict[int, list[dict[str, Any]]] = {}
+    for window_index, candidates in per_window.items():
+        usable = [
+            candidate for candidate in candidates
+            if len(str(candidate.get("source_quote") or "").strip()) >= 8
+            and len(str(candidate.get("topic_candidate_not_fact") or "").strip()) >= 5
+        ]
+        if usable:
+            eligible[window_index] = usable
+        else:
+            unusable_windows.append(window_index)
+    per_window = eligible
     present = [i for i in range(len(windows)) if per_window.get(i)]
     # The full SRT is analyzed before this selection. A 4096-token final
     # synthesis cannot carry all themes from an arbitrarily long stream.
@@ -104,6 +120,9 @@ def source_packet_from_complete_map(
     packet["source_windows_omitted_from_synthesis"] = omitted_windows
     packet["topical_synthesis_complete"] = not omitted_windows
     packet["windows_without_substantive_topics"] = sorted(documented_empty)
+    packet["windows_with_only_short_topics"] = sorted(unusable_windows)
+    packet["topical_synthesis_complete"] = bool(
+        not omitted_windows and not unusable_windows)
     packet["full_srt_coverage"] = True
     packet["publication_allowed"] = False
     return packet
