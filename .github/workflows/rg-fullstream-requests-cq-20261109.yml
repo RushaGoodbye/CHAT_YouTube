@@ -1,0 +1,30 @@
+name: RG FULL STREAM queue requests CQ24 verify 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-requests-cq-20261109.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($dir in Get-ChildItem $root -Directory -ErrorAction SilentlyContinue|Sort-Object Name){
+            $p=Join-Path $dir.FullName 'queue_request.json'
+            if(Test-Path $p){
+              try{
+                $j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+                $v=[ordered]@{stream=$dir.Name}
+                foreach($k in @('stream','state','status','encoder','video_encoder','crf','cq','preset','quality','job','mode','created_at','updated_at')){
+                  if($j.PSObject.Properties.Name -contains $k){$v[$k]=$j.$k}
+                }
+                Write-Output ('RGFSCQ|REQUEST|'+($v|ConvertTo-Json -Compress -Depth 3))
+              }catch{Write-Output ('RGFSCQ|BAD_REQUEST|'+$dir.Name)}
+            }
+          }
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit Data\V43_NIGHT_CQ24_APPLIED.json'
+          if(Test-Path $p){$j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGFSCQ|PREVIOUS_CQ24|'+($j|ConvertTo-Json -Compress -Depth 4))}
+          Write-Output 'RGFSCQ|READ_ONLY|TRUE'
