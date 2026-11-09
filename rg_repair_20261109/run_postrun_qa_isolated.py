@@ -57,8 +57,14 @@ def single(n):
         subprocess_env["PYTHONIOENCODING"]="utf-8"
         output_json=json.dumps([str(p) for p in dest.glob("RG_EDITED_*.xml") if not p.stem.endswith(("_SHORTS","_UNCENSORED"))],ensure_ascii=False)
         release_source=APP/"rg_release_health_gate.py"
-        (root/"rg_release_health_gate.py").write_text(
-            patch_source(release_source.read_text(encoding="utf-8")),encoding="utf-8")
+        original_release=release_source.read_text(encoding="utf-8")
+        if "manifest_name=\"RG_EDITED_\"" in original_release:
+            verified_release=original_release
+            emit(n,"RELEASE_HEALTH_MODULE","ALREADY_PATCHED")
+        else:
+            verified_release=patch_source(original_release)
+            emit(n,"RELEASE_HEALTH_MODULE","ISOLATED_CANDIDATE")
+        (root/"rg_release_health_gate.py").write_text(verified_release,encoding="utf-8")
         entry=root/"qa_entry.py"
         entry.write_text(
             "import sys,runpy,importlib.util\n"
