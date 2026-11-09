@@ -240,6 +240,7 @@ def main() -> int:
             source["windows_without_substantive_topics"])
         audit["source_cards"] = len(source["records"])
         audit["source_provisional"] = source["contains_provisional_sources"]
+        final_source_packet = source
         draft = draft_seo_package(source=source, chat=_chat_for(WRITER))
         # One missing A/B title can sometimes be recovered deterministically
         # from a timestamped source topic. Never rewrite factual content for it.
@@ -259,6 +260,7 @@ def main() -> int:
         audit["tag_count"] = len(draft["seo"].get("tags") or [])
         review = evaluate_independent_draft(
             draft=draft, source=source, chat=_chat_for(CRITIC))
+        final_package = draft["seo"]
         audit["independent_ai_risk"] = review["risk_ai"]
         audit["independent_issues"] = review["issues"]
         audit["editorial_review_required"] = review["editorial_review_required"]
@@ -278,6 +280,7 @@ def main() -> int:
                 )
                 second = evaluate_independent_draft(
                     draft=repaired, source=source, chat=_chat_for(CRITIC))
+                final_package = repaired["seo"]
                 audit["repair_attempt"] = 1
                 audit["repair_format_pass"] = bool(
                     repaired["quality_checks"].get("format_pass"))
@@ -329,6 +332,23 @@ def main() -> int:
                     TimeoutError) as stop_exc:
                 audit["server_stop_skipped"] = type(stop_exc).__name__
     audit["elapsed_seconds"] = round(time.monotonic() - started, 1)
+    # Save review-only artifacts for semantic inspection. Never write to
+    # source SRT, application database or YouTube.
+    output_dir = os.environ.get("RG_SEO_QA_OUTPUT_DIR")
+    if output_dir:
+        try:
+            output = Path(output_dir)
+            output.mkdir(parents=True, exist_ok=True)
+            output.joinpath(VID + ".json").write_text(
+                json.dumps({
+                    "audit": audit,
+                    "source_packet": locals().get("final_source_packet"),
+                    "seo_draft_review_only": locals().get("final_package"),
+                    "publication_allowed": False,
+                    "human_approved": False,
+                }, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:
+            audit["qa_artifact_write_error"] = type(exc).__name__
     print("RG_SEO_LIVE_LLM_AUDIT=" + json.dumps(audit, ensure_ascii=False))
     if audit.get("independent_ai_risk") is None:
         return 1
