@@ -1,0 +1,28 @@
+name: RG Repair core source excerpts
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-core-excerpts.yml']
+permissions: {contents: read}
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $queries=@(
+            @('rg_qa_current_result.py',1,250),
+            @('rg_oss_sync.py',435,510),
+            @('rg_audalign_worker.py',105,173),
+            @('rg_audalign_bridge.py',1,100),
+            @('rg_studio_ui.py',3078,3140)
+          )
+          foreach($t in $queries){
+            $p=Join-Path $root $t[0]
+            if(!(Test-Path $p)){Write-Output ('RGSRC|MISSING|'+$t[0]);continue}
+            $s=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            Write-Output ('RGSRC|FILE|'+$t[0]+'|'+$s.Count)
+            for($k=[int]$t[1];$k -le [Math]::Min([int]$t[2],$s.Count);$k++){Write-Output ('RGSRC|CODE|'+$t[0]+'|'+$k+'|'+$s[$k-1])}
+          }
