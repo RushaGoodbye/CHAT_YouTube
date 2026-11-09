@@ -1,0 +1,37 @@
+name: RG Nine Failed Streams Root Cause Readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-nine-errors-root-cause.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Audit last error and postrun evidence for nine failed streams
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RGCAUSE|TIME|'+(Get-Date -Format o))
+          foreach($n in @(891,893,898,901,903,904,907,908,913)){
+            Write-Output ('RGCAUSE|BEGIN|'+$n)
+            $s="$data\run_state\$n\RUN_STATE.json"
+            if(Test-Path $s){$o=Get-Content $s -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGCAUSE|STATE|'+$n+'|'+$o.status+'|'+$o.last_stage+'|'+$o.progress+'|'+$o.last_message)}
+            $folder="$root\run_manifests\$n"
+            $logs=@()
+            foreach($file in @('LATEST.log','STUDIO_RUN.log')){ $p=Join-Path $folder $file;if(Test-Path $p){$logs+=,$p;break}}
+            foreach($f in $logs){
+              Write-Output ('RGCAUSE|LOGFILE|'+$n+'|'+(Get-Item $f).LastWriteTime.ToString('o')+'|'+(Get-Item $f).Length)
+              Get-Content $f -Tail 48 -Encoding UTF8|ForEach-Object{Write-Output ('RGCAUSE|LOG|'+$n+'|'+$_)}
+            }
+            $qaCandidates=@("$root\$n\RG_POSTRUN_QA.json","$root\run_manifests\$n\RG_POSTRUN_QA.json","$root\$n\RG_POSTRUN_RESULT.json")
+            foreach($p in $qaCandidates){if(Test-Path $p){Write-Output ('RGCAUSE|QA_PATH|'+$n+'|'+$p);$c=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGCAUSE|QA_RESULT|'+$n+'|passed='+$c.passed+'|reason='+$c.reason);foreach($check in @($c.checks)|Where-Object {$_.ok -eq $false}|Select-Object -First 12){Write-Output ('RGCAUSE|QA_FAIL|'+$n+'|'+$check.name+'|'+$check.detail+'|'+$check.message)}}}
+            $manifest="$root\RG_EDITED_${n}_MULTI_DIALOGUE.json"
+            if(Test-Path $manifest){$m=Get-Content $manifest -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGCAUSE|MANIFEST|'+$n+'|'+$m.status+'|dialogs='+$m.dialogue_count+'|outputs='+@($m.outputs).Count+'|holds='+@($m.review_holds).Count)}
+            Write-Output ('RGCAUSE|END|'+$n)
+          }
+          Write-Output 'RGCAUSE|DONE'
