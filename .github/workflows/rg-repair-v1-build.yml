@@ -42,7 +42,7 @@ jobs:
               assert len(outputs)==count
               assert all(p.is_file() for p in outputs)
           import rg_xml_verify_v51 as verify
-          for n,should_pass in (('891',True),('898',True),('904',False)):
+          for n,should_pass in (('891',True),('898',True),('904',True)):
               outputs=postrun._primary_outputs(root/n,[],n)
               with tempfile.TemporaryDirectory(prefix='RG_REPAIR_XML_OFFLINE_') as d:
                   folder=Path(d)/n
