@@ -1,0 +1,35 @@
+name: RG stop unintended 895-899 after 885 selected
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stop-895-899-on-885-v2.yml']
+permissions: {contents: read}
+jobs:
+  stop:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $src=@'
+          import sys,json
+          from pathlib import Path
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_stop_v60 import stop_fullstream,active_workers
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2")
+          queued=[x.parent.name for x in root.glob("*/queue_request.json")]
+          pids=sorted(int(x["ProcessId"]) for x in active_workers())
+          print("RGSTOPFIX|QUEUE|"+json.dumps(queued),flush=True)
+          if any(x not in ["895","896","897","898","899"] for x in queued):
+              raise RuntimeError("UNRELATED_QUEUE_STOP_REFUSED")
+          result=stop_fullstream(confirmed=True,grace=10,expected_pids=pids)
+          print("RGSTOPFIX|RESULT|"+json.dumps(result,ensure_ascii=False),flush=True)
+          print("RGSTOPFIX|AFTER|"+json.dumps([int(x["ProcessId"]) for x in active_workers()]),flush=True)
+          if active_workers() or result.get("status") not in ("STOPPED_VERIFIED_WORKERS","NO_ACTIVE_FULLSTREAM_WORKER"):
+              raise RuntimeError("STOP_UNCONFIRMED")
+          '@
+          $src|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'SCOPE_STOP_FAILED'}
