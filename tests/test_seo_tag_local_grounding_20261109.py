@@ -18,3 +18,14 @@ def test_accepts_local_phrase_in_single_subtitle():
 
 def test_preserves_project_format_tag():
     assert _tag_is_grounded("чат рулетка", "", "")
+
+
+
+def test_title_alone_does_not_prove_topic_in_srt():
+    title = "Мобілізація в Росії: пояснення"
+    transcript = "[00:01] Люди обговорюють ціни на продукти."
+    assert not _tag_is_grounded("мобілізація", title, transcript)
+
+
+def test_title_is_fallback_only_when_no_srt_exists():
+    assert _tag_is_grounded("мобілізація", "Говорять про мобілізація", "")
