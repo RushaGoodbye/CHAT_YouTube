@@ -1,0 +1,31 @@
+name: AlexPC GPU memory attribution (read only)
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/seo-gpu-memory-inspect.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gpu-snapshot:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Read RTX 4080 usage and GPU process IDs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $smi = 'C:\Windows\System32\nvidia-smi.exe'
+          if (-not (Test-Path -LiteralPath $smi)) { throw 'NVIDIA_SMI_NOT_FOUND' }
+          Write-Output ('SNAPSHOT_UTC=' + [DateTime]::UtcNow.ToString('o'))
+          Write-Output 'GPU_TOTAL_USED_FREE_MIB'
+          & $smi --query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader
+          Write-Output 'GPU_PROCESS_TABLE'
+          & $smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader
+          Write-Output 'GPU_PROCESSES_ALL_TYPES'
+          & $smi
+          Write-Output 'LIKELY_GPU_APPLICATIONS'
+          Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match 'lmstudio|lm studio|llama|python|ffmpeg|obs|vmix|resolve|premiere|afterfx|chrome|msedge|mpv|vlc|nvcontainer'
+          } | Select-Object ProcessId,Name,@{N='WorkingSetMiB';E={[math]::Round($_.WorkingSetSize/1MB,0)}} | Sort-Object Name,ProcessId | Format-Table -AutoSize

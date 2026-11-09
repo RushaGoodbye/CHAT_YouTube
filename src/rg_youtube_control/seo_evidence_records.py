@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from .seo_source_cue_expansion import expand_source_cue_candidates
+
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").split())
@@ -41,6 +43,14 @@ def build_evidence_records(
     rows = list(transcript_rows)
     if not rows or not isinstance(timeline_report, dict):
         raise ValueError("MISSING_EVIDENCE_INPUT")
+    # Supplement model-selected topics with original, timestamped SRT cues.
+    # These are only source candidates, not validated SEO or verified facts.
+    expanded_cues = expand_source_cue_candidates(
+        rows, timeline_report,
+        limit=min(100, max(12, len(timeline_report.get("blocks") or []) + 4)),
+        per_window=3,
+        include_unverified_for_review=True,
+    )
     records: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for block in timeline_report.get("blocks") or []:
@@ -139,6 +149,13 @@ def build_evidence_records(
     }
     grounded_ids = {r["block_index"] for r in records}
     missing_ids = sorted(expected_ids - grounded_ids, key=str)
+    literal_cue_ids = {
+        r["block_index"] for r in expanded_cues["evidence_candidates"]
+    }
+    # Literal SRT coverage differs from model topic coverage. Missing model
+    # quotes remain BLOCKED, while verified literal cues are available only
+    # for provisional, independently reviewed SEO drafts.
+    literal_missing_ids = sorted(expected_ids - literal_cue_ids, key=str)
     return {
         "schema": "RG_UNIVERSAL_EVIDENCE_V1",
         "video_id": video_id,
@@ -146,6 +163,16 @@ def build_evidence_records(
         "blocks_with_evidence": verified,
         "evidence_records": records,
         "rejected_evidence": rejected,
+        "source_cue_candidates": expanded_cues["evidence_candidates"],
+        "source_cue_selection_schema": expanded_cues["schema"],
+        "source_cue_candidates_review_only": True,
+        "source_cue_candidate_windows": expanded_cues["candidate_windows"],
+        "source_cue_complete_timeline_verified": expanded_cues["complete_timeline_verified"],
+        "source_cue_invalid_block_count": expanded_cues["invalid_block_count"],
+        "source_cue_unverified_block_ids": expanded_cues["unverified_block_ids"],
+        "source_cue_provisional_unverified_ids": expanded_cues["unverified_candidate_ids"],
+        "blocks_without_literal_srt_cues": literal_missing_ids,
+        "complete_literal_source_coverage": bool(expected_ids) and not literal_missing_ids,
         "blocks_without_grounded_quotes": missing_ids,
         "nonsemantic_caption_blocks": sorted(nonsemantic_ids, key=str),
         "complete_evidence_coverage": bool(expected_ids) and not missing_ids,
@@ -154,7 +181,7 @@ def build_evidence_records(
     }
 
 
-def grounded_evidence_outline(source_records: dict[str, Any]) -> str:
+def grounded_evidence_outline(source_records: dict[str, Any], *, include_source_cues: bool = True) -> str:
     """Only vetted source quotes may enter SEO model context.
 
     Model-derived topic labels are suggestions, not independent facts.
@@ -176,4 +203,28 @@ def grounded_evidence_outline(source_records: dict[str, Any]) -> str:
             f"| Тип: {rec['statement_kind']} "
             f"| Дослівна репліка: «{rec['verbatim_quote']}»"
         )
+    # Additional raw SRT statements enrich the editor's context. They do not
+    # establish truth, author a new topic, or bypass the existing quality gate.
+    if (include_source_cues
+            and source_records.get("source_cue_selection_schema") == "RG_SOURCE_CUE_EXPANSION_V1"
+            and source_records.get("source_cue_candidates_review_only") is True):
+        known = {_clean(item.get("verbatim_quote")).casefold() for item in items}
+        for cue in source_records.get("source_cue_candidates") or []:
+            if not isinstance(cue, dict):
+                continue
+            quote = _clean(cue.get("source_quote"))
+            if (not quote or quote.casefold() in known
+                    or cue.get("source_precision") != "single_original_cue"
+                    or cue.get("factual_truth_verified") is not False
+                    or not isinstance(cue.get("start_s"), (int, float))):
+                continue
+            known.add(quote.casefold())
+            total = max(0, int(cue["start_s"]))
+            incomplete = (" НЕПОВНИЙ ФРАГМЕНТ, не роби окремого висновку."
+                          if cue.get("may_be_incomplete") else "")
+            lines.append(
+                f"[{total // 60:02d}:{total % 60:02d}] "
+                f"Додаткова дослівна репліка з SRT (НЕ доведений факт): "
+                f"«{quote}».{incomplete}"
+            )
     return "\n".join(lines)

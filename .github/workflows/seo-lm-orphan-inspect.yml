@@ -1,0 +1,54 @@
+name: AlexPC orphan LM backend ownership inspection
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/seo-lm-orphan-inspect.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  process-inspect:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect LM runtime and process activity without modifying anything
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Output ('UTC='+[DateTime]::UtcNow.ToString('o'))
+          $smi='C:\Windows\System32\nvidia-smi.exe'
+          & $smi --query-gpu=memory.used,memory.free,utilization.gpu --format=csv,noheader
+          $all=@(Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -match 'llama-server|LM Studio|lms.exe|ffmpeg|python.exe'
+          })
+          foreach($proc in $all) {
+            Write-Output ('PROCESS_ID='+$proc.ProcessId+' NAME='+$proc.Name+' PARENT='+$proc.ParentProcessId)
+            if($proc.Name -match 'llama-server') {
+              $cmd=[string]$proc.CommandLine
+              $cmd=$cmd -replace '(?i)(--api-key\s+|--token\s+|--password\s+)\S+','$1[REDACTED]'
+              Write-Output ('LLAMA_CMDLINE='+$cmd.Substring(0,[math]::Min(800,$cmd.Length)))
+            }
+          }
+          $llamaPids=@($all | Where-Object {$_.Name -match 'llama-server'} | ForEach-Object {$_.ProcessId})
+          foreach($targetPid in $llamaPids) {
+            Write-Output ('NET_CONNECTIONS_FOR_LLAMA_PID='+$targetPid)
+            Get-NetTCPConnection -OwningProcess $targetPid -ErrorAction SilentlyContinue |
+              Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State |
+              Format-Table -AutoSize
+          }
+          $lms='C:\Users\fauto\.lmstudio\bin\lms.exe'
+          if(Test-Path -LiteralPath $lms) {
+            Write-Output 'LMS_PS'
+            & $lms ps
+          }
+          foreach($targetPid in $llamaPids) {
+            $p=Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+            if($p){Write-Output ('LLAMA_CPU_BEGIN_PID='+$targetPid+' CPU_SEC='+$p.CPU)}
+          }
+          Start-Sleep -Seconds 10
+          foreach($targetPid in $llamaPids) {
+            $p=Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+            if($p){Write-Output ('LLAMA_CPU_END_PID='+$targetPid+' CPU_SEC='+$p.CPU)}
+          }
+          & $smi --query-gpu=memory.used,memory.free,utilization.gpu --format=csv,noheader

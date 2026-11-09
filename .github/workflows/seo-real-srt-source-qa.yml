@@ -1,0 +1,29 @@
+name: SEO real SRT source QA (read-only AlexPC)
+on:
+  pull_request:
+    paths:
+      - "tools/qa_seo_readonly_cohort.py"
+      - ".github/workflows/seo-real-srt-source-qa.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  alexpc-source-audit:
+    # Only same-repository PRs created by the repository owner are allowed to
+    # execute code on the self-hosted Windows runner.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect only existing SRT and verified cache
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONPATH = Join-Path $PWD 'src'
+          $python = 'C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if (-not (Test-Path -LiteralPath $python)) { throw 'ALEXPC_PYTHON_NOT_FOUND' }
+          & $python -u tools\qa_seo_readonly_cohort.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

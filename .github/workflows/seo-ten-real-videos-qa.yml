@@ -1,0 +1,67 @@
+name: SEO ten real SRTs end-to-end review-only acceptance
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/seo-ten-real-videos-qa.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-seo-lmstudio-exclusive-alexpc
+  cancel-in-progress: false
+jobs:
+  full-cohort:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run bounded serial independent Qwen Gemma QA for 10 original SRTs
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $env:PYTHONPATH = Join-Path $PWD 'src'
+          $python='C:\Users\fauto\AppData\Local\Python\pythoncore-3.12-64\python.exe'
+          if(-not (Test-Path -LiteralPath $python)) {throw 'ALEXPC_PYTHON_MISSING'}
+          $ids=@(
+            'ovDuKFGKEXo',
+            'Z7AhB4mjvlM',
+            'tptN1zRv2hs',
+            'PnLR5O0EWYM',
+            'H-z5A9WoeTY',
+            'DywWeHtnuhM',
+            'cMw5_kJipzA',
+            'AVl_yO8pXIU',
+            'MF8txEoPwjg',
+            'QCIuLwQm4nU'
+          )
+          $outputDir=Join-Path $env:RUNNER_TEMP 'rg-seo-ten-review-only'
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          $env:RG_SEO_QA_OUTPUT_DIR=$outputDir
+          $qualityPassed=0
+          $semanticFailures=0
+          $technicalFailures=0
+          foreach($id in $ids) {
+            Write-Output ('RG_SEO_TEN_VIDEO_BEGIN='+$id)
+            $env:RG_SEO_VIDEO_ID=$id
+            & $python -u tools\qa_seo_real_local_llm.py
+            $code=$LASTEXITCODE
+            if($code -eq 0) {$qualityPassed++}
+            elseif($code -eq 2) {$semanticFailures++}
+            else {$technicalFailures++}
+            Write-Output ('RG_SEO_TEN_VIDEO_EXIT='+$id+' EXIT='+$code)
+          }
+          Remove-Item Env:RG_SEO_VIDEO_ID -ErrorAction SilentlyContinue
+          Remove-Item Env:RG_SEO_QA_OUTPUT_DIR -ErrorAction SilentlyContinue
+          Write-Output ('RG_SEO_TEN_VIDEO_TOTAL=10 AI_SCREENED='+$qualityPassed+' SEMANTIC_FAILED='+$semanticFailures+' TECHNICAL_FAILED='+$technicalFailures)
+          if($qualityPassed -ne 10) {throw 'RG_SEO_TEN_VIDEO_QUALITY_GATE_NOT_MET'}
+      - name: Upload review-only SEO drafts and source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rg-seo-ten-real-review-only
+          path: ${{ runner.temp }}/rg-seo-ten-review-only/*.json
+          if-no-files-found: warn
+          retention-days: 14

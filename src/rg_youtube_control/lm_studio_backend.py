@@ -6,12 +6,65 @@ executes a background job, or updates YouTube.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 import urllib.error
 import urllib.request
 from typing import Any
 
 DEFAULT_LM_STUDIO_MODEL = "qwen3-14b"
 DEFAULT_LM_STUDIO_URL = "http://127.0.0.1:1234"
+
+# This context belongs only to the synchronous SEO operation that created it.
+# Pre-existing or manually loaded models are never added to the owned list.
+_OWNED_SEO_INSTANCES: ContextVar[dict[str, set[str]] | None] = ContextVar(
+    "rg_owned_lmstudio_instances", default=None
+)
+
+
+@contextmanager
+def seo_model_lifecycle():
+    """Release SEO-owned models at the end of a job, even on exceptions.
+
+    Never stop the LM Studio server; never release a model loaded by someone
+    else. Nested calls share the same owner and only outermost closes it.
+    """
+    active = _OWNED_SEO_INSTANCES.get()
+    if active is not None:
+        yield
+        return
+    owned: dict[str, set[str]] = {}
+    token = _OWNED_SEO_INSTANCES.set(owned)
+    try:
+        yield
+    finally:
+        _OWNED_SEO_INSTANCES.reset(token)
+        for url, ids in owned.items():
+            for instance_id in sorted(ids):
+                try:
+                    request = urllib.request.Request(
+                        url.rstrip("/") + "/api/v1/models/unload",
+                        data=json.dumps({"instance_id": instance_id}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=20):
+                        pass
+                except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                    # Cleanup failure must never mask the actual SEO error.
+                    pass
+
+
+
+
+def auto_release_seo_models(func):
+    """Wrap a synchronous SEO job, not every individual LM Studio request."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with seo_model_lifecycle():
+            return func(*args, **kwargs)
+    return wrapped
 
 
 def list_models(*, url: str = DEFAULT_LM_STUDIO_URL, timeout: float = 2.0) -> list[str]:
@@ -73,7 +126,13 @@ def ensure_model_loaded(
         ) from exc
     if result.get("status") != "loaded":
         raise RuntimeError(f"LM Studio не підтвердила завантаження {model}.")
-    return str(result.get("instance_id") or result.get("model_instance_id") or model)
+    confirmed_id = result.get("instance_id") or result.get("model_instance_id")
+    # Do not register an inferred model name as a disposable instance ID.
+    # Only unload instances whose unique ID the load endpoint explicitly gave.
+    owned = _OWNED_SEO_INSTANCES.get()
+    if owned is not None and isinstance(confirmed_id, str) and confirmed_id:
+        owned.setdefault(url.rstrip("/"), set()).add(confirmed_id)
+    return str(confirmed_id or model)
 
 
 def lm_studio_chat(
@@ -81,6 +140,7 @@ def lm_studio_chat(
     url: str = DEFAULT_LM_STUDIO_URL, timeout: float = 300.0,
     temperature: float = 0.2, json_mode: bool = False,
     num_ctx: int | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """One request, with at most one retry for an empty model message."""
     if not messages or any(
@@ -92,6 +152,9 @@ def lm_studio_chat(
     # Set it when loading the model, never silently clip source text here.
     if num_ctx is not None and (not isinstance(num_ctx, int) or num_ctx < 1024):
         raise ValueError("INVALID_LM_STUDIO_CONTEXT")
+    if max_tokens is not None and (
+            type(max_tokens) is not int or not 100 <= max_tokens <= 4096):
+        raise ValueError("INVALID_LOCAL_RESPONSE_TOKEN_LIMIT")
     loaded_id = ensure_model_loaded(
         model=model, url=url, timeout=timeout, num_ctx=num_ctx,
     )
@@ -100,7 +163,8 @@ def lm_studio_chat(
         payload: dict[str, Any] = {
             "model": loaded_id, "messages": current, "stream": False,
             "temperature": temperature, "reasoning_effort": "none",
-            "max_tokens": 1700 if json_mode else 1250,
+            "max_tokens": max_tokens if max_tokens is not None else (
+                1700 if json_mode else 1250),
         }
         if json_mode:
             payload["response_format"] = {

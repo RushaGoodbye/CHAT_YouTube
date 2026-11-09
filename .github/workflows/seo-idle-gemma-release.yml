@@ -1,0 +1,61 @@
+name: Unload confirmed idle Gemma on AlexPC
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-seo-idle-gemma-release-once
+  cancel-in-progress: false
+jobs:
+  unload-idle-gemma:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'RushaGoodbye' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - name: Release only idle Gemma through LM Studio CLI
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $lms='C:\Users\fauto\.lmstudio\bin\lms.exe'
+          $smi='C:\Windows\System32\nvidia-smi.exe'
+          if(-not (Test-Path -LiteralPath $lms)) {throw 'LMS_NOT_INSTALLED'}
+          Write-Output ('BEFORE_UTC='+[DateTime]::UtcNow.ToString('o'))
+          & $smi --query-gpu=memory.used,memory.free,utilization.gpu --format=csv,noheader
+          $before=(& $lms ps | Out-String)
+          Write-Output ('BEFORE_MODEL_LIST='+$before.Trim())
+          if($before -notmatch '(?im)^\s*google/gemma-4-12b\s+google/gemma-4-12b\s+IDLE\b') {
+            Write-Output 'SKIP_GEMMA_NOT_IDLE'
+            exit 0
+          }
+          $proc=Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq 'llama-server.exe' -and $_.CommandLine -match 'gemma-4-12B-it'
+          } | Select-Object -First 1
+          if(-not $proc) {Write-Output 'SKIP_NO_CONFIRMED_GEMMA_PROCESS';exit 0}
+          $targetPid=[int]$proc.ProcessId
+          $sample=Get-Process -Id $targetPid -ErrorAction Stop
+          $cpuStart=$sample.CPU
+          $busy=$false
+          foreach($i in 1..3) {
+            $active=@(Get-NetTCPConnection -OwningProcess $targetPid -State Established -ErrorAction SilentlyContinue)
+            if($active.Count -gt 0) {$busy=$true}
+            Start-Sleep -Seconds 3
+          }
+          $running=Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+          if(-not $running) {Write-Output 'SKIP_PROCESS_ALREADY_EXITED';exit 0}
+          $delta=$running.CPU-$cpuStart
+          Write-Output ('GEMMA_CPU_DELTA='+[math]::Round($delta,2))
+          if($delta -gt 0.8) {$busy=$true}
+          $active=@(Get-NetTCPConnection -OwningProcess $targetPid -State Established -ErrorAction SilentlyContinue)
+          if($active.Count -gt 0) {$busy=$true}
+          $check=(& $lms ps | Out-String)
+          if($check -notmatch '(?im)^\s*google/gemma-4-12b\s+google/gemma-4-12b\s+IDLE\b') {$busy=$true}
+          if($busy) {Write-Output 'SKIP_MODEL_BECAME_ACTIVE';exit 0}
+          # The CLI requests the model manager to unload; it never kills the GUI,
+          # the server or any process directly.
+          Write-Output 'REQUEST_UNLOAD_IDLE_GEMMA'
+          & $lms unload google/gemma-4-12b
+          if($LASTEXITCODE -ne 0) {throw 'LMS_UNLOAD_FAILED'}
+          Start-Sleep -Seconds 3
+          Write-Output ('AFTER_MODEL_LIST='+((& $lms ps | Out-String).Trim()))
+          Write-Output 'GPU_AFTER'
+          & $smi --query-gpu=memory.used,memory.free,utilization.gpu --format=csv,noheader

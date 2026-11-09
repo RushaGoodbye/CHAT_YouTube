@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from .lm_studio_backend import (
     DEFAULT_LM_STUDIO_MODEL, lm_studio_chat, list_models as list_lm_studio_models,
+    auto_release_seo_models,
 )
 
 
@@ -2057,6 +2058,7 @@ from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outli
 from .seo_editorial_gate import editorial_risk_flags
 
 
+@auto_release_seo_models
 def generate_seo_package_local(
     *,
     current_title: str,

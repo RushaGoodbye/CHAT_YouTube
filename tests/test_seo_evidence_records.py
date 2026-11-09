@@ -149,3 +149,98 @@ def test_generator_outline_refuses_partial_evidence():
             "evidence_records": [{"start_s":0, "topic":"test",
                 "verbatim_quote":"source", "statement_kind":"attributed_speech"}],
             "blocks_without_grounded_quotes": [2]})
+
+
+
+def test_additional_srt_cues_are_integrated_but_remain_review_only():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    first = "Residents discussed the local railway timetable for the next month."
+    second = "The other speaker asked about the cost of traveling to work every day."
+    third = "They also talked about public buses operating in their district."
+    source = [row(first, 0), row(second, 4), row(third, 8)]
+    result = build_evidence_records(
+        video_id=VID, timeline_report=report(first, end=13.0),
+        transcript_rows=source,
+    )
+    candidates = result["source_cue_candidates"]
+    assert len(candidates) == 3
+    assert all(x["source_precision"] == "single_original_cue" for x in candidates)
+    assert all(x["factual_truth_verified"] is False for x in candidates)
+    assert result["source_cue_candidates_review_only"] is True
+    assert result["publication_allowed"] is False
+    enriched = grounded_evidence_outline(result)
+    assert second in enriched and third in enriched
+    assert enriched.count(first) == 1
+    assert second not in grounded_evidence_outline(result, include_source_cues=False)
+
+
+def test_expanded_evidence_does_not_rescue_hallucinated_model_quote():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    invented = "A fictional official resigned yesterday without any source evidence."
+    authentic = "We talked about the morning bus schedule and public transportation costs."
+    result = build_evidence_records(
+        video_id=VID, timeline_report=report(invented, end=10),
+        transcript_rows=[row(authentic, 0)],
+    )
+    assert result["evidence_records"] == []
+    assert result["source_cue_candidates"]
+    assert not result["complete_evidence_coverage"]
+    with pytest.raises(ValueError, match="INCOMPLETE_GROUNDED_EVIDENCE"):
+        grounded_evidence_outline(result)
+
+
+def test_unverified_timeline_window_never_enters_expanded_context():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    first = "People discussed the timetable for the city's public buses."
+    unsupported = "A witness discussed prices at the regional wholesale market."
+    blocks = [report(first)["blocks"][0],
+              report(unsupported, index=2, verified=False, start=50, end=60)["blocks"][0]]
+    batch = {"blocks_analyzed": 2, "blocks_with_evidence": 1, "blocks": blocks}
+    result = build_evidence_records(
+        video_id=VID, timeline_report=batch,
+        transcript_rows=[row(first, 0), row(unsupported, 50)],
+    )
+    # A raw SRT cue from an unverified window is explicitly provisional.
+    # It must never become a model-grounded SEO claim.
+    assert any(x["block_index"] == 2 and
+               x["model_block_verified"] is False
+               for x in result["source_cue_candidates"])
+    assert result["complete_literal_source_coverage"] is True
+    assert result["complete_evidence_coverage"] is False
+    # Existing fail-closed gate must reject the entire outline when any
+    # meaningful timeline block lacks grounded evidence.
+    with pytest.raises(ValueError, match="INCOMPLETE_GROUNDED_EVIDENCE"):
+        grounded_evidence_outline(result)
+    assert not result["source_cue_candidates"][0]["factual_truth_verified"]
+
+
+def test_source_candidates_safely_ignored_without_integrity_marker():
+    from rg_youtube_control.seo_evidence_records import grounded_evidence_outline
+    source = {
+        "evidence_records": [{"start_s": 0, "topic": "Автобуси",
+          "statement_kind": "attributed_speech", "verbatim_quote": "Real quote."}],
+        "blocks_without_grounded_quotes": [],
+        "source_cue_candidates": [{
+            "source_quote": "FAKE INJECTED SOURCE", "start_s": 2,
+            "source_precision": "single_original_cue", "factual_truth_verified": False,
+        }],
+    }
+    assert "FAKE INJECTED SOURCE" not in grounded_evidence_outline(source)
+
+
+def test_literal_quote_coverage_is_not_model_topic_approval():
+    first = "The meeting participants discussed roads and city buses."
+    second = "They debated the salary of the workers in local factories."
+    blocks = [
+        report(first)["blocks"][0],
+        report("NOT_IN_SRT", index=2, start=50.0, end=58.0)["blocks"][0],
+    ]
+    dataset = build_evidence_records(
+        video_id=VID,
+        timeline_report={"blocks": blocks, "blocks_analyzed": 2, "blocks_with_evidence": 2},
+        transcript_rows=[row(first, 0.0), row(second, 51.0)])
+    assert dataset["complete_literal_source_coverage"] is True
+    assert dataset["blocks_without_literal_srt_cues"] == []
+    assert dataset["blocks_without_grounded_quotes"] == [2]
+    assert dataset["complete_evidence_coverage"] is False
+    assert dataset["needs_review"] and not dataset["publication_allowed"]
