@@ -1,0 +1,48 @@
+name: RG fullstream clear old history now 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-clear-old-history-now.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-fullstream-history-clear
+  cancel-in-progress: false
+jobs:
+  clear:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=@'
+          import json,sys
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          from rg_fullstream_history_v92 import clear_history,is_hidden
+          from rg_fullstream_batch_v53 import queue_rows
+          w=active_workers()
+          lock=worker_lock_state(data)
+          print("RGHCLR|WORKERS|"+str(len(w))+"|LOCK|"+str(lock),flush=True)
+          if w or lock!="IDLE":raise RuntimeError("LIVE_WORKER_NO_HISTORY_CLEAR")
+          base=data/"fullstream_v2"
+          queued=[f.parent.name for f in base.glob("*/queue_request.json")]
+          if queued:raise RuntimeError("ACTIVE_QUEUE_NO_HISTORY_CLEAR:"+",".join(queued))
+          before=queue_rows(app=app,data=data,limit=200)
+          print("RGHCLR|VISIBLE_BEFORE|"+str(len(before)),flush=True)
+          result=clear_history(data=data)
+          print("RGHCLR|CLEARED|"+json.dumps(result,ensure_ascii=False,default=str),flush=True)
+          after=queue_rows(app=app,data=data,limit=200)
+          print("RGHCLR|VISIBLE_AFTER|"+str(len(after)),flush=True)
+          print("RGHCLR|901_HIDDEN|"+str(is_hidden("901",data=data)),flush=True)
+          if after or not is_hidden("901",data=data):
+              raise RuntimeError("HISTORY_VISIBILITY_NOT_CLEARED")
+          print("RGHCLR|PASS|MEDIA_AND_QA_UNTOUCHED",flush=True)
+          '@
+          $code|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_HISTORY_CLEAN_FAILED'}
