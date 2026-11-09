@@ -1,0 +1,49 @@
+name: RG November 9 live queue morning status
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-20261109-morning-status.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Fresh read-only queue and process inspection
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $q='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          Write-Output ('RGMORNING|TIME|'+(Get-Date -Format o))
+          if(!(Test-Path $q)){Write-Output 'RGMORNING|QUEUE_MISSING';exit 2}
+          $j=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGMORNING|QUEUE_MODIFIED|'+(Get-Item $q).LastWriteTime.ToString('o'))
+          Write-Output ('RGMORNING|RUNNING|'+$j.running)
+          Write-Output ('RGMORNING|PAUSED|'+$j.paused)
+          foreach($r in @($j.rows)){Write-Output ('RGMORNING|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress+'|'+$r.elapsed+'|'+$r.eta+'|'+$r.detail)}
+          foreach($n in @(885,891,892,893,898,901,902,903,904,905,907,908,909,910,911,912,913,914,915)){
+            $state="F:\RG_AUTO_EDIT\RG Auto Edit Data\run_state\$n\RUN_STATE.json"
+            if(Test-Path $state){$s=Get-Content $state -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGMORNING|STATE|'+$n+'|'+$s.status+'|'+$s.last_stage+'|'+$s.progress+'|'+$s.last_message)}
+          }
+          $p=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button|rg_multi_dialogue|rg_production_wrapper|rg_studio_main'})
+          Write-Output ('RGMORNING|PROCESSES|'+$p.Count)
+          $baseline=@{}
+          foreach($x in $p){$g=Get-Process -Id $x.ProcessId -ErrorAction SilentlyContinue;if($g){$baseline[$x.ProcessId]=$g.CPU;Write-Output ('RGMORNING|PROC|'+$x.ProcessId+'|CPU='+[math]::Round($g.CPU,1)+'|MB='+[math]::Round($g.WorkingSet64/1MB))}}
+          foreach($d in @(Get-PSDrive C,F -ErrorAction SilentlyContinue)){Write-Output ('RGMORNING|DISK|'+$d.Name+'|FREE_GB='+[math]::Round($d.Free/1GB,1))}
+          $os=Get-CimInstance Win32_OperatingSystem;Write-Output ('RGMORNING|RAM_FREE_GB|'+[math]::Round($os.FreePhysicalMemory/1MB,1))
+          $g=Get-Command nvidia-smi -ErrorAction SilentlyContinue
+          if($g){& nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader|ForEach-Object{Write-Output ('RGMORNING|GPU|'+$_)}}
+          $active=@($j.rows|Where-Object {$_.status -match 'ПРАЦ|RUNNING'})
+          foreach($a in $active){
+            $root="F:\RG_AUTO_EDIT\RG Auto Edit App\run_manifests\$($a.stream)"
+            foreach($f in @('LATEST.log','RG_PERFORMANCE_EVENTS.jsonl','RG_PERFORMANCE_SAMPLES.jsonl')){
+              $path=Join-Path $root $f
+              if(Test-Path $path){$item=Get-Item $path;Write-Output ('RGMORNING|FILE|'+$a.stream+'|'+$f+'|'+$item.LastWriteTime.ToString('o')+'|'+$item.Length)}
+            }
+            $log=Join-Path $root 'LATEST.log'
+            if(Test-Path $log){Get-Content $log -Tail 12 -Encoding UTF8|ForEach-Object{Write-Output ('RGMORNING|LOG|'+$a.stream+'|'+$_)}}
+          }
+          Start-Sleep -Seconds 10
+          foreach($id in $baseline.Keys){$p=Get-Process -Id $id -ErrorAction SilentlyContinue;if($p){Write-Output ('RGMORNING|CPU_DELTA|'+$id+'|'+[math]::Round(($p.CPU-$baseline[$id]),2))}}
+          Write-Output 'RGMORNING|DONE'
