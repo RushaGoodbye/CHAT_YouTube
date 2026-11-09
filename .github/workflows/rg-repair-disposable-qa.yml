@@ -1,0 +1,19 @@
+name: RG Repair disposable full postrun QA
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-disposable-qa.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run real postrun QA on isolated copies only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONPATH='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109\run_postrun_qa_isolated.py
+          if($LASTEXITCODE -ne 0){throw 'DISPOSABLE_QA_RUN_FAILED'}
