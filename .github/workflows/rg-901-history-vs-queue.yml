@@ -1,0 +1,29 @@
+name: RG verify 901 history versus active queue
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-901-history-vs-queue.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($id in @('885','886','887','888','889','901')){
+            $d=Join-Path $root $id
+            $f=Join-Path $d 'status.json'
+            $q=Join-Path $d 'queue_request.json'
+            $st='NONE';$msg=''
+            if(Test-Path $f){try{$o=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json;$st=$o.state;$msg=$o.error}catch{$st='BAD_JSON'}}
+            Write-Output ('RG901|STREAM|'+$id+'|STATUS='+$st+'|QUEUED='+(Test-Path $q)+'|ERROR='+$msg)
+          }
+          $all=@(Get-ChildItem $root -Directory|Where-Object{$_.Name -match '^\d{3,5}$'})
+          foreach($f in $all){
+            if(Test-Path (Join-Path $f.FullName 'queue_request.json')){Write-Output ('RG901|LIVE_QUEUE|'+$f.Name)}
+          }
+          $p=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py'})
+          Write-Output ('RG901|FULLSTREAM_PROCESS_COUNT|'+$p.Count)
+          Write-Output 'RG901|READONLY|PASS'
