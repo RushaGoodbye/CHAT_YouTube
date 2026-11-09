@@ -29,3 +29,14 @@ def test_title_alone_does_not_prove_topic_in_srt():
 
 def test_title_is_fallback_only_when_no_srt_exists():
     assert _tag_is_grounded("мобілізація", "Говорять про мобілізація", "")
+
+
+
+def test_deterministic_tags_do_not_promote_title_only_subjects():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    tags = _grounded_tags_from_transcript(
+        "Шойгу та мобілізація в Росії",
+        "[00:01] Ми говоримо про місцеві ціни на продукти.",
+    )
+    assert "Шойгу" not in tags
+    assert "мобілізація в Росії" not in tags
