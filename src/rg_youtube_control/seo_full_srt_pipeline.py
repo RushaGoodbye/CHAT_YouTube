@@ -6,6 +6,7 @@ review-only; no metadata or source video is ever modified.
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 from .seo_full_srt_topics import analyze_full_original_transcript, split_transcript_windows
@@ -17,9 +18,79 @@ from .seo_g3_batch_drafts import (
 Chat = Callable[[list[dict[str, str]]], str]
 
 
+
+def select_grounded_highlights(
+    *, windows: list[dict[str, Any]],
+    topics_by_window: dict[int, list[dict[str, Any]]],
+    chat: Chat, limit: int = 12,
+) -> tuple[list[tuple[int, dict[str, Any]]], list[int]]:
+    """Consider every topical window, select 12 representative source quotes.
+
+    Selection cannot invent a quote: the model returns only an original
+    caption index. The complete candidate list is considered in bounded,
+    contiguous groups, not just the beginning or end of the stream.
+    """
+    present = sorted(i for i in topics_by_window if topics_by_window[i])
+    if len(present) <= limit:
+        return [(i, topics_by_window[i][0]) for i in present], present
+    groups = [
+        present[round(g * len(present) / limit):
+                round((g + 1) * len(present) / limit)]
+        for g in range(limit)
+    ]
+    # Every candidate source window must be considered exactly once.
+    processed = [i for group in groups for i in group]
+    if processed != present or any(not group for group in groups):
+        raise ValueError("HIGHLIGHT_WINDOW_COVERAGE_MISMATCH")
+    selected: list[tuple[int, dict[str, Any]]] = []
+    for group in groups:
+        options = [
+            {
+                "window_index": window_index,
+                "source_index": topic["source_index"],
+                "topic_candidate_not_fact": topic["topic_candidate_not_fact"],
+                "literal_source_quote": topic["source_quote"],
+            }
+            for window_index in group for topic in topics_by_window[window_index]
+        ]
+        # Strictly choose a provided caption index, not model-authored text.
+        prompt = {
+            "task": "Select the strongest substantive, distinctive discussion topic for YouTube metadata from these verbatim ORIGINAL SRT citations.",
+            "selection_policy": [
+                "Return JSON {source_index: integer}; the integer MUST match one option.",
+                "Compare ALL options in this group. Prefer specific central topics with exact quotes over jokes, tangents or vague dialogue.",
+                "Do NOT invent a topic, quote, person, event, claim or speaker identity.",
+                "A quote is proof of speech only, not proof an external political claim is true.",
+            ],
+            "options": options,
+        }
+        response = chat([
+            {"role": "system", "content": "Український редактор відео. Вибери тільки наявний номер цитати. Лише JSON."},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ])
+        try:
+            answer = json.loads(str(response).strip())
+        except (TypeError, ValueError):
+            raise ValueError("INVALID_HIGHLIGHT_SELECTOR_REPLY") from None
+        chosen_id = answer.get("source_index") if isinstance(answer, dict) else None
+        if type(chosen_id) is not int:
+            raise ValueError("INVALID_HIGHLIGHT_SELECTOR_INDEX")
+        matches = [
+            (window_index, topic)
+            for window_index in group
+            for topic in topics_by_window[window_index]
+            if topic["source_index"] == chosen_id
+        ]
+        if len(matches) != 1:
+            raise ValueError("HIGHLIGHT_SELECTOR_NOT_IN_SOURCE")
+        selected.append(matches[0])
+    return selected, processed
+
+
 def source_packet_from_complete_map(
     *, video_id: str, original_rows: list[dict[str, Any]],
     full_map: dict[str, Any], max_chars: int = 3200,
+    selector: Chat | None = None,
 ) -> dict[str, Any]:
     """Select a literal-source topic from EACH substantive transcript window.
 
@@ -70,20 +141,26 @@ def source_packet_from_complete_map(
     # synthesis cannot carry all themes from an arbitrarily long stream.
     # Select chronologically across the WHOLE video, record omitted windows,
     # and block any AI quality PASS until all topical windows are covered.
-    if len(present) > 12:
+    full_selector_coverage = False
+    if len(present) > 12 and selector is not None:
+        selected_topics, considered_windows = select_grounded_highlights(
+            windows=windows, topics_by_window=per_window,
+            chat=selector, limit=12)
+        selected_windows = [idx for idx, _ in selected_topics]
+        full_selector_coverage = considered_windows == present
+    elif len(present) > 12:
         indices = [round(i * (len(present) - 1) / 11) for i in range(12)]
         selected_windows = [present[i] for i in indices]
+        selected_topics = [(i, per_window[i][0]) for i in selected_windows]
     else:
         selected_windows = present
+        selected_topics = [(i, per_window[i][0]) for i in present]
+        for i in present:
+            if len(selected_topics) >= 12:
+                break
+            if len(per_window[i]) > 1:
+                selected_topics.append((i, per_window[i][1]))
     omitted_windows = sorted(set(present) - set(selected_windows))
-    selected_topics: list[tuple[int, dict[str, Any]]] = [
-        (i, per_window[i][0]) for i in selected_windows
-    ]
-    for i in selected_windows:
-        if len(selected_topics) >= 12:
-            break
-        if len(per_window[i]) > 1:
-            selected_topics.append((i, per_window[i][1]))
     selected_topics.sort(key=lambda part: (part[0], part[1]["start_s"]))
     for i, chosen in selected_topics:
         window = windows[i]
@@ -118,11 +195,14 @@ def source_packet_from_complete_map(
     packet["full_srt_windows_processed"] = len(windows)
     packet["source_windows_in_synthesis"] = selected_windows
     packet["source_windows_omitted_from_synthesis"] = omitted_windows
-    packet["topical_synthesis_complete"] = not omitted_windows
+    packet["topical_synthesis_complete"] = bool(
+        not omitted_windows or full_selector_coverage)
+    packet["all_topical_windows_considered_for_highlights"] = bool(
+        not omitted_windows or full_selector_coverage)
     packet["windows_without_substantive_topics"] = sorted(documented_empty)
     packet["windows_with_only_short_topics"] = sorted(unusable_windows)
     packet["topical_synthesis_complete"] = bool(
-        not omitted_windows and not unusable_windows)
+        (not omitted_windows or full_selector_coverage) and not unusable_windows)
     packet["full_srt_coverage"] = True
     packet["publication_allowed"] = False
     return packet
@@ -141,7 +221,8 @@ def generate_review_only_seo_from_full_srt(
         original_rows, chat=writer, max_chars=max_chars)
     packet = source_packet_from_complete_map(
         video_id=video_id, original_rows=original_rows,
-        full_map=full_map, max_chars=max_chars)
+        full_map=full_map, max_chars=max_chars,
+        selector=writer)
     initial = draft_seo_package(source=packet, chat=writer)
     review = evaluate_independent_draft(draft=initial, source=packet, chat=critic)
     result: dict[str, Any] = {
