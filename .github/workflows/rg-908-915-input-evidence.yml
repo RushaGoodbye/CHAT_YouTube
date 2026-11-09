@@ -1,0 +1,37 @@
+name: RG 908 and 915 input evidence read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-908-915-input-evidence.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Compare NAS root, screenshots, 915 audio and alignment request
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $config=Join-Path $app 'rg_auto_edit_config.json'
+          if(Test-Path $config){
+            $j=Get-Content $config -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach($p in @('video_root','audio_root','screen_root','screens_root')){Write-Output ('RGINPUT|CONFIG|'+$p+'|'+$j.$p)}
+          }
+          $old='\\Desktop-v7gg0en\record\Screens'
+          $roots=@('\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\Screens',$old)
+          foreach($r in $roots){
+            Write-Output ('RGINPUT|SCREENROOT|'+$r+'|EXISTS='+(Test-Path $r))
+            if(Test-Path $r){
+              Get-ChildItem -LiteralPath $r -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '^908[-_.]|^915[-_.]'} | Select-Object -First 30 | ForEach-Object {Write-Output ('RGINPUT|SCREEN|'+$_.Name+'|'+$_.Length)}
+            }
+          }
+          $aroot='\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\sound'
+          Write-Output ('RGINPUT|AUDIOROOT|'+$aroot+'|EXISTS='+(Test-Path $aroot))
+          if(Test-Path $aroot){Get-ChildItem -LiteralPath $aroot -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '^915(?:[-_.]|$)|^908(?:[-_.]|$)'} | Select-Object -First 20 | ForEach-Object {Write-Output ('RGINPUT|AUDIO|'+$_.Name+'|'+$_.Length)}}
+          foreach($q in @(@('rg_oss_sync.py',446,504),@('rg_audalign_worker.py',120,151))){
+            $s=@(Get-Content (Join-Path $app $q[0]) -Encoding UTF8)
+            for($k=$q[1];$k -le $q[2];$k++){Write-Output ('RGINPUT|SRC|'+$q[0]+'|'+$k+'|'+$s[$k-1])}
+          }
+          Write-Output 'RGINPUT|DONE'
