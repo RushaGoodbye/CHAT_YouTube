@@ -12,7 +12,7 @@ from pathlib import Path
 
 PATCH_VERSION="RG_REPAIR_20261109_V1"
 FILES=("rg_studio_postrun.py","rg_xml_verify_v51.py","rg_face_anchor_guard_v1.py",
-       "rg_audalign_worker.py","rg_qa_current_result.py")
+       "rg_audalign_worker.py","rg_qa_current_result.py","rg_embedded_audio_source_v1.py")
 
 def replace_once(body,old,new,label):
     count=body.count(old)
@@ -139,12 +139,45 @@ def patch_ui_table(s):
     report=dict(table or {})'''
     return replace_once(s,old,new,"REVISION_SINGLE_UI_QA")
 
+
+def patch_embedded(s):
+    old='''        if alternatives:
+            return base
+    info = _probe(video)'''
+    new='''        if alternatives:
+            # 915 carries two segmented external MP3s whose aggregate
+            # duration differs from the full 915 MP4 by several minutes.
+            # Prefer a proven full-length, start-aligned original MP4 track.
+            # This never edits the user's MP3 files and never shifts audio.
+            if vno == "915" and len(alternatives)==2:
+                by_name={p.name.casefold():p for p in alternatives}
+                first=by_name.get((ano+"-1.mp3").casefold())
+                second=by_name.get((ano+"-2.mp3").casefold())
+                if first and second:
+                    info=_probe(video)
+                    vdur=_duration(info)
+                    part_durations=(_duration(_probe(first)),_duration(_probe(second)))
+                    if (_good_embedded(info,vdur)
+                            and min(part_durations)>60
+                            and abs(sum(part_durations)-vdur)>max(30.,vdur*.015)):
+                        _log("915_SPLIT_MISMATCH_USE_SYNCED_VIDEO_AUDIO",
+                             f"video={vdur:.3f}s split={sum(part_durations):.3f}s")
+                    else:
+                        return base
+                else:
+                    return base
+            else:
+                return base
+    info = _probe(video)'''
+    return replace_once(s,old,new,"VERIFIED_915_EMBEDDED_FALLBACK")
+
 PATCHES={
     "rg_studio_postrun.py":patch_postrun,
     "rg_xml_verify_v51.py":patch_xml_verify,
     "rg_face_anchor_guard_v1.py":patch_face,
     "rg_audalign_worker.py":patch_audio,
     "rg_qa_current_result.py":patch_ui_table,
+    "rg_embedded_audio_source_v1.py":patch_embedded,
 }
 
 def stage(source_dir:Path,destination:Path):
