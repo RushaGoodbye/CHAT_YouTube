@@ -297,9 +297,12 @@ def main() -> int:
                     and not second["human_approved"])
                 audit["repair_ai_screened"] = bool(
                     audit["repair_format_pass"]
+                    and not [x for x in repaired["blockers"] if x != "PROVISIONAL_SOURCE_REVIEW"]
                     and not second["issues"]
                     and second["risk_ai"] == "low"
-                    and audit["repair_unapproved"])
+                    and audit["repair_unapproved"]
+                    and source["topical_synthesis_complete"]
+                    and not source["windows_without_substantive_topics"])
                 audit["repair_editorial_approved"] = False
                 audit["repair_full_10_video_acceptance"] = False
             except (ValueError, RuntimeError, OSError, TimeoutError) as repair_error:
@@ -331,6 +334,16 @@ def main() -> int:
             except (OSError, RuntimeError, ValueError, urllib.error.URLError,
                     TimeoutError) as stop_exc:
                 audit["server_stop_skipped"] = type(stop_exc).__name__
+    audit["semantic_ai_screened"] = bool(
+        audit.get("repair_ai_screened")
+        if audit.get("repair_attempt") else
+        audit.get("independent_ai_risk") == "low"
+        and not audit.get("independent_issues")
+        and audit.get("format_pass")
+        and not [x for x in audit.get("blockers", []) if x != "PROVISIONAL_SOURCE_REVIEW"]
+        and not audit.get("unknown_topic_windows_block_acceptance")
+        and audit.get("full_srt_coverage")
+    )
     audit["elapsed_seconds"] = round(time.monotonic() - started, 1)
     # Save review-only artifacts for semantic inspection. Never write to
     # source SRT, application database or YouTube.
@@ -351,8 +364,18 @@ def main() -> int:
             audit["qa_artifact_write_error"] = type(exc).__name__
     print("RG_SEO_LIVE_LLM_AUDIT=" + json.dumps(audit, ensure_ascii=False))
     if audit.get("independent_ai_risk") is None:
-        return 1
-    return 0
+        return 1  # failed to run the model / incomplete source packet
+    # Distinguish a technically completed inference from the user's actual
+    # requirement: source-grounded, correctly formatted, AI-screened SEO.
+    screened = bool(audit.get("repair_ai_screened")) if audit.get(
+        "repair_attempt") else bool(
+            audit.get("format_pass")
+            and not [x for x in audit.get("blockers", []) if x != "PROVISIONAL_SOURCE_REVIEW"]
+            and audit.get("independent_ai_risk") == "low"
+            and not audit.get("independent_issues")
+            and not audit.get("unknown_topic_windows_block_acceptance")
+            and audit.get("full_srt_coverage"))
+    return 0 if screened else 2  # 2: real SEO quality still fails
 
 
 if __name__ == "__main__":
