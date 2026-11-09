@@ -1,0 +1,24 @@
+name: RG install exact queue guard v2 on closed Studio
+on:
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: rg-exact-queue-guard-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261109/rg_exact_queue_guard_v2.py --install
+          if($LASTEXITCODE -ne 0){throw 'RG_EXACT_GUARD_INSTALL_FAILED_OR_STUDIO_OPEN'}
+          & $py -m py_compile 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_batch_v53.py'
+          if($LASTEXITCODE -ne 0){throw 'RG_EXACT_GUARD_POST_COMPILE_FAILED'}
+          Write-Output 'RGEXACT|POST_COMPILE|PASS'
