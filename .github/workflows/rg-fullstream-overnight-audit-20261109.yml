@@ -1,0 +1,68 @@
+name: RG Full Stream overnight readiness audit 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-overnight-audit-20261109.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect FULL STREAM only, no mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          Write-Output ('RGFULLNIGHT|HOST|'+$env:COMPUTERNAME)
+          Write-Output ('RGFULLNIGHT|TIME|'+(Get-Date -Format o))
+          $p=@(Get-CimInstance Win32_Process)
+          $fs=@($p|Where-Object{$_.Name -match '(?i)python|ffmpeg|RG' -and $_.CommandLine -match '(?i)fullstream|full_stream|full.?stream|rg_full'})
+          Write-Output ('RGFULLNIGHT|ACTIVE_FULLSTREAM|'+$fs.Count)
+          foreach($x in $fs|Select-Object -First 8){Write-Output ('RGFULLNIGHT|PROCESS|'+$x.ProcessId+'|'+$x.Name+'|'+($x.CommandLine -replace '[\r\n]',' '))}
+          foreach($f in @('rg_fullstream_manual_tab_v4.py','rg_fullstream_launcher_v2.py','rg_fullstream_stop_v60.py','rg_fullstream_queue.py','rg_studio_ui.py')){
+            $file=Join-Path $app $f
+            Write-Output ('RGFULLNIGHT|MODULE|'+$f+'|'+(Test-Path -LiteralPath $file))
+            if(Test-Path -LiteralPath $file){
+              $lines=@(Get-Content -LiteralPath $file -Encoding UTF8)
+              $hits=@($lines|Where-Object{$_ -match '(?i)nvenc|cq.{0,8}24|h264_nvenc|fullstream.*queue|full_stream.*queue|fullstream.*json|full_stream.*json|QProcess|start_next|next_job|auto.?next'})
+              Write-Output ('RGFULLNIGHT|CONFIG_HITS|'+$f+'|'+$hits.Count)
+              foreach($s in $hits|Select-Object -First 15){Write-Output ('RGFULLNIGHT|CONFIG|'+$f+'|'+$s.Trim().Substring(0,[Math]::Min(200,$s.Trim().Length)))}
+            }
+          }
+          $roots=@($app,$data)
+          foreach($root in $roots){
+            if(Test-Path $root){
+              $files=@(Get-ChildItem -LiteralPath $root -File -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '(?i)full.?stream|fullstream|queue|night'})
+              foreach($f in $files|Select-Object -First 35){
+                Write-Output ('RGFULLNIGHT|FILE|'+$f.FullName+'|'+$f.Length+'|'+$f.LastWriteTime.ToString('o'))
+                if($f.Extension -eq '.json' -and $f.Length -lt 500000 -and $f.Name -match '(?i)full.?stream|fullstream|queue'){
+                  try{
+                    $j=Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+                    $fields=@{}
+                    foreach($k in @('running','paused','status','stage','mode','encoder','codec','cq','quality','progress','active','current','current_stream','items','queue','jobs','rows')){
+                      if($j.PSObject.Properties.Name -contains $k){
+                        $v=$j.$k
+                        if($v -is [array]){$fields[$k]='COUNT='+$v.Count}
+                        elseif($v -is [string]){$fields[$k]=$v.Substring(0,[Math]::Min($v.Length,150))}
+                        else{$fields[$k]=$v}
+                      }
+                    }
+                    Write-Output ('RGFULLNIGHT|STATE|'+$f.Name+'|'+($fields|ConvertTo-Json -Compress -Depth 3))
+                  }catch{Write-Output ('RGFULLNIGHT|STATE_PARSE_FAILED|'+$f.Name)}
+                }
+              }
+            }
+          }
+          $disk=Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='F:'"
+          if($disk){Write-Output ('RGFULLNIGHT|F_FREE_GIB|'+[math]::Round($disk.FreeSpace/1GB,2))}
+          $ff=Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+          if($ff){
+            Write-Output ('RGFULLNIGHT|FFMPEG|'+$ff.Source)
+            & $ff.Source -hide_banner -encoders 2>&1|Where-Object{$_ -match 'h264_nvenc'}|ForEach-Object{Write-Output ('RGFULLNIGHT|ENCODER|'+$_)}
+          }else{Write-Output 'RGFULLNIGHT|FFMPEG_NOT_IN_PATH'}
+          $smi=Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+          if($smi){& $smi.Source --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader|ForEach-Object{Write-Output ('RGFULLNIGHT|GPU|'+$_)}}
+          & powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1|ForEach-Object{Write-Output ('RGFULLNIGHT|SLEEP|'+$_)}
+          Write-Output 'RGFULLNIGHT|READ_ONLY|TRUE'
