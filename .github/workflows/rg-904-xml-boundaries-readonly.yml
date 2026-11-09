@@ -1,0 +1,79 @@
+name: RG 904 XML and dialogue boundaries read-only audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-xml-boundaries-readonly.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-904-xml-boundaries-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.repository == 'RushaGoodbye/CHAT_YouTube' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Read-only manifest and XML boundary integrity
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg904_xml_boundaries_readonly.py'
+          @'
+          from pathlib import Path
+          import json,sys,xml.etree.ElementTree as ET,re
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          data=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data')
+          manifest=app/'RG_EDITED_904_MULTI_DIALOGUE.json'
+          print('RG904XML|MANIFEST_EXISTS|'+str(manifest.is_file()),flush=True)
+          assert manifest.is_file(),'MANIFEST_NOT_FOUND'
+          m=json.loads(manifest.read_text(encoding='utf-8-sig'))
+          print('RG904XML|MANIFEST_KEYS|'+json.dumps(list(m.keys()),ensure_ascii=False),flush=True)
+          for key in ('status','completed_dialogues','dialogue_count','error','last_error'):
+              print('RG904XML|MANIFEST_FIELD|'+key+'|'+str(m.get(key)),flush=True)
+          for key,value in m.items():
+              if isinstance(value,list):
+                  print('RG904XML|LIST|'+key+'|COUNT='+str(len(value)),flush=True)
+                  for i,row in enumerate(value[:30]):
+                      if isinstance(row,dict):
+                          fields={k:v for k,v in row.items() if re.search('start|end|time|duration|path|xml|status|screen|dialog|error',str(k),re.I)}
+                          print('RG904XML|ROW|'+key+'|'+str(i)+'|'+json.dumps(fields,ensure_ascii=False,default=str)[:1200],flush=True)
+          paths=[]
+          for folder in (app,data):
+              if folder.is_dir():
+                  paths += list(folder.glob('*904*xml'))+list(folder.glob('*904*XML'))
+          # Only the top-level and stream-specific subdirectories; no deep disk scan.
+          if data.is_dir():
+              paths+=list((data/'904').glob('*.xml')) if (data/'904').is_dir() else []
+              paths+=list((data/'run_state'/'904').glob('*.xml')) if (data/'run_state'/'904').is_dir() else []
+          seen=set()
+          for p in paths[:120]:
+              if str(p).lower() in seen: continue
+              seen.add(str(p).lower())
+              print('RG904XML|XML_FILE|'+str(p)+'|BYTES='+str(p.stat().st_size),flush=True)
+              try:
+                  tree=ET.parse(p);root=tree.getroot()
+                  files=root.findall('.//file')
+                  clips=root.findall('.//clipitem')
+                  seqs=root.findall('.//sequence')
+                  print('RG904XML|XML_PARSE|PASS|SEQUENCES='+str(len(seqs))+'|CLIPS='+str(len(clips))+'|FILES='+str(len(files)),flush=True)
+                  bad=0
+                  for c in clips:
+                      def num(k):
+                          x=c.findtext(k)
+                          try:return int(x) if x is not None else None
+                          except:return None
+                      s,e,i,o=(num(k) for k in ('start','end','in','out'))
+                      if s is not None and e is not None and e<=s:bad+=1
+                      if i is not None and o is not None and o<=i:bad+=1
+                  print('RG904XML|CLIP_NONPOSITIVE_INTERVALS|'+str(bad),flush=True)
+              except Exception as ex: print('RG904XML|XML_PARSE|ERROR|'+type(ex).__name__+'|'+str(ex)[:250],flush=True)
+          if not seen:print('RG904XML|XML_TOPLEVEL|NONE_FOUND',flush=True)
+          print('RG904XML|ANCHORS|904-2=3510.0|904-3=3978.5|904-4=4866.75',flush=True)
+          print('RG904XML|RELEASE_GATE|NOT_APPROVED_READ_ONLY',flush=True)
+          '@ | Set-Content -LiteralPath $script -Encoding utf8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $script
+          if ($LASTEXITCODE -ne 0){throw 'RG904_XML_QA_FAILED'}
