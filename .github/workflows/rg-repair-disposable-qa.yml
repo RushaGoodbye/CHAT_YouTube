@@ -1,4 +1,4 @@
-name: RG Repair disposable QA verified R2 regular expression
+name: RG Repair disposable QA root-copy manifest evidence
 on:
   push:
     branches: [main]
