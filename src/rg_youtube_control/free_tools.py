@@ -1856,7 +1856,7 @@ _GENERIC_MODEL_TAGS = {
 
 
 def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
-    """Allow model tags only when they are specific and grounded in title/transcript."""
+    """Require topical model tags to be grounded in SRT when SRT is available."""
     clean = " ".join(str(tag or "").split()).strip().lstrip("#")
     if not clean:
         return False
@@ -1870,7 +1870,8 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
     if folded in {"раша гудбай", "чат рулетка"}:
         return True
 
-    haystack = f"{current_title}\n{transcript}".casefold()
+    # A legacy/video filename is not evidence of an event mentioned on air.
+    haystack = (transcript if str(transcript or "").strip() else current_title).casefold()
     if folded in haystack:
         return True
 
