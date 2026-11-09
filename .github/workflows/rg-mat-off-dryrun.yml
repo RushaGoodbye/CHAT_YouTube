@@ -1,0 +1,22 @@
+name: RG fullstream profanity-off transactional dryrun
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rg_repair_20261109/rg_mat_off_patch_v1.py'
+      - '.github/workflows/rg-mat-off-dryrun.yml'
+permissions: {contents: read}
+jobs:
+  stage:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Syntax and regression validation without installed changes
+        shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_mat_off_patch_v1.py
+          if($LASTEXITCODE -ne 0){throw 'RG_MAT_OFF_DRYRUN_FAILED'}
