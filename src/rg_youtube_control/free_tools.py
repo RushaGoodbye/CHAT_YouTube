@@ -1510,6 +1510,12 @@ def _source_quote_ab_titles(
             break  # only one quoted story per timeline block
     if len(candidates) < 3:
         return []
+    # A long stream can contain hundreds of valid quotations. Searching all
+    # combinations is cubic and previously stalled multi-hour transcripts.
+    # Keep an evenly spaced, chronological subset (including both ends).
+    if len(candidates) > 24:
+        last = len(candidates) - 1
+        candidates = [candidates[round(i * last / 23)] for i in range(24)]
     # Pick the widest temporal coverage first; do not take three adjacent
     # quotes from one conversation when later material exists.
     triplets = sorted(
