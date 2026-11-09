@@ -1,0 +1,29 @@
+name: RG Release Health source and evidence audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-release-health-source-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($f in @('rg_release_health_gate.py','rg_studio_postrun.py')){
+            $p=Join-Path $app $f
+            $lines=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RGREL|FILE|'+$f+'|'+$lines.Count)
+            if($f -eq 'rg_release_health_gate.py'){
+              for($i=1;$i -le [Math]::Min($lines.Count,270);$i++){Write-Output ('RGREL|CODE|'+$f+'|'+$i+'|'+$lines[$i-1])}
+            }
+          }
+          foreach($n in @(891,898,904)){
+            $path=Join-Path $app ('RG_EDITED_'+$n+'_MULTI_DIALOGUE.json')
+            $o=Get-Content -Raw -Encoding UTF8 $path|ConvertFrom-Json
+            Write-Output ('RGREL|MANIFEST|'+$n+'|STATUS='+$o.status+'|TOTAL='+$o.dialogue_count+'|OUTS='+@($o.outputs).Count)
+            Write-Output ('RGREL|SKIP|'+$n+'|'+(@($o.skipped_screenshots)|ConvertTo-Json -Compress -Depth 5))
+            Write-Output ('RGREL|REJECT|'+$n+'|'+(@($o.rejected_screenshots)|ConvertTo-Json -Compress -Depth 5))
+          }
