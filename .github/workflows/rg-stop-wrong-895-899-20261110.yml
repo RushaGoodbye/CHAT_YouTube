@@ -1,0 +1,39 @@
+name: RG stop unintended 895-899 queue safely
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stop-wrong-895-899-20261110.yml']
+permissions: {contents: read}
+jobs:
+  stop:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_stop_v60 import active_workers,stop_fullstream
+          from pathlib import Path
+          base=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2")
+          queued=[str(i) for i in range(895,900) if (base/str(i)/"queue_request.json").exists()]
+          unknown=[x for x in base.glob("*/queue_request.json") if x.parent.name not in [str(i) for i in range(895,900)]]
+          if unknown:
+              print("RGWRONG|ABORT_OTHER_QUEUE|"+json.dumps([str(x) for x in unknown]),flush=True)
+              raise SystemExit(2)
+          before=active_workers()
+          expected=[int(x["ProcessId"]) for x in before]
+          print("RGWRONG|PRESTOP|"+json.dumps({"pids":expected,"queued":queued}),flush=True)
+          result=stop_fullstream(confirmed=True,grace=12,expected_pids=expected)
+          print("RGWRONG|STOP_RESULT|"+json.dumps(result,ensure_ascii=False),flush=True)
+          after=active_workers()
+          if after or result.get("status") not in ("STOPPED_VERIFIED_WORKERS","NO_ACTIVE_FULLSTREAM_WORKER"):
+              raise SystemExit(3)
+          print("RGWRONG|WORKERS_STOPPED|PASS",flush=True)
+          '@
+          $script|& $python -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'SCOPED_STOP_NOT_VERIFIED'}
