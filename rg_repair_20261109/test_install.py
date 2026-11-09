@@ -21,7 +21,7 @@ class TransactionalRepairTest(unittest.TestCase):
                 original="# OLD "+n+"\n";patched="# NEW "+n+"\n"
                 (app/n).write_text(original,encoding="utf-8")
                 (candidate/n).write_text(patched,encoding="utf-8")
-                manifest["files"][n]={"source_sha256":sha(original),"candidate_sha256":sha(patched)}
+                manifest["files"][n]={"source_sha256":install.digest(app/n),"candidate_sha256":install.digest(candidate/n)}
                 # One installed binary module also exists.
                 if n==install.FILES[0]:(program/n).write_text(original,encoding="utf-8")
             (candidate/"RG_REPAIR_REPORT.json").write_text(json.dumps(manifest),encoding="utf-8")
