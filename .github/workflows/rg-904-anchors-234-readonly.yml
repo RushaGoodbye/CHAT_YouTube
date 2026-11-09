@@ -1,0 +1,75 @@
+name: RG 904 anchors 2-4 read-only visual QA
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rg-904-anchors-234-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rg-904-anchors-234-readonly
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'RushaGoodbye/CHAT_YouTube' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Safe-stop if production montage is running
+        shell: pwsh
+        run: |
+          $active = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.Name -match '^(python|pythonw|ffmpeg)\.exe$' -and
+            $_.CommandLine -match '(?i)rg_multi_dialogue|rg_production_wrapper|rg_auto_edit_one_button|rg_fullstream|full_stream'
+          })
+          if ($active.Count -gt 0) {
+            Write-Output ('RG904QA|SAFE_STOP_ACTIVE_PRODUCTION|'+$active.Count)
+            throw 'RG904_QA_DEFERRED_ACTIVE_RENDER'
+          }
+      - name: Evaluate screenshots 904-2, 904-3, 904-4 against original stream
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:RUNNER_TEMP 'rg904_anchors_234_readonly.py'
+          @'
+          import json, shutil, tempfile, sys
+          from pathlib import Path
+          import cv2
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(app))
+          from rg_clock_selector import _best_local_match, _probe_duration
+          manifest=json.loads((app/'RG_EDITED_904_MULTI_DIALOGUE.json').read_text(encoding='utf-8-sig'))
+          args=manifest['launch_args']
+          video=Path(args['video_root'])/'904.mp4'
+          screens=Path(args['screen_root'])
+          assert video.is_file(), 'RG904QA|MISSING_ORIGINAL_VIDEO'
+          duration=_probe_duration(video)
+          print('RG904QA|SOURCE_DURATION|'+str(duration),flush=True)
+          # Existing prior clock estimates; search is bounded and diagnostic only.
+          centers={2:3507.0,3:3978.0,4:4853.0}
+          observations={}
+          with tempfile.TemporaryDirectory(prefix='rg904qa_') as t:
+              for n,center in centers.items():
+                  original=screens/f'904-{n}.jpg'
+                  print('RG904QA|SCREEN|'+str(n)+'|EXISTS='+str(original.is_file()),flush=True)
+                  assert original.is_file(), 'RG904QA|MISSING_SCREEN_'+str(n)
+                  local=Path(t)/f'904-{n}.jpg'
+                  shutil.copy2(original,local)
+                  img=cv2.imread(str(local))
+                  assert img is not None, 'RG904QA|UNREADABLE_SCREEN_'+str(n)
+                  result=_best_local_match(video,img,center,duration,progress_cb=None,coarse_radius_sec=30.)
+                  subset={k:result.get(k) for k in ('time','score','coarse_score','fine_p75','fine_p90','peak_over_p75') if k in result}
+                  observations[n]=subset
+                  print('RG904QA|MATCH|'+str(n)+'|'+json.dumps(subset,ensure_ascii=False,default=str),flush=True)
+          times=[observations[n].get('time') for n in (2,3,4)]
+          if all(isinstance(x,(int,float)) for x in times):
+              print('RG904QA|TIME_ORDER|'+str(times[0]<times[1]<times[2]),flush=True)
+              print('RG904QA|TIME_GAPS|'+str(times[1]-times[0])+'|'+str(times[2]-times[1]),flush=True)
+          print('RG904QA|NO_XML_OR_MEDIA_WRITES|TRUE',flush=True)
+          print('RG904QA|RELEASE_STATUS|NOT_APPROVED_DIAGNOSTIC_ONLY',flush=True)
+          '@ | Set-Content -LiteralPath $script -Encoding utf8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $script
+          if ($LASTEXITCODE -ne 0) { throw 'RG904_QA_DIAGNOSTIC_FAILED' }
