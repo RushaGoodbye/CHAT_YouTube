@@ -1,0 +1,70 @@
+name: RG Full Stream queue and encoder deep audit 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-queue-deep-audit-20261109.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $root=Join-Path $data 'fullstream_v2'
+          Write-Output ('RGFSDEEP|FULLSTREAM_DIR|'+(Test-Path $root))
+          if(Test-Path $root){
+            foreach($f in Get-ChildItem $root -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 40){
+              Write-Output ('RGFSDEEP|ROOT_FILE|'+$f.Name+'|'+$f.Length+'|'+$f.LastWriteTime.ToString('o'))
+              if($f.Extension -eq '.json' -and $f.Length -lt 200000){
+                try{
+                  $j=Get-Content $f.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+                  $v=@{}
+                  foreach($key in @('status','running','paused','state','current','current_stream','active','encoder','codec','cq','items','jobs','queue','streams','rows','updated_at','next_index','error')){
+                    if($j.PSObject.Properties.Name -contains $key){
+                      $val=$j.$key
+                      if($val -is [array]){$v[$key]='count='+$val.Count}
+                      elseif($val -is [string]){$v[$key]=$val.Substring(0,[Math]::Min($val.Length,200))}
+                      else{$v[$key]=$val}
+                    }
+                  }
+                  Write-Output ('RGFSDEEP|STATE|'+$f.Name+'|'+($v|ConvertTo-Json -Depth 3 -Compress))
+                }catch{Write-Output ('RGFSDEEP|JSON_BAD|'+$f.Name)}
+              }
+            }
+            $dirs=@(Get-ChildItem $root -Directory -ErrorAction SilentlyContinue)
+            Write-Output ('RGFSDEEP|STREAM_DIR_COUNT|'+$dirs.Count)
+            foreach($dir in $dirs|Sort-Object Name|Select-Object -Last 30){
+              $status=Join-Path $dir.FullName 'status.json'
+              if(Test-Path $status){
+                try{
+                  $j=Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json
+                  $p=@{}
+                  foreach($key in @('status','stage','state','progress','error','reason','export','export_path','qc_status','updated_at','codec','cq','encoder')){
+                    if($j.PSObject.Properties.Name -contains $key){$p[$key]=$j.$key}
+                  }
+                  Write-Output ('RGFSDEEP|STREAM|'+$dir.Name+'|'+($p|ConvertTo-Json -Compress -Depth 3))
+                }catch{Write-Output ('RGFSDEEP|STREAM_BAD|'+$dir.Name)}
+              }
+            }
+            $log=Join-Path $root 'queue_worker.log'
+            if(Test-Path $log){
+              $lines=@(Get-Content $log -Tail 24 -Encoding UTF8)
+              foreach($line in $lines){Write-Output ('RGFSDEEP|QUEUE_LOG|'+$line.Substring(0,[Math]::Min(250,$line.Length)))}
+            }
+          }
+          foreach($name in @('rg_fullstream_batch_v53.py','rg_fullstream_export_v1.py','rg_fullstream_auto_v2.py')){
+            $path=Join-Path $app $name
+            if(Test-Path $path){
+              $s=@(Get-Content $path -Encoding UTF8)
+              foreach($i in 0..($s.Count-1)){
+                if($s[$i] -match '(?i)h264_nvenc|cq.?24|\-cq|\-rc|queue_worker|auto.?next|next_item|disk.?free|free.?disk|disk.?guard|progress.*100'){
+                  Write-Output ('RGFSDEEP|CODE|'+$name+'|'+($i+1)+'|'+$s[$i].Trim().Substring(0,[Math]::Min(240,$s[$i].Trim().Length)))
+                }
+              }
+            }
+          }
+          Write-Output 'RGFSDEEP|READ_ONLY|TRUE'
