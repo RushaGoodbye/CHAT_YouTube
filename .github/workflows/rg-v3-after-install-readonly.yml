@@ -1,0 +1,39 @@
+name: RG Repair V3 after install read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v3-after-install-readonly.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $expected='371a0859682c927c08cb3bd48bca2ccab25fc7c061385d0f728fa7aaa79d010a'
+          $target=Join-Path $app 'rg_studio_ui.py'
+          $actual=(Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('RGV3CHECK|TIME|'+(Get-Date -Format o))
+          Write-Output ('RGV3CHECK|HASH_PASS|'+($actual -eq $expected))
+          Write-Output ('RGV3CHECK|HASH|'+$actual)
+          $backups=@(Get-ChildItem (Join-Path $data 'RG_REPAIR_BACKUPS') -Directory -Filter 'RG_REPAIR_20261109_V3_QA_ONLY_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+          Write-Output ('RGV3CHECK|BACKUPS|'+$backups.Count)
+          if($backups.Count){
+            $p=Join-Path $backups[0].FullName 'ROLLBACK_LEDGER.json'
+            if(Test-Path $p){
+              $j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGV3CHECK|LEDGER|'+$j.status+'|ITEMS='+@($j.items).Count)
+            }
+          }
+          $queue=Get-Content (Join-Path $data 'studio_batch_queue.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGV3CHECK|QUEUE|RUN='+$queue.running+'|PAUSED='+$queue.paused)
+          foreach($n in @(891,898,904,915)){
+            $r=@($queue.rows|Where-Object {$_.stream -eq [string]$n}|Select-Object -First 1)
+            if($r.Count){Write-Output ('RGV3CHECK|ROW|'+$n+'|'+$r[0].status+'|'+$r[0].stage)}
+          }
+          $procs=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'pythonw?\.exe' -and $_.CommandLine -match 'rg_studio_ui.py|rg_studio_main.py|rg_auto_edit_one_button.py|rg_multi_dialogue.py'})
+          foreach($p in $procs){Write-Output ('RGV3CHECK|PROC|'+$p.ProcessId+'|'+$p.Name)}
+          Write-Output 'RGV3CHECK|READ_ONLY|TRUE'
