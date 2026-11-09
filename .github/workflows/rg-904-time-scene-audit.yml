@@ -1,0 +1,31 @@
+name: RG 904 no face timestamp visual mode source audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-time-scene-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($file in @('rg_multi_dialogue.py','rg_clock_selector.py','rg_face_anchor_guard_v1.py','rg_studio_ui.py')){
+            $p=Join-Path $r $file
+            if(!(Test-Path $p)){continue}
+            $s=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            Write-Output ('RGTIME|FILE|'+$file+'|LINES='+$s.Count)
+            $hits=0
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'NO_GUEST_IN_RIGHT_WINDOW|skipped_screenshots|FACE_ANCHOR_UNCONFIRMED|FACE_ANCHOR_REFERENCE_UNAVAILABLE|scene_match|timestamp|fallback|timecode|scene_signature'){
+                $hits++
+                if($hits -le 36){
+                  for($k=[Math]::Max(0,$i-2);$k -le [Math]::Min($s.Count-1,$i+2);$k++){Write-Output ('RGTIME|CODE|'+$file+'|'+($k+1)+'|'+$s[$k])}
+                }
+              }
+            }
+          }
+          $m=Get-Content -LiteralPath (Join-Path $r 'RG_EDITED_904_MULTI_DIALOGUE.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGTIME|904|MANIFEST|'+($m|ConvertTo-Json -Compress -Depth 5))
