@@ -61,16 +61,16 @@ def single(n):
             patch_source(release_source.read_text(encoding="utf-8")),encoding="utf-8")
         entry=root/"qa_entry.py"
         entry.write_text(
-            "import sys,runpy,importlib.util\\n"
-            + "from pathlib import Path\\n"
-            + "app=Path("+repr(str("F:\\RG_AUTO_EDIT\\RG Auto Edit App"))+")\\n"
-            + "sys.path.insert(0,str(app))\\n"
-            + "spec=importlib.util.spec_from_file_location('rg_release_health_gate',str(Path(__file__).with_name('rg_release_health_gate.py')))\\n"
-            + "mod=importlib.util.module_from_spec(spec)\\n"
-            + "spec.loader.exec_module(mod)\\n"
-            + "sys.modules['rg_release_health_gate']=mod\\n"
-            + "sys.argv=[str(app/'rg_studio_postrun.py')]+sys.argv[1:]\\n"
-            + "runpy.run_path(str(app/'rg_studio_postrun.py'),run_name='__main__')\\n",
+            "import sys,runpy,importlib.util\n"
+            + "from pathlib import Path\n"
+            + "app=Path("+repr(str("F:\\RG_AUTO_EDIT\\RG Auto Edit App"))+")\n"
+            + "sys.path.insert(0,str(app))\n"
+            + "spec=importlib.util.spec_from_file_location('rg_release_health_gate',str(Path(__file__).with_name('rg_release_health_gate.py')))\n"
+            + "mod=importlib.util.module_from_spec(spec)\n"
+            + "spec.loader.exec_module(mod)\n"
+            + "sys.modules['rg_release_health_gate']=mod\n"
+            + "sys.argv=[str(app/'rg_studio_postrun.py')]+sys.argv[1:]\n"
+            + "runpy.run_path(str(app/'rg_studio_postrun.py'),run_name='__main__')\n",
             encoding="utf-8")
         cmd=[sys.executable,"-X","utf8",str(entry),
              "--stream",n,"--folder",str(dest),"--outputs-json",output_json]
