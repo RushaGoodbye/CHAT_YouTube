@@ -1,0 +1,43 @@
+name: RG current error diagnostic 20261110 0052
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-current-error-0052.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $p=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py|rg_studio_main.py'})
+          foreach($x in $p){Write-Output ('RGCUR|PROC|'+$x.ProcessId+'|'+$x.ParentProcessId+'|'+$x.Name+'|'+$x.CreationDate+'|'+$x.CommandLine)}
+          foreach($id in 885..899){
+            $folder=Join-Path $root ([string]$id)
+            $stat=Join-Path $folder 'status.json'
+            $req=Join-Path $folder 'queue_request.json'
+            $stage=Join-Path $folder 'stage_state_v52.json'
+            if((Test-Path $stat) -or (Test-Path $req) -or (Test-Path $stage)){
+              foreach($f in @($stat,$req,$stage)){
+                if(Test-Path $f){
+                  $t=Get-Content $f -Raw -Encoding UTF8
+                  $obj=$t|ConvertFrom-Json
+                  $min=[ordered]@{}
+                  foreach($key in @('state','stream','error','stage','detail','repair','decision','message','queued_at','created_utc_epoch')){
+                    if($obj.PSObject.Properties.Name -contains $key){$min[$key]=$obj.$key}
+                  }
+                  Write-Output ('RGCUR|FILE|'+$id+'|'+(Split-Path $f -Leaf)+'|'+(Get-Item $f).LastWriteTime.ToString('s')+'|'+($min|ConvertTo-Json -Compress -Depth 3))
+                }
+              }
+            }
+          }
+          $all=@(Get-ChildItem $root -File -ErrorAction SilentlyContinue|Where-Object{$_.Name -match 'log|error' }|Sort-Object LastWriteTime -Descending|Select-Object -First 5)
+          foreach($file in $all){
+            Write-Output ('RGCUR|LOGFILE|'+$file.FullName+'|'+$file.LastWriteTime.ToString('s'))
+            Get-Content $file.FullName -Tail 18|ForEach-Object {Write-Output ('RGCUR|LOG|'+$_)}
+          }
+          Write-Output 'RGCUR|READONLY|PASS'
