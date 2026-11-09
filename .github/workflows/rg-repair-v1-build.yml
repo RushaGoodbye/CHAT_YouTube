@@ -1,0 +1,76 @@
+name: RG Repair V1 isolated build and QA
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v1-build.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage repair and verify real XML without installing
+        shell: powershell
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $package=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V1_DELIVERY'
+          if(Test-Path $package){Remove-Item $package -Recurse -Force}
+          New-Item -ItemType Directory -Path $package | Out-Null
+          & $py -X utf8 'rg_repair_20261109/stage_repair.py' --source $root --destination "$package\candidate"
+          if($LASTEXITCODE -ne 0){throw 'STAGE_FAILED'}
+          Copy-Item rg_repair_20261109\install.py,rg_repair_20261109\stage_repair.py,rg_repair_20261109\INSTALL_RG_REPAIR.cmd,rg_repair_20261109\ROLLBACK_RG_REPAIR.cmd,rg_repair_20261109\README.txt -Destination $package
+          $script=Join-Path $env:RUNNER_TEMP 'rg_repair_verify_candidate.py'
+          @'
+          from pathlib import Path
+          import ast,sys,tempfile,shutil,json,os
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          candidate=Path(os.environ['RUNNER_TEMP'])/'RG_REPAIR_V1_DELIVERY'/'candidate'
+          sys.path.insert(0,str(candidate))
+          sys.path.insert(1,str(root))
+          for p in candidate.glob('*.py'):
+              ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
+          import rg_studio_postrun as postrun
+          for n,count in (('891',1),('898',1),('904',6)):
+              outputs=postrun._primary_outputs(root/n,[],n)
+              print('RGREPAIR_TEST|POSTRUN_CURRENT|'+n+'|'+str(len(outputs))+'|EXPECTED='+str(count))
+              assert len(outputs)==count
+              assert all(p.is_file() for p in outputs)
+          import rg_xml_verify_v51 as verify
+          for n,should_pass in (('891',True),('898',True),('904',False)):
+              outputs=postrun._primary_outputs(root/n,[],n)
+              with tempfile.TemporaryDirectory(prefix='RG_REPAIR_XML_OFFLINE_') as d:
+                  folder=Path(d)/n
+                  folder.mkdir()
+                  rows=[]
+                  for p in outputs:
+                      shutil.copy2(p,folder/p.name)
+                      rows.append({'premiere_xml':str(folder/p.name)})
+                  manifest={'stream':n,'status':'QA_FAILED','dialogue_count':len(rows),'outputs':rows}
+                  (folder.parent/('RG_EDITED_'+n+'_MULTI_DIALOGUE.json')).write_text(json.dumps(manifest),encoding='utf-8')
+                  _,result=verify.verify(folder)
+                  print('RGREPAIR_TEST|XML|'+n+'|PASS='+str(result['passed'])+'|ISSUES='+','.join(str(x['code']) for x in result['issues']))
+                  if should_pass:assert result['passed']
+                  else:assert any(x['code']=='SOURCE_OVERLAP' for x in result['issues'])
+          assert 'RG_AUDALIGN_EMPTY_DECODE' in (candidate/'rg_audalign_worker.py').read_text(encoding='utf-8')
+          assert 'FACE_IDENTITY_RESCUED_DENSE_VERIFIED' in (candidate/'rg_face_anchor_guard_v1.py').read_text(encoding='utf-8')
+          print('RGREPAIR_TEST|STAGED_ONLY|PASS')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & $py -X utf8 $script
+          if($LASTEXITCODE -ne 0){throw 'REAL_XML_REGRESSION_FAILED'}
+          $zip=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V1_20261109.zip'
+          if(Test-Path $zip){Remove-Item $zip -Force}
+          Compress-Archive -Path "$package\*" -DestinationPath $zip
+          Write-Output ('RGREPAIR_PACKAGE|BUILT|'+$zip)
+          Write-Output 'RGREPAIR_PACKAGE|STUDIO_UNCHANGED|TRUE'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RG_REPAIR_V1_20261109
+          path: ${{ runner.temp }}/RG_REPAIR_V1_20261109.zip
+          if-no-files-found: error
+          retention-days: 30
