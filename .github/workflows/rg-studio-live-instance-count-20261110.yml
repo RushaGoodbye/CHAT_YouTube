@@ -1,0 +1,25 @@
+name: RG Studio live instance count 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-live-instance-count-20261110.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $rows=@(Get-CimInstance Win32_Process |Where-Object {
+            $_.Name -match '^pythonw?\.exe$|^RG.*Studio.*\.exe$' -and
+            $_.CommandLine -match 'rg_studio_main\.py|RG.Auto.Edit.Studio|RG_Auto_Edit_Studio'
+          } |Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CreationDate,CommandLine)
+          Write-Output ('RGSTUDIO|COUNT|'+$rows.Count)
+          foreach($p in $rows){
+            Write-Output ('RGSTUDIO|PROCESS|'+($p|ConvertTo-Json -Compress -Depth 4))
+          }
+          $roots=@('F:\RG_AUTO_EDIT\RG Auto Edit App',(Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'))
+          foreach($root in $roots){$d=Get-Item $root -Force -ErrorAction SilentlyContinue;if($d){Write-Output ('RGSTUDIO|ROOT|'+$root+'|TYPE='+$d.LinkType+'|TARGET='+($d.Target -join ';'))}}
+          Write-Output 'RGSTUDIO|READ_ONLY|PASS'
