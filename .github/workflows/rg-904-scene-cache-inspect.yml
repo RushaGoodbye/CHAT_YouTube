@@ -1,0 +1,29 @@
+name: RG 904 cache scene match inspect readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-scene-cache-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App\.rg_cache\904'
+          if(!(Test-Path $root)){Write-Output 'RGCACHE904|NO_CACHE';exit 0}
+          $files=@(Get-ChildItem $root -Recurse -File -Filter '*clock*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 20)
+          Write-Output ('RGCACHE904|FOUND|'+$files.Count)
+          foreach($f in $files){
+            Write-Output ('RGCACHE904|FILE|'+$f.FullName+'|'+$f.Length)
+            try{
+              $j=Get-Content -Raw -Encoding UTF8 $f.FullName|ConvertFrom-Json
+              foreach($m in @($j.matches)){
+                $n=[string]$m.screenshot
+                if($n -match '904-[234]\.'){
+                  Write-Output ('RGCACHE904|MATCH|'+$n+'|'+($m|ConvertTo-Json -Compress -Depth 4).Substring(0,[Math]::Min(1200,($m|ConvertTo-Json -Compress -Depth 4).Length)))
+                }
+              }
+            }catch{}
+          }
