@@ -1,0 +1,47 @@
+name: RG Repair V1 source audit readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v1-source-audit.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Examine relevant safeguards and 915 without modifications
+        shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Write-Output ('RGREPAIR|NOW|'+(Get-Date -Format o))
+          foreach($n in @(891,898,904,908,915)){
+            $p=Join-Path $root "run_manifests\$n\LATEST.log"
+            if(Test-Path $p){
+              Write-Output ('RGREPAIR|LOGFILE|'+$n+'|'+(Get-Item $p).LastWriteTime.ToString('o'))
+              Get-Content -LiteralPath $p -Tail 65 -Encoding UTF8 | Where-Object {$_ -match 'RuntimeError|Error:|Traceback|RGPOSTRUNFILE|RGPOSTRUN\||R6_TABLE|INPUT_CHECK|SCREEN|SOURCE_DURATION|BACKEND ERROR|RGDIAG|MISSING PRIMARY XML'}|ForEach-Object{Write-Output ('RGREPAIR|ERROR|'+$n+'|'+$_.Substring(0,[Math]::Min(2400,$_.Length)))}
+            }
+          }
+          foreach($n in @(908,915)){
+            $p="F:\RG_AUTO_EDIT\RG Auto Edit Data\run_state\$n\RUN_STATE.json"
+            if(Test-Path $p){Write-Output ('RGREPAIR|STATE|'+$n+'|'+(Get-Content $p -Raw -Encoding UTF8))}
+          }
+          foreach($name in @('rg_postrun_qa.py','rg_xml_verify.py','rg_output_name_guard.py','rg_face_anchor_guard_v1.py','rg_clock_selector.py','rg_studio_ui.py','rg_production_wrapper.py')){
+            $p=Join-Path $root $name
+            if(!(Test-Path $p)){continue}
+            $lines=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            Write-Output ('RGREPAIR|SOURCE|'+$name+'|'+$lines.Count)
+            $matches=@()
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'R6_TABLE_CONTRACT_FAILED|QA output name/duplicate is unsafe|MISSING PRIMARY XML|SOURCE_OVERLAP|UNCENSORED|FACE_ANCHOR_UNCONFIRMED|FACE_ANCHOR_REFERENCE_UNAVAILABLE|NO_REFERENCE_FACE|VISUAL_CONFIRMATION_FAILED|INPUT_CHECK|SCREENSHOT_MISSING'){
+                $matches+=($i+1)
+              }
+            }
+            foreach($n in ($matches|Select-Object -First 30)){
+              $a=[Math]::Max(1,$n-3);$b=[Math]::Min($lines.Count,$n+3)
+              for($k=$a;$k -le $b;$k++){Write-Output ('RGREPAIR|CODE|'+$name+'|'+$k+'|'+$lines[$k-1])}
+            }
+          }
+          $p=Get-CimInstance Win32_Process | Where-Object {($_.Name -match 'pythonw?\.exe|RG Auto Edit') -and $_.CommandLine -match 'rg_studio_ui|rg_studio_main|rg_production_wrapper|rg_multi_dialogue|rg_auto_edit_one_button'}
+          foreach($x in $p){Write-Output ('RGREPAIR|PROC|'+$x.ProcessId+'|'+$x.Name+'|'+$x.CommandLine.Substring(0,[Math]::Min(180,$x.CommandLine.Length)))}
+          Write-Output 'RGREPAIR|DONE'
