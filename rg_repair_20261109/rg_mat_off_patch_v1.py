@@ -102,6 +102,16 @@ def stage():
     return before,after
 
 def safety():
+    # Production full-stream worker lock is authoritative, even if its command
+    # line is hidden by a wrapper process.
+    sys.path.insert(0,str(APP))
+    try:
+        from rg_fullstream_process_state_v59 import worker_lock_state
+        lock_state=worker_lock_state(DATA)
+    except Exception as exc:
+        raise RuntimeError("WORKER_STATE_UNAVAILABLE:"+repr(exc)) from exc
+    if lock_state!="IDLE":
+        raise RuntimeError("FULLSTREAM_WORKER_NOT_IDLE:"+str(lock_state))
     ps=r'''Get-CimInstance Win32_Process | Where-Object {
  $_.Name -match '^(python|pythonw|ffmpeg)(\.exe)?$|RG.Auto.Edit' -and
  $_.CommandLine -match 'rg_studio_main\.py|rg_studio_ui\.py|rg_fullstream_auto_v2\.py|rg_fullstream_worker_v3\.py|rg_production_wrapper\.py|rg_multi_dialogue\.py'
