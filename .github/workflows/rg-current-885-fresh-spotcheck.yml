@@ -1,0 +1,30 @@
+name: RG current 885 live fresh job spotcheck
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-current-885-fresh-spotcheck.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $procs=@(Get-CimInstance Win32_Process | Where-Object{$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_studio_main.py|rg_fullstream_worker_v3.py'})
+          foreach($p in $procs){Write-Output ('RG885LIVE|PROC|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.Name+'|'+$p.CreationDate+'|'+$p.CommandLine)}
+          foreach($i in 885..899){
+            $s=[string]$i; $dir=Join-Path $root $s
+            $status=Join-Path $dir 'status.json';$req=Join-Path $dir 'queue_request.json';$stage=Join-Path $dir 'stage_state_v52.json'
+            if(!(Test-Path $req) -and !(Test-Path $status)){continue}
+            $st='NO_STATUS';$err='';$phase='';$req_at=''
+            if(Test-Path $status){try{$j=Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json;$st=$j.state;$err=$j.error}catch{$st='BAD_STATUS'}}
+            if(Test-Path $req){$req_at=(Get-Item $req).LastWriteTime.ToString('s')}
+            if(Test-Path $stage){try{$j=Get-Content $stage -Raw -Encoding UTF8|ConvertFrom-Json;$phase=$j.stage}catch{}}
+            Write-Output ('RG885LIVE|STREAM|'+$s+'|STATUS='+$st+'|QUEUE='+(Test-Path $req)+'|REQUEST_MOD='+$req_at+'|STAGE='+$phase+'|ERROR='+$err)
+          }
+          $q=Join-Path $root 'queue_worker.log'
+          if(Test-Path $q){Write-Output ('RG885LIVE|LOGMOD|'+(Get-Item $q).LastWriteTime.ToString('s'));Get-Content $q -Tail 18|ForEach-Object{Write-Output ('RG885LIVE|LOG|'+$_)}}
+          Write-Output 'RG885LIVE|READONLY|PASS'
