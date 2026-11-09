@@ -1,4 +1,4 @@
-name: RG V2 installed verification and isolated QA 891 898
+name: RG V2 installed verification and corrected isolated QA 891 898
 on:
   push:
     branches: [main]
