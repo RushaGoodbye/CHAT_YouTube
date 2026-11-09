@@ -12,7 +12,7 @@ jobs:
       - shell: pwsh
         run: |
           $base='\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live'
-          $exe='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\ffmpeg\bin\ffprobe.exe'
+          $exe=(Get-Command ffprobe.exe -ErrorAction SilentlyContinue).Source; if(!$exe){$exe='F:\RG_AUTO_EDIT\RG Auto Edit App\ffprobe.exe'}
           if(!(Test-Path $exe)){throw 'MISSING_FFPROBE'}
           foreach($p in @("$base\RushaGoodbye - Live\915.mp4","$base\sound\915-1.mp3","$base\sound\915-2.mp3")){
             Write-Output ('RG915PROBE|PATH|'+$p+'|EXISTS='+(Test-Path $p))
