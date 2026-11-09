@@ -1,0 +1,64 @@
+name: RG exact queue guard postinstall acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-exact-queue-guard-acceptance-now.yml']
+permissions: {contents: read}
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $code=@'
+          import ast,hashlib,json,sys,tempfile
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          file=app/"rg_fullstream_batch_v53.py"
+          src=file.read_text(encoding="utf-8-sig")
+          ast.parse(src)
+          assert "RG_EXACT_QUEUE_GUARD_V1" in src
+          assert "Підтвердити точні номери стримів" in src
+          assert "UNRELATED_PENDING_QUEUE_BLOCKED" in src
+          print("RGACCEPT|INSTALLED_SHA|"+hashlib.sha256(file.read_bytes()).hexdigest(),flush=True)
+          print("RGACCEPT|GUI_CONFIRMATION|PASS",flush=True)
+          import importlib.util
+          spec=importlib.util.spec_from_file_location("rg_fullstream_batch_v53",str(file))
+          m=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          assert m.parse_numbers("885, 886 887") == ["885","886","887"]
+          assert m.parse_numbers("885")==["885"]
+          with tempfile.TemporaryDirectory(prefix="rg_guard_smoke_") as tmp:
+              root=Path(tmp)
+              simdata=root/"data"
+              simapp=root/"app"
+              old=simdata/"fullstream_v2"/"895"
+              old.mkdir(parents=True)
+              (old/"queue_request.json").write_text(json.dumps({"stream":"895"}),encoding="utf-8")
+              (old/"status.json").write_text(json.dumps({"state":"QUEUED"}),encoding="utf-8")
+              try:
+                  m.enqueue_many("885",app=simapp,data=simdata,launch=False)
+              except RuntimeError as exc:
+                  assert "UNRELATED_PENDING_QUEUE_BLOCKED" in str(exc),str(exc)
+                  print("RGACCEPT|UNRELATED_895_BLOCKED|PASS",flush=True)
+              else: raise AssertionError("UNRELATED_QUEUE_WAS_NOT_BLOCKED")
+              assert not (simdata/"fullstream_v2"/"885").exists()
+              print("RGACCEPT|NO_QUEUE_MUTATION_ON_BLOCK|PASS",flush=True)
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          sys.path.insert(0,str(app))
+          assert not active_workers()
+          print("RGACCEPT|WORKER_IDLE|"+worker_lock_state(data),flush=True)
+          assert worker_lock_state(data)=="IDLE"
+          pending=[p.parent.name for p in (data/"fullstream_v2").glob("*/queue_request.json")]
+          print("RGACCEPT|PENDING|"+json.dumps(pending),flush=True)
+          assert not pending,pending
+          print("RGACCEPT|ALL_TESTS|PASS|NO_WORKERS_STARTED",flush=True)
+          '@
+          $code|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_EXACT_GUARD_ACCEPTANCE_FAILED'}
