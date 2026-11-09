@@ -20,7 +20,7 @@ def patch_source(s):
     # A single R2 file is revision 2 of dialogue 1, not dialogue 2.
     # Accept only when the current manifest proves the exact file and
     # screenshot index. Never infer identity from revision alone.
-    rev=re.fullmatch(r"RG_EDITED_"+re.escape(str(stream))+r"_R[1-9]\\\\d*",stem,re.I)
+    rev=re.fullmatch(r"RG_EDITED_"+re.escape(str(stream))+r"_R[1-9]\\\d*",stem,re.I)
     if total==1 and rev:
         x=Path(path)
         manifest=x.parent.parent/("RG_EDITED_"+str(stream)+"_MULTI_DIALOGUE.json")
@@ -33,7 +33,7 @@ def patch_source(s):
                     and len(rows)==1
                     and int(rows[0].get("index") or 0)==1
                     and x.name.casefold()==Path(str(rows[0].get("premiere_xml") or "")).name.casefold()
-                    and re.fullmatch(re.escape(str(stream))+r"-\\\\d+\\\\.(?:jpg|jpeg|png)",
+                    and re.fullmatch(re.escape(str(stream))+r"-\\\d+\\\.(?:jpg|jpeg|png)",
                                      Path(str(rows[0].get("screenshot") or "")).name,re.I)):
                 return 1
         except (OSError,ValueError,TypeError,KeyError):pass
