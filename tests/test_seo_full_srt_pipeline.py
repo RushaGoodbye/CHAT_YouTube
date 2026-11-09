@@ -161,3 +161,25 @@ def test_highlight_selector_rejects_invented_source_index():
         source_packet_from_complete_map(
             video_id=VID,original_rows=original,full_map=full,
             max_chars=600,selector=lambda _: json.dumps({"source_index":999999}))
+
+
+def test_hierarchical_highlight_prompts_stay_bounded_for_huge_transcript():
+    original=rows(600)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    counts=[]
+    def choose(messages):
+        data=json.loads(messages[-1]["content"])
+        choices=data["options"]
+        counts.append(len(choices))
+        assert 1 <= len(choices) <= 12
+        return json.dumps({"source_index": choices[0]["source_index"]})
+    packet=source_packet_from_complete_map(
+        video_id=VID, original_rows=original, full_map=full,
+        max_chars=600, selector=choose)
+    assert full["window_count"] > 50
+    assert len(counts) > 12
+    assert max(counts) <= 12
+    assert packet["source_topics_selected"] == 12
+    assert packet["topical_synthesis_complete"] is True
+    assert packet["full_srt_cues_processed"] == 600
+    assert packet["publication_allowed"] is False
