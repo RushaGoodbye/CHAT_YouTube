@@ -9,8 +9,9 @@ RG REPAIR V1 / 2026-11-09
 
 The update DOES NOT auto-launch montage, export XML, or mark failed streams PASS.
 Face evidence and real overlapping dialogue source ranges remain strict guards.
-Missing screenshots for 908 need the correct input files. The 915 audio path
-now has actionable early error diagnostics; the audio itself is NOT repaired.
+Missing screenshots for 908 need the correct input files. The 915 audio source now selects the original full-length MP4 audio ONLY when
+exactly two mismatched split MP3 segments and verified embedded video/audio
+start and duration are present. Otherwise it fails closed. MP3 files untouched.
 QA-only validation of 891/898/904 is still required before release.
 
 Check RG_REPAIR_REPORT.json for exact module hashes.
