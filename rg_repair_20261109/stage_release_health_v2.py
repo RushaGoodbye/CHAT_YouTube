@@ -23,7 +23,11 @@ def patch_source(s):
     rev=re.fullmatch(r"RG_EDITED_"+re.escape(str(stream))+r"_R[1-9]\d*",stem,re.I)
     if total==1 and rev:
         x=Path(path)
-        manifest=x.parent.parent/("RG_EDITED_"+str(stream)+"_MULTI_DIALOGUE.json")
+        manifest_name="RG_EDITED_"+str(stream)+"_MULTI_DIALOGUE.json"
+        # Release QA may choose a byte-identical APP-root copy, while
+        # Premiere QA selects APP/STREAM copy. Both require the same manifest.
+        manifest=next((p for p in (x.parent/manifest_name,x.parent.parent/manifest_name)
+                       if p.is_file()),x.parent.parent/manifest_name)
         try:
             data=json.loads(manifest.read_text(encoding="utf-8-sig"))
             rows=data.get("outputs") or []
