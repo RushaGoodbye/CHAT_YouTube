@@ -1,0 +1,23 @@
+name: RG Repair postrun exact internals
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-postrun-internals.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($name in @('rg_studio_postrun.py','rg_xml_verify_v51.py')){
+            $s=@(Get-Content (Join-Path $root $name) -Encoding UTF8)
+            Write-Output ('RGQ|FILE|'+$name+'|'+$s.Count)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'MISSING PRIMARY XML|NO_OUTPUTS|SOURCE_OVERLAP|UNCENSORED|def |primary|expected|overlap|release|source_in'){
+                for($k=[Math]::Max(0,$i-1);$k -le [Math]::Min($s.Count-1,$i+1);$k++){Write-Output ('RGQ|CODE|'+$name+'|'+($k+1)+'|'+$s[$k])}
+              }
+            }
+          }
