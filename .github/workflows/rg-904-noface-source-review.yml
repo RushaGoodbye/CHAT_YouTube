@@ -1,0 +1,26 @@
+name: RG 904 no-face filter source review
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-noface-source-review.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_multi_dialogue.py'
+          $lines=@(Get-Content -LiteralPath $p -Encoding UTF8)
+          Write-Output ('RG904FILTER|FILE_LINES|'+$lines.Count)
+          $terms='NO_GUEST_IN_RIGHT_WINDOW|skipped_screenshots|skin_component|sface_identity'
+          $match=@(for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -match $terms){$i}})
+          Write-Output ('RG904FILTER|HITS|'+$match.Count)
+          foreach($i in ($match|Select-Object -First 12)){
+            $from=[math]::Max(0,$i-7);$to=[math]::Min($lines.Count-1,$i+9)
+            Write-Output ('RG904FILTER|BLOCK|'+($i+1))
+            for($j=$from;$j -le $to;$j++){Write-Output ('RG904FILTER|LINE|'+($j+1)+'|'+$lines[$j])}
+          }
+          Write-Output 'RG904FILTER|READ_ONLY|TRUE'
