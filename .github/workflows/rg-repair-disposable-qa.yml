@@ -1,4 +1,4 @@
-name: RG Repair disposable full postrun QA release gate v2
+name: RG Repair disposable QA verified R2 regular expression
 on:
   push:
     branches: [main]
