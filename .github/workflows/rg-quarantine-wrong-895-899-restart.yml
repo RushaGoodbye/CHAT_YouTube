@@ -1,0 +1,19 @@
+name: RG quarantine wrong 895-899 restart leftovers
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-quarantine-wrong-895-899-restart.yml']
+permissions: {contents: read}
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_fullstream_fresh_reset_885_899.py
+          if($LASTEXITCODE -ne 0){throw 'SCOPED_QUARANTINE_FAILED'}
