@@ -1,4 +1,4 @@
-name: RG Repair V1 isolated build and QA
+name: RG Repair V1 isolated build and QA fixed hashes
 on:
   push:
     branches: [main]
