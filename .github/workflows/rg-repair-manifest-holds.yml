@@ -1,0 +1,23 @@
+name: RG Repair current manifest review holds readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-manifest-holds.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @(891,898,904,893,901,903,907,908,913,915)){
+            $path=Join-Path $root ('RG_EDITED_'+$n+'_MULTI_DIALOGUE.json')
+            if(!(Test-Path $path)){Write-Output ('RGHOLD|'+$n+'|NO_MANIFEST');continue}
+            $m=Get-Content -Raw -Encoding UTF8 $path|ConvertFrom-Json
+            Write-Output ('RGHOLD|'+$n+'|STATUS='+$m.status+'|EXPECTED='+$m.dialogue_count+'|OUTPUTS='+@($m.outputs).Count+'|HOLDS='+@($m.review_holds).Count)
+            foreach($h in @($m.review_holds)){Write-Output ('RGHOLD|'+$n+'|HOLD|'+($h|ConvertTo-Json -Compress -Depth 5))}
+            foreach($s in @($m.skipped_screenshots)){Write-Output ('RGHOLD|'+$n+'|SKIPPED|'+($s|ConvertTo-Json -Compress -Depth 5))}
+          }
