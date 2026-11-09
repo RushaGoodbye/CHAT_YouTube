@@ -1890,11 +1890,20 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
         )):
             return True
 
-    # Multi-word tags may use a normalized phrase not present verbatim, but at
-    # least half of their meaningful words must be visible in the source.
-    hits = sum(1 for token in tokens if token in haystack)
-    required = 1 if len(tokens) == 1 else max(2, (len(tokens) + 1) // 2)
-    return hits >= required
+    # Words scattered across different conversations do not substantiate
+    # a claimed relationship such as "event A caused outcome B".
+    # Multi-word tags need their meaningful tokens in one local source span.
+    if len(tokens) == 1:
+        return tokens[0] in haystack
+    for line in haystack.splitlines():
+        if len(line) > 500:
+            windows = [line[i:i + 500] for i in range(0, len(line), 350)]
+        else:
+            windows = [line]
+        for window in windows:
+            if all(token in window for token in tokens):
+                return True
+    return False
 
 
 def _source_mentions(
