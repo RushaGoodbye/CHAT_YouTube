@@ -1,0 +1,19 @@
+name: RG QA tab exact label read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-qa-tab-label.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $s=@(Get-Content 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py' -Encoding UTF8)
+          for($i=0;$i -lt $s.Count;$i++){
+            if($s[$i] -match 'addTab\(|setTabText\(|_qa_tab\(|QTabWidget\('){
+              Write-Output ('RGTAB|'+($i+1)+'|'+$s[$i])
+            }
+          }
