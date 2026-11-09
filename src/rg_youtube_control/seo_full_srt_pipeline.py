@@ -24,67 +24,86 @@ def select_grounded_highlights(
     topics_by_window: dict[int, list[dict[str, Any]]],
     chat: Chat, limit: int = 12,
 ) -> tuple[list[tuple[int, dict[str, Any]]], list[int]]:
-    """Consider every topical window, select 12 representative source quotes.
+    """Select representative SRT topics in a bounded hierarchical tournament.
 
-    Selection cannot invent a quote: the model returns only an original
-    caption index. The complete candidate list is considered in bounded,
-    contiguous groups, not just the beginning or end of the stream.
+    Every original topical window is presented to the model in round one.
+    No LLM request includes more than four windows or twelve source topics;
+    long streams cannot overflow a final 4096-token selection prompt.
     """
     present = sorted(i for i in topics_by_window if topics_by_window[i])
     if len(present) <= limit:
         return [(i, topics_by_window[i][0]) for i in present], present
-    groups = [
-        present[round(g * len(present) / limit):
-                round((g + 1) * len(present) / limit)]
-        for g in range(limit)
+    if not 2 <= limit <= 12:
+        raise ValueError("INVALID_HIGHLIGHT_LIMIT")
+    candidates: list[tuple[int, dict[str, Any]]] = [
+        (i, topic) for i in present for topic in topics_by_window[i][:3]
     ]
-    # Every candidate source window must be considered exactly once.
-    processed = [i for group in groups for i in group]
-    if processed != present or any(not group for group in groups):
-        raise ValueError("HIGHLIGHT_WINDOW_COVERAGE_MISMATCH")
-    selected: list[tuple[int, dict[str, Any]]] = []
-    for group in groups:
-        options = [
-            {
-                "window_index": window_index,
-                "source_index": topic["source_index"],
-                "topic_candidate_not_fact": topic["topic_candidate_not_fact"],
-                "literal_source_quote": topic["source_quote"],
+    original_windows_seen: set[int] = set()
+    first_round = True
+    while len(candidates) > limit:
+        # First pass groups all candidates from at most FOUR adjacent windows.
+        # Later passes group already-selected source topics, max four per call.
+        if first_round:
+            spans: list[list[tuple[int, dict[str, Any]]]] = []
+            for start in range(0, len(present), 4):
+                window_group = set(present[start:start + 4])
+                group = [x for x in candidates if x[0] in window_group]
+                spans.append(group)
+                original_windows_seen.update(window_group)
+        else:
+            group_count = max(limit, (len(candidates) + 3) // 4)
+            spans = [
+                candidates[round(g * len(candidates) / group_count):
+                           round((g + 1) * len(candidates) / group_count)]
+                for g in range(group_count)
+            ]
+        if not spans or any(not group or len(group) > 12 for group in spans):
+            raise ValueError("INVALID_HIGHLIGHT_REDUCTION_GROUP")
+        reduced: list[tuple[int, dict[str, Any]]] = []
+        for group in spans:
+            options = [
+                {
+                    "window_index": window_index,
+                    "source_index": topic["source_index"],
+                    "topic_candidate_not_fact": topic["topic_candidate_not_fact"],
+                    "literal_source_quote_excerpt": topic["source_quote"][:320],
+                }
+                for window_index, topic in group
+            ]
+            prompt = {
+                "task": "Choose ONE strongest concrete discussion subject for YouTube metadata from the provided original SRT citations.",
+                "rules": [
+                    "Return only JSON {source_index: integer}, using an ID present in these options.",
+                    "Prefer specific, distinctive discussion topics over jokes, greetings and vague dialogue.",
+                    "Never invent quotes, identities, events or factual interpretations.",
+                    "A participant's statement is not proof of an external fact.",
+                ],
+                "options": options,
             }
-            for window_index in group for topic in topics_by_window[window_index]
-        ]
-        # Strictly choose a provided caption index, not model-authored text.
-        prompt = {
-            "task": "Select the strongest substantive, distinctive discussion topic for YouTube metadata from these verbatim ORIGINAL SRT citations.",
-            "selection_policy": [
-                "Return JSON {source_index: integer}; the integer MUST match one option.",
-                "Compare ALL options in this group. Prefer specific central topics with exact quotes over jokes, tangents or vague dialogue.",
-                "Do NOT invent a topic, quote, person, event, claim or speaker identity.",
-                "A quote is proof of speech only, not proof an external political claim is true.",
-            ],
-            "options": options,
-        }
-        response = chat([
-            {"role": "system", "content": "Український редактор відео. Вибери тільки наявний номер цитати. Лише JSON."},
-            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-        ])
-        try:
-            answer = json.loads(str(response).strip())
-        except (TypeError, ValueError):
-            raise ValueError("INVALID_HIGHLIGHT_SELECTOR_REPLY") from None
-        chosen_id = answer.get("source_index") if isinstance(answer, dict) else None
-        if type(chosen_id) is not int:
-            raise ValueError("INVALID_HIGHLIGHT_SELECTOR_INDEX")
-        matches = [
-            (window_index, topic)
-            for window_index in group
-            for topic in topics_by_window[window_index]
-            if topic["source_index"] == chosen_id
-        ]
-        if len(matches) != 1:
-            raise ValueError("HIGHLIGHT_SELECTOR_NOT_IN_SOURCE")
-        selected.append(matches[0])
-    return selected, processed
+            raw = chat([
+                {"role": "system", "content": "Український редактор. Обери тільки один наявний індекс цитати. Поверни JSON."},
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ])
+            try:
+                answer = json.loads(str(raw).strip())
+            except (TypeError, ValueError):
+                raise ValueError("INVALID_HIGHLIGHT_SELECTOR_REPLY") from None
+            selected_id = answer.get("source_index") if isinstance(answer, dict) else None
+            if type(selected_id) is not int:
+                raise ValueError("INVALID_HIGHLIGHT_SELECTOR_INDEX")
+            matches = [part for part in group
+                       if part[1]["source_index"] == selected_id]
+            if len(matches) != 1:
+                raise ValueError("HIGHLIGHT_SELECTOR_NOT_IN_SOURCE")
+            reduced.append(matches[0])
+        if len(reduced) >= len(candidates):
+            raise ValueError("HIGHLIGHT_REDUCTION_DID_NOT_PROGRESS")
+        candidates = reduced
+        first_round = False
+    if original_windows_seen != set(present):
+        raise ValueError("HIGHLIGHT_WINDOW_COVERAGE_MISMATCH")
+    candidates.sort(key=lambda pair: (pair[0], pair[1]["start_s"]))
+    return candidates, present
 
 
 def source_packet_from_complete_map(
