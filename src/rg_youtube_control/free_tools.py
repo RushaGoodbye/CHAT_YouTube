@@ -1926,14 +1926,16 @@ def _grounded_tags_from_transcript(
     current_title: str,
     transcript: str,
 ) -> list[str]:
-    """Build 8-15 specific SEO tags from the actual title/transcript."""
+    """Build topical tags from captions; title alone is not content evidence."""
     title = re.sub(
         r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
         "",
         str(current_title or "").strip(),
         flags=re.I,
     ).strip()
-    haystack = f"{title}\n{transcript}".casefold()
+    # Do not derive claimed topics from a historical title when captions exist.
+    evidence_title = "" if str(transcript or "").strip() else title
+    haystack = f"{evidence_title}\n{transcript}".casefold()
 
     tags: list[str] = ["РАША ГУДБАЙ", "чат рулетка"]
 
@@ -1991,10 +1993,10 @@ def _grounded_tags_from_transcript(
         add("зарплати в Росії")
     if "пенси" in haystack or "соцпакет" in haystack:
         add("пенсії в Росії")
-    in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("эконом", "економ"))
     if in_title or mentions >= 3:
         add("економіка Росії")
-    in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("путин", "путін"))
     if in_title or mentions >= 3:
         add("Путін")
     in_title, mentions = _source_mentions(
@@ -2007,12 +2009,12 @@ def _grounded_tags_from_transcript(
     )
     if in_title or mentions >= 3:
         add("мобілізація в Росії")
-    in_title, mentions = _source_mentions(title, transcript, ("санкц",))
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("санкц",))
     if in_title or mentions >= 3:
         add("санкції проти Росії")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
         add("бензин у Росії")
-    in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
         add("робота в Росії")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
