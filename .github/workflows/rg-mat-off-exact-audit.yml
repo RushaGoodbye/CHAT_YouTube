@@ -1,0 +1,32 @@
+name: RG fullstream mat-off exact callsite read-only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-mat-off-exact-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($spec in @(
+            @('rg_fullstream_auto_v2.py',615,690),
+            @('rg_fullstream_qa_v65.py',1,100),
+            @('rg_fullstream_qa_export_v96.py',1,58),
+            @('rg_fullstream_editorial_evidence_v84.py',1,95),
+            @('rg_fullstream_export_v1.py',260,300),
+            @('rg_fullstream_batch_v53.py',172,198))){
+            $p=Join-Path $r $spec[0]
+            $a=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            Write-Output ('RGMAT|BEGIN|'+$spec[0])
+            for($i=[int]$spec[1];$i -le [math]::Min([int]$spec[2],$a.Count);$i++){
+              Write-Output ('RGMAT|LINE|'+$spec[0]+'|'+$i+'|'+$a[$i-1])
+            }
+          }
+          $procs=@(Get-CimInstance Win32_Process |Where-Object{$_.CommandLine -match 'rg_studio_main\.py|rg_fullstream_auto_v2\.py|rg_fullstream_worker_v3\.py' -and $_.Name -match 'python'})
+          foreach($p in $procs){Write-Output ('RGMAT|PROCESS|'+$p.ProcessId+'|'+$p.Name+'|'+$p.CommandLine)}
+          Write-Output 'RGMAT|READONLY|PASS'
