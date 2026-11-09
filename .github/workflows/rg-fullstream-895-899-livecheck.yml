@@ -1,0 +1,33 @@
+name: RG fullstreams 895-899 live queue safety check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-895-899-livecheck.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $p=@(Get-CimInstance Win32_Process |Where-Object{$_.CommandLine -match 'rg_fullstream|rg_studio_main' -and $_.Name -match 'python|ffmpeg'})
+          foreach($x in $p){Write-Output ('RGLIVE|PROCESS|'+$x.ProcessId+'|'+$x.ParentProcessId+'|'+$x.Name+'|'+$x.CommandLine)}
+          foreach($id in 895..899){
+            $folder=Join-Path $root $id
+            foreach($name in @('status.json','queue_request.json','editorial_preflight_v82.json','processing_plan.json')){
+              $f=Join-Path $folder $name
+              if(Test-Path $f){
+                $obj=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+                $fields=if($name -eq 'processing_plan.json'){@('stream','output','qa_preview_export_requested')}else{@('state','stream','repair','output','error','decision','blocking_reasons','created_utc_epoch','queued_at')}
+                $v=[ordered]@{}
+                foreach($field in $fields){if($obj.PSObject.Properties.Name -contains $field){$v[$field]=$obj.$field}}
+                Write-Output ('RGLIVE|FILE|'+$id+'|'+$name+'|'+(Get-Item $f).LastWriteTime.ToString('s')+'|'+($v|ConvertTo-Json -Compress -Depth 3))
+              }else{Write-Output ('RGLIVE|MISSING|'+$id+'|'+$name)}
+            }
+          }
+          $q=Join-Path $root 'queue_worker.log'
+          if(Test-Path $q){Get-Content $q -Tail 35|ForEach-Object{Write-Output ('RGLIVE|LOG|'+$_)}}
+          Write-Output 'RGLIVE|READ_ONLY|PASS'
