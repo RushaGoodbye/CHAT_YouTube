@@ -1,0 +1,42 @@
+name: RG fullstream 885-899 fresh reset inventory
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-885-899-reset-inventory.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          foreach($id in 885..899){
+            $d=Join-Path $data ('fullstream_v2\'+$id)
+            $o=Join-Path $app ($id+'\FULLSTREAM_YOUTUBE')
+            $state='MISSING'
+            $status=Join-Path $d 'status.json'
+            if(Test-Path $status){try{$state=(Get-Content $status -Raw|ConvertFrom-Json).state}catch{$state='UNREADABLE'}}
+            $names=@()
+            if(Test-Path $d){$names=@(Get-ChildItem $d -Force|Select-Object -ExpandProperty Name)}
+            $files=@()
+            if(Test-Path $o){$files=@(Get-ChildItem $o -Force|Select-Object -ExpandProperty Name)}
+            $src=Join-Path $app $id
+            $inputnames=@()
+            if(Test-Path $src){$inputnames=@(Get-ChildItem $src -Force|Where-Object{$_.Name -ne 'FULLSTREAM_YOUTUBE'}|Select-Object -First 12 -ExpandProperty Name)}
+            Write-Output ('RGFRESH|STREAM|'+$id+'|STATE='+$state+'|DATA='+($names -join ';')+'|OUTPUT='+($files -join ';')+'|OTHER_APP='+($inputnames -join ';'))
+          }
+          foreach($n in @('rg_fullstream_launcher_v2.py','rg_fullstream_batch_v53.py','rg_fullstream_worker_v3.py')){
+            $p=Join-Path $app $n
+            $s=@(Get-Content $p -Encoding UTF8)
+            foreach($i in 0..($s.Count-1)){
+              if($s[$i] -match 'def enqueue\(|def request_files\(|def clear_|def add_|def add_batch|def queue_|def start_|def worker_|def _queue'){
+                $last=[math]::Min($s.Count-1,$i+28)
+                for($j=$i;$j -le $last;$j++){Write-Output ('RGFRESH|CODE|'+$n+'|'+($j+1)+'|'+$s[$j])}
+              }
+            }
+          }
+          Write-Output 'RGFRESH|READ_ONLY|PASS'
