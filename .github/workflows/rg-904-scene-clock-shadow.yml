@@ -1,0 +1,41 @@
+name: RG 904-3 scene time shadow evidence
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-scene-clock-shadow.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:RUNNER_TEMP 'rg904_scene_clock_probe.py'
+          @'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          from rg_clock_selector import read_clock_from_screenshot
+          root=Path(r'\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\Screens')
+          values={}
+          for n in (2,3,4):
+              path=root/f'904-{n}.jpg'
+              print('RGSCENE904|SCREEN|'+path.name+'|EXISTS='+str(path.is_file()),flush=True)
+              if path.is_file():
+                  try:
+                      c=read_clock_from_screenshot(path)
+                      print('RGSCENE904|CLOCK|'+path.name+'|'+str(c),flush=True)
+                      values[n]=c
+                  except Exception as e:print('RGSCENE904|CLOCK_ERROR|'+path.name+'|'+repr(e),flush=True)
+          if all(n in values for n in (2,3,4)):
+              x=(values[3]['seconds_of_day']-values[2]['seconds_of_day'])%86400
+              y=(values[4]['seconds_of_day']-values[3]['seconds_of_day'])%86400
+              print('RGSCENE904|NEIGHBOR_GAP_SECONDS|'+str(x)+'|'+str(y),flush=True)
+          print('RGSCENE904|READ_ONLY|PASS')
+          '@|Set-Content -LiteralPath $p -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $p
+          if($LASTEXITCODE -ne 0){throw 'CLOCK_READ_FAILED'}
