@@ -1,0 +1,18 @@
+name: RG scene time fallback source excerpts 2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-scene-time-v4-source.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($q in @(@('rg_clock_selector.py',1,130),@('rg_clock_selector.py',3450,3550),@('rg_face_anchor_guard_v1.py',1,115),@('rg_multi_dialogue.py',698,735))){
+            $p=Join-Path $root $q[0];$s=@(Get-Content -LiteralPath $p -Encoding UTF8)
+            for($k=$q[1];$k -le [Math]::Min($q[2],$s.Count);$k++){Write-Output ('RGV4SRC|'+$q[0]+'|'+$k+'|'+$s[$k-1])}
+          }
