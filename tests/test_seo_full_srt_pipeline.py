@@ -130,3 +130,34 @@ def test_all_short_quotes_block_semantic_completion_but_not_video_analysis():
     assert 0 in packet["windows_with_only_short_topics"]
     assert packet["topical_synthesis_complete"] is False
     assert packet["publication_allowed"] is False
+
+
+def test_long_video_highlight_selector_considers_every_topical_window():
+    original=rows(160)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    considered=[]
+    def selector(messages):
+        packet=json.loads(messages[-1]["content"])
+        candidates=packet["options"]
+        considered.extend(x["window_index"] for x in candidates)
+        return json.dumps({"source_index": candidates[-1]["source_index"]})
+    result=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,
+        max_chars=600,selector=selector)
+    assert result["source_topics_selected"]==12
+    assert result["topical_synthesis_complete"] is True
+    assert result["all_topical_windows_considered_for_highlights"] is True
+    assert set(considered)==set(range(full["window_count"]))
+    assert result["source_windows_omitted_from_synthesis"]
+    assert result["publication_allowed"] is False
+    for rec in result["records"]:
+        assert any(row["text"]==rec["literal_quote"] for row in original)
+
+
+def test_highlight_selector_rejects_invented_source_index():
+    original=rows(160)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    with pytest.raises(ValueError,match="HIGHLIGHT_SELECTOR_NOT_IN_SOURCE"):
+        source_packet_from_complete_map(
+            video_id=VID,original_rows=original,full_map=full,
+            max_chars=600,selector=lambda _: json.dumps({"source_index":999999}))
