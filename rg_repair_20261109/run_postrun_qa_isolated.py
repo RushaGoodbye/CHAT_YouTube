@@ -13,6 +13,7 @@ import sys
 import tempfile
 from datetime import datetime
 from rg_studio_postrun import _primary_outputs
+from stage_release_health_v2 import patch_source
 
 APP=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
 SOURCES=(891,898,904)
@@ -55,7 +56,23 @@ def single(n):
         subprocess_env=os.environ.copy()
         subprocess_env["PYTHONIOENCODING"]="utf-8"
         output_json=json.dumps([str(p) for p in dest.glob("RG_EDITED_*.xml") if not p.stem.endswith(("_SHORTS","_UNCENSORED"))],ensure_ascii=False)
-        cmd=[sys.executable,"-X","utf8",str(APP/"rg_studio_postrun.py"),
+        release_source=APP/"rg_release_health_gate.py"
+        (root/"rg_release_health_gate.py").write_text(
+            patch_source(release_source.read_text(encoding="utf-8")),encoding="utf-8")
+        entry=root/"qa_entry.py"
+        entry.write_text(
+            "import sys,runpy,importlib.util\\n"
+            + "from pathlib import Path\\n"
+            + "app=Path("+repr(str("F:\\RG_AUTO_EDIT\\RG Auto Edit App"))+")\\n"
+            + "sys.path.insert(0,str(app))\\n"
+            + "spec=importlib.util.spec_from_file_location('rg_release_health_gate',str(Path(__file__).with_name('rg_release_health_gate.py')))\\n"
+            + "mod=importlib.util.module_from_spec(spec)\\n"
+            + "spec.loader.exec_module(mod)\\n"
+            + "sys.modules['rg_release_health_gate']=mod\\n"
+            + "sys.argv=[str(app/'rg_studio_postrun.py')]+sys.argv[1:]\\n"
+            + "runpy.run_path(str(app/'rg_studio_postrun.py'),run_name='__main__')\\n",
+            encoding="utf-8")
+        cmd=[sys.executable,"-X","utf8",str(entry),
              "--stream",n,"--folder",str(dest),"--outputs-json",output_json]
         emit(n,"QA_COMMAND_ISOLATED","XML_COUNT",len(chosen))
         proc=subprocess.run(cmd,cwd=str(root),env=subprocess_env,stdout=subprocess.PIPE,
