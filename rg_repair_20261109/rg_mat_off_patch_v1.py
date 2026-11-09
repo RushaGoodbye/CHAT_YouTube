@@ -14,6 +14,10 @@ VERSION="RG_FULLSTREAM_NO_PROFANITY_V1_20261109"
 
 def sha(b):return hashlib.sha256(b).hexdigest()
 def replace_one(s,old,new,label):
+    # Retain Windows source newlines, change only exact matching code.
+    if "\r\n" in s:
+        old=old.replace("\n","\r\n")
+        new=new.replace("\n","\r\n")
     count=s.count(old)
     if count!=1:raise RuntimeError(f"ANCHOR_MISMATCH:{label}:{count}")
     return s.replace(old,new,1)
