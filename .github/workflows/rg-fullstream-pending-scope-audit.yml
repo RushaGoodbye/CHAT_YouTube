@@ -1,0 +1,27 @@
+name: RG check pending fullstream jobs outside 885-899
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-pending-scope-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($p in Get-ChildItem $r -Directory){
+            if($p.Name -notmatch '^\d{3,5}$'){continue}
+            $req=Join-Path $p.FullName 'queue_request.json'
+            if(Test-Path $req){
+              $status=Join-Path $p.FullName 'status.json'
+              $state='UNKNOWN'
+              if(Test-Path $status){try{$state=(Get-Content $status -Raw|ConvertFrom-Json).state}catch{}}
+              Write-Output ('RGQUEUE|PENDING|'+$p.Name+'|'+$state)
+            }
+          }
+          $workers=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py|rg_fullstream_auto_v2.py'})
+          Write-Output ('RGQUEUE|WORKER_COUNT|'+$workers.Count)
+          Write-Output 'RGQUEUE|READ_ONLY|PASS'
