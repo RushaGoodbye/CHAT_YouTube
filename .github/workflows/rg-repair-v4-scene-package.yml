@@ -1,0 +1,37 @@
+name: RG Repair V4 scene time acceptance and package
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v4-scene-package.yml']
+permissions: {contents: read}
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261109\test_install_v4.py
+          if($LASTEXITCODE -ne 0){throw 'V4_INSTALL_ROLLBACK_FAILED'}
+          & $py -X utf8 rg_repair_20261109\test_scene_v4.py
+          if($LASTEXITCODE -ne 0){throw 'V4_REAL_SCENE_TEST_FAILED'}
+          $dst=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V4_SCENE'
+          if(Test-Path $dst){Remove-Item $dst -Recurse -Force}
+          & $py -X utf8 rg_repair_20261109\stage_scene_v4.py $dst
+          if($LASTEXITCODE -ne 0){throw 'V4_CANDIDATE_STAGE_FAILED'}
+          $zip=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V4_SCENE.zip'
+          if(Test-Path $zip){Remove-Item $zip -Force}
+          Compress-Archive -Path "$dst\*" -DestinationPath $zip
+          Write-Output ('RGV4|PACKAGE_BUILT|'+$zip)
+          Write-Output 'RGV4|ACTIVE_STUDIO_UNMODIFIED|TRUE'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RG_REPAIR_V4_SCENE
+          path: ${{ runner.temp }}/RG_REPAIR_V4_SCENE.zip
+          if-no-files-found: error
+          retention-days: 30
