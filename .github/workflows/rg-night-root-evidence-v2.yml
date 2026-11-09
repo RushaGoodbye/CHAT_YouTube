@@ -1,0 +1,39 @@
+name: RG night root evidence safe read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-root-evidence-v2.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          foreach($n in @('893','901','903','904','907','908','913','915')){
+            foreach($p in @("$app\run_manifests\$n\LATEST.log","$app\run_manifests\$n\STUDIO_RUN.log")){
+              if(Test-Path $p){
+                Write-Output ('RGROOT|FILE|'+$n+'|'+$p)
+                Get-Content $p -Tail 85 -Encoding UTF8 |Where-Object{$_ -match '(?i)error|exception|traceback|stop|failed|no such|clock|mismatch|source|rejected|invalid|candidate|hold'} | Select-Object -Last 16|ForEach-Object{Write-Output ('RGROOT|LINE|'+$n+'|'+$_.Substring(0,[math]::Min(280,$_.Length)))}
+              }
+            }
+          }
+          $root=Join-Path $data 'fullstream_v2'
+          Write-Output ('RGROOT|FULLSTREAM_EXISTS|'+(Test-Path $root))
+          foreach($n in @('885','891','893','901','903','904','907','908','913','915')){
+            $p=Join-Path (Join-Path $root $n) 'status.json'
+            if(Test-Path $p){
+              try{$j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+                Write-Output ('RGROOT|FULL|'+$n+'|'+($j|ConvertTo-Json -Compress -Depth 3).Substring(0,[math]::Min(600,($j|ConvertTo-Json -Compress -Depth 3).Length)))
+              }catch{}
+            }
+          }
+          foreach($p in @((Join-Path $root 'queue.json'),(Join-Path $root 'queue_state.json'),(Join-Path $root 'queue_worker.log'))){
+            if(Test-Path $p){Write-Output ('RGROOT|FULLQ|'+$p);Get-Content $p -Tail 18 -Encoding UTF8 |ForEach-Object{Write-Output ('RGROOT|FULLQLINE|'+$_.Substring(0,[math]::Min(240,$_.Length)))}}
+          }
+          & powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>&1|Select-Object -Last 14|ForEach-Object{Write-Output ('RGROOT|POWER|'+$_)}
+          Write-Output 'RGROOT|READ_ONLY'
