@@ -63,6 +63,8 @@ jobs:
           '@ | Set-Content -LiteralPath $script -Encoding UTF8
           & $py -X utf8 $script
           if($LASTEXITCODE -ne 0){throw 'REAL_XML_REGRESSION_FAILED'}
+          & $py -X utf8 'rg_repair_20261109/test_install.py'
+          if($LASTEXITCODE -ne 0){throw 'BACKUP_ROLLBACK_TEST_FAILED'}
           $zip=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V1_20261109.zip'
           if(Test-Path $zip){Remove-Item $zip -Force}
           Compress-Archive -Path "$package\*" -DestinationPath $zip
