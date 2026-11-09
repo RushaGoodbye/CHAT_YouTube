@@ -1,0 +1,19 @@
+name: RG quarantine wrong pending 895-899 before UI guard
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-clean-unintended-895-899-20261110.yml']
+permissions: {contents: read}
+jobs:
+  reset:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_fullstream_fresh_reset_885_899.py
+          if($LASTEXITCODE -ne 0){throw 'QUARANTINE_FAILED'}
