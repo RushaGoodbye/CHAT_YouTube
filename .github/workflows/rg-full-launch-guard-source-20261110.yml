@@ -1,0 +1,29 @@
+name: RG fullstream launch guard source read 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-full-launch-guard-source-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $p=Join-Path $app 'rg_fullstream_batch_v53.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          for($i=1;$i -le [Math]::Min(190,$l.Count);$i++){Write-Output ('RGGUARD|CODE|'+$i+'|'+$l[$i-1])}
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($f in Get-ChildItem $d -Directory|Where-Object{$_.Name -match '^\d{3,5}$'}){
+            $q=Join-Path $f.FullName 'queue_request.json'
+            $s=Join-Path $f.FullName 'status.json'
+            if(Test-Path $q){
+              $v=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+              $st=if(Test-Path $s){(Get-Content $s -Raw -Encoding UTF8|ConvertFrom-Json).state}else{'NONE'}
+              Write-Output ('RGGUARD|QUEUE|'+$f.Name+'|'+$st+'|'+$v.created_utc_epoch)
+            }
+          }
+          Write-Output 'RGGUARD|READONLY|PASS'
