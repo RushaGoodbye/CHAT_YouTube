@@ -1,0 +1,53 @@
+name: RG Repair V1 installed postupdate readonly verify
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v1-installed-check.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read installed version backup and queue
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_repair_installed_verify.py'
+          @'
+          from pathlib import Path
+          import os,sys,json,hashlib
+          sys.path.insert(0,str(Path.cwd()/'rg_repair_20261109'))
+          from stage_repair import FILES,PATCH_VERSION
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          installed=Path(os.environ.get('LOCALAPPDATA',r'C:\Users\fauto\AppData\Local'))/'Programs'/'RG Auto Edit'
+          backups=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\RG_REPAIR_BACKUPS')
+          def h(p):return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'MISSING'
+          folders=sorted(backups.glob(PATCH_VERSION+'_*'),reverse=True) if backups.is_dir() else []
+          print('RGINSTALL|BACKUPS|'+str(len(folders)))
+          ledger=None
+          if folders:
+              f=folders[0]/'ROLLBACK_LEDGER.json'
+              if f.is_file():
+                  ledger=json.loads(f.read_text(encoding='utf-8'))
+                  print('RGINSTALL|BACKUP_LEDGER|'+str(f)+'|'+str(ledger.get('status'))+'|ITEMS='+str(len(ledger.get('items') or [])))
+          for name in FILES:
+              a=app/name; b=installed/name
+              print('RGINSTALL|FILE|'+name+'|APP='+h(a)+'|INSTALLED='+h(b)+'|SAME='+str(h(a)==h(b)))
+              if ledger:
+                  matches=[e for e in ledger.get('items',[]) if Path(e.get('target','')).name==name]
+                  if matches:
+                      print('RGINSTALL|PATCHED|'+name+'|'+str(all(h(Path(e['target']))==e['candidate_sha256'] for e in matches)))
+          q=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json')
+          if q.is_file():
+              j=json.loads(q.read_text(encoding='utf-8-sig'))
+              print('RGINSTALL|QUEUE|running='+str(j.get('running'))+'|paused='+str(j.get('paused'))+'|rows='+str(len(j.get('rows') or [])))
+              for row in j.get('rows') or []:
+                  print('RGINSTALL|ROW|'+str(row.get('stream'))+'|'+str(row.get('status'))+'|'+str(row.get('stage')))
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & $py -X utf8 $script
+          if($LASTEXITCODE -ne 0){throw 'READONLY_VERIFY_FAILED'}
+          $p=@(Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -match 'rg_studio_main.py|rg_production_wrapper.py|rg_multi_dialogue.py|rg_auto_edit_one_button.py'})
+          foreach($x in $p){Write-Output ('RGINSTALL|PROCESS|'+$x.ProcessId+'|'+$x.Name)}
