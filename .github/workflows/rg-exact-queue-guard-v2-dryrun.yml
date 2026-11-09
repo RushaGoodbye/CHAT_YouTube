@@ -1,0 +1,18 @@
+name: RG exact queue guard v2 dryrun
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-exact-queue-guard-v2-dryrun.yml']
+permissions: {contents: read}
+jobs:
+  dryrun:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_exact_queue_guard_v2.py
+          if($LASTEXITCODE -ne 0){throw 'RG_EXACT_GUARD_V2_DRYRUN_FAILED'}
