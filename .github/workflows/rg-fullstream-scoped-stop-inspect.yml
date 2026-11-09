@@ -1,0 +1,32 @@
+name: RG fullstream scoped stop inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-scoped-stop-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_fullstream_worker_v3.py','rg_fullstream_batch_v53.py','rg_fullstream_process_state_v59.py','rg_fullstream_launcher_v2.py')){
+            $p=Join-Path $root $n
+            if(!(Test-Path $p)){continue}
+            $s=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RGSTOP|FILE|'+$n+'|'+$s.Count)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'stop|STOP|cancel|CANCEL|terminate|signal|shutdown|worker_lock|pid|PID'){
+                $a=[math]::Max(0,$i-2)
+                $b=[math]::Min($s.Count-1,$i+3)
+                for($j=$a;$j -le $b;$j++){Write-Output ('RGSTOP|LINE|'+$n+'|'+($j+1)+'|'+$s[$j])}
+              }
+            }
+          }
+          foreach($p in Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_auto_v2|ffmpeg' -and $_.Name -match 'python|ffmpeg'}){
+            Write-Output ('RGSTOP|PROC|'+($p|Select-Object ProcessId,ParentProcessId,Name,CommandLine|ConvertTo-Json -Compress))
+          }
+          Write-Output 'RGSTOP|READONLY|PASS'
