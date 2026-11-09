@@ -1,4 +1,4 @@
-name: RG 904 no face local visual evidence
+name: RG 904 scene uniqueness contrast
 on:
   push:
     branches: [main]
@@ -32,7 +32,9 @@ jobs:
               assert img is not None
               duration=_probe_duration(video)
               print('RGSCENEMATCH|DURATION|'+str(duration),flush=True)
-              r=_best_local_match(video,img,3870.,duration,progress_cb=None,coarse_radius_sec=140.)
+              r=_best_local_match(video,img,3507.,duration,progress_cb=None,coarse_radius_sec=30.)
+              s=_best_local_match(video,img,4853.,duration,progress_cb=None,coarse_radius_sec=30.)
+              print('RGSCENEMATCH|CONTRAST_NEIGHBORS|'+json.dumps({'near_2':{k:r.get(k) for k in ('time','score')},'near_4':{k:s.get(k) for k in ('time','score')}},ensure_ascii=False),flush=True)
               keep={k:r.get(k) for k in ('time','score','coarse_score','fine_p75','fine_p90','peak_over_p75') if k in r}
               print('RGSCENEMATCH|904-3|'+json.dumps(keep,ensure_ascii=False),flush=True)
           print('RGSCENEMATCH|ACTIVE_STUDIO_UNCHANGED|TRUE',flush=True)
