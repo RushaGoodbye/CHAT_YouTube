@@ -31,13 +31,13 @@ jobs:
             if(!(Test-Path $p)){continue}
             $lines=@(Get-Content -LiteralPath $p -Encoding UTF8)
             Write-Output ('RGREPAIR|SOURCE|'+$name+'|'+$lines.Count)
-            $matches=@()
+            $hitLines=@()
             for($i=0;$i -lt $lines.Count;$i++){
               if($lines[$i] -match 'R6_TABLE_CONTRACT_FAILED|QA output name/duplicate is unsafe|MISSING PRIMARY XML|SOURCE_OVERLAP|UNCENSORED|FACE_ANCHOR_UNCONFIRMED|FACE_ANCHOR_REFERENCE_UNAVAILABLE|NO_REFERENCE_FACE|VISUAL_CONFIRMATION_FAILED|INPUT_CHECK|SCREENSHOT_MISSING'){
-                $matches+=($i+1)
+                $hitLines+=($i+1)
               }
             }
-            foreach($n in ($matches|Select-Object -First 30)){
+            foreach($n in ($hitLines|Select-Object -First 30)){
               $a=[Math]::Max(1,$n-3);$b=[Math]::Min($lines.Count,$n+3)
               for($k=$a;$k -le $b;$k++){Write-Output ('RGREPAIR|CODE|'+$name+'|'+$k+'|'+$lines[$k-1])}
             }
