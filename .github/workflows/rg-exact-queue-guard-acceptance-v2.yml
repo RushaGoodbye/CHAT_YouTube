@@ -1,0 +1,53 @@
+name: RG exact queue guard acceptance corrected
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-exact-queue-guard-acceptance-v2.yml']
+permissions: {contents: read}
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $code=@'
+          import ast,hashlib,json,sys,tempfile
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          file=app/"rg_fullstream_batch_v53.py"
+          source=file.read_text(encoding="utf-8-sig")
+          ast.parse(source)
+          assert "RG_EXACT_QUEUE_GUARD_V1" in source
+          assert "Підтвердити точні номери стримів" in source
+          import rg_fullstream_batch_v53 as m
+          assert m.parse_numbers("885, 886 887")==["885","886","887"]
+          print("RGACCEPT|INSTALL_AND_PARSE|PASS",flush=True)
+          with tempfile.TemporaryDirectory(prefix="rg_guard_smoke_") as temp:
+              root=Path(temp);simdata=root/"data";simapp=root/"app"
+              old=simdata/"fullstream_v2"/"895";old.mkdir(parents=True)
+              (old/"queue_request.json").write_text(json.dumps({"stream":"895"}),encoding="utf-8")
+              (old/"status.json").write_text(json.dumps({"state":"QUEUED"}),encoding="utf-8")
+              try:m.enqueue_many("885",app=simapp,data=simdata,launch=False)
+              except RuntimeError as e:
+                  assert "UNRELATED_PENDING_QUEUE_BLOCKED" in str(e),str(e)
+                  print("RGACCEPT|UNRELATED_QUEUE_895_BLOCKED|PASS",flush=True)
+              else:raise AssertionError("UNRELATED_QUEUE_WAS_NOT_BLOCKED")
+              assert not (simdata/"fullstream_v2"/"885").exists()
+              print("RGACCEPT|FAIL_CLOSED_NO_MUTATION|PASS",flush=True)
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          running=active_workers()
+          lock=worker_lock_state(data)
+          queued=[p.parent.name for p in (data/"fullstream_v2").glob("*/queue_request.json")]
+          print("RGACCEPT|WORKERS|"+str(len(running))+"|LOCK|"+lock+"|QUEUED|"+",".join(queued),flush=True)
+          assert not running and lock=="IDLE" and not queued
+          print("RGACCEPT|ALL_TESTS|PASS|NO_WORKER_STARTED",flush=True)
+          '@
+          $code|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_EXACT_GUARD_ACCEPTANCE_V2_FAILED'}
