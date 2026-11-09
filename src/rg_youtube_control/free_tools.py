@@ -1490,7 +1490,10 @@ def _source_quote_ab_titles(
             quote = quote.strip(' "«»„“”')
             if quote.casefold() not in verified_quotes:
                 continue
-            if len(quote) < 30 or len(quote.split()) < 5:
+            # Short, complete quotes are valid evidence too; do not silently
+            # drop them just because they are under 30 characters. A bare
+            # interjection or two-word fragment is too weak for a headline.
+            if len(quote) < 15 or len(quote.split()) < 3:
                 continue
             excerpt = quote
             if len(excerpt) > 75:
@@ -1499,7 +1502,7 @@ def _source_quote_ab_titles(
                     continue
                 excerpt += "…"
             title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
-            if not 30 <= len(title) <= 100:
+            if not 20 <= len(title) <= 100:
                 continue
             if title.casefold() == current_title.strip().casefold():
                 continue
