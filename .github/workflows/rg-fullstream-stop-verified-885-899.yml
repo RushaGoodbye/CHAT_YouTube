@@ -1,0 +1,36 @@
+name: RG fullstream stop verified 885-899
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-stop-verified-885-899.yml']
+permissions: {contents: read}
+jobs:
+  stop:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_stop_v60.py'
+          & $py -X utf8 $script --inspect
+          if($LASTEXITCODE -ne 0){throw 'INSPECT_FAILED'}
+          # Confirm stop scope using the current verified worker PID set, not stale PIDs.
+          $reader=@'
+          import sys
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_stop_v60 import active_workers, stop_fullstream
+          import json
+          before=active_workers()
+          pids=sorted(int(x["ProcessId"]) for x in before)
+          print("RGSTOPNOW|EXPECTED|"+json.dumps(pids),flush=True)
+          result=stop_fullstream(confirmed=True,grace=10,expected_pids=pids)
+          print("RGSTOPNOW|RESULT|"+json.dumps(result,ensure_ascii=False),flush=True)
+          after=active_workers()
+          print("RGSTOPNOW|AFTER|"+json.dumps([int(x["ProcessId"]) for x in after]),flush=True)
+          if after or result.get("status") not in ("STOPPED_VERIFIED_WORKERS","NO_ACTIVE_FULLSTREAM_WORKER"):
+              raise SystemExit(3)
+          '@
+          $reader|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'FULLSTREAM_STOP_NOT_VERIFIED'}
