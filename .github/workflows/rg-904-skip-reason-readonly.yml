@@ -1,0 +1,35 @@
+name: RG 904 skipped third screenshot reason read-only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-skip-reason-readonly.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=Join-Path $env:RUNNER_TEMP 'rg904_reason_readonly.py'
+          @'
+          import json,re
+          from pathlib import Path
+          r=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          m=json.loads((r/'RG_EDITED_904_MULTI_DIALOGUE.json').read_text(encoding='utf-8-sig'))
+          for k in ('qa_failures','skipped_screenshots','release_health','outputs'):
+              print('RG904REASON|'+k+'|'+json.dumps(m.get(k),ensure_ascii=False,default=str)[:12000],flush=True)
+          p=r/'rg_clock_selector.py'
+          s=p.read_text(encoding='utf-8-sig').splitlines()
+          for i,line in enumerate(s):
+              if re.match(r'^def _dialogue_boundaries\(',line):
+                  print('RG904REASON|BOUNDARY_FUNCTION|'+str(i+1),flush=True)
+                  for j in range(i,min(i+85,len(s))):
+                      print('RG904REASON|CODE|'+str(j+1)+'|'+s[j],flush=True)
+                  break
+          print('RG904REASON|READ_ONLY|TRUE',flush=True)
+          '@ | Set-Content -LiteralPath $s -Encoding utf8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $s
+          if($LASTEXITCODE -ne 0){throw 'RG904_REASON_AUDIT_FAILED'}
