@@ -1,0 +1,41 @@
+name: RG 904 no face local visual evidence
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-scene-match-shadow.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_904_local_scene_shadow.py'
+          @'
+          from pathlib import Path
+          import sys,shutil,tempfile,json,cv2
+          sys.path.insert(0,r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          from rg_clock_selector import _best_local_match,_probe_duration
+          app=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          m=json.loads((app/'RG_EDITED_904_MULTI_DIALOGUE.json').read_text(encoding='utf-8'))
+          video=Path(m['launch_args']['video_root'])/'904.mp4'
+          source=Path(m['launch_args']['screen_root'])/'904-3.jpg'
+          print('RGSCENEMATCH|FILES|'+str(video.is_file())+'|'+str(source.is_file()),flush=True)
+          assert video.is_file() and source.is_file()
+          with tempfile.TemporaryDirectory(prefix='rg904_scene_ascii_') as t:
+              shot_path=Path(t)/'904-3.jpg';shutil.copy2(source,shot_path)
+              img=cv2.imread(str(shot_path))
+              assert img is not None
+              duration=_probe_duration(video)
+              print('RGSCENEMATCH|DURATION|'+str(duration),flush=True)
+              r=_best_local_match(video,img,3870.,duration,progress_cb=None,coarse_radius_sec=140.)
+              keep={k:r.get(k) for k in ('time','score','coarse_score','fine_p75','fine_p90','peak_over_p75') if k in r}
+              print('RGSCENEMATCH|904-3|'+json.dumps(keep,ensure_ascii=False),flush=True)
+          print('RGSCENEMATCH|ACTIVE_STUDIO_UNCHANGED|TRUE',flush=True)
+          '@|Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $script
+          if($LASTEXITCODE -ne 0){throw '904_SCENE_SHADOW_FAILED'}
