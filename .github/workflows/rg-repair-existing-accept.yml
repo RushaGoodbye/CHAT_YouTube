@@ -1,0 +1,19 @@
+name: RG Repair existing outputs read only acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-existing-accept.yml']
+permissions: {contents: read}
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify existing 891 898 904 XML and 915 audio evidence read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $python -X utf8 rg_repair_20261109\verify_existing_readonly.py
+          if($LASTEXITCODE -ne 0){throw 'READONLY_ACCEPTANCE_SCRIPT_FAILED'}
