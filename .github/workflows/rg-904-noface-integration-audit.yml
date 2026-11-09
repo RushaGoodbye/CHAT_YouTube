@@ -1,0 +1,29 @@
+name: RG 904 no-face candidate integration and overlap gate
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/rg_904_noface_integration_audit.py'
+      - '.github/workflows/rg-904-noface-integration-audit.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:RUNNER_TEMP 'RG904_NOFACE_QA_REPORT.json'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 scripts/rg_904_noface_integration_audit.py $report
+          if($LASTEXITCODE -ne 0){throw 'INTEGRATION_AUDIT_FAILED'}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RG904_NOFACE_QA_REPORT
+          path: ${{ runner.temp }}/RG904_NOFACE_QA_REPORT.json
+          retention-days: 30
+          if-no-files-found: error
