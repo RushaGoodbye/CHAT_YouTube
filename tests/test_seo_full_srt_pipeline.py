@@ -106,3 +106,27 @@ def test_short_stream_topic_selection_is_complete():
         video_id=VID,original_rows=original,full_map=full,max_chars=600)
     assert packet["topical_synthesis_complete"] is True
     assert packet["source_windows_omitted_from_synthesis"]==[]
+
+
+def test_short_source_cue_falls_back_to_another_literal_topic_in_same_window():
+    original=rows(18)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    first=full["topic_records_review_only"][0]
+    short={**first,"source_quote":"Так","topic_candidate_not_fact":"Коротка репліка"}
+    full["topic_records_review_only"]=[short,first]+full["topic_records_review_only"][1:]
+    packet=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,max_chars=600)
+    assert packet["records"][0]["literal_quote"]==first["source_quote"]
+    assert packet["topical_synthesis_complete"] is True
+
+
+def test_all_short_quotes_block_semantic_completion_but_not_video_analysis():
+    original=rows(18)
+    full=analyze_full_original_transcript(original,chat=grounded_chat,max_chars=600)
+    # The first window has no eligible source quote.
+    full["topic_records_review_only"][0]["source_quote"]="Так"
+    packet=source_packet_from_complete_map(
+        video_id=VID,original_rows=original,full_map=full,max_chars=600)
+    assert 0 in packet["windows_with_only_short_topics"]
+    assert packet["topical_synthesis_complete"] is False
+    assert packet["publication_allowed"] is False
