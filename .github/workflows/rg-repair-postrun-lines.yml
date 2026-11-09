@@ -1,0 +1,18 @@
+name: RG Repair postrun exact source lines
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-postrun-lines.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($q in @(@('rg_studio_postrun.py',1,110),@('rg_studio_postrun.py',190,240),@('rg_xml_verify_v51.py',1,40))){
+            $s=@(Get-Content (Join-Path $root $q[0]) -Encoding UTF8)
+            for($k=$q[1];$k -le $q[2];$k++){Write-Output ('RGEXACT|'+$q[0]+'|'+$k+'|'+$s[$k-1])}
+          }
