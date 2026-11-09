@@ -1,0 +1,55 @@
+name: RG Repair V3 QA-only safe installer
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v3-package.yml']
+permissions: {contents: read}
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261109\test_install_v3.py
+          if($LASTEXITCODE -ne 0){throw 'V3_INSTALL_ROLLBACK_TEST_FAILED'}
+          $dest=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V3_QA_ONLY'
+          if(Test-Path $dest){Remove-Item $dest -Recurse -Force}
+          & $py -X utf8 rg_repair_20261109\stage_qa_only_v3.py $dest
+          if($LASTEXITCODE -ne 0){throw 'V3_STAGING_FAILED'}
+          $test=Join-Path $env:RUNNER_TEMP 'rg_v3_candidate_check.py'
+          @'
+          import sys,json
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          cand=Path(sys.argv[1])
+          source=(cand/'rg_studio_ui.py').read_text(encoding='utf-8')
+          assert "in ('DIALOGUES_COMPLETE','QA_FAILED')" in source
+          assert 'if len(outputs)!=len(_manifest_rows) or not all(x.is_file() and x.stat().st_size>0 for x in outputs):' in source
+          sys.path.insert(0,str(root))
+          from rg_studio_postrun import _primary_outputs
+          for n,expected in ((891,1),(898,1),(904,6)):
+              m=json.loads((root/f'RG_EDITED_{n}_MULTI_DIALOGUE.json').read_text(encoding='utf-8-sig'))
+              assert m.get('status')=='QA_FAILED'
+              assert int(m['dialogue_count'])==len(m['outputs'])==expected
+              outs=_primary_outputs(root/str(n),[],str(n))
+              assert len(outs)==expected and all(x.is_file() and x.stat().st_size>0 for x in outs)
+              print(f'RGV3|CURRENT_XML_STRICT|{n}|{len(outs)}|PASS')
+          print('RGV3|NO_MONTAGE_START_OR_EXPORT_CHANGE|PASS')
+          '@ | Set-Content -LiteralPath $test -Encoding UTF8
+          & $py -X utf8 $test "$dest\candidate"
+          if($LASTEXITCODE -ne 0){throw 'V3_SOURCE_REAL_MANIFEST_TEST_FAILED'}
+          $zip=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_V3_QA_ONLY.zip'
+          if(Test-Path $zip){Remove-Item $zip -Force}
+          Compress-Archive -Path "$dest\*" -DestinationPath $zip
+          Write-Output ('RGV3|PACKAGE_BUILT|'+$zip)
+          Write-Output 'RGV3|ACTIVE_STUDIO_UNCHANGED|TRUE'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RG_REPAIR_V3_QA_ONLY
+          path: ${{ runner.temp }}/RG_REPAIR_V3_QA_ONLY.zip
+          if-no-files-found: error
+          retention-days: 30
