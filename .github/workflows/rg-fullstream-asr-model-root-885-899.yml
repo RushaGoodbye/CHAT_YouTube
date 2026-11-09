@@ -1,0 +1,36 @@
+name: RG fullstream ASR model error 885-899 root audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-asr-model-root-885-899.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_fullstream_asr_chunked_v58.py','rg_fullstream_local_preflight_v57.py','rg_fullstream_auto_v2.py')){
+            $p=Join-Path $root $n
+            if(!(Test-Path $p)){continue}
+            $s=@(Get-Content $p -Encoding UTF8)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'model_candidates|_offline_asr_models|Whisper model|model_size_or_path|asr_model|model_path|model_dir|model_name|faster_whisper|WhisperModel\('){
+                $a=[math]::Max(0,$i-3);$b=[math]::Min($s.Count-1,$i+4)
+                for($j=$a;$j -le $b;$j++){Write-Output ('RGASR|CODE|'+$n+'|'+($j+1)+'|'+$s[$j])}
+              }
+            }
+          }
+          foreach($path in @('F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\896','F:\RG_AUTO_EDIT\RG Auto Edit Data\FULLSTREAM_FRESH_START_QUARANTINE\885_899_20261110_002254_67fe7f\data\896','F:\RG_AUTO_EDIT\RG Auto Edit Data\FULLSTREAM_FRESH_START_QUARANTINE\885_899_20261110_002254_67fe7f\data\897')){
+            if(Test-Path $path){
+              foreach($f in Get-ChildItem $path -File|Where-Object{$_.Name -match 'asr|preflight|status|watchdog'}){
+                Write-Output ('RGASR|REPORT|'+$f.FullName)
+                $t=Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
+                if($t){Write-Output ('RGASR|TEXT|'+$t.Substring(0,[math]::Min(1800,$t.Length)))}
+              }
+            }
+          }
+          Write-Output 'RGASR|READ_ONLY|PASS'
