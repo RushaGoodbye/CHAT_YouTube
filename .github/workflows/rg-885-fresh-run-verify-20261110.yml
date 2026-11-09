@@ -1,0 +1,35 @@
+name: RG 885 fresh run verification 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-fresh-run-verify-20261110.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $folder=Join-Path $data '885'
+          $p=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py|rg_studio_main.py'})
+          foreach($x in $p){Write-Output ('RG885|PROCESS|'+$x.ProcessId+'|'+$x.ParentProcessId+'|'+$x.Name+'|'+$x.CreationDate+'|'+$x.CommandLine)}
+          foreach($id in 885..889){
+            $d=Join-Path $data ([string]$id)
+            $status=Join-Path $d 'status.json'
+            $request=Join-Path $d 'queue_request.json'
+            $stage=Join-Path $d 'stage_state_v52.json'
+            $state='MISSING';$err='';$st=''
+            if(Test-Path $status){try{$v=Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json;$state=$v.state;$err=$v.error}catch{$state='CORRUPT'}}
+            if(Test-Path $stage){try{$a=Get-Content $stage -Raw -Encoding UTF8|ConvertFrom-Json;$st=($a.stage+' '+$a.detail)}catch{}}
+            $ts=if(Test-Path $request){(Get-Item $request).LastWriteTime.ToString('s')}else{'NONE'}
+            Write-Output ('RG885|STREAM|'+$id+'|STATUS='+$state+'|QUEUE='+([bool](Test-Path $request))+'|QUEUED_TS='+$ts+'|STAGE='+$st+'|ERROR='+$err)
+          }
+          $log=Join-Path $data 'queue_worker.log'
+          if(Test-Path $log){
+            Write-Output ('RG885|LOG_TIMESTAMP|'+(Get-Item $log).LastWriteTime.ToString('s'))
+            Get-Content $log -Tail 15|ForEach-Object{Write-Output ('RG885|LOG|'+$_)}
+          }
+          Write-Output 'RG885|READ_ONLY|PASS'
