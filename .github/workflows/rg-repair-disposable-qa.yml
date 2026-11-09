@@ -1,4 +1,4 @@
-name: RG Repair disposable full postrun QA
+name: RG Repair disposable full postrun QA release gate v2
 on:
   push:
     branches: [main]
