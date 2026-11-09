@@ -1,0 +1,26 @@
+name: RG Fullstream UI queue selection code audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-ui-selection-audit-v1.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $names=@('rg_fullstream_batch_v53.py','rg_fullstream_launcher_v2.py','rg_studio_main.py')
+          foreach($name in $names){
+            $p=Join-Path $root $name
+            $a=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RGSEL|FILE|'+$name+'|LINES='+$a.Count)
+            if($name -eq 'rg_fullstream_batch_v53.py'){
+              for($i=245;$i -le [Math]::Min(585,$a.Count);$i++){Write-Output ('RGSEL|CODE|'+$name+'|'+$i+'|'+$a[$i-1])}
+            }elseif($name -eq 'rg_fullstream_launcher_v2.py'){
+              for($i=1;$i -le [Math]::Min(105,$a.Count);$i++){Write-Output ('RGSEL|CODE|'+$name+'|'+$i+'|'+$a[$i-1])}
+            }
+          }
+          Write-Output 'RGSEL|READONLY|PASS'
