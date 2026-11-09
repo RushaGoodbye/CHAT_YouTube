@@ -1,0 +1,39 @@
+name: RG inspect linked install source and guard stack
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-install-link-and-guard-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $inst=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          foreach($root in @($app,$inst)){
+            $d=Get-Item -LiteralPath $root -Force
+            Write-Output ('RGDUPE|ROOT|'+$root+'|ATTR='+$d.Attributes+'|LINK='+$d.LinkType+'|TARGET='+($d.Target -join ';'))
+            foreach($name in @('rg_fullstream_export_v1.py','rg_fullstream_editorial_gate_v82.py','rg_fullstream_qa_v65.py','rg_fullstream_batch_v53.py','rg_studio_main.py')){
+              $p=Join-Path $root $name
+              if(Test-Path $p){
+                $f=Get-Item $p -Force
+                Write-Output ('RGDUPE|FILE|'+$p+'|SHA='+((Get-FileHash $p).Hash)+'|ATTR='+$f.Attributes+'|LINK='+$f.LinkType+'|TARGET='+($f.Target -join ';'))
+              }
+            }
+          }
+          foreach($p in @((Join-Path $app 'rg_studio_single_instance_v93.py'),(Join-Path $app 'rg_studio_single_instance.py'),(Join-Path $app 'rg_process_manager.py'))){
+            if(Test-Path $p){
+              $s=@(Get-Content $p -Encoding UTF8)
+              Write-Output ('RGDUPE|GUARD|'+$p+'|LINES='+$s.Count)
+              for($i=0;$i -lt [math]::Min(130,$s.Count);$i++){
+                if($s[$i] -match '(?i)mutex|acquire|release|CreateMutex|GetLastError|lock|def |name|existing|return'){
+                  Write-Output ('RGDUPE|GUARD_LINE|'+(Split-Path $p -Leaf)+'|'+($i+1)+'|'+$s[$i].Substring(0,[math]::Min(200,$s[$i].Length)))
+                }
+              }
+            }
+          }
+          Write-Output 'RGDUPE|READ_ONLY|PASS'
