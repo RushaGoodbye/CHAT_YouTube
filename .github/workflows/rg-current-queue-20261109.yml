@@ -1,0 +1,24 @@
+name: RG 9 Nov current queue quick read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-current-queue-20261109.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - name: Read Studio queue, stage, active worker without changes
+        shell: powershell
+        run: |
+          $path='F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json'
+          Write-Output ('RGCURRENT|TIME|'+(Get-Date -Format o))
+          if(!(Test-Path $path)){Write-Output 'RGCURRENT|NO_QUEUE';exit 1}
+          $j=Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json
+          Write-Output ('RGCURRENT|QUEUE|RUN='+$j.running+'|PAUSED='+$j.paused+'|MODIFIED='+(Get-Item $path).LastWriteTime.ToString('o'))
+          foreach($r in @($j.rows)){Write-Output ('RGCURRENT|ROW|'+$r.stream+'|'+$r.status+'|'+$r.stage+'|'+$r.progress+'|'+$r.eta+'|'+$r.detail)}
+          $p=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match 'rg_auto_edit_one_button|rg_multi_dialogue|rg_production_wrapper'})
+          foreach($x in $p){$g=Get-Process -Id $x.ProcessId -ErrorAction SilentlyContinue;if($g){Write-Output ('RGCURRENT|PROC|'+$x.ProcessId+'|CPU='+[math]::Round($g.CPU,2)+'|MB='+[math]::Round($g.WorkingSet64/1MB))}}
+          Write-Output 'RGCURRENT|DONE'
