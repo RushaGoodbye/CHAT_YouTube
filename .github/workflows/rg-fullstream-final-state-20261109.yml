@@ -1,0 +1,60 @@
+name: RG Full Stream final state audit 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-final-state-20261109.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('895','896','897','898','899','901','902','903','904','905','906','907','908','909','910','911','912')){
+            $p=Join-Path (Join-Path $d $n) 'status.json'
+            if(Test-Path $p){
+              try{$x=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+                $v=[ordered]@{stream=$n;state=$x.state;status=$x.status;updated_at=$x.updated_at;progress=$x.progress;stage=$x.stage;error=$x.error;reason=$x.reason}
+                Write-Output ('RGFSFINAL|STREAM|'+($v|ConvertTo-Json -Compress -Depth 3))
+              }catch{Write-Output ('RGFSFINAL|BAD_STATE|'+$n)}
+            }
+          }
+          $configCandidates=@(
+            (Join-Path $app 'rg_fullstream_config.json'),
+            (Join-Path $app 'fullstream_config.json'),
+            (Join-Path $d 'settings.json'),
+            (Join-Path $d 'queue.json'),
+            (Join-Path $d 'queue_state.json'),
+            (Join-Path $d 'batch_queue.json'),
+            (Join-Path $d 'fullstream_queue.json'),
+            (Join-Path $d 'fullstream_batch_queue.json'),
+            (Join-Path $d 'queue_v53.json')
+          )
+          foreach($p in $configCandidates){
+            if(Test-Path $p){
+              Write-Output ('RGFSFINAL|CANDIDATE_FILE|'+$p)
+              try{
+                $j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+                $v=@{}
+                foreach($k in @('encoder','codec','video_encoder','cq','crf','quality','h264','preset','running','paused','state','jobs','queue','items')){
+                  if($j.PSObject.Properties.Name -contains $k){$x=$j.$k;if($x -is [array]){$v[$k]='COUNT='+$x.Count}else{$v[$k]=$x}}
+                }
+                Write-Output ('RGFSFINAL|CANDIDATE_STATE|'+($v|ConvertTo-Json -Compress -Depth 3))
+              }catch{}
+            }
+          }
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit Data\V43_NIGHT_CQ24_APPLIED.json'
+          if(Test-Path $p){Write-Output ('RGFSFINAL|CQ24_PREVIOUS|'+(Get-Content $p -Raw -Encoding UTF8).Substring(0,[Math]::Min(900,(Get-Content $p -Raw -Encoding UTF8).Length)))}
+          $p=Join-Path $app 'rg_fullstream_batch_v53.py'
+          if(Test-Path $p){
+            $s=@(Get-Content $p -Encoding UTF8)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match '(?i)queue.*json|\.json.*queue|encoder|\bcrf\b|\bcq\b|queue_worker\.log|EDITORIAL_QA_PAUSED'){
+                Write-Output ('RGFSFINAL|CODE|'+($i+1)+'|'+$s[$i].Trim().Substring(0,[Math]::Min(200,$s[$i].Trim().Length)))
+              }
+            }
+          }
+          Write-Output 'RGFSFINAL|READ_ONLY|TRUE'
