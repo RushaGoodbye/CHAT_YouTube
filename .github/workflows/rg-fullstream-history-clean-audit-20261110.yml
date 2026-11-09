@@ -1,0 +1,40 @@
+name: RG Fullstream history cleanup scope audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-history-clean-audit-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          foreach($name in @('rg_fullstream_history_v92.py','rg_fullstream_batch_v53.py','rg_fullstream_manual_tab_v4.py')){
+            $file=Join-Path $app $name
+            if(!(Test-Path $file)){continue}
+            $lines=@(Get-Content $file -Encoding UTF8)
+            Write-Output ('RGHIST|FILE|'+$name+'|'+$lines.Count)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'def .*history|def .*clear|def .*hidden|def .*remove|def .*delete|def queue_rows|def .*archive|ОЧИСТИТИ|ІСТОРІЮ|clear_history|hide_history'){
+                $lo=[math]::Max(0,$i-2);$hi=[math]::Min($lines.Count-1,$i+22)
+                for($j=$lo;$j -le $hi;$j++){Write-Output ('RGHIST|CODE|'+$name+'|'+($j+1)+'|'+$lines[$j])}
+              }
+            }
+          }
+          $root=Join-Path $data 'fullstream_v2'
+          $dirs=@(Get-ChildItem $root -Directory|Where-Object{$_.Name -match '^\d{3,5}$'})
+          Write-Output ('RGHIST|DATA_STREAM_DIRS|'+$dirs.Count)
+          foreach($dir in $dirs){
+            $st=Join-Path $dir.FullName 'status.json'
+            $q=Join-Path $dir.FullName 'queue_request.json'
+            if(Test-Path $st){try{$state=(Get-Content $st -Raw -Encoding UTF8|ConvertFrom-Json).state}catch{$state='CORRUPT'}}else{$state='NONE'}
+            Write-Output ('RGHIST|ITEM|'+$dir.Name+'|STATUS='+$state+'|QUEUE='+(Test-Path $q))
+          }
+          $p=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py'})
+          Write-Output ('RGHIST|WORKERS|'+$p.Count)
+          Write-Output 'RGHIST|READ_ONLY|PASS'
