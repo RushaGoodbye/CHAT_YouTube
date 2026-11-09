@@ -33,3 +33,32 @@ def test_unsupported_quote_is_never_marked_verified():
         "evidence": "Підтверджена подія не відбувалася",
     }]}
     assert _validate_topics(proposed, block)["verified"] is False
+
+
+
+def test_model_topic_cannot_invent_source_subject_in_description():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{
+        "verified": True,
+        "topics": [{
+            "topic": "Війна та стратегія",
+            "evidence": "Ми сьогодні говоримо про каву та сніданок",
+        }],
+    }]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_source_quote_allows_subject_without_claiming_it_is_central():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{
+        "verified": True,
+        "topics": [{
+            "topic": "Розмова",
+            "evidence": "Ми обговорюємо війну і людські рішення",
+        }],
+    }]}
+    description = _deterministic_evidence_description("", report)
+    assert "війна та стратегічні рішення" in description
+    assert "центральна тема" not in description
