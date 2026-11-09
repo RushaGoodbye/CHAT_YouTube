@@ -158,8 +158,8 @@ def stage(source_dir:Path,destination:Path):
         ast.parse(updated,filename=name)
         p=destination/name
         p.write_text(updated,encoding="utf-8")
-        hashes[name]={"source_sha256":hashlib.sha256(original.encode()).hexdigest(),
-                      "candidate_sha256":hashlib.sha256(updated.encode()).hexdigest()}
+        hashes[name]={"source_sha256":hashlib.sha256((source_dir/name).read_bytes()).hexdigest(),
+                      "candidate_sha256":hashlib.sha256(p.read_bytes()).hexdigest()}
     report={"version":PATCH_VERSION,"stage":"NOT_INSTALLED","source_dir":str(source_dir),
             "candidate_dir":str(destination),"files":hashes,
             "manual_review_required_for_unconfirmed_faces":True,
