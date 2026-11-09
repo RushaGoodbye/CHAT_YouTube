@@ -921,7 +921,9 @@ def _deterministic_evidence_description(
             quote = str(topic.get("evidence") or "").strip()
             if not quote:
                 raise ValueError("No verified transcript quotations for SEO description")
-            combined = (str(topic.get("topic") or "") + " " + quote).casefold()
+            # Model-written topic labels are proposals, not evidence.
+            # Only the literal source quote can establish a public subject.
+            combined = quote.casefold()
             recognized: list[str] = []
             if any(w in combined for w in ("стратег", "войн", "війн")):
                 recognized.append("війна та стратегічні рішення")
@@ -964,10 +966,8 @@ def _deterministic_evidence_description(
     # padding it with stock claims about what every interviewee supposedly did.
     first = labels[0]
     rest = labels[1:]
-    lead = (
-        "У випуску «РАША ГУДБАЙ» центральна тема розмови — "
-        + first + ". "
-    )
+    # First in chronology does not mean dominant across the full video.
+    lead = "У випуску «РАША ГУДБАЙ» порушено тему: " + first + ". "
     if rest:
         lead += "Також порушуються питання: " + "; ".join(rest) + ". "
     body = (
