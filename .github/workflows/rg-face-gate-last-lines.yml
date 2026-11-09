@@ -1,0 +1,16 @@
+name: RG face gate call final lines
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-face-gate-last-lines.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_clock_selector.py'
+          $s=@(Get-Content $p -Encoding UTF8)
+          for($i=3795;$i -le 3870;$i++){Write-Output ('RGFOOT|'+$i+'|'+$s[$i-1])}
