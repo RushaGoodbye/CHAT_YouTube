@@ -1,0 +1,20 @@
+name: RG V4 noface boundary signature readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v4-boundary-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $s=@(Get-Content (Join-Path $root 'rg_clock_selector.py') -Encoding UTF8)
+          for($i=0;$i -lt $s.Count;$i++){
+            if($s[$i] -match '^def _dialogue_boundaries\('){
+              for($j=$i;$j -le [Math]::Min($s.Count-1,$i+75);$j++){Write-Output ('RGBOUNDARY|'+($j+1)+'|'+$s[$j])}
+            }
+          }
