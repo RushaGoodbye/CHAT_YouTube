@@ -45,8 +45,11 @@ def select_grounded_highlights(
         # Later passes group already-selected source topics, max four per call.
         if first_round:
             spans: list[list[tuple[int, dict[str, Any]]]] = []
-            for start in range(0, len(present), 4):
-                window_group = set(present[start:start + 4])
+            group_count = max(limit, (len(present) + 3) // 4)
+            for group_index in range(group_count):
+                window_group = set(present[
+                    round(group_index * len(present) / group_count):
+                    round((group_index + 1) * len(present) / group_count)])
                 group = [x for x in candidates if x[0] in window_group]
                 spans.append(group)
                 original_windows_seen.update(window_group)
