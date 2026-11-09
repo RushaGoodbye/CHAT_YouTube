@@ -1,0 +1,46 @@
+name: RG V2 installed verification and isolated QA 891 898
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v2-after-install-verification.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $p=Join-Path $app 'rg_release_health_gate.py'
+          $hash=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('RGV2|TIME|'+(Get-Date -Format o))
+          Write-Output ('RGV2|RELEASE_HEALTH_HASH|'+$hash)
+          Write-Output ('RGV2|EXPECTED_HASH|3b36d2600f47d6ba19dda49c55ed933a2525310f0695ad9371de598138c610ed')
+          Write-Output ('RGV2|INSTALLED_HASH_OK|'+($hash -eq '3b36d2600f47d6ba19dda49c55ed933a2525310f0695ad9371de598138c610ed'))
+          $backups=Get-ChildItem (Join-Path $data 'RG_REPAIR_BACKUPS') -Directory -Filter 'RG_REPAIR_20261109_V2_RELEASE_*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+          Write-Output ('RGV2|BACKUP_COUNT|'+@($backups).Count)
+          if($backups){
+            $ledger=Join-Path $backups[0].FullName 'ROLLBACK_LEDGER.json'
+            if(Test-Path $ledger){
+              $m=Get-Content -LiteralPath $ledger -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGV2|LEDGER|'+$m.status+'|ITEMS='+@($m.items).Count)
+            }
+          }
+          $queue=Get-Content (Join-Path $data 'studio_batch_queue.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          Write-Output ('RGV2|QUEUE|RUN='+$queue.running+'|PAUSED='+$queue.paused)
+          foreach($n in @(891,898,904,915)){
+            $r=@($queue.rows|Where-Object {$_.stream -eq $n})|Select-Object -First 1
+            if($r){Write-Output ('RGV2|ROW|'+$n+'|'+$r.status+'|'+$r.stage)}
+          }
+          if($hash -ne '3b36d2600f47d6ba19dda49c55ed933a2525310f0695ad9371de598138c610ed'){throw 'V2_NOT_INSTALLED_OR_CHANGED'}
+          $env:PYTHONPATH=$app
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109\run_postrun_qa_isolated.py
+          if($LASTEXITCODE -ne 0){throw 'ISOLATED_QA_RUNTIME_FAILED'}
+          Write-Output 'RGV2|DONE|READ_ONLY'
