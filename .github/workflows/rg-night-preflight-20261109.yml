@@ -1,0 +1,62 @@
+name: RG Auto Edit overnight preflight read only 20261109
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-preflight-20261109.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Studio queue media disk and export safety without changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Write-Output ('RGNIGHT|HOST|'+$env:COMPUTERNAME)
+          Write-Output ('RGNIGHT|TIME|'+(Get-Date -Format o))
+          $all=@(Get-CimInstance Win32_Process)
+          $studio=@($all|Where-Object {$_.CommandLine -match '(?i)rg_studio_main\.py|rg_studio_ui\.py' -and $_.Name -match 'python|RG'})
+          $workers=@($all|Where-Object {$_.Name -match '(?i)python|ffmpeg' -and $_.CommandLine -match '(?i)rg_multi_dialogue|rg_production_wrapper|rg_fullstream|rg_auto_edit_one_button|full_stream'})
+          Write-Output ('RGNIGHT|STUDIO_COUNT|'+$studio.Count)
+          Write-Output ('RGNIGHT|WORKER_COUNT|'+$workers.Count)
+          foreach($p in $workers|Select-Object -First 5){Write-Output ('RGNIGHT|WORKER|'+$p.ProcessId+'|'+$p.Name)}
+          $qpath=Join-Path $data 'studio_batch_queue.json'
+          if(Test-Path -LiteralPath $qpath){
+            try{
+              $q=Get-Content -LiteralPath $qpath -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGNIGHT|QUEUE_RUNNING|'+$q.running)
+              Write-Output ('RGNIGHT|QUEUE_PAUSED|'+$q.paused)
+              Write-Output ('RGNIGHT|QUEUE_KEYS|'+(@($q.PSObject.Properties.Name)-join ','))
+              Write-Output ('RGNIGHT|QUEUE_COUNT|'+@($q.rows).Count)
+              foreach($row in @($q.rows)|Select-Object -First 40){
+                Write-Output ('RGNIGHT|ROW|'+($row.stream)+'|'+($row.status)+'|'+($row.progress)+'|'+($row.stage))
+              }
+            }catch{Write-Output ('RGNIGHT|QUEUE_INVALID|'+$_.Exception.Message)}
+          }else{Write-Output 'RGNIGHT|QUEUE_NOT_FOUND'}
+          $disk=Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='F:'"
+          if($disk){
+            Write-Output ('RGNIGHT|F_FREE_GIB|'+[math]::Round($disk.FreeSpace/1GB,2))
+            Write-Output ('RGNIGHT|F_TOTAL_GIB|'+[math]::Round($disk.Size/1GB,2))
+          }else{Write-Output 'RGNIGHT|F_MISSING'}
+          $manifest=Join-Path $app 'RG_EDITED_904_MULTI_DIALOGUE.json'
+          if(Test-Path $manifest){
+            $m=Get-Content -LiteralPath $manifest -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGNIGHT|904_MANIFEST|'+$m.status)
+            foreach($k in @('video_root','audio_root','screen_root')){
+              $v=$m.launch_args.$k
+              Write-Output ('RGNIGHT|SOURCE|'+$k+'|'+(Test-Path -LiteralPath $v)+'|'+$v)
+            }
+          }
+          foreach($f in @('rg_final_release_gate.py','rg_release_health_gate.py','rg_multi_dialogue.py')){
+            $p=Join-Path $app $f
+            Write-Output ('RGNIGHT|MODULE|'+$f+'|'+(Test-Path $p))
+          }
+          $gpu=Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue|Where-Object {$_.Name -match 'NVIDIA'}
+          foreach($g in $gpu){Write-Output ('RGNIGHT|GPU|'+$g.Name)}
+          $nvidia=(Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue)
+          if($nvidia){& $nvidia.Source --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader}
+          Write-Output 'RGNIGHT|RESULT|READ_ONLY_NO_CHANGES'
