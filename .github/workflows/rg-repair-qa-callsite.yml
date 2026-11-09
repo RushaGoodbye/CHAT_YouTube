@@ -1,0 +1,24 @@
+name: RG Repair QA exact invocation inspector
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-qa-callsite.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_postrun.py'
+          $s=@(Get-Content -LiteralPath $p -Encoding UTF8)
+          for($i=300;$i -le [Math]::Min(389,$s.Count);$i++){Write-Output ('RGQA_SOURCE|'+$i+'|'+$s[$i-1])}
+          $source='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @(891,898,904)){
+            $p=Join-Path $source ($n+'\RG_POSTRUN_QA.json')
+            if(Test-Path $p){$j=Get-Content -Raw -Encoding UTF8 $p|ConvertFrom-Json
+              Write-Output ('RGQA_OLD|'+$n+'|'+$j.passed)
+              foreach($x in @($j.checks)){Write-Output ('RGQA_CHECK|'+$n+'|'+$x.name+'|'+$x.ok+'|'+$x.critical+'|'+$x.detail)}
+            }
+          }
