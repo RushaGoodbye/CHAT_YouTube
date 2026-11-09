@@ -234,8 +234,14 @@ def main() -> int:
         # cached topic map; those caused unsupported filler and topic drift.
         source = source_packet_from_complete_map(
             video_id=VID, original_rows=cues,
-            full_map=map_report, max_chars=3200)
+            full_map=map_report, max_chars=3200,
+            selector=_chat_for(WRITER))
         audit["source_from_full_map_only"] = True
+        audit["topical_synthesis_complete"] = source["topical_synthesis_complete"]
+        audit["source_windows_omitted_from_synthesis"] = len(
+            source["source_windows_omitted_from_synthesis"])
+        audit["all_topical_windows_considered_for_highlights"] = source[
+            "all_topical_windows_considered_for_highlights"]
         audit["unknown_topic_windows_block_acceptance"] = bool(
             source["windows_without_substantive_topics"])
         audit["source_cards"] = len(source["records"])
