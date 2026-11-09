@@ -1,0 +1,23 @@
+name: RG mat-off current source precise readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-mat-current-source.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($item in @(@('rg_fullstream_export_v1.py',135,182),@('rg_fullstream_export_v1.py',273,300),@('rg_fullstream_editorial_gate_v82.py',45,85),@('rg_fullstream_qa_v65.py',10,50))){
+            $path=Join-Path $root $item[0]
+            $ls=@(Get-Content $path -Encoding UTF8)
+            Write-Output ('RGNOW|FILE|'+$item[0]+'|'+(Get-FileHash $path).Hash)
+            for($i=$item[1];$i -le [math]::Min($item[2],$ls.Count);$i++){
+              Write-Output ('RGNOW|LINE|'+$item[0]+'|'+$i+'|'+$ls[$i-1])
+            }
+          }
+          Write-Output 'RGNOW|READ_ONLY'
