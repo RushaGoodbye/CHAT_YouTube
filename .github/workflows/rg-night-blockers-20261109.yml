@@ -1,0 +1,46 @@
+name: RG overnight blockers detailed readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-night-blockers-20261109.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $a='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $q=Get-Content (Join-Path $d 'studio_batch_queue.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $studio=@(Get-CimInstance Win32_Process |Where-Object{$_.Name -match 'python|RG' -and $_.CommandLine -match '(?i)rg_studio_main\.py|rg_studio_ui\.py'})
+          foreach($p in $studio){Write-Output ('RGBLOCK|STUDIO_PID|'+$p.ProcessId+'|'+$p.Name+'|'+$p.CommandLine)}
+          foreach($row in @($q.rows)){
+            if($row.status -match 'ПОМИЛКА|ERROR'){
+              $props=@{}
+              foreach($key in @('stream','status','stage','progress','error','message','last_error','details','reason','error_code')){
+                if($row.PSObject.Properties.Name -contains $key){$props[$key]=$row.$key}
+              }
+              Write-Output ('RGBLOCK|FAILED_ROW|'+($props|ConvertTo-Json -Compress -Depth 5))
+            }
+          }
+          foreach($s in @('893','901','903','904','907','908','913','915')){
+            $p=Join-Path $d ('run_state\'+$s+'\RUN_STATE.json')
+            if(Test-Path $p){
+              try{
+                $j=Get-Content -Raw -Encoding UTF8 $p |ConvertFrom-Json
+                $fields=@{}
+                foreach($key in @('status','stage','last_stage','error','error_code','last_error','message','progress')){
+                  if($j.PSObject.Properties.Name -contains $key){$fields[$key]=$j.$key}
+                }
+                Write-Output ('RGBLOCK|RUNSTATE|'+$s+'|'+($fields|ConvertTo-Json -Compress -Depth 4))
+              }catch{Write-Output ('RGBLOCK|STATE_PARSE_ERROR|'+$s)}
+            }else{Write-Output ('RGBLOCK|STATE_MISSING|'+$s)}
+          }
+          foreach($cmd in @('/a','/requests')){
+            Write-Output ('RGBLOCK|POWERCFG|'+$cmd)
+            & powercfg.exe $cmd 2>&1|Select-Object -First 20|ForEach-Object{Write-Output ('RGBLOCK|POWER|'+$_)}
+          }
+          Write-Output 'RGBLOCK|READ_ONLY|TRUE'
