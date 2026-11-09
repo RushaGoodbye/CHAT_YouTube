@@ -1,0 +1,46 @@
+name: RG 885-889 live poststart monitor
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-889-poststart-monitor-20261110.yml']
+permissions: {contents: read}
+jobs:
+  monitor:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $all=@(Get-CimInstance Win32_Process)
+          foreach($p in $all|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3\.py|rg_fullstream_auto_v2\.py|rg_studio_main\.py'}){
+            Write-Output ('RGPOST|PROCESS|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.Name+'|'+$p.CommandLine)
+          }
+          foreach($id in 885..889){
+            $folder=Join-Path $base ([string]$id)
+            $sf=Join-Path $folder 'status.json'
+            $qf=Join-Path $folder 'queue_request.json'
+            $st='NO_STATUS'
+            if(Test-Path $sf){
+              try{
+                $v=Get-Content $sf -Raw -Encoding UTF8|ConvertFrom-Json
+                $st=$v.state
+                $err=$v.error
+              }catch{$st='STATUS_UNREADABLE'}
+            }
+            $hasqueue=Test-Path $qf
+            $stamp=if(Test-Path $sf){(Get-Item $sf).LastWriteTime.ToString('s')}else{'NONE'}
+            $stagefile=Join-Path $folder 'stage_state_v52.json'
+            $stage=''
+            if(Test-Path $stagefile){
+              try{$x=Get-Content $stagefile -Raw -Encoding UTF8|ConvertFrom-Json;$stage=($x.stage+' '+$x.detail)}catch{}
+            }
+            Write-Output ('RGPOST|STREAM|'+$id+'|STATE='+$st+'|QUEUED='+$hasqueue+'|STAMP='+$stamp+'|STAGE='+$stage+'|ERROR='+$err)
+          }
+          $log=Join-Path $base 'queue_worker.log'
+          if(Test-Path $log){
+            Write-Output ('RGPOST|QUEUE_LOG_TIME|'+(Get-Item $log).LastWriteTime.ToString('s'))
+            Get-Content $log -Tail 18|ForEach-Object {Write-Output ('RGPOST|LOG|'+$_)}
+          }
+          Write-Output 'RGPOST|READONLY|PASS'
