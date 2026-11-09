@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Compare NAS root, screenshots, 915 audio and alignment request
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
           $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
