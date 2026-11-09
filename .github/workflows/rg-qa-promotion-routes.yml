@@ -1,0 +1,31 @@
+name: RG QA promotion routes read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-qa-promotion-routes.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Write-Output ('RGPROMO|TIME|'+(Get-Date -Format o))
+          foreach($p in @('rg_studio_ui.py','rg_studio_postrun.py','rg_release_health_gate.py')){
+            $file=Join-Path $root $p
+            if(!(Test-Path $file)){continue}
+            $s=@(Get-Content $file -Encoding UTF8)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'RG_POSTRUN_QA|POSTRUN_QA|QA_FAILED|NEEDS_CHECK|recheck|reverify|revalidate|status.*ГОТОВО|status.*ПОМИЛКА|reprocess'){
+                $a=[Math]::Max(0,$i-2);$b=[Math]::Min($s.Count-1,$i+2)
+                for($j=$a;$j -le $b;$j++){Write-Output ('RGPROMO|CODE|'+$p+'|'+($j+1)+'|'+$s[$j])}
+              }
+            }
+          }
+          foreach($n in @(891,898,904)){
+            $d=Join-Path $root ([string]$n)
+            Write-Output ('RGPROMO|DIR|'+$n+'|EXISTS='+(Test-Path $d))
+            Get-ChildItem $d -Filter '*POSTRUN*' -ErrorAction SilentlyContinue|ForEach-Object {Write-Output ('RGPROMO|REPORT|'+$n+'|'+$_.Name+'|'+$_.Length)}
+          }
