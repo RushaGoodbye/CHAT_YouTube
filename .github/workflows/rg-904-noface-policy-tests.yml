@@ -1,0 +1,17 @@
+name: RG 904 noface fallback policy regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/rg_904_noface_scene_policy.py'
+      - 'tests/test_rg_904_noface_scene_policy.py'
+      - '.github/workflows/rg-904-noface-policy-tests.yml'
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - run: PYTHONPATH=scripts python -m unittest discover -s tests -p 'test_rg_904_noface_scene_policy.py' -v
