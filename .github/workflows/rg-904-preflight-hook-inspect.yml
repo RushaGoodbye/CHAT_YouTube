@@ -1,0 +1,21 @@
+name: RG 904 noface preflight hook inspection
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-preflight-hook-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_multi_dialogue.py'
+          $s=@(Get-Content -LiteralPath $p -Encoding UTF8)
+          for($i=0;$i -lt $s.Count;$i++){
+            if(($i -ge 552 -and $i -le 575) -or ($s[$i] -match 'validate_dialogue_screenshot|_best_local_match|read_clock_from_screenshot')){
+              Write-Output ('RG904HOOK|LINE|'+($i+1)+'|'+$s[$i])
+            }
+          }
+          Write-Output 'RG904HOOK|READ_ONLY|TRUE'
