@@ -1,0 +1,20 @@
+name: RG Studio QA-only button behavior inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-qa-only-behavior.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_ui.py'
+          $s=@(Get-Content $p -Encoding UTF8)
+          foreach($range in @(@(2977,3185),@(3306,3360),@(691,732))){
+            for($i=$range[0];$i -le [Math]::Min($range[1],$s.Count);$i++){Write-Output ('RGQAUI|'+$i+'|'+$s[$i-1])}
+          }
+          $queue=Get-Content 'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json' -Raw -Encoding UTF8|ConvertFrom-Json
+          foreach($n in @(891,898,904)){foreach($r in @($queue.rows)|Where-Object { $_.stream -eq $n }){Write-Output ('RGQAUI|QUEUE|'+$n+'|'+($r|ConvertTo-Json -Compress -Depth 6))}}
