@@ -1,0 +1,45 @@
+name: RG fullstream MAT OFF installed postacceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-mat-off-installed-acceptance.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $inst=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          $root=Get-Item $inst -Force
+          if($root.LinkType -ne 'Junction'){throw 'INSTALLED_PATH_NOT_JUNCTION_STOP'}
+          Write-Output ('RGACCEPT|ONE_PHYSICAL_APP|'+$root.Target)
+          $pairs=@(
+            @('rg_fullstream_export_v1.py','RG_FULLSTREAM_MAT_CENSORSHIP_DISABLED_BY_USER'),
+            @('rg_fullstream_editorial_gate_v82.py','V90_PROFANITY_REVIEW_DISABLED_BY_USER'),
+            @('rg_fullstream_qa_v65.py','DISABLED_BY_USER_FULL_STREAM_ONLY')
+          )
+          foreach($row in $pairs){
+            $src=Join-Path $r $row[0]
+            $s=Get-Content $src -Raw -Encoding UTF8
+            if(!$s.Contains($row[1])){throw ('MARKER_MISSING_'+$row[0])}
+            Write-Output ('RGACCEPT|MARKER|'+$row[0]+'|PASS')
+          }
+          $exp=Get-Content (Join-Path $r 'rg_fullstream_export_v1.py') -Raw -Encoding UTF8
+          $gate=Get-Content (Join-Path $r 'rg_fullstream_editorial_gate_v82.py') -Raw -Encoding UTF8
+          if($exp -notmatch 'muted=\[\]' -and $exp -notmatch 'muted=\[\]  #'){throw 'MUTE_ZERO_NOT_SET'}
+          if($exp -notmatch 'popup_masks' -or $exp -notmatch 'POPUP_COVERAGE_NOT_VERIFIED'){throw 'POPUP_GUARD_REMOVED'}
+          if($gate -notmatch 'NOTIFICATION_COVERAGE_UNVERIFIED' -or $gate -notmatch 'NOTIFICATION_SCAN_NOT_CONFIRMED'){throw 'NOTIFICATION_GATE_REMOVED'}
+          if($gate -match 'failures\.append\("KNOWN_MAT_MATCHES_NOT_MUTED_OR_REVIEWED_'){throw 'MAT_GATE_STILL_BLOCKS'}
+          Write-Output 'RGACCEPT|NO_MAT_MUTE|PASS'
+          Write-Output 'RGACCEPT|NOTIFICATION_GUARD|PASS'
+          $a=(Get-FileHash (Join-Path $r 'rg_fullstream_export_v1.py')).Hash
+          $b=(Get-FileHash (Join-Path $inst 'rg_fullstream_export_v1.py')).Hash
+          if($a -ne $b){throw 'INSTALLED_SOURCE_MISMATCH'}
+          Write-Output 'RGACCEPT|JUNCTION_HASH|PASS'
+          $procs=@(Get-CimInstance Win32_Process |Where-Object{$_.CommandLine -match 'rg_studio_main\.py' -and $_.Name -match 'python'})
+          Write-Output ('RGACCEPT|ACTIVE_STUDIO_PROCESSES|'+$procs.Count)
+          Write-Output 'RGACCEPT|READ_ONLY|PASS'
