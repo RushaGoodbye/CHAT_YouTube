@@ -1,0 +1,33 @@
+name: RG Repair targeted filenames and QA discovery
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-discovery.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Get-ChildItem $root -Filter '*.py' | Where-Object {$_.Name -match '(qa|xml|release|postrun|source|audio|screen|sync)'} | Select-Object -ExpandProperty Name | ForEach-Object {Write-Output ('RGD|FILE|'+$_)}
+          foreach($name in @('rg_postrun_qa.py','rg_xml_verify_v51_2.py','rg_xml_verify.py','rg_output_qa.py','rg_studio_postrun_qa.py')){
+            $p=Join-Path $root $name;if(!(Test-Path $p)){continue}
+            $s=@(Get-Content $p -Encoding UTF8)
+            Write-Output ('RGD|SOURCE|'+$name+'|'+$s.Count)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'MISSING PRIMARY XML|SOURCE_OVERLAP|source_overlap|UNCENSORED|def run|def verify|NO_OUTPUTS|expected='){
+                for($k=[Math]::Max(0,$i-2);$k -le [Math]::Min($s.Count-1,$i+2);$k++){Write-Output ('RGD|CODE|'+$name+'|'+($k+1)+'|'+$s[$k])}
+              }
+            }
+          }
+          foreach($n in @(891,898,904)){
+            $p=Join-Path $root "RG_EDITED_${n}_MULTI_DIALOGUE.json"
+            if(Test-Path $p){
+              $o=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGD|MANIFEST|'+$n+'|'+$o.status+'|'+$o.dialogue_count)
+              foreach($x in @($o.outputs)){Write-Output ('RGD|OUTPUT|'+$n+'|'+($x|ConvertTo-Json -Compress -Depth 4))}
+            }
+          }
