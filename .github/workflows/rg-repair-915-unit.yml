@@ -1,0 +1,48 @@
+name: RG Repair 915 Audio Selection Unit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-915-unit.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=Join-Path $env:RUNNER_TEMP 'rg915_select_test.py'
+          @'
+          from pathlib import Path
+          import sys,tempfile
+          from unittest.mock import patch
+          sys.path.insert(0,str(Path.cwd()/'rg_repair_20261109'))
+          from stage_repair import patch_embedded
+          p=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_embedded_audio_source_v1.py')
+          original=p.read_text(encoding='utf-8')
+          updated=patch_embedded(original)
+          with tempfile.TemporaryDirectory() as d:
+              root=Path(d)
+              (root/'915.mp4').write_bytes(b'x'*100001)
+              audio=root/'sound';audio.mkdir()
+              (audio/'915-1.mp3').write_bytes(b'a'*500)
+              (audio/'915-2.mp3').write_bytes(b'b'*500)
+              data=root/'data'
+              ns={'__name__':'rg_embedded_audio_source_v1','__file__':str(p)}
+              exec(compile(updated,str(p),'exec'),ns)
+              probe=lambda x: {'format':{'duration':str(11405.9 if str(x).endswith('.mp4') else 6214.32 if str(x).endswith('-1.mp3') else 5651.04)},'streams':[{'codec_type':'audio'}]}
+              with patch.dict(ns, {'DATA':data,'_probe':probe,'_good_embedded':lambda *a: True,'_valid_cache':lambda *a: True}):
+                  choice=ns['choose_audio_root'](root,'915',audio,'915')
+                  assert choice==str(data/'915_EMBEDDED_MP4_AUDIO'),(choice,data)
+                  print('RG915UNIT|SPLIT_MISMATCH_VERIFIED|PASS')
+              with patch.dict(ns, {'DATA':data,'_probe':probe,'_good_embedded':lambda *a: False}):
+                  choice=ns['choose_audio_root'](root,'915',audio,'915')
+                  assert choice==str(audio)
+                  print('RG915UNIT|UNVERIFIED_EMBEDDED_BLOCKED|PASS')
+          assert p.read_text(encoding='utf-8')==original
+          print('RG915UNIT|ACTIVE_SOURCE_UNCHANGED|PASS')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & $py -X utf8 $script
+          if($LASTEXITCODE -ne 0){throw 'RG_915_SELECTION_UNIT_FAILED'}
