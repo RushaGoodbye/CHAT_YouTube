@@ -1,4 +1,4 @@
-name: RG 904-3 scene time shadow evidence
+name: RG 904-3 unicode safe clock shadow evidence
 on:
   push:
     branches: [main]
@@ -19,6 +19,12 @@ jobs:
           from pathlib import Path
           import sys
           sys.path.insert(0,r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          import cv2,numpy as np
+          _old_imread=cv2.imread
+          def unicode_imread(path,flags=cv2.IMREAD_COLOR):
+              try:return cv2.imdecode(np.fromfile(str(path),dtype=np.uint8),flags)
+              except (OSError,ValueError):return _old_imread(str(path),flags)
+          cv2.imread=unicode_imread
           from rg_clock_selector import read_clock_from_screenshot
           root=Path(r'\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\Screens')
           values={}
