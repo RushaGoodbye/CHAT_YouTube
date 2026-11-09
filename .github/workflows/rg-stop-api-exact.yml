@@ -1,0 +1,20 @@
+name: RG scoped fullstream stop API exact read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stop-api-exact.yml']
+permissions: {contents: read}
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 2
+    steps:
+      - shell: pwsh
+        run: |
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_fullstream_stop_v60.py','rg_fullstream_process_state_v59.py')){
+            $p=Join-Path $r $n
+            Write-Output ('RGSTOPAPI|BEGIN|'+$n)
+            Get-Content -LiteralPath $p -Encoding UTF8|ForEach-Object {Write-Output ('RGSTOPAPI|LINE|'+$_)}
+          }
+          Write-Output 'RGSTOPAPI|READ_ONLY|PASS'
