@@ -1,0 +1,45 @@
+name: RG V4 noface boundary real shadow
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v4-boundary-shadow.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'rg_v4_boundary_shadow.py'
+          @'
+          import sys,json,shutil,tempfile,cv2,time
+          from pathlib import Path
+          root=Path(r'F:\RG_AUTO_EDIT\RG Auto Edit App')
+          sys.path.insert(0,str(root))
+          from rg_clock_selector import _dialogue_boundaries,_probe_duration
+          m=json.loads((root/'RG_EDITED_904_MULTI_DIALOGUE.json').read_text(encoding='utf-8-sig'))
+          video=Path(m['launch_args']['video_root'])/'904.mp4'
+          source=Path(m['launch_args']['screen_root'])/'904-3.jpg'
+          with tempfile.TemporaryDirectory(prefix='rg_v4_boundary_ascii_') as d:
+              p=Path(d)/'shot3.jpg';shutil.copy2(source,p)
+              im=cv2.imread(str(p))
+              assert im is not None
+              start=time.monotonic()
+              try:
+                  a,b,details=_dialogue_boundaries(video,im,3978.5,0.6367663455,
+                    _probe_duration(video),trust_clock=False,dialogue_position=2,
+                    previous_dialogue_end=None,previous_anchor_sec=3507.0,
+                    next_anchor_sec=4853.0,progress_cb=None)
+                  print('RGV4BOUND|RESULT|'+json.dumps({'start':a,'end':b,'mode':details.get('boundary_profile'),'meta':str(details)[:1000]},ensure_ascii=False),flush=True)
+              except Exception as e:
+                  print('RGV4BOUND|FAIL_CLOSED|'+type(e).__name__+'|'+str(e)[:1200],flush=True)
+              print('RGV4BOUND|ELAPSED|'+str(round(time.monotonic()-start,2)),flush=True)
+          print('RGV4BOUND|READ_ONLY|TRUE',flush=True)
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 $script
+          if($LASTEXITCODE -ne 0){throw 'BOUNDARY_SHADOW_RUNTIME_FAIL'}
