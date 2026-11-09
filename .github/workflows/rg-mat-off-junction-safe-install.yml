@@ -1,0 +1,28 @@
+name: RG Fullstream MAT off junction-safe final installation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-mat-off-junction-safe-install.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-fullstream-mat-off-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_mat_off_patch_v1.py --apply
+          if($LASTEXITCODE -ne 0){throw 'MAT_OFF_JUNCTION_SAFE_INSTALL_BLOCKED'}
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($f in @('rg_fullstream_export_v1.py','rg_fullstream_editorial_gate_v82.py','rg_fullstream_qa_v65.py','rg_fullstream_batch_v53.py')){
+            & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -m py_compile (Join-Path $app $f)
+            if($LASTEXITCODE -ne 0){throw ('MAT_OFF_POSTCOMPILE_FAILED '+$f)}
+          }
+          Write-Output 'RGMATOFF|POSTINSTALL_COMPILE|PASS'
