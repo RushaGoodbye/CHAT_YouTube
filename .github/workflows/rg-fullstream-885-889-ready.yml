@@ -1,0 +1,54 @@
+name: RG 885-889 launch readiness without processing
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-885-889-ready.yml']
+permissions: {contents: read}
+jobs:
+  readiness:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,os,importlib.util,json
+          from pathlib import Path
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_auto_v2 import _offline_asr_models
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          r=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2")
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          ct,pt=_offline_asr_models()
+          print("RGREADY|MODELS|"+json.dumps([str(x) for x in ct]),flush=True)
+          assert ct and "faster-whisper-large-v3" in str(ct[0]).lower()
+          assert not any("m2m100" in str(x).lower() for x in ct)
+          print("RGREADY|QUEUE_WORKER_LOCK|"+worker_lock_state(r.parent),flush=True)
+          print("RGREADY|ACTIVE_WORKERS|"+str(len(active_workers())),flush=True)
+          for s in range(885,890):
+            sid=str(s)
+            d=r/sid
+            out=app/sid/"FULLSTREAM_YOUTUBE"
+            print("RGREADY|STREAM|"+sid+"|CACHED="+str(d.exists())+"|OLD_OUTPUT="+str(out.exists()),flush=True)
+            assert not d.exists() and not out.exists()
+          print("RGREADY|PRESTART|PASS",flush=True)
+          '@
+          $script|& $python -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'FRESH_READINESS_FAILED'}
+          $test=@'
+          import sys,json
+          from pathlib import Path
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_auto_v2 import _offline_asr_models
+          ct,_=_offline_asr_models()
+          from faster_whisper import WhisperModel
+          m=WhisperModel(str(ct[0]),device="cuda",compute_type="float16",local_files_only=True)
+          print("RGREADY|WHISPER_LARGE_V3_CUDA_LOAD|PASS",flush=True)
+          del m
+          '@
+          $test|& $python -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'CUDA_WHISPER_TEST_FAILED'}
