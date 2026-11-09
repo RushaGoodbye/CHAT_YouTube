@@ -1,0 +1,35 @@
+name: RG ASR models actual selection and file structure
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-asr-models-actual-selection.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $s=@(Get-Content (Join-Path $app 'rg_fullstream_auto_v2.py') -Encoding UTF8)
+          for($i=121;$i -le 150;$i++){Write-Output ('RGMODEL|CODE|'+$i+'|'+$s[$i-1])}
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $script=@'
+          import sys,json,os
+          from pathlib import Path
+          sys.path.insert(0,r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          from rg_fullstream_auto_v2 import _offline_asr_models
+          a,b=_offline_asr_models()
+          print("RGMODEL|CANDIDATES|"+json.dumps({"ct":[str(x) for x in a],"pt":[str(x) for x in b]}),flush=True)
+          for x in list(a)+list(b):
+              p=Path(x)
+              if p.is_dir():
+                  names=[t.name for t in p.iterdir() if t.is_file()][:25]
+                  print("RGMODEL|DIRECTORY|"+str(p)+"|"+",".join(names),flush=True)
+              elif p.is_file():
+                  print("RGMODEL|FILE|"+str(p)+"|"+str(p.stat().st_size),flush=True)
+          '@
+          $script|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'MODEL_DISCOVERY_FAILED'}
