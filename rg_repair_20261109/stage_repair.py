@@ -31,11 +31,11 @@ def patch_postrun(s):
         "INVENTORY_STATUS")
     s=replace_once(s,
         "raw.name.casefold()==f'RG_EDITED_{stream}.xml'.casefold())",
-        "bool(re.fullmatch(r'RG_EDITED_'+re.escape(str(stream))+r'(?:_R[1-9]\\d*)?\\.xml',raw.name,re.I)))",
+        "bool(re.fullmatch(r'RG_EDITED_'+re.escape(str(stream))+r'(?:_R[1-9]\d*)?\.xml',raw.name,re.I)))",
         "SINGLE_REVISION_ID")
     s=replace_once(s,
         "filename.casefold()==f'RG_EDITED_{stream}.xml'.casefold())",
-        "bool(re.fullmatch(r'RG_EDITED_'+re.escape(str(stream))+r'(?:_R[1-9]\\d*)?\\.xml',filename,re.I)))",
+        "bool(re.fullmatch(r'RG_EDITED_'+re.escape(str(stream))+r'(?:_R[1-9]\d*)?\.xml',filename,re.I)))",
         "INVENTORY_SINGLE_REVISION_ID")
     return s
 
@@ -118,7 +118,7 @@ def patch_ui_table(s):
     # Accept its identity only from a matching current-run manifest; never
     # treat unknown names or duplicate entries as a valid dialogue.
     revision_one=(len(mains)==1 and re.fullmatch(
-        r'RG_EDITED_'+re.escape(str(stream))+r'_R[1-9]\\d*\\.xml',
+        r'RG_EDITED_'+re.escape(str(stream))+r'_R[1-9]\d*\.xml',
         ntpath.basename(str(mains[0]).replace('/', '\\\\')),re.I))
     if revision_one:
         app=Path(mains[0]).resolve().parent.parent
