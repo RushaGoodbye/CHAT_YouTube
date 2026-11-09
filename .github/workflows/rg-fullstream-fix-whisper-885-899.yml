@@ -1,0 +1,27 @@
+name: RG fullstream fix Whisper selection and preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-fix-whisper-885-899.yml']
+permissions: {contents: read}
+concurrency: {group: rg-fullstream-model-fix, cancel-in-progress: false}
+jobs:
+  fix:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $python -X utf8 rg_repair_20261109/rg_fullstream_whisper_selector_fix_v1.py
+          if($LASTEXITCODE -ne 0){throw 'WHISPER_SELECTOR_FIX_FAILED'}
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($f in @('rg_fullstream_auto_v2.py','rg_fullstream_batch_v53.py')){
+            & $python -m py_compile (Join-Path $root $f)
+            if($LASTEXITCODE -ne 0){throw 'WHISPER_POSTCOMPILE_FAILED'}
+          }
+          Write-Output 'RGASRFIX|POSTCOMPILE|PASS'
