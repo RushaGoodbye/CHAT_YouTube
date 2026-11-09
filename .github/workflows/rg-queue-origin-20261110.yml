@@ -1,0 +1,32 @@
+name: RG fullstream wrong queue origin read-only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-queue-origin-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $items=@(Get-ChildItem $base -Directory -ErrorAction SilentlyContinue)
+          foreach($folder in $items){
+            $q=Join-Path $folder.FullName 'queue_request.json'
+            $s=Join-Path $folder.FullName 'status.json'
+            if((Test-Path $q) -or ((Test-Path $s) -and (Get-Item $s).LastWriteTime -gt (Get-Date).AddMinutes(-30))){
+              $st=''
+              if(Test-Path $s){try{$v=Get-Content $s -Raw -Encoding UTF8|ConvertFrom-Json;$st=$v.state}catch{$st='UNREADABLE'}}
+              $qt='';$qname=''
+              if(Test-Path $q){$qt=(Get-Item $q).LastWriteTime.ToString('s');try{$row=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json;$qname=$row.stream}catch{}}
+              Write-Output ('RGORIGIN|ITEM|'+$folder.Name+'|STATUS='+$st+'|QUEUED_AT='+$qt+'|QSTREAM='+$qname)
+            }
+          }
+          $worker=@(Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -match 'rg_fullstream_worker_v3.py' -and $_.Name -match 'python'})
+          foreach($p in $worker){Write-Output ('RGORIGIN|PROCESS|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.CreationDate+'|'+$p.CommandLine)}
+          $log=Join-Path $base 'queue_worker.log'
+          if(Test-Path $log){$l=Get-Item $log;Write-Output ('RGORIGIN|LOGMOD|'+$l.LastWriteTime.ToString('s'));Get-Content $log -Tail 10 |ForEach-Object {Write-Output ('RGORIGIN|LOG|'+$_)}}
+          Write-Output 'RGORIGIN|READONLY|PASS'
