@@ -1,0 +1,37 @@
+name: RG Studio process identity and MAT install precheck
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-process-identity-20261109.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $all=@(Get-CimInstance Win32_Process)
+          foreach($p in $all|Where-Object {$_.ProcessId -in @(29036,29060) -or ($_.CommandLine -match 'rg_studio_main\.py|rg_fullstream_auto_v2\.py|rg_fullstream_worker_v3\.py|rg_multi_dialogue\.py' -and $_.Name -match 'python|RG')}){
+            $parent=$all|Where-Object {$_.ProcessId -eq $p.ParentProcessId}|Select-Object -First 1
+            Write-Output ('RGPROC|PROCESS|'+($p|Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CreationDate,CommandLine|ConvertTo-Json -Compress -Depth 3))
+            if($parent){Write-Output ('RGPROC|PARENT|'+($parent|Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine|ConvertTo-Json -Compress -Depth 3))}
+          }
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $installed=Join-Path $env:LOCALAPPDATA 'Programs\RG Auto Edit'
+          foreach($root in @($app,$installed)){
+            foreach($name in @('rg_studio_main.py','rg_studio_single_instance_v93.py','rg_studio_single_instance.py','rg_studio_instance_guard_v2.py')){
+              $path=Join-Path $root $name
+              if(Test-Path $path){
+                Write-Output ('RGPROC|MODULE|'+$path+'|'+(Get-FileHash $path).Hash)
+                if($name -eq 'rg_studio_main.py'){
+                  $s=@(Get-Content $path -Encoding UTF8)
+                  foreach($i in (0..([Math]::Min(105,$s.Count-1)))){
+                    if($s[$i] -match '(?i)single|instance|mutex|lock|main\('){Write-Output ('RGPROC|ENTRY|'+($i+1)+'|'+$s[$i])}
+                  }
+                }
+              }
+            }
+          }
+          Write-Output 'RGPROC|READ_ONLY|PASS'
