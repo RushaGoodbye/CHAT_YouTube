@@ -1,0 +1,21 @@
+name: RG MAT OFF install retry after Studio exit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-mat-off-install-retry-20261109.yml']
+permissions: {contents: read}
+concurrency: {group: rg-fullstream-mat-off-install, cancel-in-progress: false}
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Apply fullstream-only MAT off, require no active Studio or worker
+        shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261109/rg_mat_off_patch_v1.py --apply
+          if($LASTEXITCODE -ne 0){throw 'RG_MAT_OFF_INSTALL_BLOCKED'}
