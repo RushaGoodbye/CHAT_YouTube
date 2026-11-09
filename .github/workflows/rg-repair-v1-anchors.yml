@@ -1,0 +1,21 @@
+name: RG Repair V1 implementation anchors
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-repair-v1-anchors.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: powershell
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($t in @(@('rg_studio_ui.py',3138,3187),@('rg_face_anchor_guard_v1.py',1,107),@('rg_clock_selector.py',3300,3335),@('rg_studio_ui.py',3660,3736))){
+            $p=Join-Path $root $t[0];$s=@(Get-Content $p -Encoding UTF8)
+            for($k=$t[1];$k -le [Math]::Min($t[2],$s.Count);$k++){Write-Output ('RGANCHOR|'+$t[0]+'|'+$k+'|'+$s[$k-1])}
+          }
+          $s=@(Get-Content (Join-Path $root 'run_manifests\915\LATEST.log') -Encoding UTF8)
+          for($k=[Math]::Max(1,$s.Count-125);$k -le $s.Count;$k++){Write-Output ('RG915|'+$k+'|'+$s[$k-1])}
+          Get-ChildItem $root -Filter 'rg*qa*.py' | ForEach-Object{Write-Output ('RGFILE|'+$_.Name)}
