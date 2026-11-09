@@ -1,0 +1,28 @@
+name: RG 891 898 QA confirmation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-891-898-qa-confirm.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $queue=Get-Content 'F:\RG_AUTO_EDIT\RG Auto Edit Data\studio_batch_queue.json' -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGCONFIRM|TIME|'+(Get-Date -Format o))
+          Write-Output ('RGCONFIRM|RUN|'+$queue.running+'|PAUSED='+$queue.paused)
+          foreach($n in @(891,898,904)){
+            $row=@($queue.rows | Where-Object { $_.stream -eq [string]$n })|Select-Object -First 1
+            if($row){Write-Output ('RGCONFIRM|ROW|'+$n+'|'+$row.status+'|'+$row.stage+'|'+$row.detail)}
+            $p=Join-Path (Join-Path $root ([string]$n)) 'RG_POSTRUN_QA.json'
+            if(Test-Path $p){
+              $j=Get-Content -LiteralPath $p -Raw -Encoding UTF8|ConvertFrom-Json
+              $bad=@($j.checks|Where-Object { $_.critical -and !$_.ok }|ForEach-Object {$_.name+':'+$_.detail})
+              Write-Output ('RGCONFIRM|QA|'+$n+'|PASS='+$j.passed+'|XML='+$j.xml_count+'|BAD='+($bad -join ' // ')+'|MODIFIED='+(Get-Item $p).LastWriteTime.ToString('o'))
+            }
+          }
+          Write-Output 'RGCONFIRM|READ_ONLY|PASS'
