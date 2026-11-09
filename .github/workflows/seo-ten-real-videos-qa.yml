@@ -40,20 +40,23 @@ jobs:
           $outputDir=Join-Path $env:RUNNER_TEMP 'rg-seo-ten-review-only'
           New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
           $env:RG_SEO_QA_OUTPUT_DIR=$outputDir
-          $completed=0
+          $qualityPassed=0
+          $semanticFailures=0
           $technicalFailures=0
           foreach($id in $ids) {
             Write-Output ('RG_SEO_TEN_VIDEO_BEGIN='+$id)
             $env:RG_SEO_VIDEO_ID=$id
             & $python -u tools\qa_seo_real_local_llm.py
             $code=$LASTEXITCODE
-            if($code -eq 0) {$completed++} else {$technicalFailures++}
+            if($code -eq 0) {$qualityPassed++}
+            elseif($code -eq 2) {$semanticFailures++}
+            else {$technicalFailures++}
             Write-Output ('RG_SEO_TEN_VIDEO_EXIT='+$id+' EXIT='+$code)
           }
           Remove-Item Env:RG_SEO_VIDEO_ID -ErrorAction SilentlyContinue
           Remove-Item Env:RG_SEO_QA_OUTPUT_DIR -ErrorAction SilentlyContinue
-          Write-Output ('RG_SEO_TEN_VIDEO_TOTAL=10 MODEL_REPORTS='+$completed+' TECHNICAL_FAILURES='+$technicalFailures)
-          if($technicalFailures -gt 0) {throw 'RG_SEO_TEN_VIDEO_TECHNICAL_FAILURES'}
+          Write-Output ('RG_SEO_TEN_VIDEO_TOTAL=10 AI_SCREENED='+$qualityPassed+' SEMANTIC_FAILED='+$semanticFailures+' TECHNICAL_FAILED='+$technicalFailures)
+          if($qualityPassed -ne 10) {throw 'RG_SEO_TEN_VIDEO_QUALITY_GATE_NOT_MET'}
       - name: Upload review-only SEO drafts and source evidence
         if: always()
         uses: actions/upload-artifact@v4
