@@ -144,12 +144,19 @@ def test(before,after):
 def apply(before,after):
     safety()
     targets=[]
+    seen=set()
+    # C: is often a Junction to F:; never patch the same physical file twice.
     for root in (APP,INSTALLED):
         for name in (*MODS,BATCH):
             p=root/name
             if p.is_file():
+                canonical=str(p.resolve()).casefold()
+                if canonical in seen:
+                    print("RGMATOFF|ALIAS_SKIP|"+str(p),flush=True)
+                    continue
                 if root!=APP and p.read_bytes()!=before[name]:
                     raise RuntimeError("INSTALLED_SOURCE_DIVERGED:"+str(p))
+                seen.add(canonical)
                 targets.append((p,name))
             elif root==APP:
                 raise RuntimeError("APP_SOURCE_MISSING:"+name)
