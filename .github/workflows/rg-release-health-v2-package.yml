@@ -1,0 +1,34 @@
+name: RG Repair V2 Release Health verified package
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-release-health-v2-package.yml']
+permissions: {contents: read}
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test rollback and assemble V2 in runner TEMP only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261109\test_install_v2.py
+          if($LASTEXITCODE -ne 0){throw 'V2_BACKUP_ROLLBACK_TEST_FAIL'}
+          $dest=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_RELEASE_HEALTH_V2'
+          if(Test-Path $dest){Remove-Item $dest -Recurse -Force}
+          & $py -X utf8 rg_repair_20261109\build_release_health_v2.py $dest
+          if($LASTEXITCODE -ne 0){throw 'V2_STAGE_FAILED'}
+          $archive=Join-Path $env:RUNNER_TEMP 'RG_REPAIR_RELEASE_HEALTH_V2.zip'
+          if(Test-Path $archive){Remove-Item $archive -Force}
+          Compress-Archive -Path "$dest\*" -DestinationPath $archive
+          Write-Output ('RGREPAIRV2|ARCHIVE|'+$archive)
+          Write-Output 'RGREPAIRV2|PRODUCTION_STUDIO_UNCHANGED|True'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RG_REPAIR_RELEASE_HEALTH_V2
+          path: ${{ runner.temp }}/RG_REPAIR_RELEASE_HEALTH_V2.zip
+          if-no-files-found: error
+          retention-days: 30
