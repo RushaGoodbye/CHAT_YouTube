@@ -1,0 +1,38 @@
+name: RG 904 screenshot 3 integrity audit read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-904-third-screenshot-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $p='\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\Screens\904-3.jpg'
+          Write-Output ('RG904SCREEN|EXISTS|'+(Test-Path -LiteralPath $p))
+          if(Test-Path -LiteralPath $p){
+            $f=Get-Item -LiteralPath $p
+            Write-Output ('RG904SCREEN|NAME|'+$f.Name+'|SIZE='+$f.Length+'|MODIFIED='+$f.LastWriteTime.ToString('o'))
+            Write-Output ('RG904SCREEN|SHA256|'+(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash)
+            $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+            $script=Join-Path $env:RUNNER_TEMP 'rg904_image_integrity.py'
+            @'
+          from PIL import Image,ImageStat
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1])
+          with Image.open(p) as im:
+              im.load();w,h=im.size
+              print('RG904SCREEN|RESOLUTION|'+str(w)+'x'+str(h))
+              rgb=im.convert('RGB')
+              right=rgb.crop((w//2,0,w,h))
+              stat=ImageStat.Stat(right)
+              print('RG904SCREEN|RIGHT_WINDOW_MEAN_RGB|'+','.join(str(round(x,1)) for x in stat.mean))
+              print('RG904SCREEN|RIGHT_WINDOW_STDDEV_RGB|'+','.join(str(round(x,1)) for x in stat.stddev))
+              print('RG904SCREEN|IMAGE_DECODE_OK|True')
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+            & $py -X utf8 $script $p
+          }
