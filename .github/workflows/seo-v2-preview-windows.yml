@@ -39,7 +39,7 @@ jobs:
         run: |
           $env:QT_QPA_PLATFORM='offscreen'
           python -m compileall -q run_seo_v2_preview.py src/rg_youtube_control/seo_v2_evidence.py src/rg_youtube_control/seo_v2_pipeline.py src/rg_youtube_control/seo_v2_refine.py src/rg_youtube_control/seo_v2_ui.py src/rg_youtube_control/seo_v2_cli.py
-          python -m pytest -q tests/test_seo_v2_universal.py tests/test_seo_v2_batch.py tests/test_seo_v2_refine.py tests/test_seo_v2_semantic.py tests/test_seo_v2_ui.py
+          python -m pytest -q tests/test_seo_v2_universal.py tests/test_seo_v2_batch.py tests/test_seo_v2_refine.py tests/test_seo_v2_semantic.py tests/test_seo_v2_revision_loop.py tests/test_seo_v2_ui.py
       - name: Build isolated SEO preview executable
         shell: pwsh
         run: |
