@@ -282,3 +282,31 @@ def test_missing_source_references_cannot_be_padded_into_tags():
     assert draft["tags"] == []
     assert draft["description"] == ""
     assert draft["support_ids"]["tags"] == []
+
+
+def test_sentence_modality_gate_rejects_unattributed_outcomes():
+    from rg_youtube_control.seo_v3_fields import _preserves_modality
+    assert _preserves_modality("У розмові запитують, чому це сталося.", "QUESTION")
+    assert not _preserves_modality("Причину було остаточно встановлено.", "QUESTION")
+    assert _preserves_modality("Якщо буде угода, подію обговорять.", "CONDITIONAL")
+    assert not _preserves_modality("Угоду вже остаточно уклали.", "CONDITIONAL")
+    assert _preserves_modality("Співрозмовник припускає інше пояснення.", "HYPOTHESIS")
+    assert not _preserves_modality("Тепер відома справжня причина.", "HYPOTHESIS")
+    assert _preserves_modality("Співрозмовник сказав про рішення.", "SPEAKER_STATEMENT")
+    assert not _preserves_modality("Встановлено єдину причину рішення.", "SPEAKER_STATEMENT")
+
+
+def test_unverified_speaker_statement_cannot_support_claim_of_proven_analysis():
+    source = build_claim_ledger(_source("Співрозмовник назвав можливу причину."))
+    draft = {
+        "title": "Аналіз доводить справжні причини",
+        "description": "У розмові згадували різні варіанти.",
+        "title_variants": [], "tags": [],
+        "support_ids": {"title": ["ev_1"], "description": ["ev_1"]},
+    }
+    findings = check_claim_type_constraints(draft, source)
+    assert any(
+        row["field"] == "title"
+        and row["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+        for row in findings
+    )
