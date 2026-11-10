@@ -15,7 +15,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("RG SEO v2 Preview")
     window = QMainWindow()
-    window.setWindowTitle("РАША ГУДБАЙ | SEO v2 · тестовий перегляд")
+    window.setWindowTitle("РАША ГУДБАЙ | SEO v3 · перевірка джерел")
     window.resize(1120, 760)
     window.setMinimumSize(880, 600)
     window.setCentralWidget(SEOv2PreviewTab(window))
