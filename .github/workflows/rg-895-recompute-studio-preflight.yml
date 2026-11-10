@@ -1,0 +1,28 @@
+name: RG 895 recompute from Studio preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-recompute-studio-preflight.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          $c=Get-Content (Join-Path $r 'plan.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          $s=Get-Content (Join-Path $r 'status.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGRERUN|STATUS|'+$s.state)
+          Write-Output ('RGRERUN|MANUAL_MASKS|'+@($c.popup_masks).Count)
+          Write-Output ('RGRERUN|MASK_RANGE|'+($c.popup_masks[0].intervals|ConvertTo-Json -Compress))
+          Write-Output ('RGRERUN|WORDS_CACHE|'+(Test-Path (Join-Path $r 'recognized_words.json')))
+          Write-Output ('RGRERUN|CHECKPOINT_POPUP|'+(Test-Path (Join-Path $r 'completed_popups_v76.json')))
+          $p=@(Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_asr_child_v58|rg_fullstream_auto_v2.py'})
+          Write-Output ('RGRERUN|ACTIVE|'+$p.Count)
+          $files=@(Get-ChildItem $app -File -Filter 'rg_fullstream_*'|Where-Object {$_.Name -match 'launcher|queue|worker|batch|gui|studio|repair'})
+          foreach($f in $files){Write-Output ('RGRERUN|MODULE|'+$f.Name)}
+          Write-Output 'RGRERUN|READONLY|PASS'
