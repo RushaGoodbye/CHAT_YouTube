@@ -1,0 +1,19 @@
+name: RG ASR single auto pass V2 dryrun
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-single-auto-asr-v2-dryrun.yml']
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_fullstream_asr_single_auto_v2.py
+          if($LASTEXITCODE -ne 0){throw 'SINGLE_ASR_V2_STATIC_TEST_FAILED'}
