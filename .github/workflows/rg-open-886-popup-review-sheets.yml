@@ -1,0 +1,24 @@
+name: RG open 886 notification review sheets
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-open-886-popup-review-sheets.yml']
+permissions: {contents: read}
+jobs:
+  open:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $folder='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\886\HOST_POPUP_REVIEW_20261110'
+          $file=Join-Path $folder '886_rejected_notifications_part_1_of_3.jpg'
+          if(!(Test-Path $file)){throw '886_FIRST_SHEET_NOT_FOUND'}
+          $session=(Get-Process -Id $PID).SessionId
+          $explorers=@(Get-Process explorer -ErrorAction SilentlyContinue|Where-Object{$_.SessionId -eq $session})
+          Write-Output ('RGOPEN886|PATH|'+$folder)
+          Write-Output ('RGOPEN886|INTERACTIVE_EXPLORERS|'+$explorers.Count)
+          if($explorers.Count){
+            Start-Process -FilePath explorer.exe -ArgumentList ('/select,"'+$file+'"')
+            Write-Output 'RGOPEN886|EXPLORER_OPENED|PASS'
+          }else{Write-Output 'RGOPEN886|NO_INTERACTIVE_SESSION|SKIP'}
