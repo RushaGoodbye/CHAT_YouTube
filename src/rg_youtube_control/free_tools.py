@@ -3082,11 +3082,13 @@ chapters: рядок з підтвердженими таймкодами та �
         for block in review_blocks:
             if not isinstance(block, dict):
                 continue
-            for topic in (block.get("topics") or [])[:4]:
+            # One source-backed topic from every sampled time window first.
+            # Avoid filling the 40-note limit with early multi-topic blocks.
+            for topic in (block.get("topics") or [])[:1]:
                 if isinstance(topic, dict) and topic.get("evidence"):
                     notes.append({
-                        "time": str(block.get("start") or block.get("start_s") or ""),
-                        "topic": str(topic.get("label") or "")[:140],
+                        "time": str(block.get("start", block.get("start_s", ""))),
+                        "topic": str(topic.get("topic") or "")[:140],
                         "quote": str(topic["evidence"])[:350],
                     })
         if notes:
