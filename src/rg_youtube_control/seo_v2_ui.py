@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from .config import app_data_dir
 from .seo_v2_cli import _local_chat, _save_json
-from .seo_v2_pipeline import generate_universal_seo
+from .seo_v3_pipeline import generate_claim_first_seo as generate_universal_seo
 
 
 class _SEOv2Worker(QObject):
@@ -49,7 +49,7 @@ class _SEOv2Worker(QObject):
                 draft = result.get("draft") or {}
                 self.line.emit(
                     "\n".join([
-                        "=== " + source.name + " ===",
+                        "=== " + source.name + " | Claim-first v3 ===",
                         "ОСНОВНА НАЗВА: " + str(draft.get("title") or "—"),
                         "A/B: " + " | ".join(str(item) for item in
                                               draft.get("title_variants") or []),
@@ -57,6 +57,8 @@ class _SEOv2Worker(QObject):
                         "ТЕГИ: " + ", ".join(str(item) for item in
                                              draft.get("tags") or []),
                         "СТАТУС: " + str(result.get("status") or "REVIEW_REQUIRED"),
+                        "ТИПІЗОВАНІ ЦИТАТИ: " + str(len((result.get("claims") or {}).get("claims") or [])),
+                        "ПОМИЛКИ ТВЕРДЖЕНЬ: " + json.dumps(result.get("modality_issues") or [], ensure_ascii=False),
                         "ПЕРЕВІРКА ДЖЕРЕЛ: " + ", ".join(
                             str(item) for item in
                             (result.get("gate") or {}).get("issues") or []
@@ -113,7 +115,7 @@ class SEOv2PreviewTab(QWidget):
         self._thread: QThread | None = None
         self._worker: _SEOv2Worker | None = None
         layout = QVBoxLayout(self)
-        title = QLabel("Універсальний SEO v2 · попередній перегляд")
+        title = QLabel("Універсальний SEO v3 · перевірка тверджень")
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         layout.addWidget(title)
         layout.addWidget(QLabel(
