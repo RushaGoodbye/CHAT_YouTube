@@ -58,3 +58,26 @@ def test_unverified_quote_excluded_from_description_evidence():
     notes = focused_literal_source_notes(report, "Мобілізація")
     assert len(notes) == 1
     assert "скасували" not in notes[0]["quote"]
+
+
+def test_unrelated_headline_does_not_select_random_evidence():
+    report = {"blocks": [
+        block("00:00:00", "Ми говорили про роботу на будівництві."),
+        block("00:10:00", "Потім я розповів про погоду влітку."),
+    ]}
+    notes = focused_literal_source_notes(
+        report, "Звільнення генерала і корупція в армії", limit=6,
+    )
+    assert notes == []
+
+
+def test_title_relevance_handles_russian_source_ukrainian_headline():
+    report = {"blocks": [
+        block("00:00:00", "Я работаю мастером по ремонту квартир."),
+        block("00:05:00", "Была мобилизация, и люди не хотели на войну."),
+    ]}
+    notes = focused_literal_source_notes(
+        report, "Росіянин говорить про мобілізацію", limit=6,
+    )
+    assert len(notes) == 1
+    assert notes[0]["time"] == "00:05:00"
