@@ -1,0 +1,30 @@
+name: RG fullstream post cleanup comprehensive verification
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-cleanup-final-verify.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $root=Join-Path $data 'fullstream_v2'
+          $hist=@(Get-ChildItem $root -Directory -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '^\d{3,5}$'})
+          $export=@(Get-ChildItem $app -Directory -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '^\d{3,5}$'}|ForEach-Object{Join-Path $_.FullName 'FULLSTREAM_YOUTUBE'}|Where-Object{Test-Path $_})
+          $remaining=@(Get-ChildItem $app -Recurse -File -Filter '*FULL_YOUTUBE*.mp4' -ErrorAction SilentlyContinue)
+          $logs=@(Get-ChildItem $root -File -ErrorAction SilentlyContinue)
+          Write-Output ('RGFINALCLEAR|HISTORY_REMAINING|'+$hist.Count)
+          Write-Output ('RGFINALCLEAR|EXPORT_DIRS_REMAINING|'+$export.Count)
+          Write-Output ('RGFINALCLEAR|FULLSTREAM_MP4_REMAINING|'+$remaining.Count)
+          foreach($f in $remaining){Write-Output ('RGFINALCLEAR|UNEXPECTED_MP4|'+$f.FullName)}
+          Write-Output ('RGFINALCLEAR|ROOT_FILES|'+($logs.Name -join ','))
+          $source='\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\RushaGoodbye - Live\885.mp4'
+          Write-Output ('RGFINALCLEAR|SOURCE_885_STILL_EXISTS|'+(Test-Path $source))
+          if($hist.Count -gt 0 -or $export.Count -gt 0 -or $remaining.Count -gt 0){throw 'RG_FULLSTREAM_CLEANUP_NOT_COMPLETE'}
+          Write-Output 'RGFINALCLEAR|PASS'
