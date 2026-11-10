@@ -3130,6 +3130,53 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     if fast_mode:
         title = _clean_project_title_for_seo(title)
+    # Improve the PRIMARY headline instead of settling for a generic
+    # "what do Russians think" title while valid concrete evidence exists.
+    # This is generation, not an extra diagnostic pass.
+    if (
+        evidence_report and verified_evidence
+        and "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+            title, "", (), ()
+        )
+    ):
+        specific_title_prompt = (
+            "Напиши ОДНУ конкретну українську назву YouTube, "
+            "40–95 символів. Перша частина назви має чітко називати "
+            "подію, людину, факт розмови або конкретне запитання. "
+            "НЕ використовуй загальні заголовки про думки росіян, "
+            "чат-рулетку або співрозмовників. "
+            "Не вигадуй невисловлених фактів, імен та причин. "
+            'Поверни лише JSON {"title":"..."}.'
+            "\nПОПЕРЕДНЯ СЛАБКА НАЗВА: " + title
+            + "\nЦИТАТИ ІЗ ВІДЕО:\n" + verified_evidence[:11000]
+        )
+        try:
+            specific_raw = ollama_chat(
+                [
+                    {"role": "system", "content": (
+                        "Точний український редактор SEO. Лише JSON."
+                    )},
+                    {"role": "user", "content": specific_title_prompt},
+                ],
+                model=model, timeout=timeout,
+                temperature=0.1, json_mode=True, num_ctx=16384,
+            )
+            specific_data = _extract_json_object(specific_raw)
+            proposed_title = str(specific_data.get("title") or "").strip()
+            if (
+                30 <= len(proposed_title) <= 100
+                and not _seo_ukrainian_language_issue(proposed_title)
+                and not _seo_title_source_conflicts(
+                    proposed_title, transcript
+                )
+                and "GENERIC_PRIMARY_TITLE" not in _seo_editorial_preview_flags(
+                    proposed_title, "", (), ()
+                )
+            ):
+                title = proposed_title
+                payload["_primary_title_repaired"] = True
+        except (ValueError, RuntimeError, TimeoutError, TypeError):
+            pass
     unchanged_title = bool(
         str(current_title or "").strip()
         and title.casefold() == str(current_title or "").strip().casefold()
