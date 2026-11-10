@@ -1,0 +1,35 @@
+name: RG fullstream render critical path inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-render-critical-path-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $files=@('rg_fullstream_export_v1.py','rg_fullstream_auto_v2.py')
+          foreach($file in $files){
+            $path=Join-Path $app $file
+            $lines=@(Get-Content $path -Encoding UTF8)
+            Write-Output ('RGPERF|FILE|'+$file+'|LINES='+$lines.Count)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'filter_complex|filter_script|filter_graph|split=|crop=|overlay=|h264_nvenc|subprocess.Popen|ffmpeg|render|build_filter'){
+                $lo=[math]::Max(0,$i-2);$hi=[math]::Min($lines.Count-1,$i+3)
+                for($j=$lo;$j -le $hi;$j++){Write-Output ('RGPERF|CODE|'+$file+'|'+($j+1)+'|'+$lines[$j])}
+              }
+            }
+          }
+          $path='C:\Users\fauto\AppData\Local\Temp\rg_fullstream_ken1ta7l\filter.ffscript'
+          if(Test-Path $path){
+            $s=(Get-Content $path -Raw -Encoding UTF8)
+            Write-Output ('RGPERF|FILTER_BEGIN|'+$s)
+          }
+          $f='F:\RG_AUTO_EDIT\RG Auto Edit App\885\FULLSTREAM_YOUTUBE'
+          Get-ChildItem $f -Filter '*.progress.json'|ForEach-Object{Write-Output ('RGPERF|PROGRESS|'+(Get-Content $_.FullName -Raw))}
+          Write-Output 'RGPERF|READONLY|PASS'
