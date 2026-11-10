@@ -417,3 +417,28 @@ def test_independent_reviewer_never_uses_unverified_blocks():
     notes = select_independent_source_notes(report)
     assert len(notes) == 1
     assert notes[0]["time"] == "01:00"
+
+
+def test_short_caption_rescue_keeps_last_subject_word():
+    """Short ASR cues are evidence, and their final topic word matters."""
+    import json
+    from rg_youtube_control.dialogue_seo import analyze_all_timeline_blocks
+
+    quote = "Говорили про ціни на продукти"
+    def local_model(messages, **kwargs):
+        if "ДОСЛІВНИЙ evidence" in messages[-1]["content"]:
+            return json.dumps({"topics": [{
+                "topic": "Ціни на продукти",
+                "summary_uk": "Учасники прямо говорять про ціни на продукти.",
+                "evidence": quote,
+            }]}, ensure_ascii=False)
+        return json.dumps({"topics": []})
+
+    report = analyze_all_timeline_blocks(
+        [{"start": 0.0, "duration": 2.0, "text": quote}],
+        model="unit-test", chat=local_model,
+    )
+    assert report["blocks_total"] == 1
+    assert report["blocks_with_evidence"] == 1
+    assert report["unverified_blocks"] == []
+    assert report["blocks"][0]["topics"][0]["evidence"] == quote
