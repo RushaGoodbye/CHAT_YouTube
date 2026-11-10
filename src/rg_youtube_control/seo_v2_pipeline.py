@@ -506,12 +506,21 @@ def validate_draft(draft: dict[str, Any], ledger: dict[str, Any],
         issues.append("FORMAT_GATE_FAILED")
     if not editorial_gate["editorial_gate_pass"]:
         issues.append("EDITORIAL_GATE_FAILED")
-    if ledger["review_required"]:
-        issues.append("SOURCE_QUOTES_REJECTED_OR_EMPTY")
+    if not ledger["accepted"]:
+        issues.append("NO_VERIFIED_SOURCE_QUOTES")
     if ledger.get("windows_without_quotes"):
         issues.append("TRANSCRIPT_WINDOWS_WITHOUT_EVIDENCE")
+    # Rejected *proposals* are not used as evidence and must not invalidate
+    # correctly verified quotes in the final draft. Preserve a separate
+    # warning so extraction quality stays visible to the human editor.
+    extraction_warnings: list[str] = []
+    if ledger.get("rejected"):
+        extraction_warnings.append("INVALID_QUOTE_PROPOSALS_DISCARDED")
+    if ledger.get("deterministic_fallback_windows"):
+        extraction_warnings.append("LITERAL_FALLBACK_EVIDENCE_USED")
     return {
         "issues": sorted(set(issues)),
+        "extraction_warnings": extraction_warnings,
         "format": format_gate,
         "editorial": editorial_gate,
         "source_ids_valid": not any("UNSUPPORTED" in i or "CITATIONS" in i
