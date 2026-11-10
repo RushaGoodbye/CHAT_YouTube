@@ -976,12 +976,14 @@ def _deterministic_evidence_description(
     # failing the whole package and repeatedly calling Ollama.
     if unmapped and review_unmapped is not None:
         review_unmapped.extend(unmapped)
+    if not labels:
+        # No safe public topic exists. Return a precise failure instead of
+        # suggesting the unsupported model labels are recognized subjects.
+        raise ValueError("No editorial subjects among verified transcript topics")
     if unmapped and review_unmapped is None:
         raise ValueError(
             "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
         )
-    if not labels:
-        raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
     # Topic labels are verified against transcript quotations above.
     # Keep the public description focused on those subjects rather than
@@ -1980,6 +1982,38 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
             if all(match(token, source_words) for token in tokens):
                 return True
     return False
+
+
+
+def _source_mentions(
+    current_title: str,
+    transcript: str,
+    roots: tuple[str, ...],
+) -> tuple[bool, int]:
+    """Count topic mentions by spoken word, never arbitrary substrings.
+
+    When subtitles exist, current_title must not independently establish
+    a claimed topic. Count at most one mention per caption line so three
+    repeated words in a single fragment do not qualify a topic as recurrent.
+    """
+    source = str(transcript or "").strip()
+    title = str(current_title or "").casefold() if not source else ""
+    normalized_roots = tuple(
+        str(root).casefold() for root in roots if str(root).strip()
+    )
+    if not normalized_roots:
+        return False, 0
+
+    def matches(line: str) -> bool:
+        words = re.findall(r"[a-zа-яіїєґё0-9]+", line.casefold())
+        return any(
+            word.startswith(root)
+            for word in words for root in normalized_roots
+        )
+
+    in_title = bool(title and matches(title))
+    mentions = sum(1 for line in source.splitlines() if matches(line))
+    return in_title, mentions
 
 
 def _grounded_tags_from_transcript(
