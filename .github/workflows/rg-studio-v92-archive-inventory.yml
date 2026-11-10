@@ -1,0 +1,22 @@
+name: RG Studio stable archive scope preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-v92-archive-inventory.yml']
+permissions: {contents: read}
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $files=@(Get-ChildItem $app -File -ErrorAction SilentlyContinue)
+          Write-Output ('RGARCH|ROOT_FILES|'+$files.Count)
+          $candidates=@($files|Where-Object {$_.Extension -in @('.py','.exe','.json','.toml','.ini')})
+          Write-Output ('RGARCH|CODE_CONFIG_FILES|'+$candidates.Count)
+          Write-Output ('RGARCH|CODE_CONFIG_BYTES|'+(($candidates|Measure-Object Length -Sum).Sum))
+          foreach($f in $files|Where-Object {$_.Extension -eq '.exe'}){Write-Output ('RGARCH|EXE|'+$f.Name+'|'+$f.Length)}
+          foreach($d in Get-ChildItem $app -Directory|Where-Object {$_.Name -notmatch '^\d{3,5}$'}|Select-Object -First 45){Write-Output ('RGARCH|DIR|'+$d.Name)}
+          Write-Output 'RGARCH|READONLY|PASS'
