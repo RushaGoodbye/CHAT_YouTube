@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/rg_youtube_control/main.py'
       - 'src/rg_youtube_control/seo_v2_*.py'
+      - 'src/rg_youtube_control/seo_v3_*.py'
       - 'tests/test_seo_v2_ui.py'
       - '.github/workflows/seo-v2-desktop-smoke.yml'
   workflow_dispatch:
