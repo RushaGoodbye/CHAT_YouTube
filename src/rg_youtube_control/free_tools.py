@@ -2619,13 +2619,25 @@ chapters: рядок з підтвердженими таймкодами та �
                 except (ValueError, RuntimeError, TimeoutError):
                     # Keep the original grounded draft if recovery fails.
                     recovered_variants = []
-                # Never discard two existing editorial hooks because an
-                # independent recovery returned zero or one candidate.
-                # Incomplete sets remain NEEDS_REVIEW, never ready to apply.
-                if len(set(map(str.casefold, recovered_variants))) > len(
-                    set(map(str.casefold, variants_candidate))
-                ):
-                    variants_candidate = recovered_variants
+                # Preserve all existing distinct A/B hooks and add only
+                # genuinely new recovery suggestions. A one-item recovery
+                # should fill the third slot, not discard two good hooks.
+                primary_key = str(candidate["title"]).strip().casefold()
+                unique: list[str] = []
+                used = {primary_key}
+                for item in [*variants_candidate, *recovered_variants]:
+                    value = str(item).strip()
+                    key = value.casefold()
+                    if (
+                        not value or len(value) > 100 or key in used
+                        or _seo_ukrainian_language_issue(value)
+                    ):
+                        continue
+                    used.add(key)
+                    unique.append(value)
+                    if len(unique) == 3:
+                        break
+                variants_candidate = unique
                 candidate["title_variants"] = variants_candidate
             variants_candidate = list(dict.fromkeys(
                 item for item in variants_candidate
@@ -2652,8 +2664,9 @@ chapters: рядок з підтвердженими таймкодами та �
                         targeted = (
                             "ТРИ РІЗНІ ОПОРИ З РЕАЛЬНИХ ФРАГМЕНТІВ:\n"
                             + brief + "\n"
-                            + "A/B/C мають висвітлювати РІЗНІ теми, "
-                            + "не змінювати одну фразу тричі. "
+                            + "A/B/C мають давати РІЗНІ змістові ракурси. "
+                            + "Якщо у джерелі підтверджена лише одна тема, "
+                            + "не вигадуй дві інші, зміни кут подачі цієї теми. "
                             + "Без вигаданих фактів.\n\n"
                             if brief else ""
                         )
