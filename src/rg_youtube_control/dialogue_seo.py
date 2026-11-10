@@ -429,15 +429,27 @@ def evidence_outline_text(
     budget = max_chars - len(header)
     # Progressively raise the number of evenly spaced source points, then
     # use the widest fit. Both the beginning and end are always represented.
-    selected = [lines[0], lines[-1]]
-    for count in range(3, len(lines) + 1):
+    def sample(count: int) -> list[str]:
         indexes = sorted({round(i * (len(lines) - 1) / (count - 1))
                           for i in range(count)})
-        candidate = [lines[index] for index in indexes]
-        if len("\n".join(candidate)) > budget:
-            break
-        selected = candidate
-    return header + "\n".join(selected)
+        return [lines[index] for index in indexes]
+
+    # Binary search avoids quadratic prompt-building on long streams.
+    # Leave adequate space for the first and last source quotation.
+    if len(lines[0]) + len(lines[-1]) + 1 > budget:
+        edge = max(50, (budget - 2) // 2)
+        return header + lines[0][:edge] + "\n" + lines[-1][:edge]
+    best = sample(2)
+    low, high = 3, len(lines)
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = sample(mid)
+        if len("\n".join(candidate)) <= budget:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return header + "\n".join(best)
 
 
 def preserve_outline_topics(
