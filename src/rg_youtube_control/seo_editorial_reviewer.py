@@ -172,62 +172,100 @@ def revise_seo_candidate(
     first_review: dict[str, Any],
     model: str = "",
 ) -> dict[str, Any]:
-    """One bounded revision, then a fresh independent review. Never publish."""
+    """Bounded two-stage source-aware revision, never publication authority."""
     if first_review.get("review_status") != "NEEDS_REVISION" or not source_notes:
-        return {"candidate": draft, "review": first_review, "revised": False,
-                "editorial_approved": False, "publication_allowed": False}
-    instruction = (
-        "Ти редактор SEO для українського каналу. Перепиши ВЕСЬ пакет JSON "
-        "із title, title_variants (рівно 3), description (від 400 символів), "
-        "tags (8-12). Усунь кожне зауваження. Не вигадуй факти. "
-        "Покладайся ЛИШЕ на цитати. Пиши нормативною українською, "
-        "конкретно, без абстрактних назв чи шаблонних фраз. "
-        "Не включай слова review_status чи publication_allowed. "
-        "Чернетка: " + json.dumps(draft, ensure_ascii=False) +
-        "\nЗауваження: " + json.dumps(first_review.get("issues", []), ensure_ascii=False) +
-        "\nДжерела: " + json.dumps(source_notes, ensure_ascii=False)
-    )
-    try:
-        raw = lm_studio_chat(
-            [{"role": "system", "content": "SEO-редактор. Лише JSON."},
-             {"role": "user", "content": instruction}],
-            model=model, json_mode=True, max_tokens=2500,
-            reasoning_effort="none", timeout=180,
-        )
-        candidate = json.loads(raw)
-        if not isinstance(candidate, dict):
-            raise ValueError("invalid revised candidate")
-        required = ("title", "description", "title_variants", "tags")
-        if not all(candidate.get(key) for key in required):
-            raise ValueError("incomplete revised candidate")
-        from .seo_quality_gate import inspect_editorial_targets
-        gate = inspect_editorial_targets(candidate)
-        # A rewrite that fails the same structural/editorial gate is not a
-        # successful revision, even if the model produced valid JSON.
-        if not gate.get("editorial_gate_pass"):
-            raise ValueError("revised seo failed editorial gate")
-        if (candidate.get("title") == draft.get("title")
-                and candidate.get("description") == draft.get("description")):
-            raise ValueError("unchanged seo after revision")
-        second_review = review_seo_candidate(
-            draft=candidate, source_notes=source_notes, model=model,
-        )
-        # Only a revision with no remaining model-identified defects is
-        # eligible for human review. This is never publication approval.
-        if second_review.get("review_status") != "NEEDS_HUMAN_REVIEW":
-            raise ValueError("revised seo still requires correction")
-        # A model passing its own structural tests is never human approval.
         return {
-            "candidate": candidate,
-            "review": second_review,
-            "format_and_editorial_gate": gate,
-            "revised": True,
-            "editorial_approved": False,
-            "publication_allowed": False,
-        }
-    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
-        return {
-            "candidate": draft, "review": first_review,
-            "revision_error": type(exc).__name__, "revised": False,
+            "candidate": draft, "review": first_review, "revised": False,
             "editorial_approved": False, "publication_allowed": False,
         }
+    from .seo_quality_gate import inspect_editorial_targets
+    working = draft
+    critique = first_review
+    failure_code = "NO_VALID_REVISION"
+    for attempt in range(2):
+        instruction = (
+            "Ти редактор SEO для українського каналу. Перепиши ВЕСЬ пакет "
+            "JSON з title, title_variants (РІВНО 3 змістовні, різні), "
+            "description (400-900 символів), tags (8-12 природних "
+            "українських конкретних пошукових фраз). "
+            "Виправ УСІ попередні зауваження. Жодних шаблонних A/B "
+            "або штучних сполучень різних сюжетів. "
+            "Твердження, причини, результати й числа мають бути "
+            "прямо засвідчені дослівними репліками. "
+            "Фраза 'співрозмовник стверджує' описує його позицію, "
+            "а не підтверджує її як факт. "
+            "Не додавай 'загиблих', 'викриття фейків' чи інших "
+            "подій, якщо саме таких тверджень немає в цитатах. "
+            "Теги не можуть бути неграмотними або повторювати "
+            "одну пошукову фразу іншою формою. "
+            "Не включай review_status чи publication_allowed. "
+            "ЧЕРНЕТКА: " + json.dumps(working, ensure_ascii=False) +
+            "\nКОНКРЕТНІ ПОМИЛКИ: " + json.dumps(
+                critique.get("issues", []), ensure_ascii=False
+            ) +
+            "\nЦИТАТИ З ЧАСОМ: " + json.dumps(
+                source_notes, ensure_ascii=False
+            )
+        )
+        try:
+            raw = lm_studio_chat(
+                [
+                    {"role": "system", "content": (
+                        "Український SEO-редактор. Лише JSON. "
+                        "Дослівні цитати єдине джерело фактів."
+                    )},
+                    {"role": "user", "content": instruction},
+                ],
+                model=model, json_mode=True, max_tokens=2500,
+                reasoning_effort="none", timeout=180,
+            )
+            candidate = json.loads(raw)
+            if not isinstance(candidate, dict):
+                failure_code = "INVALID_JSON_OBJECT"
+                continue
+            required = ("title", "description", "title_variants", "tags")
+            if not all(candidate.get(key) for key in required):
+                failure_code = "INCOMPLETE_REVISION"
+                continue
+            gate = inspect_editorial_targets(candidate)
+            if not gate.get("editorial_gate_pass"):
+                failure_code = "EDITORIAL_FORMAT_UNRESOLVED"
+                working = candidate
+                critique = {
+                    "issues": [
+                        {"field": field, "reason": ",".join(reasons)}
+                        for field, reasons in gate.get("issues", {}).items()
+                    ]
+                }
+                continue
+            if (
+                candidate.get("title") == working.get("title")
+                and candidate.get("description") == working.get("description")
+            ):
+                failure_code = "UNCHANGED_REVISION"
+                continue
+            second_review = review_seo_candidate(
+                draft=candidate, source_notes=source_notes, model=model,
+            )
+            if second_review.get("review_status") == "NEEDS_HUMAN_REVIEW":
+                return {
+                    "candidate": candidate, "review": second_review,
+                    "format_and_editorial_gate": gate,
+                    "revised": True,
+                    "revision_attempts": attempt + 1,
+                    "editorial_approved": False,
+                    "publication_allowed": False,
+                }
+            working = candidate
+            critique = second_review
+            failure_code = "INDEPENDENT_REVIEW_STILL_REJECTS"
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            failure_code = type(exc).__name__
+            break
+    return {
+        "candidate": draft, "review": first_review,
+        "revision_error": failure_code,
+        "revised": False, "revision_attempts": 2,
+        "editorial_approved": False,
+        "publication_allowed": False,
+    }
