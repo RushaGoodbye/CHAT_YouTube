@@ -1,0 +1,22 @@
+name: RG 885 source codec and NVDEC capability audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-nvdec-capability.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $ff='C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffprobe.exe'
+          $source='\\AlexLosServer\Work\WORK\RUSHA GOODBYE\Раша GOODBYE\ГОТОВО\ЗАПИСИ СТРИМОВ\RushaGoodbye - Live\RushaGoodbye - Live\885.mp4'
+          if(Test-Path $source){
+            & $ff -v error -select_streams v:0 -show_entries stream=codec_name,profile,width,height,pix_fmt,avg_frame_rate,r_frame_rate -of json "$source" 2>&1|ForEach-Object{Write-Output ('RGNVDEC|SOURCE|'+$_)}
+          }else{Write-Output 'RGNVDEC|SOURCE_MISSING'}
+          $ffmpeg='C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffmpeg.exe'
+          & $ffmpeg -hide_banner -decoders 2>&1|Where-Object {$_ -match 'cuvid|h264|hevc'}|ForEach-Object{Write-Output ('RGNVDEC|DECODER|'+$_)}
+          Write-Output 'RGNVDEC|READ_ONLY|PASS'
