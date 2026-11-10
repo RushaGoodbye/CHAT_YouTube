@@ -4283,7 +4283,9 @@ chapters: рядок з підтвердженими таймкодами та �
         str(current_title or "").strip(), transcript
     )
     generated_conflicts = _seo_title_source_conflicts(title, transcript)
-    editorial_quality_flags.extend(source_alignment_conflicts)
+    # Legacy video metadata is not evidence against a newly corrected SEO
+    # headline. Keep its discrepancies for diagnostics, but only the proposed
+    # headline is eligible to block the new draft.
     editorial_quality_flags.extend(
         "GENERATED_" + issue for issue in generated_conflicts
     )
@@ -4395,7 +4397,6 @@ chapters: рядок з підтвердженими таймкодами та �
                 editorial_quality_flags = _seo_editorial_preview_flags(
                     title, description, variants, tags,
                 )
-                editorial_quality_flags.extend(source_alignment_conflicts)
                 editorial_quality_flags.extend(
                     "GENERATED_" + issue for issue in generated_conflicts
                 )
@@ -4446,7 +4447,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "editorial_approved": False,
         "publication_allowed": False,
         "source_alignment_status": (
-            "BLOCKED_TOPIC_MISMATCH" if (source_alignment_conflicts or generated_conflicts) else
+            "BLOCKED_TOPIC_MISMATCH" if generated_conflicts else
             "SOURCE_EVIDENCE_REVIEW" if (
                 evidence_report and transcript.strip()
             ) else "TITLE_OR_SRT_UNVERIFIED" if (
@@ -4460,6 +4461,10 @@ chapters: рядок з підтвердженими таймкодами та �
         "ab_quality_issues": title_issues,
         "seo_language_issues": language_issues,
         "seo_editorial_quality_flags": editorial_quality_flags,
+        "seo_legacy_title_source_conflicts": source_alignment_conflicts,
+        "seo_revision_applied": bool(
+            revision_report and revision_report.get("applied_to_result")
+        ),
         "seo_independent_review": reviewer_report,
         "seo_revision_candidate": revision_report,
         "seo_ab_specific_diagnostic": payload.get("_ab_specific_diagnostic"),
