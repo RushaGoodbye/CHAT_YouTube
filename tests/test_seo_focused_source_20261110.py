@@ -81,3 +81,30 @@ def test_title_relevance_handles_russian_source_ukrainian_headline():
     )
     assert len(notes) == 1
     assert notes[0]["time"] == "00:05:00"
+
+
+
+def test_revision_notes_begin_with_critics_exact_source_quote():
+    from rg_youtube_control.seo_editorial_reviewer import _targeted_repair_notes
+    notes = [
+        {"time": f"00:{i:02}:00", "quote": f"Дослівна репліка номер {i}."}
+        for i in range(30)
+    ]
+    issues = [{
+        "field": "description",
+        "reason": "Непідтверджене тлумачення",
+        "evidence": '00:23:00: "Дослівна репліка номер 23."',
+    }]
+    selected = _targeted_repair_notes(notes, issues, limit=8)
+    assert selected[0]["time"] == "00:23:00"
+    assert len(selected) == 8
+    assert selected[0]["quote"] == notes[23]["quote"]
+
+
+def test_revision_notes_without_critic_evidence_cover_timeline():
+    from rg_youtube_control.seo_editorial_reviewer import _targeted_repair_notes
+    notes = [{"time": str(i), "quote": f"Слова номер {i}"} for i in range(50)]
+    selected = _targeted_repair_notes(notes, [], limit=10)
+    assert len(selected) == 10
+    assert selected[0] == notes[0]
+    assert selected[-1] == notes[-1]
