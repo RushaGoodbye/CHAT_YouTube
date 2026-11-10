@@ -3002,6 +3002,45 @@ chapters: рядок з підтвердженими таймкодами та �
                                 options.extend(retry_ab)
                             except (ValueError, RuntimeError, TimeoutError):
                                 pass
+                        # A separate route avoids merely rephrasing the
+                        # same unsupported event. Each hook must come from a
+                        # different literal quote on the real timeline.
+                        if focused_issues:
+                            try:
+                                from .seo_editorial_reviewer import (
+                                    select_independent_source_notes,
+                                )
+                                notes_for_titles = select_independent_source_notes(
+                                    evidence_report, max_blocks=12, max_notes=18,
+                                )
+                                if len(notes_for_titles) >= 3:
+                                    quote_retry = _recover_title_variants(
+                                        current_title=str(
+                                            candidate.get("title") or current_title
+                                        ),
+                                        transcript=(
+                                            "СТВОРИ ТРИ НАЗВИ, КОЖНА ВІД ІНШОЇ "
+                                            "КОНКРЕТНОЇ ДОСЛІВНОЇ РЕПЛІКИ. "
+                                            "Це мають бути природні українські "
+                                            "гачки, без загальних формулювань "
+                                            "'про що йдеться', 'що кажуть'. "
+                                            "Не об'єднуй незалежні репліки у "
+                                            "фальшиву причинно-наслідкову подію. "
+                                            "Не додавай смертей, загиблих або "
+                                            "мотивів, якщо їх немає в цитаті. "
+                                            "Для сильного гачка дозволені "
+                                            "запитання та точний переклад "
+                                            "репліки українською.\nЦИТАТИ:\n"
+                                            + json.dumps(
+                                                notes_for_titles,
+                                                ensure_ascii=False,
+                                            )[:13500]
+                                        ),
+                                        model=model,
+                                    )
+                                    options.extend(quote_retry)
+                            except (ValueError, RuntimeError, TimeoutError, TypeError):
+                                pass
                         from itertools import combinations as _combinations
                         winning_ab = []
                         primary_ab_title = str(candidate.get("title") or "").casefold()
@@ -3024,6 +3063,18 @@ chapters: рядок з підтвердженими таймкодами та �
                             ):
                                 winning_ab = proposed
                                 break
+                        if os.getenv("RG_SEO_PRIVATE_LOG_DRAFT") == "1":
+                            print("RG_SEO_AB_POOL " + json.dumps({
+                                "options": options[:12],
+                                "winning": winning_ab,
+                                "source_issue_counts": [
+                                    len(ab_title_issues(
+                                        list(c), evidence_report,
+                                    )) for c in list(_combinations(
+                                        dict.fromkeys(options), 3,
+                                    ))[:30]
+                                ],
+                            }, ensure_ascii=True), flush=True)
                         if winning_ab:
                             candidate["title_variants"] = winning_ab
                     except (ValueError, RuntimeError, TimeoutError):
