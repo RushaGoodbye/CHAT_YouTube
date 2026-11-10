@@ -35,3 +35,20 @@ def test_short_interjections_are_not_headline_evidence(monkeypatch):
     }
     monkeypatch.setattr(free_tools, "ab_title_issues", lambda titles, report: [])
     assert free_tools._source_quote_ab_titles(report) == []
+
+
+
+def test_generic_primary_title_detection_is_not_triggered_by_specific_event():
+    flags = free_tools._seo_editorial_preview_flags
+    assert "GENERIC_PRIMARY_TITLE" in flags(
+        "Що кажуть росіяни?", "", [], [],
+    )
+    assert "GENERIC_PRIMARY_TITLE" in flags(
+        "Розмова співрозмовників", "", [], [],
+    )
+    assert "GENERIC_PRIMARY_TITLE" not in flags(
+        "Що кажуть росіяни про відставку Шойгу?", "", [], [],
+    )
+    assert "GENERIC_PRIMARY_TITLE" not in flags(
+        "Чому співрозмовник не вірить заявам про зарплати?", "", [], [],
+    )
