@@ -1,0 +1,31 @@
+name: RG active bilingual ASR root audit 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-bilingual-asr-root-audit-20261110.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $ps=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py|rg_studio_main.py|rg_fullstream_auto_v2.py'})
+          foreach($p in $ps){Write-Output ('RGASRCUR|PROC|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.CommandLine)}
+          foreach($i in 885..889){
+            $d=Join-Path $data ([string]$i);$sf=Join-Path $d 'status.json';$s='NONE'
+            if(Test-Path $sf){try{$s=(Get-Content $sf -Raw -Encoding UTF8|ConvertFrom-Json).state}catch{$s='INVALID'}}
+            Write-Output ('RGASRCUR|STATUS|'+$i+'|'+$s)
+          }
+          $file=Join-Path $app 'rg_fullstream_auto_v2.py'
+          $a=@(Get-Content $file -Encoding UTF8)
+          for($i=0;$i -lt $a.Count;$i++){
+            if($a[$i] -match 'gap_recheck_v90|V90_|bilingual|rescue_v88|prepare_rescue|asr_gap_guard|whisper|ASR|transcribed_words'){
+              $lo=[Math]::Max(0,$i-1);$hi=[Math]::Min($a.Count-1,$i+2)
+              for($j=$lo;$j -le $hi;$j++){Write-Output ('RGASRCUR|CODE|'+($j+1)+'|'+$a[$j])}
+            }
+          }
+          Write-Output 'RGASRCUR|READ_ONLY|PASS'
