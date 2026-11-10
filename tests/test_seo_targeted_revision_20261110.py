@@ -49,7 +49,7 @@ def test_unresolved_revision_reports_actual_second_review(monkeypatch):
         "description": "Точний опис. " * 32,
         "tags": ["один", "два", "три", "чотири", "п'ять", "шість", "сім", "вісім"],
     }
-    responses = iter([{"title": "Питання про війну"}, {"title": "Суперечка про війну"}])
+    responses = iter([{"title": "Питання про війну"}, {"title": "Суперечка про війну"}, {"title": "Думка щодо війни"}])
     monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps(next(responses), ensure_ascii=False))
     monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
     monkeypatch.setattr(editor, "review_seo_candidate", lambda **_k: {
@@ -130,6 +130,7 @@ def test_format_failure_targets_only_bad_tags_on_next_revision(monkeypatch):
     calls = iter([
         {"tags": ["війна"]},
         {"tags": ["Раша Гудбай", "чат рулетка", "війна", "Росія", "Україна", "Путін", "мобілізація", "політика"]},
+        {"tags": ["Раша Гудбай", "чат рулетка", "війна", "Росія", "Україна", "Путін", "мобілізація", "політика"]},
     ])
     monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps(next(calls), ensure_ascii=False))
     monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
@@ -161,6 +162,6 @@ def test_format_gate_reports_named_fields(monkeypatch):
         draft=draft, source_notes=[{"quote": "Говоримо про війну"}],
         first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "tags", "reason": "weak tags"}]},
     )
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert "FEWER_THAN_EIGHT" in calls[1]
     assert result["revised"] is False
