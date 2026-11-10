@@ -66,3 +66,10 @@ def test_worker_writes_read_only_reports_and_displays_seo(tmp_path, monkeypatch)
     assert source.read_text("utf-8") == original
     assert (output / "_summary.json").exists()
     assert app is not None
+
+
+def test_preview_imports_claim_first_generator_not_legacy_path():
+    from rg_youtube_control.seo_v3_pipeline import generate_claim_first_seo
+    from rg_youtube_control import seo_v2_cli
+    assert seo_v2_ui.generate_universal_seo is generate_claim_first_seo
+    assert seo_v2_cli.generate_universal_seo is generate_claim_first_seo
