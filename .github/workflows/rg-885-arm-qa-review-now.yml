@@ -1,0 +1,23 @@
+name: RG 885 arm QA-only review request now
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-arm-qa-review-now.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-885-review-maintenance
+  cancel-in-progress: false
+jobs:
+  arm:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_885_arm_review_queue_v97.py
+          if($LASTEXITCODE -ne 0){throw 'QA_REVIEW_ARM_FAILED'}
