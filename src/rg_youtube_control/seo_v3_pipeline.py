@@ -13,7 +13,7 @@ from .seo_v2_pipeline import (
     _draft_numbers, validate_draft,
 )
 from .seo_v2_evidence import parse_srt
-from .seo_v2_semantic import independent_review as check_review, unsupported_names
+from .seo_v2_semantic import unsupported_names
 from .seo_v3_claims import build_claim_ledger, check_claim_type_constraints
 
 Chat = Callable[[str], dict[str, Any]]
@@ -87,6 +87,62 @@ def _write_from_claims(
     return reply
 
 
+def audit_draft_against_claims(
+    draft: dict[str, Any],
+    claims: dict[str, Any],
+    reviewer: Chat,
+) -> dict[str, Any]:
+    """Ask the independent critic to audit modality per sentence/field.
+
+    A malformed, over-broad or unstructured reviewer response fails closed.
+    A citation only proves the sentence was uttered, NOT the factual truth.
+    """
+    prompt = (
+        "You are a skeptical, INDEPENDENT Ukrainian SEO source auditor. "
+        "Audit EACH title and A/B headline, EACH description sentence, "
+        "and EACH tag against the source-typed claims. "
+        "Every issue MUST name field and reason. "
+        "A QUESTION does not establish an answer or real cause. "
+        "A CONDITIONAL does not establish the consequent occurred. "
+        "A HYPOTHESIS is only an attributed opinion. "
+        "A SPEAKER_STATEMENT confirms words spoken, not objective truth. "
+        "Reject garbled proper names, false causal connections, fabricated "
+        "events, invented motives, certainty from speculation, and "
+        "misleading assertion of verified analysis. "
+        "Do not falsely reject a clearly attributed opinion or a genuine "
+        "open question merely for being uncertain. "
+        "Return exactly JSON {\\\"issues\\\":[{\\\"field\\\":"
+        "\\\"title|title_variants|description|tags\\\","
+        "\\\"reason\\\":\\\"specific unsupported text and claim_id\\\"}]}. "
+        "If all fields are supported return an empty issues array. "
+        "Do not approve publication.\\nDRAFT:\\n"
+        + json.dumps(draft, ensure_ascii=False)
+        + "\\nSOURCE-TYPED CLAIMS:\\n"
+        + json.dumps(claims["claims"], ensure_ascii=False)
+    )
+    try:
+        result = _ask(reviewer, prompt)
+    except (ValueError, RuntimeError, TypeError, TimeoutError):
+        result = {}
+    issues = result.get("issues")
+    if not isinstance(issues, list) or any(
+        not isinstance(issue, dict)
+        or str(issue.get("field") or "") not in {
+            "title", "title_variants", "description", "tags",
+        }
+        or not str(issue.get("reason") or "").strip()
+        for issue in issues
+    ):
+        return {
+            "review_status": "FAILED_CLOSED",
+            "issues": [{
+                "field": "reviewer",
+                "reason": "INVALID_CLAIM_AUDIT_SCHEMA",
+            }],
+        }
+    return {"issues": issues, "review_status": "SOURCE_AUDITED"}
+
+
 def generate_claim_first_seo(
     srt: str,
     chat: Chat,
@@ -140,8 +196,8 @@ def generate_claim_first_seo(
     review = None
     if independent_review is not None:
         try:
-            review = check_review(
-                draft, proof, independent_review,
+            review = audit_draft_against_claims(
+                draft, claim_ledger, independent_review,
             )
         except (ValueError, RuntimeError, TypeError, TimeoutError):
             review = {
