@@ -66,6 +66,8 @@ def caption(path):
     # Filename is a label, NOT proof of what is said in a video.
     name=re.sub(r'[_-]+',' ',path.stem).strip()
     name=re.sub(r'(?i)рос[іи][яїи][\wіїєґ]*',lambda m:m.group(0).lower(),name)
+    if any(ch in name for ch in 'ыъэёЫЪЭЁ'):
+        name='Новий відеофрагмент'  # Russian filename alone is not a Ukrainian summary.
     name=name[:105] or 'Новий відеофрагмент'
     label=html.escape(name)
     text=(f'<b>🎬 {label}</b>\n\n'
