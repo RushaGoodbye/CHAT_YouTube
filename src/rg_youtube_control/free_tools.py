@@ -1951,7 +1951,7 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
     tag_words = re.findall(r"[a-zа-яіїєґё0-9]+", folded)
     tokens = [
         token for token in tag_words
-        if len(token) >= 4 and token not in _GENERIC_MODEL_TAGS
+        if (len(token) >= 4 or token == "сім") and token not in _GENERIC_MODEL_TAGS
         and token not in _TAG_CONNECTORS
     ]
     if not tokens:
@@ -2051,6 +2051,25 @@ def _grounded_tags_from_transcript(
         if clean.casefold() not in {item.casefold() for item in tags}:
             tags.append(clean)
 
+    # Expand real topic coverage with curated UA equivalents of common RU
+    # caption phrases. Every combined query must be proved in ONE subtitle
+    # line, never by joining different conversations. A useful sparse SRT
+    # is allowed to return fewer than eight tags and fail review honestly.
+    episode_queries = (
+        "мобілізація в Росії", "росіяни про мобілізацію",
+        "ставлення росіян до війни", "росіяни про війну",
+        "війна в Україні", "Путін і війна",
+        "вибори в Росії", "голосування за Путіна",
+        "війна та діти", "загиблі діти",
+        "сім'я та алкоголь", "мобілізація та сім'я",
+        "виїзд за кордон", "страх переїзду",
+        "життя в Росії", "робота в Росії",
+        "переїзд за кордон", "розмова про віру",
+    )
+    for phrase in episode_queries:
+        if _tag_is_grounded(phrase, evidence_title, transcript):
+            add(phrase)
+
     # Named entities and concrete episode topics come before generic channel tags.
     if "шойгу" in haystack:
         add("Шойгу")
@@ -2130,25 +2149,6 @@ def _grounded_tags_from_transcript(
         add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
         add("Росія 2023")
-
-    # Expand real topic coverage with curated UA equivalents of common RU
-    # caption phrases. Every combined query must be proved in ONE subtitle
-    # line, never by joining different conversations. A useful sparse SRT
-    # is allowed to return fewer than eight tags and fail review honestly.
-    episode_queries = (
-        "мобілізація в Росії", "росіяни про мобілізацію",
-        "ставлення росіян до війни", "росіяни про війну",
-        "війна в Україні", "Путін і війна",
-        "вибори в Росії", "голосування за Путіна",
-        "війна та діти", "загиблі діти",
-        "сім'я та алкоголь", "мобілізація та сім'я",
-        "виїзд за кордон", "страх переїзду",
-        "життя в Росії", "робота в Росії",
-        "переїзд за кордон", "розмова про віру",
-    )
-    for phrase in episode_queries:
-        if _tag_is_grounded(phrase, evidence_title, transcript):
-            add(phrase)
 
     # Project-format fallbacks are added last, only to reach a useful minimum.
     for value in (
