@@ -3654,6 +3654,49 @@ chapters: рядок з підтвердженими таймкодами та �
                         payload["_ab_specific_diagnostic"]["correction_issues"] = (
                             ab_title_issues(corrected, evidence_report)
                         )
+                        # Verbatim Russian speech is good evidence, but
+                        # Ukrainian SEO needs faithful Ukrainian rendering.
+                        # Translate only SOURCE-GROUNDED corrected headlines,
+                        # without adding words, causes or new events.
+                        if (
+                            len(corrected) == 3
+                            and any(_seo_ukrainian_language_issue(v) for v in corrected)
+                        ):
+                            try:
+                                translation_prompt = (
+                                    "Переклади ці три заголовки ПОВНІСТЮ "
+                                    "українською. Збережи кожну цитату, "
+                                    "заперечення, особу й сенс; не доповнюй "
+                                    "фактів і не вигадуй дій чи причин. "
+                                    "Власні назви українською. "
+                                    "Без російських слів навіть у лапках. "
+                                    "JSON: title_variants, рівно 3 рядки.\\n"
+                                    + json.dumps(corrected, ensure_ascii=False)
+                                )
+                                translated_raw = ollama_chat(
+                                    [{"role": "system", "content": (
+                                        "Професійний перекладач російської "
+                                        "на українську. Лише JSON."
+                                    )}, {"role": "user", "content": translation_prompt}],
+                                    model=model, timeout=timeout, temperature=0.0,
+                                    json_mode=True, num_ctx=4096,
+                                )
+                                translated_data = _normalize_seo_candidate(
+                                    _extract_json_object(translated_raw)
+                                )
+                                translated = [
+                                    str(v).strip() for v in (
+                                        translated_data.get("title_variants") or []
+                                    ) if isinstance(v, str) and v.strip()
+                                ]
+                                payload["_ab_specific_diagnostic"]["translation"] = translated
+                                payload["_ab_specific_diagnostic"]["translation_issues"] = (
+                                    ab_title_issues(translated, evidence_report)
+                                )
+                                if len(translated) == 3:
+                                    corrected = translated
+                            except (RuntimeError, ValueError, TimeoutError, TypeError):
+                                pass
                         if (
                             len(corrected) == 3
                             and all(35 <= len(v) <= 95 for v in corrected)
