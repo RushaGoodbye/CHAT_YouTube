@@ -4233,6 +4233,8 @@ chapters: рядок з підтвердженими таймкодами та �
                 first_review=reviewer_report,
                 model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
                 evidence_report=evidence_report,
+                source_rows=[{"text": re.sub(r"^\\[\\d{2}:\\d{2}:\\d{2}\\]\\s*", "", line)}
+                             for line in transcript.splitlines()],
             )
 
     # Fail closed: preserving a legacy Russian title, or model-produced
