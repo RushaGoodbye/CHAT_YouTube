@@ -2205,6 +2205,19 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     if legacy_russian and ukrainian_candidate:
         return candidate
 
+    # An existing generic conversation label must never beat a concrete,
+    # source-specific Ukrainian hook merely through title preservation.
+    current_generic = "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+        current, "", (), ()
+    )
+    candidate_generic = "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+        candidate, "", (), ()
+    )
+    if current_generic and not candidate_generic:
+        return candidate
+    if candidate_generic and not current_generic:
+        return current
+
     # Exact same semantic title with only punctuation/brand removed is a downgrade.
     if current_core == candidate_core:
         return current
