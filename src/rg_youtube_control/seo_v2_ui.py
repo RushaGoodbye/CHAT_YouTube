@@ -56,6 +56,28 @@ class _SEOv2Worker(QObject):
                         "ОПИС: " + str(draft.get("description") or "—"),
                         "ТЕГИ: " + ", ".join(str(item) for item in
                                              draft.get("tags") or []),
+                        "СТАТУС: " + str(result.get("status") or "REVIEW_REQUIRED"),
+                        "ПЕРЕВІРКА ДЖЕРЕЛ: " + ", ".join(
+                            str(item) for item in
+                            (result.get("gate") or {}).get("issues") or []
+                        ),
+                        "ПІДОЗРІЛІ ІМЕНА: " + ", ".join(
+                            str(item) for item in
+                            (result.get("gate") or {}).get("unverified_names") or []
+                        ),
+                        "ЗАУВАЖЕННЯ РЕДАКТОРА: " + "\\n".join(
+                            str(item.get("field") or "reviewer")
+                            + ": " + str(item.get("reason") or "")
+                            for item in (
+                                (result.get("independent_review") or {})
+                                .get("issues") or []
+                            )
+                            if isinstance(item, dict)
+                        ),
+                        "АВТОМАТИЧНЕ ВИПРАВЛЕННЯ: " + (
+                            "так" if result.get("semantic_repair_applied")
+                            else "не пройшло незалежну перевірку"
+                        ),
                     ])
                 )
             except Exception as exc:
