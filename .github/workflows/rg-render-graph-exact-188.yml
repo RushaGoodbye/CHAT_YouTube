@@ -1,0 +1,19 @@
+name: RG render graph exact 188-243
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-render-graph-exact-188.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_export_v1.py'
+          $lines=@(Get-Content $p -Encoding UTF8)
+          for($i=188;$i -le 243;$i++){Write-Output ('RGFG|'+$i+'|'+$lines[$i-1])}
+          $f='C:\Users\fauto\AppData\Local\Temp\rg_fullstream_ken1ta7l\filter.ffscript'
+          if(Test-Path $f){$t=(Get-Content $f -Raw -Encoding UTF8);$t.Split(';')|ForEach-Object{Write-Output ('RGFG|GRAPH|'+$_)}}
+          Write-Output 'RGFG|READONLY|PASS'
