@@ -1,0 +1,37 @@
+name: RG F only stale launcher and installed exe audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-launcher-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $paths=@('C:\Program Files\RG Auto Edit Studio',
+            'C:\Users\fauto\AppData\Local\RG_Auto_Edit',
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit',
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit Runtime')
+          foreach($path in $paths){
+            if(!(Test-Path $path)){Write-Output ('RGOLD|MISSING|'+$path);continue}
+            $i=Get-Item $path -Force
+            Write-Output ('RGOLD|ROOT|'+$path+'|LINKTYPE|'+$i.LinkType+'|TARGET|'+($i.Target -join ','))
+            if(!$i.LinkType){
+              $fs=@(Get-ChildItem $path -File -Recurse -Force -ErrorAction SilentlyContinue)
+              Write-Output ('RGOLD|REAL_DIR|'+$path+'|BYTES|'+(($fs|Measure-Object Length -Sum).Sum)+'|FILES|'+$fs.Count)
+              foreach($f in $fs|Sort-Object Length -Descending|Select-Object -First 8){Write-Output ('RGOLD|LARGEST|'+$f.FullName+'|'+$f.Length)}
+            }
+          }
+          $launcher='C:\Users\fauto\AppData\Local\RG_Auto_Edit\launcher\rg_auto_edit_launcher.pyw'
+          if(Test-Path $launcher){
+            Get-Content $launcher -TotalCount 100 -Encoding UTF8|ForEach-Object{Write-Output ('RGOLD|LAUNCHER_CODE|'+$_)}
+          }
+          $main='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_studio_main.py'
+          Get-Content $main -TotalCount 50 -Encoding UTF8|ForEach-Object{Write-Output ('RGOLD|MAIN_CODE|'+$_)}
+          $p=@(Get-CimInstance Win32_Process|Where-Object {$_.CommandLine -match 'rg_studio_main.py|rg_fullstream_worker_v3' -and $_.Name -match 'python|pythonw'})
+          Write-Output ('RGOLD|RUNNING_STUDIO_WORKERS|'+$p.Count)
+          Write-Output 'RGOLD|AUDIT|PASS'
