@@ -1,0 +1,24 @@
+name: RG 895 Studio exact reprocess controls
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-studio-exact-controls.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_studio_main.py','rg_studio_ui.py','rg_studio_nextgen.py','rg_studio_pro35.py','rg_fullstream_launcher_v2.py')){
+            $f=Join-Path $app $n
+            if(!(Test-Path $f)){continue}
+            $lines=Get-Content $f -Encoding UTF8
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'enqueue_recheck|Повтор|Переоброб|перерах|Перерах|recheck|fullstream|FULLSTREAM|черга|ЧЕРГА'){
+                Write-Output ('RGCTRL|'+$n+'|'+($i+1)+'|'+$lines[$i].Substring(0,[Math]::Min(220,$lines[$i].Length)))
+              }
+            }
+          }
