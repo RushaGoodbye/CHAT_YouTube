@@ -1,0 +1,43 @@
+name: RG 895 live start and performance safety check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-live-start-check-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          Write-Output ('RG895LIVE|TIME|'+(Get-Date).ToString('o'))
+          $root=Join-Path $data 'fullstream_v2'
+          foreach($d in Get-ChildItem $root -Directory -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '^\d{3,5}$'}|Sort-Object Name){
+            $status=Join-Path $d.FullName 'status.json'
+            if(Test-Path $status){
+              $v=Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RG895LIVE|STATE|'+$d.Name+'|'+$v.state+'|'+$v.stage+'|'+$v.error)
+            }
+            if(Test-Path (Join-Path $d.FullName 'queue_request.json')){Write-Output ('RG895LIVE|QUEUED|'+$d.Name)}
+          }
+          $procs=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'python|ffmpeg|RG Auto Edit' -and $_.CommandLine -match 'rg_fullstream|RG_895|studio|Auto Edit'})
+          foreach($p in $procs){Write-Output ('RG895LIVE|PROC|'+$p.ProcessId+'|'+$p.Name+'|'+$p.CommandLine.Substring(0,[Math]::Min(270,$p.CommandLine.Length)))}
+          $progress=@(Get-ChildItem (Join-Path $app '895') -Recurse -File -Filter '*.progress.json' -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 4)
+          foreach($f in $progress){
+            Write-Output ('RG895LIVE|PROGRESS_FILE|'+$f.FullName+'|'+$f.LastWriteTime.ToString('o'))
+            $v=Get-Content $f.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG895LIVE|PROGRESS|'+($v|ConvertTo-Json -Compress -Depth 4))
+          }
+          $log=Join-Path $root 'queue_worker.log'
+          if(Test-Path $log){
+             Get-Content $log -Tail 40 |ForEach-Object {Write-Output ('RG895LIVE|LOG|'+$_)}
+          }
+          $gpu=Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction SilentlyContinue
+          if($gpu){$nonzero=@($gpu.CounterSamples|Where-Object {$_.CookedValue -gt 1}|Sort-Object CookedValue -Descending|Select-Object -First 10);foreach($sample in $nonzero){Write-Output ('RG895LIVE|GPU|'+$sample.Path+'|'+[math]::Round($sample.CookedValue,1))}}
+          $cpu=Get-Counter '\Processor(_Total)\% Processor Time' -ErrorAction SilentlyContinue
+          if($cpu){Write-Output ('RG895LIVE|CPU_PERCENT|'+[math]::Round($cpu.CounterSamples[0].CookedValue,1))}
+          Write-Output 'RG895LIVE|READ_ONLY|PASS'
