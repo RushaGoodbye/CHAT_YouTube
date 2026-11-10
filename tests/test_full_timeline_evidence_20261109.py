@@ -157,3 +157,37 @@ def test_mention_of_war_does_not_claim_strategy():
     description = _deterministic_evidence_description("", report)
     assert "війна" in description
     assert "стратегічні рішення" not in description
+
+
+
+def test_ordinary_possessive_pronoun_is_not_war_evidence():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Війна проти України",
+        "evidence": "Я люблю свою каву та сніданок",
+    }]}]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_foreign_president_is_not_automatically_putin():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Путін та оцінка влади",
+        "evidence": "Президент Франції виступив із промовою",
+    }]}]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_ukraine_mention_is_not_automatically_war_claim():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Війна",
+        "evidence": "В Україні сьогодні дуже гарна погода",
+    }]}]}
+    description = _deterministic_evidence_description("", report)
+    assert "Україна" in description
+    assert "війна" not in description
