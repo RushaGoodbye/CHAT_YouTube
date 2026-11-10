@@ -214,3 +214,37 @@ def test_corruption_quote_does_not_invent_officials():
     description = _deterministic_evidence_description("", report)
     assert "корупція" in description
     assert "відповідальність чиновників" not in description
+
+
+
+def test_robot_is_not_human_employment_topic():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Робота та зайнятість",
+        "evidence": "Робот рухався лабораторією",
+    }]}]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_salary_quote_does_not_claim_other_incomes():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Зарплати та доходи",
+        "evidence": "Мені підвищили зарплату цього місяця",
+    }]}]}
+    description = _deterministic_evidence_description("", report)
+    assert "зарплати" in description
+    assert "та доходи" not in description
+
+
+def test_pension_quote_does_not_invent_social_benefits():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Пенсії та соціальні виплати",
+        "evidence": "Ми говорили про розмір пенсії",
+    }]}]}
+    description = _deterministic_evidence_description("", report)
+    assert "пенсії" in description
+    assert "соціальні виплати" not in description
