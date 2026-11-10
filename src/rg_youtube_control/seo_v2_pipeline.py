@@ -333,7 +333,10 @@ def _draft(topics: list[dict[str, Any]], proof: list[dict[str, Any]],
         "If the source cannot support the requirements, return fewer tags "
         "or a shorter description; the result will be flagged for review, "
         "not padded with generic content. Return JSON with keys title, "
-        "title_variants, description, tag_evidence, support_ids. "
+        "variant_evidence, description, tag_evidence, support_ids. "
+        "variant_evidence must be an array of exactly three objects "
+        "{text: Ukrainian A/B headline, evidence_ids: [exact source IDs]}. "
+        "Put each headline and its supporting IDs in the SAME object. "
         "tag_evidence must be an array of objects with {tag: Ukrainian "
         "search phrase, evidence_ids: [exact source IDs]}. Put each tag "
         "and its supporting IDs in the SAME object, not separate arrays. "
@@ -346,9 +349,29 @@ def _draft(topics: list[dict[str, Any]], proof: list[dict[str, Any]],
         + "\nQUOTES:\n" + json.dumps(proof, ensure_ascii=False)
     )
     output = _ask(chat, instruction)
-    # Canonical v2 paired tags avoid an LLM shifting a parallel list
-    # of evidence IDs by one item. Legacy model JSON is still accepted
-    # and checked by the same mechanical source gate.
+    # Pair each title/variant with its citation at generation time,
+    # avoiding drift across parallel arrays in local model JSON.
+    variant_pairs = output.get("variant_evidence")
+    if isinstance(variant_pairs, list):
+        variants: list[str] = []
+        groups: list[list[str]] = []
+        for item in variant_pairs[:3]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("text") or "").strip()
+            if not title:
+                continue
+            ids = item.get("evidence_ids")
+            variants.append(title)
+            groups.append(ids if isinstance(ids, list) else [])
+        if variants:
+            output["title_variants"] = variants
+            support = output.get("support_ids")
+            if not isinstance(support, dict):
+                support = {}
+            support["title_variants"] = groups
+            output["support_ids"] = support
+    # Canonical paired tags avoid a model shifting evidence lists.
     pairs = output.get("tag_evidence")
     if isinstance(pairs, list):
         tags: list[str] = []
