@@ -152,3 +152,18 @@ def test_unrelated_children_war_and_family_alcohol_must_not_combine():
     tags = _grounded_tags_from_transcript("", srt)
     assert "війна та діти" not in tags
     assert "сім'я та алкоголь" not in tags
+
+
+
+def test_tag_topic_spans_adjacent_timecoded_cues_only():
+    from rg_youtube_control.free_tools import _tag_is_grounded
+    close = (
+        "[00:05:00] Говорили про мобілізацію.\n"
+        "[00:05:04] А це відбувається у Росії."
+    )
+    far = (
+        "[00:05:00] Говорили про мобілізацію.\n"
+        "[01:17:30] Далі згадали Росію."
+    )
+    assert _tag_is_grounded("мобілізація в Росії", "", close)
+    assert not _tag_is_grounded("мобілізація в Росії", "", far)
