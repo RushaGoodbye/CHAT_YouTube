@@ -3107,35 +3107,12 @@ chapters: рядок з підтвердженими таймкодами та �
     }
     notes = []
     if evidence_report and isinstance(evidence_report.get("blocks"), list):
-        from .seo_editorial_reviewer import review_seo_candidate
-        # Review evidence from across the entire recording, not only
-        # its first 24 windows.
-        all_blocks = [
-            block for block in evidence_report["blocks"]
-            if isinstance(block, dict) and block.get("topics")
-        ]
-        if len(all_blocks) > 24:
-            last = len(all_blocks) - 1
-            review_blocks = [all_blocks[round(i * last / 23)] for i in range(24)]
-        else:
-            review_blocks = all_blocks
-        for block in review_blocks:
-            if not isinstance(block, dict):
-                continue
-            # One source-backed topic from every sampled time window first.
-            # Avoid filling the 40-note limit with early multi-topic blocks.
-            for topic in (block.get("topics") or [])[:1]:
-                if isinstance(topic, dict) and topic.get("evidence"):
-                    notes.append({
-                        "time": str(
-                            block.get("start_stamp")
-                            or block.get("start")
-                            or block.get("start_s")
-                            or ""
-                        ),
-                        "topic": str(topic.get("topic") or "")[:140],
-                        "quote": str(topic["evidence"])[:350],
-                    })
+        from .seo_editorial_reviewer import (
+            review_seo_candidate, select_independent_source_notes,
+        )
+        notes = select_independent_source_notes(
+            evidence_report, max_blocks=24, max_notes=40,
+        )
         if notes:
             reviewer_report = review_seo_candidate(
                 draft=qa_inputs, source_notes=notes[:40],
