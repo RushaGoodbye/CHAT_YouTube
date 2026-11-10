@@ -1,0 +1,29 @@
+name: RG host popup precise source and cache classifier
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-host-popup-precise-source.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_detectors_v2.py'
+          $a=@(Get-Content $p -Encoding UTF8)
+          for($i=75;$i -le [Math]::Min(145,$a.Count);$i++){Write-Output ('RGHOSTSRC|'+$i+'|'+$a[$i-1])}
+          for($i=205;$i -le [Math]::Min(301,$a.Count);$i++){Write-Output ('RGHOSTSRC|'+$i+'|'+$a[$i-1])}
+          $f='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885\completed_popups_v76.json'
+          $j=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Output ('RGHOSTSRC|CACHE_KEYS|'+($j.result.PSObject.Properties.Name -join ','))
+          foreach($key in @('masks','flags','samples','candidates','layout_seen')){
+            if($j.result.PSObject.Properties.Name -contains $key){
+              $x=$j.result.$key
+              if($key -eq 'masks'){$x=@($x).Count}
+              $json=$x|ConvertTo-Json -Depth 3 -Compress
+              Write-Output ('RGHOSTSRC|CACHE|'+$key+'|'+$json.Substring(0,[Math]::Min(1800,$json.Length)))
+            }
+          }
+          Write-Output 'RGHOSTSRC|READ_ONLY|PASS'
