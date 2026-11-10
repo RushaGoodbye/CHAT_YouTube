@@ -1,0 +1,37 @@
+name: RG 895 repeat Studio run check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-repeat-studio-check.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          $ErrorActionPreference='Continue'
+          Write-Output ('RG895RETRY|NOW|'+(Get-Date).ToString('o'))
+          foreach($n in @('queue_request.json','status.json','processing_plan.json','plan.json','stage_state_v52.json','worker_heartbeat_v79.json','editorial_preflight_v82.json')){
+            $p=Join-Path $r $n
+            if(Test-Path $p){
+              $j=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RG895RETRY|FILE|'+$n+'|'+(Get-Item $p).LastWriteTime.ToString('o'))
+              if($n -eq 'processing_plan.json'){
+                $b=@($j.popup_masks|Where-Object {$_.intervals[0][0] -lt 5503 -and $_.intervals[0][1] -gt 5486})
+                Write-Output ('RG895RETRY|MASK_COUNT|'+@($j.popup_masks).Count)
+                Write-Output ('RG895RETRY|BARS_OVERLAP|'+@($b).Count)
+                foreach($m in $b){Write-Output ('RG895RETRY|BARS_MASK|'+($m|ConvertTo-Json -Compress -Depth 5))}
+              }else{
+                $s=$j|ConvertTo-Json -Compress -Depth 5
+                Write-Output ('RG895RETRY|JSON|'+$n+'|'+$s.Substring(0,[Math]::Min(1700,$s.Length)))
+              }
+            }else{Write-Output ('RG895RETRY|MISSING|'+$n)}
+          }
+          $ps=@(Get-CimInstance Win32_Process|Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_asr_child_v58|rg_fullstream_auto_v2|RG_895_FULL_YOUTUBE'})
+          foreach($p in $ps){Write-Output ('RG895RETRY|PROC|'+$p.ProcessId+'|'+$p.Name+'|'+$p.ParentProcessId)}
+          $log='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\queue_worker.log'
+          if(Test-Path $log){Get-Content $log -Tail 14|ForEach-Object{Write-Output ('RG895RETRY|LOG|'+$_)}}
+          Write-Output 'RG895RETRY|READONLY|PASS'
