@@ -74,9 +74,13 @@ class _SEOv2Worker(QObject):
                             )
                             if isinstance(item, dict)
                         ),
-                        "АВТОМАТИЧНЕ ВИПРАВЛЕННЯ: " + (
-                            "так" if result.get("semantic_repair_applied")
-                            else "не пройшло незалежну перевірку"
+                        "ВИПРАВЛЕНІ ПОЛЯ: " + (
+                            ", ".join(result.get("semantic_repaired_fields") or [])
+                            or "немає"
+                        ),
+                        "ПРИЧИНИ ВІДМОВИ ВИПРАВЛЕНЬ: " + json.dumps(
+                            result.get("semantic_repair_diagnostics") or {},
+                            ensure_ascii=False,
                         ),
                     ])
                 )
