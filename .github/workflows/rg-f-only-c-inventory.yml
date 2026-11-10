@@ -1,0 +1,54 @@
+name: RG F only migration exact C inventory
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-c-inventory.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $c='C:\Users\fauto\AppData\Local\Programs'
+          $f='F:\RG_AUTO_EDIT'
+          Write-Output ('RGFONLY|TIME|'+(Get-Date).ToString('o'))
+          $procs=@(Get-CimInstance Win32_Process|Where-Object {$_.CommandLine -match 'rg_studio_main.py|rg_fullstream_worker_v3|RG Auto Edit Runtime|RG Auto Edit\\' -and $_.Name -match 'python|pythonw|RG|ffmpeg'})
+          foreach($p in $procs){Write-Output ('RGFONLY|PROC|'+$p.ProcessId+'|'+$p.Name+'|'+$p.CommandLine.Substring(0,[Math]::Min(270,$p.CommandLine.Length)))}
+          foreach($p in @("$c\RG Auto Edit","$c\RG Auto Edit Runtime","$c\RG Auto Edit Data","$c\RG_AUTO_EDIT","$env:LOCALAPPDATA\RG Auto Edit","$env:APPDATA\RG Auto Edit","C:\RG_AUTO_EDIT","C:\RG Auto Edit")){
+            if(!(Test-Path -LiteralPath $p)){continue}
+            $v=Get-Item -LiteralPath $p -Force
+            Write-Output ('RGFONLY|C_PATH|'+$p+'|LINKTYPE|'+$v.LinkType+'|TARGET|'+($v.Target -join ',')+'|ATTR|'+$v.Attributes)
+            if(!$v.LinkType){
+              $files=@(Get-ChildItem -LiteralPath $p -File -Recurse -Force -ErrorAction SilentlyContinue)
+              Write-Output ('RGFONLY|C_REAL_DATA|'+$p+'|BYTES|'+(($files|Measure-Object Length -Sum).Sum)+'|FILES|'+$files.Count)
+            }
+          }
+          foreach($p in @("$f\RG Auto Edit App","$f\RG Auto Edit Runtime","$f\RG Auto Edit Data")){
+            Write-Output ('RGFONLY|F_PATH|'+$p+'|EXISTS|'+(Test-Path $p))
+          }
+          foreach($p in @("$f\RG Auto Edit Runtime\venv\pyvenv.cfg","$f\RG Auto Edit App\rg_studio_main.py")){
+            if(Test-Path $p){Write-Output ('RGFONLY|FILE|'+$p+'|'+((Get-Content $p -TotalCount 12 -Encoding UTF8) -join ' ~ '))}
+          }
+          $sh=New-Object -ComObject WScript.Shell
+          foreach($dir in @("$env:USERPROFILE\Desktop","C:\Users\Public\Desktop","$env:APPDATA\Microsoft\Windows\Start Menu\Programs","C:\ProgramData\Microsoft\Windows\Start Menu\Programs")){
+            if(!(Test-Path $dir)){continue}
+            $files=@(Get-ChildItem $dir -Recurse -File -Filter '*.lnk' -ErrorAction SilentlyContinue)
+            foreach($lnk in $files){
+              $v=$sh.CreateShortcut($lnk.FullName)
+              if($lnk.Name -match 'RG|Auto Edit' -or $v.TargetPath -match 'RG Auto Edit|RG_AUTO_EDIT'){
+                Write-Output ('RGFONLY|SHORTCUT|'+$lnk.FullName+'|TARGET|'+$v.TargetPath+'|ARGS|'+$v.Arguments+'|WORKDIR|'+$v.WorkingDirectory)
+              }
+            }
+          }
+          foreach($r in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')){
+            foreach($v in Get-ChildItem $r -ErrorAction SilentlyContinue){
+              $item=Get-ItemProperty $v.PSPath -ErrorAction SilentlyContinue
+              if($item.DisplayName -match 'RG Auto Edit'){
+                Write-Output ('RGFONLY|UNINSTALL|'+$item.DisplayName+'|'+$item.InstallLocation+'|'+$item.UninstallString)
+              }
+            }
+          }
+          Write-Output 'RGFONLY|AUDIT|PASS'
