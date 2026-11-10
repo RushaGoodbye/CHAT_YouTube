@@ -1,0 +1,37 @@
+name: RG 885 review path admission status
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-review-admission-audit.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $a='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          foreach($n in @('status.json','queue_request.json','processing_plan.json','editorial_preflight_v82.json')){
+            $f=Join-Path $d $n
+            if(!(Test-Path $f)){Write-Output ('RGR885|MISSING|'+$n);continue}
+            $o=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+            $keys=@('state','stream','repair','qa_preview_export_requested','overnight_queue_sequential','decision','blocking_reasons','crf','video_encoder','asr_gap_guard_v87','gap_bilingual_review_v90','popup_coverage_verified')
+            foreach($k in $keys){
+              if($o.PSObject.Properties.Name -contains $k){
+                $v=$o.$k
+                if($k -in @('asr_gap_guard_v87','gap_bilingual_review_v90')){
+                  $v=($v|Select-Object -Property schema,complete,suspected,unexamined,skipped_reason,reported_speech_intervals,pending_count)
+                }
+                $j=$v|ConvertTo-Json -Compress -Depth 3
+                if($j.Length -gt 500){$j=$j.Substring(0,500)}
+                Write-Output ('RGR885|'+$n+'|'+$k+'|'+$j)
+              }
+            }
+          }
+          $p=Join-Path $a 'rg_fullstream_auto_v2.py'
+          $l=@(Get-Content $p -Encoding UTF8)
+          foreach($i in 265..325){Write-Output ('RGR885|SOURCE|'+$i+'|'+$l[$i-1])}
+          Write-Output 'RGR885|READ_ONLY|PASS'
