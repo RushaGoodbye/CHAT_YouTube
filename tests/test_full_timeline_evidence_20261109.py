@@ -309,3 +309,71 @@ def test_reviewer_rejects_revision_still_flagged_as_defective(monkeypatch):
     )
     assert report["revised"] is False
     assert report["publication_allowed"] is False
+
+
+
+def test_independent_reviewer_rejects_forbidden_approval(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    monkeypatch.setattr(
+        editor, "lm_studio_chat",
+        lambda *args, **kwargs: json.dumps({
+            "verdict": "approved", "issues": [], "recommended_changes": [],
+        }),
+    )
+    review = editor.review_seo_candidate(
+        draft={"title": "Заголовок"},
+        source_notes=[{"quote": "Слова учасника"}],
+    )
+    assert review["review_status"] == "REVIEWER_FAILED"
+    assert review["editorial_approved"] is False
+
+
+def test_independent_reviewer_rejects_missing_verdict(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    monkeypatch.setattr(
+        editor, "lm_studio_chat",
+        lambda *args, **kwargs: json.dumps({
+            "issues": [], "recommended_changes": [],
+        }),
+    )
+    review = editor.review_seo_candidate(
+        draft={"title": "Заголовок"},
+        source_notes=[{"quote": "Слова учасника"}],
+    )
+    assert review["review_status"] == "REVIEWER_FAILED"
+
+
+def test_independent_reviewer_blocks_language_warning(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    monkeypatch.setattr(
+        editor, "lm_studio_chat",
+        lambda *args, **kwargs: json.dumps({
+            "verdict": "review", "issues": [],
+            "recommended_changes": ["почему это произошло"],
+        }),
+    )
+    review = editor.review_seo_candidate(
+        draft={"title": "Заголовок"},
+        source_notes=[{"quote": "Слова учасника"}],
+    )
+    assert review["review_status"] == "NEEDS_REVISION"
+
+
+def test_independent_reviewer_accepts_valid_review_only(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    monkeypatch.setattr(
+        editor, "lm_studio_chat",
+        lambda *args, **kwargs: json.dumps({
+            "verdict": "review", "issues": [], "recommended_changes": [],
+        }),
+    )
+    review = editor.review_seo_candidate(
+        draft={"title": "Заголовок"},
+        source_notes=[{"quote": "Слова учасника"}],
+    )
+    assert review["review_status"] == "NEEDS_HUMAN_REVIEW"
+    assert review["publication_allowed"] is False
