@@ -1,0 +1,38 @@
+name: RG 895 stuck recheck queue exact diagnosis
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-stuck-recheck-diagnose.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import json,sys,inspect
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          root=data/"fullstream_v2"/"895"
+          sys.path.insert(0,str(app))
+          from rg_fullstream_launcher_v2 import enqueue_recheck
+          print("RG895STUCK|ENQUEUE_RECHECK_SOURCE|"+inspect.getsource(enqueue_recheck).replace("\n"," | ")[:9500],flush=True)
+          for fn in ("queue_request.json","status.json","plan.json","processing_plan.json","worker_heartbeat_v79.json"):
+              p=root/fn
+              if p.is_file():
+                  obj=json.loads(p.read_text(encoding="utf-8-sig"))
+                  if fn=="processing_plan.json":obj={"popup_masks":len(obj.get("popup_masks",[])),"popup_coverage_verified":obj.get("popup_coverage_verified")}
+                  print("RG895STUCK|FILE|"+fn+"|"+json.dumps(obj,ensure_ascii=False)[:7000],flush=True)
+              else:print("RG895STUCK|MISSING|"+fn,flush=True)
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          print("RG895STUCK|ACTIVE_WORKERS|"+str(active_workers())[:1500],flush=True)
+          print("RG895STUCK|LOCK|"+str(worker_lock_state(data)),flush=True)
+          print("RG895STUCK|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG895_STUCK_QUEUE_AUDIT_FAILURE'}
