@@ -388,8 +388,16 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
     return distinct
 
 
-def evidence_outline_text(report: dict[str, Any]) -> str:
-    """Compact all verified block notes for final model, without omission."""
+def evidence_outline_text(
+    report: dict[str, Any], *, max_chars: int | None = None
+) -> str:
+    """Prepare a quote-index for the LLM; preserve full evidence in report.
+
+    A multi-hour recording can have hundreds of source notes. Do not exceed
+    the local model context or silently truncate the end of the recording.
+    The capped prompt selects notes across the whole timeline. No note is
+    treated as a human-verified fact merely for having an exact quote.
+    """
     lines: list[str] = []
     for topic in distinct_evidence_topics(report):
         lines.append(
@@ -404,7 +412,32 @@ def evidence_outline_text(report: dict[str, Any]) -> str:
                 f"[{stamp}] НЕПЕРЕВІРЕНИЙ ФРАГМЕНТ: "
                 f"{str(block.get('excerpt') or '')[:150]}"
             )
-    return "\n".join(lines)
+    if max_chars is None:
+        return "\n".join(lines)
+    if max_chars < 500:
+        raise ValueError("max_chars must be at least 500")
+    if not lines:
+        return ""
+    complete = "\n".join(lines)
+    if len(complete) <= max_chars:
+        return complete
+    header = (
+        f"ВИБІРКА ДОКАЗІВ З УСЬОГО ВІДЕО: {len(lines)} записів. "
+        "Повна карта збережена для перевірки; не стверджуй, "
+        "що всі теми вміщено нижче.\n"
+    )
+    budget = max_chars - len(header)
+    # Progressively raise the number of evenly spaced source points, then
+    # use the widest fit. Both the beginning and end are always represented.
+    selected = [lines[0], lines[-1]]
+    for count in range(3, len(lines) + 1):
+        indexes = sorted({round(i * (len(lines) - 1) / (count - 1))
+                          for i in range(count)})
+        candidate = [lines[index] for index in indexes]
+        if len("\n".join(candidate)) > budget:
+            break
+        selected = candidate
+    return header + "\n".join(selected)
 
 
 def preserve_outline_topics(
