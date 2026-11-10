@@ -1,0 +1,20 @@
+name: RG 885 popup manual config verification
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-manual-popup-rule-check.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $file='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_auto_v2.py'
+          $a=@(Get-Content $file -Encoding UTF8)
+          for($i=241;$i -le 282;$i++){Write-Output ('RGMC|CODE|'+$i+'|'+$a[$i-1])}
+          $dir='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          $f=Join-Path $dir 'plan.json'
+          if(Test-Path $f){$x=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGMC|PLAN_KEYS|'+($x.PSObject.Properties.Name -join ','));Write-Output ('RGMC|PLAN_POPUP|'+($x.popup_masks|ConvertTo-Json -Compress -Depth 4))}
+          Write-Output 'RGMC|READONLY|PASS'
