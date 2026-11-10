@@ -2632,12 +2632,25 @@ def _repair_offtopic_headline(
     external events, or existing description to contaminate its response.
     A failed repair remains a review-only draft with a visible source flag.
     """
-    from .dialogue_seo import focused_literal_source_notes, rank_literal_evidence
+    from .dialogue_seo import (
+        focused_literal_source_notes,
+        rank_literal_evidence,
+        _literal_quote_subjects,
+    )
 
     current = str(title or "").strip()
     if focused_literal_source_notes(evidence_report, current, limit=1):
         return current, False
-    anchors = rank_literal_evidence(evidence_report)[:5]
+    ranked = rank_literal_evidence(evidence_report)
+    if not ranked:
+        return current, False
+    lead_roots = _literal_quote_subjects(ranked[0]["evidence"])
+    anchors = [
+        item for item in ranked
+        if not lead_roots or (_literal_quote_subjects(item["evidence"]) & lead_roots)
+    ][:5]
+    # Do not confuse an isolated unrelated excerpt with evidence of the
+    # dominant story simply to fill a five-quotation prompt.
     if not anchors:
         return current, False
     literal_notes = [
