@@ -1,0 +1,22 @@
+name: RG fullstream remaining history metadata audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-root-history-final-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $dir='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($file in Get-ChildItem $dir -File -ErrorAction SilentlyContinue){
+            Write-Output ('RGMETA|FILE|'+$file.Name+'|'+$file.Length+'|'+$file.LastWriteTime.ToString('o'))
+            if($file.Name -in @('_history_hidden_v92.json','ui_tab_v4_status.json','ui_tab_v5_status.json','stop_result_v60.json')){
+              $txt=Get-Content $file.FullName -Raw -Encoding UTF8
+              Write-Output ('RGMETA|CONTENT|'+$file.Name+'|'+$txt.Substring(0,[math]::Min($txt.Length,1500)))
+            }
+          }
+          Write-Output 'RGMETA|READONLY|PASS'
