@@ -235,3 +235,52 @@ def test_independent_reviewer_wrong_shape_cannot_clear_semantic_review():
     assert output["status"] == "REVIEW_REQUIRED"
     assert output["independent_review"]["review_status"] == "FAILED_CLOSED"
     assert output["publication_allowed"] is False
+
+
+def test_citation_repair_only_updates_evidence_ids_not_content():
+    from rg_youtube_control.seo_v2_pipeline import _repair_source_citations
+    proof = [{
+        "evidence_id": "ev_literal_1", "quote": "Ремісник працює з керамікою.",
+        "cue_indices": [0], "start_ms": 0, "end_ms": 1000,
+    }]
+    draft = {
+        "title": "Ремісник про кераміку",
+        "title_variants": ["Кераміка у майстерні", "Як працює ремісник",
+                           "Розмова про кераміку"],
+        "description": "Ремісник розповідає про кераміку.",
+        "tags": ["кераміка", "ремісник"],
+        "support_ids": {"title": ["ev_literal_1"], "tags": []},
+    }
+    copy_before = {key: draft[key] for key in (
+        "title", "title_variants", "description", "tags"
+    )}
+    def chat(prompt):
+        assert "source-citation matcher" in prompt
+        return {"support_ids": {
+            "title": ["ev_literal_1"],
+            "description": ["ev_literal_1"],
+            "title_variants": [["ev_literal_1"]] * 3,
+            "tags": [["ev_literal_1"]] * 2,
+        }}
+    assert _repair_source_citations(draft, proof, chat) is True
+    assert {key: draft[key] for key in copy_before} == copy_before
+    assert len(draft["support_ids"]["tags"]) == 2
+
+
+def test_citation_repair_rejects_forged_ids_without_loss_of_original():
+    from rg_youtube_control.seo_v2_pipeline import _repair_source_citations
+    proof = [{"evidence_id": "ev_1", "quote": "Точна цитата."}]
+    draft = {
+        "title": "Про матеріал", "title_variants": ["A", "B", "C"],
+        "description": "Зміст", "tags": ["ключове слово"],
+        "support_ids": {"title": ["ev_1"], "tags": []},
+    }
+    original = dict(draft["support_ids"])
+    assert _repair_source_citations(
+        draft, proof, lambda _: {"support_ids": {
+            "title": ["ev_fake"], "description": ["ev_fake"],
+            "title_variants": [["ev_fake"]] * 3,
+            "tags": [["ev_fake"]],
+        }}
+    ) is False
+    assert draft["support_ids"] == original
