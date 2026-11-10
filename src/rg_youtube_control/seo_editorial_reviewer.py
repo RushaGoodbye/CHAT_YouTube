@@ -74,6 +74,76 @@ def select_independent_source_notes(
     return notes
 
 
+def select_reviewer_notes_for_draft(
+    evidence_report: dict[str, Any],
+    draft: dict[str, Any],
+    *,
+    max_notes: int = 40,
+) -> list[dict[str, str]]:
+    """Ground the independent critic in relevant AND chronological evidence.
+
+    The original evenly spaced 40-note sample omitted citations supporting
+    late or short topics, so the critic could report invented claims even
+    when the full SRT contained them. Select transcript quotations using
+    actual candidate terms (never model-written topic labels), and reserve
+    the remaining context for the beginning, middle and end of the recording.
+    """
+    from .dialogue_seo import _literal_quote_subjects
+
+    if max_notes < 1:
+        return []
+    evidence: list[dict[str, str]] = []
+    for block in evidence_report.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("verified") is False:
+            continue
+        stamp = str(block.get("start_stamp") or block.get("start") or "")
+        for topic in block.get("topics") or []:
+            if not isinstance(topic, dict):
+                continue
+            quote = str(topic.get("evidence") or "").strip()
+            if quote:
+                evidence.append({"time": stamp, "quote": quote[:350]})
+    if not evidence:
+        return []
+    lead = " ".join([
+        str(draft.get("title") or ""),
+        *[str(value) for value in (draft.get("title_variants") or [])],
+    ])
+    title_roots = _literal_quote_subjects(lead)
+    tag_roots = _literal_quote_subjects(
+        " ".join(str(value) for value in (draft.get("tags") or []))
+    )
+    description_roots = _literal_quote_subjects(
+        str(draft.get("description") or "")
+    )
+    scored = []
+    for index, note in enumerate(evidence):
+        roots = _literal_quote_subjects(note["quote"])
+        score = (
+            5 * len(roots & title_roots)
+            + 2 * len(roots & tag_roots)
+            + len(roots & description_roots)
+        )
+        scored.append((score, index))
+    # Reserve at least half the notes for timeline coverage, even if the
+    # candidate headline looks confidently aligned with several fragments.
+    relevant_budget = min(max_notes // 2, len(evidence))
+    ranked = sorted(scored, key=lambda row: (-row[0], row[1]))
+    chosen = [
+        index for score, index in ranked[:relevant_budget] if score > 0
+    ]
+    remaining = max_notes - len(chosen)
+    if remaining and evidence:
+        positions = ([0] if remaining == 1 else [
+            round(i * (len(evidence) - 1) / (remaining - 1))
+            for i in range(remaining)
+        ])
+        for index in positions:
+            if index not in chosen:
+                chosen.append(index)
+    return [evidence[index] for index in chosen[:max_notes]]
+
+
 def review_seo_candidate(
     *,
     draft: dict[str, Any],
