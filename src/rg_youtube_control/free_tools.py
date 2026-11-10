@@ -2877,6 +2877,19 @@ chapters: рядок з підтвердженими таймкодами та �
 
             primary_tags = model_tags if evidence_report and transcript.strip() else grounded_tags
             fallback_tags = grounded_tags if evidence_report and transcript.strip() else model_tags
+            # Search phrases describing a verified episode topic are more
+            # useful than a wall of one-word keywords. Keep proper names and
+            # channel tags, but choose specific multiword queries first.
+            if evidence_report and transcript.strip():
+                channel = {"раша гудбай", "чат рулетка"}
+                primary_tags = sorted(
+                    primary_tags,
+                    key=lambda item: (
+                        str(item).casefold() in channel,
+                        len(str(item).split()) < 2,
+                        -min(len(str(item).split()), 5),
+                    ),
+                )
 
             for item in primary_tags:
                 key = item.casefold()
