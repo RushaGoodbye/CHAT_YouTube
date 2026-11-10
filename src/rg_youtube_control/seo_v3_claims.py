@@ -147,12 +147,14 @@ def check_claim_type_constraints(
     for field, value, cited in entries:
         ids = cited if isinstance(cited, list) else []
         source_kinds = {by_id[i]["source_type"] for i in ids if i in by_id}
-        if source_kinds & {"QUESTION", "CONDITIONAL", "HYPOTHESIS"}:
-            if GENERIC_ANALYSIS.search(value):
-                findings.append({
-                    "field": field,
-                    "reason": "UNSUPPORTED_CERTAINTY_FROM_UNCERTAIN_SOURCE",
-                })
+        # A SPEAKER_STATEMENT is not external verification either. Unless a
+        # separate independent source is supplied (not supported in this
+        # preview), no source type licenses claims of proven analysis.
+        if source_kinds and GENERIC_ANALYSIS.search(value):
+            findings.append({
+                "field": field,
+                "reason": "UNVERIFIED_OBJECTIVE_CERTAINTY",
+            })
         if not ids or any(i not in by_id for i in ids):
             findings.append({"field": field, "reason": "CLAIM_SOURCE_ID_MISSING"})
     return findings
