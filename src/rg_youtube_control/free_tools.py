@@ -1910,6 +1910,17 @@ _TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
     "вартіст": ("вартіст", "стоимост"),
     "доход": ("доход", "дохід"),
     "робот": ("работа", "работу", "работы", "робота", "роботу", "роботи"),
+    "діти": ("діти", "дітей", "дети", "детей", "ребен", "детьми"),
+    "загибл": ("загибл", "погиб", "умер", "вбит", "убит"),
+    "сім": ("сім", "семь", "семьей", "семьёй", "семьи", "семью"),
+    "алкогол": ("алкогол", "пьян", "спиртн"),
+    "вибор": ("вибор", "выбор", "голосован"),
+    "голосуван": ("голосуван", "голосован"),
+    "переїзд": ("переїзд", "переех", "переезд", "переезж"),
+    "виїзд": ("виїзд", "выезд", "уезж"),
+    "кордон": ("кордон", "границ", "рубеж"),
+    "віра": ("віра", "вера", "веры", "веру", "віру"),
+    "страх": ("страх", "боюсь", "боязн", "страшн"),
 }
 
 _TAG_CONNECTORS = {"проти", "щодо", "через", "після", "перед", "між",
@@ -1929,7 +1940,7 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
     folded = clean.casefold()
     if folded in _GENERIC_MODEL_TAGS:
         return False
-    if re.match(r"^(?:війна|война)\\s+(?:і|и)\\s+", folded):
+    if re.match(r"^(?:війна|война)\s+(?:і|и)\s+", folded):
         return False
     if folded in {"раша гудбай", "чат рулетка"}:
         return True
@@ -2119,6 +2130,25 @@ def _grounded_tags_from_transcript(
         add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
         add("Росія 2023")
+
+    # Expand real topic coverage with curated UA equivalents of common RU
+    # caption phrases. Every combined query must be proved in ONE subtitle
+    # line, never by joining different conversations. A useful sparse SRT
+    # is allowed to return fewer than eight tags and fail review honestly.
+    episode_queries = (
+        "мобілізація в Росії", "росіяни про мобілізацію",
+        "ставлення росіян до війни", "росіяни про війну",
+        "війна в Україні", "Путін і війна",
+        "вибори в Росії", "голосування за Путіна",
+        "війна та діти", "загиблі діти",
+        "сім'я та алкоголь", "мобілізація та сім'я",
+        "виїзд за кордон", "страх переїзду",
+        "життя в Росії", "робота в Росії",
+        "переїзд за кордон", "розмова про віру",
+    )
+    for phrase in episode_queries:
+        if _tag_is_grounded(phrase, evidence_title, transcript):
+            add(phrase)
 
     # Project-format fallbacks are added last, only to reach a useful minimum.
     for value in (
