@@ -435,11 +435,20 @@ def rank_literal_evidence(report: dict[str, Any]) -> list[dict[str, str]]:
     if not entries:
         return []
     subjects = [_literal_quote_subjects(entry["evidence"]) for entry in entries]
-    # One vote per separately time-stamped block. A long quote cannot
-    # inflate significance by repeating its own words.
+    # One vote per separately time-stamped block. Count from ALL literal
+    # quotations, before near-duplicate display entries are collapsed.
+    # Otherwise a repeated real subject vanishes from the frequency map.
     block_subjects: dict[str, set[str]] = {}
-    for item, tokens in zip(entries, subjects):
-        block_subjects.setdefault(item["start_stamp"], set()).update(tokens)
+    for block_index, block in enumerate(report.get("blocks") or []):
+        if not isinstance(block, dict) or block.get("verified") is False:
+            continue
+        block_key = f"{block_index}:{block.get('start_stamp') or ''}"
+        for topic in block.get("topics") or []:
+            if not isinstance(topic, dict) or not topic.get("evidence"):
+                continue
+            block_subjects.setdefault(block_key, set()).update(
+                _literal_quote_subjects(str(topic["evidence"]))
+            )
     frequency: dict[str, int] = {}
     for tokens in block_subjects.values():
         for token in tokens:
