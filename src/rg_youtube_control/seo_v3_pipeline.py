@@ -13,7 +13,7 @@ from .seo_v2_pipeline import (
     _draft_numbers, validate_draft,
 )
 from .seo_v2_evidence import parse_srt
-from .seo_v2_semantic import independent_review, unsupported_names
+from .seo_v2_semantic import independent_review as check_review, unsupported_names
 from .seo_v3_claims import build_claim_ledger, check_claim_type_constraints
 
 Chat = Callable[[str], dict[str, Any]]
@@ -90,7 +90,7 @@ def _write_from_claims(
 def generate_claim_first_seo(
     srt: str,
     chat: Chat,
-    independent_review_model: Chat | None = None,
+    independent_review: Chat | None = None,
 ) -> dict[str, Any]:
     """Preview: classify quotes, then draft and independently validate.
 
@@ -138,10 +138,10 @@ def generate_claim_first_seo(
     # spoken statements as attributed statements, never proven journalism.
     extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
     review = None
-    if independent_review_model is not None:
+    if independent_review is not None:
         try:
-            review = independent_review(
-                draft, proof, independent_review_model,
+            review = check_review(
+                draft, proof, independent_review,
             )
         except (ValueError, RuntimeError, TypeError, TimeoutError):
             review = {
