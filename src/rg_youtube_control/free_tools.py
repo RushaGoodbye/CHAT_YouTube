@@ -2881,7 +2881,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 if source_brief:
                     try:
                         focused_ab = _recover_title_variants(
-                            current_title=current_title,
+                            # The actual grounded primary hook is stronger
+                            # context than the deliberately blank old title.
+                            current_title=str(candidate.get("title") or current_title),
                             transcript=(
                                 "ВАЖЛИВО: заборонені загальні заголовки "
                                 "'Про що говорили?', 'Що кажуть співрозмовники?', "
