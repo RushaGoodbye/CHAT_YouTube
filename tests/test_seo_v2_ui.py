@@ -17,7 +17,7 @@ def test_install_preview_tab_keeps_legacy_tabs_unchanged():
     seo_v2_ui.install_seo_v2_preview(window)
     assert window.tabs.count() == 2
     assert window.tabs.tabText(0) == "Оптимізація"
-    assert window.tabs.tabText(1) == "SEO v2"
+    assert window.tabs.tabText(1) == "SEO v3"
     view = window.tabs.widget(1)
     assert view._start.isEnabled() is False
     assert view._thread is None
@@ -62,7 +62,7 @@ def test_worker_writes_read_only_reports_and_displays_seo(tmp_path, monkeypatch)
     worker.line.connect(messages.append)
     worker.run()
     assert any("Нова назва" in message for message in messages)
-    assert (output / "input.seo_v2_review.json").exists()
+    assert (output / "input.seo_v3_review.json").exists()
     assert source.read_text("utf-8") == original
     assert (output / "_summary.json").exists()
     assert app is not None
