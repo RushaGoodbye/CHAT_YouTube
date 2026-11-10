@@ -81,7 +81,7 @@ def test_v2_accepts_any_content_without_hardcoded_keyword_list():
             data = json.loads(prompt.split("SOURCE CUES:\n", 1)[1])
             row = data[0]
             return {"quotes": [{"quote": row["text"], "cue_indices": [row["cue"]]}]}
-        if "Group these literal" in prompt:
+        if "Classify the main topics" in prompt:
             data = json.loads(prompt.split("EVIDENCE:\n", 1)[1])
             state["id"] = data[0]["evidence_id"]
             return {"topics": [{
@@ -120,3 +120,39 @@ def test_v2_accepts_any_content_without_hardcoded_keyword_list():
     assert result["publication_allowed"] is False
     assert result["editorial_approved"] is False
     assert result["evidence"]["source_cues"] == 3
+
+
+def test_topic_map_reduce_is_bounded_and_all_citations_are_real():
+    from rg_youtube_control.seo_v2_pipeline import _select_topics
+    evidence = [{
+        "evidence_id": f"ev_{i:016d}",
+        "quote": f"Майстер пояснює техніку малювання номер {i}.",
+        "start_ms": i * 1000,
+        "end_ms": i * 1000 + 500,
+        "cue_indices": [i],
+    } for i in range(96)]
+    seen_sizes = []
+    def chat(prompt):
+        if "VERBATIM EVIDENCE:\n" in prompt:
+            batch = json.loads(prompt.split("VERBATIM EVIDENCE:\n", 1)[1])
+            seen_sizes.append(len(batch))
+            return {"topics": [
+                {"label_uk": "Техніка малювання", "evidence_ids": [row["evidence_id"]]}
+                for row in batch[:4]
+            ]}
+        batch = json.loads(prompt.split("TOPIC MAP:\n", 1)[1])
+        seen_sizes.append(len(batch))
+        return {"topics": [
+            {"label_uk": "Художні техніки", "evidence_ids": [
+                evidence_id
+                for entry in batch[:2]
+                for evidence_id in entry["evidence_ids"]
+            ]}
+        ]}
+    topics = _select_topics({"accepted": evidence}, chat)
+    assert 1 <= len(topics) <= 5
+    assert max(seen_sizes) <= 16
+    assert all(
+        item in {x["evidence_id"] for x in evidence}
+        for topic in topics for item in topic["evidence_ids"]
+    )
