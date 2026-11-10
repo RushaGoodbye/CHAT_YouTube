@@ -1,0 +1,22 @@
+name: RG Studio manual recheck recovery callback snapshot
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-manual-recheck-callback-snapshot.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_manual_tab_v4.py")
+          a=p.read_text(encoding="utf-8-sig").splitlines()
+          for i in range(390,428):
+              print("RGRECHECK|"+str(i+1)+"|"+a[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
