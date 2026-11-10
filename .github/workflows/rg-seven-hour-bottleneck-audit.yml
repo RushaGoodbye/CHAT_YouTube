@@ -1,0 +1,45 @@
+name: RG fullstream 7h live bottleneck audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-seven-hour-bottleneck-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $now=Get-Date
+          Write-Output ('RG7H|NOW|'+$now.ToString('o'))
+          $proc=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream|ffmpeg|rg_studio_main'})
+          foreach($p in $proc){Write-Output ('RG7H|PROCESS|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.Name+'|'+$p.CreationDate+'|'+$p.CommandLine)}
+          foreach($n in 885..889){
+            $folder=Join-Path $base ([string]$n)
+            foreach($f in @('status.json','stage_state_v52.json','asr_watchdog_v58.json','queue_request.json','editorial_preflight_v82.json')){
+              $p=Join-Path $folder $f
+              if(!(Test-Path $p)){continue}
+              Write-Output ('RG7H|FILE|'+$n+'|'+$f+'|MOD='+((Get-Item $p).LastWriteTime.ToString('o')))
+              try{
+                $v=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+                foreach($key in @('state','stage','label','detail','progress','progress_percent','error','started_at','run_started_at','updated_at','work','status','checkpoint_parts_done','total_parts','seconds_since_child_signal','output','blocking_reasons')){
+                  if($v.PSObject.Properties.Name -contains $key){
+                    $val=$v.$key|ConvertTo-Json -Compress -Depth 2
+                    if($val.Length -gt 320){$val=$val.Substring(0,320)}
+                    Write-Output ('RG7H|PROP|'+$n+'|'+$f+'|'+$key+'|'+$val)
+                  }
+                }
+              }catch{}
+            }
+            $chunk=Join-Path $folder 'asr_chunks_v58'
+            if(Test-Path $chunk){
+              $counts=@(Get-ChildItem $chunk -Filter 'chunk_*_auto.json' -ErrorAction SilentlyContinue).Count
+              Write-Output ('RG7H|CHUNKS|'+$n+'|AUTO='+$counts)
+            }
+          }
+          $log=Join-Path $base 'queue_worker.log'
+          if(Test-Path $log){Write-Output ('RG7H|LOG_TIME|'+(Get-Item $log).LastWriteTime.ToString('o'));Get-Content $log -Tail 95|ForEach-Object{Write-Output ('RG7H|LOG|'+$_)}}
+          Write-Output 'RG7H|READ_ONLY|PASS'
