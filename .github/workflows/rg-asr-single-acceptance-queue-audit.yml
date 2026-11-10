@@ -1,0 +1,59 @@
+name: RG one-pass ASR acceptance and queue current state
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-asr-single-acceptance-queue-audit.yml']
+permissions: {contents: read}
+jobs:
+  accept:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=@'
+          import sys,json,ast,tempfile,hashlib
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          import rg_fullstream_asr_chunked_v58 as v58
+          assert v58.LANGS==('auto',),v58.LANGS
+          with tempfile.TemporaryDirectory() as tmp:
+              d=Path(tmp);f=v58.checkpoint_path(d,0,'auto')
+              identity={'path':'synthetic','size':123}
+              win={'start':0.,'end':180.,'core_start':0.,'core_end':180.}
+              v58.atomic_json(f,{'schema':v58.ROOT_SCHEMA,'complete':True,'identity':identity,'backend':'faster_whisper',
+                  'model':'synthetic','window':win,'language':'auto',
+                  'words':[{'start':1.1,'end':1.4,'word':'привіт','language':'auto'}]})
+              assert v58.valid_checkpoint(f,identity,'faster_whisper','synthetic',win,'auto')
+              rows,counts=v58._collect(d,[win],identity,'faster_whisper','synthetic')
+              assert len(rows)==1 and counts['auto']==1,(rows,counts)
+              assert not v58.checkpoint_path(d,0,'ru').exists()
+          print("RGASRF|ONE_AUTO_CHUNK_CACHE_TEST|PASS",flush=True)
+          auto=(app/"rg_fullstream_auto_v2.py").read_text(encoding="utf-8-sig")
+          gate=(app/"rg_fullstream_editorial_gate_v82.py").read_text(encoding="utf-8-sig")
+          batch=(app/"rg_fullstream_batch_v53.py").read_text(encoding="utf-8-sig")
+          child=(app/"rg_fullstream_asr_child_v58.py").read_text(encoding="utf-8-sig")
+          assert "inspect_asr_gaps_v90(audio" not in auto
+          assert "V90_SOURCE_BOUND_BILINGUAL_GAP_REVIEW_INCOMPLETE" not in gate
+          assert "language=None" in child
+          for n in ('rg_fullstream_auto_v2.py','rg_fullstream_editorial_gate_v82.py'):
+              h=hashlib.sha256((app/n).read_bytes()).hexdigest()
+              assert h in batch,(n,h)
+          print("RGASRF|NO_V90_AND_HASH_INTEGRITY|PASS",flush=True)
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          workers=active_workers();lock=worker_lock_state(data)
+          print("RGASRF|WORKERS|"+str(len(workers))+"|LOCK|"+str(lock),flush=True)
+          assert not workers and lock=="IDLE"
+          for s in range(885,890):
+              d=data/"fullstream_v2"/str(s);status=d/"status.json";q=d/"queue_request.json"
+              state=json.loads(status.read_text(encoding="utf-8-sig")).get("state") if status.is_file() else "NONE"
+              print("RGASRF|STREAM|"+str(s)+"|STATE="+state+"|QUEUE="+str(q.is_file()),flush=True)
+          print("RGASRF|ALL|PASS|NO_PRODUCTION_RENDER",flush=True)
+          '@
+          $code|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'ASR_SINGLE_ACCEPTANCE_FAILED'}
