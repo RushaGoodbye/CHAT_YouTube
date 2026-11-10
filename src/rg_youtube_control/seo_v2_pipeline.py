@@ -248,16 +248,76 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
     ]
 
 
-def _proof_index(ledger: dict[str, Any], topics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _proof_index(
+    ledger: dict[str, Any],
+    topics: list[dict[str, Any]],
+    *,
+    max_quotes: int = 24,
+    max_chars: int = 12000,
+) -> list[dict[str, Any]]:
+    """Bounded evidence for the writer, preserving theme and timeline spread.
+
+    The full immutable ledger remains available for audit. The writer sees
+    a representative sample, never a misleading claim that the full SRT
+    fits its context window.
+    """
     by_id = {row["evidence_id"]: row for row in ledger["accepted"]}
-    seen: set[str] = set()
-    selected: list[dict[str, Any]] = []
+    if not by_id:
+        return []
+    ordered: list[dict[str, Any]] = []
+    used: set[str] = set()
     for topic in topics:
         for evidence_id in topic["evidence_ids"]:
-            if evidence_id not in seen:
-                selected.append(by_id[evidence_id])
-                seen.add(evidence_id)
+            if evidence_id in by_id and evidence_id not in used:
+                ordered.append(by_id[evidence_id])
+                used.add(evidence_id)
+    if not ordered:
+        return []
+    if len(ordered) <= max_quotes and len(json.dumps(
+        ordered, ensure_ascii=False
+    )) <= max_chars:
+        return ordered
+
+    # Reserve at least one point from each named subject and both ends of
+    # the recording; sample remaining evidence evenly over source time.
+    first_per_topic: list[dict[str, Any]] = []
+    for topic in topics:
+        candidates = [
+            by_id[eid] for eid in topic["evidence_ids"]
+            if eid in by_id
+        ]
+        if candidates:
+            first_per_topic.append(candidates[0])
+    chronological = sorted(ordered, key=lambda item: (
+        item["start_ms"], item["end_ms"]
+    ))
+    priority = [
+        *first_per_topic,
+        chronological[0],
+        chronological[-1],
+    ]
+    target = min(max_quotes, len(ordered))
+    if target > 1:
+        priority.extend(
+            chronological[round(i * (len(chronological) - 1) / (target - 1))]
+            for i in range(target)
+        )
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in priority:
+        eid = item["evidence_id"]
+        if eid in seen:
+            continue
+        trial = selected + [item]
+        if len(trial) > max_quotes or len(json.dumps(
+            trial, ensure_ascii=False
+        )) > max_chars:
+            continue
+        seen.add(eid)
+        selected.append(item)
     return selected
+
+
 
 
 def _draft(topics: list[dict[str, Any]], proof: list[dict[str, Any]],
@@ -360,9 +420,13 @@ def _repair_source_citations(
 
 
 def validate_draft(draft: dict[str, Any], ledger: dict[str, Any],
-                   cues: list[Cue]) -> dict[str, Any]:
+                   cues: list[Cue],
+                   allowed_ids: set[str] | None = None) -> dict[str, Any]:
     """Mechanical checks, NOT semantic fact approval."""
-    ids = {row["evidence_id"] for row in ledger["accepted"]}
+    ids = (
+        allowed_ids if allowed_ids is not None
+        else {row["evidence_id"] for row in ledger["accepted"]}
+    )
     support = draft.get("support_ids") or {}
     issues: list[str] = []
     if not isinstance(support, dict):
@@ -423,9 +487,19 @@ def generate_universal_seo(srt: str, chat: Chat,
             "evidence": ledger, "windows": windows, "topics": topics,
             "publication_allowed": False,
         }
-    draft = _draft(topics, proof, chat)
+    # All topic IDs shown to the writer must actually be in its bounded
+    # evidence excerpt. Otherwise the writer could cite invisible sources.
+    visible_ids = {item["evidence_id"] for item in proof}
+    visible_topics = [
+        {**topic, "evidence_ids": [
+            eid for eid in topic["evidence_ids"] if eid in visible_ids
+        ]}
+        for topic in topics
+    ]
+    visible_topics = [topic for topic in visible_topics if topic["evidence_ids"]]
+    draft = _draft(visible_topics, proof, chat)
     citations_repaired = _repair_source_citations(draft, proof, chat)
-    gate = validate_draft(draft, ledger, cues)
+    gate = validate_draft(draft, ledger, cues, allowed_ids=visible_ids)
     independent = None
     if independent_review is not None:
         independent = _ask(independent_review,
@@ -463,6 +537,8 @@ def generate_universal_seo(srt: str, chat: Chat,
         "citations_repaired": citations_repaired,
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
+        "writer_evidence_quotes": len(proof),
+        "full_evidence_quotes": len(ledger["accepted"]),
         "publication_allowed": False,
         "editorial_approved": False,
     }
