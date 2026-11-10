@@ -1,0 +1,20 @@
+name: RG 885 override integration and repair path audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-manual-popup-integration-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($range in @(@('rg_fullstream_auto_v2.py',350,390),@('rg_fullstream_auto_v2.py',421,477),@('rg_fullstream_auto_v2.py',560,690),@('rg_fullstream_worker_v3.py',72,140),@('rg_fullstream_launcher_v2.py',1,108),@('rg_fullstream_export_v1.py',72,182))){
+            $name=[string]$range[0]
+            $a=@(Get-Content (Join-Path $app $name) -Encoding UTF8)
+            for($i=[int]$range[1];$i -le [Math]::Min([int]$range[2],$a.Count);$i++){Write-Output ('RGOVERRIDE|'+$name+'|'+$i+'|'+$a[$i-1])}
+          }
+          Write-Output 'RGOVERRIDE|READ_ONLY|PASS'
