@@ -284,6 +284,76 @@ def _draft(topics: list[dict[str, Any]], proof: list[dict[str, Any]],
     return _ask(chat, instruction)
 
 
+def _repair_source_citations(
+    draft: dict[str, Any], proof: list[dict[str, Any]], chat: Chat,
+) -> bool:
+    """One bounded repair of missing evidence-ID arrays, not creative SEO.
+
+    A model may return an attractive draft but omit a parallel citation for
+    one tag. The repair prompt can ONLY supply ID arrays for existing text.
+    It cannot rewrite or fabricate an additional assertion.
+    """
+    ids = {item["evidence_id"] for item in proof}
+    support = draft.get("support_ids")
+    if not isinstance(support, dict):
+        support = {}
+
+    def is_valid() -> bool:
+        for field in ("title", "description"):
+            values = support.get(field)
+            if not isinstance(values, list) or not values or any(
+                not isinstance(value, str) or value not in ids for value in values
+            ):
+                return False
+        for field in ("title_variants", "tags"):
+            entries = draft.get(field)
+            values = support.get(field)
+            if not isinstance(entries, list) or not isinstance(values, list):
+                return False
+            if len(entries) != len(values):
+                return False
+            if any(
+                not isinstance(group, list) or not group or any(
+                    not isinstance(value, str) or value not in ids
+                    for value in group
+                ) for group in values
+            ):
+                return False
+        return True
+
+    if is_valid():
+        return False
+    request = (
+        "You are a source-citation matcher, NOT an SEO writer. "
+        "Do not change any existing title, variant, sentence or tag. "
+        "Find which exact verbatim quotations support each existing field. "
+        "Return ONLY JSON with support_ids containing title (ID array), "
+        "description (ID array), title_variants (array of ID arrays), "
+        "and tags (array of ID arrays in exactly the same order). "
+        "If a phrase has no supporting quotation, return [] for its field "
+        "or list element. NEVER assign a random ID to satisfy a schema. "
+        "Review-only; no automatic publication.\n"
+        "DRAFT:\n" + json.dumps({
+            key: draft.get(key) for key in (
+                "title", "title_variants", "description", "tags"
+            )
+        }, ensure_ascii=False)
+        + "\nLITERAL EVIDENCE:\n"
+        + json.dumps(proof, ensure_ascii=False)
+    )
+    response = _ask(chat, request)
+    candidate = response.get("support_ids")
+    if not isinstance(candidate, dict):
+        return False
+    original = support
+    support = candidate
+    if is_valid():
+        draft["support_ids"] = candidate
+        return True
+    support = original
+    return False
+
+
 def validate_draft(draft: dict[str, Any], ledger: dict[str, Any],
                    cues: list[Cue]) -> dict[str, Any]:
     """Mechanical checks, NOT semantic fact approval."""
@@ -349,6 +419,7 @@ def generate_universal_seo(srt: str, chat: Chat,
             "publication_allowed": False,
         }
     draft = _draft(topics, proof, chat)
+    citations_repaired = _repair_source_citations(draft, proof, chat)
     gate = validate_draft(draft, ledger, cues)
     independent = None
     if independent_review is not None:
@@ -384,6 +455,7 @@ def generate_universal_seo(srt: str, chat: Chat,
         "draft": {key: draft.get(key) for key in (
             "title", "title_variants", "description", "tags", "support_ids")},
         "gate": gate,
+        "citations_repaired": citations_repaired,
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
         "publication_allowed": False,
