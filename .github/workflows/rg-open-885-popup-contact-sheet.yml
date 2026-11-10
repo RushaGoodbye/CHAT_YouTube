@@ -1,0 +1,23 @@
+name: RG show 885 popup QA contact sheet on AlexPC
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-open-885-popup-contact-sheet.yml']
+permissions: {contents: read}
+jobs:
+  show:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $file='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885\HOST_POPUP_REVIEW_20261110\885_rejected_notifications_contact_sheet.jpg'
+          if(!(Test-Path $file)){throw 'CONTACT_SHEET_NOT_FOUND'}
+          $session=(Get-Process -Id $PID).SessionId
+          $explorers=@(Get-Process explorer -ErrorAction SilentlyContinue|Where-Object {$_.SessionId -eq $session})
+          Write-Output ('RGSHOW|PATH|'+$file)
+          Write-Output ('RGSHOW|SAME_SESSION|'+$explorers.Count)
+          if($explorers.Count -gt 0){
+             Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,"'+$file+'"')
+             Write-Output 'RGSHOW|OPENED_EXPLORER|PASS'
+          }else{Write-Output 'RGSHOW|NO_INTERACTIVE_EXPLORER'}
