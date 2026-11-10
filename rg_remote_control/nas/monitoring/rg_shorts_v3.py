@@ -348,7 +348,7 @@ def selftest():
     assert 'Росія' not in x and 'РОСІЯНИН' not in x
     assert 'youtube.com' not in x.lower()
     assert 'Короткий відеофрагмент' not in x
-    assert x.startswith('<b>🎬 ') and '\\n💬 ' in x
+    assert x.startswith('<b>🎬 ') and '\n💬 ' in x
     assert link_buttons()[0][0]['style']=='primary'
     assert link_buttons()[1][0]['url']==LINKS
     assert CALLBACK.fullmatch('rgs3:accept:'+'a'*24)
