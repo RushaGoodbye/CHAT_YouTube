@@ -1,0 +1,37 @@
+name: RG 885 fresh worker idle guard
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-fresh-worker-idle-guard.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import json,sys,hashlib
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          w=active_workers()
+          print("RG885NOW|WORKERS|"+str(len(w)),flush=True)
+          for p in w:print("RG885NOW|WORKER|"+str(p)[:450],flush=True)
+          for n in ("885","886","887","888","889"):
+              p=data/"fullstream_v2"/n/"status.json"
+              if p.exists():
+                  s=json.loads(p.read_text(encoding="utf-8-sig"))
+                  print("RG885NOW|STREAM|"+n+"|"+str(s.get("state")),flush=True)
+          from rg_fullstream_auto_v2 import verified_popups
+          p=json.loads((data/"fullstream_v2"/"885"/"plan.json").read_text(encoding="utf-8-sig"))
+          masks,flags=verified_popups(p)
+          print("RG885NOW|MASKS|"+str(len(masks))+"|FLAGS|"+repr(flags),flush=True)
+          print("RG885NOW|READ_ONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw '885_FRESH_IDLE_GUARD_FAILED'}
