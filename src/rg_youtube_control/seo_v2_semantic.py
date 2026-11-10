@@ -34,6 +34,11 @@ def _same_inflected_name(name: str, source: str) -> bool:
         shorter, longer = sorted((left, right), key=len)
         if len(longer) - len(shorter) <= 2 and longer.startswith(shorter):
             return True
+    if (len(left) == len(right) and len(left) >= 5
+            and left[:-1] == right[:-1]
+            and left[-1] in "аеиоуыюяь"
+            and right[-1] in "аеиоуыюяь"):
+        return True
     if min(len(left), len(right)) >= 7 and abs(len(left) - len(right)) <= 2:
         return left[:-2] == right[:-2]
     return False
