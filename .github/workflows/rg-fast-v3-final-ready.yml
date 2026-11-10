@@ -1,0 +1,47 @@
+name: RG optimized V3 final ready check on AlexPC
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-v3-final-ready.yml']
+permissions: {contents: read}
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $code=@'
+          from pathlib import Path
+          import sys,json,ast,hashlib
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          from rg_fullstream_worker_v3 import request_files
+          from rg_fullstream_export_v1 import filter_graph
+          assert not active_workers() and worker_lock_state(data)=="IDLE"
+          src=(app/"rg_fullstream_export_v1.py").read_text(encoding="utf-8-sig")
+          for marker in ("RG_FAST_POPUP_GBLUR_V1","RG_ONE_FRAME_MASK_V1","'-filter_complex_threads','8'"):
+              assert marker in src,marker
+          jobs=request_files(data)
+          names=[j[2]["stream"] for j in jobs]
+          assert names==["885","886","887","888","889"],names
+          print("RGV3READY|QUEUE|"+",".join(names),flush=True)
+          root=data/"fullstream_v2"/"885"
+          req=json.loads((root/"queue_request.json").read_text(encoding="utf-8-sig"))
+          assert req["qa_preview_export_requested"] is True and req["repair"] is True
+          assert req["qa_publication_allowed"] is False
+          assert not (app/"885"/"FULLSTREAM_YOUTUBE"/req["output_name"]).exists()
+          for i in range(885,890):
+              status=json.loads((data/"fullstream_v2"/str(i)/"status.json").read_text(encoding="utf-8-sig"))
+              assert status["state"]=="QUEUED",(i,status["state"])
+          print("RGV3READY|ALL_JOBS_QUEUED|PASS",flush=True)
+          print("RGV3READY|QA_PUBLISH_BLOCKED|PASS",flush=True)
+          print("RGV3READY|FILTERS_AND_THREADS|PASS",flush=True)
+          print("RGV3READY|NO_WORKER_RUNNING|PASS",flush=True)
+          '@
+          $code|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'V3_FINAL_NOT_READY'}
