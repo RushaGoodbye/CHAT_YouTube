@@ -1,0 +1,23 @@
+name: RG render fast V3 release acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-render-fast-v3-acceptance.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_render_fast_v3.py
+          if($LASTEXITCODE -ne 0){throw 'V3_STATIC_TEST_FAILED'}
+          & $py -X utf8 rg_repair_20261110/rg_render_fast_v3_pixel_test.py
+          if($LASTEXITCODE -ne 0){throw 'V3_PIXEL_OR_AUDIO_MISMATCH'}
+          Write-Output 'RGFASTV3|ALL_ACCEPTANCE|PASS'
