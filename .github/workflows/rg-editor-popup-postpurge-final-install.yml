@@ -1,0 +1,23 @@
+name: RG install last missing notification update postpurge
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-editor-popup-postpurge-final-install.yml']
+permissions: {contents: read}
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_editor_framed_host_popup_postpurge.py --install
+          if($LASTEXITCODE -ne 0){throw 'RG_POSTPURGE_EDITOR_FRAMED_INSTALL_FAILED'}
+          & $py -m py_compile 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_auto_v2.py' 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_batch_v53.py'
+          if($LASTEXITCODE -ne 0){throw 'POSTCOMPILE_FAILED'}
+          Write-Output 'RGFRAMED|POSTCOMPILE|PASS'
