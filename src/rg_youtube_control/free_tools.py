@@ -2043,7 +2043,9 @@ def _grounded_tags_from_transcript(
     # Named entities and concrete episode topics come before generic channel tags.
     if "шойгу" in haystack:
         add("Шойгу")
-        if "уволь" in haystack or "отстав" in haystack:
+        # Only the same caption mentioning Shoigu and dismissal supports
+        # the combined search phrase. Include both RU and UA inflections.
+        if _tag_is_grounded("звільнення Шойгу", evidence_title, transcript):
             add("звільнення Шойгу")
     if "герасим" in haystack:
         add("Герасимов")
