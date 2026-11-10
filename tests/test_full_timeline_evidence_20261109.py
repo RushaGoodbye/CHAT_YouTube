@@ -377,3 +377,43 @@ def test_independent_reviewer_accepts_valid_review_only(monkeypatch):
     )
     assert review["review_status"] == "NEEDS_HUMAN_REVIEW"
     assert review["publication_allowed"] is False
+
+
+
+def test_independent_reviewer_source_notes_span_full_video_and_preserve_time():
+    from rg_youtube_control.seo_editorial_reviewer import (
+        select_independent_source_notes,
+    )
+    report = {"blocks": [
+        {
+            "verified": True,
+            "start_stamp": f"{i:02d}:00:00",
+            "topics": [
+                {"topic": f"Тема {i}", "evidence": f"Дослівні слова {i}"},
+                {"topic": f"Друга тема {i}", "evidence": f"Друга цитата {i}"},
+            ],
+        } for i in range(60)
+    ]}
+    notes = select_independent_source_notes(report)
+    assert len(notes) == 40
+    assert notes[0]["time"] == "00:00:00"
+    assert notes[23]["time"] == "59:00:00"
+    assert any(note["topic"].startswith("Друга тема") for note in notes)
+    assert all(note["time"] and note["quote"] for note in notes)
+
+
+def test_independent_reviewer_never_uses_unverified_blocks():
+    from rg_youtube_control.seo_editorial_reviewer import (
+        select_independent_source_notes,
+    )
+    report = {"blocks": [
+        {"verified": False, "start_stamp": "00:00", "topics": [
+            {"topic": "Неперевірена", "evidence": "Модельна цитата"},
+        ]},
+        {"verified": True, "start_stamp": "01:00", "topics": [
+            {"topic": "Перевірена", "evidence": "Справжня цитата"},
+        ]},
+    ]}
+    notes = select_independent_source_notes(report)
+    assert len(notes) == 1
+    assert notes[0]["time"] == "01:00"
