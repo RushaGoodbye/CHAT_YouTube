@@ -1,0 +1,20 @@
+name: RG 885 popup unknown-layout review evidence
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-popup-review-evidence.yml']
+permissions: {contents: read}
+jobs:
+  evidence:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_popup_885_qa_evidence_v1.py
+          if($LASTEXITCODE -ne 0){throw 'POPUP_REVIEW_EVIDENCE_FAILED'}
