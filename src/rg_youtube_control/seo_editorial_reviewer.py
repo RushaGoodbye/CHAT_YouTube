@@ -65,8 +65,23 @@ def review_seo_candidate(
         if language_error(suggestion_text):
             value["reviewer_language_warning"] = True
         issues = _normalized_issues(issues)
+        verdict = str(value.get("verdict") or "").strip().casefold()
+        # The old branch treated ANY non-"revise" value (including missing,
+        # malformed, or forbidden "approved") as successful independent QA.
+        # Demand the exact two-value schema and block inconsistent decisions.
+        if verdict not in {"review", "revise"}:
+            raise ValueError("invalid independent reviewer verdict")
+        if verdict == "review" and issues:
+            verdict = "revise"
+        if value.get("reviewer_language_warning"):
+            verdict = "revise"
+            issues.append({
+                "field": "reviewer_language",
+                "reason": "REVIEWER_NON_UKRAINIAN_OUTPUT",
+                "evidence": "",
+            })
         return {
-            "review_status": "NEEDS_REVISION" if issues or value.get("verdict") == "revise" else "NEEDS_HUMAN_REVIEW",
+            "review_status": "NEEDS_REVISION" if verdict == "revise" else "NEEDS_HUMAN_REVIEW",
             "issues": issues,
             "reviewer_language_warning": bool(value.get("reviewer_language_warning")),
             "recommended_changes": value.get("recommended_changes") if isinstance(value.get("recommended_changes"), (list, dict)) else [],
