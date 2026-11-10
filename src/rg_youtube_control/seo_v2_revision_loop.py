@@ -40,6 +40,23 @@ def repair_fields_independently(
         for issue in initial_review.get("issues") or []
         if isinstance(issue, dict)
     }
+
+    def format_defects(report: dict[str, Any], field: str) -> list[str]:
+        found: list[str] = []
+        for section in ("format", "editorial"):
+            info = report.get(section) or {}
+            details = info.get("problems" if section == "format" else "issues")
+            if isinstance(details, dict):
+                issue_list = details.get(field) or []
+                found.extend(str(issue) for issue in issue_list)
+        return list(dict.fromkeys(found))
+
+    # A syntactically valid independent review can overlook obvious format
+    # problems. Feed those into the same strict field-level correction loop.
+    for field in priority:
+        if format_defects(current_gate, field):
+            pending.add(field)
+
     for field in priority[:max_fields]:
         # Carry new reviewer concerns forward after each successful edit;
         # a revision may expose a previously hidden unsupported claim.
@@ -47,6 +64,15 @@ def repair_fields_independently(
             issue for issue in current_review.get("issues") or []
             if isinstance(issue, dict) and issue.get("field") == field
         ]
+        for defect in format_defects(current_gate, field):
+            field_issues.append({
+                "field": field,
+                "reason": (
+                    "MANDATORY EDITORIAL FORMAT REQUIREMENT FAILED: "
+                    + defect + ". Repair only this field, using verified "
+                      "source quotations; never fabricate topical tags."
+                ),
+            })
         if field not in pending and not field_issues:
             continue
         attempts = []
@@ -87,6 +113,16 @@ def repair_fields_independently(
             new_gate = validate(revised)
             new_gate_issues = set(new_gate.get("issues") or [])
             old_gate_issues = set(current_gate.get("issues") or [])
+            remaining_format = format_defects(new_gate, field)
+            if remaining_format:
+                attempts.append("FIELD_FORMAT_STILL_INVALID")
+                field_issues.append({
+                    "field": field,
+                    "reason": "Field still fails the mandatory format: "
+                              + ", ".join(remaining_format)
+                              + ". Use only source-supported content.",
+                })
+                continue
             if new_gate_issues - old_gate_issues:
                 attempts.append("NEW_TECHNICAL_ISSUE")
                 field_issues.append({
