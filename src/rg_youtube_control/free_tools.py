@@ -3597,6 +3597,7 @@ chapters: рядок з підтвердженими таймкодами та �
                                 or not _tag_is_grounded(
                                     tag, current_title, transcript,
                                 )
+                                or (evidence_report and not is_focused_tag(tag))
                             ):
                                 continue
                             seen_tags.add(key)
