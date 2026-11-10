@@ -93,3 +93,26 @@ def test_revision_checks_ab_against_full_evidence_before_critic(monkeypatch):
     assert count["reviews"] == 0
     assert result["revision_error"] in {"AB_EVIDENCE_UNRESOLVED", "UNCHANGED_REVISION"}
     assert result["publication_allowed"] is False
+
+
+def test_revision_rejects_number_not_in_original_caption(monkeypatch):
+    draft = {
+        "title": "Розмова про війну",
+        "title_variants": ["Що кажуть про війну?", "Позиція щодо війни", "Війна та розмова"],
+        "description": "Розмова про позиції людей. " * 18,
+        "tags": ["раша гудбай", "чат рулетка", "війна", "росіяни", "Україна", "Росія", "мобілізація", "думки людей"],
+    }
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps({
+        "title": "Втрати 9999 людей у війні",
+    }, ensure_ascii=False))
+    monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
+    monkeypatch.setattr(seo_quality_gate, "inspect_package", lambda _p: {"format_pass": True, "problems": []})
+    result = editor.revise_seo_candidate(
+        draft=draft,
+        source_notes=[{"quote": "У нас війна"}],
+        source_rows=[{"text": "Війна триває"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "title", "reason": "wrong title"}]},
+    )
+    assert result["revised"] is False
+    assert result["revision_error"] in {"NUMERIC_CLAIM_UNSUPPORTED", "UNCHANGED_REVISION"}
+    assert result["publication_allowed"] is False
