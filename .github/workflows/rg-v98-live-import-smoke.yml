@@ -1,0 +1,35 @@
+name: RG V98 live import QA route runtime smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v98-live-import-smoke.yml']
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import sys,hashlib
+          from pathlib import Path
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(root))
+          import rg_fullstream_manual_tab_v4 as manual
+          import rg_fullstream_batch_v53 as batch
+          import rg_fullstream_qa_export_v96 as qa
+          assert hasattr(batch,"resume_selected")
+          assert hasattr(qa,"arm_existing_review_request")
+          print("RGV98SMOKE|MANUAL_READ_JSON_FN|"+str(hasattr(manual,"_read_json")),flush=True)
+          text=(root/"rg_fullstream_manual_tab_v4.py").read_text(encoding="utf-8-sig")
+          print("RGV98SMOKE|CORRECTED_ROUTING_PRESENT|"+str("RG_QA_PAUSE_RECHECK_V98" in text),flush=True)
+          digest=hashlib.sha256((root/"rg_fullstream_manual_tab_v4.py").read_bytes()).hexdigest()
+          batchtext=(root/"rg_fullstream_batch_v53.py").read_text(encoding="utf-8-sig")
+          if batchtext.count(digest)!=1:raise RuntimeError("GUI_INTEGRITY_PIN_NOT_UPDATED")
+          print("RGV98SMOKE|PIN|PASS",flush=True)
+          print("RGV98SMOKE|IMPORTS|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RGV98_GUI_IMPORT_SMOKE_FAILED'}
