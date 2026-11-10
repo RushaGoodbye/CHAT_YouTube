@@ -408,9 +408,11 @@ def evidence_outline_text(
     """
     lines: list[str] = []
     for topic in distinct_evidence_topics(report):
+        # Model-written topic/summary are hints, NOT verified facts.
+        # Sending them as "confirmed topics" launders hallucinations into
+        # subsequent SEO prompts. Only literal SRT wording is evidence.
         lines.append(
-            f"[{topic['start_stamp']}] ТЕМА: {topic['topic']} | "
-            f"ТЕЗА: {topic['summary_uk']} | ЦИТАТА: {topic['evidence']}"
+            f"[{topic['start_stamp']}] ДОСЛІВНА ЦИТАТА SRT: {topic['evidence']}"
         )
     for block in report.get("blocks") or []:
         stamp = str(block.get("start_stamp") or "")
