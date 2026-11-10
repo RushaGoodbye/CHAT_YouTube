@@ -1924,6 +1924,7 @@ _TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
     "виїзд": ("виїзд", "выезд", "уезж"),
     "кордон": ("кордон", "границ", "рубеж"),
     "віра": ("віра", "вера", "веры", "веру", "віру"),
+    "вір": ("віра", "вірі", "віру", "вер", "вера", "веру", "веры"),
     "страх": ("страх", "боюсь", "боязн", "страшн"),
     "розчар": ("розчар", "разочар"),
     "запереч": ("запереч", "отриц", "нет"),
@@ -3476,6 +3477,7 @@ chapters: рядок з підтвердженими таймкодами та �
             # or near-duplicate search phrase useful Ukrainian metadata.
             from difflib import SequenceMatcher as _TagSimilarity
             natural_tags: list[str] = []
+            seen_concepts: set[tuple[str, ...]] = set()
             for tag in merged_tags:
                 lowered = tag.casefold()
                 if (
@@ -3492,7 +3494,15 @@ chapters: рядок з підтвердженими таймкодами та �
                     if len(tag.split()) >= 2 and len(other.split()) >= 2
                 ):
                     continue
+                # "голосувати за Путіна" and "голосування за Путіна"
+                # describe one query concept, not two independent tags.
+                terms = re.findall(r"[a-zа-яіїєґё]{4,}", lowered)
+                concept = tuple(sorted(token[:7] for token in terms))
+                if concept and concept in seen_concepts:
+                    continue
                 natural_tags.append(tag)
+                if concept:
+                    seen_concepts.add(concept)
             if len(natural_tags) < 8:
                 # Keep the exact failure visible; never invent filler tags.
                 candidate["_tags_review_required"] = True
