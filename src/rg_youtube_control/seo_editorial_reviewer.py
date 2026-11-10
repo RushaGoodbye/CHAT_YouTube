@@ -300,9 +300,9 @@ def revise_seo_candidate(
                 # never model summaries or caption timestamps.
                 import re
                 def quantities(value: str) -> set[str]:
-                    pattern = r"(?<![\\w:])\\d{1,3}(?:[ \\u00a0]\\d{3})+(?![\\w:])|(?<![\\w:])\\d{2,}(?![\\w:])"
+                    pattern = r"(?<![\w:])\d{1,3}(?:[ \u00a0]\d{3})+(?![\w:])|(?<![\w:])\d{2,}(?![\w:])"
                     return {
-                        re.sub(r"[ \\u00a0]", "", token)
+                        re.sub(r"[ \u00a0]", "", token)
                         for token in re.findall(pattern, value)
                     }
                 spoken = quantities(" ".join(
