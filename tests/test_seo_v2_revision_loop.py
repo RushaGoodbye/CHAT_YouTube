@@ -236,3 +236,88 @@ def test_tag_edit_must_remove_original_count_error_before_accepting():
     assert diagnostics["tags"] == [
         "FIELD_FORMAT_STILL_INVALID", "FIELD_FORMAT_STILL_INVALID"
     ]
+
+
+def test_truthful_short_description_is_preserved_but_editorial_gate_stays_red():
+    original = {
+        "title": "Запитання про перевірку",
+        "title_variants": ["Питання про аудит", "Думки щодо перевірки", "Розмова про події"],
+        "description": "Аналіз довів, що аудит став встановленою причиною подій. " * 8,
+        "tags": ["аудит"],
+        "support_ids": {
+            "title": ["ev_1"], "title_variants": [["ev_1"]] * 3,
+            "description": ["ev_1"], "tags": [["ev_1"]],
+        },
+    }
+    evidence = [{
+        "evidence_id": "ev_1",
+        "quote": "Можливо це аудит, але я не знаю точно.",
+    }]
+    safer = (
+        "Співрозмовник припускає, що перевірка могла вплинути на ситуацію. "
+        "Він не подає цю версію як доведений факт. "
+        "У розмові йдеться саме про можливу причину, а не підтверджений висновок."
+    )
+    assert 160 <= len(safer) < 400
+    def writer(_):
+        return {"changes": {"description": safer},
+                "support_ids": {"description": ["ev_1"]}}
+    def critic(prompt):
+        import json
+        value = json.loads(prompt.split("DRAFT:\n", 1)[1].split(
+            "\nVERBATIM EVIDENCE:", 1)[0])
+        return {"issues": [] if value["description"] == safer else [
+            {"field": "description", "reason": "Unsupported factual conclusion"}
+        ]}
+    def gate(candidate):
+        too_short = len(candidate["description"]) < 400
+        return {
+            "issues": ["EDITORIAL_GATE_FAILED"] if too_short else [],
+            "format": {"problems": {}},
+            "editorial": {"issues": {
+                "description": ["DESCRIPTION_UNDER_EDITORIAL_TARGET"]
+            } if too_short else {}},
+        }
+    diag = {}
+    draft, checked, _, changes = repair_fields_independently(
+        original, evidence,
+        {"issues": [{"field": "description", "reason": "Causality invented"}]},
+        writer, critic, gate, diagnostics=diag,
+    )
+    assert changes == ["description"]
+    assert draft["description"] == safer
+    assert checked["issues"] == ["EDITORIAL_GATE_FAILED"]
+    assert diag["description"] == ["SAFE_PARTIAL_REVIEW_REQUIRED"]
+
+
+def test_shorter_description_is_not_retained_if_reviewer_disagrees():
+    original = {
+        "title": "Тема", "title_variants": ["A", "B", "C"],
+        "description": "Аналіз доводить причину. " * 18,
+        "tags": ["аудит"],
+        "support_ids": {
+            "title": ["ev_1"], "description": ["ev_1"],
+            "title_variants": [["ev_1"]] * 3, "tags": [["ev_1"]],
+        },
+    }
+    safe_text = "Обговорюють можливу причину перевірки. " * 6
+    evidence = [{"evidence_id": "ev_1", "quote": "Можливо це була перевірка."}]
+    def gate(obj):
+        short = len(obj["description"]) < 400
+        return {
+            "issues": ["EDITORIAL_GATE_FAILED"] if short else [],
+            "format": {"problems": {}},
+            "editorial": {"issues": {"description": [
+                "DESCRIPTION_UNDER_EDITORIAL_TARGET"
+            ]} if short else {}},
+        }
+    result, _, _, changes = repair_fields_independently(
+        original, evidence,
+        {"issues": [{"field": "description", "reason": "Unverified claim"}]},
+        lambda _: {"changes": {"description": safe_text},
+                   "support_ids": {"description": ["ev_1"]}},
+        lambda _: {"issues": [{"field": "description", "reason": "Still speculative"}]},
+        gate,
+    )
+    assert result == original
+    assert changes == []
