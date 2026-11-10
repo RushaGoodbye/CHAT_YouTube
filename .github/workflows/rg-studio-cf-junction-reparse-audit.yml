@@ -1,0 +1,31 @@
+name: RG Studio C F junction and reparse audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-cf-junction-reparse-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $paths=@(
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit',
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit Runtime',
+            'F:\RG_AUTO_EDIT\RG Auto Edit App',
+            'F:\RG_AUTO_EDIT\RG Auto Edit Runtime',
+            'F:\RG_AUTO_EDIT\RG Auto Edit Data')
+          foreach($path in $paths){
+            $i=Get-Item -LiteralPath $path -Force
+            Write-Output ('RGLINK|PATH|'+$path+'|ATTRIBUTES|'+$i.Attributes+'|LINKTYPE|'+$i.LinkType+'|TARGET|'+($i.Target -join ','))
+            try{
+              $v=fsutil reparsepoint query "$path" 2>&1
+              Write-Output ('RGLINK|REPARSE|'+$path+'|'+(($v|Out-String).Substring(0,[Math]::Min(1200,($v|Out-String).Length))))
+            }catch{Write-Output ('RGLINK|REPARSE|'+$path+'|ERROR')}
+          }
+          $sample='C:\Users\fauto\AppData\Local\Programs\RG Auto Edit\rg_fullstream_manual_tab_v4.py'
+          $j=Get-Item $sample
+          Write-Output ('RGLINK|SAMPLE|'+$j.Attributes+'|'+$j.LinkType+'|'+($j.Target -join ','))
+          Write-Output 'RGLINK|READONLY|PASS'
