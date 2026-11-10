@@ -116,3 +116,49 @@ def test_revision_rejects_number_not_in_original_caption(monkeypatch):
     assert result["revised"] is False
     assert result["revision_error"] in {"NUMERIC_CLAIM_UNSUPPORTED", "UNCHANGED_REVISION"}
     assert result["publication_allowed"] is False
+
+
+def test_format_failure_targets_only_bad_tags_on_next_revision(monkeypatch):
+    draft = {
+        "title": "Росіянин говорить про війну",
+        "title_variants": [
+            "Розмова про мобілізацію", "Питання про війну в Росії", "Слова про Україну",
+        ],
+        "description": "Учасники обговорюють свої позиції. " * 14,
+        "tags": ["Раша Гудбай", "чат рулетка", "війна", "Росія", "Україна", "Путін", "мобілізація", "політика"],
+    }
+    calls = iter([
+        {"tags": ["війна"]},
+        {"tags": ["Раша Гудбай", "чат рулетка", "війна", "Росія", "Україна", "Путін", "мобілізація", "політика"]},
+    ])
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps(next(calls), ensure_ascii=False))
+    monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
+    monkeypatch.setattr(editor, "review_seo_candidate", lambda **_k: {"review_status": "NEEDS_HUMAN_REVIEW", "issues": []})
+    result = editor.revise_seo_candidate(
+        draft=draft, source_notes=[{"quote": "Говоримо про війну"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "tags", "reason": "weak tags"}]},
+    )
+    assert result["revised"] is False  # Do not approve unchanged original.
+    assert result["publication_allowed"] is False
+
+
+def test_format_gate_reports_named_fields(monkeypatch):
+    draft = {
+        "title": "Тема про мобілізацію",
+        "title_variants": ["Питання про війну", "Слова про Україну", "Суперечка про Росію"],
+        "description": "Розмова з росіянином про війну. " * 15,
+        "tags": ["Раша Гудбай", "чат рулетка", "війна", "Росія", "Україна", "Путін", "мобілізація", "політика"],
+    }
+    calls = []
+    def fake_chat(messages, **kwargs):
+        calls.append(messages[-1]["content"])
+        return json.dumps({"tags": ["один"]}, ensure_ascii=False)
+    monkeypatch.setattr(editor, "lm_studio_chat", fake_chat)
+    monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
+    result = editor.revise_seo_candidate(
+        draft=draft, source_notes=[{"quote": "Говоримо про війну"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "tags", "reason": "weak tags"}]},
+    )
+    assert len(calls) == 2
+    assert "FEWER_THAN_EIGHT" in calls[1]
+    assert result["revised"] is False
