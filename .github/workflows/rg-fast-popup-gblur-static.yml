@@ -1,0 +1,17 @@
+name: RG popup blur timeline optimization static test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-popup-gblur-static.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_fast_popup_gblur_v1.py
+          if($LASTEXITCODE -ne 0){throw 'GATED_BLUR_STATIC_FAILED'}
