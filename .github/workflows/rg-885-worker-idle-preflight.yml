@@ -1,0 +1,38 @@
+name: RG 885 safe worker idle and queue preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-worker-idle-preflight.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $code=@'
+          import sys,json
+          from pathlib import Path
+          a=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          d=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(a))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          workers=active_workers()
+          lock=worker_lock_state(d)
+          print("RG885IDLE|WORKERS|"+str(len(workers)),flush=True)
+          print("RG885IDLE|LOCK|"+str(lock),flush=True)
+          for n in range(885,890):
+              p=d/"fullstream_v2"/str(n)
+              f=p/"status.json"
+              s=json.loads(f.read_text(encoding="utf-8-sig")) if f.exists() else {}
+              print("RG885IDLE|STATUS|"+str(n)+"|"+str(s.get("state"))+"|QUEUE="+str((p/"queue_request.json").exists()),flush=True)
+          p=d/"fullstream_v2"/"885"
+          m=json.loads((p/"plan.json").read_text(encoding="utf-8-sig")).get("popup_masks",[])
+          print("RG885IDLE|MANUAL|"+str(len(m)),flush=True)
+          print("RG885IDLE|READY_TO_INSTALL|"+str(not workers and lock=="IDLE"),flush=True)
+          '@
+          $code | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'PREFLIGHT_FAILED'}
