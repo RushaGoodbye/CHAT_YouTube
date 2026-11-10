@@ -1,0 +1,36 @@
+name: RG895 V98 precise GUI start failure audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v98-precise-start-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import sys,inspect,traceback
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(app))
+          import rg_fullstream_batch_v53 as batch
+          import rg_fullstream_launcher_v2 as launcher
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          from rg_fullstream_stop_v60 import active_workers
+          print("RGSTART|BATCH_HAS_RESUME_SELECTED|"+str(hasattr(batch,"resume_selected")),flush=True)
+          print("RGSTART|BATCH_HAS_IMPORT|"+str("resume_selected" in dir(batch)),flush=True)
+          print("RGSTART|LAUNCHER_HAS_RESUME_SELECTED|"+str(hasattr(launcher,"resume_selected")),flush=True)
+          if hasattr(batch,"resume_selected"):
+              print("RGSTART|BATCH_RESUME_SOURCE|"+inspect.getsource(batch.resume_selected).replace("\n"," | ")[:7000],flush=True)
+          if hasattr(launcher,"resume_selected"):
+              print("RGSTART|LAUNCHER_RESUME_SOURCE|"+inspect.getsource(launcher.resume_selected).replace("\n"," | ")[:7000],flush=True)
+          print("RGSTART|LOCK|"+str(worker_lock_state(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")),flush=True)
+          print("RGSTART|ACTIVE_WORKERS|"+str(active_workers())[:2000],flush=True)
+          print("RGSTART|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'GUI_START_AUDIT_FAILED'}
