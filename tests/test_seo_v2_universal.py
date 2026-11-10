@@ -158,7 +158,7 @@ def test_topic_map_reduce_is_bounded_and_all_citations_are_real():
     )
 
 
-def test_uncovered_source_window_blocks_review_ready_even_with_good_json(monkeypatch):
+def test_fallback_recovers_skipped_window_using_only_verbatim_cues(monkeypatch):
     from rg_youtube_control import seo_v2_pipeline
     from rg_youtube_control.seo_v2_pipeline import _extract
     cue_text = [
@@ -182,9 +182,14 @@ def test_uncovered_source_window_blocks_review_ready_even_with_good_json(monkeyp
             }]}
         return {"quotes": []}
     ledger, _windows = _extract(cues, chat)
-    assert ledger["windows_without_quotes"]
-    assert ledger["review_required"] is True
-    assert ledger["source_cues_with_evidence"] == 1
+    assert ledger["windows_without_quotes"] == []
+    assert ledger["deterministic_fallback_windows"]
+    assert ledger["source_cues_with_evidence"] >= 2
+    assert all(
+        any(index in group for item in ledger["accepted"]
+            for index in item["cue_indices"])
+        for group in make_windows(cues, max_chars=100)
+    )
 
 
 def test_independent_reviewer_wrong_shape_cannot_clear_semantic_review():
