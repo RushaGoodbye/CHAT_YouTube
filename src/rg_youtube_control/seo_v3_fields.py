@@ -59,12 +59,12 @@ def compose_claim_fields(
           "headlines (max 100 chars each). Use QUESTIONS for uncertain "
           "causes and outcomes; describe the dispute rather than asserting "
           "'real reasons', findings or punishments. "
-          "Return JSON: {\\\"title\\\":{\\\"text\\\":\\\"...\\\","
-          "\\\"evidence_ids\\\":[\\\"ev_...\\\"]},"
-          "\\\"variants\\\":[{\\\"text\\\":\\\"...\\\","
-          "\\\"evidence_ids\\\":[\\\"ev_...\\\"]}]}. "
-          "No description and no tags.\\nTOPICS (not facts):\\n"
-        + topic_hint + "\\nSOURCE-TYPED CLAIMS:\\n" + data,
+          "Return JSON: {\"title\":{\"text\":\"...\","
+          "\"evidence_ids\":[\"ev_...\"]},"
+          "\"variants\":[{\"text\":\"...\","
+          "\"evidence_ids\":[\"ev_...\"]}]}. "
+          "No description and no tags.\nTOPICS (not facts):\n"
+        + topic_hint + "\nSOURCE-TYPED CLAIMS:\n" + data,
     )
     h = headings.get("title") if isinstance(headings.get("title"), dict) else {}
     title = str(h.get("text") or "").strip()
@@ -90,11 +90,11 @@ def compose_claim_fields(
           "(no source here is). Target 400-900 characters IN TOTAL, only "
           "when enough source material supports them; do not repeat "
           "sentences merely to reach the target. "
-          "Return JSON: {\\\"sentences\\\":[{\\\"text\\\":\\\"...\\\","
-          "\\\"evidence_ids\\\":[\\\"ev_...\\\"],"
-          "\\\"source_type\\\":\\\"QUESTION\\\"}]}. "
-          "Do not write title variants or tags.\\n"
-          "SOURCE-TYPED CLAIMS:\\n" + data,
+          "Return JSON: {\"sentences\":[{\"text\":\"...\","
+          "\"evidence_ids\":[\"ev_...\"],"
+          "\"source_type\":\"QUESTION\"}]}. "
+          "Do not write title variants or tags.\n"
+          "SOURCE-TYPED CLAIMS:\n" + data,
     )
     sentences: list[str] = []
     sentence_ids: list[list[str]] = []
@@ -124,10 +124,10 @@ def compose_claim_fields(
           "different cited topics. Every tag must cite actual source IDs. "
           "If fewer than 8 specific source-supported phrases exist, "
           "return fewer and let quality control block the draft. "
-          "Return JSON: {\\\"tags\\\":[{\\\"tag\\\":\\\"...\\\","
-          "\\\"evidence_ids\\\":[\\\"ev_...\\\"]}]}. "
-          "No title or description.\\n"
-          "SOURCE-TYPED CLAIMS:\\n" + data,
+          "Return JSON: {\"tags\":[{\"tag\":\"...\","
+          "\"evidence_ids\":[\"ev_...\"]}]}. "
+          "No title or description.\n"
+          "SOURCE-TYPED CLAIMS:\n" + data,
     )
     tags: list[str] = []
     tag_ids: list[list[str]] = []
