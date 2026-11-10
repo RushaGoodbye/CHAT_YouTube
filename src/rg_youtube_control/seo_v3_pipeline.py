@@ -111,13 +111,13 @@ def audit_draft_against_claims(
         "misleading assertion of verified analysis. "
         "Do not falsely reject a clearly attributed opinion or a genuine "
         "open question merely for being uncertain. "
-        "Return exactly JSON {\\\"issues\\\":[{\\\"field\\\":"
-        "\\\"title|title_variants|description|tags\\\","
-        "\\\"reason\\\":\\\"specific unsupported text and claim_id\\\"}]}. "
+        "Return exactly JSON {\"issues\":[{\"field\":"
+        "\"title|title_variants|description|tags\","
+        "\"reason\":\"specific unsupported text and claim_id\"}]}. "
         "If all fields are supported return an empty issues array. "
-        "Do not approve publication.\\nDRAFT:\\n"
+        "Do not approve publication.\nDRAFT:\n"
         + json.dumps(draft, ensure_ascii=False)
-        + "\\nSOURCE-TYPED CLAIMS:\\n"
+        + "\nSOURCE-TYPED CLAIMS:\n"
         + json.dumps(claims["claims"], ensure_ascii=False)
     )
     try:
