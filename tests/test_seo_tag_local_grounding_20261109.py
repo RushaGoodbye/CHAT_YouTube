@@ -82,3 +82,37 @@ def test_war_and_mobilization_title_cannot_override_unrelated_srt():
     )
     assert "війна Росії проти України" not in tags
     assert "мобілізація в Росії" not in tags
+
+
+
+def test_ukrainian_topic_tag_is_grounded_in_russian_subtitles():
+    from rg_youtube_control.free_tools import _tag_is_grounded
+    srt = "[00:02] Он говорил о зарплате и доходах семьи."
+    assert _tag_is_grounded("зарплати", "", srt)
+    assert _tag_is_grounded("доходи", "", srt)
+
+
+def test_ukrainian_named_event_tag_matches_literal_russian_srt():
+    from rg_youtube_control.free_tools import _tag_is_grounded
+    srt = "[00:12] Мы обсуждали увольнение Шойгу."
+    assert _tag_is_grounded("звільнення Шойгу", "", srt)
+
+
+def test_cross_dialogue_ua_ru_event_relationship_is_rejected():
+    from rg_youtube_control.free_tools import _tag_is_grounded
+    srt = (
+        "[00:02] Мы говорим о войне в этом разговоре.\n"
+        "[29:00] Теперь обсуждаем отношения России с соседями.\n"
+        "[48:00] Однажды я ездил в Украину."
+    )
+    assert not _tag_is_grounded("війна Росії проти України", "", srt)
+
+
+def test_robot_is_not_evidence_of_employment_search_phrase():
+    from rg_youtube_control.free_tools import _tag_is_grounded
+    assert not _tag_is_grounded(
+        "робота", "", "[00:01] По лаборатории двигался робот."
+    )
+    assert _tag_is_grounded(
+        "робота", "", "[00:01] Мне нужна работа."
+    )
