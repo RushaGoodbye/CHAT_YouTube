@@ -2963,6 +2963,17 @@ chapters: рядок з підтвердженими таймкодами та �
                             ),
                             model=model,
                         )
+                        if os.getenv("RG_SEO_PRIVATE_LOG_DRAFT") == "1":
+                            print("RG_SEO_AB_REPAIR " + json.dumps({
+                                "proposals": focused_ab,
+                                "grounding_issues": ab_title_issues(
+                                    focused_ab, evidence_report,
+                                ),
+                                "editorial_flags": _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", focused_ab, [],
+                                ),
+                            }, ensure_ascii=True), flush=True)
                         if (
                             len(focused_ab) == 3
                             and not ab_title_issues(focused_ab, evidence_report)
