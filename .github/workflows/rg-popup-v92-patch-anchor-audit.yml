@@ -1,0 +1,32 @@
+name: RG popup detector controlled patch anchors
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-v92-patch-anchor-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $code=@'
+          from pathlib import Path
+          import hashlib
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          det=(app/"rg_fullstream_detectors_v2.py").read_bytes()
+          sha=hashlib.sha256(det).hexdigest()
+          print("RGANCHOR|DETECTOR_SHA|"+sha,flush=True)
+          for f in app.glob("rg_fullstream_*.py"):
+              if f.name=="rg_fullstream_detectors_v2.py":continue
+              s=f.read_text(encoding="utf-8-sig",errors="replace")
+              if sha in s:print("RGANCHOR|HASH_REFERENCE|"+f.name+"|COUNT|"+str(s.count(sha)),flush=True)
+          s=det.decode("utf-8-sig")
+          for v in ("grey_card=(65<=median<=165 and spread>=60 and bright>=.34",
+                    "red_card=(50<=median<=95 and spread>=58 and bright>=.10"):
+              print("RGANCHOR|EXACT|"+str(s.count(v))+"|"+v,flush=True)
+          print("RGANCHOR|DONE|PASS",flush=True)
+          '@
+          $code|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
