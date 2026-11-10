@@ -393,3 +393,16 @@ def test_rejected_unselected_model_quote_is_an_audit_warning_not_seo_fact():
     assert "NO_VERIFIED_SOURCE_QUOTES" not in result["issues"]
     assert result["semantic_review_required"] is True
     assert result["publication_allowed"] is False
+
+
+def test_unusually_long_asr_caption_is_split_without_word_loss():
+    words = [f"слово{i}" for i in range(900)]
+    text = " ".join(words)
+    srt = "1\n00:00:00,000 --> 00:00:20,000\n" + text + "\n"
+    pieces = parse_srt(srt)
+    assert len(pieces) > 1
+    assert all(len(cue.text) <= 900 for cue in pieces)
+    assert " ".join(cue.text for cue in pieces) == text
+    assert all(cue.start_ms == 0 and cue.end_ms == 20000 for cue in pieces)
+    assert [index for group in make_windows(pieces)
+            for index in group] == list(range(len(pieces)))
