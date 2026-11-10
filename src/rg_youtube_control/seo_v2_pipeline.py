@@ -612,34 +612,64 @@ def generate_universal_seo(srt: str, chat: Chat,
         draft, proof, chat, spoken_numbers=_source_numbers(cues),
     )
     gate = validate_draft(draft, ledger, cues, allowed_ids=visible_ids)
+    from .seo_v2_semantic import (
+        independent_review as check_semantics,
+        revise_semantic_defects,
+        unsupported_names,
+    )
+    name_warnings = unsupported_names(draft, proof)
+    if name_warnings:
+        gate["issues"] = sorted(set([
+            *gate["issues"], "UNVERIFIED_NAMED_ENTITIES"
+        ]))
+        gate["unverified_names"] = name_warnings
     independent = None
+    semantic_repair_applied = False
     if independent_review is not None:
-        independent = _ask(independent_review,
-            "Independently review this draft against literal evidence "
-            "only. Check unsupported claims, speaker attributions, "
-            "semantic relevance and natural Ukrainian. Return JSON: "
-            "{\"issues\":[{\"field\":\"...\",\"reason\":\"...\"}]}. "
-            "Do not approve publication.\nDRAFT:\n"
-            + json.dumps(draft, ensure_ascii=False)
-            + "\nEVIDENCE:\n" + json.dumps(proof, ensure_ascii=False))
-    if independent is not None:
-        reviewer_issues = independent.get("issues")
-        if (
-            not isinstance(reviewer_issues, list)
-            or any(
-                not isinstance(item, dict)
-                or not str(item.get("field") or "").strip()
-                or not str(item.get("reason") or "").strip()
-                for item in reviewer_issues
-            )
-        ):
-            independent = {
-                "issues": [{
-                    "field": "reviewer",
-                    "reason": "INVALID_INDEPENDENT_REVIEW_SCHEMA",
-                }],
-                "review_status": "FAILED_CLOSED",
-            }
+        try:
+            independent = check_semantics(draft, proof, independent_review)
+        except (ValueError, RuntimeError, TypeError, TimeoutError):
+            independent = {"issues": [{
+                "field": "reviewer",
+                "reason": "INDEPENDENT_REVIEW_UNAVAILABLE",
+            }], "review_status": "FAILED_CLOSED"}
+        if independent.get("issues"):
+            try:
+                revised = revise_semantic_defects(
+                    draft, proof, independent, chat,
+                )
+            except (ValueError, RuntimeError, TypeError, TimeoutError):
+                revised = None
+            if revised is not None:
+                revised_gate = validate_draft(
+                    revised, ledger, cues, allowed_ids=visible_ids,
+                )
+                revised_names = unsupported_names(revised, proof)
+                if revised_names:
+                    revised_gate["issues"] = sorted(set([
+                        *revised_gate["issues"],
+                        "UNVERIFIED_NAMED_ENTITIES",
+                    ]))
+                    revised_gate["unverified_names"] = revised_names
+                # Never accept an edited draft just because its reviewer
+                # returned JSON. It must improve independent content QA
+                # without introducing new structural/source defects.
+                if (not revised_gate["issues"]
+                        and not revised_names):
+                    try:
+                        second_review = check_semantics(
+                            revised, proof, independent_review,
+                        )
+                    except (ValueError, RuntimeError, TypeError, TimeoutError):
+                        second_review = {"issues": [{
+                            "field": "reviewer",
+                            "reason": "SECOND_REVIEW_UNAVAILABLE",
+                        }]}
+                    if not second_review.get("issues"):
+                        draft, gate, independent = (
+                            revised, revised_gate, second_review
+                        )
+                        semantic_repair_applied = True
     return {
         "status": ("REVIEW_REQUIRED" if gate["issues"] or independent is None
                    or independent.get("issues") else "READY_FOR_HUMAN_REVIEW"),
@@ -648,6 +678,7 @@ def generate_universal_seo(srt: str, chat: Chat,
         "gate": gate,
         "citations_repaired": citations_repaired,
         "repaired_fields": repaired_fields,
+        "semantic_repair_applied": semantic_repair_applied,
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
         "writer_evidence_quotes": len(proof),
