@@ -153,3 +153,86 @@ def test_two_rejections_are_reported_and_never_marked_as_success():
     assert diagnostics["title"] == [
         "NO_USABLE_FIELD_REVISION", "NO_USABLE_FIELD_REVISION"
     ]
+
+
+def test_format_gate_initiates_tag_repair_even_when_reviewer_omits_tags():
+    draft = {
+        "title": "Розмова про підготовку інструментів",
+        "title_variants": [
+            "Які інструменти потрібні для роботи?",
+            "Досвід майстра у виборі інструментів",
+            "Практичні питання роботи з інструментами",
+        ],
+        "description": "Майстер обговорює інструменти. " * 15,
+        "tags": ["інструменти", "майстер", "робота", "техніка", "поради"],
+        "support_ids": {
+            "title": ["ev_1"], "title_variants": [["ev_1"]] * 3,
+            "description": ["ev_1"], "tags": [["ev_1"]] * 5,
+        },
+    }
+    proof = [{"evidence_id": "ev_1",
+              "quote": "Майстер обговорює інструменти для роботи."}]
+    calls = []
+    def writer(prompt):
+        calls.append(prompt)
+        assert "FEWER_THAN_EIGHT" in prompt
+        return {"changes": {
+            "tags": [
+                "інструменти", "майстер", "робота", "техніка",
+                "поради", "інструменти майстра", "робота з інструментами",
+                "вибір інструментів",
+            ]},
+            "support_ids": {"tags": [["ev_1"]] * 8}}
+    def gate(candidate):
+        under = len(candidate["tags"]) < 8
+        return {
+            "issues": ["FORMAT_GATE_FAILED"] if under else [],
+            "format": {"problems": {
+                "tags": ["FEWER_THAN_EIGHT"] if under else []
+            }},
+            "editorial": {"issues": {}},
+        }
+    diagnostics = {}
+    revised, result_gate, _, changed = repair_fields_independently(
+        draft, proof, {"issues": []}, writer,
+        lambda _: {"issues": []}, gate, diagnostics=diagnostics,
+    )
+    assert changed == ["tags"]
+    assert len(revised["tags"]) == 8
+    assert not result_gate["issues"]
+    assert diagnostics["tags"] == ["ACCEPTED"]
+    assert len(calls) == 1
+
+
+def test_tag_edit_must_remove_original_count_error_before_accepting():
+    draft = {
+        "title": "Питання про освіту",
+        "title_variants": ["Освіта", "Навчання", "Розмова"],
+        "description": "Говорять про освіту.",
+        "tags": ["освіта", "навчання"],
+        "support_ids": {
+            "title": ["ev_1"], "title_variants": [["ev_1"]] * 3,
+            "description": ["ev_1"], "tags": [["ev_1"]] * 2,
+        },
+    }
+    proof = [{"evidence_id": "ev_1", "quote": "Обговорюють освіту та навчання."}]
+    def writer(_prompt):
+        return {"changes": {
+            "tags": ["освіта", "навчання", "школа"]
+        }, "support_ids": {"tags": [["ev_1"]] * 3}}
+    def gate(candidate):
+        return {
+            "issues": ["FORMAT_GATE_FAILED"],
+            "format": {"problems": {"tags": ["FEWER_THAN_EIGHT"]}},
+            "editorial": {"issues": {"tags": ["FEWER_THAN_EIGHT"]}},
+        }
+    diagnostics = {}
+    result, _, _, changed = repair_fields_independently(
+        draft, proof, {"issues": []}, writer, lambda _: {"issues": []},
+        gate, diagnostics=diagnostics,
+    )
+    assert changed == []
+    assert result == draft
+    assert diagnostics["tags"] == [
+        "FIELD_FORMAT_STILL_INVALID", "FIELD_FORMAT_STILL_INVALID"
+    ]
