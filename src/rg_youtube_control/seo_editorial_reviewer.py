@@ -187,6 +187,8 @@ def revise_seo_candidate(
     from .seo_quality_gate import inspect_editorial_targets
     working = draft
     critique = first_review
+    required_fields = ("title", "description", "title_variants", "tags")
+    complete_draft = all(draft.get(field) for field in required_fields)
     failure_code = "NO_VALID_REVISION"
     for attempt in range(2):
         instruction = (
@@ -198,7 +200,10 @@ def revise_seo_candidate(
             "(РІВНО 3 змістовні, різні), "
             "description (400-900 символів), tags (8-12 природних "
             "українських конкретних пошукових фраз). "
-            "Виправ УСІ попередні зауваження. Жодних шаблонних A/B "
+            "Виправ УСІ попередні зауваження. Якщо оригінальний пакет "
+            "повний, поверни ЛИШЕ поля з переліку помилок, не дублюй "
+            "поля без зауважень. Інакше поверни повний пакет. "
+            "Жодних шаблонних A/B "
             "або штучних сполучень різних сюжетів. "
             "Твердження, причини, результати й числа мають бути "
             "прямо засвідчені дослівними репліками. "
@@ -236,12 +241,28 @@ def revise_seo_candidate(
                 model=model, json_mode=True, max_tokens=2500,
                 reasoning_effort="none", timeout=180,
             )
-            candidate = json.loads(raw)
-            if not isinstance(candidate, dict):
+            patch = json.loads(raw)
+            if not isinstance(patch, dict):
                 failure_code = "INVALID_JSON_OBJECT"
                 continue
-            required = ("title", "description", "title_variants", "tags")
-            if not all(candidate.get(key) for key in required):
+            # A valid full draft should not be destroyed by rewriting fields
+            # that the independent critic did not reject. The model returns
+            # only corrections for flagged fields; validate the merged package.
+            allowed = set(required_fields)
+            if complete_draft:
+                flagged = {
+                    str(issue.get("field") or "").strip()
+                    for issue in critique.get("issues", [])
+                    if isinstance(issue, dict)
+                }
+                flagged &= allowed
+                if flagged:
+                    allowed = flagged
+            candidate = {**working, **{
+                field: value for field, value in patch.items()
+                if field in allowed and value
+            }}
+            if not all(candidate.get(key) for key in required_fields):
                 failure_code = "INCOMPLETE_REVISION"
                 continue
             gate = inspect_editorial_targets(candidate)
@@ -255,10 +276,7 @@ def revise_seo_candidate(
                     ]
                 }
                 continue
-            if (
-                candidate.get("title") == working.get("title")
-                and candidate.get("description") == working.get("description")
-            ):
+            if all(candidate.get(field) == working.get(field) for field in required_fields):
                 failure_code = "UNCHANGED_REVISION"
                 continue
             second_review = review_seo_candidate(
