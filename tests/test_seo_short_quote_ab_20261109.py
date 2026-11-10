@@ -52,3 +52,45 @@ def test_generic_primary_title_detection_is_not_triggered_by_specific_event():
     assert "GENERIC_PRIMARY_TITLE" not in flags(
         "Чому співрозмовник не вірить заявам про зарплати?", "", [], [],
     )
+
+
+
+def test_specific_generated_title_replaces_legacy_generic_title():
+    old = "Що кажуть росіяни?"
+    candidate = "Росіянин розповів про зарплату та ціни у своєму місті"
+    selected = free_tools._preserve_current_title_when_candidate_is_not_stronger(
+        old, candidate,
+    )
+    assert selected == candidate
+
+
+def test_specific_legacy_title_not_replaced_with_generic_model_output():
+    old = "Що каже росіянин про зарплату у своєму місті?"
+    candidate = "Що кажуть росіяни?"
+    selected = free_tools._preserve_current_title_when_candidate_is_not_stronger(
+        old, candidate,
+    )
+    assert selected == old
+
+
+def test_ab_angles_drop_near_identical_main_title_and_keep_different_hooks():
+    primary = "Чому росіянин не вірить обіцянкам про зарплати?"
+    proposals = [
+        "Чому росіянин не вірить обіцянкам про зарплати!",
+        "Чому росіянин не вірить обіцянкам про зарплати?",
+        "Скільки отримує співрозмовник і на що вистачає грошей?",
+        "Що він відповів на запитання про ціни?",
+        "Де зникають гроші після отримання зарплати?",
+    ]
+    variants = free_tools._select_diverse_title_variants(primary, proposals)
+    assert len(variants) == 3
+    assert all(value not in proposals[:2] for value in variants)
+    assert len({value.casefold() for value in variants}) == 3
+
+
+def test_ab_angles_do_not_pad_with_synthetic_generic_titles():
+    variants = free_tools._select_diverse_title_variants(
+        "Розмова про пенсії",
+        ["Розмова про пенсії!", "Розмова про пенсії?"],
+    )
+    assert variants == []
