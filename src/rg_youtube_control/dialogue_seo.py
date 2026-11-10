@@ -396,6 +396,69 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
     return distinct
 
 
+# Ranking uses only words from literal SRT quotations. Topic labels and
+# summaries produced by an earlier model are never ranking inputs.
+_SOURCE_TOPIC_STOPWORDS = {
+    "якщо", "тому", "після", "перед", "коли", "його", "вона", "вони",
+    "тебе", "мене", "моя", "мої", "него", "тебя", "меня", "будет",
+    "были", "было", "этого", "потому", "чтобы", "который", "говорю",
+    "сказал", "кажу", "тобто", "тогда", "вообще", "просто", "только",
+    "думаю", "знаю", "потім", "могу", "может", "зараз", "сейчас",
+    "ничего", "почему", "какая", "какой", "очень", "такий",
+    "росії", "россия", "россии", "россий", "україна", "украине",
+    "украина", "україні", "украину", "україну",
+}
+
+
+def _literal_quote_subjects(quote: str) -> set[str]:
+    """Topic-bearing bilingual stems from one actual quote, not its summary."""
+    words = re.findall(r"[a-zа-яёіїєґ]{4,}", str(quote).casefold())
+    return {
+        _cross_language_topic_word(word)[:5]
+        for word in words
+        if word not in _SOURCE_TOPIC_STOPWORDS
+        and _cross_language_topic_word(word)[:5] not in {
+            "росси", "украи", "говор", "потому", "просто",
+        }
+    }
+
+
+def rank_literal_evidence(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Rank evidence by subject recurrence across *different* SRT blocks.
+
+    A topic heard in several disjoint blocks is generally a stronger lead
+    than a one-off exchange. This is lexical ranking only, not a claim of
+    factual truth or a replacement for final human review. Stable ties
+    preserve recording order. Sparse unrelated quotes stay unranked.
+    """
+    entries = distinct_evidence_topics(report)
+    if not entries:
+        return []
+    subjects = [_literal_quote_subjects(entry["evidence"]) for entry in entries]
+    # One vote per separately time-stamped block. A long quote cannot
+    # inflate significance by repeating its own words.
+    block_subjects: dict[str, set[str]] = {}
+    for item, tokens in zip(entries, subjects):
+        block_subjects.setdefault(item["start_stamp"], set()).update(tokens)
+    frequency: dict[str, int] = {}
+    for tokens in block_subjects.values():
+        for token in tokens:
+            frequency[token] = frequency.get(token, 0) + 1
+    scored = [
+        (
+            sum(min(frequency.get(token, 0) - 1, 4) for token in tokens),
+            index,
+            item,
+        )
+        for index, (item, tokens) in enumerate(zip(entries, subjects))
+    ]
+    return [
+        item for _score, _index, item in sorted(
+            scored, key=lambda pair: (-pair[0], pair[1])
+        )
+    ]
+
+
 def evidence_outline_text(
     report: dict[str, Any], *, max_chars: int | None = None
 ) -> str:
