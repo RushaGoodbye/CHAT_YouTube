@@ -1,0 +1,31 @@
+name: RG 895 popup code paths inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-popup-code-paths-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import ast
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for name in ("rg_fullstream_detectors_v2.py","rg_fullstream_popup_checkpoint_v89.py","rg_fullstream_auto_v2.py","rg_fullstream_popup_light_v89.py"):
+              lines=(root/name).read_text(encoding="utf-8-sig").splitlines()
+              if name=="rg_fullstream_detectors_v2.py":
+                  ranges=[(90,240),(370,470),(515,615)]
+              elif name=="rg_fullstream_popup_checkpoint_v89.py":ranges=[(1,100)]
+              elif name=="rg_fullstream_auto_v2.py":ranges=[(422,528),(582,635)]
+              else:ranges=[(1,55)]
+              for a,b in ranges:
+                  for i in range(a-1,min(len(lines),b)):
+                      print("RGSOURCE|"+name+"|"+str(i+1)+"|"+lines[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_DIAG_FAILED'}
