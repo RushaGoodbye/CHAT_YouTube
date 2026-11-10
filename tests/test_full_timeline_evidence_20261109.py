@@ -101,3 +101,29 @@ def test_single_long_quote_never_breaks_evidence_budget():
     }]}
     outline = evidence_outline_text(report, max_chars=500)
     assert len(outline) <= 500
+
+
+
+def test_editorial_synopsis_does_not_append_unverified_topic_labels():
+    from rg_youtube_control.dialogue_seo import preserve_outline_topics
+    public_description = (
+        "Співрозмовник розповідає про економічні труднощі та їхній вплив "
+        "на життя людей. У розмові звучать конкретні приклади й запитання. "
+        "Окремі судження учасників залишаються їхніми оцінками."
+    )
+    report = {"blocks": [
+        {
+            "verified": True,
+            "start_stamp": f"00:{i:02d}:00",
+            "topics": [{
+                "topic": f"Вигадана модельна тема {i}",
+                "evidence": f"Власні слова учасника номер {i}",
+            }],
+        } for i in range(25)
+    ]}
+    result, omitted = preserve_outline_topics(
+        public_description, report, max_topic_bullets=0, max_body_bytes=900,
+    )
+    assert result == public_description
+    assert omitted
+    assert "Інші підтверджені теми" not in result
