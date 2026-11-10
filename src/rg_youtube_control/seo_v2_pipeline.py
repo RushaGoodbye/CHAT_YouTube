@@ -341,7 +341,12 @@ def _repair_source_citations(
         + "\nLITERAL EVIDENCE:\n"
         + json.dumps(proof, ensure_ascii=False)
     )
-    response = _ask(chat, request)
+    try:
+        response = _ask(chat, request)
+    except (ValueError, RuntimeError, TypeError, TimeoutError):
+        # Bad citation JSON cannot invalidate an otherwise useful draft.
+        # The regular gate still reports its original missing citations.
+        return False
     candidate = response.get("support_ids")
     if not isinstance(candidate, dict):
         return False
