@@ -383,6 +383,54 @@ def _repair_source_citations(
 
     if is_valid():
         return False
+    # First repair the most common structured-output defect separately:
+    # one missing/invalid citation per tag. This is a small matching task,
+    # not another generation of the whole SEO package.
+    tags = draft.get("tags")
+    tag_groups = support.get("tags")
+    tag_invalid = (
+        isinstance(tags, list) and (
+            not isinstance(tag_groups, list)
+            or len(tag_groups) != len(tags)
+            or any(
+                not isinstance(group, list) or not group
+                or any(not isinstance(eid, str) or eid not in ids
+                       for eid in group)
+                for group in tag_groups
+            )
+        )
+    )
+    if tag_invalid:
+        focused = (
+            "You ONLY match existing Ukrainian search tags to verbatim "
+            "quotes. Do not invent a tag, entity, event, person or evidence "
+            "ID. Return JSON with exactly one key tags: an ARRAY of "
+            "evidence-ID arrays, one for EACH input tag in the same order. "
+            "Use [] if no quotation supports that tag. "
+            "Never attach a random ID to satisfy length. "
+            "TAGS:\\n" + json.dumps(tags, ensure_ascii=False)
+            + "\\nEVIDENCE:\\n" + json.dumps([
+                {"id": entry["evidence_id"], "quote": entry["quote"]}
+                for entry in proof
+            ], ensure_ascii=False)
+        )
+        try:
+            candidate_groups = _ask(chat, focused).get("tags")
+        except (ValueError, RuntimeError, TypeError, TimeoutError):
+            candidate_groups = None
+        if (
+            isinstance(candidate_groups, list)
+            and len(candidate_groups) == len(tags)
+            and all(
+                isinstance(group, list) and bool(group)
+                and all(isinstance(eid, str) and eid in ids for eid in group)
+                for group in candidate_groups
+            )
+        ):
+            support["tags"] = candidate_groups
+            draft["support_ids"] = support
+            if is_valid():
+                return True
     request = (
         "You are a source-citation matcher, NOT an SEO writer. "
         "Do not change any existing title, variant, sentence or tag. "
