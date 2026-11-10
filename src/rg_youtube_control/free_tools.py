@@ -2912,6 +2912,57 @@ chapters: рядок з підтвердженими таймкодами та �
                     if len(merged_tags) >= 10:
                         break
 
+            if len(merged_tags) < 8 and evidence_report and verified_evidence:
+                # Repair tag QUALITY at the generator, not at the acceptance
+                # gate. Ask for specific episode search terms grounded in
+                # verified quotations, then check each candidate against the
+                # complete SRT before adding it.
+                tag_prompt = (
+                    "Ти SEO-редактор українського YouTube. Поверни JSON "
+                    'з полем "tags": масив 8–12 українських пошукових '
+                    "фраз без #. Візьми конкретні імена, місця, питання й "
+                    "теми лише з ЦИТАТ. Не з'єднуй слова з різних діалогів, "
+                    "не додавай нові події, причини, цифри або загальні "
+                    "теги на кшталт новини/суспільство. Віддавай перевагу "
+                    "природним фразам із 2–5 слів, не вигадуй тему, "
+                    "щоб набрати 8 тегів.\n"
+                    "УЖЕ Є: " + json.dumps(merged_tags, ensure_ascii=False)
+                    + "\nЦИТАТИ З РІЗНИХ ЧАСТИН ВІДЕО:\n"
+                    + verified_evidence[:10500]
+                )
+                try:
+                    tag_raw = ollama_chat(
+                        [
+                            {"role": "system", "content": (
+                                "Українські тематичні пошукові фрази. Лише JSON."
+                            )},
+                            {"role": "user", "content": tag_prompt},
+                        ],
+                        model=model, timeout=timeout,
+                        temperature=0.08, json_mode=True, num_ctx=16384,
+                    )
+                    tag_reply = _extract_json_object(tag_raw)
+                    proposals = tag_reply.get("tags")
+                    if isinstance(proposals, list):
+                        for proposed in proposals[:24]:
+                            tag = " ".join(str(proposed or "").split()).lstrip("#")
+                            key = tag.casefold()
+                            if (
+                                not tag or len(tag) > 70 or key in seen_tags
+                                or _seo_ukrainian_language_issue(tag)
+                                or not _tag_is_grounded(
+                                    tag, current_title, transcript,
+                                )
+                            ):
+                                continue
+                            seen_tags.add(key)
+                            merged_tags.append(tag)
+                            if len(merged_tags) >= 12:
+                                break
+                except (ValueError, RuntimeError, TimeoutError, TypeError):
+                    # A failed optional tag rewrite must never erase a
+                    # still-useful, explicitly unapproved draft.
+                    pass
             if len(merged_tags) < 8:
                 # Never pad keywords with unsupported claims to reach a quota.
                 # An incomplete tag set can be saved ONLY for human review.
