@@ -1,0 +1,20 @@
+name: RG F only migration safe dryrun
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-safe-dryrun.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_f_only_migrate_shortcuts_and_old_exe.py
+          if($LASTEXITCODE -ne 0){throw 'F_ONLY_DRYRUN_FAILED'}
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -c "import win32com.client; print('RGFMOVE|WIN32COM_AVAILABLE|PASS')"
+          if($LASTEXITCODE -ne 0){throw 'F_ONLY_WIN32COM_MISSING'}
