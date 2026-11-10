@@ -49,8 +49,8 @@ def test_unresolved_revision_reports_actual_second_review(monkeypatch):
         "description": "Точний опис. " * 32,
         "tags": ["один", "два", "три", "чотири", "п'ять", "шість", "сім", "вісім"],
     }
-    response = {"title": "Питання про війну"}
-    monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps(response, ensure_ascii=False))
+    responses = iter([{"title": "Питання про війну"}, {"title": "Суперечка про війну"}])
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps(next(responses), ensure_ascii=False))
     monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
     monkeypatch.setattr(editor, "review_seo_candidate", lambda **_k: {
         "review_status": "NEEDS_REVISION", "issues": [{"field": "title", "reason": "still not grounded"}],
