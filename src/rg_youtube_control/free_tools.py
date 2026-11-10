@@ -3417,6 +3417,15 @@ chapters: рядок з підтвердженими таймкодами та �
             if evidence_report and verified_evidence and (
                 len(merged_tags) < 8 or topical_count < 4
             ):
+                from .dialogue_seo import focused_literal_source_notes
+                focus_for_tags = focused_literal_source_notes(
+                    evidence_report,
+                    str(candidate.get("title") or current_title),
+                    limit=9,
+                )
+                tag_source_quotes = json.dumps(
+                    focus_for_tags, ensure_ascii=False,
+                )[:10500]
                 # If the model filled all slots with channel/format tags,
                 # reclaim those slots for episode-specific search queries.
                 if topical_count < 4:
@@ -3441,7 +3450,7 @@ chapters: рядок з підтвердженими таймкодами та �
                     "щоб набрати 8 тегів.\n"
                     "УЖЕ Є: " + json.dumps(merged_tags, ensure_ascii=False)
                     + "\nЦИТАТИ З РІЗНИХ ЧАСТИН ВІДЕО:\n"
-                    + verified_evidence[:10500]
+                    + tag_source_quotes
                 )
                 try:
                     tag_raw = ollama_chat(
@@ -3497,7 +3506,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 if (
                     _seo_ukrainian_language_issue(tag)
                     or re.search(
-                        r"(?i)\\b(?:стала|стане)\\s+росії\\b",
+                        r"(?i)\b(?:стала|стане)\s+росії\b",
                         lowered,
                     )
                 ):
@@ -3532,7 +3541,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         not lowered
                         or _seo_ukrainian_language_issue(tag)
                         or (len(tag.split()) < 2 and lowered not in allowed_single)
-                        or re.search(r"(?i)\\b(?:стала|стане)\\s+росії\\b", lowered)
+                        or re.search(r"(?i)\b(?:стала|стане)\s+росії\b", lowered)
                         or not _tag_is_grounded(tag, current_title, transcript)
                     ):
                         continue
