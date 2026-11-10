@@ -1,0 +1,40 @@
+name: RG 895 QA-only admission and GUI integrity hashes
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-qa-admission-prepatch-test.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import sys,json,hashlib
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_qa_export_v96 import evaluate
+          job=json.loads((root/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          gate=json.loads((root/"editorial_preflight_v82.json").read_text(encoding="utf-8-sig"))
+          flagged=dict(job,qa_preview_export_requested=True)
+          result=evaluate(flagged,gate)
+          print("RGQAFIX|REVIEW_ONLY_ADMISSION|"+json.dumps(result,ensure_ascii=False),flush=True)
+          if result.get("allow_review_render") is not True:raise RuntimeError("QA_PREVIEW_REJECTED")
+          if result.get("publish_ready") is not False or result.get("archive_allowed") is not False:
+              raise RuntimeError("QA_PREVIEW_PRODUCTION_BYPASS")
+          print("RGQAFIX|NO_PUBLISH_NO_ARCHIVE|PASS",flush=True)
+          for name in ("rg_fullstream_manual_tab_v4.py","rg_fullstream_batch_v53.py"):
+              b=(app/name).read_bytes()
+              print("RGQAFIX|SHA|"+name+"|"+hashlib.sha256(b).hexdigest(),flush=True)
+          text=(app/"rg_fullstream_batch_v53.py").read_text(encoding="utf-8-sig")
+          sha=hashlib.sha256((app/"rg_fullstream_manual_tab_v4.py").read_bytes()).hexdigest()
+          print("RGQAFIX|BATCH_HAS_MANUAL_TAB_PIN|"+str(text.count(sha)),flush=True)
+          print("RGQAFIX|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG895_QA_ADMISSION_FAILED'}
