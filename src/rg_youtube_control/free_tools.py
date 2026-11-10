@@ -3063,6 +3063,24 @@ chapters: рядок з підтвердженими таймкодами та �
                 "запитання росіянам", "розмова з росіянами",
                 "youtube", "новини",
             }
+            # Do not let the model's generic one-word filler consume the
+            # ten available search-tag slots. Keep literal named entities
+            # only if they are mentioned in the transcript.
+            if evidence_report and transcript.strip():
+                format_tags = {"раша гудбай", "чат рулетка"}
+                merged_tags = [
+                    tag for tag in merged_tags
+                    if (
+                        len(tag.split()) >= 2
+                        or tag.casefold() in format_tags
+                        or (
+                            tag[:1].isupper()
+                            and _tag_is_grounded(tag, current_title, transcript)
+                            and tag.casefold() not in {"росія", "україна", "новини"}
+                        )
+                    )
+                ]
+                seen_tags = {tag.casefold() for tag in merged_tags}
             topical_count = sum(
                 tag.casefold() not in generic_search_tags
                 for tag in merged_tags
@@ -3115,6 +3133,9 @@ chapters: рядок з підтвердженими таймкодами та �
                             key = tag.casefold()
                             if (
                                 not tag or len(tag) > 70 or key in seen_tags
+                                or (len(tag.split()) < 2 and not (
+                                    tag[:1].isupper() and key not in {"росія", "україна", "новини"}
+                                ))
                                 or _seo_ukrainian_language_issue(tag)
                                 or not _tag_is_grounded(
                                     tag, current_title, transcript,
