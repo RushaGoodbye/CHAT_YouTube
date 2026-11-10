@@ -2974,14 +2974,58 @@ chapters: рядок з підтвердженими таймкодами та �
                                     "", focused_ab, [],
                                 ),
                             }, ensure_ascii=True), flush=True)
-                        if (
-                            len(focused_ab) == 3
-                            and not ab_title_issues(focused_ab, evidence_report)
-                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
-                                str(candidate.get("title") or ""), "", focused_ab, [],
-                            )
-                        ):
-                            candidate["title_variants"] = focused_ab
+                        # A single unsupported sentence must not discard
+                        # two strong source-anchored hooks. Ask the model to
+                        # repair the failed fields, then select a complete
+                        # triple satisfying BOTH source and editorial checks.
+                        focused_issues = ab_title_issues(focused_ab, evidence_report)
+                        options = list(focused_ab)
+                        if focused_issues:
+                            try:
+                                retry_ab = _recover_title_variants(
+                                    current_title=str(candidate.get("title") or current_title),
+                                    transcript=(
+                                        "ПОМИЛКИ ПОПЕРЕДНІХ ВАРІАНТІВ: "
+                                        + json.dumps(focused_issues, ensure_ascii=False)
+                                        + "\nПОПЕРЕДНІ ВАРІАНТИ: "
+                                        + json.dumps(focused_ab, ensure_ascii=False)
+                                        + "\nНапиши 3 НОВІ конкретні гачки. "
+                                        "Не вигадуй загиблих, причин, наслідків, "
+                                        "мотивації або зв'язку між різними розмовами. "
+                                        "Пиши українською, не шаблонами. "
+                                        "Використай підтверджені дослівні цитати:\n"
+                                        + source_brief + "\n"
+                                        + verified_evidence[:8500]
+                                    ),
+                                    model=model,
+                                )
+                                options.extend(retry_ab)
+                            except (ValueError, RuntimeError, TimeoutError):
+                                pass
+                        from itertools import combinations as _combinations
+                        winning_ab = []
+                        primary_ab_title = str(candidate.get("title") or "").casefold()
+                        for combo in _combinations(dict.fromkeys(options), 3):
+                            proposed = list(combo)
+                            if any(
+                                item.casefold() == primary_ab_title for item in proposed
+                            ):
+                                continue
+                            if (
+                                not ab_title_issues(proposed, evidence_report)
+                                and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", proposed, [],
+                                )
+                                and "SIMILAR_AB_ANGLES" not in _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", proposed, [],
+                                )
+                            ):
+                                winning_ab = proposed
+                                break
+                        if winning_ab:
+                            candidate["title_variants"] = winning_ab
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
                 # The model can still return vague questions after a retry.
