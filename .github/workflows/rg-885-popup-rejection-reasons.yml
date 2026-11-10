@@ -1,0 +1,28 @@
+name: RG 885 popup visual rejection reasons report
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-popup-rejection-reasons.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          foreach($n in @('V41_POPUP_VISUAL_REJECTIONS.json','V89_LIGHT_POPUP_RESCUED.json')){
+            $f=Join-Path $root $n
+            if(!(Test-Path $f)){Write-Output ('RGREJECT|MISSING|'+$n);continue}
+            $v=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGREJECT|FILE|'+$n+'|'+(Get-Item $f).Length+'|COUNT='+@($v).Count)
+            foreach($r in @($v)|Select-Object -First 35){
+              Write-Output ('RGREJECT|ITEM|'+$n+'|'+($r|ConvertTo-Json -Compress -Depth 4))
+            }
+          }
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_detectors_v2.py'
+          $a=@(Get-Content $p -Encoding UTF8)
+          $start=($a|Select-String -Pattern '^def verify_popup_cards_v41\(' | Select-Object -First 1).LineNumber
+          if($start){for($i=$start;$i -le [math]::Min($start+130,$a.Count);$i++){Write-Output ('RGREJECT|CODE|'+$i+'|'+$a[$i-1])}}
+          Write-Output 'RGREJECT|READ_ONLY|PASS'
