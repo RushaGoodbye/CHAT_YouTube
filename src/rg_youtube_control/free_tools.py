@@ -3426,6 +3426,10 @@ chapters: рядок з підтвердженими таймкодами та �
                 tag_source_quotes = json.dumps(
                     focus_for_tags, ensure_ascii=False,
                 )[:10500]
+                if not focus_for_tags:
+                    # A headline unrelated to every source quote must not
+                    # trigger an ungrounded tag generation fallback.
+                    candidate["_headline_source_mismatch"] = True
                 # If the model filled all slots with channel/format tags,
                 # reclaim those slots for episode-specific search queries.
                 if topical_count < 4:
@@ -3453,6 +3457,8 @@ chapters: рядок з підтвердженими таймкодами та �
                     + tag_source_quotes
                 )
                 try:
+                    if not focus_for_tags:
+                        raise ValueError("NO_TITLE_GROUNDED_TAG_EVIDENCE")
                     tag_raw = ollama_chat(
                         [
                             {"role": "system", "content": (
@@ -4120,6 +4126,8 @@ chapters: рядок з підтвердженими таймкодами та �
             ranked_notes = focused_literal_source_notes(
                 evidence_report, title, limit=6,
             )
+            if not ranked_notes:
+                payload["_headline_source_mismatch"] = True
             if ranked_notes:
                 focused_prompt = (
                     "Напиши точний SEO-опис УКРАЇНСЬКОЮ на 400–900 "
@@ -4175,6 +4183,8 @@ chapters: рядок з підтвердженими таймкодами та �
     editorial_quality_flags = _seo_editorial_preview_flags(
         title, description, variants, tags,
     )
+    if payload.get("_headline_source_mismatch"):
+        editorial_quality_flags.append("HEADLINE_NOT_SUPPORTED_BY_SOURCE_QUOTES")
     # The field-specific description repair must not silently pass after
     # unsuccessful rewrite just because its character count happens to fit.
     if payload.get("_description_quality_issue"):
