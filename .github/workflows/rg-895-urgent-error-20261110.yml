@@ -1,0 +1,43 @@
+name: RG 895 urgent live error inspection Nov 10
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-urgent-error-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          Write-Output ('RGERR895|TIME|'+(Get-Date).ToString('o'))
+          foreach($n in @('status.json','stage_state_v52.json','asr_watchdog_v58.json','worker_heartbeat_v79.json','editorial_preflight_v82.json','processing_plan.json')){
+            $p=Join-Path $root $n
+            if(Test-Path $p){
+              $v=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGERR895|FILE|'+$n+'|'+(Get-Item $p).LastWriteTime.ToString('o'))
+              if($n -eq 'stage_state_v52.json'){
+                foreach($entry in @($v.history)|Select-Object -Last 9){
+                  Write-Output ('RGERR895|STAGE|'+$entry.stage+'|'+$entry.detail)
+                }
+              }elseif($n -eq 'processing_plan.json'){
+                Write-Output ('RGERR895|PLAN|popup_masks='+@($v.popup_masks).Count+'|popup_coverage_verified='+$v.popup_coverage_verified)
+              }else{
+                $s=$v|ConvertTo-Json -Compress -Depth 6
+                Write-Output ('RGERR895|VALUE|'+$n+'|'+$s.Substring(0,[Math]::Min(2500,$s.Length)))
+              }
+            }else{Write-Output ('RGERR895|MISSING|'+$n)}
+          }
+          foreach($f in Get-ChildItem $root -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 18){
+            Write-Output ('RGERR895|RECENT|'+$f.Name+'|'+$f.LastWriteTime.ToString('o')+'|'+$f.Length)
+          }
+          $log='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\queue_worker.log'
+          if(Test-Path $log){
+            Get-Content $log -Tail 100|ForEach-Object{Write-Output ('RGERR895|LOG|'+$_)}
+          }
+          $ps=@(Get-CimInstance Win32_Process|Where-Object {$_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_asr_child_v58|rg_studio_main.py|ffmpeg.*895'})
+          foreach($p in $ps){Write-Output ('RGERR895|PROC|'+$p.ProcessId+'|'+$p.Name+'|'+$p.ParentProcessId+'|'+$p.CommandLine.Substring(0,[Math]::Min(180,$p.CommandLine.Length)))}
+          Write-Output 'RGERR895|READ_ONLY|PASS'
