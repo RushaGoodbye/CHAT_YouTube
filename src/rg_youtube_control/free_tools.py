@@ -2865,6 +2865,44 @@ chapters: рядок з підтвердженими таймкодами та �
                     if lexical and not ab_title_issues(lexical, evidence_report):
                         candidate["title_variants"] = lexical
                         candidate["_source_lexical_review_only"] = True
+            if evidence_report and verified_evidence and (
+                "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                    str(candidate.get("title") or ""),
+                    "",
+                    candidate.get("title_variants") or [],
+                    [],
+                )
+            ):
+                # The grounding-only A/B gate accepts safe but generic
+                # questions. Give the editor a focused retry anchored to
+                # distinct quotations, then enforce BOTH the source gate
+                # and the no-generic editorial gate.
+                source_brief = _ab_distinct_evidence_brief(evidence_report)
+                if source_brief:
+                    try:
+                        focused_ab = _recover_title_variants(
+                            current_title=current_title,
+                            transcript=(
+                                "ВАЖЛИВО: заборонені загальні заголовки "
+                                "'Про що говорили?', 'Що кажуть співрозмовники?', "
+                                "'Думки учасників розмови'. Кожен варіант "
+                                "має називати КОНКРЕТНИЙ підтверджений предмет "
+                                "суперечки, ім'я, місце або запитання. "
+                                "Тільки із прямих цитат, без вигаданих подій.\\n"
+                                + source_brief + "\\n" + verified_evidence[:8500]
+                            ),
+                            model=model,
+                        )
+                        if (
+                            len(focused_ab) == 3
+                            and not ab_title_issues(focused_ab, evidence_report)
+                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                str(candidate.get("title") or ""), "", focused_ab, [],
+                            )
+                        ):
+                            candidate["title_variants"] = focused_ab
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
             if evidence_report:
                 # The old code overwrote EVERY model-written description
                 # with a short, generic keyword template, even when the
