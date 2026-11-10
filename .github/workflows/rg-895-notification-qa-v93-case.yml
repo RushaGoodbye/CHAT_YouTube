@@ -1,0 +1,18 @@
+name: RG 895 notification QA actionable case
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-notification-qa-v93-case.yml']
+permissions: {contents: read}
+jobs:
+  report:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_notification_qa_v93_actionable.py 895
+          if($LASTEXITCODE -ne 0){throw 'NOTIFICATION_QA_V93_CASE_FAILED'}
