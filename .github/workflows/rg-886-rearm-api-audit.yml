@@ -1,0 +1,17 @@
+name: RG 886 queue rearm function audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-rearm-api-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $f='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_launcher_v2.py'
+          $a=@(Get-Content $f -Encoding UTF8)
+          for($i=1;$i -le [Math]::Min(115,$a.Count);$i++){Write-Output ('RGREARM|'+$i+'|'+$a[$i-1])}
+          Write-Output 'RGREARM|READONLY|PASS'
