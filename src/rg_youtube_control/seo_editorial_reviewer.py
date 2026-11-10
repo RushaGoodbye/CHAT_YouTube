@@ -193,24 +193,24 @@ def revise_seo_candidate(
     complete_draft = all(draft.get(field) for field in required_fields)
     failure_code = "NO_VALID_REVISION"
     last_review = first_review
-    for attempt in range(2):
+    max_attempts = 3
+    for attempt in range(max_attempts):
         instruction = (
             "Ти редактор SEO для українського каналу. Зроби АДРЕСНЕ "
             "виправлення чернетки за конкретними помилками редактора. "
             "Збережи всі підтверджені цитатами формулювання та правильні "
             "поля. Не переписуй безпомилкові фрази заради стилю. "
-            "Поверни ПОВНИЙ пакет JSON з title, title_variants "
-            "(РІВНО 3 змістовні, різні), "
-            "description (400-900 символів), tags (8-12 природних "
-            "українських конкретних пошукових фраз). "
+            "Відповідь JSON із виправленими полями. Допустимі поля: "
+            "title, title_variants (рівно 3 різні назви), description "
+            "(400-900 символів), tags (8-12 конкретних фраз). "
             "Для title_variants уникай вигаданих узагальнень, "
             "заміни лише неточні формулювання. Не копіюй довгі "
             "цитати як три заголовки. Не змінюй зміст особистої "
             "позиції на встановлений факт. "
             "Перевір граматику кожного тегу українською. "
-            "Виправ УСІ попередні зауваження. Якщо оригінальний пакет "
-            "повний, поверни ЛИШЕ поля з переліку помилок, не дублюй "
-            "поля без зауважень. Інакше поверни повний пакет. "
+            "Виправ ЛИШЕ поля, до яких є зауваження. "
+            "Надсилай тільки змінені поля, не копіюй решту JSON. "
+            "Якщо якесь поле відсутнє у чернетці, заповни його. "
             "Жодних шаблонних A/B "
             "або штучних сполучень різних сюжетів. "
             "Твердження, причини, результати й числа мають бути "
@@ -282,6 +282,16 @@ def revise_seo_candidate(
                 field: value for field, value in patch.items()
                 if field in allowed and value
             }}
+            # Avoid replacing a valid section with a broken partial one.
+            # Allow the editor to replace the entire offending field on retry,
+            # but require corrected collections instead of merging bad tags.
+            if not any(candidate.get(field) != working.get(field) for field in allowed):
+                failure_code = "UNCHANGED_REVISION"
+                critique = {"issues": [
+                    {"field": field, "reason": "Потрібна реальна зміна поля"}
+                    for field in allowed
+                ]}
+                continue
             if not all(candidate.get(key) for key in required_fields):
                 failure_code = "INCOMPLETE_REVISION"
                 continue
@@ -358,6 +368,10 @@ def revise_seo_candidate(
                 continue
             if all(candidate.get(field) == working.get(field) for field in required_fields):
                 failure_code = "UNCHANGED_REVISION"
+                critique = {"issues": [
+                    {"field": field, "reason": "Поле не змінено попри редакторське зауваження"}
+                    for field in allowed
+                ]}
                 continue
             second_review = review_seo_candidate(
                 draft=candidate, source_notes=source_notes, model=model,
@@ -382,7 +396,7 @@ def revise_seo_candidate(
         "candidate": draft, "review": first_review,
         "revision_error": failure_code,
         "last_review": last_review,
-        "revised": False, "revision_attempts": 2,
+        "revised": False, "revision_attempts": max_attempts,
         "editorial_approved": False,
         "publication_allowed": False,
     }
