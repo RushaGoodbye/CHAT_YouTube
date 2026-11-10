@@ -38,7 +38,7 @@ def _preserves_modality(sentence: str, kind: str) -> bool:
     import re
     text = sentence.casefold()
     signals = {
-        "QUESTION": r"(?:пита|запит|запитання|питання|обговор|\\?)",
+        "QUESTION": r"(?:пита|запит|запитання|питання|обговор|[?])",
         "CONDITIONAL": r"(?:якщо|якби|за умови|умовн|міг би|могло б|було б|не було б)",
         "HYPOTHESIS": r"(?:припуска|вважає|на думку|можливо|ймовірно|версі|міг би)",
         "SPEAKER_STATEMENT": (
