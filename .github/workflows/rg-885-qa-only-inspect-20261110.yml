@@ -1,0 +1,21 @@
+name: RG 885 QA-only export options readonly
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-qa-only-inspect-20261110.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($m in @(@('rg_fullstream_qa_export_v96.py',1,230),@('rg_fullstream_batch_v53.py',235,420),@('rg_fullstream_worker_v3.py',45,145))){
+            $p=Join-Path $app ([string]$m[0]);$a=@(Get-Content $p -Encoding UTF8)
+            for($i=[int]$m[1];$i -le [Math]::Min([int]$m[2],$a.Count);$i++){
+              Write-Output ('RGQAEX|'+$m[0]+'|'+$i+'|'+$a[$i-1])
+            }
+          }
+          Write-Output 'RGQAEX|READONLY|PASS'
