@@ -3436,6 +3436,33 @@ chapters: рядок з підтвердженими таймкодами та �
 
             primary_tags = model_tags if evidence_report and transcript.strip() else grounded_tags
             fallback_tags = grounded_tags if evidence_report and transcript.strip() else model_tags
+            if evidence_report and transcript.strip():
+                from .dialogue_seo import (
+                    focused_literal_source_notes, _literal_quote_subjects,
+                )
+                focused_notes = focused_literal_source_notes(
+                    evidence_report, str(candidate.get("title") or current_title),
+                    limit=12,
+                )
+                # Generic keyword pools were drowning episode-specific
+                # phrases. A claimed topic must be present in an on-topic
+                # source quote. Brand and format tags remain exceptions.
+                focused_text = "\n".join(
+                    str(note.get("quote") or "") for note in focused_notes
+                )
+                brand_format = {"раша гудбай", "чат рулетка"}
+                focus_roots = _literal_quote_subjects(focused_text)
+                def is_focused_tag(tag: str) -> bool:
+                    if str(tag).casefold() in brand_format:
+                        return True
+                    roots = _literal_quote_subjects(tag)
+                    return bool(
+                        roots and focus_roots
+                        and len(roots & focus_roots) >= min(2, len(roots))
+                        and _tag_is_grounded(tag, "", focused_text)
+                    )
+                primary_tags = [tag for tag in primary_tags if is_focused_tag(tag)]
+                fallback_tags = [tag for tag in fallback_tags if is_focused_tag(tag)]
             # Search phrases describing a verified episode topic are more
             # useful than a wall of one-word keywords. Keep proper names and
             # channel tags, but choose specific multiword queries first.
