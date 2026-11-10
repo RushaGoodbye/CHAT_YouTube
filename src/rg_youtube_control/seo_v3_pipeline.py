@@ -14,7 +14,7 @@ from .seo_v2_pipeline import (
 )
 from .seo_v2_evidence import parse_srt
 from .seo_v2_semantic import unsupported_names
-from .seo_v3_claims import build_claim_ledger, check_claim_type_constraints
+from .seo_v3_claims import build_claim_ledger, check_claim_type_constraints, expand_literal_coverage
 
 Chat = Callable[[str], dict[str, Any]]
 
@@ -155,6 +155,7 @@ def generate_claim_first_seo(
     """
     cues = parse_srt(srt)
     evidence, windows = _extract(cues, chat)
+    evidence = expand_literal_coverage(cues, evidence)
     topics = _select_topics(evidence, chat)
     proof = _proof_index(evidence, topics)
     claim_ledger = build_claim_ledger(proof)
