@@ -1,0 +1,24 @@
+name: RG F only stage elevated cleanup script
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-stage-admin-cleanup.yml']
+permissions: {contents: read}
+jobs:
+  stage:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        run: |
+          $source='rg_repair_20261110/REMOVE_OLD_C_STUDIO_ADMIN.ps1'
+          $destination='F:\RG_AUTO_EDIT\REMOVE_OLD_C_STUDIO_ADMIN.ps1'
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $source),[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count){throw 'ADMIN_SCRIPT_PARSE_FAILED'}
+          Copy-Item -LiteralPath $source -Destination $destination -Force
+          if((Get-FileHash $source -Algorithm SHA256).Hash -ne (Get-FileHash $destination -Algorithm SHA256).Hash){throw 'ADMIN_STAGING_SHA_MISMATCH'}
+          Write-Output ('RGADMINSTAGE|READY|'+$destination)
+          Write-Output 'RGADMINSTAGE|NO_UNAUTHORIZED_ADMIN_ACTION|PASS'
