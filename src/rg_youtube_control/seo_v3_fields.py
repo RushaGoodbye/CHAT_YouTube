@@ -29,6 +29,27 @@ def _support(rows: Any, allowed: set[str]) -> list[str]:
     ))
 
 
+def _preserves_modality(sentence: str, kind: str) -> bool:
+    """Minimal deterministic source-type contract for Ukrainian sentences.
+
+    It does not establish factual truth. An unsupported grammatical mode is
+    dropped, never rewritten into a fabricated certainty.
+    """
+    import re
+    text = sentence.casefold()
+    signals = {
+        "QUESTION": r"(?:пита|запит|запитання|питання|обговор|\\?)",
+        "CONDITIONAL": r"(?:якщо|якби|за умови|умовн|міг би|могло б|було б|не було б)",
+        "HYPOTHESIS": r"(?:припуска|вважає|на думку|можливо|ймовірно|версі|міг би)",
+        "SPEAKER_STATEMENT": (
+            r"(?:співрозмов|учасник|ведуч|мовець|заяв|сказав|"
+            r"зазнач|говорить|розповіда|обговор|за словами|вважає)"
+        ),
+    }
+    pattern = signals.get(kind)
+    return bool(pattern and re.search(pattern, text))
+
+
 def compose_claim_fields(
     ledger: dict[str, Any],
     topics: list[dict[str, Any]],
@@ -105,7 +126,8 @@ def compose_claim_fields(
         ids = _support(row.get("evidence_ids"), allowed)
         kind = str(row.get("source_type") or "")
         if (not sentence or not ids
-                or kind not in {by_id[i]["source_type"] for i in ids}):
+                or kind not in {by_id[i]["source_type"] for i in ids}
+                or not _preserves_modality(sentence, kind)):
             continue
         sentences.append(sentence)
         sentence_ids.append(ids)
