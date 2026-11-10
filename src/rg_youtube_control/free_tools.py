@@ -4313,10 +4313,10 @@ chapters: рядок з підтвердженими таймкодами та �
     notes = []
     if evidence_report and isinstance(evidence_report.get("blocks"), list):
         from .seo_editorial_reviewer import (
-            review_seo_candidate, select_independent_source_notes,
+            review_seo_candidate, select_reviewer_notes_for_draft,
         )
-        notes = select_independent_source_notes(
-            evidence_report, max_blocks=24, max_notes=40,
+        notes = select_reviewer_notes_for_draft(
+            evidence_report, qa_inputs, max_notes=40,
         )
         if notes:
             reviewer_report = review_seo_candidate(
