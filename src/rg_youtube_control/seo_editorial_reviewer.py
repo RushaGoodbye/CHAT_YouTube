@@ -21,6 +21,59 @@ def _normalized_issues(raw: Any) -> list[dict[str, str]]:
     raise ValueError("invalid reviewer issues format")
 
 
+
+def select_independent_source_notes(
+    evidence_report: dict[str, Any], *, max_blocks: int = 24, max_notes: int = 40
+) -> list[dict[str, str]]:
+    """Sample literal evidence across the recording, then secondary topics.
+
+    The first pass represents the beginning, middle and end. The second pass
+    covers independent subjects without crowding out late-source quotations.
+    """
+    blocks = [
+        block for block in (evidence_report.get("blocks") or [])
+        if isinstance(block, dict) and block.get("verified") is not False
+        and any(
+            isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+            for topic in (block.get("topics") or [])
+        )
+    ]
+    if not blocks or max_blocks < 1 or max_notes < 1:
+        return []
+    take = min(max_blocks, len(blocks))
+    positions = (
+        [0] if take == 1
+        else sorted({
+            round(i * (len(blocks) - 1) / (take - 1))
+            for i in range(take)
+        })
+    )
+    selected = [blocks[i] for i in positions]
+    notes: list[dict[str, str]] = []
+    for tier in range(3):
+        for block in selected:
+            topics = [
+                topic for topic in block.get("topics") or []
+                if isinstance(topic, dict) and str(topic.get("evidence") or "").strip()
+            ]
+            if tier >= len(topics):
+                continue
+            topic = topics[tier]
+            notes.append({
+                "time": str(
+                    block.get("start_stamp")
+                    or block.get("start")
+                    or block.get("start_s")
+                    or ""
+                ),
+                "topic": str(topic.get("topic") or "")[:140],
+                "quote": str(topic.get("evidence") or "")[:350],
+            })
+            if len(notes) >= max_notes:
+                return notes
+    return notes
+
+
 def review_seo_candidate(
     *,
     draft: dict[str, Any],
