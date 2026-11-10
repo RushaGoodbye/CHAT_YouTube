@@ -73,6 +73,56 @@ def build_claim_ledger(proof: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def expand_literal_coverage(
+    cues: list[Any], ledger: dict[str, Any], *, per_window: int = 5,
+) -> dict[str, Any]:
+    """Improve source coverage independent of any video's subject.
+
+    Sample different parts of EACH SRT window, verify every exact quote
+    against the original cues, and keep source-only selection metadata.
+    Never accept a model-written paraphrase as evidence.
+    """
+    from .seo_v2_evidence import evidence_ledger, make_windows
+    from .seo_v2_pipeline import _fallback_window_quotes
+
+    windows = make_windows(cues)
+    existing = list(ledger.get("accepted") or [])
+    proposed = [{
+        "quote": str(row["quote"]),
+        "cue_indices": list(row["cue_indices"]),
+    } for row in existing]
+    for indices in windows:
+        proposed.extend(
+            _fallback_window_quotes(cues, indices, max_quotes=per_window)
+        )
+    validated = evidence_ledger(cues, proposed)
+    # Preserve rejected model proposals separately from source samples.
+    validated["rejected"] = [
+        *(ledger.get("rejected") or []), *validated.get("rejected", []),
+    ]
+    validated["source_cues"] = len(cues)
+    validated["analysis_windows_total"] = len(windows)
+    covered = {
+        i for item in validated["accepted"]
+        for i in item["cue_indices"]
+    }
+    validated["windows_without_quotes"] = [
+        n for n, indices in enumerate(windows)
+        if not any(i in covered for i in indices)
+    ]
+    validated["source_cues_with_evidence"] = len(covered)
+    validated["deterministic_source_expansion"] = max(
+        0, len(validated["accepted"]) - len(existing)
+    )
+    validated["review_required"] = bool(
+        validated["rejected"]
+        or validated["windows_without_quotes"]
+        or not validated["accepted"]
+    )
+    validated["publication_allowed"] = False
+    return validated
+
+
 def check_claim_type_constraints(
     draft: dict[str, Any], ledger: dict[str, Any],
 ) -> list[dict[str, str]]:
