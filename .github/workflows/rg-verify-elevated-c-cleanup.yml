@@ -1,0 +1,30 @@
+name: RG verify elevated old C cleanup result
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-verify-elevated-c-cleanup.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $old='C:\Program Files\RG Auto Edit Studio'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $runtime='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe'
+          Write-Output ('RGCVERIFY|OLD_C_INSTALL_EXISTS|'+(Test-Path -LiteralPath $old))
+          if(Test-Path -LiteralPath $old){$f=@(Get-ChildItem $old -File -Recurse -ErrorAction SilentlyContinue);Write-Output ('RGCVERIFY|OLD_C_REMAINING_FILES|'+$f.Count);Write-Output ('RGCVERIFY|OLD_C_REMAINING_BYTES|'+(($f|Measure-Object Length -Sum).Sum))}
+          Write-Output ('RGCVERIFY|F_APP_EXISTS|'+(Test-Path $app))
+          Write-Output ('RGCVERIFY|F_RUNTIME_EXISTS|'+(Test-Path $runtime))
+          $sh=New-Object -ComObject WScript.Shell
+          foreach($p in @('C:\Users\fauto\Desktop\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\РАША ГУДБАЙ МОНТАЖКА.lnk')){
+            $v=$sh.CreateShortcut($p)
+            Write-Output ('RGCVERIFY|SHORTCUT|'+$v.TargetPath+'|'+$v.Arguments)
+          }
+          foreach($p in @('C:\Users\fauto\AppData\Local\Programs\RG Auto Edit','C:\Users\fauto\AppData\Local\Programs\RG Auto Edit Runtime','C:\Users\fauto\AppData\Local\RG_Auto_Edit')){
+            $a=Get-Item $p -Force
+            Write-Output ('RGCVERIFY|COMPAT_LINK|'+$a.LinkType+'|'+($a.Target -join ','))
+          }
+          Write-Output 'RGCVERIFY|READONLY|PASS'
