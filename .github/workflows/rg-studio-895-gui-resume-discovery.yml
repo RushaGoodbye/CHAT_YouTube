@@ -1,0 +1,27 @@
+name: RG Studio 895 resume GUI paths
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-895-gui-resume-discovery.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $paths=@('F:\RG_AUTO_EDIT\RG Auto Edit App','F:\RG_AUTO_EDIT')
+          foreach($p in $paths){
+            Get-ChildItem $p -File -Filter '*.py' -ErrorAction SilentlyContinue|Where-Object{$_.Name -match 'studio|ui|queue|gui|launcher'}|Select-Object -First 40|ForEach-Object{Write-Output ('RGGUI|FILE|'+$_.FullName)}
+          }
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_fullstream_launcher_v2.py','rg_fullstream_worker_v3.py')){
+            $path=Join-Path $root $n
+            $a=Get-Content $path -Encoding UTF8
+            for($i=0;$i -lt $a.Count;$i++){
+              if($a[$i] -match 'def |queue_request|PAUSED_EDITORIAL_QA|repair|reprocess|process\('){
+                Write-Output ('RGGUI|CODE|'+$n+'|'+($i+1)+'|'+$a[$i])
+              }
+            }
+          }
