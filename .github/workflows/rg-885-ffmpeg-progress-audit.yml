@@ -1,0 +1,30 @@
+name: RG 885 NVENC realtime throughput audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-ffmpeg-progress-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit App\885\FULLSTREAM_YOUTUBE'
+          foreach($file in Get-ChildItem $base -File -ErrorAction SilentlyContinue){
+            if($file.Name -match 'rendering.mp4|progress.json'){
+              Write-Output ('RGFPS|OUTPUT|'+$file.Name+'|BYTES='+$file.Length+'|MOD='+$file.LastWriteTime.ToString('o'))
+              if($file.Name.EndsWith('progress.json')){
+                Get-Content $file.FullName -Tail 65|ForEach-Object{Write-Output ('RGFPS|PROGRESS|'+$_)}
+              }
+            }
+          }
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          foreach($name in @('status.json','stage_state_v52.json')){
+            $f=Join-Path $data $name
+            if(Test-Path $f){Write-Output ('RGFPS|STATEFILE|'+$name+'|'+(Get-Content $f -Raw -Encoding UTF8))}
+          }
+          $ff=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'ffmpeg' -and $_.CommandLine -match '885'})
+          foreach($p in $ff){Write-Output ('RGFPS|FFMPEG|'+$p.ProcessId+'|START='+$p.CreationDate)}
+          Write-Output 'RGFPS|READ_ONLY|PASS'
