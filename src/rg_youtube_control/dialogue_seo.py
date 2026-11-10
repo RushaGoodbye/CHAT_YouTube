@@ -407,6 +407,14 @@ _SOURCE_TOPIC_STOPWORDS = {
     "ничего", "почему", "какая", "какой", "очень", "такий",
     "росії", "россия", "россии", "россий", "україна", "украине",
     "украина", "україні", "украину", "україну",
+    # Presentation/speaker labels do not establish any video topic.
+    "росіянин", "росіяни", "росіянами", "россиянин", "россияне",
+    "россиянами", "українець", "українці", "украинец",
+    "співрозмовник", "співрозмовники", "собеседник",
+    "розмова", "розмови", "разговор", "разговора", "говорить",
+    "розповідає", "обговорюють", "обсуждают",
+    "сказати", "сказали", "обговорення", "запитання",
+    "питання", "суперечка", "дискусія", "учасники",
 }
 
 
@@ -488,10 +496,13 @@ def focused_literal_source_notes(
     ranked_roots = [_literal_quote_subjects(item["evidence"]) for item in ranked]
     overlap = [len(title_roots & roots) for roots in ranked_roots]
     has_match = bool(max(overlap, default=0))
-    if title_roots and not has_match:
-        # No actual SRT evidence for the proposed headline subject.
-        # Returning unrelated notes would make a fictional headline look
-        # source-backed to the next generative pass.
+    if title_roots and (
+        not has_match
+        or max(overlap, default=0) < min(2, len(title_roots))
+    ):
+        # One coincidental word such as "війна" does not prove a composite
+        # headline claiming victory, sanctions, or a different event.
+        # Require two meaningful source subjects when the title has two.
         return []
     candidates = sorted(
         range(len(ranked)),
