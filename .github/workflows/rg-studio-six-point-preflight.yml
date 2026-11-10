@@ -1,0 +1,55 @@
+name: RG Studio six point release preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-six-point-preflight.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $python='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $proc=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3|RG_\d+_FULL_YOUTUBE.*rendering.mp4'})
+          Write-Output ('RG6|WORKERS|'+$proc.Count)
+          $sessions=@(Get-Process explorer -ErrorAction SilentlyContinue)
+          Write-Output ('RG6|GUI_SESSIONS|'+(($sessions|Select-Object -ExpandProperty SessionId -Unique) -join ','))
+          $history=@(Get-ChildItem (Join-Path $data 'fullstream_v2') -Directory -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '^\d{3,5}$'})
+          Write-Output ('RG6|HISTORY_DIRS|'+$history.Count)
+          foreach($name in @('rg_fullstream_auto_v2.py','rg_fullstream_detectors_v2.py','rg_fullstream_export_v1.py','rg_fullstream_batch_v53.py','rg_fullstream_worker_v3.py','rg_fullstream_editorial_gate_v82.py','rg_fullstream_popup_checkpoint_v89.py','rg_fullstream_popup_light_v89.py')){
+            $p=Join-Path $app $name
+            if(!(Test-Path $p)){Write-Output ('RG6|MISSING|'+$name);continue}
+            $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLower()
+            Write-Output ('RG6|MODULE|'+$name+'|SHA256|'+$sha)
+          }
+          $py=@'
+          import sys,inspect,json,ast
+          from pathlib import Path
+          p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(p))
+          from rg_fullstream_detectors_v2 import popup_search_area, verified_host, verified_framed_host_v86, verified_single_host, popup_candidates
+          from rg_fullstream_auto_v2 import verified_popups
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          print("RG6|LOCK|"+str(worker_lock_state(Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data"))),flush=True)
+          print("RG6|ACTIVE|"+str(len(active_workers())),flush=True)
+          print("RG6|POPUP_SEARCH_DUAL|"+str(popup_search_area("dual")),flush=True)
+          print("RG6|POPUP_SEARCH_FRAMED|"+str(popup_search_area("framed_host")),flush=True)
+          f=inspect.getsource(verified_popups)
+          print("RG6|EDITOR_FRAMED_FIX|"+str("RG_EDITOR_FRAMED_HOST_POPUP_V1" in f),flush=True)
+          for n in ("rg_fullstream_auto_v2.py","rg_fullstream_batch_v53.py","rg_fullstream_export_v1.py"):
+              ast.parse((p/n).read_text(encoding="utf-8-sig"))
+          print("RG6|PY_COMPILE|PASS",flush=True)
+          '@
+          $py|& $python -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG6_PYTHON_AUDIT_FAIL'}
+          $root=Join-Path $data 'RG_REPAIR_BACKUPS'
+          $recent=@(Get-ChildItem $root -Directory|Sort-Object LastWriteTime -Descending|Select-Object -First 5)
+          foreach($d in $recent){Write-Output ('RG6|BACKUP|'+$d.Name)}
+          Write-Output 'RG6|PREFLIGHT|PASS'
