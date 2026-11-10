@@ -2706,20 +2706,20 @@ SHORTS: {is_short}
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
 {coverage_instruction}
-КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
+ДОСЛІВНІ ЦИТАТИ SRT (без редакторських припущень):
 {verified_evidence}
 
 ПОТОЧНА НАЗВА:
 {current_title}
 
 ПОТОЧНИЙ ОПИС:
-{current_description[:1200] if evidence_report else current_description[:6000]}
+{("(не використовувати як джерело фактів)" if evidence_report else current_description[:6000])}
 
 ПОТОЧНІ ТЕГИ:
-{json.dumps(current_tags or [], ensure_ascii=False)}
+{("[]" if evidence_report else json.dumps(current_tags or [], ensure_ascii=False))}
 
 ПУБЛІЧНИЙ КОНТЕКСТ yt-dlp:
-{json.dumps(context, ensure_ascii=False)[:1800] if evidence_report else json.dumps(context, ensure_ascii=False)[:6000]}
+{("{}" if evidence_report else json.dumps(context, ensure_ascii=False)[:6000])}
 
 ТРАНСКРИПТ:
 {('Див. підтверджену карту тем вище.' if evidence_report else transcript[:12000])}
