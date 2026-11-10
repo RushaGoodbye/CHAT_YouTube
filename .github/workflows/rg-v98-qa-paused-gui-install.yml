@@ -1,0 +1,23 @@
+name: RG V98 guarded Studio QA paused GUI recovery install
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v98-qa-paused-gui-install.yml']
+permissions: {contents: read}
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_v98_gui_qa_pause_route_patch.py --install
+          if($LASTEXITCODE -ne 0){throw 'RGV98_SAFE_INSTALL_ABORTED'}
+          & $py -m py_compile 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_manual_tab_v4.py' 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_batch_v53.py'
+          if($LASTEXITCODE -ne 0){throw 'RGV98_GUI_POSTCOMPILE_FAILED'}
+          Write-Output 'RGV98|POSTINSTALL_PYCOMPILE|PASS'
