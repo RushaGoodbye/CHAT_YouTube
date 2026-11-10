@@ -1,0 +1,28 @@
+name: RG 885 QA-only V97 install and test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-qa-review-v97-install.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-885-review-maintenance
+  cancel-in-progress: false
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_885_qa_review_admission_v97.py
+          if($LASTEXITCODE -ne 0){throw 'QA_V97_STATIC_TEST_FAILED'}
+          & $py -X utf8 rg_repair_20261110/rg_885_qa_review_admission_v97.py --install
+          if($LASTEXITCODE -ne 0){throw 'QA_V97_INSTALL_FAILED'}
+          & $py -m py_compile 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_qa_export_v96.py'
+          if($LASTEXITCODE -ne 0){throw 'QA_V97_COMPILE_FAILED'}
+          Write-Output 'RGQA97|POST_COMPILE|PASS'
