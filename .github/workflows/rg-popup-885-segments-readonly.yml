@@ -1,0 +1,35 @@
+name: RG 885 popup checkpoints interval summary
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-885-segments-readonly.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885\popup_checkpoint_v89'
+          if(Test-Path $base){
+            foreach($f in Get-ChildItem $base -File){
+              Write-Output ('RGSEG|FILE|'+$f.Name+'|'+$f.Length)
+              if($f.Extension -eq '.json'){
+                try{
+                  $x=Get-Content $f.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+                  Write-Output ('RGSEG|KEYS|'+$f.Name+'|'+($x.PSObject.Properties.Name -join ','))
+                  foreach($key in @('start','end','result','source_start','source_end','samples','layout_known','samples_including_overlap','source_scan_complete','flags','masks')){
+                    if($x.PSObject.Properties.Name -contains $key){
+                      $val=$x.$key
+                      if($key -eq 'masks'){$val=@($val).Count}
+                      $json=$val|ConvertTo-Json -Compress -Depth 3
+                      if($json.Length -gt 420){$json=$json.Substring(0,420)}
+                      Write-Output ('RGSEG|FIELD|'+$f.Name+'|'+$key+'|'+$json)
+                    }
+                  }
+                }catch{}
+              }
+            }
+          }else{Write-Output 'RGSEG|MISSING_POPUP_CHECKPOINT_DIR'}
+          Write-Output 'RGSEG|READ_ONLY|PASS'
