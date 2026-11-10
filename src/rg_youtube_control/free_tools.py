@@ -4337,6 +4337,75 @@ chapters: рядок з підтвердженими таймкодами та �
                              for line in transcript.splitlines()],
             )
 
+    # The previous pipeline generated a corrected SEO package, then
+    # discarded it and returned the original rejected draft. Adopt only
+    # a successfully revised, independently reviewed, source-gated candidate.
+    if revision_report and revision_report.get("revised") is True:
+        corrected = revision_report.get("candidate")
+        final_review = revision_report.get("review") or {}
+        if (
+            isinstance(corrected, dict)
+            and final_review.get("review_status") == "NEEDS_HUMAN_REVIEW"
+            and not final_review.get("issues")
+        ):
+            corrected_format = inspect_package(corrected)
+            corrected_editorial = inspect_editorial_targets(corrected)
+            corrected_ab_issues = (
+                ab_title_issues(corrected.get("title_variants") or [], evidence_report)
+                if evidence_report else []
+            )
+            new_title = str(corrected.get("title") or "").strip()
+            new_description = str(corrected.get("description") or "").strip()
+            new_variants = list(corrected.get("title_variants") or [])
+            new_tags = list(corrected.get("tags") or [])
+            valid_source = bool(
+                not evidence_report
+                or focused_literal_source_notes(
+                    evidence_report, new_title, limit=1,
+                )
+            )
+            if (
+                corrected_format.get("format_pass")
+                and corrected_editorial.get("editorial_gate_pass")
+                and not corrected_ab_issues
+                and valid_source
+                and not _seo_title_source_conflicts(new_title, transcript)
+                and not _seo_ukrainian_language_issue(new_title)
+                and not _seo_ukrainian_language_issue(new_description)
+                and all(not _seo_ukrainian_language_issue(v) for v in new_variants)
+                and all(not _seo_ukrainian_language_issue(t) for t in new_tags)
+            ):
+                title, description = new_title, new_description
+                variants, tags = new_variants, new_tags
+                qa_inputs = {
+                    "title": title,
+                    "title_variants": variants[:3],
+                    "description": description,
+                    "tags": tags[:15],
+                }
+                format_gate, editorial_gate = corrected_format, corrected_editorial
+                reviewer_report = final_review
+                title_issues = corrected_ab_issues
+                unchanged_title = bool(
+                    str(current_title or "").strip()
+                    and title.casefold() == str(current_title).strip().casefold()
+                )
+                generated_conflicts = _seo_title_source_conflicts(title, transcript)
+                editorial_quality_flags = _seo_editorial_preview_flags(
+                    title, description, variants, tags,
+                )
+                editorial_quality_flags.extend(source_alignment_conflicts)
+                editorial_quality_flags.extend(
+                    "GENERATED_" + issue for issue in generated_conflicts
+                )
+                if not transcript.strip():
+                    editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
+                editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
+                revision_report["applied_to_result"] = True
+            else:
+                revision_report["applied_to_result"] = False
+                revision_report["apply_error"] = "REVISED_SEO_FINAL_GATES_REJECTED"
+
     # Fail closed: preserving a legacy Russian title, or model-produced
     # Russian metadata, must never be marked as safe for publishing.
     language_issues = []
