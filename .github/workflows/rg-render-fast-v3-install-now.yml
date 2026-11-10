@@ -1,0 +1,28 @@
+name: RG render fast V3 guarded live install
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-render-fast-v3-install-now.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-fast-v3-885-rollout
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $rogue=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^ffmpeg\.exe$' -and $_.CommandLine -match 'RG_885_FULL_YOUTUBE.*rendering\.mp4'})
+          if($rogue.Count -gt 0){throw '885_OLD_FFMPEG_STILL_RUNNING_ABORT_INSTALL'}
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_render_fast_v3.py --install
+          if($LASTEXITCODE -ne 0){throw 'RG_FAST_V3_INSTALL_FAILED'}
+          & $py -m py_compile 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_export_v1.py'
+          if($LASTEXITCODE -ne 0){throw 'RG_FAST_V3_POST_COMPILE_FAILED'}
+          Write-Output 'RGRENDERFAST|POST_COMPILE|PASS'
