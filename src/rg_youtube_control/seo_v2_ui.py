@@ -32,7 +32,7 @@ class _SEOv2Worker(QObject):
     def run(self) -> None:
         summary: list[dict] = []
         for source in self.files:
-            output = self.destination / (source.stem + ".seo_v2_review.json")
+            output = self.destination / (source.stem + ".seo_v3_review.json")
             try:
                 content = source.read_text(encoding="utf-8-sig")
                 result = generate_universal_seo(
@@ -173,7 +173,7 @@ class SEOv2PreviewTab(QWidget):
     def _launch(self) -> None:
         if not self._files or self._thread is not None:
             return
-        output = app_data_dir() / "seo_v2_previews"
+        output = app_data_dir() / "seo_v3_previews"
         try:
             output.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -209,4 +209,4 @@ class SEOv2PreviewTab(QWidget):
 
 def install_seo_v2_preview(window: QWidget) -> None:
     """Non-invasive extra tab; legacy SEO and its production code stay intact."""
-    window.tabs.addTab(SEOv2PreviewTab(window), "SEO v2")
+    window.tabs.addTab(SEOv2PreviewTab(window), "SEO v3")
