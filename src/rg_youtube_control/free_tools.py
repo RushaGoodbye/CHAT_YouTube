@@ -2647,7 +2647,7 @@ def generate_seo_package_local(
     if evidence_report:
         from .dialogue_seo import rank_literal_evidence
         main_quotes = rank_literal_evidence(evidence_report)[:3]
-        central_quote_brief = "\\n".join(
+        central_quote_brief = "\n".join(
             f"[{entry['start_stamp']}] {entry['evidence'][:230]}"
             for entry in main_quotes
         )
