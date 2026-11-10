@@ -60,7 +60,8 @@ def test_source_quote_allows_subject_without_claiming_it_is_central():
         }],
     }]}
     description = _deterministic_evidence_description("", report)
-    assert "війна та стратегічні рішення" in description
+    assert "війна" in description
+    assert "стратегічні рішення" not in description
     assert "центральна тема" not in description
 
 
@@ -127,3 +128,32 @@ def test_editorial_synopsis_does_not_append_unverified_topic_labels():
     assert result == public_description
     assert omitted
     assert "Інші підтверджені теми" not in result
+
+
+
+def test_generic_reason_does_not_become_career_change_claim():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{
+        "verified": True,
+        "topics": [{
+            "topic": "Причини кадрових змін",  # invented model label
+            "evidence": "Я хочу зрозуміти причини цієї погоди",
+        }],
+    }]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_mention_of_war_does_not_claim_strategy():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{
+        "verified": True,
+        "topics": [{
+            "topic": "Стратегічні рішення",
+            "evidence": "Ця війна впливає на наше життя",
+        }],
+    }]}
+    description = _deterministic_evidence_description("", report)
+    assert "війна" in description
+    assert "стратегічні рішення" not in description
