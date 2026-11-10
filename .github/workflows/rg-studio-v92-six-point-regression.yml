@@ -1,0 +1,18 @@
+name: RG Studio V92 six point maintenance regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-v92-six-point-regression.yml']
+permissions: {contents: read}
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_studio_six_point_release_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'SIX_POINT_RELEASE_ACCEPTANCE_NOT_PASS'}
