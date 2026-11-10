@@ -3068,7 +3068,18 @@ chapters: рядок з підтвердженими таймкодами та �
     notes = []
     if evidence_report and isinstance(evidence_report.get("blocks"), list):
         from .seo_editorial_reviewer import review_seo_candidate
-        for block in evidence_report["blocks"][:24]:
+        # Review evidence from across the entire recording, not only
+        # its first 24 windows.
+        all_blocks = [
+            block for block in evidence_report["blocks"]
+            if isinstance(block, dict) and block.get("topics")
+        ]
+        if len(all_blocks) > 24:
+            last = len(all_blocks) - 1
+            review_blocks = [all_blocks[round(i * last / 23)] for i in range(24)]
+        else:
+            review_blocks = all_blocks
+        for block in review_blocks:
             if not isinstance(block, dict):
                 continue
             for topic in (block.get("topics") or [])[:4]:
