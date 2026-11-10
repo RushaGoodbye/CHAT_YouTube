@@ -1,0 +1,28 @@
+name: RG postinstall queue 885-889 status inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-v3-postinstall-queue-read.yml']
+permissions: {contents: read}
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $b='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($n in 885..889){
+            $d=Join-Path $b ([string]$n)
+            $q=Join-Path $d 'queue_request.json'
+            $s=Join-Path $d 'status.json'
+            $state='NONE';$qdata=''
+            if(Test-Path $s){$state=(Get-Content $s -Raw -Encoding UTF8|ConvertFrom-Json).state}
+            if(Test-Path $q){
+              $v=Get-Content $q -Raw -Encoding UTF8|ConvertFrom-Json
+              $qdata="REPAIR=$($v.repair)|QA=$($v.qa_preview_export_requested)|NAME=$($v.output_name)"
+            }
+            Write-Output ('RGPOSTFAST|STREAM|'+$n+'|STATE='+$state+'|REQUEST='+(Test-Path $q)+'|'+$qdata)
+          }
+          Write-Output ('RGPOSTFAST|CODE_PATCH|'+((Select-String -Path 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_export_v1.py' -SimpleMatch 'RG_FAST_POPUP_GBLUR_V1').Count)+'|MASK='+((Select-String -Path 'F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_export_v1.py' -SimpleMatch 'RG_ONE_FRAME_MASK_V1').Count))
+          Write-Output 'RGPOSTFAST|READ_ONLY|PASS'
