@@ -1,0 +1,35 @@
+name: RG895 selected start preflight failure exact
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-selected-start-preflight-exact.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import sys,json,inspect
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_batch_v53 import engine_v710_verified,RUNTIME
+          from rg_fullstream_launcher_v2 import output_for_request
+          request=json.loads((data/"fullstream_v2"/"895"/"queue_request.json").read_text(encoding="utf-8-sig"))
+          print("RG895PREFLIGHT|ENGINE_V710_OK|"+str(engine_v710_verified(app)),flush=True)
+          print("RG895PREFLIGHT|ENGINE_SOURCE|"+inspect.getsource(engine_v710_verified).replace("\n"," | ")[:6500],flush=True)
+          print("RG895PREFLIGHT|RUNTIME|"+str(RUNTIME)+"|EXISTS|"+str(Path(RUNTIME).is_file()),flush=True)
+          worker=app/"rg_fullstream_worker_v3.py"
+          print("RG895PREFLIGHT|WORKER_SUPPORTS_ONLY|"+str("p.add_argument('--only'" in worker.read_text(encoding="utf-8-sig")),flush=True)
+          output=output_for_request("895",request,app)
+          print("RG895PREFLIGHT|OUTPUT|"+str(output)+"|EXISTS|"+str(output.exists()),flush=True)
+          print("RG895PREFLIGHT|QUEUED_FLAGS|"+str({k:request.get(k) for k in ("repair","qa_preview_export_requested","qa_review_only")}),flush=True)
+          print("RG895PREFLIGHT|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG895_PREFLIGHT_DIAG_FAILED'}
