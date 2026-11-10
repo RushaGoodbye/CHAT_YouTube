@@ -1,0 +1,42 @@
+name: RG host popup missing blur forensic audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-host-popup-forensic-885.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          foreach($n in @('rg_fullstream_detectors_v2.py','rg_fullstream_popup_light_v89.py','rg_fullstream_auto_v2.py')){
+            $p=Join-Path $app $n
+            $a=@(Get-Content $p -Encoding UTF8)
+            for($i=0;$i -lt $a.Count;$i++){
+              if($a[$i] -match 'popup_search_area|host|popup_masks|detect_popup|popup_light|layout_valid|lower_right|POPUP_SCAN'){
+                $lo=[Math]::Max(0,$i-2);$hi=[Math]::Min($a.Count-1,$i+4)
+                for($j=$lo;$j -le $hi;$j++){Write-Output ('RGHOST|CODE|'+$n+'|'+($j+1)+'|'+$a[$j])}
+              }
+            }
+          }
+          foreach($n in @('processing_plan.json','editorial_preflight_v82.json','popup_checkpoint_v89','popup_checkpoint_v89.json','completed_popups_v76.json')){
+            $p=Join-Path $base $n
+            if(Test-Path $p){
+              if((Get-Item $p).PSIsContainer){Write-Output ('RGHOST|CHECKPOINT_DIR|'+((Get-ChildItem $p -File).Count));continue}
+              $o=Get-Content $p -Raw -Encoding UTF8|ConvertFrom-Json
+              Write-Output ('RGHOST|DOC|'+$n+'|'+($o.PSObject.Properties.Name -join ','))
+              if($n -eq 'processing_plan.json'){
+                $m=@($o.popup_masks)
+                Write-Output ('RGHOST|MASK_COUNT|'+$m.Count)
+                foreach($v in $m|Select-Object -First 40){
+                  Write-Output ('RGHOST|MASK|'+($v|ConvertTo-Json -Compress -Depth 4))
+                }
+              }
+            }
+          }
+          Write-Output 'RGHOST|READ_ONLY|PASS'
