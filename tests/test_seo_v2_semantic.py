@@ -184,3 +184,42 @@ def test_garbled_asr_name_fails_even_if_other_name_in_same_quote_is_valid():
     assert "Шайгурова" in unsupported_names(draft, source)
     assert "Тимура" not in unsupported_names(draft, source)
     assert "Іванова" not in unsupported_names(draft, source)
+
+
+def test_all_field_repairs_receive_unverified_name_banlist():
+    original = _draft()
+    prompts = []
+    def model(prompt):
+        prompts.append(prompt)
+        return {"changes": {}, "support_ids": {}}
+    revise_semantic_defects(
+        original, _proof(),
+        {"issues": [{"field": "description",
+                     "reason": "Unsupported causal conclusion"}]},
+        model,
+    )
+    assert len(prompts) == 1
+    assert "source-unverified name spellings MUST NOT" in prompts[0]
+    assert "Сидаренка" in prompts[0]
+    assert "Do not guess a famous person's identity" in prompts[0]
+
+
+def test_without_unverified_names_no_banlist_is_invented():
+    original = _draft()
+    original["title"] = "Питання щодо звільнення керівника"
+    original["title_variants"] = [
+        "Питання про можливий аудит",
+        "Обговорення причин зміни керівника",
+        "Різні версії кадрового рішення",
+    ]
+    original["description"] = "Співрозмовник висловлює свої припущення."
+    original["tags"] = ["зміна керівника", "аудит"]
+    prompts = []
+    revise_semantic_defects(
+        original, _proof(),
+        {"issues": [{"field": "title",
+                     "reason": "A/B wording needs grounding"}]},
+        lambda p: (prompts.append(p) or {"changes": {}, "support_ids": {}}),
+    )
+    assert len(prompts) == 1
+    assert "source-unverified name spellings MUST NOT" not in prompts[0]
