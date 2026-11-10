@@ -1,0 +1,60 @@
+name: RG QA pause isolation final installed acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-qa-pause-final-acceptance.yml']
+permissions: {contents: read}
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          $code=@'
+          import sys,json,hashlib,ast
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          src=(app/"rg_fullstream_worker_v3.py").read_bytes()
+          ui=(app/"rg_fullstream_batch_v53.py").read_bytes()
+          ast.parse(src.decode("utf-8-sig"))
+          ast.parse(ui.decode("utf-8-sig"))
+          assert "RG_QA_PAUSE_ISOLATION_V1" in src.decode("utf-8-sig")
+          assert hashlib.sha256(src).hexdigest() in ui.decode("utf-8-sig")
+          print("RGFIN|WORKER_COMPILE_HASH|PASS",flush=True)
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          assert not active_workers()
+          assert worker_lock_state(data)=="IDLE"
+          print("RGFIN|WORKER_IDLE|PASS",flush=True)
+          from rg_fullstream_worker_v3 import request_files
+          jobs=request_files(data)
+          current={j[2]["stream"] for j in jobs}
+          statuses={}
+          for s in range(885,890):
+              st=data/"fullstream_v2"/str(s)/"status.json"
+              statuses[str(s)]=json.loads(st.read_text(encoding="utf-8-sig")).get("state")
+          assert statuses["885"]=="PAUSED_EDITORIAL_QA",statuses
+          assert all(statuses[str(s)]=="QUEUED" for s in range(886,890)),statuses
+          assert all(str(s) in current for s in range(885,890))
+          eligible=[]
+          for request in jobs:
+              statusfile=request[1].parent/"status.json"
+              state=json.loads(statusfile.read_text(encoding="utf-8-sig")).get("state")
+              if state!="PAUSED_EDITORIAL_QA":eligible.append(request[2]["stream"])
+          assert eligible==["886","887","888","889"],eligible
+          print("RGFIN|QUEUE_RESUME_ORDER|"+",".join(eligible),flush=True)
+          print("RGFIN|885_QA_RETAINED|PASS",flush=True)
+          qa=json.loads((data/"fullstream_v2"/"885"/"notification_qa_review_v1.json").read_text(encoding="utf-8-sig"))
+          assert qa["unrecognized_layout_frames_with_overlap"]==2157
+          assert qa["automated_coverage_certified"] is False
+          print("RGFIN|QA_EVIDENCE_REPORT|PASS",flush=True)
+          print("RGFIN|ALL|PASS|NO_MEDIA_RENDER_STARTED",flush=True)
+          '@
+          $code|& $py -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_QA_ISOLATION_FINAL_ACCEPTANCE_FAILED'}
