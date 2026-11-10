@@ -3468,7 +3468,31 @@ chapters: рядок з підтвердженими таймкодами та �
                 # Eight generic brand/format tags are NOT successful SEO.
                 # Keep the draft, but record poor topical coverage honestly.
                 candidate["_tags_review_required"] = True
-            candidate["tags"] = merged_tags
+            # A source-mentioned noun does not make an ungrammatical
+            # or near-duplicate search phrase useful Ukrainian metadata.
+            from difflib import SequenceMatcher as _TagSimilarity
+            natural_tags: list[str] = []
+            for tag in merged_tags:
+                lowered = tag.casefold()
+                if (
+                    _seo_ukrainian_language_issue(tag)
+                    or re.search(
+                        r"(?i)\\b(?:стала|стане)\\s+росії\\b",
+                        lowered,
+                    )
+                ):
+                    continue
+                if any(
+                    _TagSimilarity(None, lowered, other.casefold()).ratio() >= 0.86
+                    for other in natural_tags
+                    if len(tag.split()) >= 2 and len(other.split()) >= 2
+                ):
+                    continue
+                natural_tags.append(tag)
+            if len(natural_tags) < 8:
+                # Keep the exact failure visible; never invent filler tags.
+                candidate["_tags_review_required"] = True
+            candidate["tags"] = natural_tags
 
             payload = candidate
             title_fallback_used = title_missing
