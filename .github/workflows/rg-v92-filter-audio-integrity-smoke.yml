@@ -1,0 +1,21 @@
+name: RG V92 fullstream filter and audio pixel integrity smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v92-filter-audio-integrity-smoke.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          if(!(Test-Path 'rg_repair_20261110/rg_render_fast_v3_pixel_test.py')){throw 'PIXEL_INTEGRITY_TEST_NOT_FOUND'}
+          & $py -X utf8 rg_repair_20261110/rg_render_fast_v3_pixel_test.py
+          if($LASTEXITCODE -ne 0){throw 'PIXEL_AUDIO_INTEGRITY_REGRESSION'}
+          Write-Output 'RGV92|PIXEL_AND_AUDIO_CONTROL|PASS'
