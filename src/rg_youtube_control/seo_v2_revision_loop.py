@@ -74,7 +74,7 @@ def repair_fields_independently(
         # on unrelated fields may stay until their own revision.
         if new_gate_issues - old_gate_issues:
             continue
-        if unsupported_names(revised, proof) - set(unsupported_names(candidate, proof)):
+        if set(unsupported_names(revised, proof)) - set(unsupported_names(candidate, proof)):
             continue
         try:
             checked = independent_review(revised, proof, reviewer)
