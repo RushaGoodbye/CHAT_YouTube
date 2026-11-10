@@ -1,0 +1,19 @@
+name: RG stop redundant 895 duplicate read-only scan
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stop-redundant-895-scan.yml']
+permissions:
+  contents: read
+  actions: write
+jobs:
+  cancel-duplicate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Cancel only redundant QA scan 42855528318
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/42855528318/cancel" || true
+          echo "RG895CANCEL|REQUESTED_DUPLICATE_READONLY_QA_SCAN|42855528318"
