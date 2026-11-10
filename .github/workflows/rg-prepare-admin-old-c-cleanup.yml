@@ -1,0 +1,65 @@
+name: RG prepare exact elevated old C Studio cleanup
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-prepare-admin-old-c-cleanup.yml']
+permissions: {contents: read}
+jobs:
+  prepare:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $target='F:\RG_AUTO_EDIT\REMOVE_OLD_C_STUDIO_ADMIN.ps1'
+          $content=@'
+# RG Auto Edit Studio old C installation cleanup. Run in elevated PowerShell.
+# Only removes the exact obsolete 17MB C:\Program Files\RG Auto Edit Studio directory.
+# No junctions, global Python or Studio data on F are touched.
+$ErrorActionPreference='Stop'
+$old='C:\Program Files\RG Auto Edit Studio'
+$f='F:\RG_AUTO_EDIT\RG Auto Edit App'
+$runtime='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\pythonw.exe'
+$backups='F:\RG_AUTO_EDIT\RG Auto Edit Data\RG_REPAIR_BACKUPS'
+$admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if(-not $admin){throw 'RUN_AS_ADMINISTRATOR_REQUIRED'}
+if(!(Test-Path -LiteralPath $f) -or !(Test-Path -LiteralPath $runtime)){throw 'F_CANONICAL_FILES_MISSING'}
+if(!(Test-Path -LiteralPath $old)){Write-Output 'RG_C_OLD_STUDIO_ALREADY_ABSENT';exit 0}
+$o=Get-Item -LiteralPath $old -Force
+if(($o.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'REFUSE_JUNCTION_OR_SYMLINK_DELETION'}
+$actual=@(Get-ChildItem -LiteralPath $old -File -Recurse -Force -ErrorAction Stop)
+if($actual.Count -ne 13 -or -not (Test-Path "$old\RG Auto Edit Studio.exe")){throw 'OLD_EXE_CONTENTS_CHANGED_REVIEW_REQUIRED'}
+# Use the snapshot from the preflight backup and verify all file SHA256 values.
+$backup=@(Get-ChildItem -LiteralPath $backups -Directory -Filter 'RG_F_ONLY_MIGRATION_*' | Sort-Object LastWriteTime -Descending | Where-Object{Test-Path (Join-Path $_.FullName 'old_C_ProgramFiles_RG_Auto_Edit_Studio\RG Auto Edit Studio.exe')} | Select-Object -First 1)
+if($backup.Count -ne 1){throw 'VERIFIED_F_BACKUP_MISSING'}
+$restore=Join-Path $backup[0].FullName 'old_C_ProgramFiles_RG_Auto_Edit_Studio'
+$sourceFiles=@(Get-ChildItem -LiteralPath $restore -File -Recurse -Force)
+if($sourceFiles.Count -ne $actual.Count){throw 'BACKUP_FILE_COUNT_CHANGED'}
+foreach($item in $actual){
+  $relative=$item.FullName.Substring($old.Length).TrimStart('\')
+  $copy=Join-Path $restore $relative
+  if(!(Test-Path $copy)){throw "BACKUP_FILE_MISSING_$relative"}
+  if((Get-FileHash $item.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $copy -Algorithm SHA256).Hash){throw "BACKUP_HASH_MISMATCH_$relative"}
+}
+$running=@(Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -match 'rg_studio_main.py|rg_fullstream_worker_v3|RG Auto Edit Studio.exe'})
+if($running.Count){throw 'STUDIO_OR_WORKER_STILL_RUNNING'}
+# Confirm desktop and Start Menu shortcuts all point to the direct F executable.
+$sh=New-Object -ComObject WScript.Shell
+$links=@('C:\Users\fauto\Desktop\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\РАША ГУДБАЙ МОНТАЖКА.lnk')
+foreach($shortcut in $links){
+  $link=$sh.CreateShortcut($shortcut)
+  if($link.TargetPath -ne $runtime){throw "SHORTCUT_NOT_MIGRATED_$shortcut"}
+}
+Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction Stop
+if(Test-Path -LiteralPath $old){throw 'OLD_C_DIRECTORY_STILL_PRESENT'}
+Write-Output 'RG_C_OLD_STUDIO_REMOVED_PASS'
+Write-Output "F_BACKUP=$restore"
+Write-Output 'STUDIO_AND_RUNTIME_F_CANONICAL_UNTOUCHED'
+
+'@
+          Set-Content -LiteralPath $target -Value $content -Encoding UTF8
+          $tokens=$null;$errs=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($target,[ref]$tokens,[ref]$errs)|Out-Null
+          if($errs.Count){throw 'ADMIN_CLEANUP_POWERSHELL_SYNTAX_FAIL'}
+          Write-Output ('RGCADMIN|SCRIPT_READY|'+$target)
+          Write-Output 'RGCADMIN|NOT_EXECUTED_WITHOUT_ADMIN_APPROVAL|PASS'
