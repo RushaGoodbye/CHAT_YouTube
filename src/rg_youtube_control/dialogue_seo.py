@@ -372,10 +372,14 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
             topic = _compact(item.get("topic"))
             if not evidence or not topic:
                 continue
+            # Short spoken answers can contain no five-letter word.
+            # Keep a literal quote when it has actual text; de-duplicate
+            # using its complete token sequence rather than topic labels.
             words = {
-                token[:6] for token in re.findall(r"\w+", evidence.casefold()) if len(token) >= 5 or token.isdigit()
+                token[:6] for token in re.findall(r"\w+", evidence.casefold())
+                if len(token) >= 3 or token.isdigit()
             }
-            if not words:
+            if not words or len(evidence) < 8:
                 continue
             repeated = any(
                 words == seen or (
