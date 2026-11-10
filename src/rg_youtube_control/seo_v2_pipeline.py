@@ -584,6 +584,10 @@ def generate_universal_seo(srt: str, chat: Chat,
     visible_topics = [topic for topic in visible_topics if topic["evidence_ids"]]
     draft = _draft(visible_topics, proof, chat)
     citations_repaired = _repair_source_citations(draft, proof, chat)
+    from .seo_v2_refine import repair_editorial_fields
+    draft, repaired_fields = repair_editorial_fields(
+        draft, proof, chat, spoken_numbers=_source_numbers(cues),
+    )
     gate = validate_draft(draft, ledger, cues, allowed_ids=visible_ids)
     independent = None
     if independent_review is not None:
@@ -620,6 +624,7 @@ def generate_universal_seo(srt: str, chat: Chat,
             "title", "title_variants", "description", "tags", "support_ids")},
         "gate": gate,
         "citations_repaired": citations_repaired,
+        "repaired_fields": repaired_fields,
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
         "writer_evidence_quotes": len(proof),
