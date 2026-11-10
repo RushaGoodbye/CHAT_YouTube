@@ -60,7 +60,8 @@ def _parse_proposals(raw: dict[str, Any], indices: list[int]) -> list[dict[str, 
 def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     proposals: list[dict[str, Any]] = []
     windows = make_windows(cues)
-    for indices in windows:
+    failed_windows: list[int] = []
+    for window_index, indices in enumerate(windows):
         captions = [
             {"cue": i, "text": cues[i].text}
             for i in indices
@@ -75,8 +76,27 @@ def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str
             "\"cue_indices\":[0]}]}. No topic titles, no inferred claims.\n"
             "SOURCE CUES:\n" + json.dumps(captions, ensure_ascii=False)
         )
-        proposals.extend(_parse_proposals(_ask(chat, prompt), indices))
-    return evidence_ledger(cues, proposals), [
+        candidates = _parse_proposals(_ask(chat, prompt), indices)
+        if not candidates:
+            failed_windows.append(window_index)
+        proposals.extend(candidates)
+    ledger = evidence_ledger(cues, proposals)
+    # A returned quote still needs deterministic verification. A fabricated
+    # quote must not make a source window look covered.
+    covered = {
+        i for evidence in ledger["accepted"] for i in evidence["cue_indices"]
+    }
+    uncovered = [
+        n for n, positions in enumerate(windows)
+        if not any(i in covered for i in positions)
+    ]
+    ledger["analysis_windows_total"] = len(windows)
+    ledger["windows_without_quotes"] = uncovered
+    ledger["source_cues_with_evidence"] = len(covered)
+    ledger["review_required"] = bool(
+        ledger["review_required"] or uncovered
+    )
+    return ledger, [
         {"start_ms": cues[indices[0]].start_ms,
          "end_ms": cues[indices[-1]].end_ms,
          "first_index": indices[0],
@@ -243,6 +263,8 @@ def validate_draft(draft: dict[str, Any], ledger: dict[str, Any],
         issues.append("EDITORIAL_GATE_FAILED")
     if ledger["review_required"]:
         issues.append("SOURCE_QUOTES_REJECTED_OR_EMPTY")
+    if ledger.get("windows_without_quotes"):
+        issues.append("TRANSCRIPT_WINDOWS_WITHOUT_EVIDENCE")
     return {
         "issues": sorted(set(issues)),
         "format": format_gate,
@@ -280,6 +302,24 @@ def generate_universal_seo(srt: str, chat: Chat,
             "Do not approve publication.\nDRAFT:\n"
             + json.dumps(draft, ensure_ascii=False)
             + "\nEVIDENCE:\n" + json.dumps(proof, ensure_ascii=False))
+    if independent is not None:
+        reviewer_issues = independent.get("issues")
+        if (
+            not isinstance(reviewer_issues, list)
+            or any(
+                not isinstance(item, dict)
+                or not str(item.get("field") or "").strip()
+                or not str(item.get("reason") or "").strip()
+                for item in reviewer_issues
+            )
+        ):
+            independent = {
+                "issues": [{
+                    "field": "reviewer",
+                    "reason": "INVALID_INDEPENDENT_REVIEW_SCHEMA",
+                }],
+                "review_status": "FAILED_CLOSED",
+            }
     return {
         "status": ("REVIEW_REQUIRED" if gate["issues"] or independent is None
                    or independent.get("issues") else "READY_FOR_HUMAN_REVIEW"),
