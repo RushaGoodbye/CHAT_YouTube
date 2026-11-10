@@ -280,7 +280,12 @@ def analyze_all_timeline_blocks(
                             len(set(re.findall(r"\w+", line.casefold()))),
                             len(line),
                         ),
-                    )[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
+                    ).rstrip(" ,.;:")
+                    # Do not discard the final word of an already short
+                    # caption; it often contains the actual topic (ціни,
+                    # пенсія, мобілізація). Truncate only long sentences.
+                    if len(quote) > 200:
+                        quote = quote[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
                     if len(quote) >= 18:
                         rescue_prompt = (
                             "Ти не створюєш цитати. Поверни JSON, "
