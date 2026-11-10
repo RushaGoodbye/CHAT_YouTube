@@ -1,0 +1,42 @@
+name: RG ASR targeted dependencies and live checkpoint
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-asr-target-deps-v1.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          foreach($a in @(@('rg_fullstream_asr_chunked_v58.py',155,250),@('rg_fullstream_asr_child_v58.py',1,205),@('rg_fullstream_auto_v2.py',405,435))){
+            $s=@(Get-Content (Join-Path $app $a[0]) -Encoding UTF8)
+            for($i=$a[1];$i -le [math]::Min($a[2],$s.Count);$i++){Write-Output ('RGDEP|'+$a[0]+'|'+$i+'|'+$s[$i-1])}
+          }
+          foreach($name in @('rg_fullstream_auto_v2.py','rg_fullstream_editorial_gate_v82.py','rg_fullstream_editorial_evidence_v84.py')){
+            $s=@(Get-Content (Join-Path $app $name) -Encoding UTF8)
+            for($i=0;$i -lt $s.Count;$i++){
+              if($s[$i] -match 'gap_recheck_v90|rescue_mute|v90|bilingual|mat_word|V90_ALL'){
+                Write-Output ('RGDEP|MATCH|'+$name+'|'+($i+1)+'|'+$s[$i])
+              }
+            }
+          }
+          foreach($i in 885..889){
+            $dir=Join-Path $data ([string]$i)
+            $status=Join-Path $dir 'status.json'
+            if(Test-Path $status){
+              $s=Get-Content $status -Raw|ConvertFrom-Json
+              Write-Output ('RGDEP|STATE|'+$i+'|'+$s.state)
+            }
+            $asr=Join-Path $dir 'asr_chunks_v58'
+            if(Test-Path $asr){
+              $ru=@(Get-ChildItem $asr -Filter 'chunk_*_ru.json' -ErrorAction SilentlyContinue).Count
+              $uk=@(Get-ChildItem $asr -Filter 'chunk_*_uk.json' -ErrorAction SilentlyContinue).Count
+              Write-Output ('RGDEP|CHUNKS|'+$i+'|RU='+$ru+'|UK='+$uk)
+            }
+          }
+          Write-Output 'RGDEP|READ_ONLY|PASS'
