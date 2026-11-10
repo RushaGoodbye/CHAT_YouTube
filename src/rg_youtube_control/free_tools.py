@@ -4104,37 +4104,13 @@ chapters: рядок з підтвердженими таймкодами та �
     # fragment. Select literal notes with the largest title-topic overlap.
     if evidence_report and verified_evidence and not fast_mode:
         try:
-            from .dialogue_seo import _cross_language_topic_word
-            title_roots = {
-                _cross_language_topic_word(word)[:5]
-                for word in re.findall(r"[a-zа-яёіїєґ]{5,}", title.casefold())
-            }
-            source_notes = []
-            for block in evidence_report.get("blocks") or []:
-                if not isinstance(block, dict) or block.get("verified") is False:
-                    continue
-                for item in (block.get("topics") or [])[:1]:
-                    if not isinstance(item, dict) or not item.get("evidence"):
-                        continue
-                    quote = str(item["evidence"])[:230]
-                    quote_roots = {
-                        _cross_language_topic_word(word)[:5]
-                        for word in re.findall(
-                            r"[a-zа-яёіїєґ]{5,}", quote.casefold(),
-                        )
-                    }
-                    overlap = len(title_roots & quote_roots)
-                    source_notes.append({
-                        "time": str(block.get("start_stamp") or ""),
-                        "quote": quote,
-                        "score": overlap,
-                    })
-            # Always include the best headline-related evidence. Only use
-            # adjacent themes as supporting details, never claim all source
-            # fragments are equally central.
-            ranked_notes = sorted(
-                source_notes, key=lambda item: -item["score"],
-            )[:5]
+            from .dialogue_seo import focused_literal_source_notes
+            # Rank by repeated literal source subjects and headline overlap.
+            # Unrelated employment, lifestyle or religion fragments cannot
+            # become description claims by being late in the recording.
+            ranked_notes = focused_literal_source_notes(
+                evidence_report, title, limit=6,
+            )
             if ranked_notes:
                 focused_prompt = (
                     "Напиши точний SEO-опис УКРАЇНСЬКОЮ на 400–900 "
@@ -4143,7 +4119,11 @@ chapters: рядок з підтвердженими таймкодами та �
                     "списку. Це кілька РІЗНИХ учасників: не приписуй "
                     "їхні суперечливі висловлювання одній особі. "
                     "Центральна тема визначається заголовком, а не "
-                    "хронологічним порядком цитат. Не пиши про "
+                    "хронологічним порядком цитат. Кожне речення повинно "
+                    "спиратися на дослівну репліку з цього набору. "
+                    "Якщо цитати підтверджують менше трьох суттєвих "
+                    "тверджень, не вигадуй додаткового змісту: "
+                    "познач опис для ручної редактури. Не пиши про "
                     "другорядні побутові подробиці чи професії, "
                     "якщо вони не стосуються центральної теми. "
                     "Заявлені факти подавай як слова учасника, "
