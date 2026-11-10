@@ -1,0 +1,22 @@
+name: RG 895 config loader source audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-config-loader-source-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_auto_v2.py")
+          a=p.read_text(encoding="utf-8-sig").splitlines()
+          for i in list(range(175,285))+list(range(325,365)):
+              if i<len(a):print("RGCONFIG|"+str(i+1)+"|"+a[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
