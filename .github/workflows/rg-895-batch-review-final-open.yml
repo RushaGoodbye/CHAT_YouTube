@@ -1,0 +1,55 @@
+name: RG 895 QA batch review final evidence and open
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-batch-review-final-open.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          $dir=Join-Path $root 'NOTIFICATION_QA_V93'
+          $py=@'
+          from pathlib import Path
+          import json
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895")
+          out=root/"NOTIFICATION_QA_V93"
+          def read(p):return json.loads(p.read_text(encoding="utf-8-sig"))
+          state=read(root/"status.json")
+          plan=read(root/"processing_plan.json")
+          verdict=read(out/"895_visual_review_verdict_v1.json")
+          unknown=read(out/"895_all64_unknown_review.json")
+          suspects=read(out/"895_seven_suspect_rois.json")
+          if state.get("state")!="PAUSED_EDITORIAL_QA":raise RuntimeError("STATUS_CHANGED")
+          if plan.get("popup_coverage_verified") is not False:raise RuntimeError("UNPROVEN_COVERAGE_MARKED_TRUE")
+          if len(plan["popup_masks"])!=20:raise RuntimeError("ACCEPTED_MASKS_CHANGED")
+          if sorted(x["candidate_index"] for x in verdict["rejected_candidate_decisions"])!=[12,18,19]:
+              raise RuntimeError("REVIEW_MARKS_CHANGED")
+          if len(unknown["candidate_info"])!=64 or len(suspects["candidates"])!=7:
+              raise RuntimeError("INCOMPLETE_VISUAL_QA")
+          expected={90,100,3480,3540,5490,11420}
+          assert {int(x["source_seconds"]) for x in suspects["candidates"]}==expected
+          for p in [out/"895_seven_suspect_rois.jpg",
+                    *sorted(out.glob("895_unknown_all64_part_*.jpg")),
+                    out/"895_three_rejected_candidates.jpg"]:
+              if not p.is_file():raise RuntimeError("MISSING_REVIEW_IMAGE")
+          print("RG895FINAL|ACCEPTED_MASKS|20",flush=True)
+          print("RG895FINAL|REJECTED_AS_GRAPHICS|3",flush=True)
+          print("RG895FINAL|SPOT_UNKNOWN|64|ADDITIONAL_ROIS|7",flush=True)
+          print("RG895FINAL|ALL64_CONTACT_PAGES|"+str(len(list(out.glob("895_unknown_all64_part_*.jpg")))),flush=True)
+          print("RG895FINAL|FULL_SOURCE_COVERAGE|UNVERIFIED|PUBLISH_BLOCKED",flush=True)
+          print("RG895FINAL|STATUS_AND_PLAN_UNCHANGED|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG895_REVIEW_CONSISTENCY_FAILED'}
+          $file=Join-Path $dir '895_seven_suspect_rois.jpg'
+          if((Get-Process explorer -ErrorAction SilentlyContinue).Count){
+            Start-Process explorer.exe -ArgumentList ('/select,"'+$file+'"')
+            Write-Output ('RG895FINAL|EXPLORER_OPENED|'+$file)
+          }
