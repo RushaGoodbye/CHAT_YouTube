@@ -1,0 +1,38 @@
+name: RG overnight 885-889 status audit 20261110
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-overnight-885-889-audit-20261110.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $procs=@(Get-CimInstance Win32_Process | Where-Object{$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_studio_main.py|rg_fullstream_worker_v3.py|rg_fullstream_auto_v2.py'})
+          foreach($p in $procs){Write-Output ('RGNIGHT|PROC|'+$p.ProcessId+'|'+$p.ParentProcessId+'|'+$p.CreationDate+'|'+$p.CommandLine)}
+          foreach($id in 885..889){
+            $s=[string]$id;$d=Join-Path $base $s
+            $st=Join-Path $d 'status.json';$req=Join-Path $d 'queue_request.json';$phase=Join-Path $d 'stage_state_v52.json'
+            $state='NONE';$err='';$stage='';$detail='';$statusmod='NONE'
+            if(Test-Path $st){
+              $statusmod=(Get-Item $st).LastWriteTime.ToString('s')
+              try{$v=Get-Content $st -Raw -Encoding UTF8|ConvertFrom-Json;$state=$v.state;$err=$v.error}catch{$state='CORRUPT'}
+            }
+            if(Test-Path $phase){try{$v=Get-Content $phase -Raw -Encoding UTF8|ConvertFrom-Json;$stage=$v.stage;$detail=$v.detail}catch{}}
+            $out=Join-Path (Join-Path $app $s) 'FULLSTREAM_YOUTUBE'
+            $mp4=@()
+            if(Test-Path $out){$mp4=@(Get-ChildItem $out -Filter '*.mp4' -ErrorAction SilentlyContinue|Select-Object -First 4 -ExpandProperty Name)}
+            Write-Output ('RGNIGHT|STREAM|'+$s+'|STATE='+$state+'|QUEUE='+(Test-Path $req)+'|STATUS_TIME='+$statusmod+'|STAGE='+$stage+'|DETAIL='+$detail+'|ERROR='+$err+'|MP4='+($mp4 -join ';'))
+          }
+          $log=Join-Path $base 'queue_worker.log'
+          if(Test-Path $log){
+            Write-Output ('RGNIGHT|LOG_UPDATED|'+(Get-Item $log).LastWriteTime.ToString('s'))
+            Get-Content $log -Tail 95|ForEach-Object {Write-Output ('RGNIGHT|LOG|'+$_)}
+          }
+          Write-Output 'RGNIGHT|READ_ONLY|PASS'
