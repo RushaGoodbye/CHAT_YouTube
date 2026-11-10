@@ -1,0 +1,53 @@
+name: RG stop current 885-889 for ASR optimization
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-stop-885-889-for-asr-20261110.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-asr-v3-maintenance
+  cancel-in-progress: false
+jobs:
+  stop:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=@'
+          import sys,json
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers,stop_fullstream
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          q=[]
+          for f in (data/"fullstream_v2").glob("*/queue_request.json"):
+              try:
+                  row=json.loads(f.read_text(encoding="utf-8-sig"))
+                  if row.get("stream")==f.parent.name:q.append(f.parent.name)
+              except (OSError,ValueError):pass
+          workers=active_workers()
+          pids=sorted(int(p["ProcessId"]) for p in workers)
+          print("RGASRSTOP|QUEUE|"+json.dumps(q),flush=True)
+          print("RGASRSTOP|PIDS|"+json.dumps(pids),flush=True)
+          if any(s not in {"885","886","887","888","889"} for s in q):
+              raise RuntimeError("OTHER_FULLSTREAM_QUEUED_REFUSE_UNSCOPED_STOP")
+          if pids:
+              res=stop_fullstream(confirmed=True,expected_pids=pids,grace=12)
+              print("RGASRSTOP|RESULT|"+json.dumps(res,ensure_ascii=False,default=str),flush=True)
+              if res.get("status")!="STOPPED_VERIFIED_WORKERS":
+                  raise RuntimeError("STOP_NOT_CONFIRMED")
+          else:
+              print("RGASRSTOP|RESULT|NO_ACTIVE_WORKERS",flush=True)
+          still=active_workers()
+          lock=worker_lock_state(data)
+          print("RGASRSTOP|AFTER|"+json.dumps([int(x["ProcessId"]) for x in still])+"|LOCK="+lock,flush=True)
+          if still or lock!="IDLE":raise RuntimeError("WORKER_STILL_ACTIVE")
+          print("RGASRSTOP|PASS|STUDIO_UNTOUCHED",flush=True)
+          '@
+          $src | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'SCOPED_WORKER_STOP_FAILED'}
