@@ -138,7 +138,9 @@ def test_format_failure_targets_only_bad_tags_on_next_revision(monkeypatch):
         draft=draft, source_notes=[{"quote": "Говоримо про війну"}],
         first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "tags", "reason": "weak tags"}]},
     )
-    assert result["revised"] is False  # Do not approve unchanged original.
+    assert result["revised"] is True
+    assert result["candidate"]["tags"] == draft["tags"]
+    assert result["candidate"]["title"] == draft["title"]
     assert result["publication_allowed"] is False
 
 
