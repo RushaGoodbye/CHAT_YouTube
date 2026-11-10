@@ -3265,6 +3265,23 @@ chapters: рядок з підтвердженими таймкодами та �
             max_topic_bullets=0,
             max_body_bytes=900,
         )
+    if evidence_report and verified_evidence:
+        varied = _select_diverse_title_variants(title, variants)
+        if len(varied) < 3 and not fast_mode:
+            # Regenerate only missing A/B angles; do not overwrite a strong
+            # primary headline and do not invent any third dialogue.
+            try:
+                fresh = _recover_title_variants(
+                    current_title=title,
+                    transcript=verified_evidence,
+                    model=model,
+                )
+                varied = _select_diverse_title_variants(
+                    title, [*varied, *fresh],
+                )
+            except (ValueError, RuntimeError, TimeoutError):
+                pass
+        variants = varied
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
