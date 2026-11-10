@@ -2640,6 +2640,17 @@ def generate_seo_package_local(
         or bool(context.get("is_livestream"))
     )
     verified_evidence = evidence_outline_text(evidence_report, max_chars=14000) if evidence_report else ""
+    # Use repeated *literal quotations* to propose the focal subject.
+    # This ranking is an editorial hint, never proof that a model label
+    # or a single disputed remark is an objective fact.
+    central_quote_brief = ""
+    if evidence_report:
+        from .dialogue_seo import rank_literal_evidence
+        main_quotes = rank_literal_evidence(evidence_report)[:3]
+        central_quote_brief = "\\n".join(
+            f"[{entry['start_stamp']}] {entry['evidence'][:230]}"
+            for entry in main_quotes
+        )
     # A transcript sample is not a full-topic ranking. Explicitly tell the
     # model to avoid promoting a late isolated segment into the primary hook.
     coverage_instruction = (
@@ -2702,6 +2713,10 @@ SHORTS: {is_short}
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
 {coverage_instruction}
+ЦИТАТИ З НАЙБІЛЬШОЮ ПОВТОРЮВАНІСТЮ ТЕМ У РІЗНИХ ФРАГМЕНТАХ
+(підказки для вибору сюжету, НЕ встановлені факти):
+{central_quote_brief}
+
 ДОСЛІВНІ ЦИТАТИ SRT (без редакторських припущень):
 {verified_evidence}
 
@@ -2750,7 +2765,10 @@ chapters: рядок з підтвердженими таймкодами та �
 ПОТОЧНА НАЗВА:
 {current_title}
 
-КАРТА ПІДТВЕРДЖЕНИХ ТЕМ ВСЬОГО ВІДЕО:
+ДОСЛІВНІ РЕПЛІКИ, ЩО СТОСУЮТЬСЯ ПОВТОРЮВАНИХ ТЕМ:
+{central_quote_brief}
+
+КАРТА ДОСЛІВНИХ ЦИТАТ З УСЬОГО ВІДЕО:
 {verified_evidence}
 
 ТРАНСКРИПТ:
