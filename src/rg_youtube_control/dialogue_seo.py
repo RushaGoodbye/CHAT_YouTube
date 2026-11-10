@@ -629,7 +629,7 @@ def _cross_language_topic_word(word: str) -> str:
         # Bilingual lexical grounding of directly quoted subjects. These
         # mappings do not turn an unmentioned event into source evidence.
         (("дит", "дет", "діт"), "детиx"),
-        (("усміх", "усмих", "улыб"), "улыбx"),
+        (("усміх", "усмих", "усміш", "усмиш", "улыб"), "улыбx"),
         (("алкогол",), "алког"),
         (("переїз", "переиз", "переезд", "переезж"), "переезд"),
         (("голосув", "голосова"), "голос"),
