@@ -512,8 +512,12 @@ def focused_literal_source_notes(
         if len(selected) >= limit:
             break
     if not selected:
-        item = ranked[0]
-        return [{"time": item["start_stamp"], "quote": item["evidence"][:240]}]
+        # A title with no meaningful lexical link to source quotations is
+        # not permission to substitute an unrelated highest-ranked segment.
+        # An empty focused set forces explicit editorial review upstream.
+        if has_match:
+            return []
+        return []
     return selected
 
 
