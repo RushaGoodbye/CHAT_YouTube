@@ -1,0 +1,18 @@
+name: RG postinstall V3 pixel and audio frame hash
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v92-postinstall-pixel-audio.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_render_fast_v3_postinstall_integrity.py
+          if($LASTEXITCODE -ne 0){throw 'POSTINSTALL_PIXEL_AUDIO_INTEGRITY_FAILURE'}
