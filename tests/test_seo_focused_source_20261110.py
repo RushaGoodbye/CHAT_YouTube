@@ -108,3 +108,58 @@ def test_revision_notes_without_critic_evidence_cover_timeline():
     assert len(selected) == 10
     assert selected[0] == notes[0]
     assert selected[-1] == notes[-1]
+
+
+
+def test_offtopic_headline_is_rebuilt_using_only_literal_source_notes():
+    import json
+    from rg_youtube_control.free_tools import _repair_offtopic_headline
+    report = {"blocks": [
+        block("00:01:00", "В Росії була мобілізація, багато людей не хотіли воювати."),
+        block("00:05:00", "Люди обговорювали мобілізацію та війну."),
+    ]}
+    calls = []
+    def chat(messages, **_kwargs):
+        calls.append(messages[-1]["content"])
+        return json.dumps({
+            "title": "Росіянин про мобілізацію: чому люди не хотіли воювати?"
+        }, ensure_ascii=False)
+    title, repaired = _repair_offtopic_headline(
+        "Звільнення невідомого генерала через корупцію",
+        report, model="test", timeout=1.0, chat=chat,
+    )
+    assert repaired is True
+    assert "мобілізацію" in title
+    assert len(calls) == 1
+    assert "Вигадана перемога" not in calls[0]
+    assert "Непідтверджена подія" not in calls[0]
+
+
+def test_offtopic_repair_rejects_new_invented_headline():
+    import json
+    from rg_youtube_control.free_tools import _repair_offtopic_headline
+    report = {"blocks": [
+        block("00:04:00", "Поговорили про роботу та вихідні."),
+    ]}
+    original = "Розмова про санкції та вибори"
+    title, repaired = _repair_offtopic_headline(
+        original, report, model="test", timeout=1.0,
+        chat=lambda *_a, **_k: json.dumps({
+            "title": "Невідомий генерал переміг на виборах"
+        }, ensure_ascii=False),
+    )
+    assert repaired is False
+    assert title == original
+
+
+def test_grounded_headline_needs_no_extra_model_call():
+    from rg_youtube_control.free_tools import _repair_offtopic_headline
+    report = {"blocks": [block("00:01:00", "Говорили про мобілізацію та війну.")]}
+    title, changed = _repair_offtopic_headline(
+        "Розмова про мобілізацію", report, model="test", timeout=1.0,
+        chat=lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("Grounded title must not trigger extra inference")
+        ),
+    )
+    assert changed is False
+    assert title == "Розмова про мобілізацію"
