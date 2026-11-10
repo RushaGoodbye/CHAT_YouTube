@@ -655,43 +655,32 @@ def generate_universal_seo(srt: str, chat: Chat,
                         ),
                     })
             independent["issues"] = existing
+        # Validate separately: a bad description must not throw away a
+        # proven title fix. Each field receives one bounded attempt, and
+        # a fresh independent check must clear that particular defect.
+        from .seo_v2_revision_loop import repair_fields_independently
+
+        def recheck(candidate: dict[str, Any]) -> dict[str, Any]:
+            report = validate_draft(
+                candidate, ledger, cues, allowed_ids=visible_ids,
+            )
+            invalid_names = unsupported_names(candidate, proof)
+            if invalid_names:
+                report["issues"] = sorted(set([
+                    *report["issues"], "UNVERIFIED_NAMED_ENTITIES"
+                ]))
+                report["unverified_names"] = invalid_names
+            return report
+
+        semantic_repaired_fields: list[str] = []
         if independent.get("issues"):
-            try:
-                revised = revise_semantic_defects(
-                    draft, proof, independent, chat,
+            draft, gate, independent, semantic_repaired_fields = (
+                repair_fields_independently(
+                    draft, proof, independent, chat, independent_review,
+                    recheck,
                 )
-            except (ValueError, RuntimeError, TypeError, TimeoutError):
-                revised = None
-            if revised is not None:
-                revised_gate = validate_draft(
-                    revised, ledger, cues, allowed_ids=visible_ids,
-                )
-                revised_names = unsupported_names(revised, proof)
-                if revised_names:
-                    revised_gate["issues"] = sorted(set([
-                        *revised_gate["issues"],
-                        "UNVERIFIED_NAMED_ENTITIES",
-                    ]))
-                    revised_gate["unverified_names"] = revised_names
-                # Never accept an edited draft just because its reviewer
-                # returned JSON. It must improve independent content QA
-                # without introducing new structural/source defects.
-                if (not revised_gate["issues"]
-                        and not revised_names):
-                    try:
-                        second_review = check_semantics(
-                            revised, proof, independent_review,
-                        )
-                    except (ValueError, RuntimeError, TypeError, TimeoutError):
-                        second_review = {"issues": [{
-                            "field": "reviewer",
-                            "reason": "SECOND_REVIEW_UNAVAILABLE",
-                        }]}
-                    if not second_review.get("issues"):
-                        draft, gate, independent = (
-                            revised, revised_gate, second_review
-                        )
-                        semantic_repair_applied = True
+            )
+            semantic_repair_applied = bool(semantic_repaired_fields)
     return {
         "status": ("REVIEW_REQUIRED" if gate["issues"] or independent is None
                    or independent.get("issues") else "READY_FOR_HUMAN_REVIEW"),
@@ -701,6 +690,7 @@ def generate_universal_seo(srt: str, chat: Chat,
         "citations_repaired": citations_repaired,
         "repaired_fields": repaired_fields,
         "semantic_repair_applied": semantic_repair_applied,
+        "semantic_repaired_fields": semantic_repaired_fields if independent_review is not None else [],
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
         "writer_evidence_quotes": len(proof),
