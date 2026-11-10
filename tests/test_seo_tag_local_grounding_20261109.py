@@ -40,3 +40,34 @@ def test_deterministic_tags_do_not_promote_title_only_subjects():
     )
     assert "Шойгу" not in tags
     assert "мобілізація в Росії" not in tags
+
+
+
+def test_deterministic_tags_reject_relationships_spread_across_dialogues():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    transcript = (
+        "[00:10] Лукашенко розповів про Білорусь.\n"
+        "[49:00] Говоримо про Україну.\n"
+        "[55:00] Питання про зарплату в місті.\n"
+    )
+    tags = _grounded_tags_from_transcript("", transcript)
+    assert "Білорусь і Україна" not in tags
+    assert "РАША ГУДБАЙ" in tags
+    assert "чат рулетка" in tags
+
+
+def test_deterministic_tags_reject_unrelated_personnel_changes():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    transcript = (
+        "[00:01] У цій розмові згадали Шойгу.\n"
+        "[51:00] Інша людина обговорює звільнення працівників.\n"
+    )
+    tags = _grounded_tags_from_transcript("", transcript)
+    assert "звільнення Шойгу" not in tags
+
+
+def test_deterministic_tags_keep_exact_source_supported_phrase():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    transcript = "[00:01] Наше питання сьогодні — звільнення Шойгу."
+    tags = _grounded_tags_from_transcript("", transcript)
+    assert "звільнення Шойгу" in tags
