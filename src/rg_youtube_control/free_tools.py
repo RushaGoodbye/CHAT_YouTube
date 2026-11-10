@@ -1870,71 +1870,99 @@ _GENERIC_MODEL_TAGS = {
 }
 
 
+# Explicit cross-language lexical equivalences for Ukrainian SEO queries and
+# Russian-language conversation SRT. Do not infer a relationship between
+# tokens unless their roots occur in ONE nearby source-caption span.
+_TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
+    "війн": ("війн", "войн"),
+    "росі": ("росі", "росси", "россий", "рф"),
+    "росіян": ("росіян", "россиян"),
+    "україн": ("україн", "украин"),
+    "білорус": ("білорус", "беларус", "белорус"),
+    "зарплат": ("зарплат", "заробітн"),
+    "пенсі": ("пенсі", "пенси"),
+    "звільнен": ("звільнен", "увольнен", "отстав"),
+    "звільн": ("звільн", "увольн", "отстав"),
+    "мобіліз": ("мобіліз", "мобилиз"),
+    "санкці": ("санкці", "санкц"),
+    "корупці": ("корупці", "коррупц"),
+    "економі": ("економі", "эконом"),
+    "бензин": ("бензин", "топлив", "пальн"),
+    "пальн": ("пальн", "топлив", "бензин"),
+    "путін": ("путін", "путин"),
+    "шойгу": ("шойгу",),
+    "ціни": ("ціни", "цены", "цен"),
+    "вартіст": ("вартіст", "стоимост"),
+    "доход": ("доход", "дохід"),
+    "робот": ("робот", "работ"),
+}
+
+_TAG_CONNECTORS = {"проти", "щодо", "через", "після", "перед", "між",
+                   "разом", "військові", "російські"}
+
+
 def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
-    """Require topical model tags to be grounded in SRT when SRT is available."""
+    """Require search queries to occur in one nearby SRT span, across UA/RU.
+
+    Old code required the UKRAINIAN word to appear literally in the RUSSIAN
+    subtitle. This silently stripped relevant SEO from almost every dialogue.
+    Equivalences below are lexical, not proof of any event's truth.
+    """
     clean = " ".join(str(tag or "").split()).strip().lstrip("#")
     if not clean:
         return False
     folded = clean.casefold()
     if folded in _GENERIC_MODEL_TAGS:
         return False
-    # Reject repeated low-value "війна і X" model tags from real 0.7.16 QA.
-    # Keep named events and stronger concrete search phrases instead.
-    if re.match(r"^(?:війна|война)\s+(?:і|и)\s+", folded):
+    if re.match(r"^(?:війна|война)\\s+(?:і|и)\\s+", folded):
         return False
     if folded in {"раша гудбай", "чат рулетка"}:
         return True
-
-    # A legacy/video filename is not evidence of an event mentioned on air.
     haystack = (transcript if str(transcript or "").strip() else current_title).casefold()
-    if folded in haystack:
-        return True
-
+    if not haystack:
+        return False
+    # The source's actual words establish both entity and topic in one span.
+    tag_words = re.findall(r"[a-zа-яіїєґё0-9]+", folded)
     tokens = [
-        token
-        for token in re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", folded)
+        token for token in tag_words
         if len(token) >= 4 and token not in _GENERIC_MODEL_TAGS
+        and token not in _TAG_CONNECTORS
     ]
     if not tokens:
         return False
 
-    # Ukrainian/Russian single-word tags may be declined in speech.
-    # E.g. «мобілізація» appears as «мобілізацію» in the transcript.
-    # Require a sufficiently long word stem so short generic tags do not
-    # accidentally match unrelated subjects.
-    if len(tokens) == 1 and len(tokens[0]) >= 8:
-        stem = tokens[0][:max(6, len(tokens[0]) - 3)]
-        if any(word.startswith(stem) for word in re.findall(
-            r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", haystack
-        )):
-            return True
-
-    # Words scattered across different conversations do not substantiate
-    # a claimed relationship such as "event A caused outcome B".
-    # Multi-word tags need their meaningful tokens in one local source span.
-    if len(tokens) == 1:
-        return tokens[0] in haystack
-    for line in haystack.splitlines():
-        if len(line) > 500:
-            windows = [line[i:i + 500] for i in range(0, len(line), 350)]
+    def match(token: str, words: list[str]) -> bool:
+        # Root detection must use word starts, never arbitrary substrings:
+        # 'робот' cannot be mistaken for 'робота' unless explicitly scoped
+        # and 'свою' must never match 'СВО'.
+        root = next(
+            (key for key in sorted(_TAG_GROUNDING_ROOTS, key=len, reverse=True)
+             if token.startswith(key)),
+            None,
+        )
+        if root:
+            variants = _TAG_GROUNDING_ROOTS[root]
         else:
-            windows = [line]
-        for window in windows:
-            if all(token in window for token in tokens):
+            length = min(6, max(4, len(token) - 2))
+            variants = (token[:length],)
+        return any(
+            word.startswith(variant)
+            for variant in variants
+            for word in words
+        )
+
+    # Line-level locality prevents mixing disparate speakers' statements.
+    # Subtitles with long unbroken lines use overlapping bounded windows.
+    for line in haystack.splitlines():
+        spans = (
+            [line[i:i + 420] for i in range(0, len(line), 300)]
+            if len(line) > 420 else [line]
+        )
+        for span in spans:
+            source_words = re.findall(r"[a-zа-яіїєґё0-9]+", span)
+            if all(match(token, source_words) for token in tokens):
                 return True
     return False
-
-
-def _source_mentions(
-    title: str,
-    transcript: str,
-    needles: tuple[str, ...],
-) -> tuple[bool, int]:
-    title_text = str(title or "").casefold()
-    transcript_text = str(transcript or "").casefold()
-    in_title = any(needle in title_text for needle in needles)
-    count = sum(transcript_text.count(needle) for needle in needles)
-    return in_title, count
 
 
 def _grounded_tags_from_transcript(
