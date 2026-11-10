@@ -3052,6 +3052,71 @@ chapters: рядок з підтвердженими таймкодами та �
                             description_error = ""
                     except (ValueError, RuntimeError, TimeoutError, TypeError):
                         pass
+                if description_error and verified_evidence:
+                    # A single free-form description often stops after two
+                    # sentences. Constrain the last repair to a structured
+                    # sequence of five independently source-backed sentences
+                    # and reject the entire result if it still misses bounds.
+                    try:
+                        source_notes = [
+                            {
+                                "time": str(block.get("start_stamp") or ""),
+                                "evidence": str(topic.get("evidence") or "")[:200],
+                            }
+                            for block in evidence_report.get("blocks") or []
+                            if isinstance(block, dict) and block.get("verified") is not False
+                            for topic in (block.get("topics") or [])[:1]
+                            if isinstance(topic, dict) and topic.get("evidence")
+                        ][:9]
+                        repair_by_sentence = (
+                            "Відредагуй український SEO-опис. "
+                            "Відповідай ТІЛЬКИ JSON з полем sentences: "
+                            "масив РІВНО П'ЯТИ змістовних українських речень. "
+                            "Кожне 75–160 символів, разом 400–900 символів. "
+                            "Перше речення має назвати конкретний головний "
+                            "сюжет, наступні чотири — лише інші висловлені "
+                            "факти, запитання чи позиції з ДОСЛІВНИХ цитат. "
+                            "Не вигадуй дій, мотивів, причин або чисел. "
+                            "Якщо джерело містить лише 2 теми, розкрий їх "
+                            "двома окремими перевіреними репліками, "
+                            "не вигадуй третю. Не додавай службового тексту. "
+                            "Сумнівні твердження приписуй мовцю.\\n"
+                            "ПОТОЧНИЙ НЕВДАЛИЙ ОПИС: " + description_candidate[:850]
+                            + "\\nПІДТВЕРДЖЕНІ ЦИТАТИ:\\n"
+                            + json.dumps(source_notes, ensure_ascii=False)
+                        )
+                        structured_raw = ollama_chat(
+                            [{"role": "system", "content": (
+                                "Український редактор YouTube. "
+                                "Тільки JSON з п'ятьма реченнями."
+                            )}, {"role": "user", "content": repair_by_sentence}],
+                            model=model, timeout=timeout,
+                            temperature=0.08, json_mode=True, num_ctx=8192,
+                        )
+                        structured_data = _extract_json_object(structured_raw)
+                        sentences = structured_data.get("sentences")
+                        if (
+                            isinstance(sentences, list)
+                            and len(sentences) == 5
+                            and all(isinstance(x, str) and len(x.strip()) >= 50
+                                    for x in sentences)
+                        ):
+                            structured_text = _polish_generated_description(
+                                " ".join(x.strip() for x in sentences)
+                            )
+                            structured_text = _remove_unsupported_named_claims(
+                                structured_text, evidence_report, current_title,
+                            )
+                            if (
+                                400 <= len(structured_text) <= 900
+                                and not _description_quality_error(
+                                    structured_text, transcript, max_chars=900,
+                                )
+                            ):
+                                description_candidate = structured_text
+                                description_error = ""
+                    except (RuntimeError, ValueError, TimeoutError, TypeError):
+                        pass
                 if description_error:
                     # Keep the failed wording in the editor-only draft and
                     # let the quality gate reject it. Never pad with boilerplate
