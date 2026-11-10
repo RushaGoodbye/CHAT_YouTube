@@ -1,0 +1,31 @@
+name: RG 895 inspect QA only fullstream route
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-qa-review-only-route-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for name,ranges in {
+            "rg_fullstream_auto_v2.py":[(625,735)],
+            "rg_fullstream_worker_v3.py":[(105,185)],
+            "rg_fullstream_launcher_v2.py":[(47,110)],
+            "rg_fullstream_manual_tab_v4.py":[(364,460)],
+            "rg_studio_ui.py":[(3850,4045)],
+            "rg_fullstream_editorial_gate_v82.py":[(125,153)]}.items():
+             a=(root/name).read_text(encoding="utf-8-sig").splitlines()
+             for start,end in ranges:
+              for i in range(start-1,min(len(a),end)):
+               print("RGPATH|"+name+"|"+str(i+1)+"|"+a[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'QA_PATH_INSPECT_FAILED'}
