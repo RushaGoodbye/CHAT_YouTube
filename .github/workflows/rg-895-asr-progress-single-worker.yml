@@ -1,0 +1,30 @@
+name: RG 895 ASR progress and single worker evidence
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-asr-progress-single-worker.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          $status=Join-Path $root 'status.json'
+          if(Test-Path $status){Write-Output ('RG895DETAIL|STATUS|'+(Get-Content $status -Raw -Encoding UTF8))}
+          foreach($f in Get-ChildItem $root -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 25){
+            Write-Output ('RG895DETAIL|RECENT|'+$f.Name+'|'+$f.Length+'|'+$f.LastWriteTime.ToString('o'))
+          }
+          foreach($f in Get-ChildItem $root -Recurse -File -Filter '*progress*.json' -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 5){
+            $str=Get-Content $f.FullName -Raw -Encoding UTF8
+            Write-Output ('RG895DETAIL|PROGRESS|'+$f.FullName+'|'+$str.Substring(0,[Math]::Min(1400,$str.Length)))
+          }
+          $ps=@(Get-CimInstance Win32_Process|Where-Object {$_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_asr_child_v58|rg_studio_main.py'})
+          foreach($p in $ps){
+            Write-Output ('RG895DETAIL|PROCESS|'+$p.ProcessId+'|PARENT|'+$p.ParentProcessId+'|'+$p.Name)
+          }
+          $state=Join-Path 'F:\RG_AUTO_EDIT\RG Auto Edit Data' 'fullstream_v2\_single_gpu_worker.lock'
+          Write-Output ('RG895DETAIL|LOCK_FILE_PRESENT|'+(Test-Path $state))
+          Write-Output 'RG895DETAIL|READ_ONLY|PASS'
