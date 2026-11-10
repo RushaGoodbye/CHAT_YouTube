@@ -1474,21 +1474,17 @@ def _recover_missing_description(
 
 def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
     """Up to three distinct grounded anchors; never invent a third story."""
-    from .dialogue_seo import distinct_evidence_topics
+    from .dialogue_seo import rank_literal_evidence
 
-    entries = distinct_evidence_topics(report)
+    entries = rank_literal_evidence(report)[:3]
     if not entries:
         return ""
-    n = len(entries)
-    selections: list[int] = []
-    targets = [0] if n == 1 else ([0, n - 1] if n == 2 else [0, (n - 1) // 2, n - 1])
-    for target in targets:
-        remaining = [i for i in range(n) if i not in selections]
-        selections.append(min(remaining, key=lambda i: abs(i - target)))
+    # A/B hooks are distinct editorial angles from verifiable statements;
+    # never present LLM-generated "topic" labels as sourced claims.
     return "\n".join(
-        f"{label}: [{entries[i]['start_stamp']}] ТЕМА: {entries[i]['topic']}; "
-        f"ЦИТАТА: {entries[i]['evidence'][:220]}"
-        for label, i in zip(("A", "B", "C"), selections)
+        f"{label}: [{item['start_stamp']}] ДОСЛІВНА ЦИТАТА SRT: "
+        f"{item['evidence'][:220]}"
+        for label, item in zip(("A", "B", "C"), entries)
     )
 
 
