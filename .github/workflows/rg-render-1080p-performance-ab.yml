@@ -1,0 +1,18 @@
+name: RG render filter 1080p performance A/B
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-render-1080p-performance-ab.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_render_fast_1080p_benchmark.py
+          if($LASTEXITCODE -ne 0){throw 'SYNTHETIC_1080P_BENCHMARK_FAILED'}
