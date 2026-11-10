@@ -1,0 +1,50 @@
+name: RG 895 notification coverage blocker exact diagnostics
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-popup-coverage-diagnose-20261110.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import json,re,sys
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895")
+          for name in ("editorial_evidence_v84.json","V41_POPUP_VISUAL_REJECTIONS.json","completed_popups_v76.json","processing_plan.json","preflight.json","status.json","editorial_preflight_v82.json"):
+              p=root/name
+              if not p.exists():
+                  print("RGCOV|MISSING|"+name);continue
+              v=json.loads(p.read_text(encoding="utf-8-sig"))
+              print("RGCOV|FILE|"+name+"|SIZE|"+str(p.stat().st_size),flush=True)
+              if name=="processing_plan.json":
+                  for key in ("popup_coverage_verified","duration_seconds","video","popup_masks","extra_review_flags","notification_qa_review_v1"):
+                      val=v.get(key)
+                      if key=="popup_masks":print("RGCOV|PLAN|popup_masks|"+str(len(val or [])))
+                      else:print("RGCOV|PLAN|"+key+"|"+str(val)[:700])
+              elif name=="completed_popups_v76.json":
+                  r=v.get("result",{})
+                  print("RGCOV|RAW|keys|"+str(list(r)))
+                  print("RGCOV|RAW|masks|"+str(len(r.get("masks",[]))))
+                  print("RGCOV|RAW|flags|"+str(r.get("flags",[]))[:1200])
+                  for i,m in enumerate(r.get("masks",[])):print("RGCOV|CANDIDATE|"+str(i)+"|"+json.dumps(m,ensure_ascii=False)[:450])
+              elif name=="V41_POPUP_VISUAL_REJECTIONS.json":
+                  print("RGCOV|REJECTIONS|"+json.dumps(v,ensure_ascii=False)[:4500])
+              else:print("RGCOV|JSON|"+name+"|"+json.dumps(v,ensure_ascii=False)[:9000])
+          for name in ("rg_fullstream_auto_v2.py","rg_fullstream_popup_checkpoint_v89.py","rg_fullstream_popup_light_v89.py","rg_fullstream_editorial_gate_v82.py"):
+              p=app/name
+              lines=p.read_text(encoding="utf-8-sig").splitlines()
+              print("RGCOV|CODE|"+name+"|LINES|"+str(len(lines)))
+              candidates=[i for i,s in enumerate(lines) if any(x in s for x in ("popup_coverage_verified","full_notification_coverage_confirmed","SOURCE_WIDE_SCAN_AND_EDITORIAL_QA_REQUIRED","notification_qa_review","POPUP_VISUAL_COVERAGE","POPUPS_CHECKPOINT_SAVED"))]
+              for i in candidates[:20]:
+                  print("RGCOV|CODE_LOC|"+name+"|"+str(i+1)+"|"+lines[i][:210])
+          print("RGCOV|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'COVERAGE_DIAG_FAILED'}
