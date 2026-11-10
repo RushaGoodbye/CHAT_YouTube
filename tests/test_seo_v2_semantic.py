@@ -223,3 +223,40 @@ def test_without_unverified_names_no_banlist_is_invented():
     )
     assert len(prompts) == 1
     assert "source-unverified name spellings MUST NOT" not in prompts[0]
+
+
+def test_description_repair_classifies_question_opinion_conditional_not_facts():
+    original = _draft()
+    seen = []
+    def writer(prompt):
+        seen.append(prompt)
+        return {"changes": {}, "support_ids": {}}
+    revise_semantic_defects(
+        original, _proof(),
+        {"issues": [{"field": "description", "reason": "Hypothesis asserted as fact"}]},
+        writer,
+    )
+    assert len(seen) == 1
+    prompt = seen[0]
+    assert "QUESTION, SPEAKER OPINION, CONDITIONAL STATEMENT" in prompt
+    assert "not an objective investigative report" in prompt
+    assert "No claim that 'analysis shows'" in prompt
+    # The model does not receive unrelated tags and A/B headlines in the
+    # editable draft, preventing contamination by other bad fields.
+    editable = prompt.split("CURRENT DRAFT:\n", 1)[1].split(
+        "\nMAIN TITLE AS CONTEXT", 1
+    )[0]
+    import json
+    assert list(json.loads(editable)) == ["description"]
+
+
+def test_tag_repair_is_topic_only_not_asserted_outcome():
+    prompts = []
+    revise_semantic_defects(
+        _draft(), _proof(),
+        {"issues": [{"field": "tags", "reason": "Question presented as a fact"}]},
+        lambda p: (prompts.append(p) or {"changes": {}, "support_ids": {}}),
+    )
+    assert len(prompts) == 1
+    assert "not claim the outcome of a question or hypothetical" in prompts[0]
+    assert "Each needs its own real evidence IDs" in prompts[0]
