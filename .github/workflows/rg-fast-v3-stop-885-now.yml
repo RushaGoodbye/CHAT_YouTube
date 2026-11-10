@@ -1,0 +1,21 @@
+name: RG stop 885 early for verified fast render rollout
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-v3-stop-885-now.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-fast-v3-885-rollout
+  cancel-in-progress: false
+jobs:
+  stop:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_fast_v3_stop_885.py
+          if($LASTEXITCODE -ne 0){throw 'STOP_885_SCOPE_UNCONFIRMED'}
