@@ -1,0 +1,18 @@
+name: RG V93 actionable popup editorial QA static acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-v93-actionable-qa-static-acceptance.yml']
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_install_qa_actionable_v93.py
+          if($LASTEXITCODE -ne 0){throw 'V93_QA_STATIC_ACCEPTANCE_FAILED'}
