@@ -3017,9 +3017,13 @@ chapters: рядок з підтвердженими таймкодами та �
                     # A failed optional tag rewrite must never erase a
                     # still-useful, explicitly unapproved draft.
                     pass
-            if len(merged_tags) < 8:
-                # Never pad keywords with unsupported claims to reach a quota.
-                # An incomplete tag set can be saved ONLY for human review.
+            topical_count = sum(
+                tag.casefold() not in generic_search_tags
+                for tag in merged_tags
+            )
+            if len(merged_tags) < 8 or topical_count < 3:
+                # Eight generic brand/format tags are NOT successful SEO.
+                # Keep the draft, but record poor topical coverage honestly.
                 candidate["_tags_review_required"] = True
             candidate["tags"] = merged_tags
 
