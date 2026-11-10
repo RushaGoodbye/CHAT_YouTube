@@ -468,6 +468,55 @@ def rank_literal_evidence(report: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def focused_literal_source_notes(
+    report: dict[str, Any],
+    title: str,
+    *,
+    limit: int = 6,
+) -> list[dict[str, str]]:
+    """Select description evidence from the dominant subject, not small talk.
+
+    Prefer quotes sharing meaningful bilingual roots with the title, then
+    recurring source themes. Cap evidence from a single time block so
+    peripheral or repeated phrases cannot drown out the actual conversation.
+    All selected text remains a verbatim SRT quotation.
+    """
+    ranked = rank_literal_evidence(report)
+    if not ranked or limit < 1:
+        return []
+    title_roots = _literal_quote_subjects(title)
+    ranked_roots = [_literal_quote_subjects(item["evidence"]) for item in ranked]
+    overlap = [len(title_roots & roots) for roots in ranked_roots]
+    has_match = bool(max(overlap, default=0))
+    candidates = sorted(
+        range(len(ranked)),
+        key=lambda i: (
+            -(overlap[i] if has_match else 0),
+            i,
+        ),
+    )
+    selected: list[dict[str, str]] = []
+    stamps: set[str] = set()
+    for idx in candidates:
+        item = ranked[idx]
+        if has_match and overlap[idx] == 0:
+            continue
+        stamp = item["start_stamp"]
+        if stamp in stamps:
+            continue
+        stamps.add(stamp)
+        selected.append({
+            "time": stamp,
+            "quote": item["evidence"][:240],
+        })
+        if len(selected) >= limit:
+            break
+    if not selected:
+        item = ranked[0]
+        return [{"time": item["start_stamp"], "quote": item["evidence"][:240]}]
+    return selected
+
+
 def evidence_outline_text(
     report: dict[str, Any], *, max_chars: int | None = None
 ) -> str:
