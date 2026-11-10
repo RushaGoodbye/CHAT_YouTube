@@ -1,0 +1,35 @@
+name: RG 895 QA preview V96 strict requirements
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-qa-preview-v96-strict.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import json,sys,inspect
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_qa_export_v96 import evaluate
+          print("RGV96|EVALUATE_SOURCE|"+inspect.getsource(evaluate).replace("\n"," | ")[:12000],flush=True)
+          for n in ("rg_fullstream_manual_tab_v4.py","rg_fullstream_launcher_v2.py","rg_fullstream_worker_v3.py"):
+            txt=(app/n).read_text(encoding="utf-8-sig").splitlines()
+            keys=("qa_preview_export_requested","enqueue_qa","qa_preview","експорт","ЕКСПОРТ","QA_ONLY")
+            loc=[i for i,line in enumerate(txt) if any(k in line for k in keys)]
+            print("RGV96|CALLERS|"+n+"|"+str([(i+1,txt[i].strip()) for i in loc])[:9000],flush=True)
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895")
+          job=json.loads((root/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          gate=json.loads((root/"editorial_preflight_v82.json").read_text(encoding="utf-8-sig"))
+          print("RGV96|CURRENT_GATE|"+str(gate.get("blocking_reasons")),flush=True)
+          print("RGV96|EVALUATION_895|"+json.dumps(evaluate(job,gate),ensure_ascii=False)[:5500],flush=True)
+          print("RGV96|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_V96_READONLY_INSPECT_FAILED'}
