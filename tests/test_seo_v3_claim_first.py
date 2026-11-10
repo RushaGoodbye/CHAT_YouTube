@@ -121,6 +121,25 @@ def test_claim_first_pipeline_blocks_invented_cause_even_with_forged_support(mon
                 "title": ["ev_1"], "description": ["ev_1"],
             },
         }
+    monkeypatch.setattr(
+        seo_v3_pipeline, "compose_claim_fields",
+        lambda ledger, topics, model: {
+            "title": "Реальні причини звільнення директора",
+            "title_variants": [
+                "Чому директор залишив посаду?",
+                "Зміна посади керівника",
+                "Що сталося з директором?",
+            ],
+            "description": "Аналіз доводить причину кадрової зміни. " * 12,
+            "tags": ["кадрові зміни"] * 8,
+            "support_ids": {
+                "title": ["ev_1"],
+                "title_variants": [["ev_1"]] * 3,
+                "description": ["ev_1"],
+                "tags": [["ev_1"]] * 8,
+            },
+        },
+    )
     result = generate_claim_first_seo(
         srt, model, independent_review=lambda _: {"issues": []},
     )
@@ -202,3 +221,64 @@ def test_expanded_claim_source_spans_full_srt_without_inference():
         verify_quote(row["quote"], cues, row["cue_indices"]) is not None
         for row in expanded["accepted"]
     )
+
+
+def test_three_composers_keep_sentence_and_tag_source_ids():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger([
+        *_source("Чому не відкрили нову бібліотеку?", "ev_question"),
+        *_source("Якщо буде фінансування, відкриємо читальню.", "ev_if"),
+    ])
+    seen = []
+    def chat(prompt):
+        seen.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {
+                "title": {
+                    "text": "Чому бібліотеку досі не відкрили?",
+                    "evidence_ids": ["ev_question"],
+                },
+                "variants": [
+                    {"text": "Питання про бібліотеку", "evidence_ids": ["ev_question"]},
+                    {"text": "Чи буде нова читальня?", "evidence_ids": ["ev_if"]},
+                    {"text": "За яких умов відкриють читальню?", "evidence_ids": ["ev_if"]},
+                ],
+            }
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": [
+                {"text": "У розмові запитують про відкриття бібліотеки.",
+                 "evidence_ids": ["ev_question"], "source_type": "QUESTION"},
+                {"text": "Співрозмовник пояснює, що читальню відкриють лише за умови фінансування.",
+                 "evidence_ids": ["ev_if"], "source_type": "CONDITIONAL"},
+                {"text": "Бібліотеку вже відкрито.",
+                 "evidence_ids": ["ev_question"], "source_type": "SPEAKER_STATEMENT"},
+            ]}
+        return {"tags": [
+            {"tag": "нова бібліотека", "evidence_ids": ["ev_question"]},
+            {"tag": "фінансування читальні", "evidence_ids": ["ev_if"]},
+            {"tag": "вигаданий тег", "evidence_ids": ["ev_fake"]},
+        ]}
+    draft = compose_claim_fields(ledger, [], chat)
+    assert len(seen) == 3
+    assert len(draft["title_variants"]) == 3
+    assert draft["support_ids"]["description"] == ["ev_question", "ev_if"]
+    assert "Бібліотеку вже відкрито" not in draft["description"]
+    assert draft["tags"] == ["нова бібліотека", "фінансування читальні"]
+    assert len(draft["sentence_provenance"]) == 2
+    assert all("SOURCE-TYPED CLAIM" in prompt for prompt in seen)
+
+
+def test_missing_source_references_cannot_be_padded_into_tags():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger(_source("Хто займається організацією виставки?"))
+    def chat(prompt):
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Хто організує виставку?", "evidence_ids": ["ev_1"]},
+                    "variants": []}
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": []}
+        return {"tags": [{"tag": "непідтверджений сюжет", "evidence_ids": ["ev_no"]}] * 15}
+    draft = compose_claim_fields(ledger, [], chat)
+    assert draft["tags"] == []
+    assert draft["description"] == ""
+    assert draft["support_ids"]["tags"] == []
