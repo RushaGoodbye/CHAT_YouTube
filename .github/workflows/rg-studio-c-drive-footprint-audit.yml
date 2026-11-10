@@ -1,0 +1,36 @@
+name: RG Studio C drive footprint and migration audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-c-drive-footprint-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $roots=@(
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit',
+            'C:\Users\fauto\AppData\Local\Programs\RG Auto Edit Runtime',
+            'F:\RG_AUTO_EDIT\RG Auto Edit App',
+            'F:\RG_AUTO_EDIT\RG Auto Edit Runtime',
+            'F:\RG_AUTO_EDIT\RG Auto Edit Data')
+          foreach($r in $roots){
+            if(!(Test-Path $r)){Write-Output ('RGMIGRATE|MISSING|'+$r);continue}
+            $all=@(Get-ChildItem $r -File -Recurse -Force -ErrorAction SilentlyContinue)
+            $sum=($all|Measure-Object Length -Sum).Sum
+            Write-Output ('RGMIGRATE|ROOT|'+$r+'|FILES|'+$all.Count+'|BYTES|'+$sum)
+            if($r -like '*Programs*' -or $r -like '*Runtime'){
+              Get-ChildItem $r -Directory -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object {Write-Output ('RGMIGRATE|SUBDIR|'+$r+'|'+$_.Name)}
+            }
+          }
+          foreach($d in 'C','F'){
+            $drive=Get-PSDrive -Name $d
+            Write-Output ('RGMIGRATE|DISK|'+$d+'|FREE_GB|'+[math]::Round($drive.Free/1GB,2))
+          }
+          $processes=@(Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -match 'rg_studio_main.py'})
+          foreach($p in $processes){Write-Output ('RGMIGRATE|STUDIO|'+$p.ProcessId+'|'+$p.ExecutablePath)}
+          Write-Output 'RGMIGRATE|READONLY|PASS'
