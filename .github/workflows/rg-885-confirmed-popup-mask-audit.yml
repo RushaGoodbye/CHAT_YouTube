@@ -1,0 +1,50 @@
+name: RG 885 confirmed 10 popup masks and queue audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-confirmed-popup-mask-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $code=@'
+          import json,sys
+          from pathlib import Path
+          a=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          d=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          r=d/"fullstream_v2"/"885"
+          from hashlib import sha256
+          cache=json.loads((r/"completed_popups_v76.json").read_text(encoding="utf-8-sig"))
+          chosen=[2,7,10,21,22,26,28,30,31,32]
+          masks=cache["result"]["masks"]
+          for i in chosen:
+              m=masks[i]
+              print("RGCONFMASK|SELECTED|"+str(i)+"|"+json.dumps(m,ensure_ascii=False),flush=True)
+          plan=json.loads((r/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          print("RGCONFMASK|CURRENT_PLAN_POPUPS|"+str(len(plan["popup_masks"])),flush=True)
+          print("RGCONFMASK|OUTPUT|"+str(plan.get("output")),flush=True)
+          for key in ("popup_coverage_verified","video_encoder","crf","encoder_preset","underlay_path","break_cuts","dialogue_gap_cuts","intro_trim_seconds","minute_of_silence"):
+              v=plan.get(key)
+              if key in ("break_cuts","dialogue_gap_cuts"):v={"count":len(v or []),"first":(v or [])[:2]}
+              print("RGCONFMASK|PLAN|"+key+"|"+json.dumps(v,ensure_ascii=False,default=str)[:900],flush=True)
+          for p in sorted((a/"885"/"FULLSTREAM_YOUTUBE").glob("*.mp4")):
+              print("RGCONFMASK|MP4|"+p.name+"|"+str(p.stat().st_size),flush=True)
+          for s in range(885,890):
+              rd=d/"fullstream_v2"/str(s)
+              sf=rd/"status.json"
+              status=json.loads(sf.read_text(encoding="utf-8-sig")) if sf.is_file() else {}
+              print("RGCONFMASK|STATUS|"+str(s)+"|"+str(status.get("state"))+"|QUEUE="+str((rd/"queue_request.json").exists()),flush=True)
+          sys.path.insert(0,str(a))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          print("RGCONFMASK|WORKERS|"+str([(x.get("ProcessId"),str(x.get("CommandLine",""))[:150]) for x in active_workers()]),flush=True)
+          print("RGCONFMASK|LOCK|"+str(worker_lock_state(d)),flush=True)
+          print("RGCONFMASK|READ_ONLY|PASS",flush=True)
+          '@
+          $code|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'AUDIT_FAILED'}
