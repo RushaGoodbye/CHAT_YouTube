@@ -94,6 +94,10 @@ def test_claim_first_pipeline_blocks_invented_cause_even_with_forged_support(mon
         lambda cues, model: (evidence, [{"start_ms": 0, "end_ms": 1000}]),
     )
     monkeypatch.setattr(
+        seo_v3_pipeline, "expand_literal_coverage",
+        lambda cues, evidence: evidence,
+    )
+    monkeypatch.setattr(
         seo_v3_pipeline, "_select_topics",
         lambda ledger, model: [{
             "label_uk": "Посада керівника",
@@ -168,3 +172,33 @@ def test_claim_first_review_must_explicitly_allow_no_external_certainty():
     assert result["issues"] == []
     assert "A HYPOTHESIS is only an attributed opinion" in prompts[0]
     assert claims["claims"][0]["verified_external_fact"] is False
+
+
+def test_expanded_claim_source_spans_full_srt_without_inference():
+    from rg_youtube_control.seo_v2_evidence import (
+        evidence_ledger, parse_srt,
+    )
+    from rg_youtube_control.seo_v3_claims import expand_literal_coverage
+    source = "\n\n".join(
+        f"{i+1}\n00:00:{i:02d},000 --> 00:00:{i:02d},900\n"
+        f"Співрозмовник розповідає про технологію матеріалу номер {i}."
+        for i in range(12)
+    )
+    cues = parse_srt(source)
+    original = evidence_ledger(cues, [{
+        "quote": cues[0].text, "cue_indices": [0],
+    }])
+    expanded = expand_literal_coverage(cues, original)
+    assert len(expanded["accepted"]) >= 4
+    assert expanded["deterministic_source_expansion"] >= 3
+    assert expanded["publication_allowed"] is False
+    assert any(
+        any(index >= 8 for index in item["cue_indices"])
+        for item in expanded["accepted"]
+    )
+    # Every quoted token is verified again against the original cues.
+    from rg_youtube_control.seo_v2_evidence import verify_quote
+    assert all(
+        verify_quote(row["quote"], cues, row["cue_indices"]) is not None
+        for row in expanded["accepted"]
+    )
