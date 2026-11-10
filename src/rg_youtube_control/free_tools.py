@@ -3282,22 +3282,21 @@ chapters: рядок з підтвердженими таймкодами та �
                     # sequence of five independently source-backed sentences
                     # and reject the entire result if it still misses bounds.
                     try:
-                        source_notes = [
-                            {
-                                "time": str(block.get("start_stamp") or ""),
-                                "evidence": str(topic.get("evidence") or "")[:200],
-                            }
-                            for block in evidence_report.get("blocks") or []
-                            if isinstance(block, dict) and block.get("verified") is not False
-                            for topic in (block.get("topics") or [])[:1]
-                            if isinstance(topic, dict) and topic.get("evidence")
-                        ][:9]
+                        from .dialogue_seo import focused_literal_source_notes
+                        source_notes = focused_literal_source_notes(
+                            evidence_report,
+                            str(candidate.get("title") or current_title),
+                            limit=9,
+                        )
+                        if not source_notes:
+                            raise ValueError("NO_ON_TOPIC_EVIDENCE_FOR_DESCRIPTION")
                         repair_by_sentence = (
                             "Відредагуй український SEO-опис. "
                             "ГОЛОВНА ТЕМА: " + str(candidate.get("title") or "") + ". "
                             "Відповідай ТІЛЬКИ JSON з полем sentences: "
-                            "масив РІВНО П'ЯТИ змістовних українських речень. "
-                            "Кожне 75–160 символів, разом 400–900 символів. "
+                            "масив 4–5 змістовних українських речень. "
+                            "Загальний опис 400–900 символів. Не додавай "
+                            "нових тверджень тільки заради довжини. "
                             "Перше речення має назвати конкретний головний "
                             "сюжет; решта чотири — лише пов'язані з ним "
                             "висловлені факти, запитання чи позиції з цитат. "
@@ -3316,7 +3315,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         structured_raw = ollama_chat(
                             [{"role": "system", "content": (
                                 "Український редактор YouTube. "
-                                "Тільки JSON з п'ятьма реченнями."
+                                "Тільки JSON з перевіреними реченнями."
                             )}, {"role": "user", "content": repair_by_sentence}],
                             model=model, timeout=timeout,
                             temperature=0.08, json_mode=True, num_ctx=8192,
@@ -3325,7 +3324,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         sentences = structured_data.get("sentences")
                         if (
                             isinstance(sentences, list)
-                            and len(sentences) == 5
+                            and 4 <= len(sentences) <= 5
                             and all(isinstance(x, str) and len(x.strip()) >= 50
                                     for x in sentences)
                         ):
