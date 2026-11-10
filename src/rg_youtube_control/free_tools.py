@@ -2737,23 +2737,60 @@ chapters: рядок з підтвердженими таймкодами та �
                 if not description_error and len(description_candidate) < 400:
                     description_error = "below_editorial_target"
                 if description_error:
-                    unmapped_evidence: list[str] = []
+                    # Repair the FAILED field directly, using the evidence
+                    # index. Do not replace a substantive summary with the
+                    # generic, repetitive deterministic template.
+                    repair_prompt = (
+                        "Ти український SEO-редактор. Поверни ЛИШЕ JSON "
+                        "із ключем description. Перепиши ОПИС, не назву. "
+                        "Створи 400–900 символів природної української "
+                        "мови, 3–5 конкретних речень: тема, аргументи "
+                        "співрозмовників і перевірені деталі. "
+                        "Кожне твердження повинно випливати з цитат. "
+                        "Не вигадуй наслідків, причин, цифр чи пов'язаних "
+                        "подій. Без шаблонного вступу й заклику дивитися. "
+                        "Наведені теми — пропозиції моделі, докази лише "
+                        "дослівні цитати.\n"
+                        "ПОМИЛКА ПОПЕРЕДНЬОГО ОПИСУ: "
+                        + description_error + "\n"
+                        "ПОПЕРЕДНІЙ ОПИС: " + description_candidate[:950]
+                        + "\nЦИТАТИ З РІЗНИХ ЧАСТИН ВІДЕО:\n"
+                        + verified_evidence[:11000]
+                    )
                     try:
-                        safe_description = _deterministic_evidence_description(
-                            current_title, evidence_report,
-                            review_unmapped=unmapped_evidence,
+                        raw_repair = ollama_chat(
+                            [
+                                {"role": "system", "content": (
+                                    "Редактор українського YouTube SEO. "
+                                    "Тільки JSON без пояснень."
+                                )},
+                                {"role": "user", "content": repair_prompt},
+                            ],
+                            model=model, timeout=timeout,
+                            temperature=0.1, json_mode=True,
+                            num_ctx=16384,
                         )
-                        candidate["description"] = safe_description
-                        candidate["_deterministic_editor"] = True
-                        candidate["evidence_editorial_review"] = unmapped_evidence
-                        candidate["_description_quality_issue"] = description_error
-                    except ValueError:
-                        # Do not retain a hallucinated narrative or hide the
-                        # inability to form a factual, complete description.
-                        raise ValueError(
-                            "source-grounded description unavailable: "
-                            + description_error
+                        repaired = _extract_json_object(raw_repair)
+                        repaired_text = _polish_generated_description(
+                            str(repaired.get("description") or "").strip()
                         )
+                        repaired_text = _remove_unsupported_named_claims(
+                            repaired_text, evidence_report, current_title,
+                        )
+                        repaired_issue = _description_quality_error(
+                            repaired_text, transcript, max_chars=900,
+                        )
+                        if 400 <= len(repaired_text) <= 900 and not repaired_issue:
+                            description_candidate = repaired_text
+                            description_error = ""
+                    except (ValueError, RuntimeError, TimeoutError, TypeError):
+                        pass
+                if description_error:
+                    # Keep the failed wording in the editor-only draft and
+                    # let the quality gate reject it. Never pad with boilerplate
+                    # simply to reach 400 characters.
+                    candidate["description"] = description_candidate
+                    candidate["_description_quality_issue"] = description_error
                 else:
                     candidate["description"] = description_candidate
                     candidate["_source_model_description_review_only"] = True
