@@ -2414,7 +2414,7 @@ def generate_seo_package_local(
         or live_state in {"live", "upcoming", "completed"}
         or bool(context.get("is_livestream"))
     )
-    verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    verified_evidence = evidence_outline_text(evidence_report, max_chars=14000) if evidence_report else ""
     # A transcript sample is not a full-topic ranking. Explicitly tell the
     # model to avoid promoting a late isolated segment into the primary hook.
     coverage_instruction = (
