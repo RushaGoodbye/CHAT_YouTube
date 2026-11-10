@@ -925,14 +925,19 @@ def _deterministic_evidence_description(
             # Only the literal source quote can establish a public subject.
             combined = quote.casefold()
             recognized: list[str] = []
-            if any(w in combined for w in ("стратег", "войн", "війн")):
-                recognized.append("війна та стратегічні рішення")
+            # Avoid turning a generic mention of war into an unsupported
+            # strategic claim, or any "reason" into a personnel decision.
+            if any(w in combined for w in ("войн", "війн")):
+                recognized.append("війна")
             if any(w in combined for w in (
-                "причин", "увольнен", "звільнен", "зміни посади", "смены должност",
-                "кадров", "назначен",
+                "увольнен", "звільнен", "зміни посади", "смены должност",
+                "кадров", "назначен", "призначен",
             )):
-                recognized.append("версії причин кадрових змін")
-            if any(w in combined for w in ("відповідаль", "ответствен")):
+                recognized.append("кадрові зміни")
+            if (
+                any(w in combined for w in ("відповідаль", "ответствен"))
+                and any(w in combined for w in ("посадов", "чиновник", "чиновник"))
+            ):
                 recognized.append("відповідальність посадовців")
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
