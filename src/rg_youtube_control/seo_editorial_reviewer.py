@@ -120,14 +120,20 @@ def revise_seo_candidate(
             raise ValueError("incomplete revised candidate")
         from .seo_quality_gate import inspect_editorial_targets
         gate = inspect_editorial_targets(candidate)
+        # A rewrite that fails the same structural/editorial gate is not a
+        # successful revision, even if the model produced valid JSON.
+        if not gate.get("editorial_gate_pass"):
+            raise ValueError("revised seo failed editorial gate")
+        if (candidate.get("title") == draft.get("title")
+                and candidate.get("description") == draft.get("description")):
+            raise ValueError("unchanged seo after revision")
         second_review = review_seo_candidate(
             draft=candidate, source_notes=source_notes, model=model,
         )
-        # Reject ineffective rewrites and never treat model verdict as approval.
-        if candidate.get("title") == draft.get("title") and candidate.get("description") == draft.get("description"):
-            raise ValueError("unchanged seo after revision")
-        if second_review.get("review_status") == "REVIEWER_FAILED":
-            raise ValueError("second review invalid")
+        # Only a revision with no remaining model-identified defects is
+        # eligible for human review. This is never publication approval.
+        if second_review.get("review_status") != "NEEDS_HUMAN_REVIEW":
+            raise ValueError("revised seo still requires correction")
         # A model passing its own structural tests is never human approval.
         return {
             "candidate": candidate,
