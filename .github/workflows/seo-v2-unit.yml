@@ -8,7 +8,7 @@ on:
       - 'src/rg_youtube_control/seo_v2_*.py'
       - 'tests/test_seo_v2_universal.py'
       - 'tests/test_seo_v2_batch.py'
-      - 'tests/test_seo_v2_refine.py'
+      - 'tests/test_seo_v2_refine.py tests/test_seo_v2_semantic.py'
       - '.github/workflows/seo-v2-unit.yml'
   workflow_dispatch:
 
