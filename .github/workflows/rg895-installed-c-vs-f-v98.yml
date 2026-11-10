@@ -1,0 +1,26 @@
+name: RG 895 installed C vs F actual GUI source
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-installed-c-vs-f-v98.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $a=@('C:\Users\fauto\AppData\Local\Programs\RG Auto Edit','F:\RG_AUTO_EDIT\RG Auto Edit App')
+          foreach($root in $a){
+            Write-Output ('RGINSTALL|ROOT|'+$root)
+            foreach($n in @('rg_fullstream_manual_tab_v4.py','rg_fullstream_batch_v53.py','rg_fullstream_qa_export_v96.py','rg_fullstream_auto_v2.py','rg_studio_main.py')){
+              $p=Join-Path $root $n
+              if(!(Test-Path $p)){Write-Output ('RGINSTALL|MISSING|'+$n);continue}
+              $hash=(Get-FileHash $p -Algorithm SHA256).Hash
+              $s=Get-Content $p -Raw -Encoding UTF8
+              Write-Output ('RGINSTALL|MODULE|'+$n+'|'+$hash+'|V98='+($s.Contains('RG_QA_PAUSE_RECHECK_V98'))+'|SIZE='+((Get-Item $p).Length))
+            }
+          }
+          Write-Output ('RGINSTALL|STUDIO_PROCESS|'+((Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -match 'rg_studio_main.py'}|Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine)|ConvertTo-Json -Compress))
+          Write-Output 'RGINSTALL|READONLY|PASS'
