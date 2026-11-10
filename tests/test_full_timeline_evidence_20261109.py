@@ -62,3 +62,42 @@ def test_source_quote_allows_subject_without_claiming_it_is_central():
     description = _deterministic_evidence_description("", report)
     assert "війна та стратегічні рішення" in description
     assert "центральна тема" not in description
+
+
+
+def test_long_video_evidence_prompt_is_bounded_and_spans_timeline():
+    from rg_youtube_control.dialogue_seo import evidence_outline_text
+    report = {"blocks": [
+        {
+            "verified": True,
+            "start_stamp": f"{i:02d}:00:00",
+            "topics": [{
+                "topic": f"Тема {i}",
+                "summary_uk": "Обговорення перевіреної репліки про запитання",
+                "evidence": f"Цитата з частини {i} із перевіреного відео",
+            }],
+        } for i in range(120)
+    ]}
+    outline = evidence_outline_text(report, max_chars=2400)
+    assert len(outline) <= 2400
+    assert "Тема 0" in outline
+    assert "Тема 119" in outline
+    assert "ВИБІРКА ДОКАЗІВ" in outline
+    full_outline = evidence_outline_text(report)
+    assert len(full_outline) > len(outline)
+    assert "Тема 60" in full_outline
+
+
+def test_single_long_quote_never_breaks_evidence_budget():
+    from rg_youtube_control.dialogue_seo import evidence_outline_text
+    report = {"blocks": [{
+        "verified": True,
+        "start_stamp": "00:01:00",
+        "topics": [{
+            "topic": "Розмова",
+            "summary_uk": "Детальна цитата співрозмовника",
+            "evidence": "слово " * 300,
+        }],
+    }]}
+    outline = evidence_outline_text(report, max_chars=500)
+    assert len(outline) <= 500
