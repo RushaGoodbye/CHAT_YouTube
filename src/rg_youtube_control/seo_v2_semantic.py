@@ -18,6 +18,27 @@ def _words(text: str) -> list[str]:
     return re.findall(r"[А-ЯҐЄІЇа-яґєіїЁёЭэЫыЪъ]+", text)
 
 
+def _name_key(value: str) -> str:
+    """Compare UA/RU writing conventions without guessing name identity."""
+    return value.casefold().translate(str.maketrans({
+        "і": "и", "ї": "и", "є": "е", "ґ": "г", "ё": "е",
+    }))
+
+
+def _same_inflected_name(name: str, source: str) -> bool:
+    """Accept only near-identical source forms or short case suffixes."""
+    left, right = _name_key(name), _name_key(source)
+    if left == right:
+        return True
+    if min(len(left), len(right)) >= 5:
+        shorter, longer = sorted((left, right), key=len)
+        if len(longer) - len(shorter) <= 2 and longer.startswith(shorter):
+            return True
+    if min(len(left), len(right)) >= 7 and abs(len(left) - len(right)) <= 2:
+        return left[:-2] == right[:-2]
+    return False
+
+
 def unsupported_names(
     draft: dict[str, Any], proof: list[dict[str, Any]],
 ) -> list[str]:
@@ -45,13 +66,7 @@ def unsupported_names(
             prefix = text[:match.start()].rstrip()
             if not prefix or prefix.endswith((".", "!", "?", ":", "\n")):
                 continue
-            low = name.casefold()
-            if any(
-                low == item or
-                (len(low) >= 7 and len(item) >= 7 and low[:-2] == item[:-2]) or
-                (len(low) >= 6 and len(item) >= 6 and low[:-1] == item[:-1])
-                for item in source
-            ):
+            if any(_same_inflected_name(name, item) for item in source):
                 continue
             mismatches.add(name)
     return sorted(mismatches)
