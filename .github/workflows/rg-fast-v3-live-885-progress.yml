@@ -1,0 +1,26 @@
+name: RG 885 live progress before optimized restart decision
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-v3-live-885-progress.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $dir='F:\RG_AUTO_EDIT\RG Auto Edit App\885\FULLSTREAM_YOUTUBE'
+          $f=Get-ChildItem $dir -Filter '*.progress.json'|Sort-Object LastWriteTime -Descending|Select-Object -First 1
+          if($f){
+            $p=Get-Content $f.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RGREADY|PROGRESS|'+[math]::Round($p.progress_fraction*100,2))
+            Write-Output ('RGREADY|SPEED|'+$p.speed)
+            Write-Output ('RGREADY|ETA_SEC|'+$p.eta_seconds)
+            Write-Output ('RGREADY|UPDATED|'+$f.LastWriteTime.ToString('o'))
+          }
+          foreach($p in Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'ffmpeg|python' -and $_.CommandLine -match 'rg_fullstream_worker_v3.py|\.rendering.mp4'}){
+            Write-Output ('RGREADY|ACTIVE|'+$p.ProcessId+'|'+$p.CommandLine.Substring(0,[Math]::Min(200,$p.CommandLine.Length)))
+          }
+          Write-Output 'RGREADY|READ_ONLY|PASS'
