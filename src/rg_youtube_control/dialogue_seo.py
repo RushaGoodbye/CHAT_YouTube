@@ -436,8 +436,10 @@ def evidence_outline_text(
 
     # Binary search avoids quadratic prompt-building on long streams.
     # Leave adequate space for the first and last source quotation.
+    if len(lines) == 1:
+        return header + lines[0][:budget]
     if len(lines[0]) + len(lines[-1]) + 1 > budget:
-        edge = max(50, (budget - 2) // 2)
+        edge = max(1, (budget - 2) // 2)
         return header + lines[0][:edge] + "\n" + lines[-1][:edge]
     best = sample(2)
     low, high = 3, len(lines)
