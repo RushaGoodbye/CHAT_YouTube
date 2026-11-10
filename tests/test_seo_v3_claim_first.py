@@ -129,3 +129,40 @@ def test_no_review_provider_is_never_ready():
     from rg_youtube_control import seo_v3_pipeline
     # Even valid output cannot skip an independent review.
     assert seo_v3_pipeline.generate_claim_first_seo.__name__ == "generate_claim_first_seo"
+
+
+def test_independent_claim_audit_uses_modality_and_rejects_bad_schema():
+    from rg_youtube_control.seo_v3_pipeline import audit_draft_against_claims
+    claims = build_claim_ledger(_source("Чи могла подія бути випадковою?"))
+    seen = []
+    def reviewer(prompt):
+        seen.append(prompt)
+        return {"issues": [
+            {"field": "description", "reason": "Question rewritten as an established cause ev_1"}
+        ]}
+    result = audit_draft_against_claims(
+        {"title": "Що обговорювали?", "description": "Причина доведена."},
+        claims, reviewer,
+    )
+    assert len(result["issues"]) == 1
+    assert result["review_status"] == "SOURCE_AUDITED"
+    assert '"source_type": "QUESTION"' in seen[0]
+    assert "DRAFT:\n" in seen[0]
+    assert "A QUESTION does not establish an answer" in seen[0]
+    assert audit_draft_against_claims(
+        {"title": "Заголовок"}, claims, lambda _: {"approved": True},
+    )["review_status"] == "FAILED_CLOSED"
+
+
+def test_claim_first_review_must_explicitly_allow_no_external_certainty():
+    from rg_youtube_control.seo_v3_pipeline import audit_draft_against_claims
+    claims = build_claim_ledger(_source("Можливо буде дощ завтра."))
+    prompts = []
+    result = audit_draft_against_claims(
+        {"title": "Чи буде завтра дощ?"},
+        claims,
+        lambda prompt: (prompts.append(prompt) or {"issues": []}),
+    )
+    assert result["issues"] == []
+    assert "A HYPOTHESIS is only an attributed opinion" in prompts[0]
+    assert claims["claims"][0]["verified_external_fact"] is False
