@@ -1,0 +1,29 @@
+name: RG open finished 885 MP4 in Explorer
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-open-885-finished-in-explorer.yml']
+permissions: {contents: read}
+jobs:
+  open:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder='F:\RG_AUTO_EDIT\RG Auto Edit App\885\FULLSTREAM_YOUTUBE'
+          $files=@(Get-ChildItem -LiteralPath $folder -File -Filter '*.mp4'|Where-Object{$_.Name -notmatch 'rendering|incomplete|failed'}|Sort-Object LastWriteTime -Descending)
+          if(!$files){throw 'NO_FINISHED_MP4_TO_OPEN'}
+          $f=$files[0]
+          $status='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885\status.json'
+          if(Test-Path $status){$s=Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json;Write-Output ('RGOPEN|STATE|'+$s.state)}
+          Write-Output ('RGOPEN|FILE|'+$f.FullName)
+          Write-Output ('RGOPEN|BYTES|'+$f.Length)
+          $session=(Get-Process -Id $PID).SessionId
+          $explorers=@(Get-Process explorer -ErrorAction SilentlyContinue|Where-Object{$_.SessionId -eq $session})
+          Write-Output ('RGOPEN|RUNNER_SESSION|'+$session)
+          Write-Output ('RGOPEN|USER_EXPLORERS_SAME_SESSION|'+$explorers.Count)
+          if($explorers.Count -eq 0){Write-Output 'RGOPEN|NO_INTERACTIVE_SESSION|SAFE_SKIP';exit 0}
+          Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,"'+$f.FullName+'"')
+          Write-Output 'RGOPEN|EXPLORER_LAUNCHED|PASS'
