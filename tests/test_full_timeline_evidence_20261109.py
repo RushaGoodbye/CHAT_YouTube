@@ -442,3 +442,24 @@ def test_short_caption_rescue_keeps_last_subject_word():
     assert report["blocks_with_evidence"] == 1
     assert report["unverified_blocks"] == []
     assert report["blocks"][0]["topics"][0]["evidence"] == quote
+
+
+def test_russian_phrase_tags_rejected_in_ukrainian_seo():
+    from rg_youtube_control.seo_quality_gate import language_error
+    for tag in (
+        "Украина стала Россией",
+        "кто поддерживает войну",
+        "голосовать за Путина",
+        "реакция россиянина",
+        "после мобилизации",
+        "дети или алкоголь",
+    ):
+        assert language_error(tag), tag
+    for tag in (
+        "Україна та Росія",
+        "мобілізація в Росії",
+        "війна Росії проти України",
+        "реакція росіянина",
+        "діти та алкоголь",
+    ):
+        assert not language_error(tag), tag
