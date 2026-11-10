@@ -107,3 +107,13 @@ def test_malformed_independent_review_fails_closed():
     assert independent_review(_draft(), _proof(), lambda _: {"status": "PASS"})[
         "review_status"
     ] == "FAILED_CLOSED"
+
+
+def test_ukrainian_and_russian_forms_of_same_name_are_accepted():
+    from rg_youtube_control.seo_v2_semantic import _same_inflected_name
+    assert _same_inflected_name("Іванова", "Иванова")
+    assert _same_inflected_name("Путін", "Путин")
+    assert _same_inflected_name("Тимур", "Тимура")
+    assert _same_inflected_name("Києві", "Киеве")
+    assert not _same_inflected_name("Шайгурова", "шайгумаров")
+    assert not _same_inflected_name("Сидаренка", "Сидоренка")
