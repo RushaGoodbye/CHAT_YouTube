@@ -1,0 +1,32 @@
+name: RG 895 unknown layout interval clustering
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-unknown-interval-clustering.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import json
+          p=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\NOTIFICATION_QA_V93\895_review_manifest.json")
+          d=json.loads(p.read_text(encoding="utf-8"))
+          samples=sorted(map(float,d["unclassified_sample_times"]))
+          clusters=[]
+          for t in samples:
+              if clusters and t-clusters[-1][-1]<=20:clusters[-1].append(t)
+              else:clusters.append([t])
+          print("RGCLUSTER|UNRECOGNIZED_10S_SAMPLES|"+str(len(samples)),flush=True)
+          print("RGCLUSTER|TEMPORAL_CLUSTERS|"+str(len(clusters)),flush=True)
+          for i,c in enumerate(clusters):
+              print("RGCLUSTER|SPAN|"+str(i+1)+"|"+str(c[0])+"|"+str(c[-1])+"|SAMPLES|"+str(len(c)),flush=True)
+          print("RGCLUSTER|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'UNKNOWN_CLUSTER_FAIL'}
