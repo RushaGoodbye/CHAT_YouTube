@@ -3121,6 +3121,10 @@ chapters: рядок з підтвердженими таймкодами та �
     editorial_quality_flags = _seo_editorial_preview_flags(
         title, description, variants, tags,
     )
+    # The field-specific description repair must not silently pass after
+    # unsuccessful rewrite just because its character count happens to fit.
+    if payload.get("_description_quality_issue"):
+        editorial_quality_flags.append("DESCRIPTION_QUALITY_UNRESOLVED")
     # Validate the PROPOSED title as well as the existing one. Only checking
     # the existing title hid unsupported names newly invented by the model.
     # These are review warnings, never grounds for auto-publishing.
