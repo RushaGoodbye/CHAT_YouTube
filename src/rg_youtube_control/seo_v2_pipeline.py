@@ -85,7 +85,9 @@ def _fallback_window_quotes(cues: list[Cue], indices: list[int],
         for idx in ordered:
             if idx in chosen:
                 continue
-            excerpt = cues[idx].text[:240].rsplit(" ", 1)[0].strip()
+            raw_text = cues[idx].text
+            excerpt = (raw_text if len(raw_text) <= 240 else
+                       raw_text[:240].rsplit(" ", 1)[0]).strip()
             if len(excerpt) < 8:
                 continue
             proposal = {"quote": excerpt, "cue_indices": [idx]}
