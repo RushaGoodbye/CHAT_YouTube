@@ -66,7 +66,7 @@ def select_independent_source_notes(
                     or block.get("start_s")
                     or ""
                 ),
-                "topic": str(topic.get("topic") or "")[:140],
+                # Model-generated topic labels are not independent evidence.
                 "quote": str(topic.get("evidence") or "")[:350],
             })
             if len(notes) >= max_notes:
