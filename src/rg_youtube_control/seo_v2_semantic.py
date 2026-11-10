@@ -143,8 +143,19 @@ def revise_semantic_defects(
     if not fields:
         return None
     allowed_ids = {row["evidence_id"] for row in proof}
+    forbidden_names = unsupported_names(draft, proof)
+    banned_brief = (
+        "MANDATORY: the following source-unverified name spellings MUST NOT "
+        "appear in ANY edited value, including inside tags or descriptions: "
+        + json.dumps(forbidden_names, ensure_ascii=False)
+        + ". Remove uncertain names entirely and rewrite the sentence or "
+          "search phrase as a source-supported neutral description. "
+          "Do not guess a famous person's identity from garbled ASR. "
+        if forbidden_names else ""
+    )
     prompt = (
-        "You are correcting ONLY factual and linguistic defects identified "
+        banned_brief
+        + "You are correcting ONLY factual and linguistic defects identified "
         "by an independent reviewer. No new facts, no inferred motivation "
         "or causality, no misattributed claims, no unverified name spelling. "
         "Keep opinions explicitly attributed to a speaker (e.g. "
