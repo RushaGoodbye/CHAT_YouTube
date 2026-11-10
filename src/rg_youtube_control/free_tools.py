@@ -1917,8 +1917,9 @@ _TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
     "загибл": ("загибл", "погиб", "умер", "вбит", "убит"),
     "сім": ("сім", "семь", "семьей", "семьёй", "семьи", "семью"),
     "алкогол": ("алкогол", "пьян", "спиртн"),
-    "вибор": ("вибор", "выбор", "голосован"),
-    "голосуван": ("голосуван", "голосован"),
+    "вибор": ("вибор", "выбор", "голосован", "голосова"),
+    "голосуван": ("голосуван", "голосован", "голосова"),
+    "голосува": ("голосува", "голосован", "голосова"),
     "переїзд": ("переїзд", "переех", "переезд", "переезж"),
     "виїзд": ("виїзд", "выезд", "уезж"),
     "кордон": ("кордон", "границ", "рубеж"),
@@ -2086,6 +2087,7 @@ def _grounded_tags_from_transcript(
         "ставлення росіян до війни", "росіяни про війну",
         "війна в Україні", "Путін і війна",
         "вибори в Росії", "голосування за Путіна",
+        "голосувати за Путіна", "підтримка Путіна",
         "війна та діти", "загиблі діти",
         "сім'я та алкоголь", "мобілізація та сім'я",
         "виїзд за кордон", "страх переїзду",
@@ -2093,6 +2095,12 @@ def _grounded_tags_from_transcript(
         "переїзд за кордон", "розмова про віру",
     )
     for phrase in episode_queries:
+        if _tag_is_grounded(phrase, evidence_title, transcript):
+            add(phrase)
+    # A few specific one-word topic queries are legitimate when a broader
+    # two-word relationship cannot be supported in one source window.
+    # Do not use generic topical filler or invent an unsourced relation.
+    for phrase in ("мобілізація", "вибори", "Путін", "санкції", "Шойгу"):
         if _tag_is_grounded(phrase, evidence_title, transcript):
             add(phrase)
 
@@ -3260,9 +3268,11 @@ chapters: рядок з підтвердженими таймкодами та �
                         len(tag.split()) >= 2
                         or tag.casefold() in format_tags
                         or (
-                            tag[:1].isupper()
+                            tag.casefold() in {
+                                "путін", "шойгу", "мобілізація",
+                                "вибори", "санкції", "пропаганда",
+                            }
                             and _tag_is_grounded(tag, current_title, transcript)
-                            and tag.casefold() not in {"росія", "україна", "новини"}
                         )
                     )
                 ]
