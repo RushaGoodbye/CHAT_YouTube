@@ -1,0 +1,35 @@
+name: RG895 V98 click error urgent inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v98-click-error-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Continue'
+          $r='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          Write-Output ('RGV98ERR|TIME|'+(Get-Date).ToString('o'))
+          foreach($n in @('queue_request.json','status.json','processing_plan.json','plan.json','editorial_preflight_v82.json','stage_state_v52.json')){
+            $p=Join-Path $r $n
+            if(Test-Path $p){
+              $v=Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+              Write-Output ('RGV98ERR|FILE|'+$n+'|'+(Get-Item $p).LastWriteTime.ToString('o'))
+              if($n -eq 'processing_plan.json'){
+                Write-Output ('RGV98ERR|PLAN|MASKS|'+@($v.popup_masks).Count+'|COVERAGE|'+$v.popup_coverage_verified)
+              }else{
+                $s=ConvertTo-Json -InputObject $v -Compress -Depth 6
+                Write-Output ('RGV98ERR|DATA|'+$n+'|'+$s.Substring(0,[Math]::Min(2200,$s.Length)))
+              }
+            }else{Write-Output ('RGV98ERR|MISSING|'+$n)}
+          }
+          $procs=@(Get-CimInstance Win32_Process|Where-Object {$_.CommandLine -match 'rg_fullstream_worker_v3|rg_fullstream_asr_child_v58|rg_studio_main.py|rg_studio' -and $_.Name -match 'python|RG'})
+          foreach($p in $procs){Write-Output ('RGV98ERR|PROC|'+$p.ProcessId+'|'+$p.Name+'|PARENT|'+$p.ParentProcessId+'|'+$p.CommandLine.Substring(0,[Math]::Min(180,$p.CommandLine.Length)))}
+          $log='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\queue_worker.log'
+          if(Test-Path $log){Get-Content $log -Tail 55|ForEach-Object{Write-Output ('RGV98ERR|LOG|'+$_)}}
+          Write-Output 'RGV98ERR|READONLY|PASS'
