@@ -633,6 +633,28 @@ def generate_universal_seo(srt: str, chat: Chat,
                 "field": "reviewer",
                 "reason": "INDEPENDENT_REVIEW_UNAVAILABLE",
             }], "review_status": "FAILED_CLOSED"}
+        # A language model can overlook a misspelled name while
+        # reviewing the explanation. Inject deterministic name defects
+        # into the editor's correction brief, field by field.
+        if name_warnings:
+            existing = list(independent.get("issues") or [])
+            for field in ("title", "title_variants", "description", "tags"):
+                field_copy = {
+                    "title": "", "title_variants": [],
+                    "description": "", "tags": [],
+                }
+                field_copy[field] = draft.get(field)
+                field_names = unsupported_names(field_copy, proof)
+                if field_names:
+                    existing.append({
+                        "field": field,
+                        "reason": (
+                            "Unconfirmed personal-name spelling in verbatim SRT: "
+                            + ", ".join(field_names)
+                            + ". Do not guess a replacement identity."
+                        ),
+                    })
+            independent["issues"] = existing
         if independent.get("issues"):
             try:
                 revised = revise_semantic_defects(
