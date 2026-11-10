@@ -1,0 +1,32 @@
+name: RG Studio six critical paths source inspection v2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-studio-six-critical-paths-v2.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($name in @('rg_fullstream_editorial_gate_v82.py','rg_fullstream_worker_v3.py','rg_fullstream_batch_v53.py','rg_fullstream_process_state_v59.py','rg_fullstream_detectors_v2.py')){
+            $path=Join-Path $root $name
+            $rows=@(Get-Content $path -Encoding UTF8)
+            Write-Output ('RG6CODE|FILE|'+$name+'|LINES|'+$rows.Count)
+            $matched=@()
+            for($i=0;$i -lt $rows.Count;$i++){
+              if($rows[$i] -match 'NOTIFICATION_COVERAGE|review_only|publish_ready|queue_request|worker_lock_state|try:|except |popup_search_area|def verified_popups|def scan_popups|def verify_popup_cards_v41|strict|qa_pass|PASS'){
+                $matched+=($i+1)
+              }
+            }
+            Write-Output ('RG6CODE|INDEX|'+$name+'|'+(($matched|Select-Object -First 65) -join ','))
+            if($name -eq 'rg_fullstream_editorial_gate_v82.py'){
+              for($i=1;$i -le [Math]::Min(210,$rows.Count);$i++){Write-Output ('RG6CODE|'+$name+'|'+$i+'|'+$rows[$i-1])}
+            }
+            if($name -eq 'rg_fullstream_worker_v3.py'){
+              for($i=1;$i -le [Math]::Min(160,$rows.Count);$i++){Write-Output ('RG6CODE|'+$name+'|'+$i+'|'+$rows[$i-1])}
+            }
+          }
