@@ -17,6 +17,8 @@ def _source(quote, eid="ev_1"):
 def test_modality_is_source_derived_not_model_asserted():
     assert classify_statement("Чому це сталося?") == "QUESTION"
     assert classify_statement("Почему директор ушел?") == "QUESTION"
+    assert classify_statement("Какова реальная причина") == "QUESTION"
+    assert classify_statement("Яка причина кадрового рішення") == "QUESTION"
     assert classify_statement("Якщо ми підемо, він залишиться.") == "CONDITIONAL"
     assert classify_statement("Если бы мы знали причину") == "CONDITIONAL"
     assert classify_statement("Можливо, це лише припущення.") == "HYPOTHESIS"
