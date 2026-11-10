@@ -1,0 +1,47 @@
+name: RG 885 notification QA blocker reason audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-notification-qa-reason-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          foreach($name in @('editorial_preflight_v82.json','editorial_evidence_v84.json','completed_popups_v76.json','popup_checkpoint_v89.json','processing_plan.json','status.json','stage_state_v52.json')){
+            $f=Join-Path $d $name
+            if(!(Test-Path $f)){continue}
+            Write-Output ('RGQA885|FILE|'+$name+'|SIZE='+(Get-Item $f).Length)
+            try{
+              $v=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+              $props=$v.PSObject.Properties.Name
+              Write-Output ('RGQA885|KEYS|'+$name+'|'+($props -join ';'))
+              foreach($p in $v.PSObject.Properties){
+                if($p.Name -match 'notif|popup|cover|block|decision|reason|evidence|scan|mask|status|gate|complete'){
+                  $json=$p.Value|ConvertTo-Json -Compress -Depth 6
+                  if($json.Length -gt 2200){$json=$json.Substring(0,2200)}
+                  Write-Output ('RGQA885|FIELD|'+$name+'|'+$p.Name+'|'+$json)
+                }
+              }
+            }catch{Write-Output ('RGQA885|JSON_ERROR|'+$name+'|'+$_.Exception.Message)}
+          }
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($name in @('rg_fullstream_editorial_gate_v82.py','rg_fullstream_editorial_evidence_v84.py')){
+            $f=Join-Path $app $name
+            if(!(Test-Path $f)){continue}
+            $lines=@(Get-Content $f -Encoding UTF8)
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match 'NOTIFICATION_COVERAGE_UNVERIFIED|NOTIFICATION_SCAN_NOT_CONFIRMED'){
+                $lo=[Math]::Max(0,$i-9);$hi=[Math]::Min($lines.Count-1,$i+7)
+                for($j=$lo;$j -le $hi;$j++){
+                  Write-Output ('RGQA885|CODE|'+$name+'|'+($j+1)+'|'+$lines[$j])
+                }
+              }
+            }
+          }
+          Write-Output 'RGQA885|READ_ONLY|PASS'
