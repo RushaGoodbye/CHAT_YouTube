@@ -779,7 +779,21 @@ def _seo_editorial_preview_flags(
         "думки учасників розмови",
         "які запитання виникають?",
     )
-    if any(primary.endswith(value) for value in generic_primary):
+    generic_headline = re.compile(
+        r"^(?:що|про що|чому|як)\\s+"
+        r"(?:думають|говорять|кажуть|відповідають|реагують|"
+        r"обговорюють|йдеться|відбувається|сперечаються)"
+        r"(?:\\s+.{0,48})?[?!.]?$|"
+        r"^(?:думки|розмова|суперечка|дискусія|"
+        r"питання|відповідь|реакція)\\s+"
+        r"(?:росіян|учасників|співрозмовників|у чат.рулетці)"
+        r"(?:\\s+.{0,28})?[?!.]?$",
+        flags=re.I,
+    )
+    if (
+        any(primary.endswith(value) for value in generic_primary)
+        or bool(generic_headline.fullmatch(primary))
+    ):
         flags.append("GENERIC_PRIMARY_TITLE")
     vague_ab_question = re.compile(
         r"(?:про що (?:йдеться|говорили|говорять|кажуть)|"
