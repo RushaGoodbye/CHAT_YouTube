@@ -2691,23 +2691,43 @@ chapters: рядок з підтвердженими таймкодами та �
                         candidate["title_variants"] = lexical
                         candidate["_source_lexical_review_only"] = True
             if evidence_report:
-                # One deterministic editorial pass, zero extra Ollama
-                # recovery requests and zero model-authored public claims.
-                unmapped_evidence: list[str] = []
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                    review_unmapped=unmapped_evidence,
+                # The old code overwrote EVERY model-written description
+                # with a short, generic keyword template, even when the
+                # model had produced a concrete source-based summary.
+                # Preserve substantive Ukrainian prose as a REVIEW-ONLY
+                # candidate, then submit it to the independent source critic.
+                description_candidate = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
                 )
-                candidate["evidence_editorial_review"] = unmapped_evidence
-                candidate["description"] = description_candidate
-                candidate["_deterministic_editor"] = True
+                description_candidate = _remove_unsupported_named_claims(
+                    description_candidate, evidence_report, current_title,
+                )
                 description_error = _description_quality_error(
-                    description_candidate, transcript, max_chars=950,
+                    description_candidate, transcript, max_chars=900,
                 )
+                if not description_error and len(description_candidate) < 400:
+                    description_error = "below_editorial_target"
                 if description_error:
-                    # Retain the evidence-only text as an explicitly unapproved
-                    # draft. Do not retry deterministic content with the model.
-                    candidate["_description_quality_issue"] = description_error
+                    unmapped_evidence: list[str] = []
+                    try:
+                        safe_description = _deterministic_evidence_description(
+                            current_title, evidence_report,
+                            review_unmapped=unmapped_evidence,
+                        )
+                        candidate["description"] = safe_description
+                        candidate["_deterministic_editor"] = True
+                        candidate["evidence_editorial_review"] = unmapped_evidence
+                        candidate["_description_quality_issue"] = description_error
+                    except ValueError:
+                        # Do not retain a hallucinated narrative or hide the
+                        # inability to form a factual, complete description.
+                        raise ValueError(
+                            "source-grounded description unavailable: "
+                            + description_error
+                        )
+                else:
+                    candidate["description"] = description_candidate
+                    candidate["_source_model_description_review_only"] = True
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
