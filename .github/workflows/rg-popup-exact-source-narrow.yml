@@ -1,0 +1,32 @@
+name: RG popup guard exact source narrow read
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-exact-source-narrow.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $map=@{
+            'rg_fullstream_auto_v2.py'=@(@(428,514),@(580,632));
+            'rg_fullstream_detectors_v2.py'=@(@(1,125));
+            'rg_fullstream_popup_light_v89.py'=@(@(1,150));
+            'rg_fullstream_popup_checkpoint_v89.py'=@(@(1,165));
+            'rg_fullstream_worker_v3.py'=@(@(40,225))
+          }
+          foreach($n in $map.Keys){
+            $p=Join-Path $app $n
+            if(!(Test-Path $p)){continue}
+            $s=@(Get-Content $p -Encoding UTF8)
+            foreach($bounds in $map[$n]){
+              for($i=$bounds[0];$i -le [Math]::Min($bounds[1],$s.Count);$i++){
+                Write-Output ('RGEXSRC|'+$n+'|'+$i+'|'+$s[$i-1])
+              }
+            }
+          }
+          Write-Output 'RGEXSRC|READONLY|PASS'
