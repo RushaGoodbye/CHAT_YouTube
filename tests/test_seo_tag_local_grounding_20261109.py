@@ -116,3 +116,39 @@ def test_robot_is_not_evidence_of_employment_search_phrase():
     assert _tag_is_grounded(
         "робота", "", "[00:01] Мне нужна работа."
     )
+
+
+
+def test_source_local_episode_queries_are_prioritized_over_filler():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    srt = (
+        "[00:01] Россияне говорят о мобилизации в России и о войне.\n"
+        "[00:02] Этот россиянин обсуждает войну в Украине.\n"
+        "[00:03] Мы спорим о голосовании за Путина на выборах.\n"
+        "[00:04] Упоминают погибших детей во время войны.\n"
+        "[00:05] Говорим про семью и алкоголь.\n"
+        "[00:06] Женщина боится переезда и выезда за границу."
+    )
+    tags = _grounded_tags_from_transcript("", srt)
+    assert "РАША ГУДБАЙ" in tags
+    assert "чат рулетка" in tags
+    assert "голосування за Путіна" in tags
+    assert "загиблі діти" in tags
+    assert "сім'я та алкоголь" in tags
+    assert len(tags) >= 8
+    assert all(not any(bad in value.casefold() for bad in (
+        "кто", "почему", "россии", "война",
+    )) for value in tags)
+
+
+def test_unrelated_children_war_and_family_alcohol_must_not_combine():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    srt = (
+        "[00:01] Дети рисовали в школе.\n"
+        "[42:10] Отдельная речь про войну.\n"
+        "[54:00] Женщина говорит про семью.\n"
+        "[59:00] Другой собеседник говорит про алкоголь."
+    )
+    tags = _grounded_tags_from_transcript("", srt)
+    assert "війна та діти" not in tags
+    assert "сім'я та алкоголь" not in tags
