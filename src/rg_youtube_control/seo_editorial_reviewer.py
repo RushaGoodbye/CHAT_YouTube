@@ -178,6 +178,7 @@ def revise_seo_candidate(
     first_review: dict[str, Any],
     model: str = "",
     evidence_report: dict[str, Any] | None = None,
+    source_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Bounded two-stage source-aware revision, never publication authority."""
     if first_review.get("review_status") != "NEEDS_REVISION" or not source_notes:
@@ -185,7 +186,7 @@ def revise_seo_candidate(
             "candidate": draft, "review": first_review, "revised": False,
             "editorial_approved": False, "publication_allowed": False,
         }
-    from .seo_quality_gate import inspect_editorial_targets
+    from .seo_quality_gate import inspect_editorial_targets, inspect_package
     working = draft
     critique = first_review
     required_fields = ("title", "description", "title_variants", "tags")
@@ -285,6 +286,47 @@ def revise_seo_candidate(
                 failure_code = "INCOMPLETE_REVISION"
                 continue
             gate = inspect_editorial_targets(candidate)
+            format_gate = inspect_package(candidate)
+            if not format_gate.get("format_pass"):
+                failure_code = "REVISION_FORMAT_UNRESOLVED"
+                working = candidate
+                critique = {"issues": [{
+                    "field": "package",
+                    "reason": ", ".join(str(x) for x in format_gate.get("problems", [])),
+                }]}
+                continue
+            if source_rows is not None:
+                # Objective number checks need the original caption text,
+                # never model summaries or caption timestamps.
+                import re
+                def quantities(value: str) -> set[str]:
+                    pattern = r"(?<![\\w:])\\d{1,3}(?:[ \\u00a0]\\d{3})+(?![\\w:])|(?<![\\w:])\\d{2,}(?![\\w:])"
+                    return {
+                        re.sub(r"[ \\u00a0]", "", token)
+                        for token in re.findall(pattern, value)
+                    }
+                spoken = quantities(" ".join(
+                    str(row.get("text") or "") for row in source_rows
+                ))
+                claims = set().union(*(
+                    quantities(str(value)) for value in [
+                        candidate.get("title") or "",
+                        candidate.get("description") or "",
+                        *(candidate.get("title_variants") or []),
+                    ]
+                ))
+                unexpected = sorted(claims - spoken)
+                if unexpected:
+                    failure_code = "NUMERIC_CLAIM_UNSUPPORTED"
+                    working = candidate
+                    critique = {"issues": [{
+                        "field": "title",
+                        "reason": "Цифри відсутні в SRT: " + ", ".join(unexpected),
+                    }, {
+                        "field": "description",
+                        "reason": "Не використовуй цифри поза джерелом.",
+                    }]}
+                    continue
             # Ground A/B against the complete timestamped evidence map,
             # rather than requiring the final pilot to catch failures later.
             if evidence_report:
