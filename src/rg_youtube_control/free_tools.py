@@ -2943,14 +2943,14 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     omitted_topics: list[str] = []
     if evidence_report and not payload.get("_deterministic_editor"):
-        # Legacy evidence packages keep their topic appendix.
-        # Keep the concise lead, then append every distinct supported subject
-        # while respecting the platform description budget. The evidence map
-        # remains available separately if even this budget is insufficient.
+        # Keep the 400-900-character public description intact. Appending up
+        # to 50 AI-labelled "verified topics" broke the SEO length gate and
+        # promoted model topic labels into user-facing factual claims.
+        # Record unsupported/omitted subjects separately for editorial QA.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=50,
-            max_body_bytes=3800,
+            max_topic_bullets=0,
+            max_body_bytes=900,
         )
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
