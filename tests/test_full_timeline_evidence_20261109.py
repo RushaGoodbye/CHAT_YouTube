@@ -191,3 +191,26 @@ def test_ukraine_mention_is_not_automatically_war_claim():
     description = _deterministic_evidence_description("", report)
     assert "Україна" in description
     assert "війна" not in description
+
+
+
+def test_defense_word_does_not_invent_ministry():
+    import pytest
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Міністерство оборони РФ",
+        "evidence": "Оборона міста тривала декілька днів",
+    }]}]}
+    with pytest.raises(ValueError, match="No editorial subjects"):
+        _deterministic_evidence_description("", report)
+
+
+def test_corruption_quote_does_not_invent_officials():
+    from rg_youtube_control.free_tools import _deterministic_evidence_description
+    report = {"blocks": [{"verified": True, "topics": [{
+        "topic": "Чиновники та відповідальність",
+        "evidence": "Ми обговорили питання корупції",
+    }]}]}
+    description = _deterministic_evidence_description("", report)
+    assert "корупція" in description
+    assert "відповідальність чиновників" not in description
