@@ -4232,6 +4232,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 draft=qa_inputs, source_notes=notes[:40],
                 first_review=reviewer_report,
                 model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
+                evidence_report=evidence_report,
             )
 
     # Fail closed: preserving a legacy Russian title, or model-produced
