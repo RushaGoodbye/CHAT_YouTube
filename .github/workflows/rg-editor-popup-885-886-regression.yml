@@ -1,0 +1,18 @@
+name: RG 885 886 editor popup regression
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-editor-popup-885-886-regression.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_885_886_editor_popup_acceptance.py
+          if($LASTEXITCODE -ne 0){throw 'EDITOR_POPUP_885_886_REGRESSION_FAILED'}
