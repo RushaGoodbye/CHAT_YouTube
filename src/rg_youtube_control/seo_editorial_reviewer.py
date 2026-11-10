@@ -177,6 +177,7 @@ def revise_seo_candidate(
     source_notes: list[dict[str, Any]],
     first_review: dict[str, Any],
     model: str = "",
+    evidence_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bounded two-stage source-aware revision, never publication authority."""
     if first_review.get("review_status") != "NEEDS_REVISION" or not source_notes:
@@ -217,6 +218,11 @@ def revise_seo_candidate(
             "а не підтверджує її як факт. "
             "Не додавай 'загиблих', 'викриття фейків' чи інших "
             "подій, якщо саме таких тверджень немає в цитатах. "
+            "Джерело фактів: ТІЛЬКИ буквальні цитати у ЦИТАТИ З ЧАСОМ. "
+            "Для кожного виправленого твердження спочатку подумки "
+            "вкажи точну цитату і мовця. Якщо немає відповідної "
+            "цитати, ВИДАЛИ твердження замість вигадування зв'язку. "
+            "Не ототожнюй різних співрозмовників та їхні позиції. "
             "ЗАБОРОНЕНО підміняти 'сказав' словами 'визнав', "
             "'довів', 'викрив', 'спростував', якщо це лише репліка. "
             "Не підміняй 'підтримує Путіна' на 'голосування за Путіна'. "
@@ -279,6 +285,18 @@ def revise_seo_candidate(
                 failure_code = "INCOMPLETE_REVISION"
                 continue
             gate = inspect_editorial_targets(candidate)
+            # Ground A/B against the complete timestamped evidence map,
+            # rather than requiring the final pilot to catch failures later.
+            if evidence_report:
+                from .dialogue_seo import ab_title_issues
+                ab_issues = ab_title_issues(candidate.get("title_variants") or [], evidence_report)
+                if ab_issues:
+                    failure_code = "AB_EVIDENCE_UNRESOLVED"
+                    working = candidate
+                    critique = {
+                        "issues": [{"field": "title_variants", "reason": message} for message in ab_issues],
+                    }
+                    continue
             if not gate.get("editorial_gate_pass"):
                 failure_code = "EDITORIAL_FORMAT_UNRESOLVED"
                 working = candidate
