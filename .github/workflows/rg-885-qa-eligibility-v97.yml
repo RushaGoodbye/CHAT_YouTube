@@ -1,0 +1,36 @@
+name: RG 885 QA-only eligibility read-only v97
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-qa-eligibility-v97.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $p=@'
+          import sys,json
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_qa_export_v96 import evaluate
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          root=data/"fullstream_v2"/"885"
+          job=json.loads((root/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          gate=json.loads((root/"editorial_preflight_v82.json").read_text(encoding="utf-8-sig"))
+          job["qa_preview_export_requested"]=True
+          job["overnight_queue_sequential"]=True
+          result=evaluate(job,gate)
+          print("RGELIG|GATE|"+json.dumps(gate.get("blocking_reasons"),ensure_ascii=False),flush=True)
+          print("RGELIG|EVALUATE|"+json.dumps(result,ensure_ascii=False),flush=True)
+          print("RGELIG|WORKERS|"+str(len(active_workers()))+"|LOCK|"+worker_lock_state(data),flush=True)
+          print("RGELIG|READONLY|PASS",flush=True)
+          '@
+          $p | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'QA_REVIEW_ELIGIBILITY_QUERY_FAILED'}
