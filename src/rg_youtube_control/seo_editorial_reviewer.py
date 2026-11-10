@@ -290,10 +290,15 @@ def revise_seo_candidate(
             if not format_gate.get("format_pass"):
                 failure_code = "REVISION_FORMAT_UNRESOLVED"
                 working = candidate
-                critique = {"issues": [{
-                    "field": "package",
-                    "reason": ", ".join(str(x) for x in format_gate.get("problems", [])),
-                }]}
+                # The quality gate reports {field: [reasons]}, not a list.
+                # Preserve field-level defects for the next targeted repair.
+                defects = format_gate.get("problems") or {}
+                critique = {"issues": [
+                    {"field": field, "reason": ", ".join(map(str, reasons))}
+                    for field, reasons in defects.items()
+                ]} if isinstance(defects, dict) else {"issues": [
+                    {"field": "package", "reason": str(defects)}
+                ]}
                 continue
             if source_rows is not None:
                 # Objective number checks need the original caption text,
@@ -319,13 +324,15 @@ def revise_seo_candidate(
                 if unexpected:
                     failure_code = "NUMERIC_CLAIM_UNSUPPORTED"
                     working = candidate
-                    critique = {"issues": [{
-                        "field": "title",
-                        "reason": "Цифри відсутні в SRT: " + ", ".join(unexpected),
-                    }, {
-                        "field": "description",
-                        "reason": "Не використовуй цифри поза джерелом.",
-                    }]}
+                    critique = {"issues": [
+                        {"field": field, "reason": "Цифри відсутні в SRT: " + ", ".join(unexpected)}
+                        for field, value in (
+                            ("title", candidate.get("title") or ""),
+                            ("description", candidate.get("description") or ""),
+                            ("title_variants", " ".join(candidate.get("title_variants") or [])),
+                        )
+                        if quantities(str(value)) - spoken
+                    ]}
                     continue
             # Ground A/B against the complete timestamped evidence map,
             # rather than requiring the final pilot to catch failures later.
