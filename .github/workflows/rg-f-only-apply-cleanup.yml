@@ -1,0 +1,18 @@
+name: RG F only remove redundant C Studio safely
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-apply-cleanup.yml']
+permissions: {contents: read}
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_f_only_migrate_shortcuts_and_old_exe.py --apply
+          if($LASTEXITCODE -ne 0){throw 'RG_F_ONLY_INSTALL_CLEANUP_FAILED'}
