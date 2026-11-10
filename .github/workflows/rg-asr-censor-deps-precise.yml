@@ -1,0 +1,23 @@
+name: RG censor dependencies precise audit before removal
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-asr-censor-deps-precise.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($m in @(@('rg_fullstream_auto_v2.py',630,674),@('rg_fullstream_editorial_gate_v82.py',1,160),@('rg_fullstream_rescue_mutes_v88.py',1,88))){
+            $a=@(Get-Content (Join-Path $root $m[0]) -Encoding UTF8)
+            for($i=$m[1];$i -le [Math]::Min($m[2],$a.Count);$i++){Write-Output ('RGCDEP|'+$m[0]+'|'+$i+'|'+$a[$i-1])}
+          }
+          foreach($n in @('rg_fullstream_batch_v53.py','rg_fullstream_auto_v2.py','rg_fullstream_asr_chunked_v58.py','rg_fullstream_asr_child_v58.py')){
+            $p=Join-Path $root $n
+            Write-Output ('RGCDEP|HASH|'+$n+'|'+(Get-FileHash $p -Algorithm SHA256).Hash.ToLower())
+          }
+          Write-Output 'RGCDEP|READONLY|PASS'
