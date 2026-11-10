@@ -1,0 +1,24 @@
+name: RG Full Stream 895 UI controls exact
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-fullstream-controls-exact.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($n in @('rg_fullstream_manual_tab_v5.py','rg_fullstream_manual_tab_v4.py')){
+            $p=Join-Path $app $n
+            if(!(Test-Path $p)){continue}
+            $rows=Get-Content $p -Encoding UTF8
+            for($i=0;$i -lt $rows.Count;$i++){
+              if($rows[$i] -match 'QPushButton|_button|enqueue|clicked.connect|recheck|перерах|ПОВТОР|QA|МИН|ВІДНОВ|ПЕРЕОБРОБ'){
+                Write-Output ('RG895UI|'+$n+'|'+($i+1)+'|'+$rows[$i].Substring(0,[Math]::Min(260,$rows[$i].Length)))
+              }
+            }
+          }
