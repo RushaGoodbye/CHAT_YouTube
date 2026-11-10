@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any, Callable
 
-from .seo_v2_evidence import Cue, evidence_ledger, make_windows, parse_srt
+from .seo_v2_evidence import Cue, evidence_ledger, make_windows, parse_srt, verify_quote
 from .seo_quality_gate import inspect_editorial_targets, inspect_package
 
 Chat = Callable[[str], dict[str, Any]]
@@ -57,6 +57,45 @@ def _parse_proposals(raw: dict[str, Any], indices: list[int]) -> list[dict[str, 
     return proposals
 
 
+def _fallback_window_quotes(cues: list[Cue], indices: list[int],
+                            *, max_quotes: int = 3) -> list[dict[str, Any]]:
+    """Provide literal SRT evidence when a model skips a source window.
+
+    These are source extracts, not LLM-verified important claims. Choose
+    different parts of the window without guessing its subject.
+    """
+    if not indices or max_quotes < 1:
+        return []
+    count = min(max_quotes, len(indices))
+    candidates: list[dict[str, Any]] = []
+    chosen: set[int] = set()
+    for segment in range(count):
+        left = segment * len(indices) // count
+        right = (segment + 1) * len(indices) // count
+        subset = indices[left:max(left + 1, right)]
+        # A moderately substantial spoken statement is better than a filler.
+        ordered = sorted(
+            subset,
+            key=lambda i: (
+                len(cues[i].text) < 24,
+                -min(len(cues[i].text), 240),
+                i,
+            ),
+        )
+        for idx in ordered:
+            if idx in chosen:
+                continue
+            excerpt = cues[idx].text[:240].rsplit(" ", 1)[0].strip()
+            if len(excerpt) < 8:
+                continue
+            proposal = {"quote": excerpt, "cue_indices": [idx]}
+            if verify_quote(excerpt, cues, [idx]) is not None:
+                candidates.append(proposal)
+                chosen.add(idx)
+                break
+    return candidates
+
+
 def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     proposals: list[dict[str, Any]] = []
     windows = make_windows(cues)
@@ -77,10 +116,27 @@ def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str
             "SOURCE CUES:\n" + json.dumps(captions, ensure_ascii=False)
         )
         candidates = _parse_proposals(_ask(chat, prompt), indices)
-        if not candidates:
+        verified_model_quotes = [
+            item for item in candidates
+            if verify_quote(item["quote"], cues, item["cue_indices"]) is not None
+        ]
+        if len(verified_model_quotes) < 2:
             failed_windows.append(window_index)
+            # Fill from the actual recording, not an inferred model topic.
+            # Keep all invalid model proposals visible to the audit ledger.
+            for literal in _fallback_window_quotes(cues, indices):
+                if len(verified_model_quotes) >= 2:
+                    break
+                proof = verify_quote(literal["quote"], cues, literal["cue_indices"])
+                if proof is not None and proof.evidence_id not in {
+                    verify_quote(item["quote"], cues, item["cue_indices"]).evidence_id
+                    for item in verified_model_quotes
+                }:
+                    verified_model_quotes.append(literal)
+                    candidates.append(literal)
         proposals.extend(candidates)
     ledger = evidence_ledger(cues, proposals)
+    ledger["deterministic_fallback_windows"] = failed_windows
     # A returned quote still needs deterministic verification. A fabricated
     # quote must not make a source window look covered.
     covered = {
