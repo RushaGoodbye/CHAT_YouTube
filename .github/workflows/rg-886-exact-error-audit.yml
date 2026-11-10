@@ -1,0 +1,46 @@
+name: RG 886 exact QA error live audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-exact-error-audit.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Continue'
+          $d='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\886'
+          Write-Output ('RG886|NOW|'+(Get-Date).ToString('o'))
+          foreach($name in @('status.json','editorial_preflight_v82.json','processing_plan.json','editorial_evidence_v84.json','notification_qa_review_v1.json','queue_request.json')){
+            $f=Join-Path $d $name
+            if(!(Test-Path $f)){Write-Output ('RG886|MISSING|'+$name);continue}
+            $v=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+            Write-Output ('RG886|FILE|'+$name+'|'+(Get-Item $f).LastWriteTime.ToString('o'))
+            foreach($k in @('state','error','reason','stage','blocking_reasons','warnings','review_queue','review_item_count','popup_coverage_verified','popup_masks','qa_preview_export_requested','publish_ready','output')){
+              if($v.PSObject.Properties.Name -contains $k){
+                $z=$v.$k
+                if($k -eq 'popup_masks'){$z='count='+@($z).Count}
+                $j=$z|ConvertTo-Json -Compress -Depth 5
+                if($j.Length -gt 6500){$j=$j.Substring(0,6500)}
+                Write-Output ('RG886|VALUE|'+$name+'|'+$k+'|'+$j)
+              }
+            }
+            if($name -eq 'editorial_evidence_v84.json'){
+              $p=$v.popup_scan_coverage
+              if($p){Write-Output ('RG886|POPUP_SCAN_COVERAGE|'+($p|ConvertTo-Json -Depth 4 -Compress))}
+              if($v.notifications){Write-Output ('RG886|NOTIFICATIONS|'+($v.notifications|ConvertTo-Json -Depth 3 -Compress).Substring(0,[Math]::Min(2500,($v.notifications|ConvertTo-Json -Depth 3 -Compress).Length)))}
+            }
+          }
+          $log='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\queue_worker.log'
+          if(Test-Path $log){
+            Get-Content $log -Tail 100|Where-Object {$_ -match '886|PAUSED_EDITORIAL_QA|ERROR|FAILED'}|ForEach-Object{Write-Output ('RG886|WORKERLOG|'+$_)}
+          }
+          foreach($s in 885..889){
+            $f='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\'+$s+'\status.json'
+            if(Test-Path $f){Write-Output ('RG886|QUEUE_STATE|'+$s+'|'+(Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json).state)}
+          }
+          Write-Output 'RG886|READ_ONLY|PASS'
