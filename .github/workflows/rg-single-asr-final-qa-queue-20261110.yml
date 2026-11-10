@@ -1,0 +1,57 @@
+name: RG single pass ASR final QA and queue acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-single-asr-final-qa-queue-20261110.yml']
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=@'
+          import sys,json,hashlib,ast
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          from rg_fullstream_editorial_gate_v82 import validate
+          from rg_fullstream_asr_chunked_v58 import LANGS
+          assert LANGS==("auto",),LANGS
+          assert not active_workers() and worker_lock_state(data)=="IDLE"
+          print("RGFINALASR|SINGLE_AUTO_MODE|PASS",flush=True)
+          source=(app/"rg_fullstream_auto_v2.py").read_text(encoding="utf-8-sig")
+          assert "inspect_asr_gaps_v90(audio" not in source
+          assert "V90_PROFANITY_BILINGUAL_RECHECK_SKIPPED_BY_USER_POLICY" in source
+          print("RGFINALASR|BILINGUAL_MAT_RECHECK_OFF|PASS",flush=True)
+          plan=json.loads((data/"fullstream_v2"/"885"/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          result=validate(plan)
+          blocked=result.get("blocking_reasons",[])
+          assert "NOTIFICATION_COVERAGE_UNVERIFIED" in blocked,blocked
+          assert "V90_SOURCE_BOUND_BILINGUAL_GAP_REVIEW_INCOMPLETE" not in blocked,blocked
+          print("RGFINALASR|POPUP_QA_BLOCK_STILL_ACTIVE|PASS",flush=True)
+          jobs=[]
+          for s in range(885,890):
+              d=data/"fullstream_v2"/str(s)
+              q=d/"queue_request.json";st=d/"status.json"
+              assert q.exists(),str(q)
+              row=json.loads(q.read_text(encoding="utf-8-sig"))
+              state=json.loads(st.read_text(encoding="utf-8-sig")).get("state")
+              jobs.append((float(row["created_utc_epoch"]),str(s),state))
+          jobs.sort()
+          names=[j[1] for j in jobs]
+          assert names==["885","886","887","888","889"],jobs
+          print("RGFINALASR|ORDER|"+",".join(names),flush=True)
+          for j in jobs:print("RGFINALASR|STATE|"+j[1]+"|"+j[2],flush=True)
+          assert jobs[0][2]=="PAUSED_EDITORIAL_QA"
+          assert all(x[2]=="QUEUED" for x in jobs[1:]),jobs
+          print("RGFINALASR|ALL|PASS|NO_RENDER_STARTED",flush=True)
+          '@
+          $script | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'FINAL_ASR_QA_TEST_FAILED'}
