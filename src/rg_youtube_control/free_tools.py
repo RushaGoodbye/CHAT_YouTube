@@ -2903,6 +2903,31 @@ chapters: рядок з підтвердженими таймкодами та �
                             candidate["title_variants"] = focused_ab
                     except (ValueError, RuntimeError, TimeoutError):
                         pass
+                # The model can still return vague questions after a retry.
+                # Before accepting generic A/B, try purely quote-grounded
+                # alternatives. They pass exactly the same source and
+                # editorial-quality tests as the model proposal.
+                if "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                    str(candidate.get("title") or ""),
+                    "", candidate.get("title_variants") or [], [],
+                ):
+                    from .source_ab_lexical import source_grounded_ukrainian_ab
+                    source_options = [
+                        source_grounded_ukrainian_ab(evidence_report, current_title),
+                        _verified_source_ab_titles(evidence_report, current_title),
+                        _source_quote_ab_titles(evidence_report, current_title),
+                    ]
+                    for proposed_ab in source_options:
+                        if (
+                            len(proposed_ab) == 3
+                            and not ab_title_issues(proposed_ab, evidence_report)
+                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                str(candidate.get("title") or ""), "", proposed_ab, [],
+                            )
+                        ):
+                            candidate["title_variants"] = proposed_ab
+                            candidate["_source_lexical_review_only"] = True
+                            break
             if evidence_report:
                 # The old code overwrote EVERY model-written description
                 # with a short, generic keyword template, even when the
