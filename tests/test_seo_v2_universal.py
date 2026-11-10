@@ -255,6 +255,8 @@ def test_citation_repair_only_updates_evidence_ids_not_content():
         "title", "title_variants", "description", "tags"
     )}
     def chat(prompt):
+        if "You ONLY match existing Ukrainian search tags" in prompt:
+            return {"tags": [["ev_literal_1"]] * 2}
         assert "source-citation matcher" in prompt
         return {"support_ids": {
             "title": ["ev_literal_1"],
@@ -333,3 +335,30 @@ def test_writer_cannot_cite_valid_ledger_quote_absent_from_prompt():
     assert "TITLE_UNSUPPORTED" in gate["issues"]
     assert "DESCRIPTION_UNSUPPORTED" in gate["issues"]
     assert gate["publication_allowed"] is False
+
+
+def test_tag_only_repair_never_rewrites_other_fields():
+    from rg_youtube_control.seo_v2_pipeline import _repair_source_citations
+    proof = [{"evidence_id": "ev_11", "quote": "Майстер готує фарбу."}]
+    draft = {
+        "title": "Як майстер готує фарбу",
+        "title_variants": ["Робота майстра", "Майстер і фарба", "Технологія фарби"],
+        "description": "Майстер готує фарбу для роботи.",
+        "tags": ["приготування фарби", "робота майстра"],
+        "support_ids": {
+            "title": ["ev_11"], "description": ["ev_11"],
+            "title_variants": [["ev_11"]] * 3,
+            "tags": [],
+        },
+    }
+    before = {field: draft[field] for field in (
+        "title", "title_variants", "description", "tags"
+    )}
+    prompts = []
+    def chat(prompt):
+        prompts.append(prompt)
+        return {"tags": [["ev_11"], ["ev_11"]]}
+    assert _repair_source_citations(draft, proof, chat) is True
+    assert len(prompts) == 1
+    assert "ONLY match existing" in prompts[0]
+    assert all(draft[field] == before[field] for field in before)
