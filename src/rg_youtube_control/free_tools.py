@@ -3587,6 +3587,78 @@ chapters: рядок з підтвердженими таймкодами та �
                         bool(_seo_ukrainian_language_issue(v)) for v in proposed
                     ],
                 }
+                if len(proposed) == 3 and (
+                    ab_title_issues(proposed, evidence_report)
+                    or "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    )
+                ):
+                    # The first model pass often paraphrases a fact using
+                    # an unsupported new verb. Supply the exact rejected
+                    # wording and source objections for ONE bounded repair.
+                    try:
+                        verified_quotes = [
+                            str(item.get("evidence") or "")[:200]
+                            for block in evidence_report.get("blocks") or []
+                            if isinstance(block, dict) and block.get("verified") is not False
+                            for item in (block.get("topics") or [])[:1]
+                            if isinstance(item, dict) and item.get("evidence")
+                        ][:10]
+                        repair_ab_prompt = (
+                            "Виправ ТРИ українські A/B-назви за точними "
+                            "цитатами. Кожна 35–95 символів, конкретна, "
+                            "із різною змістовою опорою. Попередні фрази "
+                            "містять непідтверджені слова. Пиши так, щоб "
+                            "всі змістові дії й події були прямо видимі "
+                            "у дослівних цитатах. НЕ додавай дієслів "
+                            "'висміяв', 'примусив', 'викрив', 'довів', "
+                            "'розгромив', якщо це не сказано в цитаті. "
+                            "Можна передати дослівну російську репліку "
+                            "українською зі збереженням сенсу та атрибуції. "
+                            "Не використовуй шаблонів 'що говорять', "
+                            "'що прозвучало', 'про що йдеться'. "
+                            "JSON: title_variants, рівно три рядки.\\n"
+                            "ПОПЕРЕДНІ: " + json.dumps(proposed, ensure_ascii=False)
+                            + "\\nПОМИЛКИ ПЕРЕВІРКИ: " + json.dumps(
+                                ab_title_issues(proposed, evidence_report),
+                                ensure_ascii=False,
+                            )
+                            + "\\nДОСЛІВНІ ЦИТАТИ: " + json.dumps(
+                                verified_quotes, ensure_ascii=False,
+                            )
+                        )
+                        corrected_raw = ollama_chat(
+                            [{"role": "system", "content": (
+                                "Суворий український фактчекер заголовків. Лише JSON."
+                            )}, {"role": "user", "content": repair_ab_prompt}],
+                            model=model, timeout=timeout,
+                            temperature=0.05, json_mode=True, num_ctx=8192,
+                        )
+                        corrected_data = _normalize_seo_candidate(
+                            _extract_json_object(corrected_raw)
+                        )
+                        corrected = [
+                            str(v).strip() for v in (
+                                corrected_data.get("title_variants") or []
+                            ) if isinstance(v, str) and v.strip()
+                        ]
+                        payload["_ab_specific_diagnostic"]["correction"] = corrected
+                        payload["_ab_specific_diagnostic"]["correction_issues"] = (
+                            ab_title_issues(corrected, evidence_report)
+                        )
+                        if (
+                            len(corrected) == 3
+                            and all(35 <= len(v) <= 95 for v in corrected)
+                            and not any(_seo_ukrainian_language_issue(v) for v in corrected)
+                            and not ab_title_issues(corrected, evidence_report)
+                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                title, "", corrected, (),
+                            )
+                            and len(_select_diverse_title_variants(title, corrected)) == 3
+                        ):
+                            proposed = corrected
+                    except (RuntimeError, ValueError, TimeoutError, TypeError):
+                        pass
                 if (
                     len(proposed) == 3
                     and all(35 <= len(v) <= 95 for v in proposed)
