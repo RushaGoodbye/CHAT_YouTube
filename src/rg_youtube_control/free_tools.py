@@ -3567,6 +3567,16 @@ chapters: рядок з підтвердженими таймкодами та �
                 proposed = [str(v).strip() for v in (
                     data_ab.get("title_variants") or []
                 ) if isinstance(v, str) and str(v).strip()]
+                payload["_ab_specific_diagnostic"] = {
+                    "candidates": proposed,
+                    "source_issues": ab_title_issues(proposed, evidence_report),
+                    "quality_flags": _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    ),
+                    "language_issues": [
+                        bool(_seo_ukrainian_language_issue(v)) for v in proposed
+                    ],
+                }
                 if (
                     len(proposed) == 3
                     and all(35 <= len(v) <= 95 for v in proposed)
@@ -3579,8 +3589,10 @@ chapters: рядок з підтвердженими таймкодами та �
                 ):
                     variants = proposed
                     payload["_final_ab_specific_repaired"] = True
-            except (RuntimeError, ValueError, TimeoutError, TypeError):
-                pass
+            except (RuntimeError, ValueError, TimeoutError, TypeError) as exc:
+                payload["_ab_specific_diagnostic"] = {
+                    "error_type": type(exc).__name__,
+                }
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
@@ -3801,6 +3813,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "seo_editorial_quality_flags": editorial_quality_flags,
         "seo_independent_review": reviewer_report,
         "seo_revision_candidate": revision_report,
+        "seo_ab_specific_diagnostic": payload.get("_ab_specific_diagnostic"),
         "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
         "seo_editorial_gate_issues": editorial_gate["issues"],
         "seo_format_pass": bool(format_gate["format_pass"]),
