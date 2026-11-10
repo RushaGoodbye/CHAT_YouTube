@@ -2912,7 +2912,29 @@ chapters: рядок з підтвердженими таймкодами та �
                     if len(merged_tags) >= 10:
                         break
 
-            if len(merged_tags) < 8 and evidence_report and verified_evidence:
+            generic_search_tags = {
+                "раша гудбай", "чат рулетка", "чат рулетка з росіянами",
+                "росія", "росіяни", "думки росіян",
+                "опитування росіян", "реакція росіян",
+                "запитання росіянам", "розмова з росіянами",
+                "youtube", "новини",
+            }
+            topical_count = sum(
+                tag.casefold() not in generic_search_tags
+                for tag in merged_tags
+            )
+            if evidence_report and verified_evidence and (
+                len(merged_tags) < 8 or topical_count < 4
+            ):
+                # If the model filled all slots with channel/format tags,
+                # reclaim those slots for episode-specific search queries.
+                if topical_count < 4:
+                    merged_tags = [
+                        tag for tag in merged_tags
+                        if tag.casefold() not in generic_search_tags
+                        or tag.casefold() in {"раша гудбай", "чат рулетка"}
+                    ]
+                    seen_tags = {tag.casefold() for tag in merged_tags}
                 # Repair tag QUALITY at the generator, not at the acceptance
                 # gate. Ask for specific episode search terms grounded in
                 # verified quotations, then check each candidate against the
