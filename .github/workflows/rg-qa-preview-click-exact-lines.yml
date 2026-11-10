@@ -1,0 +1,23 @@
+name: RG exact QA preview click final lines
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-qa-preview-click-exact-lines.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for name,a,b in (("rg_fullstream_batch_v53.py",570,645),("rg_fullstream_worker_v3.py",138,193),("rg_fullstream_qa_export_v96.py",65,110)):
+            lines=(app/name).read_text(encoding="utf-8-sig").splitlines()
+            for i in range(a-1,min(b,len(lines))):
+              print("RGFINALPATH|"+name+"|"+str(i+1)+"|"+lines[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
