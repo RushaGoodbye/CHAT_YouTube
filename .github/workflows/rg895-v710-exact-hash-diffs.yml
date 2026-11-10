@@ -1,0 +1,36 @@
+name: RG895 V710 integrity exact diff audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg895-v710-exact-hash-diffs.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import sys,inspect,ast,hashlib,re
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_batch_v53 import engine_v710_verified
+          f=ast.parse(inspect.getsource(engine_v710_verified))
+          expected=next(n.value for n in ast.walk(f) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="expected" for t in n.targets))
+          mp=ast.literal_eval(expected)
+          mismatches=[]
+          for name,want in mp.items():
+              p=app/name
+              have=hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+              if have!=want:
+                  mismatches.append(name)
+                  print("RGHASH|MISMATCH|"+name+"|EXPECTED|"+str(want)+"|ACTUAL|"+str(have),flush=True)
+              else:print("RGHASH|PASS|"+name,flush=True)
+          print("RGHASH|COUNT|"+str(len(mismatches))+"|"+str(mismatches),flush=True)
+          print("RGHASH|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'HASH_AUDIT_FAILED'}
