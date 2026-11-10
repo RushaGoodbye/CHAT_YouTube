@@ -17,6 +17,7 @@ import sqlite3
 import sys
 import time
 import urllib.request
+import urllib.parse
 import uuid
 
 O=Path('/volume1/docker/RG_TELEGRAM_NEWS_2/operator')
@@ -62,21 +63,33 @@ def config():
     moderators={int(v) for v in cfg.get('moderators',[])}
     if type(chat)!=int or chat<=0 or not moderators:stop('MODERATION_CONFIG_UNVERIFIED')
     return cfg,chat,moderators,news_rg_multipart.token()
+def compact_title(name):
+    name=re.sub(r'[_-]+',' ',name).strip()
+    if not name:name='ВІДЕОФРАГМЕНТ'
+    name=name[:90].upper()
+    # Lowercase the entire word 'росія' and derivatives despite uppercase title.
+    name=re.sub(r'(?iu)рос[іи][яїи][\wіїєґ]*',lambda m:m.group(0).lower(),name)
+    return name
+
 def caption(path):
-    # Filename is a label, NOT proof of what is said in a video.
-    name=re.sub(r'[_-]+',' ',path.stem).strip()
-    name=re.sub(r'(?i)рос[іи][яїи][\wіїєґ]*',lambda m:m.group(0).lower(),name)
-    if any(ch in name for ch in 'ыъэёЫЪЭЁ'):
-        name='Новий відеофрагмент'  # Russian filename alone is not a Ukrainian summary.
-    name=name[:105] or 'Новий відеофрагмент'
-    label=html.escape(name)
-    text=(f'<b>🎬 {label}</b>\n\n'
-          'Короткий відеофрагмент. Перегляньте та поділіться своєю думкою.\n\n'
-          '💬 Що думаєте про побачене? Напишіть у коментарях.\n\n'
-          f'🔔 <a href="{CHANNEL}"><b>ПІДПИСАТИСЯ НА «РАША ГУДБАЙ»</b></a>\n\n'
-          f'🔗 <a href="{LINKS}"><b>{FOOTER}</b></a>')
-    if len(text)>950:stop('CAPTION_TOO_LONG')
-    return text
+    label=html.escape(compact_title(path.stem))
+    return f'<b>🎬 {label}</b>\n💬 Що думаєте про побачене? Напишіть у коментарях.'
+
+def link_buttons():
+    return [
+        [{'text':'🔔 ПІДПИСАТИСЯ НА «РАША ГУДБАЙ»','url':CHANNEL,'style':'primary'}],
+        [{'text':'🟨 УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ','url':LINKS}]
+    ]
+
+def review_buttons(draft):
+    return {'inline_keyboard':[
+        [{'text':'✅ Схвалити (без автопублікації)','callback_data':'rgs3:accept:'+draft,'style':'success'},
+         {'text':'❌ Відхилити','callback_data':'rgs3:reject:'+draft,'style':'danger'}],
+        *link_buttons()]}
+
+def format_review_caption(text):
+    return '⚠️ ПРИВАТНА МОДЕРАЦІЯ SHORTS\n\n'+text
+
 def grounded_ai_caption(path):
     """Only create model-specific descriptions from an actual SRT/TXT transcript.
     The optional local model service is configured by RG_SHORTS_V3_AI_URL.
@@ -174,11 +187,11 @@ def send_private():
             proposed=caption(path)
             ai_text=grounded_ai_caption(path)
             if ai_text:
-                # Only the content-based part changes; approved links/footer remain constant.
-                proposed='<b>'+html.escape(ai_text)+'</b>\n\n'+proposed.split('\n\n',1)[1]
+                # AI is draft-only; retain the exact compact two-line layout.
+                ai_title=compact_title(ai_text.splitlines()[0])
+                proposed='<b>🎬 '+html.escape(ai_title)+'</b>\n💬 Що думаєте про побачене? Напишіть у коментарях.'
             source_mode='TRANSCRIPT_AI_DRAFT_HUMAN_REVIEW' if ai_text else 'FILENAME_GENERIC_HUMAN_REVIEW'
-            cards={'inline_keyboard':[[{'text':'✅ Схвалити (без автопублікації)','callback_data':'rgs3:accept:'+draft},
-                                       {'text':'❌ Відхилити','callback_data':'rgs3:reject:'+draft}]]}
+            cards=review_buttons(draft)
             # Atomic SHA claim BEFORE network; a crash cannot cause reuse.
             cn.execute('BEGIN IMMEDIATE')
             n=cn.execute("UPDATE files SET state='RESERVED',reserved_at=?,note=? WHERE sha256=? AND state='AVAILABLE'",
@@ -192,7 +205,7 @@ def send_private():
                      claimed_at=int(time.time()),private_chat_id=chat,publications=0)
             write(p,rec,exclusive=True)
             try:
-                mid=send(token,chat,data,'⚠️ ПРИВАТНА МОДЕРАЦІЯ SHORTS\n\n'+proposed,cards)
+                mid=send(token,chat,data,format_review_caption(proposed),cards)
                 rec.update(state='PRIVATE_SENT_CONFIRMED',private_message_id=mid)
                 write(p,rec)
                 out('PRIVATE_SENT_CONFIRMED',draft_id=draft,sha256=sha,message_id=mid,publications=0)
@@ -263,7 +276,7 @@ def publish_one():
             r.update(state='PUBLIC_SEND_UNCERTAIN_NO_RETRY',public_claimed_at=int(time.time()))
             write(p,r)
             try:
-                mid=send(token,act['chat_id'],video,r['caption'])
+                mid=send(token,act['chat_id'],video,r['caption'],{'inline_keyboard':link_buttons()})
                 r.update(state='PUBLIC_PUBLISHED_CONFIRMED',public_message_id=mid,published_at=int(time.time()),publications=1)
                 write(p,r)
                 cn=inv.db_open()
@@ -292,22 +305,65 @@ def status():
             r=safe_file(p);s=r.get('state','UNKNOWN');queue[s]=queue.get(s,0)+1
         out('RG_SHORTS_V3_INSTALLED',inventory=states,review=queue,scheduler='OFF',publications_triggered=0)
     finally:c.close()
+def refresh_private_card(draft):
+    """Edit the already delivered private message, never upload the same video again."""
+    ready()
+    if not re.fullmatch(r'[a-f0-9]{24}',draft):stop('BAD_DRAFT_ID')
+    lk=lock()
+    try:
+        p=RECEIPTS/(draft+'.json')
+        r=safe_file(p)
+        if r.get('state')!='PRIVATE_SENT_CONFIRMED' or r.get('schema')!='RG_SHORTS_V3':
+            stop('PRIVATE_CARD_NOT_EDITABLE')
+        cfg,chat,moderators,token=config()
+        if r.get('private_chat_id')!=chat or type(r.get('private_message_id'))!=int:
+            stop('PRIVATE_MESSAGE_ID_INVALID')
+        source=Path(r['source'])
+        if not source.is_file() or source.is_symlink() or hashlib.sha256(source.read_bytes()).hexdigest()!=r['sha256']:
+            stop('SOURCE_CHANGED')
+        updated=caption(source)
+        body=urllib.parse.urlencode({
+            'chat_id':str(chat),'message_id':r['private_message_id'],
+            'caption':format_review_caption(updated),'parse_mode':'HTML',
+            'reply_markup':json.dumps(review_buttons(draft),ensure_ascii=False)
+        }).encode('utf8')
+        req=urllib.request.Request('https://api.telegram.org/bot'+token+'/editMessageCaption',
+                                   data=body,headers={'Content-Type':'application/x-www-form-urlencoded'})
+        with urllib.request.urlopen(req,timeout=30) as resp:
+            ack=json.loads(resp.read(80000))
+        msg=ack.get('result') if ack.get('ok') is True else None
+        if not isinstance(msg,dict) or msg.get('message_id')!=r['private_message_id'] or int((msg.get('chat') or {}).get('id',0))!=chat:
+            stop('EDIT_ACK_NOT_CONFIRMED')
+        r['caption']=updated
+        r['caption_source']='FORMATTING_UPDATE_FROM_FILENAME'
+        r['format_revision']='V3_COMPACT_BUTTONS'
+        r['last_edit_at']=int(time.time())
+        write(p,r)
+        out('PRIVATE_CARD_UPDATED_IN_PLACE',draft_id=draft,message_id=r['private_message_id'],
+            same_video=True,publications=0)
+    finally:os.close(lk)
+
 def selftest():
     x=caption(Path('Росія і РОСІЯНИН.mp4'))
     assert 'Росія' not in x and 'РОСІЯНИН' not in x
     assert 'youtube.com' not in x.lower()
-    assert LINKS in x and CHANNEL in x and FOOTER in x
+    assert 'Короткий відеофрагмент' not in x
+    assert x.startswith('<b>🎬 ') and '\\n💬 ' in x
+    assert link_buttons()[0][0]['style']=='primary'
+    assert link_buttons()[1][0]['url']==LINKS
     assert CALLBACK.fullmatch('rgs3:accept:'+'a'*24)
     assert CALLBACK.fullmatch('rgs3:reject:'+'a'*24)
     assert not CALLBACK.fullmatch('ne1:accept:'+'a'*24)
     out('RG_SHORTS_V3_SELFTEST_PASS',publications=0)
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument('action',choices=['selftest','status','send-one-private','publish-one'])
+    ap.add_argument('action',choices=['selftest','status','send-one-private','publish-one','refresh-private-card'])
+    ap.add_argument('--draft-id',default='')
     args=ap.parse_args()
     if args.action=='selftest':selftest()
     elif args.action=='status':status()
     elif args.action=='send-one-private':send_private()
+    elif args.action=='refresh-private-card':refresh_private_card(args.draft_id)
     else:publish_one()
 if __name__=='__main__':
     try:main()
