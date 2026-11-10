@@ -1,0 +1,37 @@
+name: RG 895 BARS manual mask path inspection
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-bars-manual-mask-inspection.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import ast,json,sys,inspect
+          from pathlib import Path
+          a=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          r=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895")
+          sys.path.insert(0,str(a))
+          from rg_fullstream_auto_v2 import verified_popups
+          print("RG895MASK|VERIFIED_POPUPS_SOURCE|"+inspect.getsource(verified_popups).replace("\n"," | ")[:6000],flush=True)
+          f=r/"plan.json"
+          print("RG895MASK|CONFIG_EXISTS|"+str(f.is_file()),flush=True)
+          if f.is_file():
+              c=json.loads(f.read_text(encoding="utf-8-sig"))
+              print("RG895MASK|CONFIG_KEYS|"+json.dumps(list(c),ensure_ascii=False),flush=True)
+              print("RG895MASK|CONFIG_EXISTING_MASKS|"+str(len(c.get("popup_masks") or [])),flush=True)
+          raw=json.loads((r/"processing_plan.json").read_text(encoding="utf-8-sig"))
+          print("RG895MASK|ACTIVE_AUTOMASKS|"+str(len(raw.get("popup_masks") or [])),flush=True)
+          for m in raw["popup_masks"]:
+              if any(float(interval[0])<5510 and float(interval[1])>5470 for interval in m.get("intervals",[])):
+                  print("RG895MASK|PREEXISTING_OVERLAP|"+json.dumps(m,ensure_ascii=False),flush=True)
+          print("RG895MASK|READONLY|PASS",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG895_MANUAL_MASK_INSPECT_FAILED'}
