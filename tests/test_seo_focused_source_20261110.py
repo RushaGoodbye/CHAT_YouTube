@@ -184,3 +184,18 @@ def test_reporting_verb_does_not_block_real_topic_with_russian_source():
     )
     assert len(notes) == 1
     assert notes[0]["time"] == "00:03:00"
+
+
+def test_focused_description_source_excludes_peripheral_first_nine_blocks():
+    report = {"blocks": [
+        block(f"00:{i:02}:00", f"Я працюю в магазині та обговорюю свій графік {i}.")
+        for i in range(9)
+    ] + [
+        block("00:10:00", "Люди сперечалися через мобілізацію."),
+        block("00:11:00", "Мобілізація вплинула на розмови про війну."),
+    ]}
+    notes = focused_literal_source_notes(
+        report, "Мобілізація та війна", limit=9,
+    )
+    assert len(notes) == 2
+    assert all("магазині" not in note["quote"] for note in notes)
