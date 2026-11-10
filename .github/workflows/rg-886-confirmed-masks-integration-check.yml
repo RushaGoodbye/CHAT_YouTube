@@ -1,0 +1,40 @@
+name: RG 886 37 mask integration acceptance
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-confirmed-masks-integration-check.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          import sys, json
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          root=data/"fullstream_v2"/"886"
+          sys.path.insert(0,str(app))
+          from rg_fullstream_auto_v2 import verified_popups
+          job=json.loads((root/"plan.json").read_text(encoding="utf-8-sig"))
+          masks,flags=verified_popups(job)
+          print("RG886CHECK|ACCEPTED_MANUAL|"+str(len(masks)),flush=True)
+          print("RG886CHECK|FLAGS|"+json.dumps(flags),flush=True)
+          ids=sorted(m.get("candidate_index") for m in masks)
+          print("RG886CHECK|INDEXES|"+json.dumps(ids),flush=True)
+          print("RG886CHECK|FRAMED_ACCEPTED|"+str(sum(m["layout"]=="framed_host" for m in masks)),flush=True)
+          status=json.loads((root/"status.json").read_text(encoding="utf-8-sig"))
+          print("RG886CHECK|STATE|"+str(status.get("state")),flush=True)
+          from rg_fullstream_stop_v60 import active_workers
+          print("RG886CHECK|ACTIVE_WORKERS|"+str(len(active_workers())),flush=True)
+          if len(masks)!=37:raise RuntimeError("MANUAL_MASK_VALIDATION_INCOMPLETE")
+          if len(set(ids))!=37:raise RuntimeError("USER_APPROVED_INDEX_MISMATCH")
+          assert status.get("state")=="PAUSED_EDITORIAL_QA",status.get("state")
+          print("RG886CHECK|ALL|PASS|NO_MEDIA_RENDER_STARTED",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw '886_INTEGRATION_ACCEPTANCE_FAILED'}
