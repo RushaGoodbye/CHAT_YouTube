@@ -1,0 +1,28 @@
+name: RG F only cleanup Windows permission diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-f-only-cleanup-acl-diagnostic.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          Write-Output ('RGACL|WHOAMI|'+(whoami))
+          whoami /groups|Select-String 'S-1-5-32-544|S-1-16-12288|S-1-16-8192'|ForEach-Object{Write-Output ('RGACL|GROUP|'+$_)}
+          $old='C:\Program Files\RG Auto Edit Studio'
+          if(Test-Path $old){
+            Get-ChildItem $old -Recurse -File -ErrorAction SilentlyContinue|ForEach-Object{Write-Output ('RGACL|REMAINS|'+$_.FullName+'|'+$_.Attributes+'|'+$_.Length)}
+            $v=Get-Acl $old;Write-Output ('RGACL|OWNER|'+$v.Owner)
+            icacls "$old"|ForEach-Object{Write-Output ('RGACL|ACL|'+$_)}
+            icacls "$old\_internal\api-ms-win-core-path-l1-1-0.dll"|ForEach-Object{Write-Output ('RGACL|DLL_ACL|'+$_)}
+            attrib "$old\_internal\api-ms-win-core-path-l1-1-0.dll"|ForEach-Object{Write-Output ('RGACL|DLL_ATTR|'+$_)}
+          }
+          $sh=New-Object -ComObject WScript.Shell
+          foreach($p in @('C:\Users\fauto\Desktop\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\RG Auto Edit Studio.lnk','C:\Users\fauto\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\РАША ГУДБАЙ МОНТАЖКА.lnk')){
+            $s=$sh.CreateShortcut($p);Write-Output ('RGACL|SHORTCUT|'+$p+'|'+$s.TargetPath)
+          }
+          Write-Output 'RGACL|READONLY|PASS'
