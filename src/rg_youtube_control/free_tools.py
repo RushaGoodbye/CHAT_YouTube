@@ -3726,6 +3726,83 @@ chapters: рядок з підтвердженими таймкодами та �
                 payload["_ab_specific_diagnostic"] = {
                     "error_type": type(exc).__name__,
                 }
+    if (
+        evidence_report and verified_evidence and not fast_mode
+        and "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+            title, "", variants, (),
+        )
+    ):
+        # Last source-grounded alternative: three compact Ukrainian
+        # translations of literal source quotations, without generic
+        # question frames or new narrative verbs. The same strict source,
+        # language, duplicate and editorial gates still apply.
+        try:
+            source_quotes = [
+                {
+                    "time": str(block.get("start_stamp") or ""),
+                    "quote": str(topic.get("evidence") or "")[:230],
+                }
+                for block in evidence_report.get("blocks") or []
+                if isinstance(block, dict) and block.get("verified") is not False
+                for topic in (block.get("topics") or [])[:1]
+                if isinstance(topic, dict) and topic.get("evidence")
+            ][:16]
+            if len(source_quotes) >= 3:
+                quote_prompt = (
+                    "Створи РІВНО 3 різні YouTube A/B-заголовки "
+                    "УКРАЇНСЬКОЮ, кожен лише як КОРОТКА ДОСЛІВНА "
+                    "цитата мовця в перекладі з російської. "
+                    "Без вигаданих дій, тлумачень, причин і наслідків. "
+                    "Вибери три різні змістовні репліки, найближчі "
+                    "до ОСНОВНОГО заголовка; не вибирай професії, "
+                    "побутові подробиці або випадкові фрази, "
+                    "якщо основна тема політична. "
+                    "Усе всередині лапок має бути точною передачею "
+                    "слів, а не вільним переказом. "
+                    "Довжина кожного 25–85 символів. "
+                    "Не використовуй слова 'що говорять', "
+                    "'про що йдеться', 'що прозвучало'. "
+                    "Без російської мови навіть у цитатах. "
+                    "JSON: {title_variants: [три рядки]}.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nПІДТВЕРДЖЕНІ ДОСЛІВНІ РЕПЛІКИ: "
+                    + json.dumps(source_quotes, ensure_ascii=False)
+                )
+                quote_raw = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Український перекладач реальних цитат. "
+                        "Без домислів. Лише JSON."
+                    )}, {"role": "user", "content": quote_prompt}],
+                    model=model, timeout=timeout,
+                    temperature=0.0, json_mode=True, num_ctx=8192,
+                )
+                quote_data = _normalize_seo_candidate(_extract_json_object(quote_raw))
+                quote_ab = [
+                    str(item).strip()
+                    for item in (quote_data.get("title_variants") or [])
+                    if isinstance(item, str) and item.strip()
+                ]
+                payload["_quote_ab_diagnostic"] = {
+                    "candidates": quote_ab,
+                    "source_issues": ab_title_issues(quote_ab, evidence_report),
+                    "quality_flags": _seo_editorial_preview_flags(
+                        title, "", quote_ab, (),
+                    ),
+                }
+                if (
+                    len(quote_ab) == 3
+                    and all(25 <= len(v) <= 85 for v in quote_ab)
+                    and not any(_seo_ukrainian_language_issue(v) for v in quote_ab)
+                    and not ab_title_issues(quote_ab, evidence_report)
+                    and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                        title, "", quote_ab, (),
+                    )
+                    and len(_select_diverse_title_variants(title, quote_ab)) == 3
+                ):
+                    variants = quote_ab
+                    payload["_source_quote_fallback_review_only"] = True
+        except (RuntimeError, ValueError, TimeoutError, TypeError):
+            pass
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
@@ -4031,6 +4108,7 @@ chapters: рядок з підтвердженими таймкодами та �
         "seo_independent_review": reviewer_report,
         "seo_revision_candidate": revision_report,
         "seo_ab_specific_diagnostic": payload.get("_ab_specific_diagnostic"),
+        "seo_quote_ab_diagnostic": payload.get("_quote_ab_diagnostic"),
         "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
         "seo_editorial_gate_issues": editorial_gate["issues"],
         "seo_format_pass": bool(format_gate["format_pass"]),
