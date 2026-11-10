@@ -2015,12 +2015,12 @@ def _grounded_tags_from_transcript(
     if in_title or mentions >= 3:
         add("Путін")
     in_title, mentions = _source_mentions(
-        title, transcript, ("войн", "війн", "спецоперац")
+        evidence_title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
         add("війна Росії проти України")
     in_title, mentions = _source_mentions(
-        title, transcript, ("мобилиз", "мобіліз")
+        evidence_title, transcript, ("мобилиз", "мобіліз")
     )
     if in_title or mentions >= 3:
         add("мобілізація в Росії")
