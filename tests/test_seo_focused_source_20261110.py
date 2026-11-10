@@ -163,3 +163,24 @@ def test_grounded_headline_needs_no_extra_model_call():
     )
     assert changed is False
     assert title == "Розмова про мобілізацію"
+
+
+def test_single_generic_overlap_does_not_prove_invented_combined_headline():
+    report = {"blocks": [
+        block("00:03:00", "Учасник говорив про війну."),
+        block("00:08:00", "Я не знаю, що буде завтра."),
+    ]}
+    assert focused_literal_source_notes(
+        report, "Війна та перемога на виборах", limit=3,
+    ) == []
+
+
+def test_reporting_verb_does_not_block_real_topic_with_russian_source():
+    report = {"blocks": [
+        block("00:03:00", "Была мобилизация, многие люди не хотели воевать."),
+    ]}
+    notes = focused_literal_source_notes(
+        report, "Росіянин говорить про мобілізацію", limit=3,
+    )
+    assert len(notes) == 1
+    assert notes[0]["time"] == "00:03:00"
