@@ -2233,6 +2233,56 @@ def _preserve_current_title_when_candidate_is_not_stronger(
 
 
 
+
+def _select_diverse_title_variants(
+    primary: str, proposals: Iterable[str], *, limit: int = 3
+) -> list[str]:
+    """Retain strongest source-backed A/B wording without near-duplicates.
+
+    This operates on generated text; it never fabricates an additional hook.
+    """
+    from difflib import SequenceMatcher
+
+    def normalize(value: str) -> str:
+        return " ".join(re.findall(r"[a-zа-яіїєґё0-9]+", value.casefold()))
+
+    def keywords(value: str) -> set[str]:
+        stop = {"що", "чому", "як", "про", "цей", "ця", "вони", "він",
+                "чи", "та", "на", "до", "від", "для", "росіяни"}
+        return {
+            word for word in normalize(value).split()
+            if len(word) >= 4 and word not in stop
+        }
+
+    retained: list[str] = []
+    origin = normalize(primary)
+    seen = [origin] if origin else []
+    for proposal in proposals:
+        title = " ".join(str(proposal or "").split())
+        if not title or len(title) > 100:
+            continue
+        if _seo_ukrainian_language_issue(title):
+            continue
+        core = normalize(title)
+        if not core or core in seen:
+            continue
+        # Near-identical punctuation, word order, or single-word substitutions
+        # are not three distinctive A/B choices.
+        if any(SequenceMatcher(None, core, old).ratio() >= 0.85 for old in seen):
+            continue
+        words = keywords(core)
+        if any(
+            len(words | keywords(old)) >= 3
+            and len(words & keywords(old)) / len(words | keywords(old)) >= .88
+            for old in seen
+        ):
+            continue
+        retained.append(title)
+        seen.append(core)
+        if len(retained) == limit:
+            break
+    return retained
+
 def _chapter_timestamp_seconds(value: str) -> int | None:
     parts = str(value or "").strip().split(":")
     if len(parts) not in {2, 3}:
