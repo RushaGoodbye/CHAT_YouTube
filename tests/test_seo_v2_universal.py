@@ -406,3 +406,37 @@ def test_unusually_long_asr_caption_is_split_without_word_loss():
     assert all(cue.start_ms == 0 and cue.end_ms == 20000 for cue in pieces)
     assert [index for group in make_windows(pieces)
             for index in group] == list(range(len(pieces)))
+
+
+def test_atomic_tag_and_citation_pairs_cannot_shift_by_index():
+    from rg_youtube_control.seo_v2_pipeline import _draft
+    proof = [
+        {"evidence_id": "ev_wood", "quote": "Майстер працює з деревом."},
+        {"evidence_id": "ev_metal", "quote": "Другий майстер кує метал."},
+    ]
+    def chat(_prompt):
+        return {
+            "title": "Ремесла та майстри",
+            "title_variants": ["Майстри", "Дерево", "Метал"],
+            "description": "Розмова про роботу майстрів.",
+            "tag_evidence": [
+                {"tag": "металеві вироби", "evidence_ids": ["ev_metal"]},
+                {"tag": "робота з деревом", "evidence_ids": ["ev_wood"]},
+                {"tag": "вигаданий сюжет", "evidence_ids": []},
+            ],
+            "support_ids": {
+                "title": ["ev_wood"],
+                "description": ["ev_wood"],
+                "title_variants": [["ev_wood"]] * 3,
+            },
+        }
+    result = _draft(
+        [{"label_uk": "Ремесло", "evidence_ids": ["ev_wood", "ev_metal"]}],
+        proof, chat,
+    )
+    assert result["tags"] == [
+        "металеві вироби", "робота з деревом", "вигаданий сюжет",
+    ]
+    assert result["support_ids"]["tags"] == [
+        ["ev_metal"], ["ev_wood"], [],
+    ]
