@@ -117,3 +117,38 @@ def test_ukrainian_and_russian_forms_of_same_name_are_accepted():
     assert _same_inflected_name("Києві", "Киеве")
     assert not _same_inflected_name("Шайгурова", "шайгумаров")
     assert not _same_inflected_name("Сидаренка", "Сидоренка")
+
+
+def test_reviewer_distinguishes_question_from_claim():
+    seen = []
+    def reviewer(prompt):
+        seen.append(prompt)
+        return {"issues": []}
+    result = independent_review({
+        "title": "Чи могла кадрова зміна бути покаранням?",
+        "description": "Співрозмовник обговорює можливі причини.",
+        "title_variants": ["Думки співрозмовника", "Розмова про причини",
+                           "Запитання про посаду"],
+        "tags": ["кадрові зміни"],
+    }, _proof(), reviewer)
+    assert result["issues"] == []
+    assert "direct QUESTION from an assertion" in seen[0]
+    assert "unsupported presuppositions" in seen[0]
+
+
+def test_repair_prompt_orders_removal_not_guessing_of_garbled_name():
+    original = _draft()
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"changes": {}, "support_ids": {}}
+    revise_semantic_defects(
+        original, _proof(),
+        {"issues": [{"field": "title",
+                     "reason": "The ASR name is not reliably supported"}]},
+        writer,
+    )
+    assert len(prompts) == 1
+    assert "REMOVE the name" in prompts[0]
+    assert "never guess the person's identity" in prompts[0]
+    assert "speaker" in prompts[0]
