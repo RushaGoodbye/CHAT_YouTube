@@ -1,0 +1,19 @@
+name: RG 895 live ASR detailed stage
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-live-asr-detailed-stage.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $root='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895'
+          foreach($n in @('status.json','stage_state_v52.json','asr_watchdog_v58.json','worker_heartbeat_v79.json','local_asr_preflight_v58.json')){
+            $p=Join-Path $root $n
+            if(Test-Path $p){$s=Get-Content $p -Raw -Encoding UTF8;Write-Output ('RG895STAGE|'+$n+'|'+$s.Replace([Environment]::NewLine,' ').Substring(0,[math]::Min(1600,$s.Length)))}
+          }
+          Write-Output 'RG895STAGE|READONLY|PASS'
