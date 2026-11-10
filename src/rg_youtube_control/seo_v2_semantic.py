@@ -153,8 +153,45 @@ def revise_semantic_defects(
           "Do not guess a famous person's identity from garbled ASR. "
         if forbidden_names else ""
     )
+    field_guidance = {
+        "title": (
+            "HEADLINE MUST separate a discussion or question from an "
+            "established outcome. Avoid claiming 'real cause', 'proof', "
+            "or a definite motive unless the cited quote states it as "
+            "verified fact. Do not invent identities. "
+        ),
+        "title_variants": (
+            "Every A/B headline must be a distinct truthful angle on "
+            "source-supported material. Questions may remain questions; "
+            "do not assert a hypothetical conclusion as a fact. "
+        ),
+        "description": (
+            "Write a coherent Ukrainian source-grounded description, "
+            "not an objective investigative report. Classify each quote "
+            "as QUESTION, SPEAKER OPINION, CONDITIONAL STATEMENT, or "
+            "DIRECT ASSERTION before rewriting. For questions, describe "
+            "what participants ASK; for opinions, explicitly attribute "
+            "the viewpoint; for conditionals, retain 'якщо', 'міг би', "
+            "or equivalent uncertainty. No claim that 'analysis shows', "
+            "'true cause is established', 'evidence proves', or a "
+            "hypothetical became fact. Never add unquoted motive or "
+            "causal explanation. Use 400-900 characters ONLY if genuine "
+            "source details support that length. "
+        ),
+        "tags": (
+            "Search tags must describe the SUBJECT of a conversation, "
+            "not claim the outcome of a question or hypothetical. "
+            "Do not use an unverified name. Keep 8-15 useful tags ONLY "
+            "if distinct source-supported phrases exist. Each needs "
+            "its own real evidence IDs; do not pad with fabricated facts. "
+        ),
+    }
+    focus = " ".join(field_guidance.get(field, "") for field in fields)
+    scoped_draft = {
+        field: draft.get(field) for field in fields
+    }
     prompt = (
-        banned_brief
+        banned_brief + focus
         + "You are correcting ONLY factual and linguistic defects identified "
         "by an independent reviewer. No new facts, no inferred motivation "
         "or causality, no misattributed claims, no unverified name spelling. "
@@ -176,7 +213,9 @@ def revise_semantic_defects(
         "that field. Do not return any fields outside 'changes' and "
         "'support_ids'.\nREVIEWER DEFECTS:\n"
         + json.dumps(issues, ensure_ascii=False)
-        + "\nCURRENT DRAFT:\n" + json.dumps(draft, ensure_ascii=False)
+        + "\nCURRENT DRAFT:\n" + json.dumps(scoped_draft, ensure_ascii=False)
+        + "\nMAIN TITLE AS CONTEXT (NOT EVIDENCE): "
+        + str(draft.get("title") or "")
         + "\nLITERAL QUOTES:\n" + json.dumps(proof, ensure_ascii=False)
     )
     raw = writer(prompt)
