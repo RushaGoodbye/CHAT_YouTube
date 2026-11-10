@@ -1,0 +1,19 @@
+name: RG 885 source config and user popup override interface
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-popup-manual-config-interface.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($part in @(@('rg_fullstream_auto_v2.py',165,225),@('rg_fullstream_auto_v2.py',275,352),@('rg_fullstream_quality_v3.py',1,110))){
+            $name=[string]$part[0];$a=@(Get-Content (Join-Path $app $name) -Encoding UTF8)
+            for($i=[int]$part[1];$i -le [Math]::Min([int]$part[2],$a.Count);$i++){Write-Output ('RGMAN|'+$name+'|'+$i+'|'+$a[$i-1])}
+          }
+          Write-Output 'RGMAN|READONLY|PASS'
