@@ -2617,6 +2617,66 @@ def _recover_chapters_from_transcript(
 from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
 
 
+
+def _repair_offtopic_headline(
+    title: str,
+    evidence_report: dict[str, Any],
+    *,
+    model: str,
+    timeout: float,
+    chat: Any = None,
+) -> tuple[str, bool]:
+    """Replace a factually disconnected headline only with source-grounded copy.
+
+    Unlike revising a model-written summary, this prompt has no topic labels,
+    external events, or existing description to contaminate its response.
+    A failed repair remains a review-only draft with a visible source flag.
+    """
+    from .dialogue_seo import focused_literal_source_notes, rank_literal_evidence
+
+    current = str(title or "").strip()
+    if focused_literal_source_notes(evidence_report, current, limit=1):
+        return current, False
+    anchors = rank_literal_evidence(evidence_report)[:5]
+    if not anchors:
+        return current, False
+    literal_notes = [
+        {"time": item["start_stamp"], "quote": item["evidence"][:240]}
+        for item in anchors
+    ]
+    instruction = (
+        "Створи ОДИН конкретний український YouTube-заголовок до 100 "
+        "символів за ДОСЛІВНИМИ цитатами SRT. Попередній заголовок не "
+        "підтверджено розмовою, тому не копіюй його та не шукай "
+        "доказів на його користь. Перший пріоритет — зміст часто "
+        "повторюваних реплік. Не перетворюй слова співрозмовника "
+        "на доведений факт, не додавай подій, причин або чисел. "
+        "Відповідай лише JSON з полем title. "
+        "ЦИТАТИ: " + json.dumps(literal_notes, ensure_ascii=False)
+    )
+    try:
+        raw = (chat or ollama_chat)(
+            [
+                {"role": "system", "content": "Точний український SEO-редактор. Тільки JSON."},
+                {"role": "user", "content": instruction},
+            ],
+            model=model, timeout=timeout, temperature=0.02,
+            json_mode=True, num_ctx=8192,
+        )
+        value = _extract_json_object(raw)
+        proposed = str(value.get("title") or "").strip()
+        if (
+            20 <= len(proposed) <= 100
+            and proposed.casefold() != current.casefold()
+            and not _seo_ukrainian_language_issue(proposed)
+            and focused_literal_source_notes(evidence_report, proposed, limit=1)
+        ):
+            return proposed, True
+    except (ValueError, RuntimeError, TimeoutError, TypeError):
+        pass
+    return current, False
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -2811,6 +2871,20 @@ chapters: рядок з підтвердженими таймкодами та �
                 candidate["_title_generation_failure"] = "MODEL_TITLE_MISSING"
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
+            if evidence_report and not fast_mode:
+                corrected_title, changed = _repair_offtopic_headline(
+                    str(candidate["title"]), evidence_report,
+                    model=model, timeout=timeout,
+                )
+                if changed:
+                    candidate["title"] = corrected_title
+                    candidate["_headline_repaired_from_source"] = True
+                else:
+                    from .dialogue_seo import focused_literal_source_notes
+                    if not focused_literal_source_notes(
+                        evidence_report, str(candidate["title"]), limit=1,
+                    ):
+                        candidate["_headline_source_mismatch"] = True
             if not str(candidate.get("description") or "").strip():
                 if fast_mode:
                     recovered_description = _grounded_description_from_transcript(
