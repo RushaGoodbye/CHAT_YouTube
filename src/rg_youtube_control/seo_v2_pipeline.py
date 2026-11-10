@@ -86,40 +86,88 @@ def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str
 
 
 def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
-    """Semantic map/reduce: model groups citation IDs, never asserts facts."""
+    """Bounded semantic map/reduce across any recording length.
+
+    Each model call sees at most 16 literal quotations. The merge call only
+    sees candidate labels and original IDs, never model-generated summaries
+    masquerading as proven facts.
+    """
     evidence = ledger["accepted"]
     if not evidence:
         return []
     ids = {row["evidence_id"] for row in evidence}
-    prompt = (
-        "Group these literal source quotations into the main conversation "
-        "themes. This can be ANY subject. Never assume the subject of the "
-        "channel or invent a quote, speaker or relationship. Rank themes by "
-        "importance to the recording, coverage and specificity rather than "
-        "generic word counts. Return JSON only with 1-5 topics: "
-        "{\"topics\":[{\"label_uk\":\"short Ukrainian subject\","
-        "\"evidence_ids\":[\"ev_...\"],\"rank\":1}]}. "
-        "Each topic must cite real IDs. No new claims.\nEVIDENCE:\n"
-        + json.dumps(evidence, ensure_ascii=False)
-    )
-    raw = _ask(chat, prompt)
-    topics: list[dict[str, Any]] = []
-    for item in raw.get("topics") or []:
-        if not isinstance(item, dict):
-            continue
-        citations = list(dict.fromkeys(
-            str(i) for i in (item.get("evidence_ids") or []) if str(i) in ids
+
+    def parse_topics(raw: dict[str, Any], allowed: set[str],
+                     maximum: int) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for item in raw.get("topics") or []:
+            if not isinstance(item, dict):
+                continue
+            cited = list(dict.fromkeys(
+                str(i) for i in item.get("evidence_ids") or []
+                if str(i) in allowed
+            ))
+            label = str(item.get("label_uk") or "").strip()
+            if cited and 3 <= len(label) <= 100:
+                results.append({"label_uk": label, "evidence_ids": cited})
+            if len(results) >= maximum:
+                break
+        return results
+
+    candidates: list[dict[str, Any]] = []
+    for offset in range(0, len(evidence), 16):
+        chunk = evidence[offset:offset + 16]
+        prompt = (
+            "Classify the main topics of this portion of an arbitrary "
+            "conversation, in Ukrainian. No assumptions about channel, "
+            "politics or any predefined category. Each proposed topic MUST "
+            "cite one or more exact evidence_id values from this list. "
+            "Return JSON: {\"topics\":[{\"label_uk\":\"...\", "
+            "\"evidence_ids\":[\"ev_...\"]}]}. "
+            "Prefer 1-4 meaningful topics. Do not fabricate events.\n"
+            "VERBATIM EVIDENCE:\n" + json.dumps(chunk, ensure_ascii=False)
+        )
+        candidates.extend(parse_topics(
+            _ask(chat, prompt),
+            {item["evidence_id"] for item in chunk},
+            maximum=4,
         ))
-        label = str(item.get("label_uk") or "").strip()
-        if citations and 3 <= len(label) <= 100:
-            topics.append({
-                "label_uk": label,
-                "evidence_ids": citations,
-                "rank": len(topics) + 1,
-            })
-        if len(topics) >= 5:
-            break
-    return topics
+
+    # Keep the reducer prompt bounded even with hundreds of timeline blocks.
+    # Merge intermediate candidates in small consecutive batches until five
+    # grounded subjects remain. Each pass retains only existing source IDs.
+    rounds = 0
+    while len(candidates) > 5:
+        rounds += 1
+        if rounds > 16:
+            raise ValueError("Semantic topic reduction exceeded safety bound")
+        next_candidates: list[dict[str, Any]] = []
+        for offset in range(0, len(candidates), 12):
+            batch = candidates[offset:offset + 12]
+            allowed = {i for item in batch for i in item["evidence_ids"]}
+            prompt = (
+                "Merge overlapping topics of this arbitrary video into up to "
+                "4 precise Ukrainian subject labels. Keep the real original "
+                "evidence_ids, do not add new ones or infer claims. "
+                "Return JSON: {\"topics\":[{\"label_uk\":\"...\", "
+                "\"evidence_ids\":[\"ev_...\"]}]}.\nTOPIC MAP:\n"
+                + json.dumps(batch, ensure_ascii=False)
+            )
+            merged = parse_topics(_ask(chat, prompt), allowed, maximum=4)
+            if not merged:
+                # Do not silently discard source coverage when a model gives
+                # invalid reduction JSON. Preserve the candidate for review.
+                merged = batch[:4]
+            next_candidates.extend(merged)
+        if len(next_candidates) >= len(candidates) and len(candidates) > 5:
+            raise ValueError("Semantic reducer did not reduce topic count")
+        candidates = next_candidates
+
+    return [
+        {**item, "rank": rank}
+        for rank, item in enumerate(candidates[:5], 1)
+        if all(i in ids for i in item["evidence_ids"])
+    ]
 
 
 def _proof_index(ledger: dict[str, Any], topics: list[dict[str, Any]]) -> list[dict[str, Any]]:
