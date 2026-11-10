@@ -2613,7 +2613,9 @@ chapters: рядок з підтвердженими таймкодами та �
                 try:
                     recovered_variants = _recover_title_variants(
                         current_title=current_title,
-                        transcript=transcript,
+                        # On long streams a 35k prefix is not representative.
+                        # Generate hooks from source quotes across the video.
+                        transcript=verified_evidence if evidence_report else transcript,
                         model=model,
                     )
                 except (ValueError, RuntimeError, TimeoutError):
@@ -2672,7 +2674,7 @@ chapters: рядок з підтвердженими таймкодами та �
                         )
                         recovered = _recover_title_variants(
                             current_title=current_title,
-                            transcript=targeted + transcript,
+                            transcript=targeted + verified_evidence,
                             model=model,
                         )
                         if len(ab_title_issues(recovered, evidence_report)) < len(issues):
