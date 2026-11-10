@@ -32,9 +32,16 @@ def test_repeated_srt_subject_outweighs_unrelated_one_off_quote():
 
 
 def test_source_outline_keeps_recurring_subject_and_timeline_edges_when_capped():
+    subjects = (
+        "археологія астрономія ботаніка геологія океанографія "
+        "математика хімія геометрія каліграфія реставрація "
+        "філософія метеорологія скульптура живопис фотографія "
+        "література музикознавство лінгвістика картографія "
+        "геодезія металургія електроніка біологія орнітологія"
+    ).split()
     report = {"blocks": [
-        _block(f"00:{i:02}:00", f"Ми говоримо про політику та рішення {i} під час зустрічі.")
-        for i in range(24)
+        _block(f"00:{i:02}:00", f"{word} {word} {word}.")
+        for i, word in enumerate(subjects)
     ]}
     report["blocks"][9]["topics"][0]["evidence"] = "Мобілізація зачепила багато людей у нашому місті."
     report["blocks"][15]["topics"][0]["evidence"] = "Люди часто згадують мобілізацію та її наслідки."
