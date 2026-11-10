@@ -1,0 +1,19 @@
+name: RG 895 editorial popup proof sheets v93
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-popup-proof-sheets-v93.yml']
+permissions: {contents: read}
+jobs:
+  read-only-review:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py='F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe'
+          & $py -X utf8 rg_repair_20261110/rg_895_qa_visual_evidence_v93_fast.py
+          if($LASTEXITCODE -ne 0){throw '895_QA_CONTACT_SHEETS_GENERATION_FAILED'}
