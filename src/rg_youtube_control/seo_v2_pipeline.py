@@ -673,11 +673,12 @@ def generate_universal_seo(srt: str, chat: Chat,
             return report
 
         semantic_repaired_fields: list[str] = []
+        semantic_repair_diagnostics: dict[str, list[str]] = {}
         if independent.get("issues"):
             draft, gate, independent, semantic_repaired_fields = (
                 repair_fields_independently(
                     draft, proof, independent, chat, independent_review,
-                    recheck,
+                    recheck, diagnostics=semantic_repair_diagnostics,
                 )
             )
             semantic_repair_applied = bool(semantic_repaired_fields)
@@ -691,6 +692,7 @@ def generate_universal_seo(srt: str, chat: Chat,
         "repaired_fields": repaired_fields,
         "semantic_repair_applied": semantic_repair_applied,
         "semantic_repaired_fields": semantic_repaired_fields if independent_review is not None else [],
+        "semantic_repair_diagnostics": semantic_repair_diagnostics if independent_review is not None else {},
         "independent_review": independent,
         "topics": topics, "evidence": ledger, "windows": windows,
         "writer_evidence_quotes": len(proof),
