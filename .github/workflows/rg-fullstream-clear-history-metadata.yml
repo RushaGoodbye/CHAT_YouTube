@@ -1,0 +1,40 @@
+name: RG fullstream clear residual history metadata
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-clear-history-metadata.yml']
+permissions: {contents: read}
+jobs:
+  clear:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $py=@'
+          import sys
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          if active_workers() or worker_lock_state(data)!="IDLE":raise RuntimeError("ACTIVE_FULLSTREAM_NO_DELETE")
+          root=data/"fullstream_v2"
+          names=["_history_hidden_v92.json","selected_895_worker.log",
+                 "selected_905_worker.log","selected_906_worker.log","stop_result_v60.json"]
+          for name in names:
+              p=root/name
+              if p.is_file() and not p.is_symlink():
+                  p.unlink()
+                  print("RGMETACLEAN|DELETED|"+name,flush=True)
+          assert not any((root/n).exists() for n in names)
+          assert (root/"_single_gpu_worker.lock").exists()
+          print("RGMETACLEAN|PASS|GUI_AND_LOCK_FILES_PRESERVED",flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG_FULLSTREAM_META_CLEAN_FAILED'}
