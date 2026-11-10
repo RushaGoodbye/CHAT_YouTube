@@ -78,7 +78,7 @@ def caption(path):
 def link_buttons():
     return [
         [{'text':'🔔 ПІДПИСАТИСЯ НА «РАША ГУДБАЙ»','url':CHANNEL,'style':'primary'}],
-        [{'text':'🟨 УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ','url':LINKS}]
+        [{'text':'🔗 УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ','url':LINKS,'style':'primary'}]
     ]
 
 def review_buttons(draft):
@@ -350,7 +350,7 @@ def selftest():
     assert 'Короткий відеофрагмент' not in x
     assert x.startswith('<b>🎬 ') and '\n💬 ' in x
     assert link_buttons()[0][0]['style']=='primary'
-    assert link_buttons()[1][0]['url']==LINKS
+    assert link_buttons()[1][0]['url']==LINKS and link_buttons()[1][0]['style']=='primary'
     assert CALLBACK.fullmatch('rgs3:accept:'+'a'*24)
     assert CALLBACK.fullmatch('rgs3:reject:'+'a'*24)
     assert not CALLBACK.fullmatch('ne1:accept:'+'a'*24)
