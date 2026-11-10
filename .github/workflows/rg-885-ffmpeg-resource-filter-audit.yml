@@ -1,0 +1,38 @@
+name: RG 885 NVENC filter resource read only audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-885-ffmpeg-resource-filter-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $process=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'ffmpeg' -and $_.CommandLine -match '885'})
+          foreach($p in $process){Write-Output ('RGBOT|FFMPEG|'+$p.ProcessId+'|'+$p.CommandLine)}
+          $ff=Get-Process -Id ($process|Select-Object -First 1 -ExpandProperty ProcessId) -ErrorAction SilentlyContinue
+          if($ff){
+            Write-Output ('RGBOT|CPU_TIME_S|'+[Math]::Round($ff.CPU,1))
+            Write-Output ('RGBOT|RAM_MB|'+[Math]::Round($ff.WorkingSet64/1MB,1))
+            Write-Output ('RGBOT|THREADS|'+$ff.Threads.Count)
+          }
+          $gpu='C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe'
+          if(!(Test-Path $gpu)){$gpu='nvidia-smi'}
+          & $gpu --query-gpu=utilization.gpu,utilization.encoder,utilization.decoder,memory.used,power.draw --format=csv,noheader,nounits 2>&1 | ForEach-Object {Write-Output ('RGBOT|GPU|'+$_)}
+          $tmp='C:\Users\fauto\AppData\Local\Temp'
+          $file=Get-ChildItem $tmp -Directory -Filter 'rg_fullstream_*'|Where-Object {(Test-Path (Join-Path $_.FullName 'filter.ffscript'))}|Sort-Object LastWriteTime -Descending|Select-Object -First 1
+          if($file){
+            $f=Join-Path $file.FullName 'filter.ffscript'
+            $text=Get-Content $f -Raw -Encoding UTF8
+            Write-Output ('RGBOT|FILTER_FILE|'+$f+'|SIZE='+$text.Length)
+            foreach($key in @('overlay','drawbox','boxblur','crop','scale','split','trim','setpts','alphamerge','pad','xfade','fps','format','hwupload','hwdownload','cuda','format=yuv420p')){
+              $num=[regex]::Matches($text,[regex]::Escape($key)).Count
+              Write-Output ('RGBOT|FILTER_COUNT|'+$key+'|'+$num)
+            }
+            Write-Output ('RGBOT|FILTER_START|'+$text.Substring(0,[Math]::Min(1700,$text.Length)))
+          }
+          Write-Output 'RGBOT|READ_ONLY|PASS'
