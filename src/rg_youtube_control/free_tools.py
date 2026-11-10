@@ -3652,7 +3652,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 allowed_single = {
                     "путін", "шойгу", "мобілізація", "вибори", "санкції",
                 }
-                for tag in [*grounded_tags, *model_tags]:
+                for tag in [*primary_tags, *fallback_tags]:
                     if len(natural_tags) >= 10:
                         break
                     lowered = str(tag).strip().casefold()
