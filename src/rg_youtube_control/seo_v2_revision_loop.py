@@ -23,6 +23,7 @@ def repair_fields_independently(
     validate: Callable[[dict[str, Any]], dict[str, Any]],
     *,
     max_fields: int = 4,
+    diagnostics: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
     """Only accept a change when that field passes all applicable checks.
 
@@ -40,52 +41,114 @@ def repair_fields_independently(
         if isinstance(issue, dict)
     }
     for field in priority[:max_fields]:
-        if field not in pending:
+        # Carry new reviewer concerns forward after each successful edit;
+        # a revision may expose a previously hidden unsupported claim.
+        field_issues = [
+            issue for issue in current_review.get("issues") or []
+            if isinstance(issue, dict) and issue.get("field") == field
+        ]
+        if field not in pending and not field_issues:
             continue
-        relevant = {
-            "issues": [
-                issue for issue in current_review.get("issues") or []
-                if isinstance(issue, dict) and issue.get("field") == field
-            ],
-        }
-        if not relevant["issues"]:
-            continue
-        try:
-            revised = revise_semantic_defects(
-                candidate, proof, relevant, writer,
-            )
-        except (ValueError, TypeError, RuntimeError, TimeoutError):
-            continue
-        if revised is None or revised.get(field) == candidate.get(field):
-            continue
-        # The one-field edit must not modify other text or citation arrays.
-        if any(revised.get(other) != candidate.get(other)
-               for other in priority if other != field):
-            continue
-        old_support = candidate.get("support_ids") or {}
-        new_support = revised.get("support_ids") or {}
-        if any(new_support.get(other) != old_support.get(other)
-               for other in priority if other != field):
-            continue
-        new_gate = validate(revised)
-        old_gate_issues = set(current_gate.get("issues") or [])
-        new_gate_issues = set(new_gate.get("issues") or [])
-        # Do not accept any new technical gate failure. Existing failures
-        # on unrelated fields may stay until their own revision.
-        if new_gate_issues - old_gate_issues:
-            continue
-        if set(unsupported_names(revised, proof)) - set(unsupported_names(candidate, proof)):
-            continue
-        try:
-            checked = independent_review(revised, proof, reviewer)
-        except (ValueError, TypeError, RuntimeError, TimeoutError):
-            continue
-        after_fields = {
-            str(item.get("field")) for item in checked.get("issues") or []
-            if isinstance(item, dict)
-        }
-        if field in after_fields or "reviewer" in after_fields:
-            continue
-        candidate, current_gate, current_review = revised, new_gate, checked
-        changed.append(field)
+        attempts = []
+        for attempt_number in range(2):
+            relevant = {"issues": list(field_issues)}
+            if not relevant["issues"]:
+                break
+            try:
+                revised = revise_semantic_defects(
+                    candidate, proof, relevant, writer,
+                )
+            except (ValueError, TypeError, RuntimeError, TimeoutError):
+                revised = None
+            if revised is None or revised.get(field) == candidate.get(field):
+                attempts.append("NO_USABLE_FIELD_REVISION")
+                field_issues.append({
+                    "field": field,
+                    "reason": "Previous answer was unchanged or invalid. "
+                              "Return a valid correction for this field with "
+                              "verifiable source IDs, or leave it blocked.",
+                })
+                continue
+            # Never let a targeted edit modify another SEO field or its
+            # evidence pointers.
+            old_support = candidate.get("support_ids") or {}
+            new_support = revised.get("support_ids") or {}
+            if (any(revised.get(other) != candidate.get(other)
+                    for other in priority if other != field)
+                    or any(new_support.get(other) != old_support.get(other)
+                           for other in priority if other != field)):
+                attempts.append("OTHER_FIELD_CHANGED")
+                field_issues.append({
+                    "field": field,
+                    "reason": "Your previous response changed a different SEO "
+                              "field. Edit only the requested field.",
+                })
+                continue
+            new_gate = validate(revised)
+            new_gate_issues = set(new_gate.get("issues") or [])
+            old_gate_issues = set(current_gate.get("issues") or [])
+            if new_gate_issues - old_gate_issues:
+                attempts.append("NEW_TECHNICAL_ISSUE")
+                field_issues.append({
+                    "field": field,
+                    "reason": "Last correction created technical validation "
+                              "errors: " + ", ".join(
+                                  sorted(new_gate_issues - old_gate_issues)),
+                })
+                continue
+            def names_in_field(obj: dict[str, Any]) -> set[str]:
+                isolated = {
+                    "title": "", "description": "",
+                    "title_variants": [], "tags": [],
+                }
+                isolated[field] = obj.get(field)
+                return set(unsupported_names(isolated, proof))
+            remaining_names = names_in_field(revised)
+            if remaining_names:
+                attempts.append("UNVERIFIED_NAME_REMAINS")
+                field_issues.append({
+                    "field": field,
+                    "reason": "Unverified source-name spelling still present: "
+                              + ", ".join(sorted(remaining_names))
+                              + ". Remove these specific names; use a verified "
+                                "role or neutral subject without inventing an "
+                                "identity. Other fields must remain unchanged.",
+                })
+                continue
+            if set(unsupported_names(revised, proof)) - set(
+                unsupported_names(candidate, proof)
+            ):
+                attempts.append("NEW_UNVERIFIED_NAME")
+                continue
+            try:
+                checked = independent_review(revised, proof, reviewer)
+            except (ValueError, TypeError, RuntimeError, TimeoutError):
+                checked = {"issues": [{
+                    "field": "reviewer",
+                    "reason": "SECOND_REVIEW_UNAVAILABLE",
+                }]}
+            after_fields = {
+                str(item.get("field"))
+                for item in checked.get("issues") or []
+                if isinstance(item, dict)
+            }
+            if field in after_fields or "reviewer" in after_fields:
+                attempts.append("INDEPENDENT_REVIEW_REJECTED")
+                field_issues = [
+                    item for item in checked.get("issues") or []
+                    if isinstance(item, dict) and item.get("field") == field
+                ]
+                if not field_issues:
+                    field_issues = [{
+                        "field": field,
+                        "reason": "The independent reviewer could not verify "
+                                  "the proposed correction.",
+                    }]
+                continue
+            candidate, current_gate, current_review = revised, new_gate, checked
+            changed.append(field)
+            attempts.append("ACCEPTED")
+            break
+        if diagnostics is not None:
+            diagnostics[field] = attempts
     return candidate, current_gate, current_review, changed
