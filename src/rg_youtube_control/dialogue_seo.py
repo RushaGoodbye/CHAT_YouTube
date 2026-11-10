@@ -470,7 +470,17 @@ def evidence_outline_text(
     treated as a human-verified fact merely for having an exact quote.
     """
     lines: list[str] = []
-    for topic in distinct_evidence_topics(report):
+    chronological = distinct_evidence_topics(report)
+    ranked = rank_literal_evidence(report)
+    priority = {
+        (item["start_stamp"], item["evidence"])
+        for item in ranked[:3]
+    }
+    priority_positions = [
+        index for index, item in enumerate(chronological)
+        if (item["start_stamp"], item["evidence"]) in priority
+    ]
+    for topic in chronological:
         # Model-written topic/summary are hints, NOT verified facts.
         # Sending them as "confirmed topics" launders hallucinations into
         # subsequent SEO prompts. Only literal SRT wording is evidence.
@@ -503,8 +513,11 @@ def evidence_outline_text(
     # Progressively raise the number of evenly spaced source points, then
     # use the widest fit. Both the beginning and end are always represented.
     def sample(count: int) -> list[str]:
-        indexes = sorted({round(i * (len(lines) - 1) / (count - 1))
-                          for i in range(count)})
+        indexes = sorted(
+            set(priority_positions)
+            | {round(i * (len(lines) - 1) / (count - 1))
+               for i in range(count)}
+        )
         return [lines[index] for index in indexes]
 
     # Binary search avoids quadratic prompt-building on long streams.
@@ -514,8 +527,8 @@ def evidence_outline_text(
     if len(lines[0]) + len(lines[-1]) + 1 > budget:
         edge = max(1, (budget - 2) // 2)
         return header + lines[0][:edge] + "\n" + lines[-1][:edge]
-    best = sample(2)
-    low, high = 3, len(lines)
+    best = [lines[0], lines[-1]]
+    low, high = 2, len(lines)
     while low <= high:
         mid = (low + high) // 2
         candidate = sample(mid)
