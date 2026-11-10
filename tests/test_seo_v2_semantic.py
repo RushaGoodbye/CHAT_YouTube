@@ -152,3 +152,35 @@ def test_repair_prompt_orders_removal_not_guessing_of_garbled_name():
     assert "REMOVE the name" in prompts[0]
     assert "never guess the person's identity" in prompts[0]
     assert "speaker" in prompts[0]
+
+
+def test_realistic_source_russian_case_of_person_name_does_not_raise_false_positive():
+    source = [{
+        "evidence_id": "ev_1",
+        "quote": "Какова судьба его заместителя Тимура Иванова в настоящее время",
+    }]
+    draft = {
+        "title": "Доля заступника Тимура Іванова",
+        "description": "Окремо обговорюють Тимура Іванова.",
+        "title_variants": ["Що відомо про Тимура Іванова?"],
+        "tags": ["Тимур Іванов"],
+    }
+    assert unsupported_names(draft, source) == []
+
+
+def test_garbled_asr_name_fails_even_if_other_name_in_same_quote_is_valid():
+    source = [
+        {"evidence_id": "ev_1",
+         "quote": "Реальная причина увольнения шайгумаров"},
+        {"evidence_id": "ev_2",
+         "quote": "Какова судьба заместителя Тимура Иванова"},
+    ]
+    draft = {
+        "title": "Чому звільнили Шайгурова?",
+        "description": "Розмова про Тимура Іванова.",
+        "title_variants": [],
+        "tags": [],
+    }
+    assert "Шайгурова" in unsupported_names(draft, source)
+    assert "Тимура" not in unsupported_names(draft, source)
+    assert "Іванова" not in unsupported_names(draft, source)
