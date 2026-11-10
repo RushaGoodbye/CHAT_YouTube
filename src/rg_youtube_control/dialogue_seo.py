@@ -268,7 +268,10 @@ def analyze_all_timeline_blocks(
                 source_lines = [
                     _compact(line)
                     for line in block["text"].splitlines()
-                    if len(_compact(line)) >= 40
+                    if (
+                        len(_compact(line)) >= 18
+                        and len(re.findall(r"\\w+", line)) >= 3
+                    )
                 ]
                 if source_lines:
                     quote = max(
@@ -278,7 +281,7 @@ def analyze_all_timeline_blocks(
                             len(line),
                         ),
                     )[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
-                    if len(quote) >= 30:
+                    if len(quote) >= 18:
                         rescue_prompt = (
                             "Ти не створюєш цитати. Поверни JSON, "
                             "topics: [{topic, summary_uk, evidence}]. "
