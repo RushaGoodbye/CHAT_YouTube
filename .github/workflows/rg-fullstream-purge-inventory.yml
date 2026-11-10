@@ -1,0 +1,38 @@
+name: RG fullstream purge inventory read only
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-purge-inventory.yml']
+permissions: {contents: read}
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $workers=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3|RG_\d+_FULL_YOUTUBE|fullstream_auto_v2'})
+          foreach($p in $workers){Write-Output ('RGPURGE|WORKER|'+$p.ProcessId+'|'+$p.Name+'|'+$p.CommandLine.Substring(0,[Math]::Min(260,$p.CommandLine.Length)))}
+          $root=Join-Path $data 'fullstream_v2'
+          $dirs=@(Get-ChildItem $root -Directory -ErrorAction SilentlyContinue)
+          Write-Output ('RGPURGE|HISTORY_DIRS|'+$dirs.Count)
+          foreach($dir in $dirs){
+            $status=Join-Path $dir.FullName 'status.json'
+            $s='?'
+            if(Test-Path $status){try{$s=(Get-Content $status -Raw -Encoding UTF8|ConvertFrom-Json).state}catch{}}
+            $qn=Test-Path (Join-Path $dir.FullName 'queue_request.json')
+            $sz=(Get-ChildItem $dir.FullName -File -Recurse -ErrorAction SilentlyContinue|Measure-Object Length -Sum).Sum
+            Write-Output ('RGPURGE|HISTORY|'+$dir.Name+'|'+$s+'|QUEUED='+$qn+'|BYTES='+$sz)
+          }
+          $matches=@(Get-ChildItem $app -Directory -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '^\d{3,5}$'})
+          Write-Output ('RGPURGE|STREAM_DIRS|'+$matches.Count)
+          foreach($dir in $matches){
+            $full=Join-Path $dir.FullName 'FULLSTREAM_YOUTUBE'
+            if(!(Test-Path $full)){continue}
+            $files=@(Get-ChildItem $full -File -ErrorAction SilentlyContinue)
+            foreach($f in $files){Write-Output ('RGPURGE|FULLSTREAM_FILE|'+$f.FullName+'|'+$f.Length+'|'+$f.LastWriteTime.ToString('o'))}
+          }
+          Write-Output 'RGPURGE|READONLY|PASS'
