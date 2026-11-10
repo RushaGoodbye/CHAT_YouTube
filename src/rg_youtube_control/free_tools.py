@@ -1894,7 +1894,7 @@ _TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
     "ціни": ("ціни", "цены", "цен"),
     "вартіст": ("вартіст", "стоимост"),
     "доход": ("доход", "дохід"),
-    "робот": ("робот", "работ"),
+    "робот": ("работа", "работу", "работы", "робота", "роботу", "роботи"),
 }
 
 _TAG_CONNECTORS = {"проти", "щодо", "через", "після", "перед", "між",
@@ -1942,6 +1942,10 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
         )
         if root:
             variants = _TAG_GROUNDING_ROOTS[root]
+            if root == "робот":
+                # Exact inflected forms avoid matching a physical "робот"
+                # when the SEO phrase refers to human employment.
+                return any(word in variants for word in words)
         else:
             length = min(6, max(4, len(token) - 2))
             variants = (token[:length],)
