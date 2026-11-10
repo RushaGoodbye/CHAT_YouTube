@@ -3046,7 +3046,11 @@ chapters: рядок з підтвердженими таймкодами та �
     editorial_quality_flags.extend(
         "GENERATED_" + issue for issue in generated_conflicts
     )
-    if not str(current_title or "").strip() or not transcript.strip():
+    # In transcript-only QA the historical title is intentionally blank.
+    # Its absence is not a factual defect when quote-verified source exists.
+    if not transcript.strip() or (
+        not str(current_title or "").strip() and not evidence_report
+    ):
         editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
     editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
     from .seo_quality_gate import inspect_package, inspect_editorial_targets
@@ -3145,7 +3149,9 @@ chapters: рядок з підтвердженими таймкодами та �
         "publication_allowed": False,
         "source_alignment_status": (
             "BLOCKED_TOPIC_MISMATCH" if (source_alignment_conflicts or generated_conflicts) else
-            "TITLE_OR_SRT_UNVERIFIED" if (
+            "SOURCE_EVIDENCE_REVIEW" if (
+                evidence_report and transcript.strip()
+            ) else "TITLE_OR_SRT_UNVERIFIED" if (
                 not str(current_title or "").strip() or not transcript.strip()
             ) else "SUBJECT_ROOTS_PRESENT_REVIEW"
         ),
