@@ -483,3 +483,19 @@ def test_one_vague_ab_title_is_not_editorial_quality_pass():
     assert "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
         "Росіянин про війну і вибори", "", specific, [],
     )
+
+
+def test_ukrainian_paraphrase_grounding_uses_direct_russian_quote_roots():
+    """Only shared lexical subjects, not inferred events, gain bilingual roots."""
+    from rg_youtube_control.dialogue_seo import _cross_language_topic_word
+    matches = (
+        ("дітей", "детей"),
+        ("усмішка", "улыбаться"),
+        ("переїзд", "переезжать"),
+        ("голосування", "голосовать"),
+        ("мобілізація", "мобилизация"),
+    )
+    for uk, ru in matches:
+        assert _cross_language_topic_word(uk)[:5] == _cross_language_topic_word(ru)[:5], (uk, ru)
+    # Reference transcript mentions 'children', not 'killed children'.
+    assert _cross_language_topic_word("загиблих")[:5] != _cross_language_topic_word("детей")[:5]
