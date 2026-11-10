@@ -248,3 +248,64 @@ def test_pension_quote_does_not_invent_social_benefits():
     description = _deterministic_evidence_description("", report)
     assert "пенсії" in description
     assert "соціальні виплати" not in description
+
+
+
+def test_reviewer_rejects_revision_with_invalid_editorial_format(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    revised = {
+        "title": "Чому співрозмовник змінив думку?",
+        "title_variants": ["Лише один варіант"],
+        "description": "Занадто короткий опис",
+        "tags": ["розмова"],
+    }
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *a, **k: json.dumps(revised))
+    draft = {
+        "title": "Стара назва",
+        "description": "Старий опис",
+        "title_variants": ["A", "B", "C"],
+        "tags": ["тема"],
+    }
+    report = editor.revise_seo_candidate(
+        draft=draft,
+        source_notes=[{"time": "00:00:01", "quote": "Ми розмовляли"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": []},
+    )
+    assert report["revised"] is False
+    assert report["editorial_approved"] is False
+
+
+def test_reviewer_rejects_revision_still_flagged_as_defective(monkeypatch):
+    import json
+    from rg_youtube_control import seo_editorial_reviewer as editor
+    revised = {
+        "title": "Що обговорюють учасники розмови?",
+        "title_variants": [
+            "Про що говорять співрозмовники?",
+            "Що стало темою обговорення?",
+            "Які запитання прозвучали у діалозі?",
+        ],
+        "description": (
+            "Співрозмовники обговорюють запитання та висловлюють думки. "
+            "У записі вони пояснюють власні позиції, сперечаються про "
+            "аргументи й уточнюють зміст окремих висловлювань. "
+        ) * 3,
+        "tags": [
+            "чат рулетка", "раша гудбай", "український канал",
+            "розмова", "дискусія", "співрозмовники",
+            "запитання", "відповіді",
+        ],
+    }
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *a, **k: json.dumps(revised))
+    monkeypatch.setattr(
+        editor, "review_seo_candidate",
+        lambda **k: {"review_status": "NEEDS_REVISION", "issues": [{"field": "title", "reason": "unsupported"}]},
+    )
+    report = editor.revise_seo_candidate(
+        draft={"title": "Стара назва", "description": "Старий опис"},
+        source_notes=[{"time": "00:00:01", "quote": "Ми розмовляли"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": []},
+    )
+    assert report["revised"] is False
+    assert report["publication_allowed"] is False
