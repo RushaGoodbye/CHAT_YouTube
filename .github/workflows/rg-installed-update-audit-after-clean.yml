@@ -1,0 +1,32 @@
+name: RG installed update audit after fullstream cleanup
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-installed-update-audit-after-clean.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data'
+          $auto=Join-Path $app 'rg_fullstream_auto_v2.py'
+          $ex=Join-Path $app 'rg_fullstream_export_v1.py'
+          Write-Output ('RGUPD|FRAMED_HOST_EDITOR_FIX|'+[bool](Select-String -LiteralPath $auto -SimpleMatch 'RG_EDITOR_FRAMED_HOST_POPUP_V1' -Quiet))
+          Write-Output ('RGUPD|FAST_BLUR|'+[bool](Select-String -LiteralPath $ex -SimpleMatch 'RG_FAST_POPUP_GBLUR_V1' -Quiet))
+          Write-Output ('RGUPD|FAST_MASK|'+[bool](Select-String -LiteralPath $ex -SimpleMatch 'RG_ONE_FRAME_MASK_V1' -Quiet))
+          Write-Output ('RGUPD|FILTER_THREADS_8|'+[bool](Select-String -LiteralPath $ex -SimpleMatch "'-filter_complex_threads','8'" -Quiet))
+          foreach($n in @('rg_fullstream_asr_chunked_v58.py','rg_fullstream_asr_child_v58.py','rg_fullstream_batch_v53.py','rg_fullstream_editorial_gate_v82.py')){
+            $p=Join-Path $app $n
+            Write-Output ('RGUPD|FILE|'+$n+'|EXISTS='+(Test-Path $p)+'|MODIFIED='+$(if(Test-Path $p){(Get-Item $p).LastWriteTime.ToString('o')}else{'missing'}))
+          }
+          $candidate=@(Get-ChildItem $data -Recurse -File -Filter '*VERSION*.json' -ErrorAction SilentlyContinue|Select-Object -First 5)
+          foreach($p in $candidate){Write-Output ('RGUPD|VERSION_FILE|'+$p.FullName)}
+          $workers=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match 'python|ffmpeg' -and $_.CommandLine -match 'rg_fullstream_worker_v3|RG_\d+_FULL_YOUTUBE.*rendering.mp4'})
+          Write-Output ('RGUPD|ACTIVE_WORKERS|'+$workers.Count)
+          $hist=@(Get-ChildItem (Join-Path $data 'fullstream_v2') -Directory -ErrorAction SilentlyContinue|Where-Object {$_.Name -match '^\d{3,5}$'})
+          Write-Output ('RGUPD|FULLSTREAM_HISTORY_DIRS|'+$hist.Count)
+          Write-Output 'RGUPD|READONLY|PASS'
