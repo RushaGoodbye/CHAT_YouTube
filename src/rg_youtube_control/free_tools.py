@@ -3162,6 +3162,8 @@ chapters: рядок з підтвердженими таймкодами та �
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
+        "description_fallback_used": bool(payload.get("_deterministic_editor")),
+        "description_model_quality_issue": str(payload.get("_description_quality_issue") or ""),
         # All AI-proposed SEO is draft-only until someone checks full SRT
         # evidence and explicitly approves each video.
         "needs_review": True,
