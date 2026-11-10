@@ -1,0 +1,29 @@
+name: RG 895 V97 GUI QA preview queue action audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-v97-qa-button-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for p in root.glob("*.py"):
+              s=p.read_text(encoding="utf-8-sig",errors="replace")
+              for i,line in enumerate(s.splitlines()):
+                  if any(x in line for x in ("qa_preview_export_requested","ЕКСПОРТ ДЛЯ ПЕРЕВІРКИ QA","QA_ONLY_EXPORT","QA_ONLY","qa_preview_export")):
+                      a=s.splitlines()
+                      print("RGQABTN|SOURCE|"+p.name+"|"+str(i+1)+"|"+line.strip()[:250],flush=True)
+                      if p.name not in ("rg_fullstream_auto_v2.py","rg_fullstream_worker_v3.py"):
+                          for j in range(max(0,i-10),min(len(a),i+15)):
+                              print("RGQABTN|CONTEXT|"+p.name+"|"+str(j+1)+"|"+a[j][:200],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'QA_BUTTON_SOURCE_AUDIT_FAILED'}
