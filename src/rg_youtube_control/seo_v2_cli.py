@@ -1,4 +1,4 @@
-"""Read-only command line entrypoint for universal SEO v2.
+"""Read-only command line entrypoint for claim-first universal SEO v3.
 
 Usage:
   python -m rg_youtube_control.seo_v2_cli input.srt --output seo-preview.json
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .lm_studio_client import lm_studio_chat
-from .seo_v2_pipeline import generate_universal_seo
+from .seo_v3_pipeline import generate_claim_first_seo as generate_universal_seo
 
 
 def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
