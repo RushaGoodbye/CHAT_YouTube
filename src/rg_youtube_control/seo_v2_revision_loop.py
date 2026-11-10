@@ -114,16 +114,35 @@ def repair_fields_independently(
             new_gate_issues = set(new_gate.get("issues") or [])
             old_gate_issues = set(current_gate.get("issues") or [])
             remaining_format = format_defects(new_gate, field)
-            if remaining_format:
+            # Independently grounded shorter text is safer than retaining
+            # a factually false padded description. This NEVER clears the
+            # final editorial format gate or authorizes publication.
+            allow_short_description_partial = (
+                field == "description"
+                and bool(remaining_format)
+                and set(remaining_format).issubset({
+                    "DESCRIPTION_UNDER_EDITORIAL_TARGET", "SHORT",
+                })
+                and len(str(revised.get("description") or "")) >= 160
+            )
+            if remaining_format and not allow_short_description_partial:
                 attempts.append("FIELD_FORMAT_STILL_INVALID")
                 field_issues.append({
                     "field": field,
                     "reason": "Field still fails the mandatory format: "
                               + ", ".join(remaining_format)
-                              + ". Use only source-supported content.",
+                              + ". For descriptions, write 420-650 supported "
+                                "Ukrainian characters with attributed claims. "
+                                "For tags, return 8-15 DISTINCT verified phrases.",
                 })
                 continue
-            if new_gate_issues - old_gate_issues:
+            if (new_gate_issues - old_gate_issues
+                    and not (
+                        allow_short_description_partial
+                        and (new_gate_issues - old_gate_issues).issubset({
+                            "EDITORIAL_GATE_FAILED", "FORMAT_GATE_FAILED"
+                        })
+                    )):
                 attempts.append("NEW_TECHNICAL_ISSUE")
                 field_issues.append({
                     "field": field,
@@ -183,7 +202,10 @@ def repair_fields_independently(
                 continue
             candidate, current_gate, current_review = revised, new_gate, checked
             changed.append(field)
-            attempts.append("ACCEPTED")
+            attempts.append(
+                "SAFE_PARTIAL_REVIEW_REQUIRED" if remaining_format
+                else "ACCEPTED"
+            )
             break
         if diagnostics is not None:
             diagnostics[field] = attempts
