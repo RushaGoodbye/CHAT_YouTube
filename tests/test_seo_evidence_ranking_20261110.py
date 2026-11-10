@@ -64,3 +64,16 @@ def test_ab_brief_does_not_promote_model_topic_labels_to_evidence():
     assert "ДОСЛІВНА ЦИТАТА SRT" in brief
     assert "Модель вигадала іншу тему" not in brief
     assert "Непідтверджений підсумок" not in brief
+
+
+
+def test_recurrence_survives_near_duplicate_display_quote_deduplication():
+    report = {"blocks": [
+        _block("00:00:00", "Археологія цікава наука про минуле людства."),
+        _block("00:02:00", "Мобілізація у Росії вплинула на людей."),
+        _block("00:05:00", "Мобілізація у Росії вплинула на людей."),
+        _block("00:08:00", "Мобілізація у Росії вплинула на людей."),
+    ]}
+    ranked = rank_literal_evidence(report)
+    assert len(ranked) == 2
+    assert ranked[0]["evidence"] == "Мобілізація у Росії вплинула на людей."
