@@ -40,6 +40,34 @@ def _ms(value: str) -> int:
             + int(fraction.ljust(3, "0")))
 
 
+def _caption_pieces(text: str, *, max_chars: int = 900) -> list[str]:
+    """Split pathologically long ASR cues without dropping source words."""
+    if not text:
+        return []
+    if max_chars < 64:
+        raise ValueError("Caption budget must be at least 64 characters")
+    parts: list[str] = []
+    current = ""
+    for original in text.split():
+        word = original
+        while len(word) > max_chars:
+            if current:
+                parts.append(current)
+                current = ""
+            parts.append(word[:max_chars])
+            word = word[max_chars:]
+        if not word:
+            continue
+        if current and len(current) + len(word) + 1 > max_chars:
+            parts.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        parts.append(current)
+    return parts
+
+
 def parse_srt(source: str) -> list[Cue]:
     """Parse every valid SRT cue; no prefix sample and no inferred speakers."""
     rows: list[Cue] = []
@@ -57,7 +85,10 @@ def parse_srt(source: str) -> list[Cue]:
         text = " ".join(" ".join(lines[1:]).split())
         if start > end or not text:
             continue
-        rows.append(Cue(start, end, text))
+        # Some ASR exporters put entire paragraphs into one SRT cue.
+        # Preserve every word by splitting these into bounded virtual cues.
+        for part in _caption_pieces(text):
+            rows.append(Cue(start, end, part))
     if not rows:
         raise ValueError("SRT has no readable caption cues")
     return sorted(rows, key=lambda cue: (cue.start_ms, cue.end_ms))
