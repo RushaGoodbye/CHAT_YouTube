@@ -26,6 +26,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install Qt headless runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl1 libopengl0 libxkbcommon-x11-0
       - name: Install standalone desktop smoke requirements
         run: python -m pip install pytest 'PySide6>=6.7'
       - name: Compile SEO v2 app integration
