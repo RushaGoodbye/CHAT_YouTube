@@ -1,0 +1,18 @@
+name: RG fullstream cleanup safe dry run
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-cleanup-dryrun.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_purge_fullstream_history_and_exports.py
+          if($LASTEXITCODE -ne 0){throw 'FULLSTREAM_CLEANUP_DRYRUN_SAFE_STOP'}
