@@ -1,0 +1,18 @@
+name: RG worker QA pause continuation inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-worker-qa-pause-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_worker_v3.py'
+          $s=@(Get-Content $p -Encoding UTF8)
+          for($i=1;$i -le [Math]::Min(47,$s.Count);$i++){Write-Output ('RGWK|'+$i+'|'+$s[$i-1])}
+          for($i=145;$i -le [Math]::Min(255,$s.Count);$i++){Write-Output ('RGWK|'+$i+'|'+$s[$i-1])}
+          Write-Output 'RGWK|READ_ONLY|PASS'
