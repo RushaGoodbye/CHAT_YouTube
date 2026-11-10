@@ -1,0 +1,37 @@
+name: RG 886 idle and patch presence
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-idle-patch-check.yml']
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          import sys,json,inspect,hashlib
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_auto_v2 import verified_popups
+          workers=active_workers()
+          print("RG886STATE|ACTIVE_WORKERS|"+str(len(workers)),flush=True)
+          for w in workers:print("RG886STATE|WORKER|"+str(w)[:600],flush=True)
+          code=inspect.getsource(verified_popups)
+          print("RG886STATE|VERIFIED_POPUPS_SHA256|"+hashlib.sha256(code.encode()).hexdigest(),flush=True)
+          for n in ("885","886"):
+            p=data/"fullstream_v2"/n
+            plan=json.loads((p/"plan.json").read_text(encoding="utf-8-sig"))
+            masks,flags=verified_popups(plan)
+            status=json.loads((p/"status.json").read_text(encoding="utf-8-sig"))
+            print("RG886STATE|STREAM|"+n+"|MANUAL_ACCEPTED|"+str(len(masks))+"|FLAGS|"+str(len(flags))+"|STATE|"+str(status.get("state")),flush=True)
+          print("RG886STATE|NO_MUTATION|PASS",flush=True)
+          '@
+          $py | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'RG886_STATE_CHECK_FAILED'}
