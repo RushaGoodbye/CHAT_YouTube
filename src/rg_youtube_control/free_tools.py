@@ -797,13 +797,16 @@ def _seo_editorial_preview_flags(
     vague_ab_question = re.compile(
         r"(?:про що (?:йдеться|говорили|говорять|кажуть)|"
         r"що (?:говорять|кажуть) (?:співрозмовники|учасники)|"
-        r"думки учасників розмови|які запитання виникають)"
+        r"думки учасників розмови|які запитання виникають|"
+        r"що прозвучало під час розмови|"
+        r"що обговорили учасники|"
+        r"які оцінки пролунали)"
     )
     if sum(
         any(value in item for value in generic_primary)
         or bool(vague_ab_question.search(item))
         for item in alternatives
-    ) >= 2:
+    ) >= 1:
         flags.append("GENERIC_AB_VARIANTS")
     if (
         "співрозмовники висловлюють різні версії, особисті оцінки" in desc
@@ -3434,6 +3437,62 @@ chapters: рядок з підтвердженими таймкодами та �
             except (ValueError, RuntimeError, TimeoutError):
                 pass
         variants = varied
+    # A quote-root validator can accept a hollow question such as
+    # "Мобілізація: про що йдеться у чат-рулетці?". In that case repair
+    # the FINAL A/B output, not an intermediate candidate that later
+    # source fallbacks may silently replace with the same generic frames.
+    if evidence_report and verified_evidence and not fast_mode:
+        if "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+            title, "", variants, (),
+        ):
+            try:
+                brief = _ab_distinct_evidence_brief(evidence_report)
+                prompt_ab = (
+                    "Ти головний редактор українського YouTube-каналу. "
+                    "Заміни ТРИ слабкі A/B-заголовки на три КОНКРЕТНІ "
+                    "історії з підтверджених цитат. Не повторюй назву. "
+                    "ЗАБОРОНЕНО: 'що говорять співрозмовники', 'про що "
+                    "йдеться', 'що прозвучало', 'думки учасників', "
+                    "'розмова про', 'питання про'. Кожен заголовок "
+                    "має містити підтверджену ДІЮ, ПИТАННЯ, ЦИТАТУ "
+                    "або протиставлення, а не лише слово-ярлик. "
+                    "Будь-яке твердження приписуй учаснику розмови. "
+                    "Не вигадуй мотивів, чисел, подій, висновків "
+                    "або зв'язків між різними діалогами. "
+                    "Поверни тільки JSON з рівно 3 title_variants, "
+                    "кожен 35–95 символів українською.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nСЛАБКІ ВАРІАНТИ: "
+                    + json.dumps(variants, ensure_ascii=False)
+                    + "\\nТРИ РІЗНІ ДОСЛІВНІ ОПОРИ:\\n" + brief
+                    + "\\nПЕРЕВІРЕНІ ЦИТАТИ:\\n" + verified_evidence[:11000]
+                )
+                raw_ab = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Редактор конкретних українських YouTube-заголовків. "
+                        "Поверни тільки JSON, без загальних тем."
+                    )}, {"role": "user", "content": prompt_ab}],
+                    model=model, timeout=timeout,
+                    temperature=0.12, json_mode=True, num_ctx=16384,
+                )
+                data_ab = _normalize_seo_candidate(_extract_json_object(raw_ab))
+                proposed = [str(v).strip() for v in (
+                    data_ab.get("title_variants") or []
+                ) if isinstance(v, str) and str(v).strip()]
+                if (
+                    len(proposed) == 3
+                    and all(35 <= len(v) <= 95 for v in proposed)
+                    and not any(_seo_ukrainian_language_issue(v) for v in proposed)
+                    and not ab_title_issues(proposed, evidence_report)
+                    and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    )
+                    and len(_select_diverse_title_variants(title, proposed)) == 3
+                ):
+                    variants = proposed
+                    payload["_final_ab_specific_repaired"] = True
+            except (RuntimeError, ValueError, TimeoutError, TypeError):
+                pass
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
