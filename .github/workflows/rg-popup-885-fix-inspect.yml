@@ -1,0 +1,42 @@
+name: RG popup coverage root cause 885 inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-885-fix-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          $data='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885'
+          $patterns=@('popup_scan_coverage','full_notification_coverage_confirmed','unknown_layout_frames','popup_coverage_verified','completed_popups_v76','POPUPS_CHECKPOINT_SAVED','popups_auto_limited')
+          foreach($file in Get-ChildItem $app -Filter 'rg_fullstream_*.py'){
+            $s=@(Get-Content $file.FullName -Encoding UTF8)
+            for($i=0;$i -lt $s.Count;$i++){
+              $hit=$false
+              foreach($pat in $patterns){if($s[$i].Contains($pat)){$hit=$true;break}}
+              if($hit){
+                $start=[Math]::Max(0,$i-3);$end=[Math]::Min($s.Count-1,$i+4)
+                for($j=$start;$j -le $end;$j++){Write-Output ('RGPOP|SOURCE|'+$file.Name+'|'+($j+1)+'|'+$s[$j])}
+              }
+            }
+          }
+          foreach($file in Get-ChildItem $data -File){
+            if($file.Name -match 'popup|layout|notif|coverage|review'){
+              Write-Output ('RGPOP|DATAFILE|'+$file.Name+'|'+$file.Length)
+              if($file.Extension -eq '.json' -and $file.Length -lt 250000){
+                try{
+                  $v=Get-Content $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+                  Write-Output ('RGPOP|FIELDS|'+$file.Name+'|'+(($v.PSObject.Properties.Name) -join ','))
+                  foreach($k in @('complete','result','coverage','unknown_layout_frames','scanned_frames','full_notification_coverage_confirmed','identity')){
+                    if($v.PSObject.Properties.Name -contains $k){$j=$v.$k|ConvertTo-Json -Compress -Depth 3;if($j.Length -lt 1000){Write-Output ('RGPOP|VALUE|'+$file.Name+'|'+$k+'|'+$j)}}
+                  }
+                }catch{}
+              }
+            }
+          }
+          Write-Output 'RGPOP|READ_ONLY|PASS'
