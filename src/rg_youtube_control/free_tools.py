@@ -2050,7 +2050,14 @@ def _grounded_tags_from_transcript(
             break
         add(value)
 
-    return tags[:15]
+    # This deterministic fallback must obey the SAME local SRT grounding
+    # gate as model-generated tags. Otherwise words from unrelated dialogues
+    # could be combined into fabricated claims ("Білорусь і Україна",
+    # "звільнення Шойгу") and bypass the model-tag filter entirely.
+    return [
+        item for item in tags
+        if _tag_is_grounded(item, evidence_title, transcript)
+    ][:15]
 
 
 def _clean_project_title_for_seo(value: str) -> str:
