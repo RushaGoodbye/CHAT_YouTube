@@ -1,0 +1,19 @@
+name: RG delete all fullstream history and finished exports
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fullstream-delete-all-user-request.yml']
+permissions: {contents: read}
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_purge_fullstream_history_and_exports.py --delete
+          if($LASTEXITCODE -ne 0){throw 'RG_FULLSTREAM_DELETE_INCOMPLETE'}
