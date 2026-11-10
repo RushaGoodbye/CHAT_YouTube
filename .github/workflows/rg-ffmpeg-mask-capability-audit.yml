@@ -1,0 +1,21 @@
+name: RG ffmpeg filter capability and source mask audit
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-ffmpeg-mask-capability-audit.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $ff='C:\Program Files (x86)\Common Files\AutoPod\ffmpeg\bin\ffmpeg.exe'
+          & $ff -hide_banner -h filter=gblur 2>&1|ForEach-Object{Write-Output ('RGCAP|GBLUR|'+$_)}
+          & $ff -hide_banner -h filter=maskedmerge 2>&1|ForEach-Object{Write-Output ('RGCAP|MERGE|'+$_)}
+          & $ff -hide_banner -h filter=overlay 2>&1|ForEach-Object{Write-Output ('RGCAP|OVERLAY|'+$_)}
+          & $ff -hide_banner -h filter=loop 2>&1|ForEach-Object{Write-Output ('RGCAP|LOOP|'+$_)}
+          & $ff -hide_banner -hwaccels 2>&1|ForEach-Object{Write-Output ('RGCAP|HWACCEL|'+$_)}
+          Write-Output 'RGCAP|READONLY|PASS'
