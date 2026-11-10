@@ -1,0 +1,21 @@
+name: RG rearm 885 QA-only after V3 optimized renderer
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-fast-v3-rearm-885-now.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-fast-v3-885-rollout
+  cancel-in-progress: false
+jobs:
+  rearm:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_fast_v3_requeue_885.py
+          if($LASTEXITCODE -ne 0){throw 'REARM_885_REVIEW_QUEUE_FAILED'}
