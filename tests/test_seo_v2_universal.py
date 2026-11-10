@@ -362,3 +362,34 @@ def test_tag_only_repair_never_rewrites_other_fields():
     assert len(prompts) == 1
     assert "ONLY match existing" in prompts[0]
     assert all(draft[field] == before[field] for field in before)
+
+
+def test_rejected_unselected_model_quote_is_an_audit_warning_not_seo_fact():
+    cues = parse_srt(_srt(["Майстер розповідає про кераміку."]))
+    ledger = evidence_ledger(cues, [
+        {"quote": "Майстер розповідає про кераміку.", "cue_indices": [0]},
+        {"quote": "Вигадана перемога на виборах.", "cue_indices": [0]},
+    ])
+    draft = {
+        "title": "Майстер розповідає про кераміку",
+        "title_variants": [
+            "Кераміка в майстерні", "Як працює майстер",
+            "Вироби з кераміки",
+        ],
+        "description": "Про кераміку та роботу майстра. " * 16,
+        "tags": [
+            "кераміка", "майстер", "вироби з кераміки",
+            "робота майстра", "керамічні вироби", "ремесло",
+            "виробництво", "розмова про кераміку",
+        ],
+    }
+    eid = ledger["accepted"][0]["evidence_id"]
+    draft["support_ids"] = {
+        "title": [eid], "description": [eid],
+        "title_variants": [[eid]] * 3, "tags": [[eid]] * 8,
+    }
+    result = validate_draft(draft, ledger, cues)
+    assert "INVALID_QUOTE_PROPOSALS_DISCARDED" in result["extraction_warnings"]
+    assert "NO_VERIFIED_SOURCE_QUOTES" not in result["issues"]
+    assert result["semantic_review_required"] is True
+    assert result["publication_allowed"] is False
