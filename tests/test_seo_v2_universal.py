@@ -156,3 +156,72 @@ def test_topic_map_reduce_is_bounded_and_all_citations_are_real():
         item in {x["evidence_id"] for x in evidence}
         for topic in topics for item in topic["evidence_ids"]
     )
+
+
+def test_uncovered_source_window_blocks_review_ready_even_with_good_json():
+    from rg_youtube_control.seo_v2_pipeline import _extract
+    cue_text = [
+        "Майстер розповідає про техніку роботи з металом.",
+        "Далі він обговорює спільну роботу майстрів.",
+        "Після цього мова йде про обробку матеріалів.",
+    ]
+    cues = parse_srt(_srt(cue_text))
+    windows = make_windows(cues, max_chars=100)
+    assert len(windows) >= 2
+    def chat(prompt):
+        data = json.loads(prompt.split("SOURCE CUES:\n", 1)[1])
+        if data[0]["cue"] == 0:
+            return {"quotes": [{
+                "quote": data[0]["text"],
+                "cue_indices": [0],
+            }]}
+        return {"quotes": []}
+    ledger, _windows = _extract(cues, chat)
+    assert ledger["windows_without_quotes"]
+    assert ledger["review_required"] is True
+    assert ledger["source_cues_with_evidence"] == 1
+
+
+def test_independent_reviewer_wrong_shape_cannot_clear_semantic_review():
+    source = _srt([
+        "Ми говоримо про роботу з деревом.",
+        "Ремісник пояснює техніку різьблення по дереву.",
+    ])
+    saved = {"id": ""}
+    def chat(prompt):
+        if "Extract up to three" in prompt:
+            rows = json.loads(prompt.split("SOURCE CUES:\n", 1)[1])
+            return {"quotes": [{
+                "quote": row["text"], "cue_indices": [row["cue"]]
+            } for row in rows]}
+        if "Classify the main topics" in prompt:
+            rows = json.loads(prompt.split("VERBATIM EVIDENCE:\n", 1)[1])
+            saved["id"] = rows[0]["evidence_id"]
+            return {"topics": [{
+                "label_uk": "Різьблення по дереву",
+                "evidence_ids": [row["evidence_id"] for row in rows],
+            }]}
+        if "You are an accurate" in prompt:
+            evidence_id = saved["id"]
+            return {
+                "title": "Ремісник розповідає про роботу з деревом",
+                "title_variants": ["Різьблення по дереву", "Техніка роботи з деревом",
+                                   "Як працюють ремісники"],
+                "description": "Ремісник описує роботу з деревом. " * 14,
+                "tags": ["різьблення", "дерево", "майстри", "ремісник",
+                         "техніка різьблення", "робота з деревом",
+                         "майстер дерева", "дерев'яні вироби"],
+                "support_ids": {
+                    "title": [evidence_id],
+                    "title_variants": [[evidence_id]] * 3,
+                    "description": [evidence_id],
+                    "tags": [[evidence_id]] * 8,
+                },
+            }
+        raise AssertionError("Unexpected prompt")
+    output = generate_universal_seo(
+        source, chat, independent_review=lambda _prompt: {"unexpected": "yes"}
+    )
+    assert output["status"] == "REVIEW_REQUIRED"
+    assert output["independent_review"]["review_status"] == "FAILED_CLOSED"
+    assert output["publication_allowed"] is False
