@@ -1,0 +1,30 @@
+name: RG 885 popup candidates filter reason inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-885-selection-filter-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($v in @(@('rg_fullstream_auto_v2.py',474,556),@('rg_fullstream_popup_light_v89.py',1,110),@('rg_fullstream_popup_checkpoint_v89.py',1,95))){
+            $f=Join-Path $app ([string]$v[0])
+            $a=@(Get-Content $f -Encoding UTF8)
+            for($i=[int]$v[1];$i -le [math]::Min([int]$v[2],$a.Count);$i++){
+              Write-Output ('RGFILTER|'+$v[0]+'|'+$i+'|'+$a[$i-1])
+            }
+          }
+          $f='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\885\completed_popups_v76.json'
+          $j=Get-Content $f -Raw -Encoding UTF8|ConvertFrom-Json
+          $x=@($j.result.masks)
+          $counts=$x|Group-Object layout|ForEach-Object{"$($_.Name):$($_.Count)"}
+          Write-Output ('RGFILTER|CANDIDATE_LAYOUT_COUNTS|'+($counts -join ';'))
+          foreach($m in $x|Select-Object -First 33){
+            Write-Output ('RGFILTER|CANDIDATE|'+($m|ConvertTo-Json -Compress -Depth 3))
+          }
+          Write-Output 'RGFILTER|READ_ONLY|PASS'
