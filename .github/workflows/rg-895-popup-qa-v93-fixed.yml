@@ -1,0 +1,18 @@
+name: RG 895 popup QA V93 completed evidence safe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-popup-qa-v93-fixed.yml']
+permissions: {contents: read}
+jobs:
+  review:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_895_qa_visual_evidence_v93_fast_fixed.py
+          if($LASTEXITCODE -ne 0){throw 'RG895_V93_SCENE_SAMPLE_REVIEW_FAILED'}
