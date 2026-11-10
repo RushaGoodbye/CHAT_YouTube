@@ -3783,6 +3783,90 @@ chapters: рядок з підтвердженими таймкодами та �
         # Recheck the final list, not the discarded model variants.
         title_issues = ab_title_issues(variants, evidence_report)
 
+    # The source map covers the whole stream, but public SEO should focus
+    # on the actual headline subject, not append every unrelated small-talk
+    # fragment. Select literal notes with the largest title-topic overlap.
+    if evidence_report and verified_evidence and not fast_mode:
+        try:
+            from .dialogue_seo import _cross_language_topic_word
+            title_roots = {
+                _cross_language_topic_word(word)[:5]
+                for word in re.findall(r"[a-zа-яёіїєґ]{5,}", title.casefold())
+            }
+            source_notes = []
+            for block in evidence_report.get("blocks") or []:
+                if not isinstance(block, dict) or block.get("verified") is False:
+                    continue
+                for item in (block.get("topics") or [])[:1]:
+                    if not isinstance(item, dict) or not item.get("evidence"):
+                        continue
+                    quote = str(item["evidence"])[:230]
+                    quote_roots = {
+                        _cross_language_topic_word(word)[:5]
+                        for word in re.findall(
+                            r"[a-zа-яёіїєґ]{5,}", quote.casefold(),
+                        )
+                    }
+                    overlap = len(title_roots & quote_roots)
+                    source_notes.append({
+                        "time": str(block.get("start_stamp") or ""),
+                        "quote": quote,
+                        "score": overlap,
+                    })
+            # Always include the best headline-related evidence. Only use
+            # adjacent themes as supporting details, never claim all source
+            # fragments are equally central.
+            ranked_notes = sorted(
+                source_notes, key=lambda item: -item["score"],
+            )[:5]
+            if ranked_notes:
+                focused_prompt = (
+                    "Напиши точний SEO-опис УКРАЇНСЬКОЮ на 400–900 "
+                    "символів. Чотири–п'ять речень, зв'язний текст. "
+                    "Використовуй тільки ДОСЛІВНІ цитати з короткого "
+                    "списку. Це кілька РІЗНИХ учасників: не приписуй "
+                    "їхні суперечливі висловлювання одній особі. "
+                    "Центральна тема визначається заголовком, а не "
+                    "хронологічним порядком цитат. Не пиши про "
+                    "другорядні побутові подробиці чи професії, "
+                    "якщо вони не стосуються центральної теми. "
+                    "Заявлені факти подавай як слова учасника, "
+                    "не як незалежно доведену подію. "
+                    "Ніяких вигаданих наслідків, мотивів, "
+                    "викриттів, цифр і нових людей. "
+                    "Поверни тільки JSON з ключем description.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nЦИТАТИ: " + json.dumps(
+                        ranked_notes, ensure_ascii=False,
+                    )
+                )
+                focused_raw = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Доказовий український SEO-редактор. Лише JSON."
+                    )}, {"role": "user", "content": focused_prompt}],
+                    model=model, timeout=timeout, temperature=0.07,
+                    json_mode=True, num_ctx=8192,
+                )
+                focused_data = _extract_json_object(focused_raw)
+                focused_description = _polish_generated_description(
+                    str(focused_data.get("description") or "").strip()
+                )
+                focused_description = _remove_unsupported_named_claims(
+                    focused_description, evidence_report, current_title,
+                )
+                if (
+                    400 <= len(focused_description) <= 900
+                    and not _seo_ukrainian_language_issue(focused_description)
+                    and not _description_quality_error(
+                        focused_description, transcript, max_chars=900,
+                    )
+                ):
+                    description = focused_description
+                    payload.pop("_description_quality_issue", None)
+                    payload["_focused_description_repaired"] = True
+        except (RuntimeError, ValueError, TimeoutError, TypeError):
+            pass
+
     editorial_quality_flags = _seo_editorial_preview_flags(
         title, description, variants, tags,
     )
