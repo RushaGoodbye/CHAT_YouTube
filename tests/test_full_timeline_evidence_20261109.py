@@ -81,12 +81,14 @@ def test_long_video_evidence_prompt_is_bounded_and_spans_timeline():
     ]}
     outline = evidence_outline_text(report, max_chars=2400)
     assert len(outline) <= 2400
-    assert "Тема 0" in outline
-    assert "Тема 119" in outline
+    assert "[00:00:00] ДОСЛІВНА ЦИТАТА SRT" in outline
+    assert "[119:00:00] ДОСЛІВНА ЦИТАТА SRT" in outline
+    assert "Тема 0" not in outline
     assert "ВИБІРКА ДОКАЗІВ" in outline
     full_outline = evidence_outline_text(report)
     assert len(full_outline) > len(outline)
-    assert "Тема 60" in full_outline
+    assert "Цитата з частини 60" in full_outline
+    assert "Тема 60" not in full_outline
 
 
 def test_single_long_quote_never_breaks_evidence_budget():
@@ -398,7 +400,8 @@ def test_independent_reviewer_source_notes_span_full_video_and_preserve_time():
     assert len(notes) == 40
     assert notes[0]["time"] == "00:00:00"
     assert notes[23]["time"] == "59:00:00"
-    assert any(note["topic"].startswith("Друга тема") for note in notes)
+    assert any(note["quote"].startswith("Друга цитата") for note in notes)
+    assert all("topic" not in note for note in notes)
     assert all(note["time"] and note["quote"] for note in notes)
 
 
