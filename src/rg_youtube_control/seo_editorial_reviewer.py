@@ -190,6 +190,7 @@ def revise_seo_candidate(
     required_fields = ("title", "description", "title_variants", "tags")
     complete_draft = all(draft.get(field) for field in required_fields)
     failure_code = "NO_VALID_REVISION"
+    last_review = first_review
     for attempt in range(2):
         instruction = (
             "Ти редактор SEO для українського каналу. Зроби АДРЕСНЕ "
@@ -200,6 +201,11 @@ def revise_seo_candidate(
             "(РІВНО 3 змістовні, різні), "
             "description (400-900 символів), tags (8-12 природних "
             "українських конкретних пошукових фраз). "
+            "Для title_variants уникай вигаданих узагальнень, "
+            "заміни лише неточні формулювання. Не копіюй довгі "
+            "цитати як три заголовки. Не змінюй зміст особистої "
+            "позиції на встановлений факт. "
+            "Перевір граматику кожного тегу українською. "
             "Виправ УСІ попередні зауваження. Якщо оригінальний пакет "
             "повний, поверни ЛИШЕ поля з переліку помилок, не дублюй "
             "поля без зауважень. Інакше поверни повний пакет. "
@@ -256,6 +262,13 @@ def revise_seo_candidate(
                     if isinstance(issue, dict)
                 }
                 flagged &= allowed
+                # Reviewer frequently uses "title" for an A/B title issue.
+                # Repair all title variants together, without changing a
+                # grounded primary title unless its actual wording is wrong.
+                if "title" in flagged:
+                    flagged.add("title_variants")
+                if "title_variants" in flagged:
+                    flagged.add("title")
                 if flagged:
                     allowed = flagged
             candidate = {**working, **{
@@ -293,6 +306,7 @@ def revise_seo_candidate(
                 }
             working = candidate
             critique = second_review
+            last_review = second_review
             failure_code = "INDEPENDENT_REVIEW_STILL_REJECTS"
         except (RuntimeError, ValueError, TypeError, KeyError) as exc:
             failure_code = type(exc).__name__
@@ -300,6 +314,7 @@ def revise_seo_candidate(
     return {
         "candidate": draft, "review": first_review,
         "revision_error": failure_code,
+        "last_review": last_review,
         "revised": False, "revision_attempts": 2,
         "editorial_approved": False,
         "publication_allowed": False,
