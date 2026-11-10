@@ -71,3 +71,14 @@ def test_deterministic_tags_keep_exact_source_supported_phrase():
     transcript = "[00:01] Наше питання сьогодні — звільнення Шойгу."
     tags = _grounded_tags_from_transcript("", transcript)
     assert "звільнення Шойгу" in tags
+
+
+
+def test_war_and_mobilization_title_cannot_override_unrelated_srt():
+    from rg_youtube_control.free_tools import _grounded_tags_from_transcript
+    tags = _grounded_tags_from_transcript(
+        "Війна й мобілізація у Росії",
+        "[00:01] Сьогодні говоримо про каву та приготування сніданку.",
+    )
+    assert "війна Росії проти України" not in tags
+    assert "мобілізація в Росії" not in tags
