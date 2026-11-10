@@ -1,0 +1,40 @@
+name: RG 886 popup rejected candidates preparation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-popup-rejected-preparation.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $code=@'
+          import json
+          from pathlib import Path
+          root=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\886")
+          for name in ("completed_popups_v76.json","V41_POPUP_VISUAL_REJECTIONS.json","V89_LIGHT_POPUP_RESCUED.json","processing_plan.json","status.json"):
+              f=root/name
+              if not f.is_file():
+                  print("RG886AUD|MISSING|"+name,flush=True);continue
+              v=json.loads(f.read_text(encoding="utf-8-sig"))
+              print("RG886AUD|FILE|"+name+"|SIZE|"+str(f.stat().st_size),flush=True)
+              if name=="completed_popups_v76.json":
+                  m=v.get("result",{}).get("masks",[])
+                  print("RG886AUD|CANDIDATES|"+str(len(m)),flush=True)
+                  for i,item in enumerate(m[:7]):print("RG886AUD|EXAMPLE|"+str(i)+"|"+json.dumps(item,ensure_ascii=False),flush=True)
+              if name=="V41_POPUP_VISUAL_REJECTIONS.json":
+                  print("RG886AUD|REJECTED|"+str(len(v)),flush=True)
+                  from collections import Counter
+                  print("RG886AUD|REASONS|"+str(dict(Counter(str(x.get("reason")) for x in v))),flush=True)
+                  print("RG886AUD|INDEXES|"+str([int(x["index"]) for x in v]),flush=True)
+              if name=="V89_LIGHT_POPUP_RESCUED.json":print("RG886AUD|RESCUED|"+str(len(v)),flush=True)
+              if name=="processing_plan.json":print("RG886AUD|PLAN|MASKS="+str(len(v.get("popup_masks",[])))+"|VIDEO="+str(v.get("video")),flush=True)
+              if name=="status.json":print("RG886AUD|STATE|"+str(v.get("state")),flush=True)
+          print("RG886AUD|READONLY|PASS",flush=True)
+          '@
+          $code | & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw 'AUDIT_FAILED'}
