@@ -425,6 +425,11 @@ def _literal_quote_subjects(quote: str) -> set[str]:
         _cross_language_topic_word(word)[:5]
         for word in words
         if word not in _SOURCE_TOPIC_STOPWORDS
+        and not word.startswith((
+            "розпов", "говор", "поговор", "розмов", "обговор",
+            "сказ", "каж", "люд", "чому", "прощо", "учасн",
+            "співрозмов", "собесед", "росіян", "россиян",
+        ))
         and _cross_language_topic_word(word)[:5] not in {
             "росси", "украи", "говор", "потому", "просто",
         }
