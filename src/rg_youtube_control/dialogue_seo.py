@@ -270,7 +270,7 @@ def analyze_all_timeline_blocks(
                     for line in block["text"].splitlines()
                     if (
                         len(_compact(line)) >= 18
-                        and len(re.findall(r"\\w+", line)) >= 3
+                        and len(re.findall(r"\w+", line)) >= 3
                     )
                 ]
                 if source_lines:
