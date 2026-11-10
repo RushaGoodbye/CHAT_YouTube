@@ -1,5 +1,5 @@
 #define MyAppName "RG SEO v2 Preview"
-#define MyAppVersion "0.1.2"
+#define MyAppVersion "0.2.0"
 #define MyAppExeName "RG SEO v2 Preview.exe"
 
 [Setup]
@@ -10,7 +10,7 @@ AppPublisher=RushaGoodbye
 DefaultDirName={autopf}\RG SEO v2 Preview
 DefaultGroupName={#MyAppName}
 OutputDir=..\seo_v2_installer
-OutputBaseFilename=RG_SEO_V2_Preview_Setup_0_1_2
+OutputBaseFilename=RG_SEO_V3_Claim_First_Setup_0_2_0
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
