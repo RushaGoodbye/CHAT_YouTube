@@ -1,0 +1,23 @@
+name: RG open 895 notification QA review folder
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-open-895-notification-qa-review.yml']
+permissions: {contents: read}
+jobs:
+  open:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $folder='F:\RG_AUTO_EDIT\RG Auto Edit Data\fullstream_v2\895\NOTIFICATION_QA_V93'
+          $f=Join-Path $folder '895_three_rejected_candidates.jpg'
+          if(!(Test-Path $f)){throw '895_REVIEW_NOT_FOUND'}
+          $explorers=@(Get-Process explorer -ErrorAction SilentlyContinue)
+          Write-Output ('RG895OPEN|FOLDER|'+$folder)
+          Write-Output ('RG895OPEN|SHEETS|'+@(Get-ChildItem $folder -Filter '*.jpg').Count)
+          if($explorers.Count){
+            Start-Process -FilePath explorer.exe -ArgumentList ('/select,"'+$f+'"')
+            Write-Output 'RG895OPEN|EXPLORER|OPENED'
+          }else{Write-Output 'RG895OPEN|NO_INTERACTIVE_EXPLORER|SKIP'}
