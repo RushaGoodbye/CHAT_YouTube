@@ -1,0 +1,18 @@
+name: RG 886 stage 37 confirmed popups
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-886-stage-37-confirmed-popups.yml']
+permissions: {contents: read}
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          & 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 rg_repair_20261110/rg_886_stage_37_confirmed_popups.py
+          if($LASTEXITCODE -ne 0){throw 'STAGE_886_EDITOR_MASKS_FAILED'}
