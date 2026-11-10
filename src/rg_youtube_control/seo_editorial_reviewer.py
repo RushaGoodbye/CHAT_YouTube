@@ -171,6 +171,48 @@ def review_seo_candidate(
         }
 
 
+def _targeted_repair_notes(
+    source_notes: list[dict[str, Any]],
+    issues: list[dict[str, Any]],
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Put the exact disputed quotation first and keep timeline context.
+
+    The reviewer already cites evidence for each defect. A revision prompt
+    containing 40 unrelated snippets can bury those citations and cause
+    a language model to repair a different episode instead.
+    """
+    if not source_notes:
+        return []
+    anchors = [
+        str(issue.get("evidence") or "").casefold()
+        for issue in issues if isinstance(issue, dict)
+    ]
+    matching = []
+    for index, note in enumerate(source_notes):
+        quote = str(note.get("quote") or "").casefold()
+        stamp = str(note.get("time") or "").casefold()
+        if any((quote and quote[:30] in anchor) or
+               (stamp and stamp in anchor)
+               for anchor in anchors):
+            matching.append(index)
+    selected: list[int] = list(dict.fromkeys(matching))
+    # Fill remaining slots evenly across the actual source chronology.
+    if len(selected) < limit:
+        count = min(len(source_notes), max(2, limit - len(selected)))
+        positions = ([0] if count == 1 else [
+            round(i * (len(source_notes) - 1) / (count - 1))
+            for i in range(count)
+        ])
+        for index in positions:
+            if index not in selected:
+                selected.append(index)
+            if len(selected) >= limit:
+                break
+    return [source_notes[i] for i in selected[:limit]]
+
+
 def revise_seo_candidate(
     *,
     draft: dict[str, Any],
@@ -239,7 +281,9 @@ def revise_seo_candidate(
                 critique.get("issues", []), ensure_ascii=False
             ) +
             "\nЦИТАТИ З ЧАСОМ: " + json.dumps(
-                source_notes, ensure_ascii=False
+                _targeted_repair_notes(
+                    source_notes, critique.get("issues", []), limit=20,
+                ), ensure_ascii=False
             )
         )
         try:
