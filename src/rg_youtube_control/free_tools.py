@@ -1995,6 +1995,29 @@ def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
             source_words = re.findall(r"[a-zа-яіїєґё0-9]+", span)
             if all(match(token, source_words) for token in tokens):
                 return True
+    # A topic often spans neighboring subtitle cues. Allow combinations
+    # only within a 12-second, at-most-three-cue timestamped window.
+    # Never combine distant topics or untimed unrelated sentences.
+    previous: list[tuple[float, str]] = []
+    for line in haystack.splitlines():
+        stamp = re.match(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*", line)
+        if not stamp:
+            previous.clear()
+            continue
+        parts = [int(value) for value in stamp.group(1).split(":")]
+        seconds = (
+            parts[0] * 60 + parts[1] if len(parts) == 2
+            else parts[0] * 3600 + parts[1] * 60 + parts[2]
+        )
+        previous = [(t, v) for t, v in previous if 0 <= seconds - t <= 12]
+        previous.append((seconds, line[stamp.end():]))
+        recent = previous[-3:]
+        if len(recent) >= 2:
+            nearby_words = re.findall(
+                r"[a-zа-яіїєґё0-9]+", " ".join(v for _, v in recent)
+            )
+            if all(match(token, nearby_words) for token in tokens):
+                return True
     return False
 
 
