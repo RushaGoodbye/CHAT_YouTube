@@ -3503,9 +3503,47 @@ chapters: рядок з підтвердженими таймкодами та �
                 natural_tags.append(tag)
                 if concept:
                     seen_concepts.add(concept)
+            # Filtering duplicates can reduce a previously complete tag list
+            # below eight. Refill ONLY from the deterministic SRT-grounded
+            # candidates; do not ask the model to invent filler phrases.
+            if len(natural_tags) < 10:
+                allowed_single = {
+                    "путін", "шойгу", "мобілізація", "вибори", "санкції",
+                }
+                for tag in [*grounded_tags, *model_tags]:
+                    if len(natural_tags) >= 10:
+                        break
+                    lowered = str(tag).strip().casefold()
+                    if (
+                        not lowered
+                        or _seo_ukrainian_language_issue(tag)
+                        or (len(tag.split()) < 2 and lowered not in allowed_single)
+                        or re.search(r"(?i)\\b(?:стала|стане)\\s+росії\\b", lowered)
+                        or not _tag_is_grounded(tag, current_title, transcript)
+                    ):
+                        continue
+                    concept = tuple(sorted(
+                        token[:7] for token in re.findall(
+                            r"[a-zа-яіїєґё]{4,}", lowered,
+                        )
+                    ))
+                    if (
+                        lowered in {x.casefold() for x in natural_tags}
+                        or concept in seen_concepts
+                        or any(
+                            _TagSimilarity(None, lowered, old.casefold()).ratio() >= 0.86
+                            for old in natural_tags
+                        )
+                    ):
+                        continue
+                    natural_tags.append(tag)
+                    if concept:
+                        seen_concepts.add(concept)
             if len(natural_tags) < 8:
                 # Keep the exact failure visible; never invent filler tags.
                 candidate["_tags_review_required"] = True
+            else:
+                candidate.pop("_tags_review_required", None)
             candidate["tags"] = natural_tags
 
             payload = candidate
