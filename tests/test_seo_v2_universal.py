@@ -158,7 +158,8 @@ def test_topic_map_reduce_is_bounded_and_all_citations_are_real():
     )
 
 
-def test_uncovered_source_window_blocks_review_ready_even_with_good_json():
+def test_uncovered_source_window_blocks_review_ready_even_with_good_json(monkeypatch):
+    from rg_youtube_control import seo_v2_pipeline
     from rg_youtube_control.seo_v2_pipeline import _extract
     cue_text = [
         "Майстер розповідає про техніку роботи з металом.",
@@ -168,6 +169,10 @@ def test_uncovered_source_window_blocks_review_ready_even_with_good_json():
     cues = parse_srt(_srt(cue_text))
     windows = make_windows(cues, max_chars=100)
     assert len(windows) >= 2
+    monkeypatch.setattr(
+        seo_v2_pipeline, "make_windows",
+        lambda source: make_windows(source, max_chars=100),
+    )
     def chat(prompt):
         data = json.loads(prompt.split("SOURCE CUES:\n", 1)[1])
         if data[0]["cue"] == 0:
