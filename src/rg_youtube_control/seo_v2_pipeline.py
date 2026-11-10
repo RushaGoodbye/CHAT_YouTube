@@ -333,15 +333,43 @@ def _draft(topics: list[dict[str, Any]], proof: list[dict[str, Any]],
         "If the source cannot support the requirements, return fewer tags "
         "or a shorter description; the result will be flagged for review, "
         "not padded with generic content. Return JSON with keys title, "
-        "title_variants, description, tags, support_ids. support_ids must "
-        "map every field to evidence IDs: title string list, "
-        "title_variants array of ID arrays, description array of IDs, "
-        "tags array of ID arrays in tag order. "
+        "title_variants, description, tag_evidence, support_ids. "
+        "tag_evidence must be an array of objects with {tag: Ukrainian "
+        "search phrase, evidence_ids: [exact source IDs]}. Put each tag "
+        "and its supporting IDs in the SAME object, not separate arrays. "
+        "support_ids must contain title (ID array), title_variants "
+        "(array of ID arrays), and description (ID array). "
+        "An unsupported phrase needs an EMPTY citation list and will be "
+        "flagged for human review. No general keyword padding. "
         "All supported content must be sourced from actual quotations.\n"
         "TOPICS:\n" + json.dumps(topics, ensure_ascii=False)
         + "\nQUOTES:\n" + json.dumps(proof, ensure_ascii=False)
     )
-    return _ask(chat, instruction)
+    output = _ask(chat, instruction)
+    # Canonical v2 paired tags avoid an LLM shifting a parallel list
+    # of evidence IDs by one item. Legacy model JSON is still accepted
+    # and checked by the same mechanical source gate.
+    pairs = output.get("tag_evidence")
+    if isinstance(pairs, list):
+        tags: list[str] = []
+        groups: list[list[str]] = []
+        for item in pairs[:15]:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("tag") or "").strip()
+            if not value:
+                continue
+            ids = item.get("evidence_ids")
+            tags.append(value)
+            groups.append(ids if isinstance(ids, list) else [])
+        if tags:
+            output["tags"] = tags
+            support = output.get("support_ids")
+            if not isinstance(support, dict):
+                support = {}
+            support["tags"] = groups
+            output["support_ids"] = support
+    return output
 
 
 def _repair_source_citations(
