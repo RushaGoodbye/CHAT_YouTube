@@ -46,7 +46,21 @@ class _SEOv2Worker(QObject):
                     "output": str(output),
                     "publication_allowed": False,
                 }
-            except (ValueError, RuntimeError, OSError, UnicodeError) as exc:
+                draft = result.get("draft") or {}
+                self.line.emit(
+                    "\n".join([
+                        "=== " + source.name + " ===",
+                        "ОСНОВНА НАЗВА: " + str(draft.get("title") or "—"),
+                        "A/B: " + " | ".join(str(item) for item in
+                                              draft.get("title_variants") or []),
+                        "ОПИС: " + str(draft.get("description") or "—"),
+                        "ТЕГИ: " + ", ".join(str(item) for item in
+                                             draft.get("tags") or []),
+                    ])
+                )
+            except Exception as exc:
+                # Keep the entire batch alive if a model request fails
+                # unexpectedly; show the exception TYPE only, not SRT text.
                 row = {
                     "file": source.name,
                     "status": "ERROR_NEEDS_REVIEW",
