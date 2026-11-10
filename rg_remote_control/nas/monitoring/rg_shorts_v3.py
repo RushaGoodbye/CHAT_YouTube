@@ -75,6 +75,48 @@ def caption(path):
           f'🔗 <a href="{LINKS}"><b>{FOOTER}</b></a>')
     if len(text)>950:stop('CAPTION_TOO_LONG')
     return text
+def grounded_ai_caption(path):
+    """Only create model-specific descriptions from an actual SRT/TXT transcript.
+    The optional local model service is configured by RG_SHORTS_V3_AI_URL.
+    If unavailable, return None and use an explicitly generic, reviewable caption.
+    """
+    import urllib.parse
+    import ipaddress
+    transcript=None
+    for suffix in ('.srt','.txt'):
+        p=path.with_suffix(suffix)
+        if p.is_file() and not p.is_symlink() and p.stat().st_size<=160000:
+            transcript=p.read_text('utf8',errors='replace')[:25000]
+            break
+    endpoint=os.environ.get('RG_SHORTS_V3_AI_URL','').strip()
+    if not transcript or not endpoint:return None
+    uri=urllib.parse.urlsplit(endpoint)
+    try: addr=ipaddress.ip_address(uri.hostname or '')
+    except ValueError: return None
+    if (uri.scheme!='http' or not addr.is_private or uri.path!='/v1/chat/completions'
+            or uri.username or uri.password or uri.query):return None
+    prompt=('На основі лише субтитрів напиши один інтригуючий заголовок і '
+            'одне або два короткі речення українською, разом до 350 символів. '
+            'Не вигадуй жодних фактів, не перебільшуй; росія та всі її похідні '
+            'завжди з малої літери. Лише чистий текст без посилань чи хештегів.\n'
+            'СУБТИТРИ:\n'+transcript)
+    req=urllib.request.Request(endpoint,
+        data=json.dumps({'model':os.environ.get('RG_SHORTS_V3_AI_MODEL','gemma-4-12b'),
+                         'messages':[{'role':'user','content':prompt}],
+                         'temperature':0.2,'max_tokens':350}).encode('utf8'),
+        headers={'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=45) as response:
+            result=json.loads(response.read(100000))
+        candidate=result['choices'][0]['message']['content'].strip()
+        if not 35<=len(candidate)<=350:return None
+        if any(char in candidate for char in ('ы','ъ','э','ё','Ы','Ъ','Э','Ё')):return None
+        if 'http://' in candidate or 'https://' in candidate:return None
+        candidate=re.sub(r'(?i)рос[іи][яїи][\wіїєґ]*',lambda m:m.group(0).lower(),candidate)
+        return candidate
+    except (OSError,ValueError,KeyError,IndexError,TypeError):
+        return None
+
 def multipart(chat,video,caption_text,buttons=None):
     boundary='rgs'+uuid.uuid4().hex
     fields=[('chat_id',str(chat)),('caption',caption_text),
@@ -128,6 +170,11 @@ def send_private():
             row,path,data=choose(cn)
             draft=secrets.token_hex(12);sha=row['sha256']
             proposed=caption(path)
+            ai_text=grounded_ai_caption(path)
+            if ai_text:
+                # Only the content-based part changes; approved links/footer remain constant.
+                proposed='<b>'+html.escape(ai_text)+'</b>\n\n'+proposed.split('\n\n',1)[1]
+            source_mode='TRANSCRIPT_AI_DRAFT_HUMAN_REVIEW' if ai_text else 'FILENAME_GENERIC_HUMAN_REVIEW'
             cards={'inline_keyboard':[[{'text':'✅ Схвалити (без автопублікації)','callback_data':'rgs3:accept:'+draft},
                                        {'text':'❌ Відхилити','callback_data':'rgs3:reject:'+draft}]]}
             # Atomic SHA claim BEFORE network; a crash cannot cause reuse.
@@ -139,7 +186,7 @@ def send_private():
             cn.commit()
             p=RECEIPTS/(draft+'.json')
             rec=dict(schema='RG_SHORTS_V3',draft_id=draft,sha256=sha,source=str(path),
-                     caption=proposed,state='PRIVATE_SEND_UNCERTAIN_NO_RETRY',
+                     caption=proposed,caption_source=source_mode,state='PRIVATE_SEND_UNCERTAIN_NO_RETRY',
                      claimed_at=int(time.time()),private_chat_id=chat,publications=0)
             write(p,rec,exclusive=True)
             try:
