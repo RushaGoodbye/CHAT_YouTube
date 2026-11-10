@@ -1,0 +1,24 @@
+name: RG 895 actual QA preview button callback
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-qa-preview-button-callback.yml']
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $py=@'
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          for name,blocks in (("rg_fullstream_batch_v53.py",[(450,590)]),("rg_fullstream_qa_export_v96.py",[(1,125)])):
+            rows=(app/name).read_text(encoding="utf-8-sig").splitlines()
+            for a,b in blocks:
+              for i in range(a-1,min(len(rows),b)):
+                print("RGBTN|"+name+"|"+str(i+1)+"|"+rows[i],flush=True)
+          '@
+          $py|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
