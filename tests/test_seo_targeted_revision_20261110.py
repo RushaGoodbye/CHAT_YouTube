@@ -63,3 +63,33 @@ def test_unresolved_revision_reports_actual_second_review(monkeypatch):
     assert result["revised"] is False
     assert result["revision_error"] == "INDEPENDENT_REVIEW_STILL_REJECTS"
     assert result["last_review"]["issues"][0]["reason"] == "still not grounded"
+
+
+def test_revision_checks_ab_against_full_evidence_before_critic(monkeypatch):
+    from rg_youtube_control import dialogue_seo
+    draft = {
+        "title": "Назва про мобілізацію",
+        "title_variants": ["Розмова про мобілізацію", "Питання про війну в Росії", "Думка про Україну"],
+        "description": "Точний опис. " * 35,
+        "tags": ["мобілізація", "війна", "Росія", "Україна", "Путін", "реакція", "розмова", "чат рулетка"],
+    }
+    count = {"reviews": 0}
+    def reviewer_stub(**_k):
+        count["reviews"] += 1
+        return {"review_status": "NEEDS_HUMAN_REVIEW", "issues": []}
+    monkeypatch.setattr(editor, "review_seo_candidate", reviewer_stub)
+    monkeypatch.setattr(editor, "lm_studio_chat", lambda *_a, **_k: json.dumps({"title_variants": [
+        "Мобілізація і питання про війну", "Росіянин про українців та війну", "Що сказали про Україну?",
+    ]}, ensure_ascii=False))
+    monkeypatch.setattr(seo_quality_gate, "inspect_editorial_targets", lambda _p: {"editorial_gate_pass": True, "issues": {}})
+    monkeypatch.setattr(dialogue_seo, "ab_title_issues", lambda *_a, **_k: ["not supported by source"])
+    result = editor.revise_seo_candidate(
+        draft=draft,
+        source_notes=[{"time": "00:00:10", "quote": "Була мобілізація"}],
+        first_review={"review_status": "NEEDS_REVISION", "issues": [{"field": "title", "reason": "incorrect AB"}]},
+        evidence_report={"blocks": []},
+    )
+    assert result["revised"] is False
+    assert count["reviews"] == 0
+    assert result["revision_error"] in {"AB_EVIDENCE_UNRESOLVED", "UNCHANGED_REVISION"}
+    assert result["publication_allowed"] is False
