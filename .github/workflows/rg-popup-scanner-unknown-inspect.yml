@@ -1,0 +1,19 @@
+name: RG popup scanner unknown layout logic inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-popup-scanner-unknown-inspect.yml']
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $p='F:\RG_AUTO_EDIT\RG Auto Edit App\rg_fullstream_detectors_v2.py'
+          $a=@(Get-Content $p -Encoding UTF8)
+          for($i=110;$i -le [Math]::Min(315,$a.Count);$i++){
+            Write-Output ('RGUNK|'+$i+'|'+$a[$i-1])
+          }
+          Write-Output 'RGUNK|READ_ONLY|PASS'
