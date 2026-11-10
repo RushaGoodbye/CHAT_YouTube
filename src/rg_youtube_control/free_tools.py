@@ -4341,6 +4341,7 @@ chapters: рядок з підтвердженими таймкодами та �
     # discarded it and returned the original rejected draft. Adopt only
     # a successfully revised, independently reviewed, source-gated candidate.
     if revision_report and revision_report.get("revised") is True:
+        from .dialogue_seo import focused_literal_source_notes
         corrected = revision_report.get("candidate")
         final_review = revision_report.get("review") or {}
         if (
