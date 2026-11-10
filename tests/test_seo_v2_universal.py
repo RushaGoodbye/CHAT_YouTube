@@ -284,3 +284,52 @@ def test_citation_repair_rejects_forged_ids_without_loss_of_original():
         }}
     ) is False
     assert draft["support_ids"] == original
+
+
+def test_writer_evidence_budget_covers_timelines_without_overflow():
+    from rg_youtube_control.seo_v2_pipeline import _proof_index
+    evidence = [{
+        "evidence_id": f"ev_{i:04}",
+        "quote": "Розмова про матеріали та інструменти " * 4,
+        "start_ms": i * 1000,
+        "end_ms": i * 1000 + 500,
+        "cue_indices": [i],
+    } for i in range(180)]
+    topics = [{"label_uk": "Матеріали та інструменти",
+               "evidence_ids": [item["evidence_id"] for item in evidence]}]
+    selected = _proof_index(
+        {"accepted": evidence}, topics, max_quotes=20, max_chars=6500
+    )
+    assert 2 <= len(selected) <= 20
+    assert len(json.dumps(selected, ensure_ascii=False)) <= 6500
+    selected_ids = {item["evidence_id"] for item in selected}
+    assert "ev_0000" in selected_ids
+    assert "ev_0179" in selected_ids
+
+
+def test_writer_cannot_cite_valid_ledger_quote_absent_from_prompt():
+    cues = parse_srt(_srt([
+        "Майстер працює з деревом.",
+        "Окремо говорили про архітектуру.",
+    ]))
+    ledger = evidence_ledger(cues, [
+        {"quote": "Майстер працює з деревом.", "cue_indices": [0]},
+        {"quote": "Окремо говорили про архітектуру.", "cue_indices": [1]},
+    ])
+    ids = [item["evidence_id"] for item in ledger["accepted"]]
+    draft = {
+        "title": "Майстер працює з деревом",
+        "title_variants": ["Про дерево", "Робота майстра", "Майстерність"],
+        "description": "Про роботу з деревом. " * 18,
+        "tags": ["робота", "дерево", "майстер", "ремесло", "різьблення",
+                 "інструменти", "техніка", "виробництво"],
+        "support_ids": {
+            "title": [ids[1]], "description": [ids[1]],
+            "title_variants": [[ids[1]]] * 3,
+            "tags": [[ids[1]]] * 8,
+        },
+    }
+    gate = validate_draft(draft, ledger, cues, allowed_ids={ids[0]})
+    assert "TITLE_UNSUPPORTED" in gate["issues"]
+    assert "DESCRIPTION_UNSUPPORTED" in gate["issues"]
+    assert gate["publication_allowed"] is False
