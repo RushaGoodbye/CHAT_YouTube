@@ -1,0 +1,64 @@
+name: RG safely rearm 886 in preserved 885-889 Studio queue
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-rearm-stopped-886-no-worker.yml']
+permissions: {contents: read}
+concurrency:
+  group: rg-asr-v3-maintenance
+  cancel-in-progress: false
+jobs:
+  rearm:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - shell: pwsh
+        env: {PYTHONIOENCODING: utf-8}
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=@'
+          import json,sys,uuid,time,os
+          from pathlib import Path
+          app=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit App")
+          data=Path(r"F:\RG_AUTO_EDIT\RG Auto Edit Data")
+          root=data/"fullstream_v2"
+          sys.path.insert(0,str(app))
+          from rg_fullstream_stop_v60 import active_workers
+          from rg_fullstream_process_state_v59 import worker_lock_state
+          from rg_fullstream_launcher_v2 import enqueue,atomic_json
+          if active_workers() or worker_lock_state(data)!="IDLE":raise RuntimeError("WORKER_ACTIVE_QUEUE_UNTOUCHED")
+          active=[]
+          for path in root.glob("*/queue_request.json"):
+              row=json.loads(path.read_text(encoding="utf-8-sig"))
+              if row.get("stream")==path.parent.name:active.append(path.parent.name)
+          print("RGREARM886|BEFORE|"+json.dumps(sorted(active)),flush=True)
+          if sorted(active)!=["885","887","888","889"]:raise RuntimeError("EXPECTED_QUEUE_NOT_MATCHED")
+          status=root/"886"/"status.json"
+          previous=json.loads(status.read_text(encoding="utf-8-sig"))
+          if previous.get("state")!="STOPPED_BY_USER":raise RuntimeError("STOPPED_886_REQUIRED")
+          if (root/"886"/"queue_request.json").exists():raise RuntimeError("886_REQUEST_EXISTS")
+          for s in ("885","887","888","889"):
+              assert (root/s/"queue_request.json").exists()
+          first=float(json.loads((root/"885"/"queue_request.json").read_text(encoding="utf-8-sig"))["created_utc_epoch"])
+          nextts=float(json.loads((root/"887"/"queue_request.json").read_text(encoding="utf-8-sig"))["created_utc_epoch"])
+          if not first<nextts:raise RuntimeError("QUEUE_ORDER_UNEXPECTED")
+          backup=data/"RG_REPAIR_BACKUPS"/("RG_886_REQUEUE_V1_"+time.strftime("%Y%m%d_%H%M%S")+"_"+uuid.uuid4().hex[:5])
+          backup.mkdir(parents=True)
+          (backup/"886_status_before.json").write_bytes(status.read_bytes())
+          result=enqueue("886",app,data,create_worker=False)
+          print("RGREARM886|ENQUEUE|"+json.dumps(result,ensure_ascii=False),flush=True)
+          if result.get("state")!="QUEUED":raise RuntimeError("REQUEUE_FAILED")
+          p=root/"886"/"queue_request.json"
+          row=json.loads(p.read_text(encoding="utf-8-sig"))
+          row["created_utc_epoch"]=(first+nextts)/2
+          # Atomic write for expected selection order; never start processing
+          atomic_json(p,row)
+          if not first<float(row["created_utc_epoch"])<nextts:raise RuntimeError("ORDER_INCORRECT")
+          expected=[t[1] for t in sorted((float(json.loads((root/s/"queue_request.json").read_text(encoding="utf-8-sig"))["created_utc_epoch"]),s) for s in ("885","886","887","888","889"))]
+          print("RGREARM886|ORDER|"+json.dumps(expected),flush=True)
+          if expected!=["885","886","887","888","889"]:raise RuntimeError("ORDER_NOT_VERIFIED")
+          if active_workers():raise RuntimeError("UNEXPECTED_WORKER")
+          print("RGREARM886|PASS|PREPARED_NOT_STARTED|BACKUP|"+str(backup),flush=True)
+          '@
+          $src|& 'F:\RG_AUTO_EDIT\RG Auto Edit Runtime\venv\Scripts\python.exe' -X utf8 -
+          if($LASTEXITCODE -ne 0){throw '886_REARM_FAILED'}
