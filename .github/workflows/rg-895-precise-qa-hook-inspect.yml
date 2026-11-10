@@ -1,0 +1,20 @@
+name: RG 895 precise QA hook inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/rg-895-precise-qa-hook-inspect.yml']
+permissions: {contents: read}
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 3
+    steps:
+      - shell: pwsh
+        run: |
+          $app='F:\RG_AUTO_EDIT\RG Auto Edit App'
+          foreach($a in @(@('rg_fullstream_auto_v2.py',618,730),@('rg_fullstream_editorial_gate_v82.py',116,153),@('rg_fullstream_detectors_v2.py',240,276))){
+            $n=$a[0];$s=Get-Content (Join-Path $app $n) -Encoding UTF8
+            for($i=[int]$a[1]-1;$i -lt [math]::Min($s.Count,[int]$a[2]);$i++){
+              Write-Output ('RGHOOK|'+$n+'|'+($i+1)+'|'+$s[$i])
+            }
+          }
