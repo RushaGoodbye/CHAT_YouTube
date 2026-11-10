@@ -463,3 +463,23 @@ def test_russian_phrase_tags_rejected_in_ukrainian_seo():
         "діти та алкоголь",
     ):
         assert not language_error(tag), tag
+
+
+def test_one_vague_ab_title_is_not_editorial_quality_pass():
+    from rg_youtube_control.free_tools import _seo_editorial_preview_flags
+    variants = [
+        "Путін: що говорять співрозмовники?",
+        "Мобілізація: небажання чоловіків їхати на фронт",
+        "Вибори: росіянин заявив, що голосуватиме за Путіна",
+    ]
+    assert "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+        "Росіянин про війну і вибори", "", variants, [],
+    )
+    specific = [
+        "Росіянин заявив, що голосуватиме за Путіна",
+        "«У нас війни немає»: як співрозмовник заперечує війну",
+        "Чоловіки не хотіли їхати після мобілізації: слова росіянина",
+    ]
+    assert "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+        "Росіянин про війну і вибори", "", specific, [],
+    )
