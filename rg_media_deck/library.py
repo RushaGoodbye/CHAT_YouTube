@@ -78,7 +78,7 @@ def media_name_sort_key(item: MediaItem) -> tuple:
     files, ordered alphabetically. Stable path resolves duplicate names.
     """
     name = display_media_name(item.name)
-    match = re.match(r'^\\s*(\\d+)', name)
+    match = re.match(r'^\s*(\d+)', name)
     if match:
         return (0, int(match.group(1)), name[match.end():].casefold(), item.path.casefold())
     return (1, 0, name.casefold(), item.path.casefold())
