@@ -138,7 +138,8 @@ def compose_claim_fields(
           "Stay focused on the primary topic and truly related "
           "exchanges; do not build causal stories across side tangents. "
           "Do not write title variants or tags.\n"
-          "SOURCE-TYPED CLAIMS:\n" + data,
+          "ONLY PRIMARY AND RELATED SECONDARY TOPIC CLAIMS:\n"
+        + json.dumps(selected_claims, ensure_ascii=False),
     )
     sentences: list[str] = []
     sentence_ids: list[list[str]] = []
@@ -146,7 +147,7 @@ def compose_claim_fields(
         if not isinstance(row, dict):
             continue
         sentence = str(row.get("text") or "").strip()
-        ids = _support(row.get("evidence_ids"), allowed)
+        ids = _support(row.get("evidence_ids"), selected_ids)
         kind = str(row.get("source_type") or "")
         if (not sentence or not ids
                 or kind not in {by_id[i]["source_type"] for i in ids}
@@ -159,7 +160,7 @@ def compose_claim_fields(
     # response is too short. This is not padding: only unused claim IDs
     # and modality-preserving statements may be added.
     previously_used = {eid for group in sentence_ids for eid in group}
-    unused = [row for row in claims if row["claim_id"] not in previously_used]
+    unused = [row for row in selected_claims if row["claim_id"] not in previously_used]
     if len(desc) < 400 and unused and len(sentences) < 7:
         extra_rows: list[dict[str, Any]] = []
         try:
