@@ -145,6 +145,57 @@ def compose_claim_fields(
         sentences.append(sentence)
         sentence_ids.append(ids)
     desc = " ".join(sentences).strip()
+    # Add distinct, literally sourced discussion points if the initial
+    # response is too short. This is not padding: only unused claim IDs
+    # and modality-preserving statements may be added.
+    previously_used = {eid for group in sentence_ids for eid in group}
+    unused = [row for row in claims if row["claim_id"] not in previously_used]
+    if len(desc) < 400 and unused and len(sentences) < 7:
+        extra_rows: list[dict[str, Any]] = []
+        try:
+            addendum = _ask_json(
+                chat,
+                common
+                + "TASK 2 CONTINUATION: The existing Ukrainian description "
+                  "is shorter than 400 characters. Add at most THREE "
+                  "distinct, specific Ukrainian sentences about topics "
+                  "that have not yet been covered. Cite ONLY unused "
+                  "claim_ids listed below; never repeat the existing "
+                  "sentences and NEVER assert unverified events. "
+                  "A QUESTION must be described as a question, a "
+                  "CONDITIONAL as a hypothesis, a SPEAKER_STATEMENT as "
+                  "attributed speech. Do not add filler. Return JSON "
+                  "with key sentences, each row containing text, "
+                  "evidence_ids and source_type.\\n"
+                  "EXISTING SENTENCES:\\n"
+                + json.dumps(sentences, ensure_ascii=False)
+                + "\\nUNUSED LITERAL CLAIMS:\\n"
+                + json.dumps(unused, ensure_ascii=False),
+            )
+            if isinstance(addendum.get("sentences"), list):
+                extra_rows = addendum["sentences"][:3]
+        except (RuntimeError, ValueError, TypeError, TimeoutError):
+            extra_rows = []
+        unused_ids = {row["claim_id"] for row in unused}
+        for row in extra_rows:
+            if not isinstance(row, dict):
+                continue
+            sentence = str(row.get("text") or "").strip()
+            ids = _support(row.get("evidence_ids"), unused_ids)
+            kind = str(row.get("source_type") or "")
+            if (not sentence or not ids
+                    or kind not in {by_id[i]["source_type"] for i in ids}
+                    or not _preserves_modality(sentence, kind)
+                    or sentence.casefold() in {item.casefold() for item in sentences}
+                    or len(desc) + len(sentence) + 1 > 900):
+                continue
+            sentences.append(sentence)
+            sentence_ids.append(ids)
+            previously_used.update(ids)
+            unused_ids.difference_update(ids)
+            desc = " ".join(sentences).strip()
+            if len(desc) >= 400:
+                break
     desc_ids = list(dict.fromkeys(
         i for group in sentence_ids for i in group
     ))
