@@ -58,9 +58,10 @@ def unsupported_names_v3(
             still_unverified.append(name)
             continue
         stem = _canonical(name)
-        # At least five letters must agree, never trust a 2–3 letter root.
+        # Four-letter exact stems cover forms like Росії / России;
+        # fuzzy locative matching still needs a seven-letter source root.
         match = any(
-            len(stem) >= 5 and len(word) >= 5
+            len(stem) >= 4 and len(word) >= 4
             and (
                 stem == word
                 or (min(len(stem), len(word)) >= 7
