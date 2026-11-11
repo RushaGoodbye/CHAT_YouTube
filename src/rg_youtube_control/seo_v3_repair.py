@@ -10,7 +10,7 @@ from copy import deepcopy
 import json
 from typing import Any, Callable
 
-from .seo_v2_semantic import unsupported_names
+from .seo_v3_entities import unsupported_names_v3 as unsupported_names
 from .seo_v3_claims import check_claim_type_constraints
 
 
