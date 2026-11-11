@@ -168,7 +168,7 @@ def test_unrelated_global_name_flag_does_not_block_source_valid_tag_repair():
     def writer(prompt):
         if "FIELD: title\\n" in prompt:
             return {"value": None, "evidence_ids": None}
-        assert "FIELD: tags\\n" in prompt
+        assert "FIELD: tags\n" in prompt
         return {
             "value": [
                 "питання про відставку", "висока посада", "кадрові зміни",
