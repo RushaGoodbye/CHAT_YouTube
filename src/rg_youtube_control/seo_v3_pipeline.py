@@ -240,6 +240,11 @@ def generate_claim_first_seo(
                 result["issues"] = sorted(set([
                     *result["issues"], "CLAIM_MODALITY_UNSUPPORTED",
                 ]))
+            from .seo_v3_numbers import check_cited_numbers
+            if check_cited_numbers(candidate, claim_ledger):
+                result["issues"] = sorted(set([
+                    *result["issues"], "NUMERIC_PROVENANCE_UNSUPPORTED",
+                ]))
             return result
 
         draft, gate, review, repair_diagnostics = repair_claim_fields(
