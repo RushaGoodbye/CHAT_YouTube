@@ -241,3 +241,40 @@ def test_numeric_provenance_normalizes_decimal_separators():
                         "tags": [], "description": []},
     }
     assert check_cited_numbers(draft, ledger) == []
+
+
+def test_repair_uses_deterministic_modality_rejections_even_if_reviewer_passes():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{
+        "claim_id": "ev_1", "source_type": "SPEAKER_STATEMENT",
+        "source_quote": "Співрозмовник каже, що причина невідома.",
+    }]}
+    original = {
+        "title": "Реальна причина звільнення",
+        "description": "Співрозмовник каже, що причина невідома.",
+        "title_variants": ["Що сталося?", "Чому?", "Які запитання?"],
+        "tags": ["обговорення"],
+        "support_ids": {
+            "title": ["ev_1"], "description": ["ev_1"],
+            "title_variants": [["ev_1"]] * 3, "tags": [["ev_1"]],
+        },
+        "sentence_provenance": [{
+            "text": "Співрозмовник каже, що причина невідома.",
+            "evidence_ids": ["ev_1"],
+        }],
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": "Співрозмовник обговорює невідому причину",
+                "evidence_ids": ["ev_1"]}
+    def reviewer(_):
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    corrected, _, _, diagnostics = repair_claim_fields(
+        original, ledger, [], reviewer(original), writer, reviewer, gate)
+    assert diagnostics["title"] == "ACCEPTED"
+    assert corrected["title"] == "Співрозмовник обговорює невідому причину"
+    assert any("UNVERIFIED_OBJECTIVE_CERTAINTY" in prompt for prompt in prompts)
