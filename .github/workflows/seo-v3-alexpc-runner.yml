@@ -46,8 +46,26 @@ jobs:
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:1234/api/v1/models' -TimeoutSec 8
           $models = @($response.models | Where-Object { $_.type -eq 'llm' -and $_.key })
           if ($models.Count -eq 0) { throw 'LM_STUDIO_MODEL_UNAVAILABLE' }
+          $loaded = @($models | Where-Object { @($_.loaded_instances).Count -gt 0 })
+          if ($loaded.Count -eq 0) { throw 'LM_STUDIO_NO_LOADED_LANGUAGE_MODEL' }
           $source.FullName | Set-Content -LiteralPath "$env:RUNNER_TEMP\rg_seo_v3_input.txt" -Encoding utf8
           Write-Output 'RG_SEO_V3_SOURCE_AND_MODEL_READY'
+      - name: Prove local model accepts JSON calls before private SRT processing
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+          RG_LOCAL_AI_PROVIDER: lmstudio
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from rg_youtube_control.seo_v2_cli import _local_chat
+          result = _local_chat(
+              'Return JSON object {"model_ready":true}; no other keys.'
+          )
+          if result.get("model_ready") is not True:
+              raise RuntimeError("LM_STUDIO_JSON_SCHEMA_SMOKE_FAILED")
+          print("RG_SEO_V3_LOCAL_MODEL_JSON_SMOKE_PASS")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'LM_STUDIO_JSON_REQUEST_NOT_READY' }
       - name: QA v3 full-SRT named entity grounding and calibrated editorial audit
         env:
           PYTHONPATH: ${{ github.workspace }}\src
