@@ -257,6 +257,9 @@ def generate_claim_first_seo(
         modality_issues = check_claim_type_constraints(draft, claim_ledger)
         names = unsupported_names(draft, name_proof)
         extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
+        # Rebuild the final gate from the FINAL draft after all repairs.
+        # A previous candidate's global flags must not block a safe revision.
+        gate = recheck(draft)
     # Numeric evidence must belong to the exact quotes cited by each
     # output field, not merely appear somewhere in an unrelated SRT cue.
     from .seo_v3_numbers import check_cited_numbers
