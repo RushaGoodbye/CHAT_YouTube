@@ -35,11 +35,11 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(result['roots'],settings['roots'])
             self.assertEqual(result['volume'],66)
             self.assertTrue(result['muted'])
-            self.assertEqual(result['playback_rate'],1.25)
+            self.assertEqual(result['playback_rate'],1.2)
 
     def test_speed_settings_migrate_and_are_validated(self):
-        self.assertEqual(SPEED_PRESETS, (0.5,0.75,1.0,1.25,1.5,2.0))
-        self.assertEqual(normalize_playback_rate(1.38),1.5)
+        self.assertEqual(SPEED_PRESETS, tuple(round(x/10, 1) for x in range(5,21)))
+        self.assertEqual(normalize_playback_rate(1.38),1.4)
         self.assertEqual(normalize_playback_rate(float('nan')),1.0)
         self.assertEqual(normalize_playback_rate('2'),1.0)
         with tempfile.TemporaryDirectory() as tmp:
