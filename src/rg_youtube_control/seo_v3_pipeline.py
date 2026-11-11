@@ -252,6 +252,15 @@ def generate_claim_first_seo(
         modality_issues = check_claim_type_constraints(draft, claim_ledger)
         names = unsupported_names(draft, name_proof)
         extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
+    # Numeric evidence must belong to the exact quotes cited by each
+    # output field, not merely appear somewhere in an unrelated SRT cue.
+    from .seo_v3_numbers import check_cited_numbers
+    numeric_provenance_issues = check_cited_numbers(draft, claim_ledger)
+    if numeric_provenance_issues:
+        gate["issues"] = sorted(set([
+            *gate["issues"], "NUMERIC_PROVENANCE_UNSUPPORTED",
+        ]))
+        gate["numeric_provenance_issues"] = numeric_provenance_issues
     # Every sentence in the final (possibly repaired) description must
     # still have its own immutable claim citation. A field-level ID list
     # alone is insufficient to validate a rewritten description.
