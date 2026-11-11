@@ -48,7 +48,7 @@ jobs:
           if ($models.Count -eq 0) { throw 'LM_STUDIO_MODEL_UNAVAILABLE' }
           $source.FullName | Set-Content -LiteralPath "$env:RUNNER_TEMP\rg_seo_v3_input.txt" -Encoding utf8
           Write-Output 'RG_SEO_V3_SOURCE_AND_MODEL_READY'
-      - name: Run source-typed independent SEO review without YouTube writes
+      - name: Run bounded source-typed SEO repairs with independent audit
         env:
           PYTHONPATH: ${{ github.workspace }}\src
           RG_LOCAL_AI_PROVIDER: lmstudio
@@ -78,6 +78,7 @@ jobs:
               "description_chars": len((result.get("draft") or {}).get("description") or ""),
               "tags": len((result.get("draft") or {}).get("tags") or []),
               "gate_issues": (result.get("gate") or {}).get("issues") or [],
+              "repair_diagnostics": result.get("repair_diagnostics") or {},
               "reviewer_issues": [
                   {"field": str(x.get("field") or "")[:48],
                    "reason": str(x.get("reason") or "")[:250]}
