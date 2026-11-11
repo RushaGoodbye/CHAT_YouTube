@@ -110,6 +110,8 @@ def test_repair_rejects_failed_independent_review():
 def test_missing_tags_fixes_are_triggered_by_format_gate_without_reviewer_prompt():
     draft = _draft()
     def writer(prompt):
+        if "FIELD: title\n" in prompt:
+            return {"value": None, "evidence_ids": None}
         assert "FEWER_THAN_EIGHT" in prompt
         return {
             "value": [
