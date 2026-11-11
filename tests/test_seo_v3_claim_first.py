@@ -312,3 +312,38 @@ def test_unverified_speaker_statement_cannot_support_claim_of_proven_analysis():
         and row["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
         for row in findings
     )
+
+
+def test_headline_variants_cannot_cite_unrelated_secondary_topic():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger([
+        *_source("Чому зламався міст?", "ev_main"),
+        *_source("Чи з'явиться новий закон?", "ev_side"),
+    ])
+    topics = [
+        {"rank": 1, "label_uk": "Ремонт мосту", "evidence_ids": ["ev_main"]},
+        {"rank": 2, "label_uk": "Законопроєкт", "evidence_ids": ["ev_side"]},
+    ]
+    prompt_log = []
+    def chat(prompt):
+        prompt_log.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {
+                "title": {"text": "Чому зламався міст?",
+                          "evidence_ids": ["ev_main"]},
+                "variants": [
+                    {"text": "Про новий закон", "evidence_ids": ["ev_side"]},
+                    {"text": "Питання ремонту мосту", "evidence_ids": ["ev_main"]},
+                    {"text": "Зміни для мосту", "evidence_ids": ["ev_main"]},
+                ],
+            }
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": []}
+        return {"tags": []}
+    result = compose_claim_fields(ledger, topics, chat)
+    assert result["support_ids"]["title"] == ["ev_main"]
+    assert result["support_ids"]["title_variants"][0] == []
+    assert result["support_ids"]["title_variants"][1] == ["ev_main"]
+    assert "ev_side" not in prompt_log[0]
+    assert "ev_main" in prompt_log[0]
+    assert "ev_side" in prompt_log[1]  # description retains all evidence
