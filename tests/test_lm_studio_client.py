@@ -224,3 +224,33 @@ def test_local_server_recovers_stale_running_without_loopback(monkeypatch, tmp_p
     assert lm.ensure_local_server()["status"] == "READY"
     assert [x[2] for x in commands] == ["start", "stop", "start"]
     assert commands[-1][-2:] == ["--port", "1234"]
+
+
+def test_http_error_categorization_does_not_disclose_private_transcript():
+    import io
+    import urllib.error
+    secret = "PRIVATE SRT CONTENT NOT FOR LOGS"
+    error = urllib.error.HTTPError(
+        "http://127.0.0.1:1234/v1/chat/completions", 400,
+        "Bad Request", {}, io.BytesIO(json.dumps({
+            "error": {"message": "context length exceeded: " + secret}
+        }).encode("utf-8"))
+    )
+    assert lm._safe_local_http_reason(error) == "CONTEXT_LIMIT"
+    error2 = urllib.error.HTTPError(
+        "http://127.0.0.1:1234/v1/chat/completions", 400,
+        "Bad Request", {}, io.BytesIO(json.dumps({
+            "error": {"message": "model not loaded: " + secret}
+        }).encode("utf-8"))
+    )
+    assert lm._safe_local_http_reason(error2) == "MODEL_NOT_LOADED"
+
+
+def test_http_error_with_unknown_body_is_fail_closed():
+    import io
+    import urllib.error
+    bad = urllib.error.HTTPError(
+        "http://127.0.0.1:1234/v1/chat/completions", 400,
+        "Bad Request", {}, io.BytesIO(b"private data")
+    )
+    assert lm._safe_local_http_reason(bad) == "REQUEST_REJECTED"
