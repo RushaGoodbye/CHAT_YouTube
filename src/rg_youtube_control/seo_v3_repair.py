@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from .seo_v3_entities import unsupported_names_v3 as unsupported_names
 from .seo_v3_claims import check_claim_type_constraints
+from .seo_v3_fields import check_sentence_provenance
 
 
 FIELDS = ("title", "title_variants", "description", "tags")
@@ -105,7 +106,11 @@ def repair_claim_fields(
             "Title variants must be exactly three. "
             "Return ONLY JSON object with keys 'value' and 'evidence_ids'. "
             "For title and description: value is a string and evidence_ids "
-            "is an array of source IDs; for title_variants and tags: value "
+            "is an array of source IDs; for DESCRIPTION additionally return "
+            "sentences: an array of {text, evidence_ids} with each complete "
+            "sentence and its exact claim IDs, in original order. "
+            "The joined sentence texts MUST equal value exactly. "
+            "For title_variants and tags: value "
             "is a list of strings and evidence_ids is the same-length "
             "list of arrays. If no safe edit is possible, return "
             "{\\\"value\\\":null,\\\"evidence_ids\\\":null}. "
@@ -132,6 +137,13 @@ def repair_claim_fields(
         revised = deepcopy(candidate)
         revised[field] = new_value
         revised.setdefault("support_ids", {})[field] = new_support
+        if field == "description":
+            # The old provenance MUST NOT survive a description rewrite.
+            # Require independently supplied per-sentence exact citations.
+            revised["sentence_provenance"] = result.get("sentences")
+            if check_sentence_provenance(revised, claim_ledger):
+                diagnostics[field] = "DESCRIPTION_PROVENANCE_INVALID"
+                continue
         if not _ids_valid(revised, field, allowed):
             diagnostics[field] = "SOURCE_LINKS_OR_SHAPE_INVALID"
             continue
