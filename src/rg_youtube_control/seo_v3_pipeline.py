@@ -209,6 +209,31 @@ def generate_claim_first_seo(
                     "reason": "INDEPENDENT_REVIEW_UNAVAILABLE",
                 }],
             }
+    repair_diagnostics: dict[str, str] = {}
+    if (review is not None and independent_review is not None):
+        from .seo_v3_repair import repair_claim_fields
+        def recheck(candidate: dict[str, Any]) -> dict[str, Any]:
+            result = validate_draft(candidate, evidence, cues, allowed_ids=visible)
+            if unsupported_names(candidate, proof):
+                result["issues"] = sorted(set([
+                    *result["issues"], "UNVERIFIED_NAMED_ENTITIES",
+                ]))
+            if check_claim_type_constraints(candidate, claim_ledger):
+                result["issues"] = sorted(set([
+                    *result["issues"], "CLAIM_MODALITY_UNSUPPORTED",
+                ]))
+            return result
+
+        draft, gate, review, repair_diagnostics = repair_claim_fields(
+            draft, claim_ledger, proof, review, chat,
+            lambda candidate: audit_draft_against_claims(
+                candidate, claim_ledger, independent_review,
+            ),
+            recheck,
+        )
+        modality_issues = check_claim_type_constraints(draft, claim_ledger)
+        names = unsupported_names(draft, proof)
+        extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
     status = "READY_FOR_HUMAN_REVIEW"
     if (gate["issues"] or modality_issues or names or extra_numbers
             or review is None or review.get("issues")):
@@ -224,6 +249,7 @@ def generate_claim_first_seo(
         "gate": gate,
         "claims": claim_ledger,
         "modality_issues": modality_issues,
+        "repair_diagnostics": repair_diagnostics,
         "sentence_provenance": draft.get("sentence_provenance") or [],
         "unverified_names": names,
         "independent_review": review,
