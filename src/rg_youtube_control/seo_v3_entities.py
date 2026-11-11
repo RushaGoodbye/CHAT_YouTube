@@ -60,7 +60,7 @@ def unsupported_names_v3(
         stem = _canonical(name)
         # At least five letters must agree, never trust a 2–3 letter root.
         match = any(
-            len(stem) >= 6 and len(word) >= 6
+            len(stem) >= 5 and len(word) >= 5
             and (
                 stem == word
                 or (min(len(stem), len(word)) >= 7
