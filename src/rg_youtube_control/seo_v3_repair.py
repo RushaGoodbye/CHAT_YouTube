@@ -82,6 +82,20 @@ def repair_claim_fields(
             if isinstance(issue, dict) and issue.get("field") == field
         ]
         reasons.extend(_field_format_issues(current_gate, field))
+        # Deterministic source gates are independent of the LLM reviewer.
+        # Include their field-specific failures in the bounded repair task,
+        # even when the reviewer returns an empty list of issues.
+        reasons.extend(
+            str(issue.get("reason") or "")
+            for issue in check_claim_type_constraints(candidate, claim_ledger)
+            if issue.get("field") == field
+        )
+        from .seo_v3_numbers import check_cited_numbers
+        reasons.extend(
+            str(issue.get("reason") or "")
+            for issue in check_cited_numbers(candidate, claim_ledger)
+            if issue.get("field") == field
+        )
         invalid_names = _field_names(candidate, field, proof)
         if invalid_names:
             reasons.append("Unverified name spellings: " + ", ".join(invalid_names))
