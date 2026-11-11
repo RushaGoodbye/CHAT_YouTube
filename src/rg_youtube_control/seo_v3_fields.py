@@ -68,6 +68,16 @@ def compose_claim_fields(
     if not lead_ids:
         lead_ids = allowed
     lead_claims = [c for c in claims if c["claim_id"] in lead_ids]
+    # Tags should reflect the video's main subjects, not random short
+    # exchanges. An unrelated quotation may not be cited as the reason
+    # for a high-ranking search keyword.
+    selected_ids = {
+        str(eid) for topic in topics[:2]
+        for eid in topic.get("evidence_ids") or []
+    } & allowed
+    if not selected_ids:
+        selected_ids = allowed
+    selected_claims = [row for row in claims if row["claim_id"] in selected_ids]
     common = (
         "Only use the SOURCE-TYPED CLAIM LEDGER. Every source entry records "
         "what was SPOKEN, never independently verified truth. QUESTION = "
@@ -215,7 +225,8 @@ def compose_claim_fields(
           "Prioritize search phrases from the primary ranked topic. "
           "A genuine QUESTION is a discussion subject, not a fact. "
           "No title or description.\n"
-          "SOURCE-TYPED CLAIMS:\n" + data,
+          "ONLY PRIMARY AND RELATED SECONDARY TOPIC CLAIMS:\n"
+        + json.dumps(selected_claims, ensure_ascii=False),
     )
     tags: list[str] = []
     tag_ids: list[list[str]] = []
@@ -224,7 +235,7 @@ def compose_claim_fields(
         if not isinstance(row, dict):
             continue
         value = str(row.get("tag") or "").strip()
-        ids = _support(row.get("evidence_ids"), allowed)
+        ids = _support(row.get("evidence_ids"), selected_ids)
         if not value or not ids or value.casefold() in used:
             continue
         tags.append(value)
