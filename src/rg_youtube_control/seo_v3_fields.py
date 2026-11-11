@@ -260,3 +260,38 @@ def compose_claim_fields(
             for sentence, ids in zip(sentences, sentence_ids)
         ],
     }
+
+
+def check_sentence_provenance(
+    draft: dict[str, Any], ledger: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Fail closed when a description no longer matches its sentence citations.
+
+    A list of overall citations is not proof that each description sentence
+    is individually sourced. In particular, a repaired description cannot
+    silently reuse the provenance of the text it replaced.
+    """
+    description = str(draft.get("description") or "").strip()
+    sentences = draft.get("sentence_provenance")
+    claims = {str(row["claim_id"]): row for row in ledger.get("claims", [])}
+    if not description or not isinstance(sentences, list) or not sentences:
+        return [{"field": "description", "reason": "SENTENCE_PROVENANCE_MISSING"}]
+    parts: list[str] = []
+    all_ids: list[str] = []
+    for row in sentences:
+        if not isinstance(row, dict):
+            return [{"field": "description", "reason": "SENTENCE_PROVENANCE_INVALID"}]
+        text = str(row.get("text") or "").strip()
+        ids = row.get("evidence_ids")
+        if not text or not isinstance(ids, list) or not ids or any(
+            not isinstance(eid, str) or eid not in claims for eid in ids
+        ):
+            return [{"field": "description", "reason": "SENTENCE_SOURCE_INVALID"}]
+        parts.append(text)
+        all_ids.extend(ids)
+    if " ".join(parts) != description:
+        return [{"field": "description", "reason": "SENTENCE_TEXT_OUT_OF_SYNC"}]
+    description_ids = (draft.get("support_ids") or {}).get("description")
+    if not isinstance(description_ids, list) or set(description_ids) != set(all_ids):
+        return [{"field": "description", "reason": "SENTENCE_IDS_OUT_OF_SYNC"}]
+    return []
