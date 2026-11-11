@@ -39,3 +39,49 @@ def test_unverified_real_cause_claims_are_flagged():
         assert any(issue["field"] == "title" and
                    issue["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
                    for issue in issues), phrase
+
+
+def test_sentence_provenance_rejects_stale_description():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [{"claim_id": "ev_1", "source_type": "QUESTION"}]}
+    draft = {
+        "description": "Ведучий запитує про причини.",
+        "sentence_provenance": [
+            {"text": "Ведучий запитує про причини.", "evidence_ids": ["ev_1"]},
+        ],
+        "support_ids": {"description": ["ev_1"]},
+    }
+    assert check_sentence_provenance(draft, ledger) == []
+    draft["description"] = "Причини вже доведено."
+    assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_TEXT_OUT_OF_SYNC"
+
+
+def test_sentence_provenance_rejects_missing_or_unknown_claims():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [{"claim_id": "ev_1", "source_type": "QUESTION"}]}
+    draft = {
+        "description": "Ведучий запитує про причини.",
+        "sentence_provenance": [
+            {"text": "Ведучий запитує про причини.", "evidence_ids": ["ev_fake"]},
+        ],
+        "support_ids": {"description": ["ev_fake"]},
+    }
+    assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_SOURCE_INVALID"
+    draft["sentence_provenance"] = []
+    assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_PROVENANCE_MISSING"
+
+
+def test_sentence_provenance_rejects_parallel_id_drift():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [
+        {"claim_id": "ev_1", "source_type": "QUESTION"},
+        {"claim_id": "ev_2", "source_type": "SPEAKER_STATEMENT"},
+    ]}
+    draft = {
+        "description": "Співрозмовник ставить запитання.",
+        "sentence_provenance": [
+            {"text": "Співрозмовник ставить запитання.", "evidence_ids": ["ev_1"]},
+        ],
+        "support_ids": {"description": ["ev_2"]},
+    }
+    assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_IDS_OUT_OF_SYNC"
