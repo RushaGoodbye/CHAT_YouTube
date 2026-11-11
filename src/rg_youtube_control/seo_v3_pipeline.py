@@ -13,7 +13,7 @@ from .seo_v2_pipeline import (
     _draft_numbers, validate_draft,
 )
 from .seo_v2_evidence import parse_srt
-from .seo_v2_semantic import unsupported_names
+from .seo_v3_entities import unsupported_names_v3 as unsupported_names
 from .seo_v3_claims import build_claim_ledger, check_claim_type_constraints, expand_literal_coverage
 from .seo_v3_fields import compose_claim_fields
 
