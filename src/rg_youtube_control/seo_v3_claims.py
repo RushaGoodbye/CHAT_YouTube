@@ -24,8 +24,11 @@ HYPOTHESIS = re.compile(
     r"по\s+моему\s+мнению|я\s+думаю|я\s+считаю|"
     r"міг\s+би|мог\s+бы|могло\s+бы)(?!\w)", re.IGNORECASE,
 )
-INQUIRY_PARTICLES = re.compile(
-    r"(?:\?|(?<!\w)(?:чи|ли|разве|невже)(?!\w))", re.IGNORECASE,
+# Captions can merge introductions and questions without punctuation.
+# Recognize relatively unambiguous interrogatives inside those captions.
+EMBEDDED_QUESTION = re.compile(
+    r"(?<!\\w)(?:какова|каковы|почему|зачем|навіщо|чому|"
+    r"скільки|сколько|хто|кто)(?!\\w)", re.IGNORECASE,
 )
 GENERIC_ANALYSIS = re.compile(
     r"(?i)(?:аналіз\s+(?:доводить|свідчить|показує)|"
@@ -40,7 +43,7 @@ KINDS = {"QUESTION", "CONDITIONAL", "HYPOTHESIS", "SPEAKER_STATEMENT"}
 def classify_statement(quote: str) -> str:
     """Use explicit surface cues; default is speaker claim, never verified fact."""
     value = str(quote or "").strip()
-    if "?" in value or QUESTION_START.search(value):
+    if "?" in value or QUESTION_START.search(value) or EMBEDDED_QUESTION.search(value):
         return "QUESTION"
     if CONDITIONAL.search(value):
         return "CONDITIONAL"
