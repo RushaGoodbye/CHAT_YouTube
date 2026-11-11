@@ -154,3 +154,34 @@ def test_description_repair_accepts_exact_sentence_provenance():
     assert diagnostics["description"] == "ACCEPTED"
     assert result["description"] == "Ведучий запитує про причини."
     assert result["sentence_provenance"][0]["evidence_ids"] == ["ev_1"]
+
+
+def test_final_sentence_cannot_upgrade_question_to_fact():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [{"claim_id": "ev_q", "source_type": "QUESTION"}]}
+    for text in ("Причину звільнення встановлено.", "Ведучий запитує про причину."):
+        draft = {
+            "description": text,
+            "sentence_provenance": [{"text": text, "evidence_ids": ["ev_q"]}],
+            "support_ids": {"description": ["ev_q"]},
+        }
+        issues = check_sentence_provenance(draft, ledger)
+        if text.startswith("Причину"):
+            assert issues[0]["reason"] == "SENTENCE_MODALITY_UNSUPPORTED"
+        else:
+            assert issues == []
+
+
+def test_final_sentence_preserves_conditional_modality():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [{"claim_id": "ev_c", "source_type": "CONDITIONAL"}]}
+    for text, accepted in [
+        ("Покарання вже відбулося.", False),
+        ("Якщо це було покаранням, співрозмовники обговорюють наслідки.", True),
+    ]:
+        draft = {
+            "description": text,
+            "sentence_provenance": [{"text": text, "evidence_ids": ["ev_c"]}],
+            "support_ids": {"description": ["ev_c"]},
+        }
+        assert (check_sentence_provenance(draft, ledger) == []) == accepted
