@@ -2642,6 +2642,10 @@ class MainWindow(QMainWindow):
         if status != QMediaPlayer.MediaStatus.EndOfMedia:
             return
         current = self.preview.current
+        if current is not None and current.kind == 'photo':
+            # Stale EndOfMedia from the previous video must not interrupt a
+            # timed photo in the NEWS playlist.
+            return
         if current is not None and current.kind == 'video' and self._news_active_path == current.path:
             QTimer.singleShot(0, lambda path=current.path: self._advance_news_playlist(path))
         else:
