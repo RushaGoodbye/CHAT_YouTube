@@ -185,3 +185,59 @@ def test_final_sentence_preserves_conditional_modality():
             "support_ids": {"description": ["ev_c"]},
         }
         assert (check_sentence_provenance(draft, ledger) == []) == accepted
+
+
+def test_number_must_appear_in_title_citation_not_elsewhere():
+    from rg_youtube_control.seo_v3_numbers import check_cited_numbers
+    ledger = {"claims": [
+        {"claim_id": "ev_1", "source_quote": "За добу 2400 втрат."},
+        {"claim_id": "ev_2", "source_quote": "Говоримо про іншу тему."},
+    ]}
+    draft = {
+        "title": "2400 втрат за добу",
+        "title_variants": [], "tags": [],
+        "description": "Ведучий говорить про втрати.",
+        "sentence_provenance": [
+            {"text": "Ведучий говорить про втрати.", "evidence_ids": ["ev_1"]},
+        ],
+        "support_ids": {"title": ["ev_2"], "description": ["ev_1"],
+                        "title_variants": [], "tags": []},
+    }
+    issues = check_cited_numbers(draft, ledger)
+    assert {"field": "title", "reason": "NUMBER_NOT_IN_CITED_QUOTES:2400"} in issues
+    draft["support_ids"]["title"] = ["ev_1"]
+    assert check_cited_numbers(draft, ledger) == []
+
+
+def test_numeric_provenance_checks_each_description_sentence_independently():
+    from rg_youtube_control.seo_v3_numbers import check_cited_numbers
+    ledger = {"claims": [
+        {"claim_id": "ev_a", "source_quote": "Показник 1200."},
+        {"claim_id": "ev_b", "source_quote": "Інший показник 2300."},
+    ]}
+    draft = {
+        "title": "Розмова про показники", "title_variants": [], "tags": [],
+        "description": "Учасник каже 2300.",
+        "sentence_provenance": [
+            {"text": "Учасник каже 2300.", "evidence_ids": ["ev_a"]},
+        ],
+        "support_ids": {"title": ["ev_a"], "description": ["ev_a", "ev_b"],
+                        "title_variants": [], "tags": []},
+    }
+    assert {"field": "description", "reason": "NUMBER_NOT_IN_CITED_QUOTES:2300"} in (
+        check_cited_numbers(draft, ledger)
+    )
+    draft["sentence_provenance"][0]["evidence_ids"] = ["ev_b"]
+    assert check_cited_numbers(draft, ledger) == []
+
+
+def test_numeric_provenance_normalizes_decimal_separators():
+    from rg_youtube_control.seo_v3_numbers import check_cited_numbers
+    ledger = {"claims": [{"claim_id": "ev", "source_quote": "1,6 мільйона."}]}
+    draft = {
+        "title": "1.6 мільйона", "title_variants": [], "tags": [],
+        "description": "Без цифр.", "sentence_provenance": [],
+        "support_ids": {"title": ["ev"], "title_variants": [],
+                        "tags": [], "description": []},
+    }
+    assert check_cited_numbers(draft, ledger) == []
