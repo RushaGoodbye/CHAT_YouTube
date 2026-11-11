@@ -27,8 +27,8 @@ HYPOTHESIS = re.compile(
 # Captions can merge introductions and questions without punctuation.
 # Recognize relatively unambiguous interrogatives inside those captions.
 EMBEDDED_QUESTION = re.compile(
-    r"(?<!\\w)(?:какова|каковы|почему|зачем|навіщо|чому|"
-    r"скільки|сколько|хто|кто)(?!\\w)", re.IGNORECASE,
+    r"(?<!\w)(?:какова|каковы|почему|зачем|навіщо|чому|"
+    r"скільки|сколько|хто|кто)(?!\w)", re.IGNORECASE,
 )
 GENERIC_ANALYSIS = re.compile(
     r"(?i)(?:аналіз\s+(?:доводить|свідчить|показує)|"
