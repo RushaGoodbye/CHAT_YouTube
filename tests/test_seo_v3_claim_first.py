@@ -401,3 +401,38 @@ def test_short_description_does_not_invent_claims_if_no_new_evidence():
     result = compose_claim_fields(ledger, [], model)
     assert "TASK 2 CONTINUATION" not in " ".join(prompts)
     assert len(result["description"]) < 400
+
+
+def test_search_tags_reject_unrelated_third_topic_evidence():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger([
+        *_source("Чому на заводі зупинили виробництво?", "ev_a"),
+        *_source("Співрозмовник говорить про ремонт заводу.", "ev_b"),
+        *_source("Ведучий запитує про випадкового кота.", "ev_cat"),
+    ])
+    topics = [
+        {"rank": 1, "label_uk": "Завод", "evidence_ids": ["ev_a"]},
+        {"rank": 2, "label_uk": "Ремонт", "evidence_ids": ["ev_b"]},
+        {"rank": 3, "label_uk": "Кіт", "evidence_ids": ["ev_cat"]},
+    ]
+    seen = []
+    def chat(prompt):
+        seen.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Чому зупинили завод?", "evidence_ids": ["ev_a"]},
+                    "variants": []}
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": []}
+        if "TASK 2 CONTINUATION" in prompt:
+            return {"sentences": []}
+        return {"tags": [
+            {"tag": "ремонт заводу", "evidence_ids": ["ev_b"]},
+            {"tag": "випадковий кіт", "evidence_ids": ["ev_cat"]},
+            {"tag": "причини зупинки заводу", "evidence_ids": ["ev_a"]},
+        ]}
+    result = compose_claim_fields(ledger, topics, chat)
+    assert result["tags"] == ["ремонт заводу", "причини зупинки заводу"]
+    assert result["support_ids"]["tags"] == [["ev_b"], ["ev_a"]]
+    tag_prompt = next(p for p in seen if "TASK 3 OF 3" in p)
+    assert "ev_cat" not in tag_prompt
+    assert "ev_b" in tag_prompt
