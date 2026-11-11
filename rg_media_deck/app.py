@@ -44,7 +44,7 @@ from hotkey_dialog import HotkeyEditor
 from mini_keyboard_diagnostics import MiniKeyboardDiagnostics
 from maintenance import clean_thumbnail_cache, write_diagnostics, restore_latest_backup
 
-from library import persist_first_seen, MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
+from library import media_name_sort_key, persist_first_seen, MediaItem, SPEED_PRESETS, display_media_name, filter_media, load_settings, normalize_path, save_settings, scan_media, settings_path
 
 VERSION = '0.6.2'
 
@@ -1972,11 +1972,11 @@ class MainWindow(QMainWindow):
             filtered = [item for item in filtered if normalize_path(item.path) in members]
         order = self.sort_order.currentData()
         if order == 'name_desc':
-            filtered.sort(key=lambda item: (item.name.casefold(), item.path.casefold()), reverse=True)
+            filtered.sort(key=media_name_sort_key, reverse=True)
         elif order in ('date_desc', 'date_asc'):
             filtered.sort(key=lambda item: (item.added_at, item.name.casefold()), reverse=(order == 'date_desc'))
         else:
-            filtered.sort(key=lambda item: (item.name.casefold(), item.path.casefold()))
+            filtered.sort(key=media_name_sort_key)
         # Block selection signals BEFORE model reset. No user selection should
         # start another video just because the filter changed.
         from PySide6.QtCore import QSignalBlocker
