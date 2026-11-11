@@ -28,6 +28,7 @@ from unified_research import normalize_query
 from media_intelligence import add_bookmark, clean_tags
 from media_search_index import IndexedMediaLibrary
 from news_library import combined_roots, in_tab, scoped_count
+from news_playlist import next_news_item
 from thumbnails import ThumbnailThread
 from hover_preview import MediaHoverPopup
 from file_operations import trash_file, rename_file, move_file
@@ -932,6 +933,12 @@ class MainWindow(QMainWindow):
         self._pending_rescan = False
         self._last_switch_accepted_ms = -1_000_000
         self._pending_switch_item = None
+        self._news_queue: list[MediaItem] = []
+        self._news_active_path: str | None = None
+        self._news_photo_timer = QTimer(self)
+        self._news_photo_timer.setSingleShot(True)
+        self._news_photo_timer.setInterval(8000)
+        self._news_photo_timer.timeout.connect(self._news_photo_finished)
         self._switch_timer = QTimer(self)
         self._switch_timer.setSingleShot(True)
         self._switch_timer.setInterval(160)
@@ -1003,6 +1010,7 @@ class MainWindow(QMainWindow):
             return
         self._switch_timer.stop()
         self._pending_switch_item = None
+        self._clear_news_playlist()
         self._library_queries[self._current_library_tab] = self.search.text()
         self._current_library_tab = index
         self._thumb_hover_timer.stop()
@@ -1015,6 +1023,7 @@ class MainWindow(QMainWindow):
             self.search.setText(self._library_queries[index])
         self.news_folder_bar.setVisible(index == 1)
         self.collection_filter.setVisible(index == 0)
+        self.news_autoplay.setVisible(index == 1)
         self.search.setPlaceholderText(
             '🔎 Пошук у НОВИНАХ: фото, відео, теги...' if index == 1
             else '🔎 Пошук у ФАКТАЖІ...')
@@ -1568,6 +1577,11 @@ class MainWindow(QMainWindow):
         self.sort_order.addItem('Додані: старі', 'date_asc')
         self.sort_order.setCurrentIndex(max(0, self.sort_order.findData(self.settings['media_sort'])))
         controls.addWidget(self.sort_order)
+        self.news_autoplay = QCheckBox('▶ Автопрогравання')
+        self.news_autoplay.setChecked(self.settings['news_autoplay'])
+        self.news_autoplay.setToolTip('Тільки НОВИНИ: після завершення перейти до наступного файлу; фото — 8 секунд')
+        self.news_autoplay.setVisible(self._current_library_tab == 1)
+        controls.addWidget(self.news_autoplay)
         self.only_favorites = QCheckBox('★ Обране')
         self.only_favorites.setChecked(self.settings['media_favorites_only'])
         controls.addWidget(self.only_favorites)
@@ -1724,6 +1738,7 @@ class MainWindow(QMainWindow):
         self.kind.currentIndexChanged.connect(self.apply_filter)
         self.sort_order.currentIndexChanged.connect(self.apply_filter)
         self.only_favorites.toggled.connect(self.apply_filter)
+        self.news_autoplay.toggled.connect(self._news_autoplay_changed)
         self.collection_filter.currentIndexChanged.connect(self.apply_filter)
         self.collection_filter.setVisible(self._current_library_tab == 0)
         self.table.selectionModel().currentRowChanged.connect(self.selection_changed)
@@ -1854,6 +1869,7 @@ class MainWindow(QMainWindow):
     def _save(self):
         try:
             save_settings({
+                'news_autoplay': self.news_autoplay.isChecked(),
                 'media_sort': self.sort_order.currentData(),
                 'media_kind': self.kind.currentData(),
                 'media_favorites_only': self.only_favorites.isChecked(),
@@ -2499,10 +2515,16 @@ class MainWindow(QMainWindow):
             coordinates = self.file_manual_crops.get(key) if saved == 'manual' else None
             self.preview.video_view.set_fit_mode(saved if saved != 'manual' or coordinates
                                                  else 'auto')
+        self._clear_news_playlist()
         if not self.preview.play_item(self.selected):
             self._broadcast_guard.decoder_errors += 1
             self.status.setText('Не вдалося відкрити медіафайл.')
             return
+        if self._current_library_tab == 1 and self.news_autoplay.isChecked():
+            self._news_queue = list(self.model.rows)
+            self._news_active_path = self.selected.path
+            if self.selected.kind == 'photo':
+                self._news_photo_timer.start()
         self._broadcast_guard.switch_count += 1
         self._last_switch_accepted_ms = time.monotonic() * 1000
         logging.warning('SWITCH_OK count=%d file=%s decoder_count=1',
@@ -2522,6 +2544,7 @@ class MainWindow(QMainWindow):
         self._update_play_button()
 
     def stop_playback(self):
+        self._clear_news_playlist()
         if hasattr(self, '_switch_timer'):
             self._switch_timer.stop()
             self._pending_switch_item = None
@@ -2577,8 +2600,51 @@ class MainWindow(QMainWindow):
         self.speed_slower.setEnabled(index > 0)
         self.speed_faster.setEnabled(index < len(SPEED_PRESETS) - 1)
 
+    def _clear_news_playlist(self):
+        self._news_photo_timer.stop()
+        self._news_queue = []
+        self._news_active_path = None
+
+    def _news_autoplay_changed(self, enabled: bool):
+        if not enabled:
+            self._clear_news_playlist()
+        self._save()
+
+    def _news_photo_finished(self):
+        if self.preview.current is not None and self.preview.current.kind == 'photo':
+            self._advance_news_playlist(self.preview.current.path)
+
+    def _advance_news_playlist(self, finished_path: str):
+        """Advance only a NEWS item initiated within the active NEWS tab.
+
+        A delayed completion from an earlier video cannot start the next item
+        after manual stop, tab switch or an explicit selection change.
+        """
+        current = self.preview.current
+        if (self._current_library_tab != 1 or not self.news_autoplay.isChecked()
+                or current is None or current.path != finished_path
+                or self._news_active_path != finished_path):
+            return
+        following = next_news_item(self._news_queue, finished_path, os.path.isfile)
+        if following is None:
+            self.stop_playback()
+            return
+        self.selected = following
+        from PySide6.QtCore import QSignalBlocker
+        with QSignalBlocker(self.table.selectionModel()):
+            for row, item in enumerate(self.model.rows):
+                if item.path == following.path:
+                    self.table.selectRow(row)
+                    break
+        self._play_selected_now()
+
     def _preview_media_status(self, status):
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+        if status != QMediaPlayer.MediaStatus.EndOfMedia:
+            return
+        current = self.preview.current
+        if current is not None and current.kind == 'video' and self._news_active_path == current.path:
+            QTimer.singleShot(0, lambda path=current.path: self._advance_news_playlist(path))
+        else:
             self.stop_playback()
 
     def _preview_error(self, error, description):
@@ -2628,6 +2694,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f'Відео перезапущено з {timestamp(position)}')
 
     def closeEvent(self, event):
+        self._clear_news_playlist()
         self._ui_heartbeat.stop()
         if self._ui_hang_watch is not None:
             self._ui_hang_watch.stop()
