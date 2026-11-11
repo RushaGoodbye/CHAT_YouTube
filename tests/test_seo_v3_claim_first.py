@@ -436,3 +436,36 @@ def test_search_tags_reject_unrelated_third_topic_evidence():
     tag_prompt = next(p for p in seen if "TASK 3 OF 3" in p)
     assert "ev_cat" not in tag_prompt
     assert "ev_b" in tag_prompt
+
+
+def test_editorial_description_drops_unrelated_third_topic_sentence():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger([
+        *_source("Чому закрили лікарню?", "ev_main"),
+        *_source("Співрозмовник описав медичну допомогу.", "ev_related"),
+        *_source("Чи подобається вам музика?", "ev_tangent"),
+    ])
+    topics = [
+        {"rank": 1, "label_uk": "Лікарня", "evidence_ids": ["ev_main"]},
+        {"rank": 2, "label_uk": "Медична допомога", "evidence_ids": ["ev_related"]},
+        {"rank": 3, "label_uk": "Музика", "evidence_ids": ["ev_tangent"]},
+    ]
+    seen = []
+    def writer(prompt):
+        seen.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Чому закрили лікарню?",
+                              "evidence_ids": ["ev_main"]}, "variants": []}
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": [
+                {"text": "Співрозмовник описав питання медичної допомоги.",
+                 "source_type": "SPEAKER_STATEMENT", "evidence_ids": ["ev_related"]},
+                {"text": "Було поставлено питання щодо музики.",
+                 "source_type": "QUESTION", "evidence_ids": ["ev_tangent"]},
+            ]}
+        return {"sentences": []} if "TASK 2 CONTINUATION" in prompt else {"tags": []}
+    result = compose_claim_fields(ledger, topics, writer)
+    assert "медичної допомоги" in result["description"]
+    assert "музики" not in result["description"]
+    assert result["support_ids"]["description"] == ["ev_related"]
+    assert not any("ev_tangent" in prompt for prompt in seen if "TASK 2" in prompt)
