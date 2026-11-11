@@ -1710,7 +1710,7 @@ class MainWindow(QMainWindow):
         transport.addWidget(self.speed_selector)
         self.speed_faster = make_button('+', lambda: self.step_speed(1), 'SpeedStep')
         self.speed_faster.setFixedSize(30, 34)
-        self.speed_faster.setToolTip('Прискорити')
+        self.speed_faster.setToolTip('Прискорити на 10%')
         transport.addWidget(self.speed_faster)
         self.speed_normal = make_button('1×', self.reset_speed, 'SpeedStep')
         self.speed_normal.setFixedSize(40, 34)
@@ -2807,7 +2807,7 @@ def main():
             main_window.toggle_mute()
             passed = passed and not main_window.preview._muted
             main_window.step_speed(1)
-            passed = passed and main_window.speed_selector.currentData() == 1.25
+            passed = passed and main_window.speed_selector.currentData() == 1.1
             main_window.reset_speed()
             passed = passed and main_window.speed_selector.currentData() == 1.0
             passed = passed and display_media_name('Назва відео.mp4') == 'Назва відео'
