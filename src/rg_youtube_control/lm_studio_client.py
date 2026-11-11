@@ -46,6 +46,36 @@ class _RejectRedirect(urllib.request.HTTPRedirectHandler):
         raise RuntimeError("LM Studio API redirect rejected")
 
 
+def _safe_local_http_reason(exc: urllib.error.HTTPError) -> str:
+    """Classify local LM Studio request errors without echoing private SRT."""
+    try:
+        raw = exc.read(4096).decode("utf-8", errors="replace")
+        body = json.loads(raw)
+        error = body.get("error") if isinstance(body, dict) else {}
+        if isinstance(error, dict):
+            detail = str(error.get("message") or "")
+        elif isinstance(error, str):
+            detail = error
+        else:
+            detail = raw
+    except (OSError, ValueError, UnicodeError):
+        detail = ""
+    low = detail.casefold()
+    if any(word in low for word in ("context length", "context window",
+                                   "context_length", "too many tokens")):
+        return "CONTEXT_LIMIT"
+    if any(word in low for word in ("model not found", "model not loaded",
+                                   "model is not loaded", "unknown model")):
+        return "MODEL_NOT_LOADED"
+    if any(word in low for word in ("response_format", "json_schema",
+                                   "unsupported parameter", "reasoning_effort")):
+        return "UNSUPPORTED_REQUEST_OPTION"
+    if any(word in low for word in ("out of memory", "insufficient memory",
+                                   "failed to allocate")):
+        return "LOCAL_MODEL_MEMORY_EXHAUSTED"
+    return "REQUEST_REJECTED"
+
+
 def _local_json(
     endpoint: str,
     *,
@@ -75,8 +105,11 @@ def _local_json(
         with opener.open(req, timeout=max(1.0, float(timeout))) as reply:
             parsed = json.loads(reply.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
+        reason = _safe_local_http_reason(exc)
+        # Never echo server error bodies: some backends repeat private SRT
+        # fragments in their error messages.
         raise RuntimeError(
-            f"LM Studio returned HTTP {exc.code}; check model/server state"
+            f"LM Studio local HTTP {exc.code}: {reason}"
         ) from exc
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         raise RuntimeError("LM Studio local server is unavailable") from exc
