@@ -287,6 +287,13 @@ def check_sentence_provenance(
             not isinstance(eid, str) or eid not in claims for eid in ids
         ):
             return [{"field": "description", "reason": "SENTENCE_SOURCE_INVALID"}]
+        # Check the final sentence, not only the model's original draft.
+        # At least one cited source type must be preserved in its wording.
+        # A bare assertion cannot be supported by an unanswered question,
+        # conditional scenario, or speaker speculation.
+        source_types = {str(claims[eid].get("source_type") or "") for eid in ids}
+        if not any(_preserves_modality(text, kind) for kind in source_types):
+            return [{"field": "description", "reason": "SENTENCE_MODALITY_UNSUPPORTED"}]
         parts.append(text)
         all_ids.extend(ids)
     if " ".join(parts) != description:
