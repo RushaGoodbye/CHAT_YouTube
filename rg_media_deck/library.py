@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sqlite3
 import time
 import tempfile
@@ -68,6 +69,19 @@ class MediaItem:
     @property
     def folder(self) -> str:
         return str(Path(self.path).parent)
+
+
+def media_name_sort_key(item: MediaItem) -> tuple:
+    """Natural filename sorting with leading numbers ordered numerically.
+
+    1 clip, 2 clip, 10 clip. Files without a leading number follow numbered
+    files, ordered alphabetically. Stable path resolves duplicate names.
+    """
+    name = display_media_name(item.name)
+    match = re.match(r'^\\s*(\\d+)', name)
+    if match:
+        return (0, int(match.group(1)), name[match.end():].casefold(), item.path.casefold())
+    return (1, 0, name.casefold(), item.path.casefold())
 
 
 def display_media_name(name: str) -> str:
