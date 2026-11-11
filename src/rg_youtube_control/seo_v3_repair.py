@@ -147,11 +147,14 @@ def repair_claim_fields(
             diagnostics[field] = "CLAIM_MODALITY_FAILED"
             continue
         new_gate = gate_check(revised)
-        # A field must not introduce new global technical problems.
-        old_issues = set(current_gate.get("issues") or [])
-        new_issues = set(new_gate.get("issues") or [])
-        if new_issues - old_issues:
-            diagnostics[field] = "NEW_TECHNICAL_FAILURE"
+        # Compare the edited field, not stale global flags. The initial
+        # global gate can omit name warnings that are injected later by
+        # source-level checks; that omission must not block an unrelated,
+        # independently verified tag/description correction.
+        old_field_issues = set(_field_format_issues(current_gate, field))
+        new_field_issues = set(_field_format_issues(new_gate, field))
+        if new_field_issues - old_field_issues:
+            diagnostics[field] = "NEW_FIELD_FORMAT_FAILURE"
             continue
         # Keep existing successful unrelated fields unchanged.
         if any(revised.get(other) != candidate.get(other) or
