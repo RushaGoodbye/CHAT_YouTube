@@ -53,7 +53,7 @@ VIDEO_EXTS = frozenset({
 IMAGE_EXTS = frozenset({
     '.jpg', '.jpeg', '.png', '.bmp', '.webp', '.gif', '.tif', '.tiff',
 })
-SPEED_PRESETS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+SPEED_PRESETS = tuple(round(step / 10, 1) for step in range(5, 21))
 MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS
 SKIP_DIRS = frozenset({'$recycle.bin', 'system volume information', '.git', '__pycache__'})
 
