@@ -347,3 +347,57 @@ def test_headline_variants_cannot_cite_unrelated_secondary_topic():
     assert "ev_side" not in prompt_log[0]
     assert "ev_main" in prompt_log[0]
     assert "ev_side" in prompt_log[1]  # description retains all evidence
+
+
+def test_short_description_uses_unused_literal_claims_once_without_padding():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger([
+        *_source("Чому закрили бібліотеку?", "ev_a"),
+        *_source("Мовець розповів про відновлення читальні.", "ev_b"),
+        *_source("Якщо буде фінансування, відновимо бібліотеку.", "ev_c"),
+    ])
+    prompts = []
+    def model(prompt):
+        prompts.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Чому закрили бібліотеку?", "evidence_ids": ["ev_a"]},
+                    "variants": []}
+        if "TASK 2 CONTINUATION" in prompt:
+            return {"sentences": [
+                {"text": "Співрозмовник розповів про відновлення читальні та обговорення умов для її роботи.",
+                 "evidence_ids": ["ev_b"], "source_type": "SPEAKER_STATEMENT"},
+                {"text": "Якщо з'явиться фінансування, учасник розмови пропонує повернути читальню до роботи.",
+                 "evidence_ids": ["ev_c"], "source_type": "CONDITIONAL"},
+                {"text": "Влада довела, що будівля вже готова.",
+                 "evidence_ids": ["ev_fake"], "source_type": "SPEAKER_STATEMENT"},
+            ]}
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": [
+                {"text": "Співрозмовники запитують, чому раніше було закрито бібліотеку.",
+                 "evidence_ids": ["ev_a"], "source_type": "QUESTION"},
+            ]}
+        return {"tags": []}
+    result = compose_claim_fields(ledger, [], model)
+    assert any("TASK 2 CONTINUATION" in p for p in prompts)
+    assert "Влада довела" not in result["description"]
+    assert "відновлення читальні" in result["description"]
+    assert result["support_ids"]["description"] == ["ev_a", "ev_b", "ev_c"]
+    assert len(result["sentence_provenance"]) == 3
+
+
+def test_short_description_does_not_invent_claims_if_no_new_evidence():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = build_claim_ledger(_source("Чи знайдуть відповідь?", "ev_a"))
+    prompts = []
+    def model(prompt):
+        prompts.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Чи знайдуть відповідь?", "evidence_ids": ["ev_a"]},
+                    "variants": []}
+        if "TASK 2 OF 3" in prompt:
+            return {"sentences": [{"text": "У розмові звучить запитання про відповідь.",
+                                  "evidence_ids": ["ev_a"], "source_type": "QUESTION"}]}
+        return {"tags": []}
+    result = compose_claim_fields(ledger, [], model)
+    assert "TASK 2 CONTINUATION" not in " ".join(prompts)
+    assert len(result["description"]) < 400
