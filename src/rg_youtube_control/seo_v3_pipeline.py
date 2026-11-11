@@ -159,6 +159,10 @@ def generate_claim_first_seo(
     evidence = expand_literal_coverage(cues, evidence)
     topics = _select_topics(evidence, chat)
     proof = _proof_index(evidence, topics)
+    # Name spelling is checked against the entire literal transcript, not
+    # just the short excerpt selected for generation. This does not create
+    # new citations or authorize any invented statement.
+    name_proof = [*proof, *({"quote": cue.text} for cue in cues)]
     claim_ledger = build_claim_ledger(proof)
     if not claim_ledger["claims"]:
         return {
@@ -186,7 +190,7 @@ def generate_claim_first_seo(
         gate["issues"] = sorted(set([
             *gate["issues"], "CLAIM_MODALITY_UNSUPPORTED",
         ]))
-    names = unsupported_names(draft, proof)
+    names = unsupported_names(draft, name_proof)
     if names:
         gate["issues"] = sorted(set([
             *gate["issues"], "UNVERIFIED_NAMED_ENTITIES",
@@ -214,7 +218,7 @@ def generate_claim_first_seo(
         from .seo_v3_repair import repair_claim_fields
         def recheck(candidate: dict[str, Any]) -> dict[str, Any]:
             result = validate_draft(candidate, evidence, cues, allowed_ids=visible)
-            if unsupported_names(candidate, proof):
+            if unsupported_names(candidate, name_proof):
                 result["issues"] = sorted(set([
                     *result["issues"], "UNVERIFIED_NAMED_ENTITIES",
                 ]))
@@ -225,14 +229,14 @@ def generate_claim_first_seo(
             return result
 
         draft, gate, review, repair_diagnostics = repair_claim_fields(
-            draft, claim_ledger, proof, review, chat,
+            draft, claim_ledger, name_proof, review, chat,
             lambda candidate: audit_draft_against_claims(
                 candidate, claim_ledger, independent_review,
             ),
             recheck,
         )
         modality_issues = check_claim_type_constraints(draft, claim_ledger)
-        names = unsupported_names(draft, proof)
+        names = unsupported_names(draft, name_proof)
         extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
     status = "READY_FOR_HUMAN_REVIEW"
     if (gate["issues"] or modality_issues or names or extra_numbers
