@@ -149,3 +149,42 @@ def test_failed_closed_independent_audit_disables_all_repairs():
         lambda _: {}, _gate,
     )
     assert diag["reviewer"] == "FAILED_CLOSED"
+
+
+def test_unrelated_global_name_flag_does_not_block_source_valid_tag_repair():
+    draft = _draft()
+    def biased_global_gate(candidate):
+        if len(candidate["tags"]) < 8:
+            return {
+                "issues": ["EDITORIAL_GATE_FAILED"],
+                "format": {"problems": {"tags": ["FEWER_THAN_EIGHT"]}},
+                "editorial": {"issues": {"tags": ["FEWER_THAN_EIGHT"]}},
+            }
+        return {
+            "issues": ["UNVERIFIED_NAMED_ENTITIES"],
+            "format": {"problems": {}},
+            "editorial": {"issues": {}},
+        }
+    def writer(prompt):
+        if "FIELD: title\\n" in prompt:
+            return {"value": None, "evidence_ids": None}
+        assert "FIELD: tags\\n" in prompt
+        return {
+            "value": [
+                "питання про відставку", "висока посада", "кадрові зміни",
+                "обговорення звільнення", "рішення керівника",
+                "процедура призначення", "причини зміни посади",
+                "питання про кадрові рішення",
+            ],
+            "evidence_ids": [["ev_1"]] * 8,
+        }
+    result, gate, review, diag = repair_claim_fields(
+        draft, LEDGER, PROOF,
+        {"review_status": "SOURCE_AUDITED", "issues": []},
+        writer, lambda _: {"review_status": "SOURCE_AUDITED", "issues": []},
+        biased_global_gate,
+    )
+    assert diag["tags"] == "ACCEPTED"
+    assert len(result["tags"]) == 8
+    assert gate["issues"] == ["UNVERIFIED_NAMED_ENTITIES"]
+    assert result["title"] == draft["title"]
