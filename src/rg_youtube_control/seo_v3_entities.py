@@ -14,14 +14,14 @@ from .seo_v2_semantic import unsupported_names, _name_key
 def _canonical(token: str) -> str:
     # Russian spelling has double consonants and different case endings.
     value = _name_key(token).casefold().replace("ь", "").replace("ъ", "")
-    return re.sub(r"(.)\\1+", r"\\1", value)
+    return re.sub(r"(.)\1+", r"\1", value)
 
 
 def _locative_context(text: str, name: str) -> bool:
     pat = re.compile(
-        r"(?i)(?<!\\w)(?:у|в|на|до|із|з|від|по|для|між|біля|"
-        r"поблизу|стосовно)\\s+"
-        + re.escape(name) + r"(?=\\b|[-–—])"
+        r"(?i)(?<!\w)(?:у|в|на|до|із|з|від|по|для|між|біля|"
+        r"поблизу|стосовно)\s+"
+        + re.escape(name) + r"(?=\b|[-–—])"
     )
     return pat.search(text) is not None
 
