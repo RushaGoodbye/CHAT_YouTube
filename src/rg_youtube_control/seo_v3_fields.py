@@ -61,6 +61,13 @@ def compose_claim_fields(
     allowed = set(by_id)
     data = json.dumps(claims, ensure_ascii=False)
     topic_hint = json.dumps(topics, ensure_ascii=False)
+    # A/B titles must keep the lead video's topic, never a side tangent.
+    lead_ids = {
+        str(i) for i in ((topics[0].get("evidence_ids") or []) if topics else [])
+    } & allowed
+    if not lead_ids:
+        lead_ids = allowed
+    lead_claims = [c for c in claims if c["claim_id"] in lead_ids]
     common = (
         "Only use the SOURCE-TYPED CLAIM LEDGER. Every source entry records "
         "what was SPOKEN, never independently verified truth. QUESTION = "
@@ -84,18 +91,22 @@ def compose_claim_fields(
           "\"evidence_ids\":[\"ev_...\"]},"
           "\"variants\":[{\"text\":\"...\","
           "\"evidence_ids\":[\"ev_...\"]}]}. "
-          "No description and no tags.\nTOPICS (not facts):\n"
-        + topic_hint + "\nSOURCE-TYPED CLAIMS:\n" + data,
+          "All headline variants must focus on the LEAD TOPIC, not "
+          "unrelated tangents. Cite only claim_ids in LEAD TOPIC EVIDENCE. "
+          "No description and no tags.\nLEAD TOPIC:\n"
+        + json.dumps(topics[:1], ensure_ascii=False)
+        + "\nLEAD TOPIC EVIDENCE:\n"
+        + json.dumps(lead_claims, ensure_ascii=False),
     )
     h = headings.get("title") if isinstance(headings.get("title"), dict) else {}
     title = str(h.get("text") or "").strip()
-    title_ids = _support(h.get("evidence_ids"), allowed)
+    title_ids = _support(h.get("evidence_ids"), lead_ids)
     variants: list[str] = []
     variant_ids: list[list[str]] = []
     for item in (headings.get("variants") or [])[:3]:
         if isinstance(item, dict) and str(item.get("text") or "").strip():
             variants.append(str(item["text"]).strip())
-            variant_ids.append(_support(item.get("evidence_ids"), allowed))
+            variant_ids.append(_support(item.get("evidence_ids"), lead_ids))
 
     description = _ask_json(
         chat,
@@ -114,6 +125,8 @@ def compose_claim_fields(
           "Return JSON: {\"sentences\":[{\"text\":\"...\","
           "\"evidence_ids\":[\"ev_...\"],"
           "\"source_type\":\"QUESTION\"}]}. "
+          "Stay focused on the primary topic and truly related "
+          "exchanges; do not build causal stories across side tangents. "
           "Do not write title variants or tags.\n"
           "SOURCE-TYPED CLAIMS:\n" + data,
     )
@@ -148,6 +161,8 @@ def compose_claim_fields(
           "return fewer and let quality control block the draft. "
           "Return JSON: {\"tags\":[{\"tag\":\"...\","
           "\"evidence_ids\":[\"ev_...\"]}]}. "
+          "Prioritize search phrases from the primary ranked topic. "
+          "A genuine QUESTION is a discussion subject, not a fact. "
           "No title or description.\n"
           "SOURCE-TYPED CLAIMS:\n" + data,
     )
