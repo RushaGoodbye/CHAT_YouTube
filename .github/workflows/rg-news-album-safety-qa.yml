@@ -9,6 +9,7 @@ on:
       - "rg_remote_control/nas/monitoring/news_rg_release_readiness_v1.py"
       - "rg_remote_control/nas/monitoring/news_rg_bot_album_projection_v1.py"
       - "rg_remote_control/nas/monitoring/news_rg_ingress_media_gate_v1.py"
+      - "rg_remote_control/nas/monitoring/news_rg_sanitized_export_v1.py"
       - ".github/workflows/rg-news-album-safety-qa.yml"
   workflow_dispatch:
 
@@ -148,6 +149,8 @@ jobs:
           python3 rg_remote_control/nas/monitoring/news_rg_bot_album_projection_v1.py selftest
           python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_ingress_media_gate_v1.py
           python3 rg_remote_control/nas/monitoring/news_rg_ingress_media_gate_v1.py selftest
+          python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_sanitized_export_v1.py
+          python3 rg_remote_control/nas/monitoring/news_rg_sanitized_export_v1.py selftest
           python3 rg_remote_control/nas/monitoring/news_rg_album_delivery_gate_v1.py selftest
           python3 rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py selftest
           echo "NO_NAS_ACCESS=1"
