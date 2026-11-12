@@ -99,11 +99,17 @@ def inspect(source_url, document):
     }
 
 def required_footer(text):
-    if not isinstance(text, str):
+    if not isinstance(text, str) or not text.strip():
         raise ValueError("INVALID_POST_TEXT")
-    # Telegram HTML formatting; the URL must be explicitly embedded.
+    # Telegram HTML formatting; guard against repeated or misplaced footer.
     label = html.escape(FOOTER_LABEL)
-    return text.rstrip() + '\n\n<b><a href="' + FOOTER_URL + '">' + label + "</a></b>"
+    footer = '<b><a href="' + FOOTER_URL + '">' + label + "</a></b>"
+    cleaned = text.rstrip()
+    if cleaned.endswith(footer):
+        return cleaned
+    if FOOTER_URL in cleaned or FOOTER_LABEL in cleaned or label in cleaned:
+        raise ValueError("FOOTER_ALREADY_PRESENT_OR_UNVERIFIED")
+    return cleaned + '\\n\\n' + footer
 
 def selftest():
     source = "https://t.me/supernova_plus/62837"
@@ -128,6 +134,11 @@ def selftest():
         else: raise AssertionError("POST_ID_GUARD_FAILED")
     footer = required_footer("Тест")
     assert footer.count(FOOTER_URL) == 1 and footer.count(html.escape(FOOTER_LABEL)) == 1
+    assert required_footer(footer) == footer
+    try: required_footer("Тест " + FOOTER_URL)
+    except ValueError as ex: assert str(ex)=="FOOTER_ALREADY_PRESENT_OR_UNVERIFIED"
+    else: raise AssertionError("FOOTER_DUPLICATION_NOT_BLOCKED")
+    print("FOOTER_IDEMPOTENCY_AND_MISPLACED_LINK_GUARD_PASS")
     print("RG_ALBUM_INTAKE_GUARD_SELFTEST_PASS")
     print("VIDEO_ALBUM_3_FIXTURE_PASS")
     print("URL_NORMALIZATION_AND_DEDUP_PASS")
