@@ -183,8 +183,12 @@ def repair_claim_fields(
             # The old provenance MUST NOT survive a description rewrite.
             # Require independently supplied per-sentence exact citations.
             revised["sentence_provenance"] = result.get("sentences")
-            if check_sentence_provenance(revised, claim_ledger):
-                diagnostics[field] = "DESCRIPTION_PROVENANCE_INVALID"
+            problems = check_sentence_provenance(revised, claim_ledger)
+            if problems:
+                # Emit a precise, fixed-code diagnostic only, never the
+                # private sentence or SRT text.
+                reason = str(problems[0].get("reason") or "UNKNOWN")
+                diagnostics[field] = "DESCRIPTION_PROVENANCE_INVALID:" + reason
                 continue
         if not _ids_valid(revised, field, allowed):
             diagnostics[field] = "SOURCE_LINKS_OR_SHAPE_INVALID"
