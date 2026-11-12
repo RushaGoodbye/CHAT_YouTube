@@ -84,7 +84,7 @@ def verify_local_originals(album, base):
     for item in videos:
         name=item.get("local_file") if isinstance(item,dict) else None
         if (not isinstance(name,str) or
-            not re.fullmatch(r"[A-Za-z0-9_-]{1,100}\\.mp4", name)):
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,100}\.mp4", name)):
             raise GateError("INVALID_MEDIA_FILE_NAME")
         path=base_real/name
         if path.is_symlink() or not path.is_file():
