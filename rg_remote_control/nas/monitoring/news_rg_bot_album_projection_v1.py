@@ -97,6 +97,34 @@ def project(updates, expected_chat=None, expected_group=None):
         })
     return results
 
+def private_video_refs(updates, *, expected_chat, expected_group, expected_count):
+    """For trusted in-process single owner only; never log or serialize return value.
+
+    All members must be present in provided capture, and their identifiers must
+    be unique. Actual Bot API getFile still must be performed by current owner.
+    """
+    if type(expected_chat) is not int or expected_chat == 0:
+        raise AlbumError("INVALID_EXPECTED_CHAT")
+    if not isinstance(expected_group, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",expected_group):
+        raise AlbumError("INVALID_EXPECTED_MEDIA_GROUP")
+    if type(expected_count) is not int or not (1 <= expected_count <= 10):
+        raise AlbumError("INVALID_EXPECTED_COUNT")
+    result=project(updates,expected_chat=expected_chat,expected_group=expected_group)
+    if len(result) != 1 or result[0]["video_count_observed"] != expected_count:
+        raise AlbumError("INCOMPLETE_MEDIA_GROUP")
+    ids=[]
+    for item in updates:
+        m=item.get("message") if isinstance(item,dict) else None
+        if not isinstance(m,dict):
+            continue
+        if m.get("media_group_id") != expected_group or (m.get("chat") or {}).get("id") != expected_chat:
+            continue
+        ids.append((m["message_id"],m["video"]["file_id"]))
+    ids.sort()
+    if len(ids) != expected_count:
+        raise AlbumError("INCOMPLETE_MEDIA_GROUP")
+    return tuple(file_id for _,file_id in ids)
+
 def fixture():
     return [
         {"update_id": i+500,
@@ -117,6 +145,11 @@ def selftest():
     assert result[0]["ready_to_publish"] is False
     assert "secret_file" not in json.dumps(result)
     assert project(data,expected_chat=99)==[]
+    refs=private_video_refs(data,expected_chat=1234,expected_group="group_001",expected_count=3)
+    assert refs==("secret_file_1","secret_file_2","secret_file_3")
+    try: private_video_refs(data[:2],expected_chat=1234,expected_group="group_001",expected_count=3)
+    except AlbumError as e: assert str(e)=="INCOMPLETE_MEDIA_GROUP"
+    else: raise AssertionError("INCOMPLETE_MEDIA_GROUP_ACCEPTED")
     unsafe_cases=[
         ("DUPLICATE_UPDATE_ID",lambda d:d[1].update(update_id=d[0]["update_id"])),
         ("DUPLICATE_MESSAGE",lambda d:d[1]["message"].update(message_id=d[0]["message"]["message_id"])),
@@ -137,6 +170,7 @@ def selftest():
     print("BOT_API_ALBUM_THREE_VIDEO_PROJECTION_PASS")
     print("BOT_API_EIGHT_INVALID_INPUTS_REJECTED_PASS")
     print("BOT_API_FILE_IDS_REDACTED_PASS")
+    print("BOT_API_PRIVATE_FILE_REFS_COMPLETE_GROUP_ONLY_PASS")
     print("BOT_API_ALBUM_COMPLETENESS_REQUIRES_OWNER_CONFIRMATION_PASS")
     print("NO_TELEGRAM_NETWORK_OR_SECOND_POLLER_PASS")
 
