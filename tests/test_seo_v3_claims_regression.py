@@ -310,10 +310,14 @@ def test_quote_extraction_has_shorter_timeout_than_editorial_generation():
     try:
         seo_v2_cli._local_chat(
             "Extract up to three substantial verbatim statements from cues")
+        seo_v2_cli._local_chat(
+            "Classify the main topics of this portion of the conversation")
+        seo_v2_cli._local_chat(
+            "Merge overlapping topics of this video")
         seo_v2_cli._local_chat("TASK 1 OF 3: compose a title")
     finally:
         seo_v2_cli.lm_studio_chat = original
-    assert captured == [45, 180]
+    assert captured == [45, 45, 45, 180]
 
 
 def test_v3_literal_source_extraction_never_calls_model():
