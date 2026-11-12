@@ -6,7 +6,6 @@ the SINGLE existing update owner. Does not poll, send, download, or persist.
 Do not equate a public post URL with this Bot API media projection.
 """
 import argparse
-import hashlib
 import json
 import re
 
@@ -192,13 +191,17 @@ def main():
     p=Path(args.input_file)
     if p.is_symlink() or not p.is_file() or p.stat().st_size>2_000_000:
         raise SystemExit("UNSAFE_CAPTURE_FILE")
-    data=json.loads(p.read_text(encoding="utf-8-sig"))
-    if isinstance(data,dict):
-        data=data.get("updates")
     try:
+        data=json.loads(p.read_text(encoding="utf-8-sig"))
+        if isinstance(data,dict):
+            data=data.get("updates")
         result=project(data,expected_chat=args.chat_id)
-    except AlbumError as e:
-        print(json.dumps({"status":"SAFE_STOP","reason":str(e),"public_publication":"OFF"}))
+    except (AlbumError, ValueError, UnicodeError, OSError, RecursionError) as e:
+        reason=str(e) if isinstance(e,AlbumError) else "UNREADABLE_CAPTURE"
+        print(json.dumps({"status":"SAFE_STOP","reason":reason,"public_publication":"OFF"}))
+        raise SystemExit(2)
+    except TypeError:
+        print(json.dumps({"status":"SAFE_STOP","reason":"UNSAFE_CAPTURE_SCHEMA","public_publication":"OFF"}))
         raise SystemExit(2)
     print(json.dumps({"status":"READ_ONLY_PROJECTION","albums":result,
                       "public_publication":"OFF"},ensure_ascii=False,sort_keys=True))
