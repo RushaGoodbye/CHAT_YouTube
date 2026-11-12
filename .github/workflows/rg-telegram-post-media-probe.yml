@@ -18,6 +18,27 @@ jobs:
     runs-on: [self-hosted, rg, nas]
     timeout-minutes: 5
     steps:
+      - name: Confirm album video count and whether direct MP4 is available
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re,urllib.request
+          url='https://t.me/supernova_plus/62837?embed=1&mode=tme'
+          with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'}),timeout=20) as response:
+              doc=response.read(250000).decode('utf-8','replace')
+          target=doc.find('data-post="supernova_plus/62837"')
+          assert target>=0,'TARGET_MISSING'
+          html=doc[target:]
+          players=re.findall(r'<a[^>]*class="[^"]*tgme_widget_message_video_player[^"]*"[^>]*>',html)
+          unsupported=sum('not_supported' in tag for tag in players)
+          print('POST_ID=supernova_plus/62837')
+          print('VIDEO_COUNT='+str(len(players)))
+          print('UNSUPPORTED_WEB_PLAYER_COUNT='+str(unsupported))
+          print('DIRECT_MP4_IN_HTML='+str(bool(re.search(r'<video[^>]+src=|<source[^>]+src=|https?://[^\s"<>]+\.mp4(?:[?"&]|$)',html,re.I))).lower())
+          print('AUTH_REQUIRED_FOR_ORIGINAL_VIDEO=UNDETERMINED')
+          print('NO_DOWNLOADS')
+          print('ALBUM_CHECK_COMPLETE')
+          PY
       - name: Inspect target media tag structure and URL reachability
         shell: bash
         run: |
