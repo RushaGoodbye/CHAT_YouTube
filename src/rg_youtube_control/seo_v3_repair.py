@@ -193,8 +193,15 @@ def repair_claim_fields(
             "Do NOT answer a question from a QUESTION citation. A question "
             "about an alleged real cause only supports a question ABOUT "
             "that cause, not a keyword asserting a real cause exists. "
-            "When revising tags, keep 8-15 DISTINCT, specific neutral "
-            "Ukrainian SUBJECT phrases, not outcomes or unsupported motives. "
+            "When revising tags, return 10-12 DISTINCT, specific neutral "
+            "Ukrainian SUBJECT phrases (the acceptance window is 8-15). "
+            "Count the actual distinct tags in your JSON before returning. "
+            "If the rejected tags need replacement, supply a different "
+            "source-backed phrase for EACH rejected tag, do not silently "
+            "drop it. Keep at least eight entries after deduplication. "
+            "Do not create filler or fabricated claims if the original "
+            "transcript cannot support eight. "
+            "Tags must not assert outcomes or unsupported motives. "
             "Every tag must be in Ukrainian: do not copy Russian keywords "
             "from a Russian SRT unchanged. Avoid Russian letters ы, э, ъ, ё "
             "and Russian words such as 'почему', 'россия', 'собеседник'. "
@@ -301,6 +308,11 @@ def repair_claim_fields(
                 continue
         if not _ids_valid(revised, field, allowed):
             diagnostics[field] = "SOURCE_LINKS_OR_SHAPE_INVALID"
+            continue
+        # Reject incomplete replacements before spending a reviewer call.
+        # This is a structural guard, not permission to invent tags.
+        if field == "tags" and not (8 <= len(revised["tags"]) <= 15):
+            diagnostics[field] = "TAG_COUNT_INVALID"
             continue
         if revised[field] == candidate[field] and new_support == field_support:
             diagnostics[field] = "UNCHANGED"
