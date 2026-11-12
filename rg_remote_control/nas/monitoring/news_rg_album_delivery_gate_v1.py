@@ -9,6 +9,7 @@ import hashlib
 import json
 import pathlib
 import re
+import os
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
 MEDIA_GROUP = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -61,11 +62,50 @@ def validate(album):
     if album.get("publication_receipt") is not None:
         raise GateError("ALREADY_PUBLISHED_OR_UNCERTAIN")
     # Keep final deployment gated: validation alone never authorizes publishing.
-    return {"status":"MEDIA_HANDOFF_QA_PASS",
+    return {"status":"MANIFEST_CONSISTENCY_PASS",
             "video_count":expected,
             "source":source,
             "public_publication":"OFF",
             "publication_authorized":False}
+
+def verify_local_originals(album, base):
+    """Verify bytes of existing, operator-supplied MP4 files, read-only.
+
+    The caller must provide a trusted directory. Does not prove Telegram provenance.
+    """
+    base = pathlib.Path(base)
+    if base.is_symlink() or not base.is_dir():
+        raise GateError("UNSAFE_MEDIA_DIRECTORY")
+    videos=album.get("videos")
+    if not isinstance(videos,list) or not videos:
+        raise GateError("VIDEO_COUNT_MISMATCH")
+    base_real=base.resolve(strict=True)
+    verified=[]
+    for item in videos:
+        name=item.get("local_file") if isinstance(item,dict) else None
+        if (not isinstance(name,str) or
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,100}\\.mp4", name)):
+            raise GateError("INVALID_MEDIA_FILE_NAME")
+        path=base_real/name
+        if path.is_symlink() or not path.is_file():
+            raise GateError("UNSAFE_MEDIA_FILE")
+        size=path.stat().st_size
+        if not (12 <= size <= MAX_VIDEO_BYTES):
+            raise GateError("VIDEO_SIZE_UNVERIFIED")
+        h=hashlib.sha256()
+        with path.open("rb") as fp:
+            head=fp.read(12)
+            if head[4:8] != b"ftyp":
+                raise GateError("VIDEO_FORMAT_UNVERIFIED")
+            h.update(head)
+            for chunk in iter(lambda: fp.read(1024*1024),b""):
+                h.update(chunk)
+        if size != item.get("bytes") or h.hexdigest() != item.get("sha256"):
+            raise GateError("VIDEO_INTEGRITY_MISMATCH")
+        verified.append({"local_file":name,"size":size,"sha256":h.hexdigest()})
+    return {"status":"LOCAL_MP4_INTEGRITY_PASS",
+            "verified_count":len(verified),"telegram_provenance_verified":False,
+            "public_publication":"OFF"}
 
 def demo():
     source="https://t.me/supernova_plus/62837"
@@ -102,6 +142,27 @@ def selftest():
             assert str(ex)==reason,(reason,str(ex))
         else:
             raise AssertionError("UNSAFE_HANDOFF_NOT_BLOCKED: "+reason)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        demo_album=demo()
+        for i,item in enumerate(demo_album["videos"],1):
+            filename=f"video_{i}.mp4"
+            payload=b"\\x00\\x00\\x00\\x18ftypisom" + bytes([i])*64
+            pathlib.Path(tmp,filename).write_bytes(payload)
+            item["local_file"]=filename
+            item["bytes"]=len(payload)
+            item["sha256"]=hashlib.sha256(payload).hexdigest()
+        result=verify_local_originals(demo_album,tmp)
+        assert result["verified_count"]==3 and result["public_publication"]=="OFF"
+        pathlib.Path(tmp,"video_2.mp4").write_bytes(b"\\x00"*80)
+        try:
+            verify_local_originals(demo_album,tmp)
+        except GateError as e:
+            assert str(e)=="VIDEO_FORMAT_UNVERIFIED"
+        else:
+            raise AssertionError("CORRUPTED_MP4_NOT_BLOCKED")
+    print("LOCAL_FILE_SHA256_AND_MP4_HEADER_PASS")
+    print("CORRUPTED_VIDEO_REJECTED_PASS")
     print("ALBUM_THREE_VIDEO_GATE_PASS")
     print("TEN_UNSAFE_HANDOFF_CASES_BLOCKED_PASS")
     print("PUBLICATION_DEFAULT_OFF_PASS")
