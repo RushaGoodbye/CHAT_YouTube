@@ -430,3 +430,23 @@ def test_topic_model_timeout_preserves_literal_evidence_without_fake_events():
     assert all(topic["label_uk"] == "Теми розмови" for topic in topics)
     assert all("start_ms" not in prompt and "cue_indices" not in prompt
                for prompt in prompts)
+
+
+def test_genuine_unanswered_cause_question_not_equated_with_proven_cause():
+    from rg_youtube_control.seo_v3_claims import check_claim_type_constraints
+    ledger = {"claims": [{"claim_id": "ev", "source_type": "QUESTION",
+                          "source_quote": "Чому його звільнили?"}]}
+    draft = {
+        "title": "Яка справжня причина звільнення?",
+        "title_variants": [], "description": "",
+        "tags": [],
+        "support_ids": {"title": ["ev"], "description": ["ev"]},
+    }
+    assert not any(x["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+                   for x in check_claim_type_constraints(draft, ledger))
+    draft["title"] = "Справжня причина звільнення відома"
+    assert any(x["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+               for x in check_claim_type_constraints(draft, ledger))
+    draft["title"] = "Справжня причина звільнення?"
+    assert any(x["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+               for x in check_claim_type_constraints(draft, ledger))
