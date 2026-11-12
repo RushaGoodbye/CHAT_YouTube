@@ -213,3 +213,72 @@ def literal_evidence_from_cues(cues: list[Any], *, per_window: int = 5) -> tuple
         for indices in windows
     ]
     return ledger, window_info
+
+
+def select_source_topics_without_llm(
+    ledger: dict[str, Any], *, max_topics: int = 3, group_size: int = 8,
+) -> list[dict[str, Any]]:
+    """Rank source quotation groups WITHOUT an extra local model request.
+
+    Source-grounded lexical overlap is only a *candidate relevance signal*,
+    not an inferred event, person or asserted topic fact. Final titles and
+    descriptions must still cite exact claims and pass independent QA.
+    """
+    from collections import Counter
+
+    evidence = list(ledger.get("accepted") or [])
+    if not evidence:
+        return []
+    stopwords = {
+        "який", "яка", "яке", "вони", "його", "йому", "тому", "вона", "було",
+        "буде", "тебе", "мене", "просто", "можна", "треба", "дуже", "якщо",
+        "зараз", "коли", "навіщо", "цього", "цьому", "себе", "далі",
+        "потому", "когда", "почему", "который", "которая", "которые",
+        "просто", "можно", "нужно", "очень", "сейчас", "потому", "тогда",
+        "чтобы", "этого", "этому", "себя", "есть", "будет", "было",
+        "были", "таких", "такая", "такое", "сказал", "знаешь", "думаю",
+    }
+    words = [
+        set(re.findall(r"(?u)\b[а-яґєіїёэыъь]{4,}\b",
+                       str(row.get("quote") or "").casefold())) - stopwords
+        for row in evidence
+    ]
+    frequency = Counter(term for group in words for term in group)
+    # Repeat across independent evidence excerpts matters more than a
+    # single vivid but potentially unrepresentative quoted phrase.
+    scores = [
+        sum(min(frequency[w], 7) - 1 for w in group if frequency[w] >= 2)
+        + min(3, len(group))
+        for group in words
+    ]
+    available = set(range(len(evidence)))
+    topics = []
+    for rank in range(1, min(max_topics, len(evidence)) + 1):
+        if not available:
+            break
+        seed = max(
+            available,
+            key=lambda i: (scores[i], len(str(evidence[i].get("quote") or "")), -i),
+        )
+        terms = words[seed]
+        related = sorted(
+            available - {seed},
+            key=lambda i: (
+                len(terms & words[i]),
+                scores[i],
+                -abs(i - seed),
+            ),
+            reverse=True,
+        )
+        # A group with no common significant terms is simply source sampling,
+        # not a fabricated semantic link; never label it as a known event.
+        picked = [seed, *related[:max(0, group_size - 1)]]
+        for index in picked:
+            available.discard(index)
+        topics.append({
+            "rank": rank,
+            "label_uk": f"Цитати з розмови {rank}",
+            "evidence_ids": [evidence[index]["evidence_id"] for index in picked],
+            "selection_method": "verbatim_lexical_overlap",
+        })
+    return topics
