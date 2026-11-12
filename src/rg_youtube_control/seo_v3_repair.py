@@ -160,8 +160,13 @@ def repair_claim_fields(
                             "text": text, "evidence_ids": ids,
                         }],
                     }
-                    if (not check_claim_type_constraints(single, claim_ledger)
-                            and not check_cited_numbers(single, claim_ledger)):
+                    if (not any(
+                            issue.get("field") == "description"
+                            for issue in check_claim_type_constraints(single, claim_ledger)
+                        ) and not any(
+                            issue.get("field") == "description"
+                            for issue in check_cited_numbers(single, claim_ledger)
+                        )):
                         valid_prior_sentences.append({
                             "text": text, "evidence_ids": ids,
                         })
