@@ -192,6 +192,9 @@ def generate_claim_first_seo(
     evidence, windows = literal_evidence_from_cues(cues)
     evidence = expand_literal_coverage(cues, evidence)
     topics = _select_topics(evidence, chat)
+    topic_selection_degraded = any(
+        topic.get("topic_fallback") for topic in topics
+    )
     proof = _proof_index(evidence, topics)
     # Name spelling is checked against the entire literal transcript, not
     # just the short excerpt selected for generation. This does not create
@@ -301,6 +304,7 @@ def generate_claim_first_seo(
         gate["sentence_provenance_issues"] = provenance_issues
     status = "READY_FOR_HUMAN_REVIEW"
     if (gate["issues"] or modality_issues or names or extra_numbers
+            or topic_selection_degraded
             or review is None
             or review.get("review_status") != "SOURCE_AUDITED"
             or review.get("issues")):
@@ -321,6 +325,7 @@ def generate_claim_first_seo(
         "unverified_names": names,
         "independent_review": review,
         "topics": topics,
+        "topic_selection_degraded": topic_selection_degraded,
         "evidence": evidence,
         "windows": windows,
         "writer_evidence_quotes": len(proof),
