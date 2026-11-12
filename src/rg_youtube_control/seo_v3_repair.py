@@ -129,6 +129,25 @@ def repair_claim_fields(
             cited_claims[:claim_budget]
             + alternative_claims[:max(0, claim_budget - len(cited_claims))]
         )
+        prior_sentences = candidate.get("sentence_provenance") or []
+        # Salvage source-valid existing sentences when repairing a short
+        # description. Rewriting all of them at once regularly discarded
+        # valid evidence, introduced unfamiliar names, and returned <400 chars.
+        valid_prior_sentences: list[dict[str, Any]] = []
+        if field == "description" and isinstance(prior_sentences, list):
+            from .seo_v3_fields import _preserves_modality
+            for row in prior_sentences:
+                if not isinstance(row, dict):
+                    continue
+                text = str(row.get("text") or "").strip()
+                ids = row.get("evidence_ids") or []
+                if (text and isinstance(ids, list) and ids
+                        and all(isinstance(eid, str) and eid in indexed for eid in ids)
+                        and any(_preserves_modality(
+                            text, indexed[eid].get("source_type", "")
+                        ) for eid in ids)
+                        and not _field_names({"description": text}, "description", proof)):
+                    valid_prior_sentences.append({"text": text, "evidence_ids": ids})
         prompt = (
             "You are a Ukrainian SEO source-faithfulness correction editor. "
             "Fix ONLY the requested field, ONCE. All facts must come from "
@@ -180,6 +199,13 @@ def repair_claim_fields(
             "No other fields.\nFIELD: " + field
             + "\nCURRENT FIELD: " + json.dumps(candidate.get(field), ensure_ascii=False)
             + "\nCURRENT EVIDENCE IDS: " + json.dumps(field_support, ensure_ascii=False)
+            + ("\nVALID EXISTING CITED SENTENCES: "
+               + json.dumps(valid_prior_sentences, ensure_ascii=False)
+               + "\nPreserve these safe source-attributed sentences verbatim in "
+                 "the new sentence list. Add only distinct needed sentences "
+                 "grounded in unused source claims. If this cannot reach "
+                 "400 characters, return no revision. "
+               if field == "description" and valid_prior_sentences else "")
             + "\nEXACT EDITOR REJECTIONS: " + json.dumps(reasons, ensure_ascii=False)
             + "\nUNVERIFIED NAMES TO REMOVE: " + json.dumps(banned_names, ensure_ascii=False)
             + "\nSOURCE-TYPED CLAIMS: " + json.dumps(claims_for_field, ensure_ascii=False)
