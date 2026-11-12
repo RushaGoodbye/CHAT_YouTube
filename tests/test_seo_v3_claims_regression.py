@@ -845,3 +845,45 @@ def test_field_repair_prompt_is_bounded_and_prioritizes_cited_claims():
         row["claim_id"] for row in claims
     }
     assert not any(row["claim_id"] == "ev_24" for row in displayed)
+
+
+def test_short_description_repair_receives_existing_cited_sentences():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    claim = {"claim_id": "ev_a", "source_type": "SPEAKER_STATEMENT",
+             "source_quote": "Я про це говорив."}
+    sentence = "Учасник розповів про своє бачення питання."
+    draft = {
+        "title": "Тема розмови",
+        "title_variants": ["Питання", "Обговорення", "Діалог"],
+        "description": sentence,
+        "tags": ["розмова"],
+        "support_ids": {
+            "title": ["ev_a"], "title_variants": [["ev_a"]] * 3,
+            "description": ["ev_a"], "tags": [["ev_a"]],
+        },
+        "sentence_provenance": [
+            {"text": sentence, "evidence_ids": ["ev_a"]}
+        ],
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": None, "evidence_ids": None}
+    def reviewer(_):
+        raise AssertionError("No edit must be reviewed")
+    def gate(_):
+        return {
+            "issues": ["DESCRIPTION_LENGTH_INVALID"],
+            "format": {"problems": {}},
+            "editorial": {"issues": {"description": ["TOO_SHORT"]}},
+        }
+    _, _, _, diagnostic = repair_claim_fields(
+        draft, {"claims": [claim]}, [], {
+            "review_status": "SOURCE_AUDITED", "issues": []
+        }, writer, reviewer, gate,
+    )
+    assert diagnostic["description"] == "NO_SAFE_REVISION"
+    assert len(prompts) == 1
+    assert "VALID EXISTING CITED SENTENCES:" in prompts[0]
+    assert sentence in prompts[0]
+    assert "Preserve these safe source-attributed sentences" in prompts[0]
