@@ -590,3 +590,43 @@ def test_lmstudio_headline_stage_uses_bounded_request_budget():
     finally:
         seo_v2_cli.lm_studio_chat = original
     assert seen == [(100, 1100), (120, 1400), (135, 1800)]
+
+
+def test_source_topic_ranking_uses_only_literal_ids_without_model():
+    from rg_youtube_control.seo_v3_claims import select_source_topics_without_llm
+    rows = [
+        {"evidence_id": "ev_a", "quote": "Учасники обговорюють нафтопереробний завод і пожежу."},
+        {"evidence_id": "ev_b", "quote": "Ведучий питає про нафтопереробний завод."},
+        {"evidence_id": "ev_c", "quote": "Мовець розповідає про футбольний матч."},
+        {"evidence_id": "ev_d", "quote": "Співрозмовник повертається до теми пожежі на заводі."},
+        {"evidence_id": "ev_e", "quote": "Інший учасник згадує футбольний матч."},
+    ]
+    topics = select_source_topics_without_llm({"accepted": rows}, group_size=2)
+    assert topics and len(topics) <= 3
+    assert all(topic["selection_method"] == "verbatim_lexical_overlap"
+               for topic in topics)
+    assert all(topic["label_uk"].startswith("Цитати з розмови")
+               for topic in topics)
+    all_ids = {row["evidence_id"] for row in rows}
+    assert {eid for t in topics for eid in t["evidence_ids"]} <= all_ids
+    assert len({eid for t in topics for eid in t["evidence_ids"]}) == len(rows)
+    assert all(len(t["evidence_ids"]) <= 2 for t in topics)
+
+
+def test_pipeline_does_not_request_model_for_verbatim_quote_topic_selection():
+    from rg_youtube_control import seo_v3_pipeline
+    from rg_youtube_control.seo_v2_evidence import parse_srt
+    srt = ("1\n00:00:00,000 --> 00:00:01,500\n"
+           "Ведучий обговорює причини рішення.\n\n"
+           "2\n00:00:01,501 --> 00:00:03,000\n"
+           "Співрозмовник запитує про рішення.")
+    calls = []
+    def chat(prompt):
+        calls.append(prompt)
+        raise RuntimeError("Stop at first requested model stage")
+    try:
+        seo_v3_pipeline.generate_claim_first_seo(srt, chat)
+    except RuntimeError:
+        pass
+    assert calls and calls[0].find("TASK 1 OF 3:") != -1
+    assert not any("Classify the main topics" in p for p in calls)
