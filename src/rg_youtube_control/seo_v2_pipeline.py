@@ -117,7 +117,13 @@ def _extract(cues: list[Cue], chat: Chat) -> tuple[dict[str, Any], list[dict[str
             "\"cue_indices\":[0]}]}. No topic titles, no inferred claims.\n"
             "SOURCE CUES:\n" + json.dumps(captions, ensure_ascii=False)
         )
-        candidates = _parse_proposals(_ask(chat, prompt), indices)
+        # An inference timeout must not discard all remaining SRT windows.
+        # Fall back to verified LITERAL cues, never to model-made summaries.
+        # Record the failed windows so editorial QA can inspect coverage.
+        try:
+            candidates = _parse_proposals(_ask(chat, prompt), indices)
+        except (RuntimeError, TimeoutError, ValueError, TypeError):
+            candidates = []
         verified_model_quotes = [
             item for item in candidates
             if verify_quote(item["quote"], cues, item["cue_indices"]) is not None
