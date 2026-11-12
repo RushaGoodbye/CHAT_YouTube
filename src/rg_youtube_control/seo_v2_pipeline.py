@@ -199,11 +199,20 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
         return results
 
     candidates: list[dict[str, Any]] = []
-    # Topic classification only needs words and evidence IDs. Sending
-    # timestamps, cue indices and other provenance metadata bloats prompts
-    # and can exhaust the local inference time budget on RTX 4080.
-    for offset in range(0, len(evidence), 8):
-        chunk = evidence[offset:offset + 8]
+    # Bound local inference regardless of transcript duration: at most
+    # five representative map calls. Spread samples over the WHOLE timeline.
+    # The complete literal source ledger is untouched for provenance checks.
+    chunk_size = 8
+    starts = list(range(0, len(evidence), chunk_size))
+    if len(starts) > 5:
+        starts = [
+            starts[round(i * (len(starts) - 1) / 4)]
+            for i in range(5)
+        ]
+    # Topic classification only needs literal words and evidence IDs.
+    backend_failed = False
+    for offset in starts:
+        chunk = evidence[offset:offset + chunk_size]
         prompt = (
             "Classify the main topics of this portion of an arbitrary "
             "conversation, in Ukrainian. No assumptions about channel, "
@@ -217,14 +226,16 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
                 for row in chunk
             ], ensure_ascii=False)
         )
-        try:
-            raw_topics = _ask(chat, prompt)
-            selected = parse_topics(
-                raw_topics, {item["evidence_id"] for item in chunk},
-                maximum=4,
-            )
-        except (RuntimeError, TimeoutError, ValueError, TypeError):
-            selected = []
+        selected = []
+        if not backend_failed:
+            try:
+                raw_topics = _ask(chat, prompt)
+                selected = parse_topics(
+                    raw_topics, {item["evidence_id"] for item in chunk},
+                    maximum=4,
+                )
+            except (RuntimeError, TimeoutError, ValueError, TypeError):
+                backend_failed = True
         if not selected:
             # A real, source-cited topic GROUP is safer than either
             # inventing a topic or aborting the whole video. Never present
