@@ -314,3 +314,23 @@ def test_quote_extraction_has_shorter_timeout_than_editorial_generation():
     finally:
         seo_v2_cli.lm_studio_chat = original
     assert captured == [45, 180]
+
+
+def test_v3_literal_source_extraction_never_calls_model():
+    from rg_youtube_control.seo_v3_claims import literal_evidence_from_cues
+    from rg_youtube_control.seo_v2_evidence import Cue
+    cues = [
+        Cue(0, 1200, "Ведучий розповідає про заяву учасника."),
+        Cue(1300, 2500, "Співрозмовник питає, чому це відбулося."),
+        Cue(2600, 4000, "Учасники обговорюють наслідки різних рішень."),
+        Cue(500000, 501000, "Окрема частина розмови присвячена новій темі."),
+        Cue(501100, 502300, "Учасник запитує про обставини іншого випадку."),
+    ]
+    ledger, windows = literal_evidence_from_cues(cues)
+    assert len(windows) == 2
+    assert ledger["deterministic_source_only"] is True
+    assert ledger["windows_without_quotes"] == []
+    assert len(ledger["accepted"]) >= 2
+    assert all(row["quote"] in [cue.text for cue in cues]
+               for row in ledger["accepted"])
+    assert ledger["publication_allowed"] is False
