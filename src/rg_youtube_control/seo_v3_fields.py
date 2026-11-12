@@ -130,7 +130,7 @@ def compose_claim_fields(
     description = _ask_json(
         chat,
         common
-        + "TASK 2 OF 3: write 5-7 concise Ukrainian sentences ABOUT THE "
+        + "TASK 2 OF 3: write 7-8 distinct Ukrainian sentences ABOUT THE "
           "DISCUSSION, not a narrative of supposedly proven events. "
           "Each sentence must focus on ONE cited claim and preserve its "
           "source_type: for QUESTION say what was asked, CONDITIONAL "
@@ -141,8 +141,8 @@ def compose_claim_fields(
           "(no source here is). Target 400-900 characters IN TOTAL, only "
           "when enough source material supports them; do not repeat "
           "sentences merely to reach the target. "
-          "Aim for 6-7 complete non-redundant sentences of approximately "
-          "65-110 characters each, using distinct literal cited details. "
+          "Aim for 7-8 complete non-redundant sentences of approximately "
+          "65-100 characters each, using distinct literal cited details. "
           "If the available claims cannot support 400 chars, fail short "
           "rather than invent an explanation. "
           "Return JSON: {\"sentences\":[{\"text\":\"...\","
@@ -174,14 +174,14 @@ def compose_claim_fields(
     # and modality-preserving statements may be added.
     previously_used = {eid for group in sentence_ids for eid in group}
     unused = [row for row in selected_claims if row["claim_id"] not in previously_used]
-    if len(desc) < 400 and unused and len(sentences) < 7:
+    if len(desc) < 400 and unused and len(sentences) < 9:
         extra_rows: list[dict[str, Any]] = []
         try:
             addendum = _ask_json(
                 chat,
                 common
                 + "TASK 2 CONTINUATION: The existing Ukrainian description "
-                  "is shorter than 400 characters. Add at most THREE "
+                  "is shorter than 400 characters. Add up to FIVE "
                   "distinct, specific Ukrainian sentences about topics "
                   "that have not yet been covered. Cite ONLY unused "
                   "claim_ids listed below; never repeat the existing "
@@ -197,7 +197,7 @@ def compose_claim_fields(
                 + json.dumps(unused, ensure_ascii=False),
             )
             if isinstance(addendum.get("sentences"), list):
-                extra_rows = addendum["sentences"][:3]
+                extra_rows = addendum["sentences"][:5]
         except (RuntimeError, ValueError, TypeError, TimeoutError):
             extra_rows = []
         unused_ids = {row["claim_id"] for row in unused}
