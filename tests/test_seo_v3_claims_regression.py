@@ -353,7 +353,7 @@ def test_description_repair_normalizes_whitespace_only_drift():
     second = "Учасник обговорює запитання."
     def writer(_):
         return {
-            "value": first + "\\n" + second,
+            "value": first + "\n" + second,
             "evidence_ids": ["ev_1"],
             "sentences": [
                 {"text": first, "evidence_ids": ["ev_1"]},
