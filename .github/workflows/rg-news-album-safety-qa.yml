@@ -65,6 +65,23 @@ jobs:
           for path,kind in risks: print("REVIEW_REQUIRED",kind,path)
           print("INVENTORY_ONLY_NO_CHANGES=1")
           PY
+      - name: Identify workflows eligible for NAS runner labels
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          patterns=[]
+          for path in sorted(pathlib.Path('.github/workflows').glob('*.yml')):
+              src=path.read_text(encoding='utf-8',errors='replace')
+              # Simple conservative scan of runs-on lines and immediate multiline array.
+              for m in re.finditer(r'(?m)^\s*runs-on:\s*(\[[^\]]*\]|[^\n]*)',src):
+                  labels=m.group(1).strip()
+                  if 'self-hosted' not in labels: continue
+                  relevant = ('nas' in labels.lower() or 'linux' in labels.lower() or labels=='self-hosted' or labels=='[self-hosted]')
+                  if relevant: patterns.append((str(path),labels))
+          print('NAS_POTENTIALLY_ELIGIBLE_WORKFLOWS',len(patterns))
+          for path,labels in patterns[:90]: print('NAS_MATCH_CANDIDATE',path,'LABELS',labels[:130])
+          print('SECURITY_SCAN_IS_CONSERVATIVE_NOT_ENFORCEMENT=1')
+          PY
       - name: Compile and offline tests
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py
