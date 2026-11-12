@@ -147,14 +147,14 @@ def selftest():
         demo_album=demo()
         for i,item in enumerate(demo_album["videos"],1):
             filename=f"video_{i}.mp4"
-            payload=b"\\x00\\x00\\x00\\x18ftypisom" + bytes([i])*64
+            payload=b"\x00\x00\x00\x18ftypisom" + bytes([i])*64
             pathlib.Path(tmp,filename).write_bytes(payload)
             item["local_file"]=filename
             item["bytes"]=len(payload)
             item["sha256"]=hashlib.sha256(payload).hexdigest()
         result=verify_local_originals(demo_album,tmp)
         assert result["verified_count"]==3 and result["public_publication"]=="OFF"
-        pathlib.Path(tmp,"video_2.mp4").write_bytes(b"\\x00"*80)
+        pathlib.Path(tmp,"video_2.mp4").write_bytes(b"\x00"*80)
         try:
             verify_local_originals(demo_album,tmp)
         except GateError as e:
