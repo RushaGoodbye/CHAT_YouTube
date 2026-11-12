@@ -10,6 +10,7 @@ import json
 import pathlib
 import re
 import os
+import stat
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
 MEDIA_GROUP = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -81,25 +82,42 @@ def verify_local_originals(album, base):
         raise GateError("VIDEO_COUNT_MISMATCH")
     base_real=base.resolve(strict=True)
     verified=[]
+    seen_names=set()
     for item in videos:
         name=item.get("local_file") if isinstance(item,dict) else None
         if (not isinstance(name,str) or
             not re.fullmatch(r"[A-Za-z0-9_-]{1,100}\.mp4", name)):
             raise GateError("INVALID_MEDIA_FILE_NAME")
+        if name in seen_names:
+            raise GateError("DUPLICATE_MEDIA_PATH")
+        seen_names.add(name)
         path=base_real/name
-        if path.is_symlink() or not path.is_file():
-            raise GateError("UNSAFE_MEDIA_FILE")
-        size=path.stat().st_size
-        if not (12 <= size <= MAX_VIDEO_BYTES):
-            raise GateError("VIDEO_SIZE_UNVERIFIED")
-        h=hashlib.sha256()
-        with path.open("rb") as fp:
-            head=fp.read(12)
-            if head[4:8] != b"ftyp":
-                raise GateError("VIDEO_FORMAT_UNVERIFIED")
-            h.update(head)
-            for chunk in iter(lambda: fp.read(1024*1024),b""):
-                h.update(chunk)
+        # No-follow stops a symlink swap between validation and opening.
+        flags=os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:
+            fd=os.open(path,flags)
+        except OSError:
+            raise GateError("UNSAFE_MEDIA_FILE") from None
+        try:
+            with os.fdopen(fd,"rb") as fp:
+                meta=os.fstat(fp.fileno())
+                if not stat.S_ISREG(meta.st_mode):
+                    raise GateError("UNSAFE_MEDIA_FILE")
+                size=meta.st_size
+                if not (12 <= size <= MAX_VIDEO_BYTES):
+                    raise GateError("VIDEO_SIZE_UNVERIFIED")
+                h=hashlib.sha256()
+                head=fp.read(12)
+                if head[4:8] != b"ftyp":
+                    raise GateError("VIDEO_FORMAT_UNVERIFIED")
+                h.update(head)
+                for chunk in iter(lambda: fp.read(1024*1024),b""):
+                    h.update(chunk)
+                after=os.fstat(fp.fileno())
+                if (after.st_size,after.st_mtime_ns,after.st_ino) != (meta.st_size,meta.st_mtime_ns,meta.st_ino):
+                    raise GateError("MEDIA_CHANGED_WHILE_READING")
+        except OSError:
+            raise GateError("UNSAFE_MEDIA_FILE") from None
         if size != item.get("bytes") or h.hexdigest() != item.get("sha256"):
             raise GateError("VIDEO_INTEGRITY_MISMATCH")
         verified.append({"local_file":name,"size":size,"sha256":h.hexdigest()})
@@ -154,6 +172,25 @@ def selftest():
             item["sha256"]=hashlib.sha256(payload).hexdigest()
         result=verify_local_originals(demo_album,tmp)
         assert result["verified_count"]==3 and result["public_publication"]=="OFF"
+        # Two records must never refer to a single file, even when hashes differ.
+        alias=copy.deepcopy(demo_album)
+        alias["videos"][1]["local_file"]="video_1.mp4"
+        try:
+            verify_local_originals(alias,tmp)
+        except GateError as e:
+            assert str(e)=="DUPLICATE_MEDIA_PATH"
+        else:
+            raise AssertionError("DUPLICATE_LOCAL_FILE_NOT_BLOCKED")
+        symlink=pathlib.Path(tmp,"video_2.mp4")
+        symlink.unlink()
+        symlink.symlink_to(pathlib.Path(tmp,"video_1.mp4"))
+        try:
+            verify_local_originals(demo_album,tmp)
+        except GateError as e:
+            assert str(e)=="UNSAFE_MEDIA_FILE"
+        else:
+            raise AssertionError("SYMLINK_MEDIA_NOT_BLOCKED")
+        symlink.unlink()
         pathlib.Path(tmp,"video_2.mp4").write_bytes(b"\x00"*80)
         try:
             verify_local_originals(demo_album,tmp)
@@ -161,6 +198,7 @@ def selftest():
             assert str(e)=="VIDEO_FORMAT_UNVERIFIED"
         else:
             raise AssertionError("CORRUPTED_MP4_NOT_BLOCKED")
+    print("DUPLICATE_PATH_AND_SYMLINK_BLOCKED_PASS")
     print("LOCAL_FILE_SHA256_AND_MP4_HEADER_PASS")
     print("CORRUPTED_VIDEO_REJECTED_PASS")
     print("ALBUM_THREE_VIDEO_GATE_PASS")
