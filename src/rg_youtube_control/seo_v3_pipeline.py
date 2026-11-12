@@ -292,6 +292,31 @@ def generate_claim_first_seo(
         # Rebuild the final gate from the FINAL draft after all repairs.
         # A previous candidate's global flags must not block a safe revision.
         gate = recheck(draft)
+        # The editor may have corrected a description but left a different
+        # unsourced proper name. Retry the lossless, whole-sentence filter
+        # on the final candidate, never replace a name with guessed text.
+        # A changed draft needs a NEW independent audit of ALL SEO fields.
+        cleaned, removed_after_repair = prune_unverified_description_sentences(
+            draft, name_proof, claim_ledger,
+        )
+        if removed_after_repair:
+            cleaned_gate = recheck(cleaned)
+            if not cleaned_gate.get("issues"):
+                try:
+                    cleaned_review = audit_draft_against_claims(
+                        cleaned, claim_ledger, independent_review,
+                    )
+                except (ValueError, RuntimeError, TypeError, TimeoutError):
+                    cleaned_review = {"review_status": "FAILED_CLOSED",
+                                      "issues": [{"field": "reviewer",
+                                                  "reason": "UNAVAILABLE"}]}
+                if (cleaned_review.get("review_status") == "SOURCE_AUDITED"
+                        and not cleaned_review.get("issues")):
+                    draft, gate, review = cleaned, cleaned_gate, cleaned_review
+                    name_sentence_pruned_count += removed_after_repair
+                    modality_issues = check_claim_type_constraints(draft, claim_ledger)
+                    names = unsupported_names(draft, name_proof)
+                    extra_numbers = sorted(_draft_numbers(draft) - _source_numbers(cues))
     # Numeric evidence must belong to the exact quotes cited by each
     # output field, not merely appear somewhere in an unrelated SRT cue.
     from .seo_v3_numbers import check_cited_numbers
