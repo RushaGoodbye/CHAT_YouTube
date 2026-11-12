@@ -630,3 +630,33 @@ def test_pipeline_does_not_request_model_for_verbatim_quote_topic_selection():
         pass
     assert calls and calls[0].find("TASK 1 OF 3:") != -1
     assert not any("Classify the main topics" in p for p in calls)
+
+
+def test_description_question_does_not_license_unrelated_assertion():
+    from rg_youtube_control.seo_v3_claims import check_claim_type_constraints
+    ledger = {"claims": [
+        {"claim_id": "ev_q", "source_type": "QUESTION",
+         "source_quote": "Чому це відбулося?"},
+        {"claim_id": "ev_s", "source_type": "SPEAKER_STATEMENT",
+         "source_quote": "Учасники обговорюють подію."},
+    ]}
+    question = "Ведучий запитує, яка справжня причина події?"
+    assertion = "Справжня причина події встановлена."
+    draft = {
+        "title": "Про що питають?", "title_variants": [], "tags": [],
+        "description": question + " " + assertion,
+        "support_ids": {"title": ["ev_q"],
+                        "description": ["ev_q", "ev_s"]},
+        "sentence_provenance": [
+            {"text": question, "evidence_ids": ["ev_q"]},
+            {"text": assertion, "evidence_ids": ["ev_s"]},
+        ],
+    }
+    problems = check_claim_type_constraints(draft, ledger)
+    assert any(row["field"] == "description" and
+               row["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+               for row in problems)
+    draft["description"] = question
+    draft["sentence_provenance"] = [{"text": question, "evidence_ids": ["ev_q"]}]
+    assert not any(row["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
+                   for row in check_claim_type_constraints(draft, ledger))
