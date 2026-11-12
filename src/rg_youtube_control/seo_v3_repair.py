@@ -298,6 +298,13 @@ def repair_claim_fields(
         if violations:
             diagnostics[field] = "CLAIM_MODALITY_FAILED"
             continue
+        # Numeric provenance is checked for the CHANGED field before any
+        # expensive independent LLM review, not only at final acceptance.
+        # A digit appearing elsewhere in an SRT is not field-level proof.
+        if any(issue.get("field") == field
+               for issue in check_cited_numbers(revised, claim_ledger)):
+            diagnostics[field] = "NUMERIC_PROVENANCE_FAILED"
+            continue
         new_gate = gate_check(revised)
         # Compare the edited field, not stale global flags. The initial
         # global gate can omit name warnings that are injected later by
@@ -324,9 +331,8 @@ def repair_claim_fields(
             str(item.get("field")) for item in checked.get("issues") or []
             if isinstance(item, dict)
         }
-        if field in remaining_fields or "reviewer" in remaining_fields or (
-            checked.get("review_status") == "FAILED_CLOSED"
-        ):
+        if (field in remaining_fields or "reviewer" in remaining_fields
+                or checked.get("review_status") != "SOURCE_AUDITED"):
             diagnostics[field] = "INDEPENDENT_REVIEW_REJECTED"
             continue
         if _field_format_issues(new_gate, field):
