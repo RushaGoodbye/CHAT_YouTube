@@ -87,6 +87,54 @@ def _fit_description_by_complete_sentences(
     return kept, ids
 
 
+def _select_related_claims(
+    claims: list[dict[str, Any]],
+    topics: list[dict[str, Any]],
+    *,
+    limit: int = 16,
+) -> list[dict[str, Any]]:
+    """Prioritize lead-topic literal quotes, then sample across time.
+
+    The former chronological [:12] selection could exclude every later
+    exchange and make an evidence-rich SRT look too thin to support a useful
+    description. This operates on literal claim IDs, never inferred facts.
+    """
+    if limit < 1:
+        return []
+    all_ids = {str(row["claim_id"]) for row in claims}
+    lead_ids = {
+        str(eid) for eid in ((topics[0].get("evidence_ids") or []) if topics else [])
+    } & all_ids
+    related_ids = {
+        str(eid) for topic in topics[:2]
+        for eid in (topic.get("evidence_ids") or [])
+    } & all_ids
+    if not related_ids:
+        related_ids = all_ids
+    eligible = [row for row in claims if row["claim_id"] in related_ids]
+    if len(eligible) <= limit:
+        return eligible
+
+    def spaced(rows: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+        if not rows or count < 1:
+            return []
+        if len(rows) <= count:
+            return rows[:]
+        if count == 1:
+            return [rows[0]]
+        return [rows[round(i * (len(rows) - 1) / (count - 1))]
+                for i in range(count)]
+
+    lead = [row for row in eligible if row["claim_id"] in lead_ids]
+    other = [row for row in eligible if row["claim_id"] not in lead_ids]
+    minimum_lead = min(len(lead), max(1, limit // 2))
+    chosen = spaced(lead, minimum_lead)
+    chosen_ids = {row["claim_id"] for row in chosen}
+    remaining = [row for row in eligible if row["claim_id"] not in chosen_ids]
+    chosen.extend(spaced(remaining, limit - len(chosen)))
+    return chosen
+
+
 def compose_claim_fields(
     ledger: dict[str, Any],
     topics: list[dict[str, Any]],
@@ -117,8 +165,10 @@ def compose_claim_fields(
     } & allowed
     if not selected_ids:
         selected_ids = allowed
-    # Description and tags need a wider but still bounded evidence scope.
-    selected_claims = [row for row in claims if row["claim_id"] in selected_ids][:12]
+    # Balance the lead subject with temporally dispersed related quotes.
+    # First-twelve chronological selection systematically missed later
+    # source details and led to needless short-description failures.
+    selected_claims = _select_related_claims(claims, topics, limit=16)
     selected_ids = {row["claim_id"] for row in selected_claims}
     common = (
         "Only use the SOURCE-TYPED CLAIM LEDGER. Every source entry records "
