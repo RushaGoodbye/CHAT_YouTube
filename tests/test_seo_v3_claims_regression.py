@@ -278,3 +278,22 @@ def test_repair_uses_deterministic_modality_rejections_even_if_reviewer_passes()
     assert diagnostics["title"] == "ACCEPTED"
     assert corrected["title"] == "Співрозмовник обговорює невідому причину"
     assert any("UNVERIFIED_OBJECTIVE_CERTAINTY" in prompt for prompt in prompts)
+
+
+def test_quote_extraction_timeout_uses_literal_verified_srt():
+    from rg_youtube_control.seo_v2_pipeline import _extract
+    from rg_youtube_control.seo_v2_evidence import Cue
+    cues = [
+        Cue(0, 1200, "Співрозмовник обговорює новини та ставить питання про події."),
+        Cue(1300, 2500, "Ведучий відповідає на запитання про наслідки і причини."),
+        Cue(2600, 4000, "Учасники дискутують про різні аспекти почутої історії."),
+    ]
+    def timed_out(_):
+        raise RuntimeError("LM Studio local inference timeout")
+    ledger, windows = _extract(cues, timed_out)
+    assert len(windows) == 1
+    assert ledger["deterministic_fallback_windows"] == [0]
+    assert len(ledger["accepted"]) >= 2
+    assert all(row["quote"] in [cue.text for cue in cues]
+               for row in ledger["accepted"])
+    assert ledger["publication_allowed"] is False
