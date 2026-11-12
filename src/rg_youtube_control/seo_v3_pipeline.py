@@ -284,7 +284,9 @@ def generate_claim_first_seo(
         gate["sentence_provenance_issues"] = provenance_issues
     status = "READY_FOR_HUMAN_REVIEW"
     if (gate["issues"] or modality_issues or names or extra_numbers
-            or review is None or review.get("issues")):
+            or review is None
+            or review.get("review_status") != "SOURCE_AUDITED"
+            or review.get("issues")):
         status = "REVIEW_REQUIRED"
     return {
         "pipeline": "RG_SEO_CLAIM_FIRST_V3",
