@@ -164,6 +164,18 @@ def repair_claim_fields(
         if new_value is None:
             diagnostics[field] = "NO_SAFE_REVISION"
             continue
+        if field == "description" and isinstance(new_value, str):
+            # Model responses sometimes differ only in paragraph whitespace.
+            # Canonicalise from the exact independently cited sentences,
+            # but never invent, drop or modify any actual words.
+            rows = result.get("sentences")
+            if isinstance(rows, list) and rows and all(
+                isinstance(row, dict) and isinstance(row.get("text"), str)
+                for row in rows
+            ):
+                joined = " ".join(str(row["text"]).strip() for row in rows)
+                if " ".join(new_value.split()) == " ".join(joined.split()):
+                    new_value = joined
         revised = deepcopy(candidate)
         revised[field] = new_value
         revised.setdefault("support_ids", {})[field] = new_support
