@@ -1,0 +1,92 @@
+name: RG Telegram NAS Read Only Ingress Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rg-telegram-nas-ingress-audit.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-telegram-nas-ingress-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: [self-hosted, rg, nas]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect stored Telegram ingress metadata without network or changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          root = Path('/volume1/docker/RG_TELEGRAM_NEWS_2/operator')
+          print('AUDIT_VERSION=1')
+          print('READ_ONLY=true')
+          print('TELEGRAM_API_CALLS=0')
+          print('PUBLICATIONS=0')
+          print('PATH_EXISTS=' + str(root.is_dir()).lower())
+          if not root.is_dir():
+              raise SystemExit('NAS_INGRESS_ROOT_NOT_FOUND')
+          files = sorted(root.glob('updates_handoff_guarded_*.json'),
+                         key=lambda x: x.stat().st_mtime, reverse=True)[:100]
+          print('FILES_INSPECTED=' + str(len(files)))
+          counts = Counter()
+          matched = {}
+          for path in files:
+              try:
+                  data = json.loads(path.read_text(encoding='utf-8-sig'))
+                  if isinstance(data, list):
+                      updates = data
+                      counts['list_root'] += 1
+                  elif isinstance(data, dict):
+                      counts['dict_root'] += 1
+                      updates = data.get('updates', [])
+                      if not isinstance(updates, list):
+                          counts['updates_not_list'] += 1
+                          continue
+                  else:
+                      counts['other_root'] += 1
+                      continue
+                  counts['updates'] += len(updates)
+                  for item in updates:
+                      if not isinstance(item, dict):
+                          continue
+                      message = item.get('message') or item.get('edited_message') or {}
+                      if not isinstance(message, dict) or not message:
+                          counts['non_message_updates'] += 1
+                          continue
+                      counts['messages'] += 1
+                      mid = message.get('message_id')
+                      if mid not in (141, 143):
+                          continue
+                      update_id = item.get('update_id')
+                      key = (mid, update_id)
+                      matched[key] = {
+                          'message_id': mid,
+                          'update_id': update_id,
+                          'has_text': isinstance(message.get('text'), str),
+                          'has_caption': isinstance(message.get('caption'), str),
+                          'has_forward_origin': bool(message.get('forward_origin') or message.get('forward_from_chat')),
+                          'has_video': bool(message.get('video')),
+                          'has_document': bool(message.get('document')),
+                          'has_photo': bool(message.get('photo')),
+                          'has_link_entities': any(e.get('type') in ('url','text_link')
+                             for e in (message.get('entities') or message.get('caption_entities') or [])
+                             if isinstance(e, dict)),
+                      }
+              except (OSError, ValueError, TypeError, UnicodeError):
+                  counts['file_read_errors'] += 1
+          print('COUNTS=' + json.dumps(counts, sort_keys=True))
+          print('TARGETS=' + json.dumps(list(matched.values()), sort_keys=True))
+          print('MESSAGE_141_FOUND=' + str(any(k[0] == 141 for k in matched)).lower())
+          print('MESSAGE_143_FOUND=' + str(any(k[0] == 143 for k in matched)).lower())
+          print('AUDIT_COMPLETE')
+          PY
