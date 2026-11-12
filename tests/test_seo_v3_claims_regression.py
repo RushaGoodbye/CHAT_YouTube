@@ -754,3 +754,48 @@ def test_description_repair_rejects_mismatched_sentence_source_ids():
     )
     assert diag["description"].startswith("DESCRIPTION_PROVENANCE_INVALID:")
     assert result["description"] == old["description"]
+
+
+def test_explicit_ukrainian_attribution_forms_pass_modality_without_claiming_truth():
+    from rg_youtube_control.seo_v3_fields import _preserves_modality
+    valid = {
+        "QUESTION": ["Співрозмовник цікавиться, чому це відбулося.",
+                     "Ведучий розпитує про деталі події."],
+        "SPEAKER_STATEMENT": [
+            "Учасник пояснив свою позицію щодо події.",
+            "Ведучий наголосив на своєму припущенні.",
+            "Співрозмовник розповів про свій досвід.",
+        ],
+        "HYPOTHESIS": [
+            "Ведучий міркує про можливі наслідки.",
+            "Учасник висловив припущення про причини.",
+        ],
+        "CONDITIONAL": [
+            "У разі такого рішення ситуація могла б змінитися.",
+        ],
+    }
+    for kind, examples in valid.items():
+        for sentence in examples:
+            assert _preserves_modality(sentence, kind), (kind, sentence)
+    # A bare unsupported assertion still must fail every source-type guard.
+    for kind in valid:
+        assert not _preserves_modality("Причину події доведено.", kind)
+
+
+def test_sentence_provenance_accepts_attributed_speaker_but_rejects_bare_assertion():
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    ledger = {"claims": [{
+        "claim_id": "ev_1",
+        "source_type": "SPEAKER_STATEMENT",
+        "source_quote": "Я вам про це розповідав.",
+    }]}
+    text = "Учасник пояснив своє бачення події."
+    draft = {
+        "description": text,
+        "sentence_provenance": [{"text": text, "evidence_ids": ["ev_1"]}],
+        "support_ids": {"description": ["ev_1"]},
+    }
+    assert check_sentence_provenance(draft, ledger) == []
+    draft["description"] = "Обставини події доведені."
+    draft["sentence_provenance"][0]["text"] = draft["description"]
+    assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_MODALITY_UNSUPPORTED"
