@@ -169,7 +169,10 @@ def generate_claim_first_seo(
     Every rejection stays in the report; publication is never allowed.
     """
     cues = parse_srt(srt)
-    evidence, windows = _extract(cues, chat)
+    # Literal evidence needs no generative call: avoid slow extraction
+    # retries and retain verified, whole-timeline SRT quotations.
+    from .seo_v3_claims import literal_evidence_from_cues
+    evidence, windows = literal_evidence_from_cues(cues)
     evidence = expand_literal_coverage(cues, evidence)
     topics = _select_topics(evidence, chat)
     proof = _proof_index(evidence, topics)
