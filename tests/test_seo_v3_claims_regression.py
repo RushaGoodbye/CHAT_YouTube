@@ -118,7 +118,7 @@ def test_description_repair_refuses_missing_sentence_provenance():
                                            "reason": "Unsupported assertion"}]},
         writer, reviewer, gate)
     assert result["description"] == original["description"]
-    assert diagnostics["description"] == "DESCRIPTION_PROVENANCE_INVALID"
+    assert diagnostics["description"].startswith("DESCRIPTION_PROVENANCE_INVALID:")
 
 
 def test_description_repair_accepts_exact_sentence_provenance():
@@ -407,7 +407,7 @@ def test_description_repair_refuses_changed_words_in_sentence_list():
             "issues": [{"field": "description", "reason": "unsupported"}]},
         writer, reviewer, gate,
     )
-    assert diagnostics["description"] == "DESCRIPTION_PROVENANCE_INVALID"
+    assert diagnostics["description"].startswith("DESCRIPTION_PROVENANCE_INVALID:")
     assert corrected["description"] == original["description"]
 
 
