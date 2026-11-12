@@ -65,6 +65,28 @@ def _preserves_modality(sentence: str, kind: str) -> bool:
     return bool(pattern and re.search(pattern, text))
 
 
+def _fit_description_by_complete_sentences(
+    sentences: list[str],
+    citations: list[list[str]],
+    *,
+    maximum: int = 900,
+) -> tuple[list[str], list[list[str]]]:
+    """Remove only complete trailing sentences to meet the length limit.
+
+    Preserve exact sentence-level provenance. Never truncate mid-sentence,
+    splice together mismatched citations, or invent filler to hit a target.
+    A too-short result will still fail the normal editorial gate.
+    """
+    kept = list(sentences)
+    ids = [list(group) for group in citations]
+    if len(kept) != len(ids):
+        raise ValueError("DESCRIPTION_SENTENCE_CITATION_COUNT_MISMATCH")
+    while kept and len(" ".join(kept)) > maximum:
+        kept.pop()
+        ids.pop()
+    return kept, ids
+
+
 def compose_claim_fields(
     ledger: dict[str, Any],
     topics: list[dict[str, Any]],
@@ -239,6 +261,12 @@ def compose_claim_fields(
             desc = " ".join(sentences).strip()
             if len(desc) >= 400:
                 break
+    # Model length estimates are unreliable. Enforce the hard maximum on
+    # COMPLETE cited sentences before any source IDs are assembled.
+    sentences, sentence_ids = _fit_description_by_complete_sentences(
+        sentences, sentence_ids,
+    )
+    desc = " ".join(sentences).strip()
     desc_ids = list(dict.fromkeys(
         i for group in sentence_ids for i in group
     ))
