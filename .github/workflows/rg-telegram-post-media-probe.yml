@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   probe:
-    runs-on: [self-hosted, rg, nas]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Confirm album video count and whether direct MP4 is available
