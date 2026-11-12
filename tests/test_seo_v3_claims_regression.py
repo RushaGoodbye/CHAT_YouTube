@@ -405,3 +405,24 @@ def test_description_repair_refuses_changed_words_in_sentence_list():
     )
     assert diagnostics["description"] == "DESCRIPTION_PROVENANCE_INVALID"
     assert corrected["description"] == original["description"]
+
+
+def test_topic_model_timeout_preserves_literal_evidence_without_fake_events():
+    from rg_youtube_control.seo_v2_pipeline import _select_topics
+    ledger = {"accepted": [
+        {"evidence_id": f"ev_{i}", "quote": f"Співрозмовник обговорює тему {i}."}
+        for i in range(10)
+    ]}
+    prompts = []
+    def fail(prompt):
+        prompts.append(prompt)
+        raise RuntimeError("LM Studio local inference timeout")
+    topics = _select_topics(ledger, fail)
+    assert topics
+    assert all(topic.get("topic_fallback") is True for topic in topics)
+    assert set(eid for item in topics for eid in item["evidence_ids"]) == {
+        f"ev_{i}" for i in range(10)
+    }
+    assert all(topic["label_uk"] == "Теми розмови" for topic in topics)
+    assert all("start_ms" not in prompt and "cue_indices" not in prompt
+               for prompt in prompts)
