@@ -530,3 +530,45 @@ def test_topic_classification_timeout_triggers_one_backend_attempt():
     assert len(calls) == 1
     assert topics
     assert all(item.get("topic_fallback") for item in topics)
+
+
+def test_lmstudio_http400_compatibility_retry_never_leaks_or_ignores_context_errors():
+    from rg_youtube_control import lm_studio_client as client
+    original = client._local_json
+    calls = []
+    def mock(endpoint, *, base_url, payload=None, timeout=0, token=""):
+        calls.append(dict(payload))
+        if len(calls) < 3:
+            raise RuntimeError("LM Studio local HTTP 400: REQUEST_REJECTED")
+        return {"choices": [{"message": {"content": '{"ok":true}'}}]}
+    client._local_json = mock
+    try:
+        value = client.lm_studio_chat(
+            [{"role": "user", "content": "Return JSON"}],
+            model="local-model", json_mode=True, reasoning_effort="none")
+    finally:
+        client._local_json = original
+    assert value == '{"ok":true}'
+    assert len(calls) == 3
+    assert "reasoning_effort" in calls[0]
+    assert "reasoning_effort" not in calls[1]
+    assert "response_format" not in calls[2]
+    assert all(x["messages"][0]["content"] == "Return JSON" for x in calls)
+
+    blocked = []
+    def context_fail(endpoint, *, base_url, payload=None, timeout=0, token=""):
+        blocked.append(1)
+        raise RuntimeError("LM Studio local HTTP 400: CONTEXT_LIMIT")
+    client._local_json = context_fail
+    try:
+        try:
+            client.lm_studio_chat(
+                [{"role": "user", "content": "Return JSON"}],
+                model="local-model", json_mode=True)
+        except RuntimeError as exc:
+            assert "CONTEXT_LIMIT" in str(exc)
+        else:
+            raise AssertionError("CONTEXT_LIMIT_MUST_FAIL_CLOSED")
+    finally:
+        client._local_json = original
+    assert len(blocked) == 1
