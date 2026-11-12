@@ -923,3 +923,63 @@ def test_rejected_prior_description_sentences_are_not_forced_into_repair():
     )
     assert len(prompts) == 1
     assert "VALID EXISTING CITED SENTENCES:" not in prompts[0]
+
+
+def test_repair_rejects_digit_not_cited_by_changed_title():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{"claim_id": "ev_a",
+                           "source_type": "SPEAKER_STATEMENT",
+                           "source_quote": "Учасник розповів про подію."}]}
+    draft = {"title": "Про що розповів учасник?",
+             "description": "Учасник розповів про подію.",
+             "title_variants": ["Варіант A", "Варіант B", "Варіант C"],
+             "tags": ["подія"],
+             "support_ids": {"title": ["ev_a"], "description": ["ev_a"],
+                             "title_variants": [["ev_a"]] * 3,
+                             "tags": [["ev_a"]]}}
+    called = []
+    def writer(_):
+        return {"value": "Учасник розповів про 999 подій.",
+                "evidence_ids": ["ev_a"]}
+    def reviewer(_):
+        called.append(1)
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"format": {"problems": {}}, "editorial": {"issues": {}},
+                "issues": []}
+    result, _, _, diagnostics = repair_claim_fields(
+        draft, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "title", "reason": "NEEDS_EDIT"}],
+        }, writer, reviewer, gate, max_fields=1)
+    assert diagnostics["title"] == "NUMERIC_PROVENANCE_FAILED"
+    assert result["title"] == draft["title"]
+    assert not called
+
+
+def test_repair_requires_explicit_source_audited_review_status():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{"claim_id": "ev_a",
+                           "source_type": "SPEAKER_STATEMENT",
+                           "source_quote": "Учасник розповів про подію."}]}
+    draft = {"title": "Розмова", "title_variants": ["A", "B", "C"],
+             "description": "Учасник розповів про подію.",
+             "tags": ["подія"],
+             "support_ids": {"title": ["ev_a"], "description": ["ev_a"],
+                             "title_variants": [["ev_a"]] * 3,
+                             "tags": [["ev_a"]]}}
+    def writer(_):
+        return {"value": "Співрозмовник розповів про подію.",
+                "evidence_ids": ["ev_a"]}
+    def reviewer(_):
+        return {"review_status": "REVIEW_REQUIRED", "issues": []}
+    def gate(_):
+        return {"format": {"problems": {}}, "editorial": {"issues": {}},
+                "issues": []}
+    result, _, _, diag = repair_claim_fields(
+        draft, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "title", "reason": "NEEDS_EDIT"}],
+        }, writer, reviewer, gate, max_fields=1)
+    assert diag["title"] == "INDEPENDENT_REVIEW_REJECTED"
+    assert result["title"] == draft["title"]
