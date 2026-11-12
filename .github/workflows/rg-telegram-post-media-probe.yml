@@ -1,0 +1,78 @@
+name: RG Telegram Public Post Media Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/rg-telegram-post-media-probe.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-telegram-post-media-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: [self-hosted, rg, nas]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect public Telegram post HTML without account authentication
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re, urllib.request, urllib.error
+          from html import unescape
+          from html.parser import HTMLParser
+          from urllib.parse import urlsplit
+          
+          class PostHTML(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.posts = []
+                  self.videos = 0
+                  self.images = 0
+                  self.source_tags = 0
+                  self.current_post = None
+              def handle_starttag(self, tag, attrs):
+                  a = dict(attrs)
+                  val = a.get('data-post')
+                  if val:
+                      self.posts.append(val)
+                  if tag == 'video': self.videos += 1
+                  if tag == 'source': self.source_tags += 1
+                  if tag == 'img': self.images += 1
+          
+          urls=[
+              'https://t.me/supernova_plus/62837?embed=1&mode=tme',
+              'https://t.me/s/supernova_plus?before=62838',
+              'https://t.me/s/supernova_plus?after=62836',
+              'https://t.me/supernova_plus/62837',
+          ]
+          for url in urls:
+              try:
+                  request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; RGNewsReadOnly/1.0)'})
+                  with urllib.request.urlopen(request,timeout=15) as r:
+                      body=r.read(1800000).decode('utf-8','replace')
+                      status=r.status
+                  p=PostHTML()
+                  p.feed(body)
+                  target=('supernova_plus/62837' in p.posts)
+                  blocks=re.findall(r'<div[^>]+class="[^"]*tgme_widget_message[^"]*"[^>]*data-post="supernova_plus/62837"[^>]*>',body,re.I)
+                  print('URL_PATH',urlsplit(url).path,'QUERY',urlsplit(url).query,'STATUS',status,'BODY_BYTES',len(body.encode()),'POSTS',len(p.posts),'TARGET_PRESENT',target,'VIDEOS',p.videos,'SOURCES',p.source_tags,'IMAGES',p.images,'TARGET_DIVS',len(blocks))
+                  if target:
+                      idx=body.find('data-post="supernova_plus/62837"')
+                      end=body.find('data-post="',idx+20)
+                      segment=body[idx:(end if end!=-1 else idx+150000)]
+                      print('TARGET_MEDIA_MARKERS', {x:bool(re.search(x,segment,re.I)) for x in ('video','<source','tgme_widget_message_video','tgme_widget_message_photo_wrap','tgme_widget_message_text','tgme_widget_message_document','album')})
+                      text=re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>',segment,re.S)
+                      if text:
+                          clean=re.sub(r'<[^>]*>',' ',text.group(1))
+                          print('TARGET_TEXT_PREVIEW',re.sub(r'\s+',' ',unescape(clean)).strip()[:240])
+              except Exception as exc:
+                  print('URL_PATH',urlsplit(url).path,'ERROR',type(exc).__name__,'DETAIL',str(exc)[:140])
+          print('NO_TELEGRAM_BOT_API_CALLS')
+          print('NO_PUBLICATIONS')
+          print('PROBE_COMPLETE')
+          PY
