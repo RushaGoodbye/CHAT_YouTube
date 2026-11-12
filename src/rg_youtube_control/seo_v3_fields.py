@@ -90,7 +90,11 @@ def compose_claim_fields(
         "subjective possibility, SPEAKER_STATEMENT = words of a speaker. "
         "Never turn any of these into a proven outcome, true motive, "
         "causal deduction or objective investigation. "
-        "Never guess a distorted proper name. Work in fluent Ukrainian. "
+        "Never invent people or places. Use a proper name only when the "
+        "literal cited quotation supports that spelling. Never print a "
+        "numeric digit sequence unless the SAME digit sequence occurs in "
+        "its cited source quotation; do not convert spoken numbers into "
+        "unsourced digits. Work in fluent Ukrainian. "
         "Use exact claim_id values as evidence IDs. "
         "Return ONLY valid JSON. "
     )
