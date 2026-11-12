@@ -82,6 +82,22 @@ jobs:
           for path,labels in patterns[:90]: print('NAS_MATCH_CANDIDATE',path,'LABELS',labels[:130])
           print('SECURITY_SCAN_IS_CONSERVATIVE_NOT_ENFORCEMENT=1')
           PY
+      - name: Enforce Windows-only runner routing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          files = [
+              'rg-youtube-control.yml',
+              'rg-seo-0716-batch-qa.yml',
+              'rg-seo-0717-real-video-gate.yml',
+              'rg-seo-shoigu-real-dryrun.yml',
+          ]
+          for name in files:
+              doc=(Path('.github/workflows')/name).read_text(encoding='utf-8')
+              assert 'runs-on: [self-hosted, Windows, X64]' in doc, name
+              print('WINDOWS_ROUTING_PASS', name)
+          print('NAS_MISROUTING_PROTECTION_PASS')
+          PY
       - name: Compile and offline tests
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py
