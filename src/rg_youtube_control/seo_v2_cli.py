@@ -26,7 +26,14 @@ def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
             )},
             {"role": "user", "content": prompt},
         ],
-        model=model, timeout=180, temperature=0.05,
+        # Quote extraction is recoverable from verbatim SRT. Never let
+        # its model call consume the full editorial inference timeout.
+        # A delayed title/review call still has the normal 180 s budget.
+        model=model,
+        timeout=(45 if prompt.startswith(
+            "Extract up to three substantial verbatim statements"
+        ) else 180),
+        temperature=0.05,
         json_mode=True, max_tokens=4000, reasoning_effort="none",
     )
     return json.loads(raw)
