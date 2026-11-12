@@ -112,6 +112,15 @@ def _local_json(
             f"LM Studio local HTTP {exc.code}: {reason}"
         ) from exc
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        # A generation timeout is materially different from an offline API.
+        # urllib may wrap a socket timeout as URLError.reason. Never expose
+        # private prompt data or server error bodies in this diagnostic.
+        import socket
+        cause = getattr(exc, "reason", None)
+        if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(
+            cause, (TimeoutError, socket.timeout)
+        ):
+            raise RuntimeError("LM Studio local inference timeout") from exc
         raise RuntimeError("LM Studio local server is unavailable") from exc
     except (UnicodeError, ValueError) as exc:
         raise RuntimeError("LM Studio returned invalid JSON") from exc
