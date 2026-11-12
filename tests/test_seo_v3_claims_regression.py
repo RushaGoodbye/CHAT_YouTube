@@ -494,3 +494,39 @@ def test_independent_auditor_sees_only_quoted_sources_cited_by_draft():
     assert '"claim_id": "ev_a"' in observed[0]
     assert '"claim_id": "ev_b"' not in observed[0]
     assert "Непов'язана розмова" not in observed[0]
+
+
+def test_long_srt_topic_selection_has_five_timeline_spread_model_calls():
+    from rg_youtube_control.seo_v2_pipeline import _select_topics
+    proof = [{"evidence_id": f"ev_{i:03d}",
+              "quote": f"Розмова про питання номер {i}."}
+             for i in range(240)]
+    seen = []
+    def respond(prompt):
+        if prompt.startswith("Classify the main topics"):
+            import json
+            data = json.loads(prompt.split("VERBATIM EVIDENCE:\\n", 1)[1])
+            seen.append([row["evidence_id"] for row in data])
+            return {"topics": [{"label_uk": "Розмова про питання",
+                                "evidence_ids": [data[0]["evidence_id"]]}]}
+        return {"topics": [{"label_uk": "Підсумок розмови",
+                            "evidence_ids": []}]}
+    topics = _select_topics({"accepted": proof}, respond)
+    assert len(seen) == 5
+    assert seen[0][0] == "ev_000"
+    assert seen[-1][0] == "ev_232"
+    assert topics
+
+
+def test_topic_classification_timeout_triggers_one_backend_attempt():
+    from rg_youtube_control.seo_v2_pipeline import _select_topics
+    proof = [{"evidence_id": f"ev_{i}", "quote": f"Тема розмови {i}."}
+             for i in range(160)]
+    calls = []
+    def fail(prompt):
+        calls.append(prompt)
+        raise RuntimeError("LM Studio local inference timeout")
+    topics = _select_topics({"accepted": proof}, fail)
+    assert len(calls) == 1
+    assert topics
+    assert all(item.get("topic_fallback") for item in topics)
