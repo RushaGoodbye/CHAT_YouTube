@@ -266,10 +266,38 @@ def lm_studio_chat(
                 "schema": {"type": "object", "additionalProperties": True},
             },
         }
-    result = _local_json(
-        "chat/completions", base_url=endpoint, payload=data,
-        timeout=timeout, token=os.getenv("RG_LMSTUDIO_TOKEN", ""),
-    )
+    # LM Studio's OpenAI compatibility varies by model and engine build.
+    # Some backends reject reasoning_effort or schema formatting with HTTP
+    # 400 while accepting the same local prompt in plain JSON-instruction
+    # mode. Retry only such compatibility failures, never context/memory
+    # limits, and never route data outside localhost.
+    def request(payload: dict[str, Any]) -> dict[str, Any]:
+        return _local_json(
+            "chat/completions", base_url=endpoint, payload=payload,
+            timeout=timeout, token=os.getenv("RG_LMSTUDIO_TOKEN", ""),
+        )
+    try:
+        result = request(data)
+    except RuntimeError as exc:
+        reason = str(exc)
+        if not (reason.startswith("LM Studio local HTTP 400: ")
+                and reason.endswith((
+                    "REQUEST_REJECTED", "UNSUPPORTED_REQUEST_OPTION"
+                ))):
+            raise
+        compatible = dict(data)
+        compatible.pop("reasoning_effort", None)
+        try:
+            result = request(compatible)
+        except RuntimeError as retry_exc:
+            reason2 = str(retry_exc)
+            if not (reason2.startswith("LM Studio local HTTP 400: ")
+                    and reason2.endswith((
+                        "REQUEST_REJECTED", "UNSUPPORTED_REQUEST_OPTION"
+                    ))):
+                raise
+            compatible.pop("response_format", None)
+            result = request(compatible)
     choices = result.get("choices")
     if not isinstance(choices, list) or not choices:
         raise RuntimeError("LM Studio returned no completion choices")
