@@ -1074,3 +1074,70 @@ def test_original_tag_generator_instructs_ukrainian_names_and_literal_source():
     assert "All tags must be natural UKRAINIAN search phrases" in tag_prompts[0]
     assert "not present in the exact original cited quote" in tag_prompts[0]
     assert "Provide at least 8 distinct informative phrases" in tag_prompts[0]
+
+
+def test_description_length_trims_only_whole_cited_sentences():
+    from rg_youtube_control.seo_v3_fields import _fit_description_by_complete_sentences
+    sentences = [
+        "Учасник розповів про " + ("складне питання " * 7) + ".",
+        "Ведучий запитує про " + ("наступне питання " * 7) + "?",
+        "Співрозмовник пояснив " + ("свою думку " * 7) + ".",
+        "Учасник зазначив " + ("іншу важливу деталь " * 7) + ".",
+        "Ведучий обговорює " + ("додаткове питання " * 7) + ".",
+        "Співрозмовник розповів " + ("про свій досвід " * 7) + ".",
+        "Учасник пояснює " + ("контекст розмови " * 7) + ".",
+        "Ведучий запитує " + ("про важливу тему " * 7) + "?",
+    ]
+    citations = [[f"ev_{i}"] for i in range(len(sentences))]
+    kept, ids = _fit_description_by_complete_sentences(sentences, citations)
+    assert len(" ".join(sentences)) > 900
+    assert len(" ".join(kept)) <= 900
+    assert kept == sentences[:len(kept)]
+    assert ids == citations[:len(kept)]
+    assert len(kept) < len(sentences)
+
+
+def test_description_length_does_not_cut_a_single_long_sentence():
+    from rg_youtube_control.seo_v3_fields import _fit_description_by_complete_sentences
+    kept, ids = _fit_description_by_complete_sentences(["Учасник " + "а" * 901], [["ev_1"]])
+    assert kept == [] and ids == []
+
+
+def test_tag_repair_blocks_underfilled_result_before_editor_review():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{
+        "claim_id": "ev_1", "source_type": "QUESTION",
+        "source_quote": "Чому ви про це питаєте?",
+    }]}
+    draft = {
+        "title": "Чому ви питаєте?", "title_variants": ["A", "B", "C"],
+        "description": "Ведучий запитує, про що йдеться.",
+        "tags": ["тема"] * 8,
+        "support_ids": {
+            "title": ["ev_1"], "description": ["ev_1"],
+            "title_variants": [["ev_1"]] * 3,
+            "tags": [["ev_1"]] * 8,
+        },
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": ["питання", "розмова", "обговорення"],
+                "evidence_ids": [["ev_1"]] * 3}
+    calls = []
+    def reviewer(_):
+        calls.append(1)
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    revised, _, _, diagnostics = repair_claim_fields(
+        draft, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "tags", "reason": "KEYWORDS_TOO_GENERIC"}],
+        }, writer, reviewer, gate,
+    )
+    assert diagnostics["tags"] == "TAG_COUNT_INVALID"
+    assert revised["tags"] == draft["tags"]
+    assert not calls
+    assert "return 10-12 DISTINCT" in prompts[0]
