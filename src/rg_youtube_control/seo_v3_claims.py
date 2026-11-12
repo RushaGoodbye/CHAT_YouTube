@@ -139,8 +139,22 @@ def check_claim_type_constraints(
     findings: list[dict[str, str]] = []
     entries = [
         ("title", str(draft.get("title") or ""), support.get("title") or []),
-        ("description", str(draft.get("description") or ""), support.get("description") or []),
     ]
+    # Check description sentence by sentence. A question in one cited
+    # sentence must never license certainty in another unrelated sentence.
+    provenance = draft.get("sentence_provenance")
+    if isinstance(provenance, list) and provenance:
+        for sentence in provenance:
+            if isinstance(sentence, dict):
+                entries.append((
+                    "description", str(sentence.get("text") or ""),
+                    sentence.get("evidence_ids") or [],
+                ))
+    else:
+        entries.append((
+            "description", str(draft.get("description") or ""),
+            support.get("description") or [],
+        ))
     for field in ("title_variants", "tags"):
         texts = draft.get(field) or []
         groups = support.get(field) or []
@@ -162,7 +176,18 @@ def check_claim_type_constraints(
             wording.endswith("?")
             and bool(QUESTION_START.search(wording))
         )
-        if source_kinds and GENERIC_ANALYSIS.search(value) and not genuine_question:
+        # Attribution of an unresolved question is also a question, not
+        # an assertion that a supposed real cause has been verified.
+        attributed_question = (
+            field == "description"
+            and bool(re.search(
+                r"(?i)\b(?:питає|запитує|ставить\s+питання)\b"
+                r".{0,110}\b(?:яка|чому|чи|про)\b",
+                wording,
+            ))
+        )
+        if (source_kinds and GENERIC_ANALYSIS.search(value)
+                and not genuine_question and not attributed_question):
             findings.append({
                 "field": field,
                 "reason": "UNVERIFIED_OBJECTIVE_CERTAINTY",
