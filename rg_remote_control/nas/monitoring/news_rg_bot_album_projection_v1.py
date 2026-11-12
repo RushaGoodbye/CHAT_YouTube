@@ -87,7 +87,7 @@ def project(updates, expected_chat=None, expected_group=None):
             "media_group_id": group,
             "video_count_observed": len(videos),
             "video_message_ids": [v["message_id"] for v in videos],
-            "file_unique_ids": [v["file_unique_id"] for v in videos],
+            "distinct_file_unique_ids_count": len({v["file_unique_id"] for v in videos}),
             # The file_id is deliberately not printed or written by the CLI.
             "file_ids_available_in_memory": all(v["file_id"] for v in videos),
             "all_file_sizes_present": all(v["file_size"] is not None for v in videos),
@@ -144,6 +144,8 @@ def selftest():
     assert result[0]["video_message_ids"]==[101,102,103]
     assert result[0]["ready_to_publish"] is False
     assert "secret_file" not in json.dumps(result)
+    assert "unique_" not in json.dumps(result)
+    assert result[0]["distinct_file_unique_ids_count"] == 3
     assert project(data,expected_chat=99)==[]
     refs=private_video_refs(data,expected_chat=1234,expected_group="group_001",expected_count=3)
     assert refs==("secret_file_1","secret_file_2","secret_file_3")
@@ -170,6 +172,7 @@ def selftest():
     print("BOT_API_ALBUM_THREE_VIDEO_PROJECTION_PASS")
     print("BOT_API_EIGHT_INVALID_INPUTS_REJECTED_PASS")
     print("BOT_API_FILE_IDS_REDACTED_PASS")
+    print("BOT_API_UNIQUE_IDS_REDACTED_PASS")
     print("BOT_API_PRIVATE_FILE_REFS_COMPLETE_GROUP_ONLY_PASS")
     print("BOT_API_ALBUM_COMPLETENESS_REQUIRES_OWNER_CONFIRMATION_PASS")
     print("NO_TELEGRAM_NETWORK_OR_SECOND_POLLER_PASS")
