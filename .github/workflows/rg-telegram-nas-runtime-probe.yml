@@ -1,10 +1,6 @@
 name: RG Telegram NAS Runtime Readonly Probe
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/rg-telegram-nas-runtime-probe.yml"
   workflow_dispatch:
 
 permissions:
