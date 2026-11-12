@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   real_video_qa:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 16
     steps:
       - name: Read verified candidate source in isolated checkout
