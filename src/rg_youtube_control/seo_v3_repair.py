@@ -134,7 +134,13 @@ def repair_claim_fields(
         # description. Rewriting all of them at once regularly discarded
         # valid evidence, introduced unfamiliar names, and returned <400 chars.
         valid_prior_sentences: list[dict[str, Any]] = []
-        if field == "description" and isinstance(prior_sentences, list):
+        description_audit_rejected = any(
+            isinstance(issue, dict) and issue.get("field") == "description"
+            for issue in (current_review.get("issues") or [])
+        )
+        if (field == "description"
+                and not description_audit_rejected
+                and isinstance(prior_sentences, list)):
             from .seo_v3_fields import _preserves_modality
             for row in prior_sentences:
                 if not isinstance(row, dict):
@@ -147,7 +153,18 @@ def repair_claim_fields(
                             text, indexed[eid].get("source_type", "")
                         ) for eid in ids)
                         and not _field_names({"description": text}, "description", proof)):
-                    valid_prior_sentences.append({"text": text, "evidence_ids": ids})
+                    single = {
+                        "description": text,
+                        "support_ids": {"description": ids},
+                        "sentence_provenance": [{
+                            "text": text, "evidence_ids": ids,
+                        }],
+                    }
+                    if (not check_claim_type_constraints(single, claim_ledger)
+                            and not check_cited_numbers(single, claim_ledger)):
+                        valid_prior_sentences.append({
+                            "text": text, "evidence_ids": ids,
+                        })
         prompt = (
             "You are a Ukrainian SEO source-faithfulness correction editor. "
             "Fix ONLY the requested field, ONCE. All facts must come from "
