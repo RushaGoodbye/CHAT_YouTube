@@ -161,3 +161,46 @@ def check_claim_type_constraints(
         if not ids or any(i not in by_id for i in ids):
             findings.append({"field": field, "reason": "CLAIM_SOURCE_ID_MISSING"})
     return findings
+
+
+def literal_evidence_from_cues(cues: list[Any], *, per_window: int = 5) -> tuple[dict[str, Any], list[dict[str, int]]]:
+    """Extract verified source quotations with no LLM inference calls.
+
+    Choose substantial cues across each full-timeline window. This removes
+    the slow, failure-prone AI step that tried to reproduce SRT text verbatim.
+    Topic selection and writing still use the local model, subject to QA.
+    """
+    from .seo_v2_evidence import evidence_ledger, make_windows
+    from .seo_v2_pipeline import _fallback_window_quotes
+
+    windows = make_windows(cues)
+    proposed = [
+        quote
+        for indices in windows
+        for quote in _fallback_window_quotes(cues, indices, max_quotes=per_window)
+    ]
+    ledger = evidence_ledger(cues, proposed)
+    covered = {
+        i for row in ledger["accepted"] for i in row["cue_indices"]
+    }
+    ledger["analysis_windows_total"] = len(windows)
+    ledger["windows_without_quotes"] = [
+        n for n, indices in enumerate(windows)
+        if not any(i in covered for i in indices)
+    ]
+    ledger["source_cues_with_evidence"] = len(covered)
+    ledger["deterministic_fallback_windows"] = []
+    ledger["deterministic_source_only"] = True
+    ledger["review_required"] = bool(
+        ledger["review_required"] or ledger["windows_without_quotes"]
+    )
+    window_info = [
+        {
+            "start_ms": cues[indices[0]].start_ms,
+            "end_ms": cues[indices[-1]].end_ms,
+            "first_index": indices[0],
+            "last_index": indices[-1],
+        }
+        for indices in windows
+    ]
+    return ledger, window_info
