@@ -887,3 +887,39 @@ def test_short_description_repair_receives_existing_cited_sentences():
     assert "VALID EXISTING CITED SENTENCES:" in prompts[0]
     assert sentence in prompts[0]
     assert "Preserve these safe source-attributed sentences" in prompts[0]
+
+
+def test_rejected_prior_description_sentences_are_not_forced_into_repair():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{
+        "claim_id": "ev_q", "source_type": "QUESTION",
+        "source_quote": "Чому це сталося?",
+    }]}
+    sentence = "Ведучий запитує, чому це сталося?"
+    draft = {
+        "title": "Питання",
+        "title_variants": ["Чому?", "Навіщо?", "Що?"],
+        "description": sentence, "tags": ["питання"],
+        "support_ids": {
+            "title": ["ev_q"], "title_variants": [["ev_q"]] * 3,
+            "description": ["ev_q"], "tags": [["ev_q"]],
+        },
+        "sentence_provenance": [{
+            "text": sentence, "evidence_ids": ["ev_q"],
+        }],
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": None, "evidence_ids": None}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    repair_claim_fields(
+        draft, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "description", "reason": "SEMANTICALLY_UNSUPPORTED"}],
+        }, writer, lambda _: {}, gate,
+    )
+    assert len(prompts) == 1
+    assert "VALID EXISTING CITED SENTENCES:" not in prompts[0]
