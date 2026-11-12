@@ -26,7 +26,8 @@ def evaluate(doc, now=None, max_age=1200):
         raise HealthError("INVALID_SCHEMA")
     if doc["schema"]!=SCHEMA or doc["source"]!="LOCAL_NAS_METADATA_ONLY":
         raise HealthError("SOURCE_MISMATCH")
-    if doc["contains_secrets"] is not False or doc["private_messages_read"] != 0 or doc["telegram_api_calls"] != 0 or doc["publications"] != 0:
+    if (doc["contains_secrets"] is not False or
+        any(type(doc[k]) is not int or doc[k] != 0 for k in ("private_messages_read","telegram_api_calls","publications"))):
         raise HealthError("UNSAFE_EXPORT")
     timestamp=doc["generated_at_unix"]
     if type(timestamp) is not int or timestamp<=0:
@@ -90,6 +91,7 @@ def selftest():
     for mutate in [
         lambda x:x.update(contains_secrets=True),
         lambda x:x.update(private_messages_read=1),
+        lambda x:x.update(private_messages_read=False),
         lambda x:x.update(generated_at_unix=True),
         lambda x:x["locations"].update(secret={"exists":True}),
     ]:
