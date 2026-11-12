@@ -1,0 +1,109 @@
+name: RG SEO v3 - ALEXPC real SRT read-only QA
+
+on:
+  push:
+    branches:
+      - fix/seo-ukrainian-title-preservation-20261030
+    paths:
+      - '.github/workflows/seo-v3-alexpc-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-seo-v3-chat-youtube-alexpc
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out same-repository SEO v3 source read-only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify connected ALEXPC runner and claim-first code
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Output "RG_SEO_V3_RUNNER_NAME=$env:RUNNER_NAME"
+          python -m compileall -q src\rg_youtube_control\seo_v3_claims.py src\rg_youtube_control\seo_v3_fields.py src\rg_youtube_control\seo_v3_pipeline.py
+          python -c "from rg_youtube_control.seo_v3_pipeline import generate_claim_first_seo; print('RG_SEO_V3_IMPORT_PASS')"
+      - name: Verify source SRT and local model without publication
+        env:
+          RG_TRANSCRIPTS_ROOT: '\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath $env:RG_TRANSCRIPTS_ROOT)) { throw 'TRANSCRIPTS_ROOT_UNAVAILABLE' }
+          $source = Get-ChildItem -LiteralPath $env:RG_TRANSCRIPTS_ROOT -Filter 'MEitKm687xo.srt' -Recurse -File -ErrorAction Stop | Select-Object -First 1
+          if (-not $source) { throw 'TEST_SRT_MISSING' }
+          $response = Invoke-RestMethod -Uri 'http://127.0.0.1:1234/api/v1/models' -TimeoutSec 8
+          $models = @($response.models | Where-Object { $_.type -eq 'llm' -and $_.key })
+          if ($models.Count -eq 0) { throw 'LM_STUDIO_MODEL_UNAVAILABLE' }
+          $loaded = @($models | Where-Object { @($_.loaded_instances).Count -gt 0 })
+          if ($loaded.Count -eq 0) { throw 'LM_STUDIO_NO_LOADED_LANGUAGE_MODEL' }
+          $source.FullName | Set-Content -LiteralPath "$env:RUNNER_TEMP\rg_seo_v3_input.txt" -Encoding utf8
+          Write-Output 'RG_SEO_V3_SOURCE_AND_MODEL_READY'
+      - name: Prove local model accepts JSON calls before private SRT processing
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+          RG_LOCAL_AI_PROVIDER: lmstudio
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from rg_youtube_control.seo_v2_cli import _local_chat
+          result = _local_chat(
+              'Return JSON object {"model_ready":true}; no other keys.'
+          )
+          if result.get("model_ready") is not True:
+              raise RuntimeError("LM_STUDIO_JSON_SCHEMA_SMOKE_FAILED")
+          print("RG_SEO_V3_LOCAL_MODEL_JSON_SMOKE_PASS")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'LM_STUDIO_JSON_REQUEST_NOT_READY' }
+      - name: QA v3 full-SRT named entity grounding and calibrated editorial audit
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+          RG_LOCAL_AI_PROVIDER: lmstudio
+          RG_SEO_PUBLICATION_ALLOWED: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:RG_SEO_V3_SOURCE = (Get-Content -LiteralPath "$env:RUNNER_TEMP\rg_seo_v3_input.txt" -Raw).Trim()
+          @'
+          import json, os
+          from pathlib import Path
+          from rg_youtube_control.seo_v2_cli import _local_chat
+          from rg_youtube_control.seo_v3_pipeline import generate_claim_first_seo
+          source = Path(os.environ["RG_SEO_V3_SOURCE"])
+          result = generate_claim_first_seo(
+              source.read_text(encoding="utf-8-sig"),
+              _local_chat, independent_review=_local_chat,
+          )
+          report = Path(os.environ["RUNNER_TEMP"]) / "rg_seo_v3_preview.json"
+          report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+          print("RG_SEO_V3_RESULT " + json.dumps({
+              "pipeline": result.get("pipeline"),
+              "status": result.get("status"),
+              "verified_quotes": len((result.get("evidence") or {}).get("accepted") or []),
+              "claims": len((result.get("claims") or {}).get("claims") or []),
+              "sentence_citations": len(result.get("sentence_provenance") or []),
+              "title_variants": len((result.get("draft") or {}).get("title_variants") or []),
+              "description_chars": len((result.get("draft") or {}).get("description") or ""),
+              "tags": len((result.get("draft") or {}).get("tags") or []),
+              "gate_issues": (result.get("gate") or {}).get("issues") or [],
+              "repair_diagnostics": result.get("repair_diagnostics") or {},
+              "reviewer_issues": [
+                  {"field": str(x.get("field") or "")[:48],
+                   "reason": str(x.get("reason") or "")[:250]}
+                  for x in ((result.get("independent_review") or {}).get("issues") or [])
+                  if isinstance(x, dict)
+              ],
+              "publication_allowed": False,
+          }, ensure_ascii=False))
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'RG_SEO_V3_RUNTIME_FAILED' }

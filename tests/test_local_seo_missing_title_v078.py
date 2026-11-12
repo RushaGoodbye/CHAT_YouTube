@@ -148,3 +148,32 @@ def test_local_seo_without_transcript_requires_manual_review(monkeypatch):
     assert result["needs_review"] is True
     assert "Транскрипт відсутній" in result["review_reason"]
     assert result["youtube_data_api_quota"] == 0
+
+
+def test_empty_model_response_retries_with_bounded_prompt(monkeypatch):
+    _mock_related_helpers(monkeypatch)
+    calls = []
+    def fake_chat(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return ""
+        return json.dumps({
+            "title": "Чому в Росії сперечаються про ціни на бензин?",
+            "description": GOOD_DESCRIPTION,
+            "title_variants": [
+                "Бензин у Росії: про що сперечаються?",
+                "Ціни на АЗС: хто має рацію?",
+                "Росіяни про подорожчання пального",
+            ],
+            "tags": [],
+            "chapters": "",
+        }, ensure_ascii=False)
+    monkeypatch.setattr(ft, "ollama_chat", fake_chat)
+    result = ft.generate_seo_package_local(
+        current_title=CURRENT_TITLE, transcript=TRANSCRIPT,
+        fast_mode=False, timeout=1,
+    )
+    assert len(calls) == 2
+    assert result["title"] == "Чому в Росії сперечаються про ціни на бензин?"
+    assert result["needs_review"] is True
+    assert result["youtube_data_api_quota"] == 0

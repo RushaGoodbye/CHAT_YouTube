@@ -92,6 +92,7 @@ def test_ytdlp_auth_challenge_detection():
 
 def test_cached_title_nas_srt_does_not_invoke_yt_dlp(monkeypatch, tmp_path):
     import rg_youtube_control.ui as ui
+    monkeypatch.setattr(ui, 'ensure_local_server', lambda: {'available': True, 'model_selected': True})
     conn = connect(tmp_path / "rg_youtube_control.db")
     _seed(conn)
     transcript_dir = tmp_path / "transcripts"
@@ -151,6 +152,7 @@ def test_cached_title_nas_srt_does_not_invoke_yt_dlp(monkeypatch, tmp_path):
 
 def test_captions_api_success_still_avoids_ytdlp(monkeypatch, tmp_path):
     import rg_youtube_control.ui as ui
+    monkeypatch.setattr(ui, 'ensure_local_server', lambda: {'available': True, 'model_selected': True})
     conn = connect(tmp_path / "rg_youtube_control.db")
     _seed(conn)
     conn.close()

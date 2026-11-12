@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from .config import APP_NAME
 from .comment_action_ui import install_comment_action_ui
+from .seo_v2_ui import install_seo_v2_preview
 from .service import archive_priority_enabled
 from .ui import MainWindow
 
@@ -33,6 +34,7 @@ def main() -> int:
 
     window = MainWindow()
     install_comment_action_ui(window)
+    install_seo_v2_preview(window)
     window.show()
 
     campaign_timer = QTimer(window)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -98,35 +99,55 @@ def probe_free_tools(
             "youtube-transcript-api", False, "не встановлено"
         )
 
-    try:
-        req = urllib.request.Request(
-            f"{ollama_url.rstrip('/')}/api/tags",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        models = [
-            str(item.get("name") or item.get("model") or "")
-            for item in payload.get("models", [])
-            if isinstance(item, dict)
-        ]
-        normalized = {item.split(":latest")[0] for item in models}
-        model_ready = (
-            ollama_model in models
-            or ollama_model.split(":latest")[0] in normalized
-        )
+    if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "lmstudio":
+        from .lm_studio_client import probe_lm_studio
+        local = probe_lm_studio()
+        ready = bool(local["available"] and local["model_selected"])
         detail = (
-            f"{ollama_model} готова"
-            if model_ready
-            else "Ollama працює, модель ще не завантажена"
+            "LM Studio локально готова"
+            if ready else "LM Studio: запустіть сервер і завантажте одну модель"
         )
-        probes["ollama"] = ToolProbe("Ollama", True, detail)
-        probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
-    except Exception as exc:
-        probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
-        probes["ollama_model"] = ToolProbe(
-            ollama_model, False, "сервер Ollama недоступний"
+        probes["lmstudio"] = ToolProbe(
+            "LM Studio", bool(local["available"]), detail
         )
+        probes["lmstudio_model"] = ToolProbe(
+            str(local.get("selected_model") or "LM Studio model"), ready, detail
+        )
+        # Legacy keys preserved for existing UI callers, but identify
+        # LM Studio rather than claim that the removed Ollama is installed.
+        probes["ollama"] = ToolProbe("LM Studio (local)", bool(local["available"]), detail)
+        probes["ollama_model"] = ToolProbe("LM Studio model", ready, detail)
+    else:
+        try:
+            req = urllib.request.Request(
+                f"{ollama_url.rstrip('/')}/api/tags",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            models = [
+                str(item.get("name") or item.get("model") or "")
+                for item in payload.get("models", [])
+                if isinstance(item, dict)
+            ]
+            normalized = {item.split(":latest")[0] for item in models}
+            model_ready = (
+                ollama_model in models
+                or ollama_model.split(":latest")[0] in normalized
+            )
+            detail = (
+                f"{ollama_model} готова"
+                if model_ready
+                else "Ollama працює, модель ще не завантажена"
+            )
+            probes["ollama"] = ToolProbe("Ollama", True, detail)
+            probes["ollama_model"] = ToolProbe(ollama_model, model_ready, detail)
+        except Exception as exc:
+            probes["ollama"] = ToolProbe("Ollama", False, str(exc)[:160])
+            probes["ollama_model"] = ToolProbe(
+                ollama_model, False, "сервер Ollama недоступний"
+            )
+
 
     return {key: value.to_dict() for key, value in probes.items()}
 
@@ -562,6 +583,22 @@ def ollama_chat(
     json_mode: bool = False,
     num_ctx: int | None = None,
 ) -> str:
+    # Backward-compatible function name for older callers. The DEFAULT
+    # production provider is LM Studio, not Ollama; the latter is available
+    # only by explicit legacy opt-in for tests/migrations.
+    provider = os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower()
+    if provider == "lmstudio":
+        from .lm_studio_client import lm_studio_chat
+        selected_model = "" if model == DEFAULT_OLLAMA_MODEL else model
+        return lm_studio_chat(
+            messages,
+            model=selected_model,
+            timeout=timeout,
+            temperature=temperature,
+            json_mode=json_mode,
+        )
+    if provider != "ollama":
+        raise RuntimeError("Unknown local AI provider; use lmstudio")
     request_payload = {
         "model": model,
         "messages": messages,
@@ -586,6 +623,13 @@ def ollama_chat(
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Ollama /api/tags may work even while model inference returns HTTP
+        # 500. Preserve the status without logging response bodies or SRT.
+        raise RuntimeError(
+            f"Локальна Ollama не виконала запит до моделі (HTTP {exc.code}). "
+            "Перевірте стан моделі, GPU та доступну пам'ять."
+        ) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Ollama недоступна: {exc}") from exc
     message = payload.get("message") or {}
@@ -640,25 +684,191 @@ def _normalize_seo_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 _GROUNDED_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("лукашенко",), "Лукашенко та позиція Білорусі"),
-    (("беларус", "білорус"), "Білорусь та її роль у розмові"),
-    (("шойгу",), "Шойгу та його роль у керівництві РФ"),
-    (("министерств", "оборон"), "Міністерство оборони РФ"),
-    (("коррупц",), "корупція та відповідальність чиновників"),
-    (("цен", "подорож", "дорог", "инфляц"), "ціни та вартість життя"),
-    (("зарплат", "доход", "получать", "заработ"), "зарплати та доходи"),
-    (("пенси", "пенс", "соцпакет", "социальн"), "пенсії та соціальні виплати"),
-    (("эконом", "економ"), "економіка Росії"),
-    (("путин", "путін", "президент"), "Путін та оцінка влади"),
-    (("войн", "війн", "сво", "украин", "україн"), "війна проти України"),
+    (("лукашенко",), "Лукашенко"),
+    (("беларус", "білорус"), "Білорусь"),
+    (("шойгу",), "Шойгу"),
+    (("министерство обороны", "міністерство оборони"), "Міністерство оборони"),
+    (("коррупц", "корупц"), "корупція"),
+    (("цены", "цена ", "ціни", "ціна ", "подорожч", "дорожч", "инфляц", "інфляц"), "ціни та вартість життя"),
+    (("зарплат", "заработн", "заробітн"), "зарплати"),
+    (("доходы", "доходів", "доходи", "доходах", "доходов"), "доходи"),
+    (("пенси", "пенсії", "пенсі"), "пенсії"),
+    (("соцпакет", "соціальн", "социальн"), "соціальні виплати"),
+    (("эконом", "економ"), "економіка"),
+    (("путин", "путін"), "Путін у розмові"),
+    (("войн", "війн"), "війна"),
+    (("украин", "україн"), "Україна"),
     (("мобилиз", "мобіліз"), "мобілізація"),
     (("санкц",), "санкції"),
-    (("бензин", "топлив", "азс"), "паливо та ситуація на АЗС"),
-    (("работ", "робот", "безработ"), "робота та зайнятість"),
-    (("квартир", "жиль", "ипотек", "дом "), "житло та особисті покупки"),
+    (("бензин", "топлив", "пальне"), "паливо"),
+    (("азс",), "АЗС"),
+    (("работа", "работы", "работу", "робота", "роботи", "роботу", "безработ", "безробіт"), "робота та зайнятість"),
+    (("квартир", "жиль", "ипотек", "іпотек"), "житло"),
     (("медицин", "лікар", "боляч", "здоров"), "здоров'я та медицина"),
 )
 
+
+
+
+# Conservative title/SRT subject check: important named subjects in the
+# existing public title must be mentioned somewhere in the source captions.
+# This is a *review warning*, NOT a proof of mismatched files or false speech.
+_TITLE_SOURCE_SUBJECT_ROOTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("чечен", ("чечен",)),
+    ("дагестан", ("дагестан",)),
+    ("шойгу", ("шойгу",)),
+    ("бєлоусов", ("белоусов", "бєлоусов")),
+    ("саратов", ("саратов",)),
+    ("краснодар", ("краснодар",)),
+    ("лукашенк", ("лукашенк",)),
+    ("путін", ("путин", "путін")),
+    ("трамп", ("трамп",)),
+    ("польщ", ("польск", "польщ")),
+    ("бандер", ("бандер",)),
+    ("новосибірськ", ("новосибирск", "новосибірськ")),
+    ("петербург", ("петербург",)),
+    ("хамас", ("хамас",)),
+    ("израил", ("израил", "израиль", "ізраїл", "ізраїль")),
+    ("ізраїл", ("израил", "израиль", "ізраїл", "ізраїль")),
+    ("осужден", ("осужден", "засуджен", "засудж")),
+    ("засуджен", ("осужден", "засуджен", "засудж")),
+    ("преступлен", ("преступл", "злочин")),
+    ("злочин", ("преступл", "злочин")),
+    ("школ", ("школ",)),
+    ("центробанк", ("центробанк", "центральн банк")),
+    ("подмосков", ("подмосков", "підмосков")),
+    ("підмосков", ("подмосков", "підмосков")),
+    ("27 лет", ("27 лет", "27 років")),
+    ("27 років", ("27 лет", "27 років")),
+)
+
+
+def _seo_title_source_conflicts(title: str, transcript: str) -> list[str]:
+    """Warn when a named title subject cannot be found in the supplied SRT."""
+    if not str(title or "").strip() or not str(transcript or "").strip():
+        return []
+    name = str(title).casefold()
+    caption = str(transcript).casefold()
+    conflicts = []
+    for title_root, caption_roots in _TITLE_SOURCE_SUBJECT_ROOTS:
+        if title_root in name and not any(root in caption for root in caption_roots):
+            conflicts.append("TITLE_SUBJECT_NOT_IN_SRT:" + title_root.upper())
+    return conflicts
+
+
+def _seo_editorial_preview_flags(
+    title: str,
+    description: str,
+    variants: Iterable[str] = (),
+    tags: Iterable[str] = (),
+) -> list[str]:
+    """Reject low-information SEO even when formatting itself passes.
+
+    These are conservative editorial warnings, NOT automatic fact checks.
+    """
+    from difflib import SequenceMatcher
+
+    primary = " ".join(str(title or "").casefold().split())
+    desc = " ".join(str(description or "").casefold().split())
+    alternatives = [" ".join(str(x).casefold().split()) for x in variants]
+    tag_keys = [" ".join(str(x).casefold().split()) for x in tags]
+    flags: list[str] = []
+    generic_primary = (
+        "про що говорять у чат-рулетці?",
+        "що кажуть співрозмовники?",
+        "думки учасників розмови",
+        "які запитання виникають?",
+    )
+    generic_headline = re.compile(
+        r"^(?:що|про що)\s+(?:думають|говорять|кажуть|"
+        r"відповідають|обговорюють)\s+"
+        r"(?:росіяни|співрозмовники|учасники)"
+        r"(?:\s+(?:сьогодні|в чат.рулетці|про це))?[?!.]?$|"
+        r"^(?:думки|розмова|суперечка|дискусія|"
+        r"питання|відповідь|реакція)\s+"
+        r"(?:росіян|учасників|співрозмовників|у чат.рулетці)[?!.]?$",
+        flags=re.I,
+    )
+    if (
+        any(primary.endswith(value) for value in generic_primary)
+        or bool(generic_headline.fullmatch(primary))
+    ):
+        flags.append("GENERIC_PRIMARY_TITLE")
+    vague_ab_question = re.compile(
+        r"(?:про що (?:йдеться|говорили|говорять|кажуть)|"
+        r"що (?:говорять|кажуть) (?:співрозмовники|учасники)|"
+        r"думки учасників розмови|які запитання виникають|"
+        r"що прозвучало під час розмови|"
+        r"що обговорили учасники|"
+        r"які оцінки пролунали)"
+    )
+    if sum(
+        any(value in item for value in generic_primary)
+        or bool(vague_ab_question.search(item))
+        for item in alternatives
+    ) >= 1:
+        flags.append("GENERIC_AB_VARIANTS")
+    if (
+        "співрозмовники висловлюють різні версії, особисті оцінки" in desc
+        or "дивіться повну розмову та оцініть аргументи" in desc
+        or "розмова показує кілька різних поглядів без" in desc
+    ):
+        flags.append("TEMPLATE_DESCRIPTION")
+    if any(value in desc for value in (
+        "обговорюють війна проти україни",
+        "обговорюють економіка росії",
+        "обговорюють робота та зайнятість",
+    )):
+        flags.append("UNGRAMMATICAL_DESCRIPTION")
+    # Format PASS must not hide copy-paste or excessively similar metadata.
+    if len(tag_keys) != len(set(tag_keys)):
+        flags.append("DUPLICATED_TAGS")
+    if sum(len(item.split()) == 1 for item in tag_keys) >= 5:
+        flags.append("GENERIC_ONE_WORD_TAGS")
+    sentences = [
+        item.strip() for item in re.split(r"(?<=[.!?…])\s+", desc)
+        if item.strip()
+    ]
+    if any(
+        (a == b or (
+            len(a) >= 32 and len(b) >= 32
+            and SequenceMatcher(None, a, b).ratio() >= .87
+        ))
+        for index, a in enumerate(sentences)
+        for b in sentences[index + 1:]
+    ):
+        flags.append("REPEATED_DESCRIPTION_SENTENCES")
+    if any(
+        SequenceMatcher(None, a, b).ratio() >= .78
+        for index, a in enumerate(alternatives)
+        for b in alternatives[index + 1:]
+    ):
+        flags.append("SIMILAR_AB_ANGLES")
+    # A few recurring mixed-language errors from actual Qwen captions QA.
+    russian_calques = re.compile(
+        r"(?<!\w)(?:коллективна|уволили|коррупцию|подмосковье|"
+        r"война|киевці|михаил|сдано|виноваты)(?!\w)", flags=re.I
+    )
+    if any(russian_calques.search(value) for value in (
+        title, description, *variants, *tags
+    )):
+        flags.append("MIXED_LANGUAGE_WORDS")
+    if any(re.search(r"(?<!\w)диалог(?!\w)", value, flags=re.I) for value in (
+        title, description, *variants, *tags
+    )):
+        flags.append("RUSSIAN_WORD_DIALOG")
+    # Annexation/occupation must not be presented as a verified neutral
+    # event merely because a participant said it. Flag for human review.
+    sensitive = re.compile(
+        r"після\s+входу.{0,40}(?:до\s+рф|до\s+складу\s+росі)"
+        r"|(?:входження|приєднання).{0,30}до\s+(?:рф|росі)",
+        flags=re.I,
+    )
+    if any(sensitive.search(str(value)) for value in (
+        title, description, *variants
+    )):
+        flags.append("OCCUPATION_FRAMING_REVIEW")
+    return flags
 
 def _grounded_description_from_transcript(
     title: str,
@@ -731,16 +941,23 @@ def _deterministic_evidence_description(
             quote = str(topic.get("evidence") or "").strip()
             if not quote:
                 raise ValueError("No verified transcript quotations for SEO description")
-            combined = (str(topic.get("topic") or "") + " " + quote).casefold()
+            # Model-written topic labels are proposals, not evidence.
+            # Only the literal source quote can establish a public subject.
+            combined = quote.casefold()
             recognized: list[str] = []
-            if any(w in combined for w in ("стратег", "войн", "війн")):
-                recognized.append("війна та стратегічні рішення")
+            # Avoid turning a generic mention of war into an unsupported
+            # strategic claim, or any "reason" into a personnel decision.
+            if any(w in combined for w in ("войн", "війн")):
+                recognized.append("війна")
             if any(w in combined for w in (
-                "причин", "увольнен", "звільнен", "зміни посади", "смены должност",
-                "кадров", "назначен",
+                "увольнен", "звільнен", "зміни посади", "смены должност",
+                "кадров", "назначен", "призначен",
             )):
-                recognized.append("версії причин кадрових змін")
-            if any(w in combined for w in ("відповідаль", "ответствен")):
+                recognized.append("кадрові зміни")
+            if (
+                any(w in combined for w in ("відповідаль", "ответствен"))
+                and any(w in combined for w in ("посадов", "чиновник", "чиновник"))
+            ):
                 recognized.append("відповідальність посадовців")
             for needles, label in _GROUNDED_TOPIC_RULES:
                 if any(needle in combined for needle in needles):
@@ -762,23 +979,29 @@ def _deterministic_evidence_description(
     # failing the whole package and repeatedly calling Ollama.
     if unmapped and review_unmapped is not None:
         review_unmapped.extend(unmapped)
+    if not labels:
+        # No safe public topic exists. Return a precise failure instead of
+        # suggesting the unsupported model labels are recognized subjects.
+        raise ValueError("No editorial subjects among verified transcript topics")
     if unmapped and review_unmapped is None:
         raise ValueError(
             "Verified subjects require editorial review: " + "; ".join(unmapped[:10])
         )
-    if not labels:
-        raise ValueError("No editorial subjects among verified transcript topics")
     labels = labels[:10]
-    lead = (
-        "У цьому випуску «РАША ГУДБАЙ» ведучий та співрозмовники "
-        "обговорюють такі теми: " + "; ".join(labels) + ". "
-    )
+    # Topic labels are verified against transcript quotations above.
+    # Keep the public description focused on those subjects rather than
+    # padding it with stock claims about what every interviewee supposedly did.
+    first = labels[0]
+    rest = labels[1:]
+    # First in chronology does not mean dominant across the full video.
+    lead = "У випуску «РАША ГУДБАЙ» порушено тему: " + first + ". "
+    if rest:
+        lead += "Також порушуються питання: " + "; ".join(rest) + ". "
     body = (
-        "Учасники чат-рулетки висловлюють власні думки та припущення "
-        "щодо причин і наслідків обговорюваних подій. Це їхні оцінки, "
-        "а не підтверджені редакцією факти чи мотиви посадовців. "
-        "Дивіться повну розмову, щоб почути аргументи співрозмовників "
-        "і оцінити їх у контексті."
+        "Ці теми згадуються у розмові з росіянами в чат-рулетці. "
+        "Окремі твердження учасників є їхніми оцінками, "
+        "а не незалежно перевіреними фактами. "
+        "Перегляньте обговорення та зіставте позиції співрозмовників."
     )
     result = lead + body
     if len(result) > 950:
@@ -1251,21 +1474,17 @@ def _recover_missing_description(
 
 def _ab_distinct_evidence_brief(report: dict[str, Any]) -> str:
     """Up to three distinct grounded anchors; never invent a third story."""
-    from .dialogue_seo import distinct_evidence_topics
+    from .dialogue_seo import rank_literal_evidence
 
-    entries = distinct_evidence_topics(report)
+    entries = rank_literal_evidence(report)[:3]
     if not entries:
         return ""
-    n = len(entries)
-    selections: list[int] = []
-    targets = [0] if n == 1 else ([0, n - 1] if n == 2 else [0, (n - 1) // 2, n - 1])
-    for target in targets:
-        remaining = [i for i in range(n) if i not in selections]
-        selections.append(min(remaining, key=lambda i: abs(i - target)))
+    # A/B hooks are distinct editorial angles from verifiable statements;
+    # never present LLM-generated "topic" labels as sourced claims.
     return "\n".join(
-        f"{label}: [{entries[i]['start_stamp']}] ТЕМА: {entries[i]['topic']}; "
-        f"ЦИТАТА: {entries[i]['evidence'][:220]}"
-        for label, i in zip(("A", "B", "C"), selections)
+        f"{label}: [{item['start_stamp']}] ДОСЛІВНА ЦИТАТА SRT: "
+        f"{item['evidence'][:220]}"
+        for label, item in zip(("A", "B", "C"), entries)
     )
 
 
@@ -1294,7 +1513,10 @@ def _source_quote_ab_titles(
             quote = quote.strip(' "«»„“”')
             if quote.casefold() not in verified_quotes:
                 continue
-            if len(quote) < 30 or len(quote.split()) < 5:
+            # Short, complete quotes are valid evidence too; do not silently
+            # drop them just because they are under 30 characters. A bare
+            # interjection or two-word fragment is too weak for a headline.
+            if len(quote) < 15 or len(quote.split()) < 3:
                 continue
             excerpt = quote
             if len(excerpt) > 75:
@@ -1303,7 +1525,7 @@ def _source_quote_ab_titles(
                     continue
                 excerpt += "…"
             title = f"«{excerpt}» | ЧАТ РУЛЕТКА"
-            if not 30 <= len(title) <= 100:
+            if not 20 <= len(title) <= 100:
                 continue
             if title.casefold() == current_title.strip().casefold():
                 continue
@@ -1311,6 +1533,12 @@ def _source_quote_ab_titles(
             break  # only one quoted story per timeline block
     if len(candidates) < 3:
         return []
+    # A long stream can contain hundreds of valid quotations. Searching all
+    # combinations is cubic and previously stalled multi-hour transcripts.
+    # Keep an evenly spaced, chronological subset (including both ends).
+    if len(candidates) > 24:
+        last = len(candidates) - 1
+        candidates = [candidates[round(i * last / 23)] for i in range(24)]
     # Pick the widest temporal coverage first; do not take three adjacent
     # quotes from one conversation when later material exists.
     triplets = sorted(
@@ -1522,6 +1750,90 @@ def _recover_independent_ab_titles(
     return _source_quote_ab_titles(report, current_title)
 
 
+def _grounded_review_title_variants(
+    current_title: str,
+    transcript: str,
+    *,
+    pool_size: int = 3,
+) -> list[str]:
+    """Review-only question angles for topics actually mentioned in captions.
+
+    Extra pool option exists because the first candidate can become the
+    primary title, leaving three separate A/B slots to fill. Never invent an
+    additional event to fill those slots.
+    """
+    source = str(transcript or "").casefold()
+    if not source.strip():
+        return []
+    weak_stems = {"цен", "сво", "президент", "министерств", "оборон"}
+    matched: list[tuple[int, int, str]] = []
+    for order, (needles, label) in enumerate(_GROUNDED_TOPIC_RULES):
+        # One subject containing two synonyms is not mentioned twice.
+        count = max(
+            (source.count(needle) for needle in needles if needle not in weak_stems),
+            default=0,
+        )
+        if count:
+            matched.append((-count, order, label))
+    matched.sort()
+    labels = [label for _, _, label in matched]
+    if not labels:
+        return []
+
+    # All four are neutral angles on observed subjects, not extra events.
+    # The QA preview may use the first for a missing primary title, leaving
+    # three alternatives. For one subject, questions vary without new facts.
+    suggestions = [
+        f"{labels[0]}: про що говорять у чат-рулетці?",
+        f"{labels[1] if len(labels) > 1 else labels[0]}: що кажуть співрозмовники?",
+        f"{labels[2] if len(labels) > 2 else labels[0]}: які запитання виникають?",
+        f"{labels[3] if len(labels) > 3 else labels[0]}: думки учасників розмови",
+    ]
+    return [title for title in suggestions[:pool_size] if len(title) <= 100]
+
+
+
+def _improve_review_ab_distinctness(
+    title: str,
+    variants: list[str],
+    transcript: str,
+    evidence_report: dict[str, Any] | None = None,
+) -> tuple[list[str], bool]:
+    """Improve repeated A/B hooks using only topics detected in transcript.
+
+    This is a review-only fallback. Editorial approval requires verifying the
+    actual transcript and cannot be inferred from three well-formed titles.
+    """
+    from itertools import combinations
+
+    if len(variants) != 3 or not transcript.strip():
+        return variants, False
+    initial_issues = ab_title_issues(variants, evidence_report)
+    if not initial_issues:
+        return variants, False
+    grounded = [
+        item for item in _grounded_review_title_variants("", transcript, pool_size=4)
+        if item.casefold() != title.casefold()
+        and not _seo_ukrainian_language_issue(item)
+    ]
+    if len(grounded) < 3:
+        return variants, False
+    pool = list(dict.fromkeys([*variants, *grounded]))
+    best = variants
+    best_score = len(initial_issues)
+    for option in combinations(pool, 3):
+        # Replacing a single word in an unchecked model headline does not
+        # establish grounding; favor multiple transcript-topic candidates.
+        if sum(item in grounded for item in option) < 2:
+            continue
+        issues = ab_title_issues(option, evidence_report)
+        if len(issues) < best_score:
+            best, best_score = list(option), len(issues)
+            if best_score == 0:
+                break
+    return best, best != variants
+
+
 def _recover_title_variants(
     *,
     current_title: str,
@@ -1572,75 +1884,189 @@ _GENERIC_MODEL_TAGS = {
 }
 
 
+# Explicit cross-language lexical equivalences for Ukrainian SEO queries and
+# Russian-language conversation SRT. Do not infer a relationship between
+# tokens unless their roots occur in ONE nearby source-caption span.
+_TAG_GROUNDING_ROOTS: dict[str, tuple[str, ...]] = {
+    "війн": ("війн", "войн"),
+    "росі": ("росі", "росси", "россий", "рф"),
+    "росіян": ("росіян", "россиян"),
+    "україн": ("україн", "украин"),
+    "білорус": ("білорус", "беларус", "белорус"),
+    "зарплат": ("зарплат", "заробітн"),
+    "пенсі": ("пенсі", "пенси"),
+    "звільнен": ("звільнен", "увольнен", "отстав"),
+    "звільн": ("звільн", "увольн", "отстав"),
+    "мобіліз": ("мобіліз", "мобилиз"),
+    "санкці": ("санкці", "санкц"),
+    "корупці": ("корупці", "коррупц"),
+    "економі": ("економі", "эконом"),
+    "бензин": ("бензин", "топлив", "пальн"),
+    "пальн": ("пальн", "топлив", "бензин"),
+    "путін": ("путін", "путин"),
+    "шойгу": ("шойгу",),
+    "ціни": ("ціни", "цены", "цен"),
+    "вартіст": ("вартіст", "стоимост"),
+    "доход": ("доход", "дохід"),
+    "робот": ("работа", "работу", "работы", "робота", "роботу", "роботи"),
+    "діти": ("діти", "дітей", "дети", "детей", "ребен", "детьми"),
+    "загибл": ("загибл", "погиб", "умер", "вбит", "убит"),
+    "сім": ("сім", "семь", "семьей", "семьёй", "семьи", "семью"),
+    "алкогол": ("алкогол", "пьян", "спиртн"),
+    "вибор": ("вибор", "выбор", "голосован", "голосова"),
+    "голосуван": ("голосуван", "голосован", "голосова"),
+    "голосува": ("голосува", "голосован", "голосова"),
+    "переїзд": ("переїзд", "переех", "переезд", "переезж"),
+    "виїзд": ("виїзд", "выезд", "уезж"),
+    "кордон": ("кордон", "границ", "рубеж"),
+    "віра": ("віра", "вера", "веры", "веру", "віру"),
+    "вір": ("віра", "вірі", "віру", "вер", "вера", "веру", "веры"),
+    "страх": ("страх", "боюсь", "боязн", "страшн"),
+    "розчар": ("розчар", "разочар"),
+    "запереч": ("запереч", "отриц", "нет"),
+}
+
+_TAG_CONNECTORS = {"проти", "щодо", "через", "після", "перед", "між",
+                   "разом", "військові", "російські"}
+
+
 def _tag_is_grounded(tag: str, current_title: str, transcript: str) -> bool:
-    """Allow model tags only when they are specific and grounded in title/transcript."""
+    """Require search queries to occur in one nearby SRT span, across UA/RU.
+
+    Old code required the UKRAINIAN word to appear literally in the RUSSIAN
+    subtitle. This silently stripped relevant SEO from almost every dialogue.
+    Equivalences below are lexical, not proof of any event's truth.
+    """
     clean = " ".join(str(tag or "").split()).strip().lstrip("#")
     if not clean:
         return False
     folded = clean.casefold()
     if folded in _GENERIC_MODEL_TAGS:
         return False
-    # Reject repeated low-value "війна і X" model tags from real 0.7.16 QA.
-    # Keep named events and stronger concrete search phrases instead.
     if re.match(r"^(?:війна|война)\s+(?:і|и)\s+", folded):
         return False
     if folded in {"раша гудбай", "чат рулетка"}:
         return True
-
-    haystack = f"{current_title}\n{transcript}".casefold()
-    if folded in haystack:
-        return True
-
+    haystack = (transcript if str(transcript or "").strip() else current_title).casefold()
+    if not haystack:
+        return False
+    # The source's actual words establish both entity and topic in one span.
+    tag_words = re.findall(r"[a-zа-яіїєґё0-9]+", folded)
     tokens = [
-        token
-        for token in re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", folded)
-        if len(token) >= 4 and token not in _GENERIC_MODEL_TAGS
+        token for token in tag_words
+        if (len(token) >= 4 or token == "сім") and token not in _GENERIC_MODEL_TAGS
+        and token not in _TAG_CONNECTORS
     ]
     if not tokens:
         return False
 
-    # Ukrainian/Russian single-word tags may be declined in speech.
-    # E.g. «мобілізація» appears as «мобілізацію» in the transcript.
-    # Require a sufficiently long word stem so short generic tags do not
-    # accidentally match unrelated subjects.
-    if len(tokens) == 1 and len(tokens[0]) >= 8:
-        stem = tokens[0][:max(6, len(tokens[0]) - 3)]
-        if any(word.startswith(stem) for word in re.findall(
-            r"[A-Za-zА-Яа-яІіЇїЄєҐґЁё0-9]+", haystack
-        )):
-            return True
+    def match(token: str, words: list[str]) -> bool:
+        # Root detection must use word starts, never arbitrary substrings:
+        # 'робот' cannot be mistaken for 'робота' unless explicitly scoped
+        # and 'свою' must never match 'СВО'.
+        root = next(
+            (key for key in sorted(_TAG_GROUNDING_ROOTS, key=len, reverse=True)
+             if token.startswith(key)),
+            None,
+        )
+        if root:
+            variants = _TAG_GROUNDING_ROOTS[root]
+            if root == "робот":
+                # Exact inflected forms avoid matching a physical "робот"
+                # when the SEO phrase refers to human employment.
+                return any(word in variants for word in words)
+        else:
+            length = min(6, max(4, len(token) - 2))
+            variants = (token[:length],)
+        return any(
+            word.startswith(variant)
+            for variant in variants
+            for word in words
+        )
 
-    # Multi-word tags may use a normalized phrase not present verbatim, but at
-    # least half of their meaningful words must be visible in the source.
-    hits = sum(1 for token in tokens if token in haystack)
-    required = 1 if len(tokens) == 1 else max(2, (len(tokens) + 1) // 2)
-    return hits >= required
+    # Line-level locality prevents mixing disparate speakers' statements.
+    # Subtitles with long unbroken lines use overlapping bounded windows.
+    for line in haystack.splitlines():
+        spans = (
+            [line[i:i + 420] for i in range(0, len(line), 300)]
+            if len(line) > 420 else [line]
+        )
+        for span in spans:
+            source_words = re.findall(r"[a-zа-яіїєґё0-9]+", span)
+            if all(match(token, source_words) for token in tokens):
+                return True
+    # A topic often spans neighboring subtitle cues. Allow combinations
+    # only within a 12-second, at-most-three-cue timestamped window.
+    # Never combine distant topics or untimed unrelated sentences.
+    previous: list[tuple[float, str]] = []
+    for line in haystack.splitlines():
+        stamp = re.match(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*", line)
+        if not stamp:
+            previous.clear()
+            continue
+        parts = [int(value) for value in stamp.group(1).split(":")]
+        seconds = (
+            parts[0] * 60 + parts[1] if len(parts) == 2
+            else parts[0] * 3600 + parts[1] * 60 + parts[2]
+        )
+        previous = [(t, v) for t, v in previous if 0 <= seconds - t <= 12]
+        previous.append((seconds, line[stamp.end():]))
+        recent = previous[-3:]
+        if len(recent) >= 2:
+            nearby_words = re.findall(
+                r"[a-zа-яіїєґё0-9]+", " ".join(v for _, v in recent)
+            )
+            if all(match(token, nearby_words) for token in tokens):
+                return True
+    return False
+
 
 
 def _source_mentions(
-    title: str,
+    current_title: str,
     transcript: str,
-    needles: tuple[str, ...],
+    roots: tuple[str, ...],
 ) -> tuple[bool, int]:
-    title_text = str(title or "").casefold()
-    transcript_text = str(transcript or "").casefold()
-    in_title = any(needle in title_text for needle in needles)
-    count = sum(transcript_text.count(needle) for needle in needles)
-    return in_title, count
+    """Count topic mentions by spoken word, never arbitrary substrings.
+
+    When subtitles exist, current_title must not independently establish
+    a claimed topic. Count at most one mention per caption line so three
+    repeated words in a single fragment do not qualify a topic as recurrent.
+    """
+    source = str(transcript or "").strip()
+    title = str(current_title or "").casefold() if not source else ""
+    normalized_roots = tuple(
+        str(root).casefold() for root in roots if str(root).strip()
+    )
+    if not normalized_roots:
+        return False, 0
+
+    def matches(line: str) -> bool:
+        words = re.findall(r"[a-zа-яіїєґё0-9]+", line.casefold())
+        return any(
+            word.startswith(root)
+            for word in words for root in normalized_roots
+        )
+
+    in_title = bool(title and matches(title))
+    mentions = sum(1 for line in source.splitlines() if matches(line))
+    return in_title, mentions
 
 
 def _grounded_tags_from_transcript(
     current_title: str,
     transcript: str,
 ) -> list[str]:
-    """Build 8-15 specific SEO tags from the actual title/transcript."""
+    """Build topical tags from captions; title alone is not content evidence."""
     title = re.sub(
         r"\s*[|·-]\s*(?:РАША\s+ГУДБАЙ|RUSSIA\s+GOODBYE)\s*$",
         "",
         str(current_title or "").strip(),
         flags=re.I,
     ).strip()
-    haystack = f"{title}\n{transcript}".casefold()
+    # Do not derive claimed topics from a historical title when captions exist.
+    evidence_title = "" if str(transcript or "").strip() else title
+    haystack = f"{evidence_title}\n{transcript}".casefold()
 
     tags: list[str] = ["РАША ГУДБАЙ", "чат рулетка"]
 
@@ -1651,11 +2077,41 @@ def _grounded_tags_from_transcript(
         if clean.casefold() not in {item.casefold() for item in tags}:
             tags.append(clean)
 
+    # Expand real topic coverage with curated UA equivalents of common RU
+    # caption phrases. Every combined query must be proved in ONE subtitle
+    # line, never by joining different conversations. A useful sparse SRT
+    # is allowed to return fewer than eight tags and fail review honestly.
+    episode_queries = (
+        "мобілізація в Росії", "росіяни про мобілізацію",
+        "ставлення росіян до війни", "росіяни про війну",
+        "війна в Україні", "Путін і війна",
+        "вибори в Росії", "голосування за Путіна",
+        "голосувати за Путіна", "підтримка Путіна",
+        "війна та діти", "загиблі діти",
+        "діти чи алкоголь",
+        "сім'я та алкоголь", "мобілізація та сім'я",
+        "виїзд за кордон", "страх переїзду",
+        "життя в Росії", "робота в Росії",
+        "переїзд за кордон", "розмова про віру",
+        "розчарування у вірі", "заперечення війни",
+    )
+    for phrase in episode_queries:
+        if _tag_is_grounded(phrase, evidence_title, transcript):
+            add(phrase)
+    # A few specific one-word topic queries are legitimate when a broader
+    # two-word relationship cannot be supported in one source window.
+    # Do not use generic topical filler or invent an unsourced relation.
+    for phrase in ("мобілізація", "вибори", "Путін", "санкції", "Шойгу"):
+        if _tag_is_grounded(phrase, evidence_title, transcript):
+            add(phrase)
+
     # Named entities and concrete episode topics come before generic channel tags.
     if "шойгу" in haystack:
         add("Шойгу")
-        if "уволь" in haystack or "отстав" in haystack:
-            add("увольнение Шойгу")
+        # Only the same caption mentioning Shoigu and dismissal supports
+        # the combined search phrase. Include both RU and UA inflections.
+        if _tag_is_grounded("звільнення Шойгу", evidence_title, transcript):
+            add("звільнення Шойгу")
     if "герасим" in haystack:
         add("Герасимов")
     if "пригож" in haystack:
@@ -1667,80 +2123,87 @@ def _grounded_tags_from_transcript(
     if "лукашенко" in haystack:
         add("Лукашенко")
     if "беларус" in haystack:
-        add("Беларусь")
+        add("Білорусь")
         if "украин" in haystack or "україн" in haystack:
-            add("Беларусь и Украина")
+            add("Білорусь і Україна")
     if "украин" in haystack or "україн" in haystack:
-        add("Украина")
+        add("Україна")
     if "совет" in haystack and "безопас" in haystack:
-        add("Совет безопасности России")
+        add("Рада безпеки РФ")
     if "министерств" in haystack and "оборон" in haystack:
-        add("Министерство обороны России")
+        add("Міністерство оборони РФ")
     if "коррупц" in haystack:
-        add("коррупция в России")
+        add("корупція в Росії")
     if "арм" in haystack and ("росси" in haystack or "рф" in haystack):
-        add("российская армия")
+        add("російська армія")
 
     if "росси" in haystack or "росія" in haystack:
         for value in (
-            "Россия",
-            "россияне",
-            "мнение россиян",
-            "вопросы россиянам",
+            "Росія",
+            "росіяни",
+            "думки росіян",
+            "запитання росіянам",
         ):
             add(value)
 
     if "жизн" in haystack or "житт" in haystack:
-        add("жизнь в России")
+        add("життя в Росії")
     if "цен" in haystack or "дорог" in haystack or "инфляц" in haystack:
-        add("цены в России")
+        add("ціни в Росії")
     if "зарплат" in haystack or "доход" in haystack:
-        add("зарплаты в России")
+        add("зарплати в Росії")
     if "пенси" in haystack or "соцпакет" in haystack:
-        add("пенсии в России")
-    in_title, mentions = _source_mentions(title, transcript, ("эконом", "економ"))
+        add("пенсії в Росії")
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("эконом", "економ"))
     if in_title or mentions >= 3:
-        add("экономика России")
-    in_title, mentions = _source_mentions(title, transcript, ("путин", "путін"))
+        add("економіка Росії")
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("путин", "путін"))
     if in_title or mentions >= 3:
-        add("Путин")
+        add("Путін")
     in_title, mentions = _source_mentions(
-        title, transcript, ("войн", "війн", "спецоперац")
+        evidence_title, transcript, ("войн", "війн", "спецоперац")
     )
     if in_title or mentions >= 3:
-        add("война России против Украины")
+        add("війна Росії проти України")
     in_title, mentions = _source_mentions(
-        title, transcript, ("мобилиз", "мобіліз")
+        evidence_title, transcript, ("мобилиз", "мобіліз")
     )
     if in_title or mentions >= 3:
-        add("мобилизация в России")
-    in_title, mentions = _source_mentions(title, transcript, ("санкц",))
+        add("мобілізація в Росії")
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("санкц",))
     if in_title or mentions >= 3:
-        add("санкции против России")
+        add("санкції проти Росії")
     if "бензин" in haystack or "топлив" in haystack or "азс" in haystack:
-        add("бензин в России")
-    in_title, mentions = _source_mentions(title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
+        add("бензин у Росії")
+    in_title, mentions = _source_mentions(evidence_title, transcript, ("безработ", "работа ", "робота ", "работу ", "роботу "))
     if in_title or mentions >= 4:
-        add("работа в России")
+        add("робота в Росії")
     if "квартир" in haystack or "жиль" in haystack or "ипотек" in haystack:
-        add("жилье в России")
+        add("житло в Росії")
     if "медицин" in haystack or "здоров" in haystack or "боляч" in haystack:
-        add("здоровье в России")
+        add("здоров’я в Росії")
     if re.search(r"\b2023\b", haystack):
-        add("Россия 2023")
+        add("Росія 2023")
 
     # Project-format fallbacks are added last, only to reach a useful minimum.
     for value in (
-        "опрос россиян",
-        "реакция россиян",
-        "разговор с россиянами",
-        "русская чат рулетка",
+        "опитування росіян",
+        "реакція росіян",
+        "розмова з росіянами",
+        "чат рулетка з росіянами",
     ):
         if len(tags) >= 8:
             break
         add(value)
 
-    return tags[:15]
+    # This deterministic fallback must obey the SAME local SRT grounding
+    # gate as model-generated tags. Otherwise words from unrelated dialogues
+    # could be combined into fabricated claims ("Білорусь і Україна",
+    # "звільнення Шойгу") and bypass the model-tag filter entirely.
+    return [
+        item for item in tags
+        if _tag_is_grounded(item, evidence_title, transcript)
+    ][:15]
 
 
 def _clean_project_title_for_seo(value: str) -> str:
@@ -1785,6 +2248,21 @@ def _chapters_are_generic(chapters: str) -> bool:
     return all(any(token in label for token in generic) for label in labels)
 
 
+_SEO_RUSSIAN_MARKERS = re.compile(
+    r"(?<![\\w])(?:увольнение|коррупция|россия|россии|россияне|"
+    r"война|путин|мобилизация|санкции|говорят|идет|почему|"
+    r"вопросы|ответы|жизнь|мнение|работа|зарплаты|пенсии)(?![\\w])",
+    re.I,
+)
+
+
+def _seo_ukrainian_language_issue(value: str) -> bool:
+    """Use the same conservative Ukrainian language rule as the QA gate."""
+    from .seo_quality_gate import language_error
+
+    return language_error(value)
+
+
 def _preserve_current_title_when_candidate_is_not_stronger(
     current_title: str,
     candidate_title: str,
@@ -1810,6 +2288,37 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     current_core = core(current)
     candidate_core = core(candidate)
 
+    # Do not preserve a legacy Russian title over a valid Ukrainian proposal.
+    # Project metadata can retain Russian titles from earlier uploads, while
+    # current editorial output must use Ukrainian. A weak candidate still goes
+    # through the existing evidence/quality review before it can be applied.
+    russian_markers = (
+        "увольнение", "коррупция", "россия", "россии", "война",
+        "говорят", "собеседники", "идет", "вопросы", "почему",
+    )
+    legacy_russian = any(
+        re.search(r"(?<![\\w])" + re.escape(word) + r"(?![\\w])",
+                  current.casefold())
+        for word in russian_markers
+    ) or bool(re.search(r"[ыэъё]", current.casefold()))
+    ukrainian_candidate = bool(re.search(r"[іїєґ]", candidate.casefold()))
+
+    if legacy_russian and ukrainian_candidate:
+        return candidate
+
+    # An existing generic conversation label must never beat a concrete,
+    # source-specific Ukrainian hook merely through title preservation.
+    current_generic = "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+        current, "", (), ()
+    )
+    candidate_generic = "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+        candidate, "", (), ()
+    )
+    if current_generic and not candidate_generic:
+        return candidate
+    if candidate_generic and not current_generic:
+        return current
+
     # Exact same semantic title with only punctuation/brand removed is a downgrade.
     if current_core == candidate_core:
         return current
@@ -1824,6 +2333,56 @@ def _preserve_current_title_when_candidate_is_not_stronger(
     return candidate
 
 
+
+
+def _select_diverse_title_variants(
+    primary: str, proposals: Iterable[str], *, limit: int = 3
+) -> list[str]:
+    """Retain strongest source-backed A/B wording without near-duplicates.
+
+    This operates on generated text; it never fabricates an additional hook.
+    """
+    from difflib import SequenceMatcher
+
+    def normalize(value: str) -> str:
+        return " ".join(re.findall(r"[a-zа-яіїєґё0-9]+", value.casefold()))
+
+    def keywords(value: str) -> set[str]:
+        stop = {"що", "чому", "як", "про", "цей", "ця", "вони", "він",
+                "чи", "та", "на", "до", "від", "для", "росіяни"}
+        return {
+            word for word in normalize(value).split()
+            if len(word) >= 4 and word not in stop
+        }
+
+    retained: list[str] = []
+    origin = normalize(primary)
+    seen = [origin] if origin else []
+    for proposal in proposals:
+        title = " ".join(str(proposal or "").split())
+        if not title or len(title) > 100:
+            continue
+        if _seo_ukrainian_language_issue(title):
+            continue
+        core = normalize(title)
+        if not core or core in seen:
+            continue
+        # Near-identical punctuation, word order, or single-word substitutions
+        # are not three distinctive A/B choices.
+        if any(SequenceMatcher(None, core, old).ratio() >= 0.85 for old in seen):
+            continue
+        words = keywords(core)
+        if any(
+            len(words | keywords(old)) >= 3
+            and len(words & keywords(old)) / len(words | keywords(old)) >= .88
+            for old in seen
+        ):
+            continue
+        retained.append(title)
+        seen.append(core)
+        if len(retained) == limit:
+            break
+    return retained
 
 def _chapter_timestamp_seconds(value: str) -> int | None:
     parts = str(value or "").strip().split(":")
@@ -2058,6 +2617,79 @@ def _recover_chapters_from_transcript(
 from .dialogue_seo import ab_title_issues, evidence_outline_text, preserve_outline_topics
 
 
+
+def _repair_offtopic_headline(
+    title: str,
+    evidence_report: dict[str, Any],
+    *,
+    model: str,
+    timeout: float,
+    chat: Any = None,
+) -> tuple[str, bool]:
+    """Replace a factually disconnected headline only with source-grounded copy.
+
+    Unlike revising a model-written summary, this prompt has no topic labels,
+    external events, or existing description to contaminate its response.
+    A failed repair remains a review-only draft with a visible source flag.
+    """
+    from .dialogue_seo import (
+        focused_literal_source_notes,
+        rank_literal_evidence,
+        _literal_quote_subjects,
+    )
+
+    current = str(title or "").strip()
+    if focused_literal_source_notes(evidence_report, current, limit=1):
+        return current, False
+    ranked = rank_literal_evidence(evidence_report)
+    if not ranked:
+        return current, False
+    lead_roots = _literal_quote_subjects(ranked[0]["evidence"])
+    anchors = [
+        item for item in ranked
+        if not lead_roots or (_literal_quote_subjects(item["evidence"]) & lead_roots)
+    ][:5]
+    # Do not confuse an isolated unrelated excerpt with evidence of the
+    # dominant story simply to fill a five-quotation prompt.
+    if not anchors:
+        return current, False
+    literal_notes = [
+        {"time": item["start_stamp"], "quote": item["evidence"][:240]}
+        for item in anchors
+    ]
+    instruction = (
+        "Створи ОДИН конкретний український YouTube-заголовок до 100 "
+        "символів за ДОСЛІВНИМИ цитатами SRT. Попередній заголовок не "
+        "підтверджено розмовою, тому не копіюй його та не шукай "
+        "доказів на його користь. Перший пріоритет — зміст часто "
+        "повторюваних реплік. Не перетворюй слова співрозмовника "
+        "на доведений факт, не додавай подій, причин або чисел. "
+        "Відповідай лише JSON з полем title. "
+        "ЦИТАТИ: " + json.dumps(literal_notes, ensure_ascii=False)
+    )
+    try:
+        raw = (chat or ollama_chat)(
+            [
+                {"role": "system", "content": "Точний український SEO-редактор. Тільки JSON."},
+                {"role": "user", "content": instruction},
+            ],
+            model=model, timeout=timeout, temperature=0.02,
+            json_mode=True, num_ctx=8192,
+        )
+        value = _extract_json_object(raw)
+        proposed = str(value.get("title") or "").strip()
+        if (
+            20 <= len(proposed) <= 100
+            and proposed.casefold() != current.casefold()
+            and not _seo_ukrainian_language_issue(proposed)
+            and focused_literal_source_notes(evidence_report, proposed, limit=1)
+        ):
+            return proposed, True
+    except (ValueError, RuntimeError, TimeoutError, TypeError):
+        pass
+    return current, False
+
+
 def generate_seo_package_local(
     *,
     current_title: str,
@@ -2070,6 +2702,7 @@ def generate_seo_package_local(
     fast_mode: bool = False,
     timeout: float = 300.0,
     evidence_report: dict[str, Any] | None = None,
+    transcript_only_preview: bool = False,
 ) -> dict[str, Any]:
     context = public_context or {}
     live_profile = str(context.get("profile") or "").casefold()
@@ -2079,14 +2712,38 @@ def generate_seo_package_local(
         or live_state in {"live", "upcoming", "completed"}
         or bool(context.get("is_livestream"))
     )
-    verified_evidence = evidence_outline_text(evidence_report) if evidence_report else ""
+    verified_evidence = evidence_outline_text(evidence_report, max_chars=14000) if evidence_report else ""
+    # Use repeated *literal quotations* to propose the focal subject.
+    # This ranking is an editorial hint, never proof that a model label
+    # or a single disputed remark is an objective fact.
+    central_quote_brief = ""
+    if evidence_report:
+        from .dialogue_seo import rank_literal_evidence
+        main_quotes = rank_literal_evidence(evidence_report)[:3]
+        central_quote_brief = "\n".join(
+            f"[{entry['start_stamp']}] {entry['evidence'][:230]}"
+            for entry in main_quotes
+        )
+    # A transcript sample is not a full-topic ranking. Explicitly tell the
+    # model to avoid promoting a late isolated segment into the primary hook.
+    coverage_instruction = (
+        "Це лише вибірка субтитрів з різних частин відео, не повна карта тем. "
+        "Не вважай останній фрагмент найважливішим. "
+        "Якщо частоту чи вагу тем неможливо перевірити, не заявляй, що "
+        "випадкова тема є головною; залиш редакторський перегляд. "
+        "Описуй лише наявні слова співрозмовників, без висновків про результати подій."
+    ) if transcript and not evidence_report else ""
     evidence_instruction = (
-        "Якщо є карта фрагментів, охопи всі різні теми відео від початку до кінця. "
+        "Якщо є карта фрагментів, переглянь усі теми, але в публічний "
+        "опис обери лише 2–3 найсуттєвіші й пов'язані з головною назвою. "
+        "Не перелічуй кожну другорядну репліку: професії, побут або "
+        "випадковий жарт не є темою SEO, якщо відео переважно про інше. "
         "Три A/B формулювання, але НЕ три обов'язково різні сюжети: "
         "коли підтверджено лише один сюжет, використай різні запитання чи "
         "ракурси ТІЄЇ Ж теми. Ніколи не вигадуй третій сюжет. "
         "Це хронологічні фрагменти, а не підтверджені межі діалогів. "
-        "Опис має висвітлити теми з усіх частин."
+        "Опис має спиратися на різні частини запису, "
+        "але не мусить згадувати всі периферійні теми."
         if evidence_report else ""
     )
     prompt = f"""
@@ -2094,7 +2751,9 @@ def generate_seo_package_local(
 Використовуй ТІЛЬКИ наведений контекст. Якщо факту немає в контексті - не додавай його.
 
 Правила:
-- основна назва та РІВНО 3 A/B формулювання українською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
+- ЗАБОРОНЕНО абстрактні початки назв: «Проблеми», «Аналіз», «Реальність життя», «Співрозмовник обговорює», «Міркування». Назва має містити конкретне підтверджене питання, вислів чи конфлікт із субтитрів.\n- Перевір кожне слово назви, A/B і тегів: українська мова без російських кальок («доносов», «гордость», «контрактники»); не перекладай цитату так, щоб її зміст змінився.
+- Заміни російські слова на українські: «контрактники» → «військові за контрактом», «доносов» → «доносів», «гордость» → «гордість». Власні назви не змінюй.
+- У перших двох реченнях опису назви конкретну суперечку із субтитрів, не пиши «ми розбираємо складні теми», «учасники обговорюють проблеми» або «ключові пункти дискусії». Не оголошуй несуттєві уривки головними темами.\n- Під час вибору головної теми враховуй повторюваність і розподіл по всьому доступному відео, а не тільки фінальний уривок. За браку повної карти тем не стверджуй, що тему доведено головною.\n- основна назва та РІВНО 3 A/B формулювання українською; за браку незалежних сюжетів варіюй ракурс тієї самої підтвердженої теми, а не вигадуй нову подію;
 - кожна назва до 100 символів, конкретна, зрозуміла і прив'язана до реальної теми відео;
 - не копіюй поточну назву без SEO-покращення, якщо транскрипт дає точніший сильний хук;
 - опис: українською, 400-900 символів змістовного тексту до службових посилань; збережи центральну тему і 2-3 ключові підтверджені деталі; решта тем лишається в окремій карті доказів;
@@ -2126,20 +2785,25 @@ SHORTS: {is_short}
 СТРІМ/АРХІВ СТРІМУ: {is_stream}. Для стріму chapters ОБОВ'ЯЗКОВО порожній рядок.
 ПРАВИЛА АНАЛІЗУ ПОВНОГО ВІДЕО:
 {evidence_instruction}
-КАРТА ПІДТВЕРДЖЕНИХ ТЕМ:
+{coverage_instruction}
+ЦИТАТИ З НАЙБІЛЬШОЮ ПОВТОРЮВАНІСТЮ ТЕМ У РІЗНИХ ФРАГМЕНТАХ
+(підказки для вибору сюжету, НЕ встановлені факти):
+{central_quote_brief}
+
+ДОСЛІВНІ ЦИТАТИ SRT (без редакторських припущень):
 {verified_evidence}
 
 ПОТОЧНА НАЗВА:
 {current_title}
 
 ПОТОЧНИЙ ОПИС:
-{current_description[:1200] if evidence_report else current_description[:6000]}
+{("(не використовувати як джерело фактів)" if evidence_report else current_description[:6000])}
 
 ПОТОЧНІ ТЕГИ:
-{json.dumps(current_tags or [], ensure_ascii=False)}
+{("[]" if evidence_report else json.dumps(current_tags or [], ensure_ascii=False))}
 
 ПУБЛІЧНИЙ КОНТЕКСТ yt-dlp:
-{json.dumps(context, ensure_ascii=False)[:1800] if evidence_report else json.dumps(context, ensure_ascii=False)[:6000]}
+{("{}" if evidence_report else json.dumps(context, ensure_ascii=False)[:6000])}
 
 ТРАНСКРИПТ:
 {('Див. підтверджену карту тем вище.' if evidence_report else transcript[:12000])}
@@ -2174,7 +2838,10 @@ chapters: рядок з підтвердженими таймкодами та �
 ПОТОЧНА НАЗВА:
 {current_title}
 
-КАРТА ПІДТВЕРДЖЕНИХ ТЕМ ВСЬОГО ВІДЕО:
+ДОСЛІВНІ РЕПЛІКИ, ЩО СТОСУЮТЬСЯ ПОВТОРЮВАНИХ ТЕМ:
+{central_quote_brief}
+
+КАРТА ДОСЛІВНИХ ЦИТАТ З УСЬОГО ВІДЕО:
 {verified_evidence}
 
 ТРАНСКРИПТ:
@@ -2191,6 +2858,10 @@ chapters: рядок з підтвердженими таймкодами та �
                 json_mode=True,
                 **({"num_ctx": 16384} if evidence_report else {}),
             )
+            if not isinstance(raw, str) or not raw.strip():
+                # Empty successful HTTP completions are model failures, not SEO drafts.
+                # The existing bounded attempt loop retries with a minimal prompt.
+                raise ValueError("MODEL_EMPTY_RESPONSE_RETRY")
             candidate = _normalize_seo_candidate(_extract_json_object(raw))
             proposed_title = candidate.get("title")
             title_missing = (
@@ -2198,20 +2869,35 @@ chapters: рядок з підтвердженими таймкодами та �
                 or not proposed_title.strip()
             )
             if title_missing:
-                # The existing YouTube title is known and verified metadata.
-                # Never fail just because Ollama omitted a new one, and never
-                # promote a speculative A/B variant to the primary title.
+                # Missing model output is not a successful SEO title generation.
+                # Preserve the original metadata only for explicitly marked
+                # review-only drafts; never silently treat it as approved SEO.
                 existing_title = str(current_title or "").strip()
+                if not existing_title and fast_mode and transcript_only_preview and transcript.strip():
+                    topic_options = _grounded_review_title_variants("", transcript)
+                    if topic_options:
+                        existing_title = topic_options[0]
                 if not existing_title:
-                    raise ValueError(
-                        "Немає ані назви від моделі, ані поточної назви відео."
-                    )
-                candidate["title"] = (
-                    _clean_project_title_for_seo(existing_title)
-                    if fast_mode else existing_title
-                )
+                    raise ValueError("Немає ані назви від моделі, ані поточної назви відео. MODEL_TITLE_MISSING_NO_SAFE_FALLBACK")
+                candidate["title"] = existing_title
+                candidate["_fallback_review_only"] = True
+                candidate["_title_generation_failure"] = "MODEL_TITLE_MISSING"
             if not str(candidate.get("title") or "").strip():
                 raise ValueError("missing title")
+            if evidence_report and not fast_mode:
+                corrected_title, changed = _repair_offtopic_headline(
+                    str(candidate["title"]), evidence_report,
+                    model=model, timeout=timeout,
+                )
+                if changed:
+                    candidate["title"] = corrected_title
+                    candidate["_headline_repaired_from_source"] = True
+                else:
+                    from .dialogue_seo import focused_literal_source_notes
+                    if not focused_literal_source_notes(
+                        evidence_report, str(candidate["title"]), limit=1,
+                    ):
+                        candidate["_headline_source_mismatch"] = True
             if not str(candidate.get("description") or "").strip():
                 if fast_mode:
                     recovered_description = _grounded_description_from_transcript(
@@ -2239,31 +2925,52 @@ chapters: рядок з підтвердженими таймкодами та �
                 or len({item.casefold() for item in variants_candidate[:3]}) < 3
             ):
                 if fast_mode:
-                    # Strict for unattended batch preparation.
-                    raise ValueError("need exactly 3 title variants")
+                    # Return an explicit review-only draft rather than losing
+                    # the source-grounded title and description.
+                    candidate["_fallback_review_only"] = True
                 try:
                     recovered_variants = _recover_title_variants(
                         current_title=current_title,
-                        transcript=transcript,
+                        # On long streams a 35k prefix is not representative.
+                        # Generate hooks from source quotes across the video.
+                        transcript=verified_evidence if evidence_report else transcript,
                         model=model,
                     )
                 except (ValueError, RuntimeError, TimeoutError):
                     # Keep the original grounded draft if recovery fails.
                     recovered_variants = []
-                # Never discard two existing editorial hooks because an
-                # independent recovery returned zero or one candidate.
-                # Incomplete sets remain NEEDS_REVIEW, never ready to apply.
-                if len(set(map(str.casefold, recovered_variants))) > len(
-                    set(map(str.casefold, variants_candidate))
-                ):
-                    variants_candidate = recovered_variants
+                # Preserve all existing distinct A/B hooks and add only
+                # genuinely new recovery suggestions. A one-item recovery
+                # should fill the third slot, not discard two good hooks.
+                primary_key = str(candidate["title"]).strip().casefold()
+                unique: list[str] = []
+                used = {primary_key}
+                for item in [*variants_candidate, *recovered_variants]:
+                    value = str(item).strip()
+                    key = value.casefold()
+                    if (
+                        not value or len(value) > 100 or key in used
+                        or _seo_ukrainian_language_issue(value)
+                    ):
+                        continue
+                    used.add(key)
+                    unique.append(value)
+                    if len(unique) == 3:
+                        break
+                variants_candidate = unique
                 candidate["title_variants"] = variants_candidate
             variants_candidate = list(dict.fromkeys(
                 item for item in variants_candidate
                 if item.casefold() != str(candidate["title"]).casefold()
             ))
             if fast_mode and len(variants_candidate) < 3:
-                raise ValueError("need exactly 3 distinct title variants")
+                deterministic = _grounded_review_title_variants(current_title, transcript)
+                for proposed in deterministic:
+                    if proposed.casefold() not in {x.casefold() for x in variants_candidate} and proposed.casefold() != str(candidate["title"]).casefold():
+                        variants_candidate.append(proposed)
+                    if len(variants_candidate) >= 3:
+                        break
+                candidate["_fallback_review_only"] = True
             candidate["title_variants"] = variants_candidate[:3]
             if evidence_report and not fast_mode:
                 issues = ab_title_issues(
@@ -2277,14 +2984,15 @@ chapters: рядок з підтвердженими таймкодами та �
                         targeted = (
                             "ТРИ РІЗНІ ОПОРИ З РЕАЛЬНИХ ФРАГМЕНТІВ:\n"
                             + brief + "\n"
-                            + "A/B/C мають висвітлювати РІЗНІ теми, "
-                            + "не змінювати одну фразу тричі. "
+                            + "A/B/C мають давати РІЗНІ змістові ракурси. "
+                            + "Якщо у джерелі підтверджена лише одна тема, "
+                            + "не вигадуй дві інші, зміни кут подачі цієї теми. "
                             + "Без вигаданих фактів.\n\n"
                             if brief else ""
                         )
                         recovered = _recover_title_variants(
                             current_title=current_title,
-                            transcript=targeted + transcript,
+                            transcript=targeted + verified_evidence,
                             model=model,
                         )
                         if len(ab_title_issues(recovered, evidence_report)) < len(issues):
@@ -2331,24 +3039,320 @@ chapters: рядок з підтвердженими таймкодами та �
                     if lexical and not ab_title_issues(lexical, evidence_report):
                         candidate["title_variants"] = lexical
                         candidate["_source_lexical_review_only"] = True
+            if evidence_report and verified_evidence and (
+                "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                    str(candidate.get("title") or ""),
+                    "",
+                    candidate.get("title_variants") or [],
+                    [],
+                )
+            ):
+                # The grounding-only A/B gate accepts safe but generic
+                # questions. Give the editor a focused retry anchored to
+                # distinct quotations, then enforce BOTH the source gate
+                # and the no-generic editorial gate.
+                source_brief = _ab_distinct_evidence_brief(evidence_report)
+                if source_brief:
+                    try:
+                        focused_ab = _recover_title_variants(
+                            # The actual grounded primary hook is stronger
+                            # context than the deliberately blank old title.
+                            current_title=str(candidate.get("title") or current_title),
+                            transcript=(
+                                "ВАЖЛИВО: заборонені загальні заголовки "
+                                "'Про що говорили?', 'Що кажуть співрозмовники?', "
+                                "'Думки учасників розмови'. Кожен варіант "
+                                "має називати КОНКРЕТНИЙ підтверджений предмет "
+                                "суперечки, ім'я, місце або запитання. "
+                                "Тільки із прямих цитат, без вигаданих подій.\\n"
+                                + source_brief + "\\n" + verified_evidence[:8500]
+                            ),
+                            model=model,
+                        )
+                        if os.getenv("RG_SEO_PRIVATE_LOG_DRAFT") == "1":
+                            print("RG_SEO_AB_REPAIR " + json.dumps({
+                                "proposals": focused_ab,
+                                "grounding_issues": ab_title_issues(
+                                    focused_ab, evidence_report,
+                                ),
+                                "editorial_flags": _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", focused_ab, [],
+                                ),
+                            }, ensure_ascii=True), flush=True)
+                        # A single unsupported sentence must not discard
+                        # two strong source-anchored hooks. Ask the model to
+                        # repair the failed fields, then select a complete
+                        # triple satisfying BOTH source and editorial checks.
+                        focused_issues = ab_title_issues(focused_ab, evidence_report)
+                        options = list(focused_ab)
+                        if focused_issues:
+                            try:
+                                retry_ab = _recover_title_variants(
+                                    current_title=str(candidate.get("title") or current_title),
+                                    transcript=(
+                                        "ПОМИЛКИ ПОПЕРЕДНІХ ВАРІАНТІВ: "
+                                        + json.dumps(focused_issues, ensure_ascii=False)
+                                        + "\nПОПЕРЕДНІ ВАРІАНТИ: "
+                                        + json.dumps(focused_ab, ensure_ascii=False)
+                                        + "\nНапиши 3 НОВІ конкретні гачки. "
+                                        "Не вигадуй загиблих, причин, наслідків, "
+                                        "мотивації або зв'язку між різними розмовами. "
+                                        "Пиши українською, не шаблонами. "
+                                        "Використай підтверджені дослівні цитати:\n"
+                                        + source_brief + "\n"
+                                        + verified_evidence[:8500]
+                                    ),
+                                    model=model,
+                                )
+                                options.extend(retry_ab)
+                            except (ValueError, RuntimeError, TimeoutError):
+                                pass
+                        # A separate route avoids merely rephrasing the
+                        # same unsupported event. Each hook must come from a
+                        # different literal quote on the real timeline.
+                        if focused_issues:
+                            try:
+                                from .seo_editorial_reviewer import (
+                                    select_independent_source_notes,
+                                )
+                                notes_for_titles = select_independent_source_notes(
+                                    evidence_report, max_blocks=12, max_notes=18,
+                                )
+                                if len(notes_for_titles) >= 3:
+                                    quote_retry = _recover_title_variants(
+                                        current_title=str(
+                                            candidate.get("title") or current_title
+                                        ),
+                                        transcript=(
+                                            "СТВОРИ ТРИ НАЗВИ, КОЖНА ВІД ІНШОЇ "
+                                            "КОНКРЕТНОЇ ДОСЛІВНОЇ РЕПЛІКИ. "
+                                            "Це мають бути природні українські "
+                                            "гачки, без загальних формулювань "
+                                            "'про що йдеться', 'що кажуть'. "
+                                            "Не об'єднуй незалежні репліки у "
+                                            "фальшиву причинно-наслідкову подію. "
+                                            "Не додавай смертей, загиблих або "
+                                            "мотивів, якщо їх немає в цитаті. "
+                                            "Для сильного гачка дозволені "
+                                            "запитання та точний переклад "
+                                            "репліки українською.\nЦИТАТИ:\n"
+                                            + json.dumps(
+                                                notes_for_titles,
+                                                ensure_ascii=False,
+                                            )[:13500]
+                                        ),
+                                        model=model,
+                                    )
+                                    options.extend(quote_retry)
+                            except (ValueError, RuntimeError, TimeoutError, TypeError):
+                                pass
+                        from itertools import combinations as _combinations
+                        winning_ab = []
+                        primary_ab_title = str(candidate.get("title") or "").casefold()
+                        for combo in _combinations(dict.fromkeys(options), 3):
+                            proposed = list(combo)
+                            if any(
+                                item.casefold() == primary_ab_title for item in proposed
+                            ):
+                                continue
+                            if (
+                                not ab_title_issues(proposed, evidence_report)
+                                and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", proposed, [],
+                                )
+                                and "SIMILAR_AB_ANGLES" not in _seo_editorial_preview_flags(
+                                    str(candidate.get("title") or ""),
+                                    "", proposed, [],
+                                )
+                            ):
+                                winning_ab = proposed
+                                break
+                        if os.getenv("RG_SEO_PRIVATE_LOG_DRAFT") == "1":
+                            print("RG_SEO_AB_POOL " + json.dumps({
+                                "options": options[:12],
+                                "winning": winning_ab,
+                                "source_issue_counts": [
+                                    len(ab_title_issues(
+                                        list(c), evidence_report,
+                                    )) for c in list(_combinations(
+                                        dict.fromkeys(options), 3,
+                                    ))[:30]
+                                ],
+                            }, ensure_ascii=True), flush=True)
+                        if winning_ab:
+                            candidate["title_variants"] = winning_ab
+                    except (ValueError, RuntimeError, TimeoutError):
+                        pass
+                # The model can still return vague questions after a retry.
+                # Before accepting generic A/B, try purely quote-grounded
+                # alternatives. They pass exactly the same source and
+                # editorial-quality tests as the model proposal.
+                if "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                    str(candidate.get("title") or ""),
+                    "", candidate.get("title_variants") or [], [],
+                ):
+                    from .source_ab_lexical import source_grounded_ukrainian_ab
+                    source_options = [
+                        source_grounded_ukrainian_ab(evidence_report, current_title),
+                        _verified_source_ab_titles(evidence_report, current_title),
+                        _source_quote_ab_titles(evidence_report, current_title),
+                    ]
+                    for proposed_ab in source_options:
+                        if (
+                            len(proposed_ab) == 3
+                            and not ab_title_issues(proposed_ab, evidence_report)
+                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                str(candidate.get("title") or ""), "", proposed_ab, [],
+                            )
+                        ):
+                            candidate["title_variants"] = proposed_ab
+                            candidate["_source_lexical_review_only"] = True
+                            break
             if evidence_report:
-                # One deterministic editorial pass, zero extra Ollama
-                # recovery requests and zero model-authored public claims.
-                unmapped_evidence: list[str] = []
-                description_candidate = _deterministic_evidence_description(
-                    current_title, evidence_report,
-                    review_unmapped=unmapped_evidence,
+                # The old code overwrote EVERY model-written description
+                # with a short, generic keyword template, even when the
+                # model had produced a concrete source-based summary.
+                # Preserve substantive Ukrainian prose as a REVIEW-ONLY
+                # candidate, then submit it to the independent source critic.
+                description_candidate = _polish_generated_description(
+                    str(candidate.get("description") or "").strip()
                 )
-                candidate["evidence_editorial_review"] = unmapped_evidence
-                candidate["description"] = description_candidate
-                candidate["_deterministic_editor"] = True
+                description_candidate = _remove_unsupported_named_claims(
+                    description_candidate, evidence_report, current_title,
+                )
                 description_error = _description_quality_error(
-                    description_candidate, transcript, max_chars=950,
+                    description_candidate, transcript, max_chars=900,
                 )
+                if not description_error and len(description_candidate) < 400:
+                    description_error = "below_editorial_target"
                 if description_error:
-                    # Retain the evidence-only text as an explicitly unapproved
-                    # draft. Do not retry deterministic content with the model.
+                    # Repair the FAILED field directly, using the evidence
+                    # index. Do not replace a substantive summary with the
+                    # generic, repetitive deterministic template.
+                    repair_prompt = (
+                        "Ти український SEO-редактор. Поверни ЛИШЕ JSON "
+                        "із ключем description. Перепиши ОПИС, не назву. "
+                        "Створи 400–900 символів природної української "
+                        "мови, 3–5 конкретних речень: тема, аргументи "
+                        "співрозмовників і перевірені деталі. "
+                        "Кожне твердження повинно випливати з цитат. "
+                        "Не вигадуй наслідків, причин, цифр чи пов'язаних "
+                        "подій. Без шаблонного вступу й заклику дивитися. "
+                        "Наведені теми — пропозиції моделі, докази лише "
+                        "дослівні цитати.\n"
+                        "ПОМИЛКА ПОПЕРЕДНЬОГО ОПИСУ: "
+                        + description_error + "\n"
+                        "ПОПЕРЕДНІЙ ОПИС: " + description_candidate[:950]
+                        + "\nЦИТАТИ З РІЗНИХ ЧАСТИН ВІДЕО:\n"
+                        + verified_evidence[:11000]
+                    )
+                    try:
+                        raw_repair = ollama_chat(
+                            [
+                                {"role": "system", "content": (
+                                    "Редактор українського YouTube SEO. "
+                                    "Тільки JSON без пояснень."
+                                )},
+                                {"role": "user", "content": repair_prompt},
+                            ],
+                            model=model, timeout=timeout,
+                            temperature=0.1, json_mode=True,
+                            num_ctx=16384,
+                        )
+                        repaired = _extract_json_object(raw_repair)
+                        repaired_text = _polish_generated_description(
+                            str(repaired.get("description") or "").strip()
+                        )
+                        repaired_text = _remove_unsupported_named_claims(
+                            repaired_text, evidence_report, current_title,
+                        )
+                        repaired_issue = _description_quality_error(
+                            repaired_text, transcript, max_chars=900,
+                        )
+                        if 400 <= len(repaired_text) <= 900 and not repaired_issue:
+                            description_candidate = repaired_text
+                            description_error = ""
+                    except (ValueError, RuntimeError, TimeoutError, TypeError):
+                        pass
+                if description_error and verified_evidence:
+                    # A single free-form description often stops after two
+                    # sentences. Constrain the last repair to a structured
+                    # sequence of five independently source-backed sentences
+                    # and reject the entire result if it still misses bounds.
+                    try:
+                        from .dialogue_seo import focused_literal_source_notes
+                        source_notes = focused_literal_source_notes(
+                            evidence_report,
+                            str(candidate.get("title") or current_title),
+                            limit=9,
+                        )
+                        if not source_notes:
+                            raise ValueError("NO_ON_TOPIC_EVIDENCE_FOR_DESCRIPTION")
+                        repair_by_sentence = (
+                            "Відредагуй український SEO-опис. "
+                            "ГОЛОВНА ТЕМА: " + str(candidate.get("title") or "") + ". "
+                            "Відповідай ТІЛЬКИ JSON з полем sentences: "
+                            "масив 4–5 змістовних українських речень. "
+                            "Загальний опис 400–900 символів. Не додавай "
+                            "нових тверджень тільки заради довжини. "
+                            "Перше речення має назвати конкретний головний "
+                            "сюжет; решта чотири — лише пов'язані з ним "
+                            "висловлені факти, запитання чи позиції з цитат. "
+                            "Не включай сторонні епізоди про професію, "
+                            "побут, хобі чи переїзд, якщо вони не пов'язані "
+                            "із центральним сюжетом. "
+                            "Не вигадуй дій, мотивів, причин або чисел. "
+                            "Якщо джерело містить лише 2 теми, розкрий їх "
+                            "двома окремими перевіреними репліками, "
+                            "не вигадуй третю. Не додавай службового тексту. "
+                            "Сумнівні твердження приписуй мовцю.\\n"
+                            "ПОТОЧНИЙ НЕВДАЛИЙ ОПИС: " + description_candidate[:850]
+                            + "\\nПІДТВЕРДЖЕНІ ЦИТАТИ:\\n"
+                            + json.dumps(source_notes, ensure_ascii=False)
+                        )
+                        structured_raw = ollama_chat(
+                            [{"role": "system", "content": (
+                                "Український редактор YouTube. "
+                                "Тільки JSON з перевіреними реченнями."
+                            )}, {"role": "user", "content": repair_by_sentence}],
+                            model=model, timeout=timeout,
+                            temperature=0.08, json_mode=True, num_ctx=8192,
+                        )
+                        structured_data = _extract_json_object(structured_raw)
+                        sentences = structured_data.get("sentences")
+                        if (
+                            isinstance(sentences, list)
+                            and 4 <= len(sentences) <= 5
+                            and all(isinstance(x, str) and len(x.strip()) >= 50
+                                    for x in sentences)
+                        ):
+                            structured_text = _polish_generated_description(
+                                " ".join(x.strip() for x in sentences)
+                            )
+                            structured_text = _remove_unsupported_named_claims(
+                                structured_text, evidence_report, current_title,
+                            )
+                            if (
+                                400 <= len(structured_text) <= 900
+                                and not _description_quality_error(
+                                    structured_text, transcript, max_chars=900,
+                                )
+                            ):
+                                description_candidate = structured_text
+                                description_error = ""
+                    except (RuntimeError, ValueError, TimeoutError, TypeError):
+                        pass
+                if description_error:
+                    # Keep the failed wording in the editor-only draft and
+                    # let the quality gate reject it. Never pad with boilerplate
+                    # simply to reach 400 characters.
+                    candidate["description"] = description_candidate
                     candidate["_description_quality_issue"] = description_error
+                else:
+                    candidate["description"] = description_candidate
+                    candidate["_source_model_description_review_only"] = True
             else:
                 description_candidate = _polish_generated_description(
                     str(candidate.get("description") or "").strip()
@@ -2416,6 +3420,7 @@ chapters: рядок з підтвердженими таймкодами та �
                 str(item).strip().lstrip("#")
                 for item in (candidate.get("tags") or [])
                 if str(item).strip()
+                and not _seo_ukrainian_language_issue(str(item))
                 and _tag_is_grounded(
                     str(item),
                     current_title,
@@ -2431,6 +3436,46 @@ chapters: рядок з підтвердженими таймкодами та �
 
             primary_tags = model_tags if evidence_report and transcript.strip() else grounded_tags
             fallback_tags = grounded_tags if evidence_report and transcript.strip() else model_tags
+            if evidence_report and transcript.strip():
+                from .dialogue_seo import (
+                    focused_literal_source_notes, _literal_quote_subjects,
+                )
+                focused_notes = focused_literal_source_notes(
+                    evidence_report, str(candidate.get("title") or current_title),
+                    limit=12,
+                )
+                # Generic keyword pools were drowning episode-specific
+                # phrases. A claimed topic must be present in an on-topic
+                # source quote. Brand and format tags remain exceptions.
+                focused_text = "\n".join(
+                    str(note.get("quote") or "") for note in focused_notes
+                )
+                brand_format = {"раша гудбай", "чат рулетка"}
+                focus_roots = _literal_quote_subjects(focused_text)
+                def is_focused_tag(tag: str) -> bool:
+                    if str(tag).casefold() in brand_format:
+                        return True
+                    roots = _literal_quote_subjects(tag)
+                    return bool(
+                        roots and focus_roots
+                        and len(roots & focus_roots) >= min(2, len(roots))
+                        and _tag_is_grounded(tag, "", focused_text)
+                    )
+                primary_tags = [tag for tag in primary_tags if is_focused_tag(tag)]
+                fallback_tags = [tag for tag in fallback_tags if is_focused_tag(tag)]
+            # Search phrases describing a verified episode topic are more
+            # useful than a wall of one-word keywords. Keep proper names and
+            # channel tags, but choose specific multiword queries first.
+            if evidence_report and transcript.strip():
+                channel = {"раша гудбай", "чат рулетка"}
+                primary_tags = sorted(
+                    primary_tags,
+                    key=lambda item: (
+                        str(item).casefold() in channel,
+                        len(str(item).split()) < 2,
+                        -min(len(str(item).split()), 5),
+                    ),
+                )
 
             for item in primary_tags:
                 key = item.casefold()
@@ -2451,17 +3496,209 @@ chapters: рядок з підтвердженими таймкодами та �
                     if len(merged_tags) >= 10:
                         break
 
-            if len(merged_tags) < 8:
-                # Never pad keywords with unsupported claims to reach a quota.
-                # An incomplete tag set can be saved ONLY for human review.
+            generic_search_tags = {
+                "раша гудбай", "чат рулетка", "чат рулетка з росіянами",
+                "росія", "росіяни", "думки росіян",
+                "опитування росіян", "реакція росіян",
+                "запитання росіянам", "розмова з росіянами",
+                "youtube", "новини",
+            }
+            # Do not let the model's generic one-word filler consume the
+            # ten available search-tag slots. Keep literal named entities
+            # only if they are mentioned in the transcript.
+            if evidence_report and transcript.strip():
+                format_tags = {"раша гудбай", "чат рулетка"}
+                merged_tags = [
+                    tag for tag in merged_tags
+                    if (
+                        len(tag.split()) >= 2
+                        or tag.casefold() in format_tags
+                        or (
+                            tag.casefold() in {
+                                "путін", "шойгу", "мобілізація",
+                                "вибори", "санкції", "пропаганда",
+                            }
+                            and _tag_is_grounded(tag, current_title, transcript)
+                        )
+                    )
+                ]
+                seen_tags = {tag.casefold() for tag in merged_tags}
+            topical_count = sum(
+                tag.casefold() not in generic_search_tags
+                for tag in merged_tags
+            )
+            if evidence_report and verified_evidence and (
+                len(merged_tags) < 8 or topical_count < 4
+            ):
+                from .dialogue_seo import focused_literal_source_notes
+                focus_for_tags = focused_literal_source_notes(
+                    evidence_report,
+                    str(candidate.get("title") or current_title),
+                    limit=9,
+                )
+                tag_source_quotes = json.dumps(
+                    focus_for_tags, ensure_ascii=False,
+                )[:10500]
+                if not focus_for_tags:
+                    # A headline unrelated to every source quote must not
+                    # trigger an ungrounded tag generation fallback.
+                    candidate["_headline_source_mismatch"] = True
+                # If the model filled all slots with channel/format tags,
+                # reclaim those slots for episode-specific search queries.
+                if topical_count < 4:
+                    merged_tags = [
+                        tag for tag in merged_tags
+                        if tag.casefold() not in generic_search_tags
+                        or tag.casefold() in {"раша гудбай", "чат рулетка"}
+                    ]
+                    seen_tags = {tag.casefold() for tag in merged_tags}
+                # Repair tag QUALITY at the generator, not at the acceptance
+                # gate. Ask for specific episode search terms grounded in
+                # verified quotations, then check each candidate against the
+                # complete SRT before adding it.
+                tag_prompt = (
+                    "Ти SEO-редактор українського YouTube. Поверни JSON "
+                    'з полем "tags": масив 8–12 українських пошукових '
+                    "фраз без #. Візьми конкретні імена, місця, питання й "
+                    "теми лише з ЦИТАТ. Не з'єднуй слова з різних діалогів, "
+                    "не додавай нові події, причини, цифри або загальні "
+                    "теги на кшталт новини/суспільство. Віддавай перевагу "
+                    "природним фразам із 2–5 слів, не вигадуй тему, "
+                    "щоб набрати 8 тегів.\n"
+                    "УЖЕ Є: " + json.dumps(merged_tags, ensure_ascii=False)
+                    + "\nЦИТАТИ З РІЗНИХ ЧАСТИН ВІДЕО:\n"
+                    + tag_source_quotes
+                )
+                try:
+                    if not focus_for_tags:
+                        raise ValueError("NO_TITLE_GROUNDED_TAG_EVIDENCE")
+                    tag_raw = ollama_chat(
+                        [
+                            {"role": "system", "content": (
+                                "Українські тематичні пошукові фрази. Лише JSON."
+                            )},
+                            {"role": "user", "content": tag_prompt},
+                        ],
+                        model=model, timeout=timeout,
+                        temperature=0.08, json_mode=True, num_ctx=16384,
+                    )
+                    tag_reply = _extract_json_object(tag_raw)
+                    proposals = tag_reply.get("tags")
+                    if isinstance(proposals, list):
+                        for proposed in proposals[:24]:
+                            tag = " ".join(str(proposed or "").split()).lstrip("#")
+                            key = tag.casefold()
+                            if (
+                                not tag or len(tag) > 70 or key in seen_tags
+                                or (len(tag.split()) < 2 and not (
+                                    tag[:1].isupper() and key not in {"росія", "україна", "новини"}
+                                ))
+                                or _seo_ukrainian_language_issue(tag)
+                                or not _tag_is_grounded(
+                                    tag, current_title, transcript,
+                                )
+                                or (evidence_report and not is_focused_tag(tag))
+                            ):
+                                continue
+                            seen_tags.add(key)
+                            merged_tags.append(tag)
+                            if len(merged_tags) >= 12:
+                                break
+                except (ValueError, RuntimeError, TimeoutError, TypeError):
+                    # A failed optional tag rewrite must never erase a
+                    # still-useful, explicitly unapproved draft.
+                    pass
+            topical_count = sum(
+                tag.casefold() not in generic_search_tags
+                for tag in merged_tags
+            )
+            if len(merged_tags) < 8 or topical_count < 3:
+                # Eight generic brand/format tags are NOT successful SEO.
+                # Keep the draft, but record poor topical coverage honestly.
                 candidate["_tags_review_required"] = True
-            candidate["tags"] = merged_tags
+            # A source-mentioned noun does not make an ungrammatical
+            # or near-duplicate search phrase useful Ukrainian metadata.
+            from difflib import SequenceMatcher as _TagSimilarity
+            natural_tags: list[str] = []
+            seen_concepts: set[tuple[str, ...]] = set()
+            for tag in merged_tags:
+                lowered = tag.casefold()
+                if (
+                    _seo_ukrainian_language_issue(tag)
+                    or re.search(
+                        r"(?i)\b(?:стала|стане)\s+росії\b",
+                        lowered,
+                    )
+                ):
+                    continue
+                if any(
+                    _TagSimilarity(None, lowered, other.casefold()).ratio() >= 0.86
+                    for other in natural_tags
+                    if len(tag.split()) >= 2 and len(other.split()) >= 2
+                ):
+                    continue
+                # "голосувати за Путіна" and "голосування за Путіна"
+                # describe one query concept, not two independent tags.
+                terms = re.findall(r"[a-zа-яіїєґё]{4,}", lowered)
+                concept = tuple(sorted(token[:7] for token in terms))
+                if concept and concept in seen_concepts:
+                    continue
+                natural_tags.append(tag)
+                if concept:
+                    seen_concepts.add(concept)
+            # Filtering duplicates can reduce a previously complete tag list
+            # below eight. Refill ONLY from the deterministic SRT-grounded
+            # candidates; do not ask the model to invent filler phrases.
+            if len(natural_tags) < 10:
+                allowed_single = {
+                    "путін", "шойгу", "мобілізація", "вибори", "санкції",
+                }
+                for tag in [*primary_tags, *fallback_tags]:
+                    if len(natural_tags) >= 10:
+                        break
+                    lowered = str(tag).strip().casefold()
+                    if (
+                        not lowered
+                        or _seo_ukrainian_language_issue(tag)
+                        or (len(tag.split()) < 2 and lowered not in allowed_single)
+                        or re.search(r"(?i)\b(?:стала|стане)\s+росії\b", lowered)
+                        or not _tag_is_grounded(tag, current_title, transcript)
+                    ):
+                        continue
+                    concept = tuple(sorted(
+                        token[:7] for token in re.findall(
+                            r"[a-zа-яіїєґё]{4,}", lowered,
+                        )
+                    ))
+                    if (
+                        lowered in {x.casefold() for x in natural_tags}
+                        or concept in seen_concepts
+                        or any(
+                            _TagSimilarity(None, lowered, old.casefold()).ratio() >= 0.86
+                            for old in natural_tags
+                        )
+                    ):
+                        continue
+                    natural_tags.append(tag)
+                    if concept:
+                        seen_concepts.add(concept)
+            if len(natural_tags) < 8:
+                # Keep the exact failure visible; never invent filler tags.
+                candidate["_tags_review_required"] = True
+            else:
+                candidate.pop("_tags_review_required", None)
+            candidate["tags"] = natural_tags
 
             payload = candidate
             title_fallback_used = title_missing
             break
         except (ValueError, RuntimeError, TimeoutError) as exc:
             last_error = exc
+            # Model outage is not an SEO formatting defect. Stop retries
+            # immediately instead of requesting the same broken endpoint.
+            cause = getattr(exc, "__cause__", None)
+            if isinstance(cause, urllib.error.HTTPError) and cause.code >= 500:
+                break
     if not payload and evidence_report and not fast_mode and str(current_title).strip():
         # A verified transcript is valuable even when the model or editorial
         # rules cannot finish a complete SEO package. Preserve a review-only
@@ -2513,6 +3750,21 @@ chapters: рядок з підтвердженими таймкодами та �
                 "_description_quality_issue": "editorial_review_required",
             }
             title_fallback_used = True
+    if not payload and fast_mode and transcript_only_preview and transcript.strip():
+        # Isolated QA only: an invalid model reply must not stop collecting
+        # technical diagnostics. Generate neutral source-topic review prompts.
+        # These are never verified titles and are never publication-ready.
+        qa_titles = _grounded_review_title_variants("", transcript, pool_size=4)
+        if qa_titles:
+            payload = {
+                "title": qa_titles[0],
+                "title_variants": qa_titles[1:],
+                "description": _grounded_description_from_transcript("", transcript),
+                "tags": _grounded_tags_from_transcript("", transcript)[:10],
+                "chapters": "",
+                "_fallback_review_only": True,
+            }
+            title_fallback_used = True
     if not payload:
         mode_text = "швидкого проходу" if fast_mode else "повторів"
         raise ValueError(
@@ -2527,6 +3779,53 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     if fast_mode:
         title = _clean_project_title_for_seo(title)
+    # Improve the PRIMARY headline instead of settling for a generic
+    # "what do Russians think" title while valid concrete evidence exists.
+    # This is generation, not an extra diagnostic pass.
+    if (
+        evidence_report and verified_evidence
+        and "GENERIC_PRIMARY_TITLE" in _seo_editorial_preview_flags(
+            title, "", (), ()
+        )
+    ):
+        specific_title_prompt = (
+            "Напиши ОДНУ конкретну українську назву YouTube, "
+            "40–95 символів. Перша частина назви має чітко називати "
+            "подію, людину, факт розмови або конкретне запитання. "
+            "НЕ використовуй загальні заголовки про думки росіян, "
+            "чат-рулетку або співрозмовників. "
+            "Не вигадуй невисловлених фактів, імен та причин. "
+            'Поверни лише JSON {"title":"..."}.'
+            "\nПОПЕРЕДНЯ СЛАБКА НАЗВА: " + title
+            + "\nЦИТАТИ ІЗ ВІДЕО:\n" + verified_evidence[:11000]
+        )
+        try:
+            specific_raw = ollama_chat(
+                [
+                    {"role": "system", "content": (
+                        "Точний український редактор SEO. Лише JSON."
+                    )},
+                    {"role": "user", "content": specific_title_prompt},
+                ],
+                model=model, timeout=timeout,
+                temperature=0.1, json_mode=True, num_ctx=16384,
+            )
+            specific_data = _extract_json_object(specific_raw)
+            proposed_title = str(specific_data.get("title") or "").strip()
+            if (
+                30 <= len(proposed_title) <= 100
+                and not _seo_ukrainian_language_issue(proposed_title)
+                and not _seo_title_source_conflicts(
+                    proposed_title, transcript
+                )
+                and "GENERIC_PRIMARY_TITLE" not in _seo_editorial_preview_flags(
+                    proposed_title, "", (), ()
+                )
+            ):
+                title = proposed_title
+                payload["_primary_title_repaired"] = True
+        except (ValueError, RuntimeError, TimeoutError, TypeError):
+            pass
     unchanged_title = bool(
         str(current_title or "").strip()
         and title.casefold() == str(current_title or "").strip().casefold()
@@ -2543,15 +3842,292 @@ chapters: рядок з підтвердженими таймкодами та �
     )
     omitted_topics: list[str] = []
     if evidence_report and not payload.get("_deterministic_editor"):
-        # Legacy evidence packages keep their topic appendix.
-        # Keep the concise lead, then append every distinct supported subject
-        # while respecting the platform description budget. The evidence map
-        # remains available separately if even this budget is insufficient.
+        # Keep the 400-900-character public description intact. Appending up
+        # to 50 AI-labelled "verified topics" broke the SEO length gate and
+        # promoted model topic labels into user-facing factual claims.
+        # Record unsupported/omitted subjects separately for editorial QA.
         description, omitted_topics = preserve_outline_topics(
             description, evidence_report,
-            max_topic_bullets=50,
-            max_body_bytes=3800,
+            max_topic_bullets=0,
+            max_body_bytes=900,
         )
+    if evidence_report and verified_evidence:
+        varied = _select_diverse_title_variants(title, variants)
+        if len(varied) < 3 and not fast_mode:
+            # Regenerate only missing A/B angles; do not overwrite a strong
+            # primary headline and do not invent any third dialogue.
+            try:
+                fresh = _recover_title_variants(
+                    current_title=title,
+                    transcript=verified_evidence,
+                    model=model,
+                )
+                varied = _select_diverse_title_variants(
+                    title, [*varied, *fresh],
+                )
+            except (ValueError, RuntimeError, TimeoutError):
+                pass
+        variants = varied
+    # A quote-root validator can accept a hollow question such as
+    # "Мобілізація: про що йдеться у чат-рулетці?". In that case repair
+    # the FINAL A/B output, not an intermediate candidate that later
+    # source fallbacks may silently replace with the same generic frames.
+    if evidence_report and verified_evidence and not fast_mode:
+        if "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+            title, "", variants, (),
+        ):
+            try:
+                brief = _ab_distinct_evidence_brief(evidence_report)
+                prompt_ab = (
+                    "Ти головний редактор українського YouTube-каналу. "
+                    "Заміни ТРИ слабкі A/B-заголовки на три КОНКРЕТНІ "
+                    "історії з підтверджених цитат. Не повторюй назву. "
+                    "ЗАБОРОНЕНО: 'що говорять співрозмовники', 'про що "
+                    "йдеться', 'що прозвучало', 'думки учасників', "
+                    "'розмова про', 'питання про'. Кожен заголовок "
+                    "має містити підтверджену ДІЮ, ПИТАННЯ, ЦИТАТУ "
+                    "або протиставлення, а не лише слово-ярлик. "
+                    "Будь-яке твердження приписуй учаснику розмови. "
+                    "Не вигадуй мотивів, чисел, подій, висновків "
+                    "або зв'язків між різними діалогами. "
+                    "Поверни тільки JSON з рівно 3 title_variants, "
+                    "кожен 35–95 символів українською.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nСЛАБКІ ВАРІАНТИ: "
+                    + json.dumps(variants, ensure_ascii=False)
+                    + "\\nТРИ РІЗНІ ДОСЛІВНІ ОПОРИ:\\n" + brief
+                    + "\\nПЕРЕВІРЕНІ ЦИТАТИ:\\n" + verified_evidence[:11000]
+                )
+                raw_ab = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Редактор конкретних українських YouTube-заголовків. "
+                        "Поверни тільки JSON, без загальних тем."
+                    )}, {"role": "user", "content": prompt_ab}],
+                    model=model, timeout=timeout,
+                    temperature=0.12, json_mode=True, num_ctx=16384,
+                )
+                data_ab = _normalize_seo_candidate(_extract_json_object(raw_ab))
+                proposed = [str(v).strip() for v in (
+                    data_ab.get("title_variants") or []
+                ) if isinstance(v, str) and str(v).strip()]
+                payload["_ab_specific_diagnostic"] = {
+                    "candidates": proposed,
+                    "source_issues": ab_title_issues(proposed, evidence_report),
+                    "quality_flags": _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    ),
+                    "language_issues": [
+                        bool(_seo_ukrainian_language_issue(v)) for v in proposed
+                    ],
+                }
+                if len(proposed) == 3 and (
+                    ab_title_issues(proposed, evidence_report)
+                    or "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    )
+                ):
+                    # The first model pass often paraphrases a fact using
+                    # an unsupported new verb. Supply the exact rejected
+                    # wording and source objections for ONE bounded repair.
+                    try:
+                        verified_quotes = [
+                            str(item.get("evidence") or "")[:200]
+                            for block in evidence_report.get("blocks") or []
+                            if isinstance(block, dict) and block.get("verified") is not False
+                            for item in (block.get("topics") or [])[:1]
+                            if isinstance(item, dict) and item.get("evidence")
+                        ][:10]
+                        repair_ab_prompt = (
+                            "Виправ ТРИ українські A/B-назви за точними "
+                            "цитатами. Кожна 35–95 символів, конкретна, "
+                            "із різною змістовою опорою. Попередні фрази "
+                            "містять непідтверджені слова. Пиши так, щоб "
+                            "всі змістові дії й події були прямо видимі "
+                            "у дослівних цитатах. НЕ додавай дієслів "
+                            "'висміяв', 'примусив', 'викрив', 'довів', "
+                            "'розгромив', якщо це не сказано в цитаті. "
+                            "Можна передати дослівну російську репліку "
+                            "українською зі збереженням сенсу та атрибуції. "
+                            "Не використовуй шаблонів 'що говорять', "
+                            "'що прозвучало', 'про що йдеться'. "
+                            "JSON: title_variants, рівно три рядки.\\n"
+                            "ПОПЕРЕДНІ: " + json.dumps(proposed, ensure_ascii=False)
+                            + "\\nПОМИЛКИ ПЕРЕВІРКИ: " + json.dumps(
+                                ab_title_issues(proposed, evidence_report),
+                                ensure_ascii=False,
+                            )
+                            + "\\nДОСЛІВНІ ЦИТАТИ: " + json.dumps(
+                                verified_quotes, ensure_ascii=False,
+                            )
+                        )
+                        corrected_raw = ollama_chat(
+                            [{"role": "system", "content": (
+                                "Суворий український фактчекер заголовків. Лише JSON."
+                            )}, {"role": "user", "content": repair_ab_prompt}],
+                            model=model, timeout=timeout,
+                            temperature=0.05, json_mode=True, num_ctx=8192,
+                        )
+                        corrected_data = _normalize_seo_candidate(
+                            _extract_json_object(corrected_raw)
+                        )
+                        corrected = [
+                            str(v).strip() for v in (
+                                corrected_data.get("title_variants") or []
+                            ) if isinstance(v, str) and v.strip()
+                        ]
+                        payload["_ab_specific_diagnostic"]["correction"] = corrected
+                        payload["_ab_specific_diagnostic"]["correction_issues"] = (
+                            ab_title_issues(corrected, evidence_report)
+                        )
+                        # Verbatim Russian speech is good evidence, but
+                        # Ukrainian SEO needs faithful Ukrainian rendering.
+                        # Translate only SOURCE-GROUNDED corrected headlines,
+                        # without adding words, causes or new events.
+                        if (
+                            len(corrected) == 3
+                            and any(_seo_ukrainian_language_issue(v) for v in corrected)
+                        ):
+                            try:
+                                translation_prompt = (
+                                    "Переклади ці три заголовки ПОВНІСТЮ "
+                                    "українською. Збережи кожну цитату, "
+                                    "заперечення, особу й сенс; не доповнюй "
+                                    "фактів і не вигадуй дій чи причин. "
+                                    "Власні назви українською. "
+                                    "Без російських слів навіть у лапках. "
+                                    "JSON: title_variants, рівно 3 рядки.\\n"
+                                    + json.dumps(corrected, ensure_ascii=False)
+                                )
+                                translated_raw = ollama_chat(
+                                    [{"role": "system", "content": (
+                                        "Професійний перекладач російської "
+                                        "на українську. Лише JSON."
+                                    )}, {"role": "user", "content": translation_prompt}],
+                                    model=model, timeout=timeout, temperature=0.0,
+                                    json_mode=True, num_ctx=4096,
+                                )
+                                translated_data = _normalize_seo_candidate(
+                                    _extract_json_object(translated_raw)
+                                )
+                                translated = [
+                                    str(v).strip() for v in (
+                                        translated_data.get("title_variants") or []
+                                    ) if isinstance(v, str) and v.strip()
+                                ]
+                                payload["_ab_specific_diagnostic"]["translation"] = translated
+                                payload["_ab_specific_diagnostic"]["translation_issues"] = (
+                                    ab_title_issues(translated, evidence_report)
+                                )
+                                if len(translated) == 3:
+                                    corrected = translated
+                            except (RuntimeError, ValueError, TimeoutError, TypeError):
+                                pass
+                        if (
+                            len(corrected) == 3
+                            and all(35 <= len(v) <= 95 for v in corrected)
+                            and not any(_seo_ukrainian_language_issue(v) for v in corrected)
+                            and not ab_title_issues(corrected, evidence_report)
+                            and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                                title, "", corrected, (),
+                            )
+                            and len(_select_diverse_title_variants(title, corrected)) == 3
+                        ):
+                            proposed = corrected
+                    except (RuntimeError, ValueError, TimeoutError, TypeError):
+                        pass
+                if (
+                    len(proposed) == 3
+                    and all(35 <= len(v) <= 95 for v in proposed)
+                    and not any(_seo_ukrainian_language_issue(v) for v in proposed)
+                    and not ab_title_issues(proposed, evidence_report)
+                    and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                        title, "", proposed, (),
+                    )
+                    and len(_select_diverse_title_variants(title, proposed)) == 3
+                ):
+                    variants = proposed
+                    payload["_final_ab_specific_repaired"] = True
+            except (RuntimeError, ValueError, TimeoutError, TypeError) as exc:
+                payload["_ab_specific_diagnostic"] = {
+                    "error_type": type(exc).__name__,
+                }
+    if (
+        evidence_report and verified_evidence and not fast_mode
+        and "GENERIC_AB_VARIANTS" in _seo_editorial_preview_flags(
+            title, "", variants, (),
+        )
+    ):
+        # Last source-grounded alternative: three compact Ukrainian
+        # translations of literal source quotations, without generic
+        # question frames or new narrative verbs. The same strict source,
+        # language, duplicate and editorial gates still apply.
+        try:
+            source_quotes = [
+                {
+                    "time": str(block.get("start_stamp") or ""),
+                    "quote": str(topic.get("evidence") or "")[:230],
+                }
+                for block in evidence_report.get("blocks") or []
+                if isinstance(block, dict) and block.get("verified") is not False
+                for topic in (block.get("topics") or [])[:1]
+                if isinstance(topic, dict) and topic.get("evidence")
+            ][:16]
+            if len(source_quotes) >= 3:
+                quote_prompt = (
+                    "Створи РІВНО 3 різні YouTube A/B-заголовки "
+                    "УКРАЇНСЬКОЮ, кожен лише як КОРОТКА ДОСЛІВНА "
+                    "цитата мовця в перекладі з російської. "
+                    "Без вигаданих дій, тлумачень, причин і наслідків. "
+                    "Вибери три різні змістовні репліки, найближчі "
+                    "до ОСНОВНОГО заголовка; не вибирай професії, "
+                    "побутові подробиці або випадкові фрази, "
+                    "якщо основна тема політична. "
+                    "Усе всередині лапок має бути точною передачею "
+                    "слів, а не вільним переказом. "
+                    "Довжина кожного 25–85 символів. "
+                    "Не використовуй слова 'що говорять', "
+                    "'про що йдеться', 'що прозвучало'. "
+                    "Без російської мови навіть у цитатах. "
+                    "JSON: {title_variants: [три рядки]}.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nПІДТВЕРДЖЕНІ ДОСЛІВНІ РЕПЛІКИ: "
+                    + json.dumps(source_quotes, ensure_ascii=False)
+                )
+                quote_raw = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Український перекладач реальних цитат. "
+                        "Без домислів. Лише JSON."
+                    )}, {"role": "user", "content": quote_prompt}],
+                    model=model, timeout=timeout,
+                    temperature=0.0, json_mode=True, num_ctx=8192,
+                )
+                quote_data = _normalize_seo_candidate(_extract_json_object(quote_raw))
+                quote_ab = [
+                    str(item).strip()
+                    for item in (quote_data.get("title_variants") or [])
+                    if isinstance(item, str) and item.strip()
+                ]
+                payload["_quote_ab_diagnostic"] = {
+                    "candidates": quote_ab,
+                    "source_issues": ab_title_issues(quote_ab, evidence_report),
+                    "quality_flags": _seo_editorial_preview_flags(
+                        title, "", quote_ab, (),
+                    ),
+                }
+                if (
+                    len(quote_ab) == 3
+                    and all(25 <= len(v) <= 85 for v in quote_ab)
+                    and not any(_seo_ukrainian_language_issue(v) for v in quote_ab)
+                    and not ab_title_issues(quote_ab, evidence_report)
+                    and "GENERIC_AB_VARIANTS" not in _seo_editorial_preview_flags(
+                        title, "", quote_ab, (),
+                    )
+                    and len(_select_diverse_title_variants(title, quote_ab)) == 3
+                ):
+                    variants = quote_ab
+                    payload["_source_quote_fallback_review_only"] = True
+        except (RuntimeError, ValueError, TimeoutError, TypeError):
+            pass
     title_issues = ab_title_issues(variants, evidence_report)
     source_quote_fallback = bool(payload.get("ab_source_quote_fallback_used"))
     tags = [
@@ -2610,39 +4186,322 @@ chapters: рядок з підтвердженими таймкодами та �
     if is_short or is_stream:
         chapters = ""
 
+    # A historical Russian filename is not suitable Ukrainian SEO metadata.
+    # In fast preview mode, prefer an already generated Ukrainian heading.
+    # This is a review-only substitution, never an automatic publication.
+    if fast_mode and _seo_ukrainian_language_issue(title):
+        safe_headings = [
+            item for item in variants
+            if item and len(item) <= 100 and not _seo_ukrainian_language_issue(item)
+        ]
+        if safe_headings:
+            title = safe_headings[0]
+            variants = [item for item in variants if item.casefold() != title.casefold()]
+            for option in _grounded_review_title_variants(current_title, transcript):
+                if (option.casefold() != title.casefold()
+                    and option.casefold() not in {v.casefold() for v in variants}
+                    and not _seo_ukrainian_language_issue(option)):
+                    variants.append(option)
+                if len(variants) >= 3:
+                    break
+            variants = variants[:3]
+            payload["_fallback_review_only"] = True
+
+    # Remove Russian A/B candidates before preview approval. Fill missing slots
+    # only from topics explicitly detected in the source. Unproven drafts stay
+    # review-only and may contain fewer than three options.
+    if fast_mode:
+        from .seo_quality_gate import sanitize_review_variants
+
+        variants, variants_changed = sanitize_review_variants(
+            title,
+            variants,
+            _grounded_review_title_variants(current_title, transcript, pool_size=4),
+        )
+        if variants_changed:
+            payload["_fallback_review_only"] = True
+        variants, overlap_improved = _improve_review_ab_distinctness(
+            title, variants, transcript, evidence_report,
+        )
+        if overlap_improved:
+            payload["_fallback_review_only"] = True
+        # Recheck the final list, not the discarded model variants.
+        title_issues = ab_title_issues(variants, evidence_report)
+
+    # The source map covers the whole stream, but public SEO should focus
+    # on the actual headline subject, not append every unrelated small-talk
+    # fragment. Select literal notes with the largest title-topic overlap.
+    if evidence_report and verified_evidence and not fast_mode:
+        try:
+            from .dialogue_seo import focused_literal_source_notes
+            # Rank by repeated literal source subjects and headline overlap.
+            # Unrelated employment, lifestyle or religion fragments cannot
+            # become description claims by being late in the recording.
+            ranked_notes = focused_literal_source_notes(
+                evidence_report, title, limit=6,
+            )
+            if not ranked_notes:
+                payload["_headline_source_mismatch"] = True
+            if ranked_notes:
+                focused_prompt = (
+                    "Напиши точний SEO-опис УКРАЇНСЬКОЮ на 400–900 "
+                    "символів. Чотири–п'ять речень, зв'язний текст. "
+                    "Використовуй тільки ДОСЛІВНІ цитати з короткого "
+                    "списку. Це кілька РІЗНИХ учасників: не приписуй "
+                    "їхні суперечливі висловлювання одній особі. "
+                    "Центральна тема визначається заголовком, а не "
+                    "хронологічним порядком цитат. Кожне речення повинно "
+                    "спиратися на дослівну репліку з цього набору. "
+                    "Якщо цитати підтверджують менше трьох суттєвих "
+                    "тверджень, не вигадуй додаткового змісту: "
+                    "познач опис для ручної редактури. Не пиши про "
+                    "другорядні побутові подробиці чи професії, "
+                    "якщо вони не стосуються центральної теми. "
+                    "Заявлені факти подавай як слова учасника, "
+                    "не як незалежно доведену подію. "
+                    "Ніяких вигаданих наслідків, мотивів, "
+                    "викриттів, цифр і нових людей. "
+                    "Поверни тільки JSON з ключем description.\\n"
+                    "ГОЛОВНИЙ ЗАГОЛОВОК: " + title
+                    + "\\nЦИТАТИ: " + json.dumps(
+                        ranked_notes, ensure_ascii=False,
+                    )
+                )
+                focused_raw = ollama_chat(
+                    [{"role": "system", "content": (
+                        "Доказовий український SEO-редактор. Лише JSON."
+                    )}, {"role": "user", "content": focused_prompt}],
+                    model=model, timeout=timeout, temperature=0.07,
+                    json_mode=True, num_ctx=8192,
+                )
+                focused_data = _extract_json_object(focused_raw)
+                focused_description = _polish_generated_description(
+                    str(focused_data.get("description") or "").strip()
+                )
+                focused_description = _remove_unsupported_named_claims(
+                    focused_description, evidence_report, current_title,
+                )
+                if (
+                    400 <= len(focused_description) <= 900
+                    and not _seo_ukrainian_language_issue(focused_description)
+                    and not _description_quality_error(
+                        focused_description, transcript, max_chars=900,
+                    )
+                ):
+                    description = focused_description
+                    payload.pop("_description_quality_issue", None)
+                    payload["_focused_description_repaired"] = True
+        except (RuntimeError, ValueError, TimeoutError, TypeError):
+            pass
+
+    editorial_quality_flags = _seo_editorial_preview_flags(
+        title, description, variants, tags,
+    )
+    if payload.get("_headline_source_mismatch"):
+        editorial_quality_flags.append("HEADLINE_NOT_SUPPORTED_BY_SOURCE_QUOTES")
+    # The field-specific description repair must not silently pass after
+    # unsuccessful rewrite just because its character count happens to fit.
+    if payload.get("_description_quality_issue"):
+        editorial_quality_flags.append("DESCRIPTION_QUALITY_UNRESOLVED")
+    # Validate the PROPOSED title as well as the existing one. Only checking
+    # the existing title hid unsupported names newly invented by the model.
+    # These are review warnings, never grounds for auto-publishing.
+    source_alignment_conflicts = _seo_title_source_conflicts(
+        str(current_title or "").strip(), transcript
+    )
+    generated_conflicts = _seo_title_source_conflicts(title, transcript)
+    # Legacy video metadata is not evidence against a newly corrected SEO
+    # headline. Keep its discrepancies for diagnostics, but only the proposed
+    # headline is eligible to block the new draft.
+    editorial_quality_flags.extend(
+        "GENERATED_" + issue for issue in generated_conflicts
+    )
+    # In transcript-only QA the historical title is intentionally blank.
+    # Its absence is not a factual defect when quote-verified source exists.
+    if not transcript.strip() or (
+        not str(current_title or "").strip() and not evidence_report
+    ):
+        editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
+    editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
+    from .seo_quality_gate import inspect_package, inspect_editorial_targets
+    qa_inputs = {
+        "title": title,
+        "title_variants": variants[:3],
+        "description": description,
+        "tags": tags[:15],
+    }
+    format_gate = inspect_package(qa_inputs)
+    editorial_gate = inspect_editorial_targets(qa_inputs)
+
+    # A second, independent local model pass checks facts against source notes.
+    # Never allow this pass to grant publication approval.
+    reviewer_report = {
+        "review_status": "SOURCE_NOT_AVAILABLE", "issues": [],
+        "editorial_approved": False, "publication_allowed": False,
+    }
+    notes = []
+    if evidence_report and isinstance(evidence_report.get("blocks"), list):
+        from .seo_editorial_reviewer import (
+            review_seo_candidate, select_reviewer_notes_for_draft,
+        )
+        notes = select_reviewer_notes_for_draft(
+            evidence_report, qa_inputs, max_notes=40,
+        )
+        if notes:
+            reviewer_report = review_seo_candidate(
+                draft=qa_inputs, source_notes=notes[:40],
+                model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
+            )
+
+    revision_report = None
+    if notes:
+        if reviewer_report.get("review_status") == "NEEDS_REVISION":
+            from .seo_editorial_reviewer import revise_seo_candidate
+            revision_report = revise_seo_candidate(
+                draft=qa_inputs, source_notes=notes[:40],
+                first_review=reviewer_report,
+                model=os.getenv("RG_SEO_REVIEWER_MODEL", "").strip(),
+                evidence_report=evidence_report,
+                source_rows=[{"text": re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", line)}
+                             for line in transcript.splitlines()],
+            )
+
+    # The previous pipeline generated a corrected SEO package, then
+    # discarded it and returned the original rejected draft. Adopt only
+    # a successfully revised, independently reviewed, source-gated candidate.
+    if revision_report and revision_report.get("revised") is True:
+        from .dialogue_seo import focused_literal_source_notes
+        corrected = revision_report.get("candidate")
+        final_review = revision_report.get("review") or {}
+        if (
+            isinstance(corrected, dict)
+            and final_review.get("review_status") == "NEEDS_HUMAN_REVIEW"
+            and not final_review.get("issues")
+        ):
+            corrected_format = inspect_package(corrected)
+            corrected_editorial = inspect_editorial_targets(corrected)
+            corrected_ab_issues = (
+                ab_title_issues(corrected.get("title_variants") or [], evidence_report)
+                if evidence_report else []
+            )
+            new_title = str(corrected.get("title") or "").strip()
+            new_description = str(corrected.get("description") or "").strip()
+            new_variants = list(corrected.get("title_variants") or [])
+            new_tags = list(corrected.get("tags") or [])
+            valid_source = bool(
+                not evidence_report
+                or focused_literal_source_notes(
+                    evidence_report, new_title, limit=1,
+                )
+            )
+            if (
+                corrected_format.get("format_pass")
+                and corrected_editorial.get("editorial_gate_pass")
+                and not corrected_ab_issues
+                and valid_source
+                and not _seo_title_source_conflicts(new_title, transcript)
+                and not _seo_ukrainian_language_issue(new_title)
+                and not _seo_ukrainian_language_issue(new_description)
+                and all(not _seo_ukrainian_language_issue(v) for v in new_variants)
+                and all(not _seo_ukrainian_language_issue(t) for t in new_tags)
+            ):
+                title, description = new_title, new_description
+                variants, tags = new_variants, new_tags
+                qa_inputs = {
+                    "title": title,
+                    "title_variants": variants[:3],
+                    "description": description,
+                    "tags": tags[:15],
+                }
+                format_gate, editorial_gate = corrected_format, corrected_editorial
+                reviewer_report = final_review
+                title_issues = corrected_ab_issues
+                unchanged_title = bool(
+                    str(current_title or "").strip()
+                    and title.casefold() == str(current_title).strip().casefold()
+                )
+                generated_conflicts = _seo_title_source_conflicts(title, transcript)
+                editorial_quality_flags = _seo_editorial_preview_flags(
+                    title, description, variants, tags,
+                )
+                editorial_quality_flags.extend(
+                    "GENERATED_" + issue for issue in generated_conflicts
+                )
+                if not transcript.strip():
+                    editorial_quality_flags.append("TITLE_SRT_ALIGNMENT_UNVERIFIED")
+                editorial_quality_flags = list(dict.fromkeys(editorial_quality_flags))
+                revision_report["applied_to_result"] = True
+            else:
+                revision_report["applied_to_result"] = False
+                revision_report["apply_error"] = "REVISED_SEO_FINAL_GATES_REJECTED"
+
+    # Fail closed: preserving a legacy Russian title, or model-produced
+    # Russian metadata, must never be marked as safe for publishing.
+    language_issues = []
+    if _seo_ukrainian_language_issue(title):
+        language_issues.append("назва")
+    if _seo_ukrainian_language_issue(description):
+        language_issues.append("опис")
+    if any(_seo_ukrainian_language_issue(item) for item in variants):
+        language_issues.append("A/B назви")
+    if any(_seo_ukrainian_language_issue(item) for item in tags):
+        language_issues.append("теги")
+
     return {
         "title": title,
         "title_variants": variants[:3],
         "description": description,
         "tags": tags[:15],
         "chapters": chapters,
-        "provider": f"ollama:{model}",
+        # Report the provider actually used. The legacy function name stays
+        # for compatibility, but an LM Studio draft must never say Ollama.
+        "provider": (
+            f"ollama:{model}"
+            if os.getenv("RG_LOCAL_AI_PROVIDER", "lmstudio").strip().lower() == "ollama"
+            else "lmstudio:" + (
+                os.getenv("RG_LMSTUDIO_MODEL", "").strip() or "auto"
+            )
+        ),
+
         "title_fallback_used": title_fallback_used,
         "title_unchanged": unchanged_title,
         "ab_source_quote_fallback_used": source_quote_fallback,
-        "needs_review": (
-            source_quote_fallback
-            or
-            title_fallback_used
-            or unchanged_title
-            or len(variants) < 3
-            or not transcript.strip()
-            or bool(evidence_report)
-            or bool(omitted_topics)
-            or bool(title_issues)
-            or bool(payload.get("evidence_editorial_review"))
-            or bool(payload.get("_description_quality_issue"))
-            or bool(payload.get("_tags_review_required"))
-            or bool(payload.get("_fallback_review_only"))
-            or bool(payload.get("_source_topic_fallback_review_only"))
-            or bool(payload.get("_source_lexical_review_only"))
+        "description_fallback_used": bool(payload.get("_deterministic_editor")),
+        "description_model_quality_issue": str(payload.get("_description_quality_issue") or ""),
+        # All AI-proposed SEO is draft-only until someone checks full SRT
+        # evidence and explicitly approves each video.
+        "needs_review": True,
+        "editorial_approved": False,
+        "publication_allowed": False,
+        "source_alignment_status": (
+            "BLOCKED_TOPIC_MISMATCH" if generated_conflicts else
+            "SOURCE_EVIDENCE_REVIEW" if (
+                evidence_report and transcript.strip()
+            ) else "TITLE_OR_SRT_UNVERIFIED" if (
+                not str(current_title or "").strip() or not transcript.strip()
+            ) else "SUBJECT_ROOTS_PRESENT_REVIEW"
         ),
         "timeline_blocks": (
             int(evidence_report.get("blocks_total") or 0) if evidence_report else 0
         ),
         "timeline_omitted_topics": omitted_topics,
         "ab_quality_issues": title_issues,
-        "review_reason": "; ".join(
+        "seo_language_issues": language_issues,
+        "seo_editorial_quality_flags": editorial_quality_flags,
+        "seo_legacy_title_source_conflicts": source_alignment_conflicts,
+        "seo_revision_applied": bool(
+            revision_report and revision_report.get("applied_to_result")
+        ),
+        "seo_independent_review": reviewer_report,
+        "seo_revision_candidate": revision_report,
+        "seo_ab_specific_diagnostic": payload.get("_ab_specific_diagnostic"),
+        "seo_quote_ab_diagnostic": payload.get("_quote_ab_diagnostic"),
+        "seo_editorial_gate_pass": bool(editorial_gate["editorial_gate_pass"]),
+        "seo_editorial_gate_issues": editorial_gate["issues"],
+        "seo_format_pass": bool(format_gate["format_pass"]),
+        "seo_format_problems": format_gate["problems"],
+        "seo_editorial_review_required": True,
+        "review_reason": "Обов'язкова редакторська перевірка SEO. " + "; ".join(
             message for condition, message in (
                 (title_fallback_used, "Модель не створила нову назву"),
                 (unchanged_title and not title_fallback_used, "Основна назва не покращена"),
@@ -2652,6 +4511,8 @@ chapters: рядок з підтвердженими таймкодами та �
                 (bool(evidence_report), "Аналіз усіх фрагментів: перевірити зміст перед публікацією"),
                 (bool(omitted_topics), f"Деякі теми не вмістилися в опис: {len(omitted_topics)}"),
                 (bool(title_issues), "; ".join(title_issues)),
+                (bool(editorial_quality_flags), "Надто шаблонний SEO-текст або заголовок: перевірити вручну"),
+                (bool(language_issues), "Неукраїнська мова SEO-полів: " + ", ".join(language_issues)),
                 (bool(payload.get("evidence_editorial_review")), "Частину цитованих тем не вдалося надійно класифікувати"),
                 (bool(payload.get("_description_quality_issue")), "Опис потребує редакторського доопрацювання"),
                 (bool(payload.get("_tags_review_required")), "Менше 8 підтверджених тегів; не додавати вигадані"),

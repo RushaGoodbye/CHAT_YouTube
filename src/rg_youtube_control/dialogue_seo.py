@@ -268,7 +268,10 @@ def analyze_all_timeline_blocks(
                 source_lines = [
                     _compact(line)
                     for line in block["text"].splitlines()
-                    if len(_compact(line)) >= 40
+                    if (
+                        len(_compact(line)) >= 18
+                        and len(re.findall(r"\w+", line)) >= 3
+                    )
                 ]
                 if source_lines:
                     quote = max(
@@ -277,8 +280,13 @@ def analyze_all_timeline_blocks(
                             len(set(re.findall(r"\w+", line.casefold()))),
                             len(line),
                         ),
-                    )[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
-                    if len(quote) >= 30:
+                    ).rstrip(" ,.;:")
+                    # Do not discard the final word of an already short
+                    # caption; it often contains the actual topic (ціни,
+                    # пенсія, мобілізація). Truncate only long sentences.
+                    if len(quote) > 200:
+                        quote = quote[:200].rsplit(" ", 1)[0].rstrip(" ,.;:")
+                    if len(quote) >= 18:
                         rescue_prompt = (
                             "Ти не створюєш цитати. Поверни JSON, "
                             "topics: [{topic, summary_uk, evidence}]. "
@@ -364,10 +372,14 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
             topic = _compact(item.get("topic"))
             if not evidence or not topic:
                 continue
+            # Short spoken answers can contain no five-letter word.
+            # Keep a literal quote when it has actual text; de-duplicate
+            # using its complete token sequence rather than topic labels.
             words = {
-                token[:6] for token in re.findall(r"\w+", evidence.casefold()) if len(token) >= 5 or token.isdigit()
+                token[:6] for token in re.findall(r"\w+", evidence.casefold())
+                if len(token) >= 3 or token.isdigit()
             }
-            if not words:
+            if not words or len(evidence) < 8:
                 continue
             repeated = any(
                 words == seen or (
@@ -388,13 +400,172 @@ def distinct_evidence_topics(report: dict[str, Any]) -> list[dict[str, str]]:
     return distinct
 
 
-def evidence_outline_text(report: dict[str, Any]) -> str:
-    """Compact all verified block notes for final model, without omission."""
+# Ranking uses only words from literal SRT quotations. Topic labels and
+# summaries produced by an earlier model are never ranking inputs.
+_SOURCE_TOPIC_STOPWORDS = {
+    "якщо", "тому", "після", "перед", "коли", "його", "вона", "вони",
+    "тебе", "мене", "моя", "мої", "него", "тебя", "меня", "будет",
+    "были", "было", "этого", "потому", "чтобы", "который", "говорю",
+    "сказал", "кажу", "тобто", "тогда", "вообще", "просто", "только",
+    "думаю", "знаю", "потім", "могу", "может", "зараз", "сейчас",
+    "ничего", "почему", "какая", "какой", "очень", "такий",
+    "росії", "россия", "россии", "россий", "україна", "украине",
+    "украина", "україні", "украину", "україну",
+    # Presentation/speaker labels do not establish any video topic.
+    "росіянин", "росіяни", "росіянами", "россиянин", "россияне",
+    "россиянами", "українець", "українці", "украинец",
+    "співрозмовник", "співрозмовники", "собеседник",
+    "розмова", "розмови", "разговор", "разговора", "говорить",
+    "розповідає", "обговорюють", "обсуждают",
+    "сказати", "сказали", "обговорення", "запитання",
+    "питання", "суперечка", "дискусія", "учасники",
+}
+
+
+def _literal_quote_subjects(quote: str) -> set[str]:
+    """Topic-bearing bilingual stems from one actual quote, not its summary."""
+    words = re.findall(r"[a-zа-яёіїєґ]{4,}", str(quote).casefold())
+    return {
+        _cross_language_topic_word(word)[:5]
+        for word in words
+        if word not in _SOURCE_TOPIC_STOPWORDS
+        and not word.startswith((
+            "розпов", "говор", "поговор", "розмов", "обговор",
+            "сказ", "каж", "люд", "чому", "прощо", "учасн",
+            "співрозмов", "собесед", "росіян", "россиян",
+        ))
+        and _cross_language_topic_word(word)[:5] not in {
+            "росси", "украи", "говор", "потому", "просто",
+        }
+    }
+
+
+def rank_literal_evidence(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Rank evidence by subject recurrence across *different* SRT blocks.
+
+    A topic heard in several disjoint blocks is generally a stronger lead
+    than a one-off exchange. This is lexical ranking only, not a claim of
+    factual truth or a replacement for final human review. Stable ties
+    preserve recording order. Sparse unrelated quotes stay unranked.
+    """
+    entries = distinct_evidence_topics(report)
+    if not entries:
+        return []
+    subjects = [_literal_quote_subjects(entry["evidence"]) for entry in entries]
+    # One vote per separately time-stamped block. Count from ALL literal
+    # quotations, before near-duplicate display entries are collapsed.
+    # Otherwise a repeated real subject vanishes from the frequency map.
+    block_subjects: dict[str, set[str]] = {}
+    for block_index, block in enumerate(report.get("blocks") or []):
+        if not isinstance(block, dict) or block.get("verified") is False:
+            continue
+        block_key = f"{block_index}:{block.get('start_stamp') or ''}"
+        for topic in block.get("topics") or []:
+            if not isinstance(topic, dict) or not topic.get("evidence"):
+                continue
+            block_subjects.setdefault(block_key, set()).update(
+                _literal_quote_subjects(str(topic["evidence"]))
+            )
+    frequency: dict[str, int] = {}
+    for tokens in block_subjects.values():
+        for token in tokens:
+            frequency[token] = frequency.get(token, 0) + 1
+    scored = [
+        (
+            sum(min(frequency.get(token, 0) - 1, 4) for token in tokens),
+            index,
+            item,
+        )
+        for index, (item, tokens) in enumerate(zip(entries, subjects))
+    ]
+    return [
+        item for _score, _index, item in sorted(
+            scored, key=lambda pair: (-pair[0], pair[1])
+        )
+    ]
+
+
+def focused_literal_source_notes(
+    report: dict[str, Any],
+    title: str,
+    *,
+    limit: int = 6,
+) -> list[dict[str, str]]:
+    """Select description evidence from the dominant subject, not small talk.
+
+    Prefer quotes sharing meaningful bilingual roots with the title, then
+    recurring source themes. Cap evidence from a single time block so
+    peripheral or repeated phrases cannot drown out the actual conversation.
+    All selected text remains a verbatim SRT quotation.
+    """
+    ranked = rank_literal_evidence(report)
+    if not ranked or limit < 1:
+        return []
+    title_roots = _literal_quote_subjects(title)
+    ranked_roots = [_literal_quote_subjects(item["evidence"]) for item in ranked]
+    overlap = [len(title_roots & roots) for roots in ranked_roots]
+    has_match = bool(max(overlap, default=0))
+    if title_roots and (
+        not has_match
+        or max(overlap, default=0) < min(2, len(title_roots))
+    ):
+        # One coincidental word such as "війна" does not prove a composite
+        # headline claiming victory, sanctions, or a different event.
+        # Require two meaningful source subjects when the title has two.
+        return []
+    candidates = sorted(
+        range(len(ranked)),
+        key=lambda i: (
+            -(overlap[i] if has_match else 0),
+            i,
+        ),
+    )
+    selected: list[dict[str, str]] = []
+    stamps: set[str] = set()
+    for idx in candidates:
+        item = ranked[idx]
+        if has_match and overlap[idx] == 0:
+            continue
+        stamp = item["start_stamp"]
+        if stamp in stamps:
+            continue
+        stamps.add(stamp)
+        selected.append({
+            "time": stamp,
+            "quote": item["evidence"][:240],
+        })
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def evidence_outline_text(
+    report: dict[str, Any], *, max_chars: int | None = None
+) -> str:
+    """Prepare a quote-index for the LLM; preserve full evidence in report.
+
+    A multi-hour recording can have hundreds of source notes. Do not exceed
+    the local model context or silently truncate the end of the recording.
+    The capped prompt selects notes across the whole timeline. No note is
+    treated as a human-verified fact merely for having an exact quote.
+    """
     lines: list[str] = []
-    for topic in distinct_evidence_topics(report):
+    chronological = distinct_evidence_topics(report)
+    ranked = rank_literal_evidence(report)
+    priority = {
+        (item["start_stamp"], item["evidence"])
+        for item in ranked[:3]
+    }
+    priority_positions = [
+        index for index, item in enumerate(chronological)
+        if (item["start_stamp"], item["evidence"]) in priority
+    ]
+    for topic in chronological:
+        # Model-written topic/summary are hints, NOT verified facts.
+        # Sending them as "confirmed topics" launders hallucinations into
+        # subsequent SEO prompts. Only literal SRT wording is evidence.
         lines.append(
-            f"[{topic['start_stamp']}] ТЕМА: {topic['topic']} | "
-            f"ТЕЗА: {topic['summary_uk']} | ЦИТАТА: {topic['evidence']}"
+            f"[{topic['start_stamp']}] ДОСЛІВНА ЦИТАТА SRT: {topic['evidence']}"
         )
     for block in report.get("blocks") or []:
         stamp = str(block.get("start_stamp") or "")
@@ -404,7 +575,49 @@ def evidence_outline_text(report: dict[str, Any]) -> str:
                 f"[{stamp}] НЕПЕРЕВІРЕНИЙ ФРАГМЕНТ: "
                 f"{str(block.get('excerpt') or '')[:150]}"
             )
-    return "\n".join(lines)
+    if max_chars is None:
+        return "\n".join(lines)
+    if max_chars < 500:
+        raise ValueError("max_chars must be at least 500")
+    if not lines:
+        return ""
+    complete = "\n".join(lines)
+    if len(complete) <= max_chars:
+        return complete
+    header = (
+        f"ВИБІРКА ДОКАЗІВ З УСЬОГО ВІДЕО: {len(lines)} записів. "
+        "Повна карта збережена для перевірки; не стверджуй, "
+        "що всі теми вміщено нижче.\n"
+    )
+    budget = max_chars - len(header)
+    # Progressively raise the number of evenly spaced source points, then
+    # use the widest fit. Both the beginning and end are always represented.
+    def sample(count: int) -> list[str]:
+        indexes = sorted(
+            set(priority_positions)
+            | {round(i * (len(lines) - 1) / (count - 1))
+               for i in range(count)}
+        )
+        return [lines[index] for index in indexes]
+
+    # Binary search avoids quadratic prompt-building on long streams.
+    # Leave adequate space for the first and last source quotation.
+    if len(lines) == 1:
+        return header + lines[0][:budget]
+    if len(lines[0]) + len(lines[-1]) + 1 > budget:
+        edge = max(1, (budget - 2) // 2)
+        return header + lines[0][:edge] + "\n" + lines[-1][:edge]
+    best = [lines[0], lines[-1]]
+    low, high = 2, len(lines)
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = sample(mid)
+        if len("\n".join(candidate)) <= budget:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return header + "\n".join(best)
 
 
 def preserve_outline_topics(
@@ -571,6 +784,16 @@ def _cross_language_topic_word(word: str) -> str:
         (("армі", "арми", "армия"), "армия"),
         (("вибух", "взрыв"), "взрив"),
         (("президент",), "прези"),
+        # Bilingual lexical grounding of directly quoted subjects. These
+        # mappings do not turn an unmentioned event into source evidence.
+        (("дит", "дет", "діт"), "детиx"),
+        (("усміх", "усмих", "усміш", "усмиш", "улыб", "улиб"), "улыбx"),
+        (("алкогол",), "алког"),
+        (("переїз", "переиз", "переезд", "переезж"), "переезд"),
+        (("голосув", "голосова"), "голос"),
+        (("страх", "боюс", "бої"), "страх"),
+        (("реакц",), "реакц"),
+        (("запереч", "отрица"), "отриц"),
         (("стратег",), "страт"),
         (("кадров",), "кадро"),
         (("санкц",), "санкц"),

@@ -1,0 +1,91 @@
+name: RG SEO v2 - isolated Windows preview installer
+
+on:
+  push:
+    branches:
+      - fix/seo-ukrainian-title-preservation-20261030
+    paths:
+      - 'run_seo_v2_preview.py'
+      - 'packaging/seo_v2_preview.iss'
+      - 'src/rg_youtube_control/seo_v2_*.py'
+      - 'tests/test_seo_v2_*.py'
+      - 'tests/test_seo_v3_*.py'
+      - 'src/rg_youtube_control/seo_v3_*.py'
+      - '.github/workflows/seo-v2-preview-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seo-v2-preview-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only isolated SEO preview dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check 'PySide6>=6.7' 'pytest>=8.3' 'pyinstaller>=6.10'
+      - name: Run isolated SEO v2 source and GUI tests
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM='offscreen'
+          python -m compileall -q run_seo_v2_preview.py src/rg_youtube_control/seo_v2_evidence.py src/rg_youtube_control/seo_v2_pipeline.py src/rg_youtube_control/seo_v2_refine.py src/rg_youtube_control/seo_v2_ui.py src/rg_youtube_control/seo_v2_cli.py
+          python -m pytest -q tests/test_seo_v2_universal.py tests/test_seo_v2_batch.py tests/test_seo_v2_refine.py tests/test_seo_v2_semantic.py tests/test_seo_v2_revision_loop.py tests/test_seo_v3_claim_first.py tests/test_seo_v2_ui.py
+      - name: Build isolated SEO preview executable
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name 'RG SEO v2 Preview' --paths src run_seo_v2_preview.py
+          if (-not (Test-Path -LiteralPath 'dist/RG SEO v2 Preview/RG SEO v2 Preview.exe')) { throw 'EXE_MISSING' }
+      - name: Install Inno Setup and build unique preview installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' packaging\seo_v2_preview.iss
+          if ($LASTEXITCODE -ne 0) { throw 'INNO_SETUP_FAILED' }
+          $installer = Get-ChildItem -LiteralPath seo_v2_installer -Filter '*.exe' -File | Select-Object -First 1
+          if (-not $installer) { throw 'PREVIEW_INSTALLER_MISSING' }
+          (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLower() | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+      - name: Smoke install and GUI startup in disposable profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem -LiteralPath seo_v2_installer -Filter '*.exe' -File | Select-Object -First 1
+          $target = Join-Path $env:RUNNER_TEMP 'RG_SEO_V2_Preview_Installed'
+          New-Item -Path $target -ItemType Directory -Force | Out-Null
+          $params = @('/VERYSILENT', '/SP-', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
+          $proc = Start-Process -FilePath $installer.FullName -ArgumentList $params -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "PREVIEW_INSTALL_FAILED_$($proc.ExitCode)" }
+          $exe = Join-Path $target 'RG SEO v2 Preview.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'INSTALLED_PREVIEW_EXE_MISSING' }
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'seo-v2-qa-roaming'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'seo-v2-qa-local'
+          New-Item -Path $env:APPDATA, $env:LOCALAPPDATA -ItemType Directory -Force | Out-Null
+          $gui = Start-Process -FilePath $exe -WorkingDirectory $target -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $gui.Refresh()
+            if ($gui.HasExited) { throw "PREVIEW_GUI_STARTUP_FAILED_$($gui.ExitCode)" }
+            Write-Output 'SEO_V2_PREVIEW_INSTALLED_GUI_PASS'
+          } finally {
+            if (-not $gui.HasExited) { Stop-Process -Id $gui.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Upload isolated preview installer (no public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG-SEO-V2-Preview-Installer
+          path: |
+            seo_v2_installer/*.exe
+            seo_v2_installer/*.sha256
+          retention-days: 14

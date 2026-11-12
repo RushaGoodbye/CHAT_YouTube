@@ -62,6 +62,6 @@ def test_generator_marks_unchanged_title_and_discards_generic_chapters():
         "\ndef _comment_reply_safe_novelty_ok(", 1
     )[0]
     assert '"title_unchanged": unchanged_title' in function
-    assert 'or unchanged_title' in function
+    assert '"needs_review": True' in function
     assert 'if chapters and _chapters_are_generic(chapters):' in function
     assert 'if fast_mode and chapters and _chapters_are_generic(chapters):' not in function

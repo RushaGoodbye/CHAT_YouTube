@@ -56,7 +56,7 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: |
-          $env:PYTHONPATH="src"
+          $env:PYTHONPATH="src;${{ github.workspace }}\scripts"
           python -m pytest -q tests
 
       - name: Build application

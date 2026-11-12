@@ -1,0 +1,21 @@
+{
+  "video_id": "MClldsur_0s",
+  "published_at": "2026-10-15",
+  "language": "uk",
+  "recommended_title": "ХТО КЕРУЄ РФ? СУПЕРЕЧКА З РОСІЯНИНОМ ІЗ ПІДМОСКОВ'Я | РАША ГУДБАЙ",
+  "verified_subjects": [
+    "Співрозмовник Олександр із Підмосков'я",
+    "Розмова про війну Росії проти України",
+    "Суперечка про Путіна та відповідальність влади"
+  ],
+  "must_not_claim": [
+    "Центробанком керує конкретна особа, якщо це не доведено",
+    "співрозмовник визнав усі твердження ведучого"
+  ],
+  "editorial_status": "reference_only_not_approved_for_publication",
+  "source": "public video metadata and partial original-caption excerpts reviewed 2026-10-30; automatically translated caption language en",
+  "source_limitations": "Speech-recognition and translation errors possible; verify factual specifics before publication",
+  "expected_title_variants": 3,
+  "minimum_tags": 8,
+  "publication_allowed": false
+}

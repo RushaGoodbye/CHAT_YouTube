@@ -1,0 +1,162 @@
+name: RG SEO v3 - ten real videos quality acceptance
+
+on:
+  push:
+    branches:
+      - fix/seo-ukrainian-title-preservation-20261030
+    paths:
+      - '.github/workflows/seo-v3-10video-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rg-seo-v3-10video-alexpc
+  cancel-in-progress: false
+
+jobs:
+  ten-video-acceptance:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout claim-first SEO without publishing credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Preflight verified runner, local model and ten different SRT
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+          RG_TRANSCRIPTS_ROOT: '\\AlexLosServer\RG_AUTO_EDIT\YOUTUBE_CONTROL\TRANSCRIPTS'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m compileall -q src\rg_youtube_control\seo_v3_claims.py src\rg_youtube_control\seo_v3_fields.py src\rg_youtube_control\seo_v3_repair.py src\rg_youtube_control\seo_v3_pipeline.py
+          python -c "from rg_youtube_control.seo_v3_pipeline import generate_claim_first_seo; print('RG_SEO_V3_CLAIM_FIRST_READY')"
+          if (-not (Test-Path -LiteralPath $env:RG_TRANSCRIPTS_ROOT)) { throw 'TRANSCRIPTS_ROOT_UNAVAILABLE' }
+          $response = Invoke-RestMethod -Uri 'http://127.0.0.1:1234/api/v1/models' -TimeoutSec 8
+          if (@($response.models | Where-Object { $_.type -eq 'llm' -and $_.key }).Count -lt 1) { throw 'LM_STUDIO_MODEL_UNAVAILABLE' }
+          $all = @(Get-ChildItem -LiteralPath $env:RG_TRANSCRIPTS_ROOT -Filter '*.srt' -File -Recurse -ErrorAction Stop | Sort-Object LastWriteTime -Descending)
+          $chosen = New-Object System.Collections.Generic.List[object]
+          $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+          $regression = @($all | Where-Object { $_.BaseName -eq 'MEitKm687xo' } | Select-Object -First 1)
+          foreach ($file in @($regression) + $all) {
+            if ($null -eq $file) { continue }
+            if ($names.Add($file.BaseName)) { [void]$chosen.Add($file) }
+            if ($chosen.Count -ge 10) { break }
+          }
+          if ($chosen.Count -lt 10) { throw "TEN_DIFFERENT_SRT_REQUIRED: found $($chosen.Count)" }
+          $paths = @($chosen | Select-Object -First 10 | ForEach-Object { $_.FullName })
+          $file = Join-Path $env:RUNNER_TEMP 'rg_seo_v3_ten_sources.json'
+          $paths | ConvertTo-Json | Set-Content -LiteralPath $file -Encoding utf8
+          Write-Output "RG_SEO_V3_TEN_DIFFERENT_SRT_READY count=$($paths.Count)"
+
+      - name: Independently audit ten real videos and preserve each failure
+        env:
+          PYTHONPATH: ${{ github.workspace }}\src
+          RG_LOCAL_AI_PROVIDER: lmstudio
+          RG_SEO_PUBLICATION_ALLOWED: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import json, os, subprocess, sys
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "rg_seo_v3_ten_reports"
+          root.mkdir(parents=True, exist_ok=True)
+          manifest = Path(os.environ["RUNNER_TEMP"]) / "rg_seo_v3_ten_sources.json"
+          paths = json.loads(manifest.read_text(encoding="utf-8-sig"))
+          if len(paths) != 10 or len({Path(p).stem.casefold() for p in paths}) != 10:
+              raise RuntimeError("TEN_DISTINCT_VIDEO_MANIFEST_REQUIRED")
+
+          summary = []
+          def checkpoint():
+              accepted = sum(e["status"] == "READY_FOR_HUMAN_REVIEW" for e in summary)
+              overview = {
+                  "checked": len(summary), "automated_quality_pass": accepted,
+                  "review_or_error": len(summary) - accepted,
+                  "all_ten_automated_pass": len(summary) == 10 and accepted == 10,
+                  "human_approval_required": True, "publication_allowed": False,
+                  "videos": summary,
+              }
+              temp = root / "SUMMARY.partial"
+              temp.write_text(json.dumps(overview, ensure_ascii=False, indent=2), encoding="utf-8")
+              temp.replace(root / "SUMMARY.json")
+              return overview
+
+          for position, pathname in enumerate(paths, 1):
+              path = Path(pathname)
+              key = path.stem
+              output = root / f"{position:02d}_{key}.json"
+              entry = {"position": position, "source_stem": key, "status": "ERROR",
+                       "publication_allowed": False}
+              print(f"RG_SEO_V3_10VIDEO_START {position}/10", flush=True)
+              try:
+                  # Each actual video has an independent process and hard
+                  # ceiling. A single stalled local model must not consume
+                  # the rest of the batch. CLI exits 2 for editorial review.
+                  child = subprocess.run(
+                      [sys.executable, "-m", "rg_youtube_control.seo_v2_cli",
+                       str(path), "--output", str(output)],
+                      capture_output=True, text=True, errors="replace",
+                      timeout=420, check=False,
+                      env={**os.environ, "RG_SEO_PUBLICATION_ALLOWED": "0"},
+                  )
+                  if not output.is_file():
+                      entry["error_type"] = "SEO_PREVIEW_OUTPUT_MISSING"
+                      entry["exit_code"] = child.returncode
+                  else:
+                      result = json.loads(output.read_text(encoding="utf-8-sig"))
+                      if result.get("publication_allowed") is not False:
+                          raise RuntimeError("PUBLISH_LOCK_BREACHED")
+                      entry.update({
+                          "status": result.get("status", "REVIEW_REQUIRED"),
+                          "verified_quotes": len((result.get("evidence") or {}).get("accepted") or []),
+                          "claims": len((result.get("claims") or {}).get("claims") or []),
+                          "description_chars": len((result.get("draft") or {}).get("description") or ""),
+                          "title_variants": len((result.get("draft") or {}).get("title_variants") or []),
+                          "tags": len((result.get("draft") or {}).get("tags") or []),
+                          "gate_issues": (result.get("gate") or {}).get("issues") or [],
+                          "reviewer_issues": (result.get("independent_review") or {}).get("issues") or [],
+                          "repair_diagnostics": result.get("repair_diagnostics") or {},
+                      })
+              except subprocess.TimeoutExpired:
+                  entry["status"] = "TIMED_OUT_REVIEW_REQUIRED"
+                  entry["error_type"] = "LOCAL_MODEL_PER_VIDEO_TIMEOUT"
+              except (ValueError, OSError, RuntimeError) as error:
+                  entry["error_type"] = type(error).__name__
+                  entry["status"] = "ERROR_REVIEW_REQUIRED"
+
+              summary.append(entry)
+              overview = checkpoint()
+              print("RG_SEO_V3_10VIDEO_ITEM " + json.dumps({
+                  "position": position, "status": entry["status"],
+                  "title_variants": entry.get("title_variants", 0),
+                  "tags": entry.get("tags", 0),
+                  "description_chars": entry.get("description_chars", 0),
+                  "gate_failures": len(entry.get("gate_issues", [])),
+                  "reviewer_failures": len(entry.get("reviewer_issues", [])),
+                  "error_type": entry.get("error_type"),
+              }, ensure_ascii=False), flush=True)
+
+          print("RG_SEO_V3_10VIDEO_SUMMARY " + json.dumps({
+              "checked": overview["checked"],
+              "automated_quality_pass": overview["automated_quality_pass"],
+              "review_or_error": overview["review_or_error"],
+              "all_ten_automated_pass": overview["all_ten_automated_pass"],
+              "publication_allowed": False,
+          }, ensure_ascii=False), flush=True)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'TEN_VIDEO_AUDIT_RUNTIME_FAILED' }
+
+      - name: Upload ten source-linked SEO quality reports privately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RG_SEO_V3_10VIDEO_READONLY_REPORTS
+          path: ${{ runner.temp }}/rg_seo_v3_ten_reports/
+          retention-days: 14
+          if-no-files-found: warn
