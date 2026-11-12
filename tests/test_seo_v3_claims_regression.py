@@ -1171,3 +1171,53 @@ def test_related_claim_selection_keeps_small_cohort_and_never_invents_claims():
               for i in range(4)]
     assert _select_related_claims(claims, [{"evidence_ids": ["ev_0", "ev_2"]}], limit=16) == [claims[0], claims[2]]
     assert _select_related_claims(claims, [], limit=16) == claims
+
+
+def test_unsourced_name_sentence_pruning_preserves_exact_citations_and_length():
+    from rg_youtube_control.seo_v3_entities import prune_unverified_description_sentences
+    claims = [{"claim_id": f"ev_{i}", "source_type": "SPEAKER_STATEMENT",
+               "source_quote": "Я говорив про тему та можливі питання."}
+              for i in range(7)]
+    clean = [
+        "Учасник розповів про запитання співрозмовника та докладно обговорив заявлену тему розмови."
+        for _ in range(6)
+    ]
+    bad = "Учасник без підтвердження розповів про Мордория та подальше обговорення теми."
+    sentences = clean[:3] + [bad] + clean[3:]
+    rows = [{"text": sentence, "evidence_ids": [f"ev_{i}"]}
+            for i, sentence in enumerate(sentences)]
+    draft = {
+        "description": " ".join(sentences),
+        "sentence_provenance": rows,
+        "support_ids": {"description": [f"ev_{i}" for i in range(7)]},
+    }
+    proof = [{"quote": "Я говорив про тему та можливі питання."}]
+    revised, removed = prune_unverified_description_sentences(
+        draft, proof, {"claims": claims})
+    assert removed == 1
+    assert 400 <= len(revised["description"]) <= 900
+    assert bad not in revised["description"]
+    assert len(revised["sentence_provenance"]) == 6
+    assert "ev_3" not in revised["support_ids"]["description"]
+    assert len(draft["sentence_provenance"]) == 7
+    from rg_youtube_control.seo_v3_fields import check_sentence_provenance
+    assert check_sentence_provenance(revised, {"claims": claims}) == []
+
+
+def test_unsourced_name_sentence_pruning_keeps_short_description_blocked():
+    from rg_youtube_control.seo_v3_entities import prune_unverified_description_sentences
+    claims = [{"claim_id": "ev_1", "source_type": "SPEAKER_STATEMENT",
+               "source_quote": "Я говорив про тему."},
+              {"claim_id": "ev_2", "source_type": "SPEAKER_STATEMENT",
+               "source_quote": "Я сказав про питання."}]
+    draft = {
+        "description": "Учасник розповів про тему. Учасник сказав про Мордория.",
+        "sentence_provenance": [
+            {"text": "Учасник розповів про тему.", "evidence_ids": ["ev_1"]},
+            {"text": "Учасник сказав про Мордория.", "evidence_ids": ["ev_2"]},
+        ],
+        "support_ids": {"description": ["ev_1", "ev_2"]},
+    }
+    unchanged, removed = prune_unverified_description_sentences(
+        draft, [{"quote": "Я говорив про тему."}], {"claims": claims})
+    assert removed == 0 and unchanged is draft
