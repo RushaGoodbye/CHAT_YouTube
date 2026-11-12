@@ -1044,3 +1044,33 @@ def test_short_description_repair_targets_safe_length_buffer_without_padding():
     assert len(prompts) == 1
     assert "500-700" in prompts[0]
     assert "return null rather than" in prompts[0]
+
+
+def test_original_tag_generator_instructs_ukrainian_names_and_literal_source():
+    from rg_youtube_control.seo_v3_fields import compose_claim_fields
+    ledger = {"claims": [
+        {"claim_id": "ev_1", "source_type": "QUESTION",
+         "quote": "Почему вы говорите об этом?", "source_quote": "Почему вы говорите об этом?"}
+    ]}
+    topics = [{"evidence_ids": ["ev_1"]}]
+    prompts = []
+    def chat(prompt):
+        prompts.append(prompt)
+        if "TASK 1 OF 3" in prompt:
+            return {"title": {"text": "Про що розмова?", "evidence_ids": ["ev_1"]},
+                    "variants": [
+                        {"text": f"Запитання {i}", "evidence_ids": ["ev_1"]}
+                        for i in range(3)]}
+        if "TASK 2" in prompt:
+            return {"sentences": [{
+                "text": "Ведучий запитує про розмову.",
+                "evidence_ids": ["ev_1"],
+                "source_type": "QUESTION",
+            }]}
+        return {"tags": [{"tag": "розмова", "evidence_ids": ["ev_1"]}]}
+    compose_claim_fields(ledger, topics, chat)
+    tag_prompts = [p for p in prompts if "TASK 3 OF 3" in p]
+    assert len(tag_prompts) == 1
+    assert "All tags must be natural UKRAINIAN search phrases" in tag_prompts[0]
+    assert "not present in the exact original cited quote" in tag_prompts[0]
+    assert "Provide at least 8 distinct informative phrases" in tag_prompts[0]
