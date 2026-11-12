@@ -334,3 +334,74 @@ def test_v3_literal_source_extraction_never_calls_model():
     assert all(row["quote"] in [cue.text for cue in cues]
                for row in ledger["accepted"])
     assert ledger["publication_allowed"] is False
+
+
+def test_description_repair_normalizes_whitespace_only_drift():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{"claim_id": "ev_1", "source_type": "QUESTION",
+                          "source_quote": "Чому це сталося?"}]}
+    original = {
+        "title": "Чому?", "title_variants": ["Чому?", "Що?", "Як?"],
+        "description": "Короткий текст.", "tags": ["причина"],
+        "support_ids": {
+            "title": ["ev_1"], "title_variants": [["ev_1"]] * 3,
+            "description": ["ev_1"], "tags": [["ev_1"]],
+        },
+        "sentence_provenance": [{"text": "Короткий текст.", "evidence_ids": ["ev_1"]}],
+    }
+    first = "Ведучий запитує про причини."
+    second = "Учасник обговорює запитання."
+    def writer(_):
+        return {
+            "value": first + "\\n" + second,
+            "evidence_ids": ["ev_1"],
+            "sentences": [
+                {"text": first, "evidence_ids": ["ev_1"]},
+                {"text": second, "evidence_ids": ["ev_1"]},
+            ],
+        }
+    def reviewer(_):
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    corrected, _, _, diagnostics = repair_claim_fields(
+        original, ledger, [], {"review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "description", "reason": "short description"}]},
+        writer, reviewer, gate,
+    )
+    assert diagnostics["description"] == "ACCEPTED"
+    assert corrected["description"] == first + " " + second
+
+
+def test_description_repair_refuses_changed_words_in_sentence_list():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{"claim_id": "ev_1", "source_type": "QUESTION",
+                          "source_quote": "Чому це сталося?"}]}
+    original = {
+        "title": "Чому?", "title_variants": ["Чому?", "Що?", "Як?"],
+        "description": "Короткий текст.", "tags": ["причина"],
+        "support_ids": {
+            "title": ["ev_1"], "title_variants": [["ev_1"]] * 3,
+            "description": ["ev_1"], "tags": [["ev_1"]],
+        },
+        "sentence_provenance": [{"text": "Короткий текст.", "evidence_ids": ["ev_1"]}],
+    }
+    def writer(_):
+        return {
+            "value": "Ведучий запитує про причини.",
+            "evidence_ids": ["ev_1"],
+            "sentences": [{"text": "Ведучий підтвердив причини.", "evidence_ids": ["ev_1"]}],
+        }
+    def reviewer(_):
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    corrected, _, _, diagnostics = repair_claim_fields(
+        original, ledger, [], {"review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "description", "reason": "unsupported"}]},
+        writer, reviewer, gate,
+    )
+    assert diagnostics["description"] == "DESCRIPTION_PROVENANCE_INVALID"
+    assert corrected["description"] == original["description"]
