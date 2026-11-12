@@ -983,3 +983,37 @@ def test_repair_requires_explicit_source_audited_review_status():
         }, writer, reviewer, gate, max_fields=1)
     assert diag["title"] == "INDEPENDENT_REVIEW_REJECTED"
     assert result["title"] == draft["title"]
+
+
+def test_tag_repair_prompt_forbids_russian_keywords_and_unsourced_names():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [{
+        "claim_id": "ev_topic", "source_type": "QUESTION",
+        "source_quote": "Чому ви про це питаєте?",
+    }]}
+    draft = {
+        "title": "Чому це питають?", "title_variants": ["A", "B", "C"],
+        "description": "Ведучий запитує про тему.",
+        "tags": ["питання", "обговорення"],
+        "support_ids": {
+            "title": ["ev_topic"], "title_variants": [["ev_topic"]] * 3,
+            "description": ["ev_topic"], "tags": [["ev_topic"]] * 2,
+        },
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": None, "evidence_ids": None}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    repair_claim_fields(
+        draft, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "tags", "reason": "UNSUPPORTED_KEYWORDS"}],
+        }, writer, lambda _: {}, gate,
+    )
+    assert len(prompts) == 1
+    assert "Every tag must be in Ukrainian" in prompts[0]
+    assert "do not copy Russian keywords" in prompts[0]
+    assert "exact spelling" in prompts[0]
