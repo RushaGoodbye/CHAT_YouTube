@@ -1141,3 +1141,33 @@ def test_tag_repair_blocks_underfilled_result_before_editor_review():
     assert revised["tags"] == draft["tags"]
     assert not calls
     assert "return 10-12 DISTINCT" in prompts[0]
+
+
+def test_related_claim_selection_samples_later_source_and_lead_topic():
+    from rg_youtube_control.seo_v3_fields import _select_related_claims
+    claims = [{"claim_id": f"ev_{i}", "source_type": "SPEAKER_STATEMENT",
+               "source_quote": f"Actual quote {i}", "start_ms": i * 1000}
+              for i in range(24)]
+    topics = [
+        {"evidence_ids": [f"ev_{i}" for i in range(20)]},
+        {"evidence_ids": [f"ev_{i}" for i in range(20, 24)]},
+    ]
+    selected = _select_related_claims(claims, topics, limit=16)
+    ids = [row["claim_id"] for row in selected]
+    assert len(selected) == 16
+    assert len(set(ids)) == 16
+    assert "ev_0" in ids
+    assert "ev_19" in ids
+    assert "ev_23" in ids
+    assert sum(eid in ids for eid in topics[0]["evidence_ids"]) >= 8
+    assert {row["claim_id"] for row in selected} <= {
+        row["claim_id"] for row in claims
+    }
+
+
+def test_related_claim_selection_keeps_small_cohort_and_never_invents_claims():
+    from rg_youtube_control.seo_v3_fields import _select_related_claims
+    claims = [{"claim_id": f"ev_{i}", "source_quote": f"quote {i}"}
+              for i in range(4)]
+    assert _select_related_claims(claims, [{"evidence_ids": ["ev_0", "ev_2"]}], limit=16) == [claims[0], claims[2]]
+    assert _select_related_claims(claims, [], limit=16) == claims
