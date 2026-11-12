@@ -144,7 +144,7 @@ def selftest():
     assert result[0]["video_message_ids"]==[101,102,103]
     assert result[0]["ready_to_publish"] is False
     assert "secret_file" not in json.dumps(result)
-    assert "unique_" not in json.dumps(result)
+    assert not any("unique_" + str(i) in json.dumps(result) for i in (1,2,3))
     assert result[0]["distinct_file_unique_ids_count"] == 3
     assert project(data,expected_chat=99)==[]
     refs=private_video_refs(data,expected_chat=1234,expected_group="group_001",expected_count=3)
