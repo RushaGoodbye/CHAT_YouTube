@@ -343,9 +343,20 @@ def generate_claim_first_seo(
             or review.get("review_status") != "SOURCE_AUDITED"
             or review.get("issues")):
         status = "REVIEW_REQUIRED"
+    # Fixed-field counts only; never print detected private names into
+    # GitHub Actions. Distinguish description failures from unrelated tags.
+    name_issue_fields = {}
+    for field in ("title", "title_variants", "description", "tags"):
+        subset = {"title": "", "title_variants": [],
+                  "description": "", "tags": []}
+        subset[field] = draft.get(field)
+        count = len(unsupported_names(subset, name_proof))
+        if count:
+            name_issue_fields[field] = count
     return {
         "pipeline": "RG_SEO_CLAIM_FIRST_V3",
         "status": status,
+        "name_issue_fields": name_issue_fields,
         "draft": {
             key: draft.get(key)
             for key in ("title", "title_variants", "description", "tags",
