@@ -168,6 +168,24 @@ def selftest():
         except AlbumError as e:
             assert str(e)==reason,(reason,str(e))
         else: raise AssertionError("UNSAFE_INPUT_PASSED_" + reason)
+    # CLI regression: malformed capture must fail closed without traceback.
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tempdir:
+        capture=Path(tempdir)/"updates.json"
+        for payload in ('{broken json', '{"updates":"not_a_list"}', '{"updates":[null]}'):
+            capture.write_text(payload,encoding="utf-8")
+            completed=subprocess.run(
+                [sys.executable,__file__,"project","--input-file",str(capture)],
+                capture_output=True,text=True,timeout=10)
+            assert completed.returncode==2,completed.stderr
+            assert not completed.stderr.strip(),completed.stderr
+            doc=json.loads(completed.stdout)
+            assert doc["status"]=="SAFE_STOP"
+            assert doc["public_publication"]=="OFF"
+    print("BOT_API_MALFORMED_CAPTURE_SAFE_STOP_PASS")
     print("BOT_API_ALBUM_THREE_VIDEO_PROJECTION_PASS")
     print("BOT_API_EIGHT_INVALID_INPUTS_REJECTED_PASS")
     print("BOT_API_FILE_IDS_REDACTED_PASS")
