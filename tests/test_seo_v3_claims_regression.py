@@ -799,3 +799,49 @@ def test_sentence_provenance_accepts_attributed_speaker_but_rejects_bare_asserti
     draft["description"] = "Обставини події доведені."
     draft["sentence_provenance"][0]["text"] = draft["description"]
     assert check_sentence_provenance(draft, ledger)[0]["reason"] == "SENTENCE_MODALITY_UNSUPPORTED"
+
+
+def test_field_repair_prompt_is_bounded_and_prioritizes_cited_claims():
+    import json
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    claims = [{
+        "claim_id": f"ev_{i}",
+        "source_type": "SPEAKER_STATEMENT",
+        "source_quote": f"Учасник обговорює тему номер {i}.",
+    } for i in range(25)]
+    draft = {
+        "title": "Розмова про важливе питання",
+        "description": "Учасник обговорює тему.",
+        "title_variants": ["Тема", "Питання", "Розмова"],
+        "tags": ["тема"],
+        "support_ids": {
+            "title": ["ev_21"], "description": ["ev_21"],
+            "title_variants": [["ev_21"]] * 3,
+            "tags": [["ev_21"]],
+        },
+    }
+    seen = []
+    def writer(prompt):
+        seen.append(prompt)
+        return {"value": None, "evidence_ids": None}
+    def reviewer(_):
+        raise AssertionError("No approved correction was returned")
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    _, _, _, diagnostics = repair_claim_fields(
+        draft, {"claims": claims}, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "title", "reason": "Unsupported detail"}],
+        }, writer, reviewer, gate, max_fields=1,
+    )
+    assert diagnostics["title"] == "NO_SAFE_REVISION"
+    assert len(seen) == 1
+    payload = seen[0].split("\nSOURCE-TYPED CLAIMS: ", 1)[1]
+    displayed = json.loads(payload)
+    assert len(displayed) == 10
+    assert displayed[0]["claim_id"] == "ev_21"
+    assert {row["claim_id"] for row in displayed} <= {
+        row["claim_id"] for row in claims
+    }
+    assert not any(row["claim_id"] == "ev_24" for row in displayed)
