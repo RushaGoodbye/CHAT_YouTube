@@ -19,6 +19,52 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Read-only live album compatibility check
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import urllib.request
+          from pathlib import Path
+          path = Path("rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py")
+          spec = importlib.util.spec_from_file_location("album_guard", path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          source = "https://t.me/supernova_plus/62837"
+          url = source + "?embed=1&mode=tme"
+          request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(request, timeout=20) as response:
+              assert response.status == 200
+              data = response.read(500001)
+          assert len(data) <= 500000
+          result = module.inspect(source, data.decode("utf-8", "replace"))
+          assert result["media_kind"] == "video_album", result
+          assert result["video_count"] == 3, result
+          assert result["publication_allowed"] is False
+          assert result["original_files_verified"] is False
+          print("REAL_POST_62837_THREE_VIDEO_METADATA_PASS")
+          print("MEDIA_FILES_DOWNLOADED=0")
+          PY
+      - name: Self-hosted NAS runner security inventory
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          files=sorted(pathlib.Path(".github/workflows").glob("*.yml"))
+          risks=[]
+          matches=[]
+          for path in files:
+              text=path.read_text(encoding="utf-8",errors="replace")
+              if "self-hosted" not in text: continue
+              matches.append(str(path))
+              if re.search(r"(?m)^\s*pull_request(?:_target)?:", text):
+                  risks.append((str(path), "PR_EVENT_WITH_SELF_HOSTED"))
+              if re.search(r"(?m)^\s*workflow_run:",text):
+                  risks.append((str(path), "WORKFLOW_RUN_WITH_SELF_HOSTED"))
+          print("SELF_HOSTED_WORKFLOW_COUNT",len(matches))
+          print("SELF_HOSTED_WORKFLOWS",*matches,sep="\n")
+          print("POTENTIAL_TRIGGER_RISKS",len(risks))
+          for path,kind in risks: print("REVIEW_REQUIRED",kind,path)
+          print("INVENTORY_ONLY_NO_CHANGES=1")
+          PY
       - name: Compile and offline tests
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py
