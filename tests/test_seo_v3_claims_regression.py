@@ -297,3 +297,20 @@ def test_quote_extraction_timeout_uses_literal_verified_srt():
     assert all(row["quote"] in [cue.text for cue in cues]
                for row in ledger["accepted"])
     assert ledger["publication_allowed"] is False
+
+
+def test_quote_extraction_has_shorter_timeout_than_editorial_generation():
+    from rg_youtube_control import seo_v2_cli
+    original = seo_v2_cli.lm_studio_chat
+    captured = []
+    def fake_chat(messages, **kwargs):
+        captured.append(kwargs["timeout"])
+        return "{}"
+    seo_v2_cli.lm_studio_chat = fake_chat
+    try:
+        seo_v2_cli._local_chat(
+            "Extract up to three substantial verbatim statements from cues")
+        seo_v2_cli._local_chat("TASK 1 OF 3: compose a title")
+    finally:
+        seo_v2_cli.lm_studio_chat = original
+    assert captured == [45, 180]
