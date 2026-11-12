@@ -199,8 +199,11 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
         return results
 
     candidates: list[dict[str, Any]] = []
-    for offset in range(0, len(evidence), 16):
-        chunk = evidence[offset:offset + 16]
+    # Topic classification only needs words and evidence IDs. Sending
+    # timestamps, cue indices and other provenance metadata bloats prompts
+    # and can exhaust the local inference time budget on RTX 4080.
+    for offset in range(0, len(evidence), 8):
+        chunk = evidence[offset:offset + 8]
         prompt = (
             "Classify the main topics of this portion of an arbitrary "
             "conversation, in Ukrainian. No assumptions about channel, "
@@ -209,13 +212,29 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
             "Return JSON: {\"topics\":[{\"label_uk\":\"...\", "
             "\"evidence_ids\":[\"ev_...\"]}]}. "
             "Prefer 1-4 meaningful topics. Do not fabricate events.\n"
-            "VERBATIM EVIDENCE:\n" + json.dumps(chunk, ensure_ascii=False)
+            "VERBATIM EVIDENCE:\n" + json.dumps([
+                {"evidence_id": row["evidence_id"], "quote": row["quote"]}
+                for row in chunk
+            ], ensure_ascii=False)
         )
-        candidates.extend(parse_topics(
-            _ask(chat, prompt),
-            {item["evidence_id"] for item in chunk},
-            maximum=4,
-        ))
+        try:
+            raw_topics = _ask(chat, prompt)
+            selected = parse_topics(
+                raw_topics, {item["evidence_id"] for item in chunk},
+                maximum=4,
+            )
+        except (RuntimeError, TimeoutError, ValueError, TypeError):
+            selected = []
+        if not selected:
+            # A real, source-cited topic GROUP is safer than either
+            # inventing a topic or aborting the whole video. Never present
+            # a guess about motives, outcomes or named entities as fact.
+            selected = [{
+                "label_uk": "Теми розмови",
+                "evidence_ids": [item["evidence_id"] for item in chunk],
+                "topic_fallback": True,
+            }]
+        candidates.extend(selected)
 
     # Keep the reducer prompt bounded even with hundreds of timeline blocks.
     # Merge intermediate candidates in small consecutive batches until five
@@ -237,11 +256,20 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
                 "\"evidence_ids\":[\"ev_...\"]}]}.\nTOPIC MAP:\n"
                 + json.dumps(batch, ensure_ascii=False)
             )
-            merged = parse_topics(_ask(chat, prompt), allowed, maximum=4)
+            try:
+                merged = parse_topics(_ask(chat, prompt), allowed, maximum=4)
+            except (RuntimeError, TimeoutError, ValueError, TypeError):
+                merged = []
             if not merged:
-                # Do not silently discard source coverage when a model gives
-                # invalid reduction JSON. Preserve the candidate for review.
-                merged = batch[:4]
+                # Keep source IDs and explicitly label the degraded topic;
+                # independent final SEO review remains mandatory.
+                merged = [{
+                    "label_uk": "Теми розмови",
+                    "evidence_ids": list(dict.fromkeys(
+                        eid for row in batch for eid in row["evidence_ids"]
+                    )),
+                    "topic_fallback": True,
+                }]
             next_candidates.extend(merged)
         if len(next_candidates) >= len(candidates) and len(candidates) > 5:
             raise ValueError("Semantic reducer did not reduce topic count")
