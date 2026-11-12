@@ -223,6 +223,13 @@ def generate_claim_first_seo(
         for topic in topics
     ]
     draft = compose_claim_fields(claim_ledger, visible_topics, chat)
+    # Source-only, deterministic removal of COMPLETE sentences containing
+    # unsupported names. Apply only when ≥400 cited characters survive;
+    # the full revised draft still needs independent semantic review.
+    from .seo_v3_entities import prune_unverified_description_sentences
+    draft, name_sentence_pruned_count = prune_unverified_description_sentences(
+        draft, name_proof, claim_ledger,
+    )
     gate = validate_draft(draft, evidence, cues, allowed_ids=visible)
     modality_issues = check_claim_type_constraints(draft, claim_ledger)
     if modality_issues:
@@ -323,6 +330,7 @@ def generate_claim_first_seo(
         "claims": claim_ledger,
         "modality_issues": modality_issues,
         "repair_diagnostics": repair_diagnostics,
+        "name_sentence_pruned_count": name_sentence_pruned_count,
         "sentence_provenance": draft.get("sentence_provenance") or [],
         "unverified_names": names,
         "independent_review": review,
