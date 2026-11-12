@@ -18,6 +18,26 @@ from .seo_v3_pipeline import generate_claim_first_seo as generate_universal_seo
 
 
 def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
+    # Bound each stage separately. Gemma on a local RTX 4080 may spend the
+    # whole 180s budget on oversized title JSON; titles need <1200 tokens,
+    # while detailed descriptions and independent reviews need more.
+    topic = prompt.startswith((
+        "Extract up to three substantial verbatim statements",
+        "Classify the main topics", "Merge overlapping topics",
+    ))
+    heading = "TASK 1 OF 3:" in prompt
+    tags = "TASK 3 OF 3:" in prompt
+    reviewer = "skeptical, INDEPENDENT Ukrainian SEO source auditor" in prompt
+    if topic:
+        timeout, budget = 45, 650
+    elif heading:
+        timeout, budget = 100, 1100
+    elif tags:
+        timeout, budget = 120, 1400
+    elif reviewer:
+        timeout, budget = 135, 1800
+    else:
+        timeout, budget = 150, 2400
     raw = lm_studio_chat(
         [
             {"role": "system", "content": (
@@ -26,22 +46,8 @@ def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
             )},
             {"role": "user", "content": prompt},
         ],
-        # Quote extraction is recoverable from verbatim SRT. Never let
-        # its model call consume the full editorial inference timeout.
-        # A delayed title/review call still has the normal 180 s budget.
-        model=model,
-        timeout=(45 if (
-            prompt.startswith("Extract up to three substantial verbatim statements")
-            or prompt.startswith("Classify the main topics")
-            or prompt.startswith("Merge overlapping topics")
-        ) else 180),
-        temperature=0.05,
-        json_mode=True,
-        max_tokens=(850 if (
-            prompt.startswith("Classify the main topics")
-            or prompt.startswith("Merge overlapping topics")
-        ) else 4000),
-        reasoning_effort="none",
+        model=model, timeout=timeout, temperature=0.05,
+        json_mode=True, max_tokens=budget, reasoning_effort="none",
     )
     return json.loads(raw)
 
