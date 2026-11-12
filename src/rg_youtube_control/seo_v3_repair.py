@@ -102,8 +102,33 @@ def repair_claim_fields(
         if not reasons:
             continue
         banned_names = invalid_names
-        # Do not show unrelated SEO fields as draft ground truth.
+        # The editor must see the quotations underlying this field first,
+        # followed by a limited set of nearby alternative source quotes.
+        # Sending the full 24-claim ledger encouraged unrelated names and
+        # quantities in title/tag repairs. We preserve every original ID
+        # and still run the full ledger through all validation gates.
         field_support = (candidate.get("support_ids") or {}).get(field)
+        cited_ids: set[str] = set()
+        if isinstance(field_support, list):
+            for group in field_support:
+                if isinstance(group, str):
+                    cited_ids.add(group)
+                elif isinstance(group, list):
+                    cited_ids.update(eid for eid in group if isinstance(eid, str))
+        cited_claims = [
+            claim for claim in indexed.values()
+            if claim["claim_id"] in cited_ids
+        ]
+        alternative_claims = [
+            claim for claim in indexed.values()
+            if claim["claim_id"] not in cited_ids
+        ]
+        # Descriptions need more independent claims than headlines.
+        claim_budget = 14 if field == "description" else 10
+        claims_for_field = (
+            cited_claims[:claim_budget]
+            + alternative_claims[:max(0, claim_budget - len(cited_claims))]
+        )
         prompt = (
             "You are a Ukrainian SEO source-faithfulness correction editor. "
             "Fix ONLY the requested field, ONCE. All facts must come from "
@@ -157,7 +182,7 @@ def repair_claim_fields(
             + "\nCURRENT EVIDENCE IDS: " + json.dumps(field_support, ensure_ascii=False)
             + "\nEXACT EDITOR REJECTIONS: " + json.dumps(reasons, ensure_ascii=False)
             + "\nUNVERIFIED NAMES TO REMOVE: " + json.dumps(banned_names, ensure_ascii=False)
-            + "\nSOURCE-TYPED CLAIMS: " + json.dumps(list(indexed.values()), ensure_ascii=False)
+            + "\nSOURCE-TYPED CLAIMS: " + json.dumps(claims_for_field, ensure_ascii=False)
         )
         try:
             result = writer(prompt)
