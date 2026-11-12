@@ -165,17 +165,30 @@ def repair_claim_fields(
             diagnostics[field] = "NO_SAFE_REVISION"
             continue
         if field == "description" and isinstance(new_value, str):
-            # Model responses sometimes differ only in paragraph whitespace.
-            # Canonicalise from the exact independently cited sentences,
-            # but never invent, drop or modify any actual words.
+            # The sentences, not a second model-written summary, are the
+            # source of truth for the revised description. Deterministically
+            # concatenate each individually cited sentence in given order.
+            # Every sentence is then checked for modality and source IDs,
+            # and the COMPLETE revised field must pass a fresh independent
+            # audit. Never use a discarded summary as evidence.
             rows = result.get("sentences")
             if isinstance(rows, list) and rows and all(
-                isinstance(row, dict) and isinstance(row.get("text"), str)
+                isinstance(row, dict)
+                and isinstance(row.get("text"), str)
+                and bool(row["text"].strip())
                 for row in rows
             ):
-                joined = " ".join(str(row["text"]).strip() for row in rows)
-                if " ".join(new_value.split()) == " ".join(joined.split()):
-                    new_value = joined
+                new_value = " ".join(str(row["text"]).strip() for row in rows)
+                ordered_support = list(dict.fromkeys(
+                    eid for row in rows
+                    for eid in (row.get("evidence_ids") or [])
+                    if isinstance(eid, str)
+                ))
+                # Do not blindly accept a global support list mismatched
+                # against individual sentence citations.
+                if (isinstance(new_support, list)
+                        and set(new_support) == set(ordered_support)):
+                    new_support = ordered_support
         revised = deepcopy(candidate)
         revised[field] = new_value
         revised.setdefault("support_ids", {})[field] = new_support
