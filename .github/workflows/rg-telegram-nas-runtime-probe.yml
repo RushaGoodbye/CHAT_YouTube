@@ -62,3 +62,42 @@ jobs:
               result["mounts"]["operator"]["readable"] and
               result["mounts"]["operator"]["searchable"]).lower())
           PY
+
+      - name: Validate non-secret health export visibility
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,stat,time
+          from pathlib import Path
+          p=Path('/volume1/docker/RG_TELEGRAM_NEWS_EXPORT/rg_news_health_public.json')
+          if not p.exists():
+              print('RG_NEWS_EXPORT_STATUS=NOT_PROVISIONED')
+              print('RG_NEWS_EXPORT_FRESH=false')
+              raise SystemExit(0)
+          flags=os.O_RDONLY|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_NONBLOCK',0)
+          try:
+              fd=os.open(str(p),flags)
+              with os.fdopen(fd,'rb') as f:
+                  st=os.fstat(f.fileno())
+                  if not stat.S_ISREG(st.st_mode) or st.st_size>16384:raise ValueError('UNSAFE_FILE')
+                  doc=json.loads(f.read(16385))
+              assert isinstance(doc,dict)
+              expected={'schema','generated_at_unix','contains_secrets','private_messages_read','telegram_api_calls','publications','source','locations'}
+              assert set(doc)==expected
+              assert doc['schema']=='RG_NEWS_NAS_SANITIZED_EXPORT_V1'
+              assert doc['contains_secrets'] is False
+              assert doc['private_messages_read']==0 and doc['telegram_api_calls']==0
+              assert doc['publications']==0
+              assert doc['source']=='LOCAL_NAS_METADATA_ONLY'
+              ts=doc['generated_at_unix']
+              assert type(ts) is int
+              age=int(time.time())-ts
+              assert -60<=age<=1200
+              print('RG_NEWS_EXPORT_STATUS=FRESH_METADATA_ONLY')
+              print('RG_NEWS_EXPORT_FRESH=true')
+              print('RG_NEWS_EXPORT_BOT_HEALTH_PROVEN=false')
+          except Exception:
+              print('RG_NEWS_EXPORT_STATUS=INVALID_OR_STALE_SAFE_STOP')
+              print('RG_NEWS_EXPORT_FRESH=false')
+              raise SystemExit(2)
+          PY
