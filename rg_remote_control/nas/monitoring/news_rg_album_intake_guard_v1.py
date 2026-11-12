@@ -109,7 +109,7 @@ def required_footer(text):
         return cleaned
     if FOOTER_URL in cleaned or FOOTER_LABEL in cleaned or label in cleaned:
         raise ValueError("FOOTER_ALREADY_PRESENT_OR_UNVERIFIED")
-    return cleaned + '\\n\\n' + footer
+    return cleaned + '\n\n' + footer
 
 def selftest():
     source = "https://t.me/supernova_plus/62837"
