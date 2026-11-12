@@ -98,6 +98,23 @@ def audit_draft_against_claims(
     A malformed, over-broad or unstructured reviewer response fails closed.
     A citation only proves the sentence was uttered, NOT the factual truth.
     """
+    # The independent auditor checks cited claims, not an unrelated
+    # transcript-length ledger. Exclude uncited material to keep the local
+    # RTX 4080 inference bounded and reduce false associations.
+    supports = draft.get("support_ids") or {}
+    cited: set[str] = set()
+    for field in ("title", "description", "title_variants", "tags"):
+        groups = supports.get(field) or []
+        if field in ("title", "description"):
+            cited.update(str(eid) for eid in groups if isinstance(eid, str))
+        else:
+            for group in groups:
+                if isinstance(group, list):
+                    cited.update(str(eid) for eid in group if isinstance(eid, str))
+    cited_claims = [
+        claim for claim in claims["claims"]
+        if str(claim.get("claim_id")) in cited
+    ]
     prompt = (
         "You are a skeptical, INDEPENDENT Ukrainian SEO source auditor. "
         "Audit EACH title and A/B headline, EACH description sentence, "
@@ -133,7 +150,7 @@ def audit_draft_against_claims(
         "Do not approve publication.\nDRAFT:\n"
         + json.dumps(draft, ensure_ascii=False)
         + "\nSOURCE-TYPED CLAIMS:\n"
-        + json.dumps(claims["claims"], ensure_ascii=False)
+        + json.dumps(cited_claims, ensure_ascii=False)
     )
     try:
         result = _ask(reviewer, prompt)
