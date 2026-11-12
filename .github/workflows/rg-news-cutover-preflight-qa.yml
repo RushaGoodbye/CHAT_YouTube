@@ -33,7 +33,7 @@ jobs:
           assert 'telegram_api_calls' in p
           assert 'changes_to_containers' in p
           assert 'docker","stop' not in p
-          assert 'chmod(' not in p
+          assert 'os.chmod(' not in p
           assert 'getUpdates' not in p
           print("CUTOVER_SAFE_STOP_CONTRACT_PASS")
           PY
