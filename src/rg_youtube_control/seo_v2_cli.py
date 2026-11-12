@@ -46,7 +46,10 @@ def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
             )},
             {"role": "user", "content": prompt},
         ],
-        model=model, timeout=timeout, temperature=0.05,
+        # Sampling variance changed the automated decision for identical
+        # SRT inputs across runs. Use greedy decoding for a reproducible
+        # QA baseline; do not relax any source or editorial validation.
+        model=model, timeout=timeout, temperature=0.0,
         json_mode=True, max_tokens=budget, reasoning_effort="none",
     )
     return json.loads(raw)
