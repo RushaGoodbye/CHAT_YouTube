@@ -127,7 +127,7 @@ def selftest():
         except ValueError: pass
         else: raise AssertionError("POST_ID_GUARD_FAILED")
     footer = required_footer("Тест")
-    assert footer.count(FOOTER_URL) == 1 and footer.count(FOOTER_LABEL) == 1
+    assert footer.count(FOOTER_URL) == 1 and footer.count(html.escape(FOOTER_LABEL)) == 1
     print("RG_ALBUM_INTAKE_GUARD_SELFTEST_PASS")
     print("VIDEO_ALBUM_3_FIXTURE_PASS")
     print("URL_NORMALIZATION_AND_DEDUP_PASS")
