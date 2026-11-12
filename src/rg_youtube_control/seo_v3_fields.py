@@ -67,7 +67,10 @@ def compose_claim_fields(
     } & allowed
     if not lead_ids:
         lead_ids = allowed
-    lead_claims = [c for c in claims if c["claim_id"] in lead_ids]
+    # Titles need a small, clear factual scope. Select a bounded set of
+    # literal lead-topic claims in original chronology, not all 24 quotes.
+    lead_claims = [c for c in claims if c["claim_id"] in lead_ids][:5]
+    lead_ids = {c["claim_id"] for c in lead_claims}
     # Tags should reflect the video's main subjects, not random short
     # exchanges. An unrelated quotation may not be cited as the reason
     # for a high-ranking search keyword.
@@ -77,7 +80,9 @@ def compose_claim_fields(
     } & allowed
     if not selected_ids:
         selected_ids = allowed
-    selected_claims = [row for row in claims if row["claim_id"] in selected_ids]
+    # Description and tags need a wider but still bounded evidence scope.
+    selected_claims = [row for row in claims if row["claim_id"] in selected_ids][:12]
+    selected_ids = {row["claim_id"] for row in selected_claims}
     common = (
         "Only use the SOURCE-TYPED CLAIM LEDGER. Every source entry records "
         "what was SPOKEN, never independently verified truth. QUESTION = "
