@@ -30,8 +30,10 @@ def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
         # its model call consume the full editorial inference timeout.
         # A delayed title/review call still has the normal 180 s budget.
         model=model,
-        timeout=(45 if prompt.startswith(
-            "Extract up to three substantial verbatim statements"
+        timeout=(45 if (
+            prompt.startswith("Extract up to three substantial verbatim statements")
+            or prompt.startswith("Classify the main topics")
+            or prompt.startswith("Merge overlapping topics")
         ) else 180),
         temperature=0.05,
         json_mode=True, max_tokens=4000, reasoning_effort="none",
