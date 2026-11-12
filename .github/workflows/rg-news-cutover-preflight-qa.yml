@@ -1,0 +1,39 @@
+name: RG News Cutover Preflight Offline QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rg_remote_control/nas/monitoring/rg_news_cutover_preflight_v1.py"
+      - ".github/workflows/rg-news-cutover-preflight-qa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify fail closed semantics without NAS network
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_news_cutover_preflight_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_news_cutover_preflight_v1.py selftest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("rg_remote_control/nas/monitoring/rg_news_cutover_preflight_v1.py").read_text()
+          assert 'items["legacy_command_routes_migrated"]=False' in p
+          assert 'items["public_runner_shutdown_allowed"]=False' in p
+          assert 'items["telegram_publications_verified"]=False' in p
+          assert 'telegram_api_calls' in p
+          assert 'changes_to_containers' in p
+          assert 'docker","stop' not in p
+          assert 'chmod(' not in p
+          assert 'getUpdates' not in p
+          print("CUTOVER_SAFE_STOP_CONTRACT_PASS")
+          PY
