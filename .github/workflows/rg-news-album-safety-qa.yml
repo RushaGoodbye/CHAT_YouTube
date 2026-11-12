@@ -12,6 +12,8 @@ on:
       - "rg_remote_control/nas/monitoring/news_rg_sanitized_export_v1.py"
       - "rg_remote_control/nas/monitoring/news_rg_sanitized_consumer_v1.py"
       - ".github/workflows/rg-news-album-safety-qa.yml"
+      - ".github/workflows/rg-telegram-nas-runtime-probe.yml"
+      - ".github/workflows/rg-telegram-nas-ingress-audit.yml"
   workflow_dispatch:
 
 permissions:
@@ -87,6 +89,23 @@ jobs:
           print('NAS_POTENTIALLY_ELIGIBLE_WORKFLOWS',len(patterns))
           for path,labels in patterns[:90]: print('NAS_MATCH_CANDIDATE',path,'LABELS',labels[:130])
           print('SECURITY_SCAN_IS_CONSERVATIVE_NOT_ENFORCEMENT=1')
+          PY
+      - name: Enforce manual-only Telegram NAS diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          paths=[
+              '.github/workflows/rg-telegram-nas-runtime-probe.yml',
+              '.github/workflows/rg-telegram-nas-ingress-audit.yml',
+          ]
+          for name in paths:
+              content=Path(name).read_text(encoding='utf-8')
+              section=content.split('on:',1)[1].split('permissions:',1)[0]
+              assert 'workflow_dispatch:' in section, name
+              assert not any(trigger in section for trigger in (
+                  'push:', 'pull_request:', 'pull_request_target:', 'schedule:', 'workflow_run:')),name
+              assert 'runs-on: [self-hosted, rg, nas]' in content,name
+              print('NAS_DIAGNOSTIC_MANUAL_ONLY_PASS',name)
           PY
       - name: Enforce Windows-only runner routing
         run: |
