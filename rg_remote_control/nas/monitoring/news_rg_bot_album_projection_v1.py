@@ -81,6 +81,8 @@ def project(updates, expected_chat=None, expected_group=None):
             raise AlbumError("ALBUM_TOO_LARGE")
         if len({item["file_unique_id"] for item in videos}) != len(videos):
             raise AlbumError("REPEATED_VIDEO_FILE_UNIQUE_ID")
+        if len({item["file_id"] for item in videos}) != len(videos):
+            raise AlbumError("REPEATED_VIDEO_FILE_ID")
         results.append({
             "chat_id": chat_id,
             "media_group_id": group,
@@ -159,6 +161,7 @@ def selftest():
         ("VIDEO_FILE_ID_MISSING",lambda d:d[1]["message"]["video"].update(file_id="")),
         ("VIDEO_UNIQUE_ID_MISSING",lambda d:d[1]["message"]["video"].update(file_unique_id="")),
         ("REPEATED_VIDEO_FILE_UNIQUE_ID",lambda d:d[1]["message"]["video"].update(file_unique_id=d[0]["message"]["video"]["file_unique_id"])),
+        ("REPEATED_VIDEO_FILE_ID",lambda d:d[1]["message"]["video"].update(file_id=d[0]["message"]["video"]["file_id"])),
         ("INVALID_VIDEO_FILE_SIZE",lambda d:d[1]["message"]["video"].update(file_size=0)),
     ]
     for reason, mutate in unsafe_cases:
@@ -187,7 +190,7 @@ def selftest():
             assert doc["public_publication"]=="OFF"
     print("BOT_API_MALFORMED_CAPTURE_SAFE_STOP_PASS")
     print("BOT_API_ALBUM_THREE_VIDEO_PROJECTION_PASS")
-    print("BOT_API_EIGHT_INVALID_INPUTS_REJECTED_PASS")
+    print("BOT_API_NINE_INVALID_INPUTS_REJECTED_PASS")
     print("BOT_API_FILE_IDS_REDACTED_PASS")
     print("BOT_API_UNIQUE_IDS_REDACTED_PASS")
     print("BOT_API_PRIVATE_FILE_REFS_COMPLETE_GROUP_ONLY_PASS")
