@@ -153,7 +153,16 @@ def check_claim_type_constraints(
         # A SPEAKER_STATEMENT is not external verification either. Unless a
         # separate independent source is supplied (not supported in this
         # preview), no source type licenses claims of proven analysis.
-        if source_kinds and GENERIC_ANALYSIS.search(value):
+        # An explicitly unanswered interrogative is not an objective
+        # assertion. "Яка справжня причина?" asks a question, whereas
+        # "Справжня причина ..." claims a known answer. Only the former is
+        # allowed here and both still face independent semantic review.
+        wording = value.strip()
+        genuine_question = (
+            wording.endswith("?")
+            and bool(QUESTION_START.search(wording))
+        )
+        if source_kinds and GENERIC_ANALYSIS.search(value) and not genuine_question:
             findings.append({
                 "field": field,
                 "reason": "UNVERIFIED_OBJECTIVE_CERTAINTY",
