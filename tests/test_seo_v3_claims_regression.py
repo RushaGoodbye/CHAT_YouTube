@@ -505,7 +505,7 @@ def test_long_srt_topic_selection_has_five_timeline_spread_model_calls():
     def respond(prompt):
         if prompt.startswith("Classify the main topics"):
             import json
-            data = json.loads(prompt.split("VERBATIM EVIDENCE:\\n", 1)[1])
+            data = json.loads(prompt.split("VERBATIM EVIDENCE:\n", 1)[1])
             seen.append([row["evidence_id"] for row in data])
             return {"topics": [{"label_uk": "Розмова про питання",
                                 "evidence_ids": [data[0]["evidence_id"]]}]}
