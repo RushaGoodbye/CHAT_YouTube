@@ -191,10 +191,12 @@ def generate_claim_first_seo(
     from .seo_v3_claims import literal_evidence_from_cues
     evidence, windows = literal_evidence_from_cues(cues)
     evidence = expand_literal_coverage(cues, evidence)
-    topics = _select_topics(evidence, chat)
-    topic_selection_degraded = any(
-        topic.get("topic_fallback") for topic in topics
-    )
+    # One local lexical pass selects *source snippets*, not invented facts.
+    # Avoid a separate Gemma topic request which previously exhausted its
+    # 45s budget and left the title call queued behind inference.
+    from .seo_v3_claims import select_source_topics_without_llm
+    topics = select_source_topics_without_llm(evidence)
+    topic_selection_degraded = not bool(topics)
     proof = _proof_index(evidence, topics)
     # Name spelling is checked against the entire literal transcript, not
     # just the short excerpt selected for generation. This does not create
