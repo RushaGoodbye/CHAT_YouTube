@@ -100,6 +100,42 @@ jobs:
               print('WINDOWS_ROUTING_PASS', name)
           print('NAS_MISROUTING_PROTECTION_PASS')
           PY
+      - name: Prove actual release cannot pass with metadata-only videos
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          path="rg_remote_control/nas/monitoring/news_rg_release_readiness_v1.py"
+          spec=importlib.util.spec_from_file_location("release_readiness",path)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          evidence={
+              "source_url":"https://t.me/supernova_plus/62837",
+              "source_video_count":3,
+              "original_video_count":0,
+              "nas_runner_private_isolated":False,
+              "source_album_membership_verified":False,
+              "original_three_videos_sha256_verified":False,
+              "telegram_media_provenance_verified":False,
+              "moderation_card_confirmed":False,
+              "human_approval_confirmed":False,
+              "watermark_file_and_position_verified":False,
+              "required_footer_verified":False,
+              "duplicate_publication_guard_verified":False,
+              "nas_backup_and_restore_drill_passed":False,
+              "bot_owner_single_polling_verified":False,
+              "live_telegram_health_fresh":False,
+              "public_publication":"OFF",
+              "secrets_in_artifacts":False,
+          }
+          result=module.assess(evidence)
+          assert result["status"]=="BLOCKED"
+          assert result["publication_authorized"] is False
+          assert "ORIGINAL_VIDEO_COUNT_UNVERIFIED" in result["blockers"]
+          assert "RUNNER_PUBLIC_REPOSITORY_EXPOSURE" in result["blockers"]
+          print("REAL_EVIDENCE_RELEASE_BLOCKED_PASS")
+          print("UNRESOLVED_RELEASE_BLOCKERS_COUNT",len(result["blockers"]))
+          print("NO_PRODUCTION_EVIDENCE_ASSUMED_PASS")
+          PY
       - name: Compile and offline tests
         run: |
           python3 -m py_compile rg_remote_control/nas/monitoring/news_rg_album_intake_guard_v1.py
