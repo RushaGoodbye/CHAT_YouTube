@@ -267,10 +267,12 @@ def _select_topics(ledger: dict[str, Any], chat: Chat) -> list[dict[str, Any]]:
                 "\"evidence_ids\":[\"ev_...\"]}]}.\nTOPIC MAP:\n"
                 + json.dumps(batch, ensure_ascii=False)
             )
-            try:
-                merged = parse_topics(_ask(chat, prompt), allowed, maximum=4)
-            except (RuntimeError, TimeoutError, ValueError, TypeError):
-                merged = []
+            merged = []
+            if not backend_failed:
+                try:
+                    merged = parse_topics(_ask(chat, prompt), allowed, maximum=4)
+                except (RuntimeError, TimeoutError, ValueError, TypeError):
+                    backend_failed = True
             if not merged:
                 # Keep source IDs and explicitly label the degraded topic;
                 # independent final SEO review remains mandatory.
