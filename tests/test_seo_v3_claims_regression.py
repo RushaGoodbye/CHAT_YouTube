@@ -466,3 +466,31 @@ def test_topic_output_budget_is_bounded_without_reducing_editorial_budget():
     finally:
         seo_v2_cli.lm_studio_chat = original
     assert observed == [(45, 850), (180, 4000)]
+
+
+def test_independent_auditor_sees_only_quoted_sources_cited_by_draft():
+    from rg_youtube_control.seo_v3_pipeline import audit_draft_against_claims
+    claims = {"claims": [
+        {"claim_id": "ev_a", "source_type": "QUESTION", "source_quote": "Чому?"},
+        {"claim_id": "ev_b", "source_type": "QUESTION",
+         "source_quote": "Непов'язана розмова про іншу подію"},
+    ]}
+    draft = {
+        "title": "Про що запитали?", "title_variants": ["Що?", "Як?", "Коли?"],
+        "description": "Ведучий ставить питання.", "tags": ["запитання"],
+        "support_ids": {
+            "title": ["ev_a"],
+            "description": ["ev_a"],
+            "title_variants": [["ev_a"], ["ev_a"], ["ev_a"]],
+            "tags": [["ev_a"]],
+        },
+    }
+    observed = []
+    def fake_reviewer(prompt):
+        observed.append(prompt)
+        return {"issues": []}
+    result = audit_draft_against_claims(draft, claims, fake_reviewer)
+    assert result["review_status"] == "SOURCE_AUDITED"
+    assert '"claim_id": "ev_a"' in observed[0]
+    assert '"claim_id": "ev_b"' not in observed[0]
+    assert "Непов'язана розмова" not in observed[0]
