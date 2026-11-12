@@ -18,6 +18,35 @@ jobs:
     runs-on: [self-hosted, rg, nas]
     timeout-minutes: 5
     steps:
+      - name: Inspect target media tag structure and URL reachability
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re,urllib.request,urllib.parse
+          from html import unescape
+          u='https://t.me/supernova_plus/62837?embed=1&mode=tme'
+          req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'})
+          with urllib.request.urlopen(req,timeout=15) as r: html=r.read(300000).decode('utf-8','replace')
+          pos=html.find('data-post="supernova_plus/62837"')
+          assert pos>=0,'POST_NOT_FOUND'
+          part=html[pos:pos+25000]
+          tags=re.findall(r'<(?:div|a|video|source)[^>]*>',part,re.I)
+          for tag in tags:
+              if not re.search(r'video|download|media|document|play|wrap',tag,re.I): continue
+              tag=re.sub(r'https?://[^"\s<>]+','[URL]',tag)
+              print('MEDIA_TAG',unescape(tag)[:350])
+          links=re.findall(r'https?://[^"\s<>]+',part)
+          relevant=[]
+          for link in links:
+              val=unescape(link).replace('&amp;','&')
+              if any(s in val for s in ('video','mp4','cdn','telegram','stream')):
+                  parsed=urllib.parse.urlsplit(val)
+                  record=(parsed.netloc,parsed.path.rsplit('/',1)[-1][:55],parsed.path.lower().endswith('.mp4'))
+                  if record not in relevant:relevant.append(record)
+          print('POTENTIAL_MEDIA_LINKS',len(relevant))
+          for host,last,mp4 in relevant[:20]: print('LINK_HOST',host,'PATH_TAIL',last,'MP4',mp4)
+          print('MEDIA_TAG_PROBE_COMPLETE')
+          PY
       - name: Inspect public Telegram post HTML without account authentication
         shell: bash
         run: |
