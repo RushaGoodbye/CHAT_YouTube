@@ -660,3 +660,97 @@ def test_description_question_does_not_license_unrelated_assertion():
     draft["sentence_provenance"] = [{"text": question, "evidence_ids": ["ev_q"]}]
     assert not any(row["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
                    for row in check_claim_type_constraints(draft, ledger))
+
+
+def test_description_repair_rebuilds_from_cited_sentences_then_reaudits():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [
+        {"claim_id": "ev_q", "source_type": "QUESTION",
+         "source_quote": "Чому це сталося?"}
+    ]}
+    old = {
+        "title": "Про що запитали?",
+        "title_variants": ["Які питання?", "Що відомо?", "Про що розмова?"],
+        "description": "Надто короткий опис.",
+        "tags": ["обговорення"],
+        "support_ids": {
+            "title": ["ev_q"],
+            "title_variants": [["ev_q"]] * 3,
+            "description": ["ev_q"],
+            "tags": [["ev_q"]],
+        },
+        "sentence_provenance": [
+            {"text": "Надто короткий опис.", "evidence_ids": ["ev_q"]}
+        ],
+    }
+    sentences = [
+        {"text": "Ведучий запитує, чому відбулася ця подія?",
+         "evidence_ids": ["ev_q"]},
+        {"text": "Учасник обговорює запитання про причини.",
+         "evidence_ids": ["ev_q"]},
+    ]
+    def writer(_):
+        return {
+            "value": "Зайва модельна версія, яка не є частиною речень.",
+            "evidence_ids": ["ev_q"],
+            "sentences": sentences,
+        }
+    reviewed = []
+    def reviewer(draft):
+        reviewed.append(draft["description"])
+        return {"review_status": "SOURCE_AUDITED", "issues": []}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    result, _, _, diagnostics = repair_claim_fields(
+        old, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "description", "reason": "Too short"}],
+        }, writer, reviewer, gate,
+    )
+    expected = " ".join(s["text"] for s in sentences)
+    assert diagnostics["description"] == "ACCEPTED"
+    assert result["description"] == expected
+    assert reviewed == [expected]
+
+
+def test_description_repair_rejects_mismatched_sentence_source_ids():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    ledger = {"claims": [
+        {"claim_id": "ev_q", "source_type": "QUESTION",
+         "source_quote": "Чому це сталося?"},
+        {"claim_id": "ev_other", "source_type": "QUESTION",
+         "source_quote": "Куди йти?"},
+    ]}
+    old = {
+        "title": "Чому?", "title_variants": ["Що?", "Коли?", "Як?"],
+        "description": "Коротко.", "tags": ["питання"],
+        "support_ids": {
+            "title": ["ev_q"], "title_variants": [["ev_q"]] * 3,
+            "description": ["ev_q"], "tags": [["ev_q"]],
+        },
+        "sentence_provenance": [
+            {"text": "Коротко.", "evidence_ids": ["ev_q"]}
+        ],
+    }
+    def writer(_):
+        return {
+            "value": "Ведучий запитує, чому?",
+            "evidence_ids": ["ev_other"],
+            "sentences": [{
+                "text": "Ведучий запитує, чому?", "evidence_ids": ["ev_q"]
+            }],
+        }
+    def reviewer(_):
+        raise AssertionError("Mismatched source IDs must never reach review")
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {}}}
+    result, _, _, diag = repair_claim_fields(
+        old, ledger, [], {
+            "review_status": "SOURCE_AUDITED",
+            "issues": [{"field": "description", "reason": "Too short"}],
+        }, writer, reviewer, gate,
+    )
+    assert diag["description"].startswith("DESCRIPTION_PROVENANCE_INVALID:")
+    assert result["description"] == old["description"]
