@@ -36,7 +36,12 @@ def _local_chat(prompt: str, *, model: str = "") -> dict[str, Any]:
             or prompt.startswith("Merge overlapping topics")
         ) else 180),
         temperature=0.05,
-        json_mode=True, max_tokens=4000, reasoning_effort="none",
+        json_mode=True,
+        max_tokens=(850 if (
+            prompt.startswith("Classify the main topics")
+            or prompt.startswith("Merge overlapping topics")
+        ) else 4000),
+        reasoning_effort="none",
     )
     return json.loads(raw)
 
