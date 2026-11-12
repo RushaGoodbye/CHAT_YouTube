@@ -1017,3 +1017,30 @@ def test_tag_repair_prompt_forbids_russian_keywords_and_unsourced_names():
     assert "Every tag must be in Ukrainian" in prompts[0]
     assert "do not copy Russian keywords" in prompts[0]
     assert "exact spelling" in prompts[0]
+
+
+def test_short_description_repair_targets_safe_length_buffer_without_padding():
+    from rg_youtube_control.seo_v3_repair import repair_claim_fields
+    claim = {"claim_id": "ev_1", "source_type": "SPEAKER_STATEMENT",
+             "source_quote": "Я говорив про цю тему."}
+    draft = {
+        "title": "Обговорення", "title_variants": ["A", "B", "C"],
+        "description": "Учасник розповів про тему.",
+        "tags": ["обговорення"],
+        "support_ids": {"title": ["ev_1"], "description": ["ev_1"],
+                        "title_variants": [["ev_1"]] * 3,
+                        "tags": [["ev_1"]]},
+    }
+    prompts = []
+    def writer(prompt):
+        prompts.append(prompt)
+        return {"value": None, "evidence_ids": None}
+    def gate(_):
+        return {"issues": [], "format": {"problems": {}},
+                "editorial": {"issues": {"description": ["SHORT"]}}}
+    repair_claim_fields(draft, {"claims": [claim]}, [], {
+        "review_status": "SOURCE_AUDITED", "issues": []
+    }, writer, lambda _: {}, gate)
+    assert len(prompts) == 1
+    assert "500-700" in prompts[0]
+    assert "return null rather than" in prompts[0]
