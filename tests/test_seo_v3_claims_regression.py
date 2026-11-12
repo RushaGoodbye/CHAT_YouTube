@@ -317,7 +317,7 @@ def test_quote_extraction_has_shorter_timeout_than_editorial_generation():
         seo_v2_cli._local_chat("TASK 1 OF 3: compose a title")
     finally:
         seo_v2_cli.lm_studio_chat = original
-    assert captured == [45, 45, 45, 180]
+    assert captured == [45, 45, 45, 100]
 
 
 def test_v3_literal_source_extraction_never_calls_model():
@@ -465,7 +465,7 @@ def test_topic_output_budget_is_bounded_without_reducing_editorial_budget():
         seo_v2_cli._local_chat("TASK 2 OF 3: write detailed source-cited description")
     finally:
         seo_v2_cli.lm_studio_chat = original
-    assert observed == [(45, 850), (180, 4000)]
+    assert observed == [(45, 650), (150, 2400)]
 
 
 def test_independent_auditor_sees_only_quoted_sources_cited_by_draft():
@@ -572,3 +572,21 @@ def test_lmstudio_http400_compatibility_retry_never_leaks_or_ignores_context_err
     finally:
         client._local_json = original
     assert len(blocked) == 1
+
+
+def test_lmstudio_headline_stage_uses_bounded_request_budget():
+    from rg_youtube_control import seo_v2_cli
+    original = seo_v2_cli.lm_studio_chat
+    seen = []
+    def mock(messages, **kwargs):
+        seen.append((kwargs["timeout"], kwargs["max_tokens"]))
+        return "{}"
+    seo_v2_cli.lm_studio_chat = mock
+    try:
+        seo_v2_cli._local_chat("TASK 1 OF 3: write title and three A/B options")
+        seo_v2_cli._local_chat("TASK 3 OF 3: write cited tags")
+        seo_v2_cli._local_chat(
+            "You are a skeptical, INDEPENDENT Ukrainian SEO source auditor.")
+    finally:
+        seo_v2_cli.lm_studio_chat = original
+    assert seen == [(100, 1100), (120, 1400), (135, 1800)]
