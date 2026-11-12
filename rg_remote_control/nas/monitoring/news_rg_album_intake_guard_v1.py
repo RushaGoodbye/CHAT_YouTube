@@ -30,7 +30,7 @@ def canonical_post(url):
         parts = parts[1:]
     if len(parts) != 2 or not CHANNEL.fullmatch(parts[0]) or not POST_ID.fullmatch(parts[1]):
         raise ValueError("INVALID_SOURCE_PATH")
-    return "https://t.me/" + parts[0] + "/" + parts[1]
+    return "https://t.me/" + parts[0].lower() + "/" + str(int(parts[1]))
 
 def source_key(url):
     return hashlib.sha256(("RG_NEWS_SOURCE_V1\0" + canonical_post(url)).encode()).hexdigest()[:24]
@@ -116,6 +116,7 @@ def selftest():
     assert canonical_post(source + "?utm_source=chatgpt.com") == source
     assert canonical_post("https://t.me/supernova_plus/62837?embed=1") == source
     assert source_key(source) == source_key(source + "?utm_source=abc")
+    assert source_key(source) == source_key("https://t.me/SuperNova_Plus/00062837")
     for evil in ("http://t.me/supernova_plus/62837", "https://t.me.evil.com/supernova_plus/62837",
                  "https://user:password@t.me/supernova_plus/62837",
                  "https://t.me/supernova_plus/not-a-number",
