@@ -19,6 +19,28 @@ jobs:
     runs-on: [self-hosted, rg, nas]
     timeout-minutes: 5
     steps:
+      - name: Diagnose archive mount metadata without reading private messages
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root=Path('/volume1/docker/RG_TELEGRAM_NEWS_2/operator')
+          print('PROCESS_UID=',os.getuid(),'GID=',os.getgid())
+          for p in (root.parent,root):
+              try:
+                  st=p.stat()
+                  print('PATH',p,'exists',p.exists(),'mode',oct(st.st_mode & 0o777),'uid',st.st_uid,'gid',st.st_gid,'readable',os.access(p,os.R_OK),'searchable',os.access(p,os.X_OK))
+              except OSError as e:
+                  print('PATH_ERROR',type(e).__name__,str(e.errno))
+          try:
+              entries=list(root.iterdir())
+              print('DIRECT_CHILD_COUNT',len(entries))
+              print('HANDOFF_FILE_COUNT',sum(p.name.startswith('updates_handoff_guarded_') and p.name.endswith('.json') for p in entries if p.is_file()))
+              print('DIRECT_CHILD_TYPES',{'directories':sum(p.is_dir() for p in entries),'files':sum(p.is_file() for p in entries)})
+          except OSError as e:
+              print('LIST_ERROR',type(e).__name__,str(e.errno))
+          PY
       - name: Inspect stored Telegram ingress metadata without network or changes
         shell: bash
         run: |
