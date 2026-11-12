@@ -13,7 +13,7 @@ from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
 CHANNEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
-POST_ID = re.compile(r"[1-9][0-9]{0,14}")
+POST_ID = re.compile(r"[0-9]{1,15}")
 FOOTER_LABEL = 'УСІ АКТИВНІ ПОСИЛАННЯ ПРОЄКТУ "РАША ГУДБАЙ"'
 FOOTER_URL = "https://links.rginfoua.pp.ua/"
 
@@ -30,6 +30,8 @@ def canonical_post(url):
         parts = parts[1:]
     if len(parts) != 2 or not CHANNEL.fullmatch(parts[0]) or not POST_ID.fullmatch(parts[1]):
         raise ValueError("INVALID_SOURCE_PATH")
+    if int(parts[1]) == 0:
+        raise ValueError("INVALID_POST_ID_ZERO")
     return "https://t.me/" + parts[0].lower() + "/" + str(int(parts[1]))
 
 def source_key(url):
