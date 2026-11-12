@@ -59,6 +59,8 @@ def export_report(report,dest):
     parent=dest.parent
     if parent.is_symlink() or not parent.is_dir() or dest.name!="rg_news_health_public.json":
         raise ExportError("UNSAFE_EXPORT_PATH")
+    if parent.stat().st_mode & 0o022:
+        raise ExportError("EXPORT_DIRECTORY_GROUP_WORLD_WRITABLE")
     if dest.is_symlink():raise ExportError("SYMLINK_EXPORT")
     if dest.exists() and not dest.is_file():raise ExportError("UNSAFE_EXPORT_TARGET")
     if dest.exists() and (dest.stat().st_mode & 0o022):
@@ -95,6 +97,11 @@ def selftest():
         try:summarize(base,now=1762963000)
         except ExportError as e:assert str(e)=="SYMLINK_PATH_PRIVATE_RECEIPTS"
         else:raise AssertionError("SYMLINK_NOT_REJECTED")
+        open_dir=root/"open_export";open_dir.mkdir(mode=0o777)
+        open_dir.chmod(0o777)
+        try:export_report(report,open_dir/"rg_news_health_public.json")
+        except ExportError as e:assert str(e)=="EXPORT_DIRECTORY_GROUP_WORLD_WRITABLE"
+        else:raise AssertionError("OPEN_EXPORT_DIRECTORY_ACCEPTED")
         try:export_report(report,export/"wrong_name.json")
         except ExportError as e:assert str(e)=="UNSAFE_EXPORT_PATH"
         else:raise AssertionError("WRONG_EXPORT_ALLOWED")
@@ -102,6 +109,7 @@ def selftest():
     print("SANITIZED_EXPORT_ATOMIC_OUTPUT_PASS")
     print("SANITIZED_EXPORT_SYMLINK_GUARD_PASS")
     print("SANITIZED_EXPORT_ALLOWLIST_PASS")
+    print("SANITIZED_EXPORT_DIRECTORY_PERMISSIONS_PASS")
 
 def main():
     ap=argparse.ArgumentParser()
