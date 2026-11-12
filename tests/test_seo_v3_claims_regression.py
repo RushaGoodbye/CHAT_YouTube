@@ -450,3 +450,19 @@ def test_genuine_unanswered_cause_question_not_equated_with_proven_cause():
     draft["title"] = "Справжня причина звільнення?"
     assert any(x["reason"] == "UNVERIFIED_OBJECTIVE_CERTAINTY"
                for x in check_claim_type_constraints(draft, ledger))
+
+
+def test_topic_output_budget_is_bounded_without_reducing_editorial_budget():
+    from rg_youtube_control import seo_v2_cli
+    original = seo_v2_cli.lm_studio_chat
+    observed = []
+    def mock(messages, **kwargs):
+        observed.append((kwargs["timeout"], kwargs["max_tokens"]))
+        return "{}"
+    seo_v2_cli.lm_studio_chat = mock
+    try:
+        seo_v2_cli._local_chat("Classify the main topics for source quotations")
+        seo_v2_cli._local_chat("TASK 2 OF 3: write detailed source-cited description")
+    finally:
+        seo_v2_cli.lm_studio_chat = original
+    assert observed == [(45, 850), (180, 4000)]
