@@ -189,8 +189,17 @@ def repair_claim_fields(
             "Do NOT answer a question from a QUESTION citation. A question "
             "about an alleged real cause only supports a question ABOUT "
             "that cause, not a keyword asserting a real cause exists. "
-            "When revising tags, keep 8-15 distinct, specific neutral "
-            "SUBJECT phrases, not outcomes or unsupported motives. "
+            "When revising tags, keep 8-15 DISTINCT, specific neutral "
+            "Ukrainian SUBJECT phrases, not outcomes or unsupported motives. "
+            "Every tag must be in Ukrainian: do not copy Russian keywords "
+            "from a Russian SRT unchanged. Avoid Russian letters ы, э, ъ, ё "
+            "and Russian words such as 'почему', 'россия', 'собеседник'. "
+            "Use a literal Ukrainian translation of the same cited subject "
+            "without inventing meaning. Avoid names whose exact spelling "
+            "cannot be verified in the ORIGINAL quoted transcript, even "
+            "when that means using an accurate descriptive noun instead. "
+            "Tags must not duplicate any other tag ignoring case, whitespace "
+            "or inflections that produce identical search phrases. "
             "Keep already safe tags and their matching evidence IDs; "
             "replace rejected tags only, and avoid unrelated tangents. "
             "When revising titles, preserve the PRIMARY topic and replace "
@@ -313,7 +322,17 @@ def repair_claim_fields(
         old_field_issues = set(_field_format_issues(current_gate, field))
         new_field_issues = set(_field_format_issues(new_gate, field))
         if new_field_issues - old_field_issues:
-            diagnostics[field] = "NEW_FIELD_FORMAT_FAILURE"
+            # Only fixed validator codes, never private model text.
+            # Gives an actionable reason why an apparently improved tag
+            # correction still fails the structured editorial gate.
+            from .seo_quality_gate import inspect_package
+            old_shape = (inspect_package(candidate).get("problems") or {}).get(field) or []
+            new_shape = (inspect_package(revised).get("problems") or {}).get(field) or []
+            new_codes = sorted(set(new_shape) - set(old_shape))
+            diagnostics[field] = (
+                "NEW_FIELD_FORMAT_FAILURE:" + ",".join(new_codes)
+                if new_codes else "NEW_FIELD_FORMAT_FAILURE"
+            )
             continue
         # Keep existing successful unrelated fields unchanged.
         if any(revised.get(other) != candidate.get(other) or
