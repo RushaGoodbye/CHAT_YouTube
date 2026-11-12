@@ -1,0 +1,50 @@
+name: RG Private Runner Bridge Migration QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rg_remote_control/nas/monitoring/rg_private_runner_bridge_migration_v1.py"
+      - ".github/workflows/rg-private-runner-migration-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline safety contract and syntax verification
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          p=Path("rg_remote_control/nas/monitoring/rg_private_runner_bridge_migration_v1.py")
+          source=p.read_text()
+          ast.parse(source)
+          for token in [
+              '"--user","1026:100"',
+              '"--cap-drop","ALL"',
+              '"--security-opt","no-new-privileges:true"',
+              'ROLLBACK_ATTEMPTED',
+              'PUBLIC_RUNNER_UNCHANGED_PASS',
+              'BRIDGE_UID1026_PERMISSION_DENIED_NO_CHANGES',
+              '"/rg-bridge/results":False',
+              '"/rg-bridge/errors":False',
+              '"/rg-bridge/requests":True',
+          ]:
+              assert token in source,token
+          assert "--privileged" not in source
+          assert "chmod" not in source
+          assert "docker.sock" not in source
+          assert "getUpdates" not in source
+          print("PRIVATE_RUNNER_BRIDGE_MIGRATION_OFFLINE_PASS")
+          print("ROLLBACK_GUARDS_PASS")
+          print("NO_BOT_MOUNT_NO_DOCKER_SOCKET_PASS")
+          PY
