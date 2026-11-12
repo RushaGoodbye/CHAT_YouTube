@@ -88,7 +88,18 @@ jobs:
                   if relevant: patterns.append((str(path),labels))
           print('NAS_POTENTIALLY_ELIGIBLE_WORKFLOWS',len(patterns))
           for path,labels in patterns[:90]: print('NAS_MATCH_CANDIDATE',path,'LABELS',labels[:130])
-          print('SECURITY_SCAN_IS_CONSERVATIVE_NOT_ENFORCEMENT=1')
+          expected={
+            '.github/workflows/rg-nas-alexpc-agent-control.yml',
+            '.github/workflows/rg-remote-control.yml',
+            '.github/workflows/rg-telegram-nas-ingress-audit.yml',
+            '.github/workflows/rg-telegram-nas-runtime-probe.yml'
+          }
+          actual={path for path,_ in patterns}
+          assert actual==expected,('NAS_RUNNER_ELIGIBILITY_DRIFT',sorted(actual-expected),sorted(expected-actual))
+          for path,labels in patterns:
+            assert labels.replace(' ','')=='[self-hosted,rg,nas]',(path,labels)
+          print('NAS_ELIGIBLE_WORKFLOW_ALLOWLIST_ENFORCED_PASS')
+          print('NAS_RUNNER_PUBLIC_EXPOSURE_STILL_PRESENT=1')
           PY
       - name: Enforce manual-only Telegram NAS diagnostics
         run: |
