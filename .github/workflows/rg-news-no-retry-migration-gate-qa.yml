@@ -1,0 +1,30 @@
+name: RG No-Retry Migration Gate QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/rg_news_private_uncertain_guard_audit_v1.py'
+      - 'rg_remote_control/nas/monitoring/rg_legacy_mutation_migration_gate_v1.py'
+      - '.github/workflows/rg-news-no-retry-migration-gate-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Non-mutating tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=rg_remote_control/nas/monitoring
+          python3 -m py_compile "$P/rg_news_private_uncertain_guard_audit_v1.py" "$P/rg_legacy_mutation_migration_gate_v1.py"
+          python3 "$P/rg_news_private_uncertain_guard_audit_v1.py" selftest
+          python3 "$P/rg_legacy_mutation_migration_gate_v1.py" selftest
+          python3 "$P/rg_legacy_mutation_migration_gate_v1.py" audit
