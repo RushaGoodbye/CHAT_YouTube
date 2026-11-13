@@ -1,0 +1,27 @@
+name: RG MCP Sanitized Status Export QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/rg_mcp_sanitized_status_export_v1.py'
+      - '.github/workflows/rg-mcp-sanitized-status-export-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate isolated sanitized reporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_mcp_sanitized_status_export_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_mcp_sanitized_status_export_v1.py selftest
+          echo "RG_MCP_HOSTED_REPORTER_QA_PASS"
