@@ -33,7 +33,7 @@ def format_post(text, kind="caption"):
         raise FooterError("FOOTER_ALREADY_IN_SOURCE")
     limit = MAX_CAPTION if kind == "caption" else MAX_TEXT
     visible = text + "\n\n" + LABEL
-    if len(visible) > limit:
+    if len(visible.encode('utf-16-le')) // 2 > limit:
         raise FooterError("POST_EXCEEDS_TELEGRAM_LIMIT")
     return escape(text, quote=False) + "\n\n" + HTML_FOOTER
 
@@ -46,7 +46,7 @@ def selftest():
     assert format_post("x" * (MAX_CAPTION - len(LABEL) - 2)).endswith(HTML_FOOTER)
     for source, kind in [
         (LABEL, "caption"), (URL, "caption"),
-        ("", "caption"), ("x" * 1000, "caption"),
+        ("", "caption"), ("x" * 1000, "caption"), ("😀" * 600, "caption"),
         ("x", "untrusted"), (None, "caption")]:
         try:
             format_post(source, kind)
