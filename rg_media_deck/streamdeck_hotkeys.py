@@ -25,6 +25,7 @@ ACTIONS = {
     "pause": "Пауза",
     "speed_up": "Швидкість +",
     "speed_down": "Швидкість −",
+    "speed_normal": "Нормальна швидкість 1×",
     "volume_down": "Звук тихіше",
     "volume_up": "Звук гучніше",
     "mute": "Вимкнути / увімкнути звук",
@@ -51,6 +52,7 @@ BROADCAST_BINDINGS = {
 }
 DEFAULT_BINDINGS = {
     **BROADCAST_BINDINGS,
+    "speed_normal": "F10",
     "frame_back": "Alt+Shift+PgDown",
     "frame_forward": "Alt+Shift+PgUp",
     "play_pause": "Ctrl+Alt+Shift+F6",
@@ -103,8 +105,8 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
     if match:
         number = int(match.group(1))
         vk = 0x6F + number
-        if len(segments) == 1 and number != 9 and number < 13:
-            raise ValueError("Без модифікаторів дозволено F9 та F13–F24")
+        if len(segments) == 1 and number not in (9, 10) and number < 13:
+            raise ValueError("Без модифікаторів дозволено F9, F10 та F13–F24")
     elif key in _PAGE_KEYS:
         key, vk = _PAGE_KEYS[key]
     elif key in _PUNCT_VK:
@@ -125,7 +127,7 @@ def parse_hotkey(value: str) -> tuple[str, int, int]:
         mods |= MODIFIERS[token][1]
     if "win" in used:
         raise ValueError("Комбінації з Win недоступні")
-    if not used and (key not in ("F9",) and
+    if not used and (key not in ("F9", "F10") and
                      not (_FUNCTION_KEY.fullmatch(key) and int(key[1:]) >= 13)):
         raise ValueError("Для цієї клавіші потрібні модифікатори")
     if used and len(used) < 2:

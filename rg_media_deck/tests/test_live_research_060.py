@@ -128,96 +128,24 @@ class CityCardTests(unittest.TestCase):
             self.assertEqual(len(store.get("мурманск")["links"]), 1)
 
 
-class PreviewAndBrowserTests(unittest.TestCase):
+class LocalPreviewAndOBSTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def _window(self):
+    def test_local_window_capture_without_secondary_output(self):
         from library import load_settings
-        config = load_settings(Path(tempfile.gettempdir())/"__missing_rg_research_test.json")
+        config = load_settings(Path(tempfile.gettempdir()) / "__missing_local_preview.json")
         config["roots"] = []
-        config["workspace_tab"] = 0
-        with patch("app.load_settings",return_value=config), \
-             patch("app.save_settings"), \
-             patch("app.sys.argv",["rgunittest","--selftest"]):
-            window = MainWindow()
-        self.addCleanup(window.close)
-        return window
-
-    def test_preview_contains_real_research_and_web_answer(self):
-        w = self._window()
-        self.assertEqual(w.library_tabs.count(), 5)
-        self.assertIsInstance(w.preview_stack, QTabWidget)
-        self.assertEqual(w.preview_stack.count(), 3)
-        self.assertIs(w.preview_stack.widget(0), w.preview)
-        self.assertIs(w.preview_stack.widget(1), w.research_hub)
-        self.assertIs(w.preview_stack.widget(2), w.chatgpt_tab)
-        self.assertIn("ПОПЕРЕДНІЙ ПЕРЕГЛЯД", w.player_panel.findChildren(
-            type(w.file_title))[0].objectName() if False else "ПОПЕРЕДНІЙ ПЕРЕГЛЯД")
-
-    def test_unified_search_opens_answer_at_preview_and_submits_not_just_prepares(self):
-        w = self._window()
-        video = w.preview.player
-        with patch.object(w, "_save"), \
-             patch.object(w.chatgpt_tab, "ensure_loaded",return_value=False), \
-             patch.object(w.chatgpt_tab, "request_auto_submit") as sent, \
-             patch.object(w.research_hub, "search_all") as real_search:
-            w.global_search.setText("МУРМАНСК")
-            w.search_everywhere()
-        self.assertEqual(w.preview_stack.currentIndex(), 2)
-        self.assertEqual(w.chatgpt_tab._pending_query, "МУРМАНСК")
-        sent.assert_called_once()
-        real_search.assert_called_once()
-        self.assertIs(w.preview.player,video)
-        self.assertIn("МУРМАНСК",w.status.text())
-
-    def test_chatgpt_auto_send_uses_real_send_button_not_an_enter_keystroke(self):
-        with tempfile.TemporaryDirectory() as directory:
-            browser=ServiceBrowser("chatgpt",Path(directory))
-            self.addCleanup(browser.close)
-            page=MagicMock()
-            page.url.return_value=QUrl("https://chatgpt.com/")
-            fake=MagicMock()
-            fake.page.return_value=page
-            browser._view=fake
-            browser._loaded=True
-            browser.set_query("Мурманск")
-            with patch("service_browser.QTimer",create=True) as timer:
-                # Imported QTimer inside method => patch Qt core import instead.
-                with patch("PySide6.QtCore.QTimer.singleShot",
-                           side_effect=lambda ms,callback: callback()):
-                    browser.request_auto_submit()
-                    self.assertTrue(browser._auto_send_inflight)
-                    script,callback=page.runJavaScript.call_args.args
-                    self.assertIn("Подготовь оперативную",script)
-                    callback(True)
-                    script,callback=page.runJavaScript.call_args.args
-                    self.assertIn("send.click()",script)
-                    callback({"attempted":True,"reason":"clicked_send"})
-            self.assertFalse(browser._auto_send_pending)
-            self.assertEqual(browser._auto_send_attempted_query,"Мурманск")
-            self.assertIn("Надіслати",browser.status.text())
-            self.assertIn("login_or_missing_editor", _CHATGPT_SEND_JS)
-            browser._view=None
-
-    def test_obs_safe_window_never_refs_web_tabs(self):
-        from obs_safe_output import OBSSafeVideoWindow
-        w = self._window()
-        original_player = w.preview.player
-        w.open_obs_safe_video()
-        output = w.obs_safe_window
-        self.assertEqual(output.WINDOW_TITLE, "RG MEDIA DECK - SAFE VIDEO")
-        self.assertIs(output.source,w.preview)
-        self.assertIs(w.preview.player,original_player)
-        self.assertNotIn("chatgpt",output.__dict__)
-        self.assertNotIn("telegram",output.__dict__)
-        with patch.object(w.chatgpt_tab,"ensure_loaded",return_value=False):
-            w.preview_stack.setCurrentIndex(2)
-        self.assertIs(output.source,w.preview)
-        output.shutdown()
-        w.obs_safe_window = None
-
+        with patch("app.load_settings", return_value=config), patch("app.save_settings"), patch("app.sys.argv", ["test", "--selftest"]):
+            w = MainWindow()
+        try:
+            self.assertEqual(w.library_tabs.count(), 2)
+            self.assertEqual(w.preview_stack.count(), 1)
+            self.assertFalse(hasattr(w, "obs_safe_window"))
+            self.assertIs(w.preview_stack.widget(0), w.preview)
+        finally:
+            w.close()
 
 if __name__ == "__main__":
     unittest.main()

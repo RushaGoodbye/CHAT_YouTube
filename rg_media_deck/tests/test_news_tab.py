@@ -100,7 +100,7 @@ class NewsTabInterfaceTests(unittest.TestCase):
 
     def test_2_tabs_and_no_broadcast_interruption_on_switch(self):
         window = self._build()
-        self.assertEqual(window.library_tabs.count(), 5)
+        self.assertEqual(window.library_tabs.count(), 2)
         self.assertEqual(window.library_tabs.tabText(0), "ФАКТАЖ")
         self.assertIn("НОВИНИ", window.library_tabs.tabText(1))
         self.assertFalse(window.news_folder_bar.isVisible())
@@ -141,6 +141,44 @@ class NewsTabInterfaceTests(unittest.TestCase):
         with patch.object(window, "_save"), patch.object(window.preview, "_cancel_staged"):
             window.library_tabs.setCurrentIndex(1)
         self.assertEqual(window.search.text(), "post.jpg")
+
+    def test_news_photo_pause_freezes_and_resumes_remaining_time(self):
+        window = self._build()
+        window._current_library_tab = 1
+        window.news_autoplay.setChecked(True)
+        photo = MediaItem("D:/NEWS/post.jpg", "post.jpg", "photo", 100)
+        window.preview.current = photo
+        window._news_active_path = photo.path
+        window._news_photo_timer.start(6000)
+        self.assertTrue(window._news_photo_running())
+        window.pause_playback()
+        self.assertFalse(window._news_photo_timer.isActive())
+        self.assertTrue(window._news_photo_paused)
+        remainder = window._news_photo_remaining_ms
+        self.assertGreater(remainder, 0)
+        self.assertLessEqual(remainder, 6000)
+        self.assertEqual(window.preview_play.text(), '▶')
+        window.toggle_preview()
+        self.assertFalse(window._news_photo_paused)
+        self.assertTrue(window._news_photo_timer.isActive())
+        self.assertLessEqual(window._news_photo_timer.remainingTime(), remainder)
+        window.stop_playback()
+        self.assertFalse(window._news_photo_timer.isActive())
+        self.assertIsNone(window._news_active_path)
+
+    def test_news_photo_pause_hotkey_does_not_resume_when_already_paused(self):
+        window = self._build()
+        window._current_library_tab = 1
+        window.news_autoplay.setChecked(True)
+        photo = MediaItem("D:/NEWS/picture.jpg", "picture.jpg", "photo", 100)
+        window.preview.current = photo
+        window._news_active_path = photo.path
+        window._news_photo_timer.start(8000)
+        window._streamdeck_action('pause')
+        self.assertTrue(window._news_photo_paused)
+        window._streamdeck_action('pause')
+        self.assertTrue(window._news_photo_paused)
+        self.assertFalse(window._news_photo_timer.isActive())
 
     def test_folder_selection_persists_and_scans_without_changing_main_roots(self):
         window = self._build()
