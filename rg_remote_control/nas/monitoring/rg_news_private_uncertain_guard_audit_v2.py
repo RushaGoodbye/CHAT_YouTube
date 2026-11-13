@@ -15,15 +15,16 @@ def static_guard(source):
     guards=set()
     for node in ast.walk(tree):
         if isinstance(node,ast.If):
-            test=ast.unparse(node.test)
-            body=" ".join(ast.unparse(k) for k in node.body)
+            test=" ".join(n.value for n in ast.walk(node.test) if isinstance(n,ast.Constant) and isinstance(n.value,str))+" "+ " ".join(n.id for n in ast.walk(node.test) if isinstance(n,ast.Name))
+            body=" ".join(n.value for sub in node.body for n in ast.walk(sub) if isinstance(n,ast.Constant) and isinstance(n.value,str))
+            body+=" "+ " ".join(n.id for sub in node.body for n in ast.walk(sub) if isinstance(n,ast.Name))
             if "status" in test and "SENDING_UNCERTAIN" in test and "PAUSED_UNCERTAIN_DELIVERY_REQUIRES_REVIEW" in body:
                 guards.add("sending_uncertain")
             if "status" in test and "UNCERTAIN_NO_RETRY" in test and "HTTP_REJECTED_NO_RETRY" in test and ("die(" in body or "raise " in body):
                 guards.add("no_retry_receipts")
         if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=="open":
             if isinstance(node.func.value,ast.Name) and node.func.value.id=="os":
-                args=" ".join(ast.unparse(x) for x in node.args)
+                args=" ".join(n.attr for x in node.args for n in ast.walk(x) if isinstance(n,ast.Attribute))
                 if "O_CREAT" in args and "O_EXCL" in args:
                     guards.add("exclusive_receipt")
     return guards
