@@ -1,0 +1,33 @@
+name: RG AlexPC Readonly Host Probe Policy QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/windows/rg_alexpc_readonly_host_health_v1.ps1'
+      - '.github/workflows/rg-alexpc-readonly-host-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify read-only PowerShell source policy
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('rg_remote_control/windows/rg_alexpc_readonly_host_health_v1.ps1').read_text()
+          for required in ("RG_ALEXPC_READONLY_HEALTH_V1","Get-Process","Test-Path","Get-CimInstance","ConvertTo-Json","read_only = $true"):
+              assert required in s,required
+          for forbidden in ("Invoke-Expression","iex ","Start-Process","Stop-Process","Remove-Item","Set-Content","New-Item","Set-Item","Invoke-WebRequest","Invoke-RestMethod","curl ","ssh ","docker ","& $","powershell.exe","pwsh -"):
+              assert forbidden.casefold() not in s.casefold(),forbidden
+          print("ALEXPC_HOST_PROBE_STATIC_READONLY_PASS")
+          print("NO_SELF_HOSTED_EXECUTION_NO_HOST_CHANGES_PASS")
+          PY
