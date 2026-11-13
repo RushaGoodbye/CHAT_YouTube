@@ -23,7 +23,7 @@ HELPER = O/'news_rg_required_footer_v1.py'
 PHOTO = O/'news_rg_approved_publication_v1.py'
 VIDEO = O/'news_rg_approved_video_publication_v1.py'
 LOCK = O/'news_rg_publication.lock'
-PINNED_BLOB = 'a0a125d271f17f78cfedb162c2587f2b5644758e'
+PINNED_BLOB = 'daec96d961280aab8812610ef24746a16e538c01'
 MARK = '# RG_NEWS_REQUIRED_FOOTER_V1'
 MAX_BYTES = 160000
 
