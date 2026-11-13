@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'rg_remote_control/windows/rg_alexpc_readonly_host_health_v1.ps1'
+      - 'rg_remote_control/windows/rg_alexpc_host_health_queue_contract_v1.py'
       - '.github/workflows/rg-alexpc-readonly-host-qa.yml'
 
 permissions:
@@ -30,4 +31,11 @@ jobs:
               assert forbidden.casefold() not in s.casefold(),forbidden
           print("ALEXPC_HOST_PROBE_STATIC_READONLY_PASS")
           print("NO_SELF_HOSTED_EXECUTION_NO_HOST_CHANGES_PASS")
+          PY
+      - name: Validate narrow queue contract without dispatching tasks
+        shell: bash
+        run: |
+          python3 -m py_compile rg_remote_control/windows/rg_alexpc_host_health_queue_contract_v1.py
+          python3 rg_remote_control/windows/rg_alexpc_host_health_queue_contract_v1.py selftest
+          echo "NO_LIVE_ALEXPC_ACTION_ENABLED"
           PY
