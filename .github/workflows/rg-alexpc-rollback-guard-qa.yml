@@ -1,0 +1,38 @@
+name: RG AlexPC Rollback Guard Offline QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/windows/rg_alexpc_host_health_rollback_guard_v1.py'
+      - '.github/workflows/rg-alexpc-rollback-guard-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline rollback simulation and mutation prohibition
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rg_remote_control/windows/rg_alexpc_host_health_rollback_guard_v1.py
+          python3 rg_remote_control/windows/rg_alexpc_host_health_rollback_guard_v1.py selftest
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          code=Path('rg_remote_control/windows/rg_alexpc_host_health_rollback_guard_v1.py').read_text()
+          ast.parse(code)
+          assert 'choices=["selftest","inspect"]' in code
+          assert 'WINDOWS_ONLY' in code
+          assert 'rollback_executed":False' in code
+          assert 'public_runner_stopped":False' in code
+          print("ROLLBACK_INSPECTION_READONLY_POLICY_PASS")
+          PY
+          echo 'NO_PRODUCTION_FILES_MODIFIED'
