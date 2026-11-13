@@ -1,0 +1,39 @@
+name: RG AlexPC Host Health Bundle Release QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/windows/rg_alexpc_host_health_bundle_release_v1.py'
+      - '.github/workflows/rg-alexpc-host-health-bundle-release-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline safety and patch layout tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rg_remote_control/windows/rg_alexpc_host_health_bundle_release_v1.py
+          python3 rg_remote_control/windows/rg_alexpc_host_health_bundle_release_v1.py selftest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('rg_remote_control/windows/rg_alexpc_host_health_bundle_release_v1.py').read_text()
+          assert 'ACTIONS["inspect_auto_edit_host_health_v1"]' in p
+          assert 'NAS_CACHE_PARITY_FAILED' in p
+          assert 'shutil.copy2(NAS,backup)' in p
+          assert 'os.replace(staged,NAS)' in p
+          assert 'os.replace(tmp,NAS)' in p
+          assert 'if os.name!="nt"' in p
+          assert 'PUBLIC_RUNNER_SHUTDOWN' not in p
+          print('ONE_FILE_GUARDED_RELEASE_POLICY_PASS')
+          PY
+          echo 'NO_LIVE_PC_OR_NAS_CHANGED'
