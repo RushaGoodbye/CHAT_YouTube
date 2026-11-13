@@ -938,6 +938,8 @@ class MainWindow(QMainWindow):
         self._news_photo_timer = QTimer(self)
         self._news_photo_timer.setSingleShot(True)
         self._news_photo_timer.setInterval(8000)
+        self._news_photo_paused = False
+        self._news_photo_remaining_ms = 8000
         self._news_photo_timer.timeout.connect(self._news_photo_finished)
         self._switch_timer = QTimer(self)
         self._switch_timer.setSingleShot(True)
@@ -1674,9 +1676,11 @@ class MainWindow(QMainWindow):
         transport.setContentsMargins(0, 0, 0, 0)
         transport.setSpacing(6)
         self.preview_play = make_button('▶', self.toggle_preview, 'PlayButton')
+        self.preview_pause = make_button('Ⅱ', self.pause_playback, 'PauseButton')
         self.preview_stop = make_button('■', self.stop_playback, 'StopButton')
         for button, hint in (
-            (self.preview_play, 'Відтворення / пауза (Пробіл)'),
+            (self.preview_play, 'Відтворення / продовжити / пауза (Пробіл)'),
+            (self.preview_pause, 'Пауза фото або відео'),
             (self.preview_stop, 'Зупинити відтворення (S)'),
         ):
             button.setFixedSize(52, 34)
@@ -2411,17 +2415,31 @@ class MainWindow(QMainWindow):
     def set_auto_crop(self, enabled: bool):
         self.set_fit_mode('auto' if enabled else 'fit')
 
+    def _news_photo_running(self) -> bool:
+        current = self.preview.current
+        return bool(current is not None and current.kind == 'photo'
+                    and self._current_library_tab == 1
+                    and self._news_active_path == current.path
+                    and self.news_autoplay.isChecked()
+                    and self._news_photo_timer.isActive())
+
     def _update_play_button(self, *_):
         player = self.preview.player
-        playing = bool(player and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState)
+        video_playing = bool(self.preview.current is not None
+                             and self.preview.current.kind == 'video'
+                             and player and player.playbackState() == QMediaPlayer.PlaybackState.PlayingState)
+        playing = video_playing or self._news_photo_running()
         self.preview_play.setText('Ⅱ' if playing else '▶')
         self.preview_play.setToolTip('Пауза (Пробіл)' if playing else 'Відтворення (Пробіл)')
+        self.preview_pause.setEnabled(playing)
 
     def start_playback(self):
-        """Start selected file or resume current one; never pause a playing clip."""
+        """Start selected file or resume video/photo without resetting position."""
         player = self.preview.player
         if self.preview.current is None:
             self.play_selected()
+        elif self.preview.current.kind == 'photo':
+            self._resume_news_photo()
         elif (player is not None and self.preview.current.kind == 'video'
               and player.playbackState() != QMediaPlayer.PlaybackState.PlayingState):
             player.play()
@@ -2433,7 +2451,13 @@ class MainWindow(QMainWindow):
         if self.preview.current is None:
             self.play_selected()
             return
-        if player is None or self.preview.current.kind == 'photo':
+        if self.preview.current.kind == 'photo':
+            if self._news_photo_running():
+                self.pause_playback()
+            else:
+                self._resume_news_photo()
+            return
+        if player is None:
             return
         if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.pause_playback()
@@ -2442,12 +2466,34 @@ class MainWindow(QMainWindow):
             self._update_play_button()
 
     def pause_playback(self):
+        current = self.preview.current
+        if current is not None and current.kind == 'photo':
+            if self._news_photo_running():
+                self._news_photo_remaining_ms = max(1, self._news_photo_timer.remainingTime())
+                self._news_photo_timer.stop()
+                self._news_photo_paused = True
+                self.status.setText('Пауза фото. Автоперехід зупинено.')
+                self._update_play_button()
+            return
         player = self.preview.player
-        if player is not None and self.preview.current and self.preview.current.kind == 'video':
+        if player is not None and current is not None and current.kind == 'video':
             if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 player.pause()
                 self._update_play_button()
                 self.status.setText('Пауза')
+
+    def _resume_news_photo(self):
+        current = self.preview.current
+        if (current is None or current.kind != 'photo'
+                or self._current_library_tab != 1
+                or not self.news_autoplay.isChecked()
+                or self._news_active_path != current.path
+                or not self._news_photo_paused):
+            return
+        self._news_photo_paused = False
+        self._news_photo_timer.start(self._news_photo_remaining_ms)
+        self.status.setText(f'Продовжено: {display_media_name(current.name)}')
+        self._update_play_button()
 
     def preview_progress(self, position: int):
         if self.preview.current and self.preview.current.kind == 'video':
@@ -2524,7 +2570,7 @@ class MainWindow(QMainWindow):
             self._news_queue = list(self.model.rows)
             self._news_active_path = self.selected.path
             if self.selected.kind == 'photo':
-                self._news_photo_timer.start()
+                self._news_photo_timer.start(self._news_photo_remaining_ms)
         self._broadcast_guard.switch_count += 1
         self._last_switch_accepted_ms = time.monotonic() * 1000
         logging.warning('SWITCH_OK count=%d file=%s decoder_count=1',
@@ -2602,6 +2648,8 @@ class MainWindow(QMainWindow):
 
     def _clear_news_playlist(self):
         self._news_photo_timer.stop()
+        self._news_photo_paused = False
+        self._news_photo_remaining_ms = 8000
         self._news_queue = []
         self._news_active_path = None
 
@@ -2611,7 +2659,8 @@ class MainWindow(QMainWindow):
         self._save()
 
     def _news_photo_finished(self):
-        if self.preview.current is not None and self.preview.current.kind == 'photo':
+        if (not self._news_photo_paused and self.preview.current is not None
+                and self.preview.current.kind == 'photo'):
             self._advance_news_playlist(self.preview.current.path)
 
     def _advance_news_playlist(self, finished_path: str):
@@ -2776,7 +2825,7 @@ def main():
                 and not hasattr(main_window, 'research_hub')
                 and main_window.preview_play.height() <= 36
                 and main_window.preview_stop.height() <= 36
-                and not hasattr(main_window, 'preview_pause')
+                and main_window.preview_pause.parentWidget() is main_window.control_row
                 and main_window.preview_play.parentWidget() is main_window.control_row
                 and main_window.preview_stop.parentWidget() is main_window.control_row
                 and main_window.mute_button.parentWidget() is main_window.control_row
