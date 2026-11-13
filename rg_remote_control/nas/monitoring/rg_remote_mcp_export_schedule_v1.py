@@ -21,7 +21,7 @@ exec /usr/bin/python3 /volume1/docker/RG_TELEGRAM_NEWS_2/operator/rg_remote_mcp_
 class Stop(Exception):pass
 
 def blob(data):
-    return hashlib.sha1(b"blob "+str(len(data)).encode()+b"\\0"+data).hexdigest()
+    return hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
 
 def atomic(path,data,mode):
     fd,tmp=tempfile.mkstemp(prefix=".rg-mcp-export-",dir=str(path.parent))
