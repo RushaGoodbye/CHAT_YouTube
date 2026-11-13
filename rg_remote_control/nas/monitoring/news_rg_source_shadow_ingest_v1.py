@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+"""NEWS RG Telegram-source ingestion into ISOLATED shadow DB (Python 3.8+).
+
+No Telegram Bot API, no getUpdates, no public/private messages, no AI requests.
+A "scan" only stores recent original Telegram posts in its own isolated DB;
+"manual" imports one explicit public t.me link for later editorial processing.
+The existing news.sqlite3, callback, bot poller and DSM task are never changed.
+"""
+import concurrent.futures
+import datetime as dt
+import hashlib
+import html
+import json
+import os
+import pathlib
+import re
+import sqlite3
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+BASE=pathlib.Path("/volume1/docker/RG_TELEGRAM_NEWS_2")
+STORE=BASE/"operator/news_rg_editorial_shadow_v1.sqlite3"
+SOURCE_CHANNELS=(
+    "tucha888","brosok_mangusta","kyivoperat","gruntmedia",
+    "volodymyrzolkin","nexta_live","u_now","insiderUKR",
+    "oprichniksday","polit1humor","pezduzalive","eshkinkrot",
+    "gistapapapa","OstanniyCapitalist","UaOnlii","lachentyt",
+    "ssternenko","Ateobreaking","supernova_plus")
+BLOCK_AD=("казино","промокод","букмек","розіграш","розыгрыш",
+          "ставки на спорт","на правах реклами","партнерський матеріал")
+FOUR_HOURS=4*3600
+BOOTSTRAP_MAX_TOTAL=24
+BOOTSTRAP_MAX_PER_CHANNEL=2
+BOOTSTRAP_EXTRA_PRIORITY=("tucha888","brosok_mangusta","kyivoperat",
+                          "nexta_live","u_now")
+POST=re.compile(r'data-post="([A-Za-z0-9_]{4,})/([0-9]{1,15})"',re.I)
+BODY=re.compile(r'<div\s+class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>',re.I)
+TIME=re.compile(r'<time\b[^>]*\bdatetime="([^"]+)"',re.I)
+PHOTO=re.compile(r'<[^>]+class="[^"]*tgme_widget_message_photo_wrap[^"]*"[^>]*>',re.I)
+PHOTO_URL=re.compile(r"background-image\s*:\s*url\((?:'([^']+)'|\"([^\"]+)\"|&quot;([^&]+)&quot;)\)",re.I)
+VIDEOS=re.compile(r'<video\b|tgme_widget_message_video\b',re.I)
+VIDEO_SRC=re.compile(r'<(?:video|source)\b[^>]*\bsrc="(https://[^"]+)"',re.I)
+LINK=re.compile(r"^https://(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z0-9_]{4,})/(\d{1,15})(?:\?single)?$",re.I)
+
+def plain(fragment):
+    fragment=re.sub(r"(?i)<br\s*/?>","\n",fragment)
+    fragment=re.sub(r"<[^>]+>"," ",fragment)
+    return html.unescape(re.sub(r"\s+"," ",fragment)).strip()
+
+def parse_page(page,channel):
+    matches=list(POST.finditer(page))
+    items=[]
+    for i,m in enumerate(matches):
+        if m.group(1).lower()!=channel.lower():continue
+        piece=page[m.start():matches[i+1].start() if i+1<len(matches) else len(page)]
+        body=BODY.search(piece)
+        if not body:continue
+        text=plain(body.group(1))
+        if len(text)<50:continue
+        photo_tag=PHOTO.search(piece)
+        media=PHOTO_URL.search(photo_tag.group(0)) if photo_tag else None
+        image=html.unescape(next((x for x in media.groups() if x), "")) if media else ""
+        video=VIDEO_SRC.search(piece) if VIDEOS.search(piece) else None
+        media_type="video" if video else "photo"
+        media_url=html.unescape(video.group(1)) if video else image
+        stamp=TIME.search(piece)
+        published=html.unescape(stamp.group(1)) if stamp else ""
+        items.append({"channel":channel,"number":int(m.group(2)),
+                      "text":text,"media_url":media_url,"media_type":media_type,"published":published})
+    return items
+
+def pub_epoch(raw):
+    try:
+        d=dt.datetime.fromisoformat(raw.replace("Z","+00:00"))
+        if d.tzinfo is None:d=d.replace(tzinfo=dt.timezone.utc)
+        return d.timestamp()
+    except (ValueError,TypeError,AttributeError):return None
+
+def fetch(channel,before=None,loader=None):
+    if loader is not None:return loader(channel,before)
+    url="https://t.me/s/"+channel
+    if before is not None:url+="?before="+str(before)
+    req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0",
+                             "Accept-Language":"uk,en;q=0.8"})
+    with urllib.request.urlopen(req,timeout=8) as res:
+        if res.status!=200:raise ValueError("PUBLIC_SOURCE_NOT_OK")
+        return res.read(900000).decode("utf-8","replace")
+
+def init(cx):
+    cx.executescript("""CREATE TABLE IF NOT EXISTS source_cursor(
+        channel TEXT PRIMARY KEY, highest INTEGER NOT NULL,
+        initialized_at INTEGER NOT NULL, last_scan_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS story_shadow(
+        key TEXT PRIMARY KEY,channel TEXT NOT NULL,number INTEGER NOT NULL,
+        posted_at INTEGER, text TEXT NOT NULL, media_url TEXT NOT NULL,
+        media_type TEXT NOT NULL CHECK(media_type IN ('photo','video')),
+        status TEXT NOT NULL CHECK(status IN ('needs_editorial_rewrite',
+                                              'editorial_ready','editorial_rejected')),
+        origin TEXT NOT NULL CHECK(origin IN ('approved_source','manual_link')),
+        queued_at INTEGER NOT NULL,
+        UNIQUE(channel,number));
+        CREATE TABLE IF NOT EXISTS editorial_draft(
+        key TEXT PRIMARY KEY,headline TEXT NOT NULL,body TEXT NOT NULL,
+        validated_at INTEGER NOT NULL,
+        FOREIGN KEY(key) REFERENCES story_shadow(key));
+        CREATE TABLE IF NOT EXISTS shadow_bootstrap_once(
+        name TEXT PRIMARY KEY,completed_at INTEGER NOT NULL,
+        staged_count INTEGER NOT NULL);""")
+
+def db_connection(store):
+    store.parent.mkdir(parents=True,exist_ok=True)
+    if store.is_symlink():raise ValueError("SHADOW_DB_SYMLINK")
+    created=not store.exists()
+    cx=sqlite3.connect(str(store),isolation_level=None,timeout=8)
+    cx.execute("PRAGMA busy_timeout=8000")
+    if created:os.chmod(str(store),0o600)
+    init(cx)
+    return cx
+
+def story_status(raw,now,manual=False):
+    epoch=pub_epoch(raw.get("published"))
+    if epoch is None or now-epoch>FOUR_HOURS or epoch>now+300:
+        return "stale_or_unverified_timestamp"
+    text=raw.get("text") or ""
+    if len(text)<65 or any(x in text.lower() for x in BLOCK_AD):
+        return "brief_or_advertisement"
+    media=raw.get("media_url") or ""
+    if not media.startswith("https://") or len(media)>2048 or \
+       raw.get("media_type") not in ("photo","video"):
+        return "missing_real_media"
+    return "eligible_for_editorial"
+
+def scan_once(store=STORE,now=None,channels=SOURCE_CHANNELS,loader=None,
+              bootstrap_recent=False):
+    now=int(time.time()) if now is None else int(now)
+    if not isinstance(channels,(tuple,list)) or any(c not in SOURCE_CHANNELS for c in channels):
+        raise ValueError("SOURCE_LIST_NOT_APPROVED")
+    cx=db_connection(store)
+    try:
+        if bootstrap_recent and cx.execute(
+            "SELECT 1 FROM shadow_bootstrap_once WHERE name='fresh19_v1'"
+            ).fetchone():
+            return {"schema":"NEWS_RG_SOURCE_SHADOW_INGEST_V1",
+              "source_count":len(channels),
+              "fresh_bootstrap_mode":True,"bootstrap_already_completed":True,
+              "bootstrap_staged":0,"new_stories_staged_for_editorial":0,
+              "shadow_pending_rewrites":cx.execute(
+                "SELECT COUNT(*) FROM story_shadow "
+                "WHERE status='needs_editorial_rewrite'").fetchone()[0],
+              "telegram_bot_api_calls":0,"private_sends":0,
+              "publications":0,"pollers_started":0}
+        old={c:n for c,n in cx.execute("SELECT channel,highest FROM source_cursor")}
+        def load(channel):
+            try:return channel,parse_page(fetch(channel,loader=loader),channel),None
+            except (urllib.error.URLError,urllib.error.HTTPError,TimeoutError,OSError,ValueError):
+                return channel,[], "fetch_failed"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            batches=list(pool.map(load,channels))
+        status={"schema":"NEWS_RG_SOURCE_SHADOW_INGEST_V1",
+                "source_count":len(channels),"initialized_sources":0,
+                "new_stories_staged_for_editorial":0,
+                "fresh_bootstrap_mode":bool(bootstrap_recent),
+                "bounded_bootstrap_limit":BOOTSTRAP_MAX_TOTAL if bootstrap_recent else 0,
+                "bootstrap_staged":0,
+                "media_missing_skipped":0,"old_or_short_skipped":0,
+                "failed_sources":0,"duplicates":0,
+                "observed_current_posts":0,"observed_real_media_posts":0,
+                "source_status":{},
+                "telegram_bot_api_calls":0,"private_sends":0,
+                "publications":0,"pollers_started":0}
+        cx.execute("BEGIN IMMEDIATE")
+        try:
+            # Recheck under the SQLite write lock against a concurrent run.
+            if bootstrap_recent and cx.execute(
+               "SELECT 1 FROM shadow_bootstrap_once WHERE name='fresh19_v1'"
+               ).fetchone():
+                cx.execute("ROLLBACK")
+                status["bootstrap_already_completed"]=True
+                status["shadow_pending_rewrites"]=cx.execute(
+                  "SELECT COUNT(*) FROM story_shadow "
+                  "WHERE status='needs_editorial_rewrite'").fetchone()[0]
+                return status
+            for channel,posts,error in batches:
+                if error:
+                    status["failed_sources"]+=1
+                    status["source_status"]["@"+channel]="fetch_failed"
+                    continue
+                status["observed_current_posts"]+=len(posts)
+                status["observed_real_media_posts"]+=sum(
+                    story_status(x,now)=="eligible_for_editorial" for x in posts)
+                high=max((x["number"] for x in posts),default=old.get(channel,0))
+                if not posts:
+                    # Do not initialize an empty or unparsable public page.
+                    status["failed_sources"]+=1
+                    status["source_status"]["@"+channel]="no_usable_public_posts"
+                    continue
+                if channel not in old:
+                    # First observation is only a high-water mark: no backfill.
+                    cx.execute("INSERT INTO source_cursor VALUES(?,?,?,?)",
+                               (channel,high,now,now))
+                    status["initialized_sources"]+=1
+                    status["source_status"]["@"+channel]="initialized_no_backfill"
+                    continue
+                status["source_status"]["@"+channel]="scanned"
+                last=old[channel]
+                eligible_posts=(sorted(posts,key=lambda p:p["number"],reverse=True)
+                          if bootstrap_recent else posts)
+                per_channel=0
+                for post in eligible_posts:
+                    if post["number"]<=last and not bootstrap_recent:continue
+                    if bootstrap_recent and (
+                      per_channel >= (BOOTSTRAP_MAX_PER_CHANNEL
+                              if channel in BOOTSTRAP_EXTRA_PRIORITY else 1) or
+                      status["bootstrap_staged"] >= BOOTSTRAP_MAX_TOTAL):
+                        break
+                    reason=story_status(post,now)
+                    if reason!="eligible_for_editorial":
+                        stat="media_missing_skipped" if reason=="missing_real_media" \
+                                  else "old_or_short_skipped"
+                        status[stat]+=1
+                        continue
+                    key=hashlib.sha256((channel.lower()+":"+str(post["number"])).encode()).hexdigest()[:24]
+                    stamp=int(pub_epoch(post["published"]))
+                    result=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (key,channel,post["number"],stamp,post["text"],
+                         post["media_url"],post["media_type"],"needs_editorial_rewrite",
+                         "approved_source",now))
+                    if result.rowcount:
+                        status["new_stories_staged_for_editorial"]+=1
+                        if bootstrap_recent:
+                            per_channel+=1
+                            status["bootstrap_staged"]+=1
+                    else:status["duplicates"]+=1
+                cx.execute("UPDATE source_cursor SET highest=?,last_scan_at=? WHERE channel=?",
+                           (max(last,high),now,channel))
+            # Exactly one explicit fresh bootstrap in this isolated database;
+            # subsequent calls never reveal older still-eligible source posts.
+            if bootstrap_recent:
+                cx.execute("INSERT INTO shadow_bootstrap_once VALUES(?,?,?)",
+                   ("fresh19_v1",now,status["bootstrap_staged"]))
+            # This is a bounded shadow staging area, never a moderation queue.
+            cx.execute("DELETE FROM story_shadow WHERE queued_at<?",(now-3*86400,))
+            cx.execute("COMMIT")
+        except Exception:
+            cx.execute("ROLLBACK")
+            raise
+        status["shadow_pending_rewrites"]=cx.execute(
+            "SELECT COUNT(*) FROM story_shadow WHERE status='needs_editorial_rewrite'"
+        ).fetchone()[0]
+        return status
+    finally:cx.close()
+
+def import_manual(link,store=STORE,now=None,loader=None):
+    now=int(time.time()) if now is None else int(now)
+    if not isinstance(link,str):raise ValueError("LINK_REQUIRED")
+    m=LINK.fullmatch(link.strip())
+    if not m or m.group(1).lower() in ("joinchat","private","c") or \
+            int(m.group(2))<1:
+        raise ValueError("PUBLIC_POST_LINK_REQUIRED")
+    channel,number=m.group(1),int(m.group(2))
+    posts=parse_page(fetch(channel,before=number+1,loader=loader),channel)
+    found=next((x for x in posts if x["number"]==number),None)
+    if not found:raise ValueError("REQUESTED_POST_NOT_VISIBLE")
+    reason=story_status(found,now,manual=True)
+    if reason!="eligible_for_editorial":
+        return {"status":"MANUAL_STORY_NOT_READY","reason":reason,
+                "telegram_bot_api_calls":0,"publications":0}
+    cx=db_connection(store)
+    try:
+        key=hashlib.sha256((channel.lower()+":"+str(number)).encode()).hexdigest()[:24]
+        stamp=int(pub_epoch(found["published"]))
+        cursor=cx.execute("INSERT OR IGNORE INTO story_shadow VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          (key,channel,number,stamp,found["text"],found["media_url"],
+                           found["media_type"],"needs_editorial_rewrite","manual_link",now))
+        return {"status":"MANUAL_STAGED_FOR_EDITORIAL" if cursor.rowcount else "DUPLICATE",
+                "telegram_bot_api_calls":0,"publications":0,
+                "text_not_sent_to_moderation_yet":True}
+    finally:cx.close()
+
+def selftest():
+    now=dt.datetime(2026,10,27,11,tzinfo=dt.timezone.utc).timestamp()
+    date=dt.datetime.fromtimestamp(now-100,dt.timezone.utc).isoformat()
+    def msg(n,channel="Ateobreaking"):
+        return ('<div class="tgme_widget_message js-widget_message" data-post="'
+          +channel+"/"+str(n)+'"><div class="tgme_widget_message_text js-message_text">'
+          +"Важливе повідомлення про подію, яке редактор перевірить перед публікацією. "
+          +'</div><a class="tgme_widget_message_photo_wrap" '
+          +'style="background-image:url(&quot;https://cdn.test/photo.jpg&quot;)"></a>'
+          +'<time datetime="'+date+'">now</time></div>')
+    def loader(channel,before):
+        return msg(12,channel) if before is None else msg(before-1,channel)
+    posts=parse_page(msg(12),"Ateobreaking")
+    assert len(posts)==1 and posts[0]["media_type"]=="photo" and posts[0]["media_url"].startswith("https://")
+    with tempfile.TemporaryDirectory() as td:
+        store=pathlib.Path(td)/"shadows/db.sqlite3"
+        a=scan_once(store,int(now),("Ateobreaking",),loader)
+        assert a["initialized_sources"]==1 and a["new_stories_staged_for_editorial"]==0
+        def next_loader(channel,before):return msg(13,channel)
+        b=scan_once(store,int(now)+1,("Ateobreaking",),next_loader)
+        assert b["new_stories_staged_for_editorial"]==1,b
+        c=scan_once(store,int(now)+2,("Ateobreaking",),next_loader)
+        assert c["new_stories_staged_for_editorial"]==0
+        m=import_manual("https://t.me/otherpublic/17",store,int(now),loader)
+        assert m["status"]=="MANUAL_STAGED_FOR_EDITORIAL",m
+        d=scan_once(store,int(now)+3,("Ateobreaking",),loader,
+                    bootstrap_recent=True)
+        assert d["fresh_bootstrap_mode"] is True and d["bootstrap_staged"]==1,d
+        again=scan_once(store,int(now)+4,("Ateobreaking",),loader,
+                        bootstrap_recent=True)
+        assert again["bootstrap_staged"]==0,again
+        cx=sqlite3.connect(str(store))
+        assert cx.execute("SELECT COUNT(*) FROM story_shadow").fetchone()[0]==3
+        cx.close()
+    print("NEWS_RG_SOURCE_SHADOW_INGEST_SELFTEST_PASS")
+
+if __name__=="__main__":
+    if sys.argv[1:]==["selftest"]:selftest()
+    elif sys.argv[1:]==["scan"]:
+        print(json.dumps(scan_once(),sort_keys=True,ensure_ascii=False,indent=2))
+    elif sys.argv[1:]==["bootstrap-fresh"]:
+        print(json.dumps(scan_once(bootstrap_recent=True),sort_keys=True,
+                         ensure_ascii=False,indent=2))
+    elif len(sys.argv)==3 and sys.argv[1]=="manual":
+        print(json.dumps(import_manual(sys.argv[2]),sort_keys=True,ensure_ascii=False,indent=2))
+    else:raise SystemExit("Only selftest, scan and manual URL supported")
