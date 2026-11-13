@@ -38,4 +38,3 @@ jobs:
           python3 -m py_compile rg_remote_control/windows/rg_alexpc_host_health_queue_contract_v1.py
           python3 rg_remote_control/windows/rg_alexpc_host_health_queue_contract_v1.py selftest
           echo "NO_LIVE_ALEXPC_ACTION_ENABLED"
-          PY
