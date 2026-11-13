@@ -94,8 +94,11 @@ def install():
     old=NAS.read_bytes()
     if sha(CACHE.read_bytes())!=sha(old):raise RuntimeError("NAS_CACHE_PARITY_FAILED")
     new=patch(old)
-    if not BACKUP_ROOT.is_dir() or BACKUP_ROOT.is_symlink():
-        raise RuntimeError("BACKUP_DIR_NOT_PROVISIONED_SAFE_STOP")
+    if not BACKUP_ROOT.parent.is_dir() or BACKUP_ROOT.parent.is_symlink():
+        raise RuntimeError("BACKUP_PARENT_UNSAFE")
+    if BACKUP_ROOT.is_symlink():raise RuntimeError("BACKUP_DIR_SYMLINK")
+    BACKUP_ROOT.mkdir(exist_ok=True)
+    if not BACKUP_ROOT.is_dir():raise RuntimeError("BACKUP_DIR_UNAVAILABLE")
     folder=BACKUP_ROOT/(datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"_"+sha(old)[:12])
     folder.mkdir(exist_ok=False)
     backup=folder/"task_runner.py"
