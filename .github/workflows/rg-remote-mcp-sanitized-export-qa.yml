@@ -1,0 +1,40 @@
+name: RG Remote MCP Sanitized Export Offline QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/rg_remote_mcp_compose_export_v1.py'
+      - '.github/workflows/rg-remote-mcp-sanitized-export-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  no-docker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline read-only inventory exporter QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rg_remote_control/nas/monitoring/rg_remote_mcp_compose_export_v1.py
+          python3 rg_remote_control/nas/monitoring/rg_remote_mcp_compose_export_v1.py selftest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('rg_remote_control/nas/monitoring/rg_remote_mcp_compose_export_v1.py').read_text()
+          assert 'RG_REMOTE_MCP_COMPOSE_SANITIZED_V1' in s
+          assert 'rg_remote_mcp_compose_public.json' in s
+          assert '"docker","inspect"' in s
+          assert 'os.replace(tmp,target)' in s
+          assert 'ROOT_REQUIRED' in s
+          assert 'public_runner_shutdown_allowed' in s
+          for forbidden in ('docker compose up','docker compose down','docker exec','curl ','requests.post','sendMessage'):
+              assert forbidden not in s
+          print('COMPOSE_SANITIZED_EXPORT_ONLY_METADATA_PASS')
+          PY
+          echo 'NO_LIVE_CONTAINER_CHANGES'
