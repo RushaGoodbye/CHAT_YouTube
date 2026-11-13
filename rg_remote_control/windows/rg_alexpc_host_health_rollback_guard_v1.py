@@ -55,6 +55,10 @@ def selftest():
         assert digest(newfile)==digest(cache)
         # A corrupt backup must never be accepted as the expected pinned preimage.
         assert digest(oldfile)!=OLD_SHA
+        # Refuse the fake release rather than accidentally accepting sandbox fixtures as production.
+        try:validate(oldfile,newfile,cache,manifest)
+        except ValueError as exc:assert "MANIFEST_HASH_NOT_PINNED" in str(exc)
+        else:raise AssertionError("UNPINNED_RELEASE_ACCEPTED")
         # Simulate rollback in sandbox only.
         restored=p/"restored";restored.write_bytes(oldfile.read_bytes())
         assert digest(restored)==digest(oldfile)
