@@ -1,0 +1,41 @@
+name: RG NEWS Stage 2-5 Readonly Batch Offline QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/rg_news_migration_stage2to5_batch_v1.py'
+      - '.github/workflows/rg-news-stage2to5-readonly-batch-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  safety-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and selftest, do not access NAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=rg_remote_control/nas/monitoring/rg_news_migration_stage2to5_batch_v1.py
+          python3 -m py_compile "$F"
+          python3 "$F" selftest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('rg_remote_control/nas/monitoring/rg_news_migration_stage2to5_batch_v1.py').read_text()
+          for val in ('public_runner_shutdown_allowed','mutating_routes_migrated',
+                      'rg_news_historical_restore_audit_20261113.py',
+                      'rg_news_final_readonly_audit_20261113.py',
+                      'RG_MIGRATION_STAGE2TO5_BATCH_V1'):
+              assert val in s,val
+          for dangerous in ('docker compose up','docker compose down',
+                            'docker restart','sendMessage','sendPhoto','getUpdates',
+                            'INSERT INTO','UPDATE candidates','DELETE FROM','sudo '):
+              assert dangerous not in s,dangerous
+          print('STAGE2TO5_BATCH_NO_MUTATION_QA_PASS')
+          PY
