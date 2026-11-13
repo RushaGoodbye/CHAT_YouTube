@@ -19,7 +19,7 @@ INJECT='''
 
 # RG_ALEXPC_HOST_HEALTH_V1_BEGIN
 def inspect_auto_edit_host_health_v1() -> dict:
-    """Non-mutating host facts only. No secrets, queue access or programs launched."""
+    """Non-mutating host facts only. No secrets, queue access or service changes."""
     import datetime as _dt
     import shutil as _sh
     import subprocess as _sp
