@@ -1,0 +1,47 @@
+name: RG Remote MCP Compose Inventory Offline QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rg_remote_control/nas/monitoring/rg_remote_mcp_compose_diagnose_v1.py'
+      - '.github/workflows/rg-remote-mcp-compose-inventory-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  no-live-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Selftest and deny mutations or arbitrary containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=rg_remote_control/nas/monitoring/rg_remote_mcp_compose_diagnose_v1.py
+          python3 -m py_compile "$p"
+          python3 "$p" selftest
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          p=Path('rg_remote_control/nas/monitoring/rg_remote_mcp_compose_diagnose_v1.py')
+          code=p.read_text()
+          t=ast.parse(code)
+          assert 'public_runner_shutdown_allowed' in code
+          assert 'telegram_bot_health_proven' in code
+          assert '"rg-nas-mcp-hub"' in code
+          assert '"rg-mcp-auto-edit"' in code
+          assert '"rg-mcp-telegram"' in code
+          assert '"rg-mcp-youtube"' in code
+          assert '"--type","container"' in code
+          assert '"inspect","--type"' in code
+          assert '"up"' not in code
+          assert '"down"' not in code
+          assert '"exec"' not in code
+          print("REMOTE_MCP_COMPOSE_ONLY_READONLY_METADATA_PASS")
+          PY
+          echo 'NO_PRODUCTION_DOCKER_QUERIES_OR_MUTATIONS'
