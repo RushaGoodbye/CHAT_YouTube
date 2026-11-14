@@ -41,7 +41,7 @@ def reconcile():
         raise Unsafe('PUBLICATION_ACTIVATION_INVALID')
     activation_at=activation['activated_at']
     dcounts=Counter(); problems=Counter(); pending=Counter()
-    newest=0
+    newest=0;automatic_rejected=0
     now=time.time()
     total=0
     for p in DIRS['decisions'].glob('*.json'):
@@ -54,6 +54,11 @@ def reconcile():
             if d.get('draft_id')!=p.stem:
                 problems['draft_mismatch']+=1;continue
             if choice=='editorially_expired' and d.get('schema')=='NEWS_RG_AUTOMATIC_EXPIRATION_V1':
+                dcounts[choice]+=1
+                newest=max(newest,p.stat().st_mtime)
+                continue
+            if choice=='editorially_rejected' and d.get('schema')=='NEWS_RG_AUTOMATIC_EXPIRATION_V2':
+                automatic_rejected+=1
                 dcounts[choice]+=1
                 newest=max(newest,p.stat().st_mtime)
                 continue
@@ -83,6 +88,7 @@ def reconcile():
       'schema':'NEWS2_DECISIONS_RECONCILE_READONLY_V1',
       'decision_files':total,
       'decision_counts':dict(dcounts),
+      'automatically_rejected_expired_v2':automatic_rejected,
       'decision_parse_issues':dict(problems),
       'accepted_publication_reconciliation':dict(pending),
       'latest_decision_age_minutes':round((now-newest)/60,1) if newest else None,
@@ -95,6 +101,7 @@ def selftest():
     assert re.fullmatch(r'[a-f0-9]{24}\.json','a'*24+'.json')
     assert not re.fullmatch(r'[a-f0-9]{24}\.json','../../anything.json')
     assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V1' in reconcile.__code__.co_consts
+    assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V2' in reconcile.__code__.co_consts
     print('NEWS2_DECISION_RECONCILIATION_SELFTEST_PASS')
 
 if __name__=='__main__':
