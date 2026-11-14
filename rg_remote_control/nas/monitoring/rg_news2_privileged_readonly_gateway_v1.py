@@ -128,9 +128,16 @@ def decision_summary(directory):
             if record.get('draft_id')!=p.stem:
                 issues['draft_id_mismatch']+=1;continue
             decision=record.get('decision')
-            if decision not in ('editorially_accepted_not_published','editorially_rejected'):
+            if decision=='editorially_expired':
+                if record.get('schema')!='NEWS_RG_AUTOMATIC_EXPIRATION_V1':
+                    issues['expired_schema_mismatch']+=1;continue
+                counts['editorially_expired']+=1
+            elif decision in ('editorially_accepted_not_published','editorially_rejected'):
+                if record.get('schema')!='NEWS_RG_HUMAN_EDITORIAL_DECISION_V1':
+                    issues['human_schema_mismatch']+=1;continue
+                counts[decision]+=1
+            else:
                 issues['unexpected_decision']+=1;continue
-            counts[decision]+=1
             t=p.stat().st_mtime
             if newest is None or t>newest:newest=t
         except (OSError,ValueError,UnicodeError,TypeError):
@@ -179,6 +186,7 @@ def selftest():
     assert REJECT == {'UNCERTAIN_NO_RETRY','SENDING_UNCERTAIN','HTTP_REJECTED_NO_RETRY'}
     assert 'audit' in ('audit',)
     assert decision_summary(Path('/no-such-news2-decisions'))['present'] is False
+    assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V1' in decision_summary.__code__.co_consts
     print('NEWS2_PRIVILEGED_READONLY_GATEWAY_SELFTEST_PASS')
 
 if __name__=='__main__':
