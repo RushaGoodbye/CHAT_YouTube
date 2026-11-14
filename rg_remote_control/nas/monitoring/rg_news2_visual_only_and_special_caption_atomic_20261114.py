@@ -48,7 +48,8 @@ class Stop(ValueError):pass
 def sha(b):return hashlib.sha256(b).hexdigest()
 def safe(p,limit=1100000):
  st=p.lstat()
- if not stat.S_ISREG(st.st_mode) or not 1<=st.st_size<=limit or st.st_uid!=0:
+ owner_ok=(st.st_uid==0 or (p==ALERT and st.st_uid==p.parent.lstat().st_uid and stat.S_ISDIR(p.parent.lstat().st_mode)))
+ if not stat.S_ISREG(st.st_mode) or not 1<=st.st_size<=limit or not owner_ok:
   raise Stop('UNSAFE_FILE_'+p.name)
  return p.read_bytes()
 def rootdir(p,create=False):
@@ -203,7 +204,7 @@ def apply():
   modified=[]
   try:
    for name,b in new.items():
-    p=Path(name);mode=stat.S_IMODE(p.stat().st_mode)
+    p=Path(name);mode=(0o644 if p==ALERT else stat.S_IMODE(p.stat().st_mode))
     modified.append((p,mode))
     atomic(p,b,mode)
     if sha(safe(p))!=sha(b):raise Stop('POST_PATCH_HASH_'+p.name)
